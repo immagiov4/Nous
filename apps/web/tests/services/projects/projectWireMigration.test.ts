@@ -229,6 +229,44 @@ test('wire decoding rejects empty snapshots and malformed learning-plan collecti
   }
 });
 
+test('source descriptors do not replace required archive bytes', () => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire({
+        source: {
+          file: {
+            data: '',
+            mimeType: 'application/zip',
+            name: 'source.zip',
+            sourceId: 'source-1',
+          },
+          index: { entries: [] },
+          kind: 'archive',
+          name: 'source.zip',
+          sources: [
+            {
+              file: {
+                data: 'dGV4dA==',
+                mimeType: 'text/plain',
+                name: 'source.txt',
+                sourceId: 'source-1',
+              },
+              hash: 'hash',
+              id: 'source-1',
+              kind: 'text',
+              name: 'source.txt',
+              outline: [],
+              outlineOrigin: 'none',
+              position: 0,
+              status: 'ready',
+            },
+          ],
+        },
+      }),
+    /sorgente progetto non valida: file/iu
+  );
+});
+
 test('legacy transient fields are discarded while unknown fields remain quarantined', () => {
   assert.deepEqual(
     decodeProjectSnapshotWire({

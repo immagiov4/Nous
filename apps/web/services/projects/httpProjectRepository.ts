@@ -25,6 +25,7 @@ import { attachStoredSources, getCourseSourceDescriptors } from './courseSources
 import type { ProjectRepository, ProjectSaveOptions, ProjectSaveResult } from './projectRepository';
 import {
   PROJECT_COVER_REVISION_CONFLICT_MESSAGE,
+  PROJECT_REQUEST_TOO_LARGE_MESSAGE,
   PROJECT_REVISION_CONFLICT_MESSAGE,
   PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE,
   PROJECT_SYNC_ERROR_MESSAGE,
@@ -68,6 +69,7 @@ const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_ARCHIVE_SAVE_TIMEOUT_MS = 10 * 60_000;
 const PROJECT_ARCHIVE_DIRECT_MAX_BYTES = 16_000_000;
 const PROJECT_IMPORT_STATUS_POLL_MS = 1_000;
+const HTTP_STATUS_REQUEST_TOO_LARGE = 413;
 const getUtf8Bytes = (value: string): number => new Blob([value]).size;
 
 const getCodePointUtf8Bytes = (codePoint: number): number => {
@@ -118,7 +120,13 @@ const splitProjectImport = (serialized: string, maxChunkBytes: number): string[]
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
   console.warn('[Nous] Server project sync failed', error);
   if (error instanceof ProjectStorageError) {
-    return new ProjectStorageError(responseErrorMessage(error.code), error.code);
+    return new ProjectStorageError(
+      error.httpStatus === HTTP_STATUS_REQUEST_TOO_LARGE
+        ? PROJECT_REQUEST_TOO_LARGE_MESSAGE
+        : responseErrorMessage(error.code),
+      error.code,
+      { contentType: error.responseContentType, status: error.httpStatus }
+    );
   }
   if (error instanceof Error && error.name === 'AbortError') {
     return new ProjectStorageError(PROJECT_SYNC_TIMEOUT_MESSAGE, 'persistence-failed');
@@ -132,7 +140,7 @@ const responseErrorCode = (status: number, apiCode?: string): ProjectStorageErro
   if (apiCode === PROJECT_API_ERROR_CODE.revisionConflict) return 'revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveChanged) return 'source-archive-changed';
-  if (status === 429) return 'quota-exceeded';
+  if (status === HTTP_STATUS_REQUEST_TOO_LARGE || status === 429) return 'quota-exceeded';
   return 'persistence-failed';
 };
 
@@ -154,6 +162,39 @@ const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> 
       error: response.statusText || 'Risposta backend non valida.',
     } as ApiResponse & T;
   }
+};
+
+const omitDuplicatedPrimarySourceBytes = (snapshot: ProjectSnapshotWire): ProjectSnapshotWire => {
+  const source = snapshot.source;
+  if (
+    !source ||
+    source.kind === 'archive' ||
+    !isRecord(source.file) ||
+    !Array.isArray(source.sources) ||
+    typeof source.file.sourceId !== 'string' ||
+    !source.file.data
+  ) {
+    return snapshot;
+  }
+  const primarySourceId = source.file.sourceId;
+  const primarySource = source.sources.find(
+    descriptor => isRecord(descriptor) && descriptor.id === primarySourceId
+  );
+  if (
+    !isRecord(primarySource) ||
+    !isRecord(primarySource.file) ||
+    primarySource.file.sourceId !== primarySourceId ||
+    primarySource.file.data !== source.file.data
+  ) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    source: {
+      ...source,
+      file: { ...source.file, data: '' },
+    },
+  };
 };
 
 const assertValue = <T>(value: T | undefined, message: string): T => {
@@ -342,9 +383,11 @@ export class HttpProjectRepository implements ProjectRepository {
         };
       }
     }
-    const projectPayload = exportProjectData(snapshotToSave, {
-      externalArchiveBytesAvailable: Boolean(archiveFile?.size),
-    });
+    const projectPayload = omitDuplicatedPrimarySourceBytes(
+      exportProjectData(snapshotToSave, {
+        externalArchiveBytesAvailable: Boolean(archiveFile?.size),
+      })
+    );
     if (archiveFile && archiveFile.size > PROJECT_ARCHIVE_DIRECT_MAX_BYTES) {
       const importConfig = await this.getProjectImportConfig();
       return this.saveArchiveProjectInChunks(projectPayload, archiveFile, importConfig, options);
@@ -739,7 +782,8 @@ export class HttpProjectRepository implements ProjectRepository {
           error instanceof ProjectStorageError &&
           (error.message === PROJECT_SYNC_ERROR_MESSAGE ||
             error.message === PROJECT_SYNC_TIMEOUT_MESSAGE ||
-            error.code === 'quota-exceeded');
+            (error.code === 'quota-exceeded' &&
+              error.httpStatus !== HTTP_STATUS_REQUEST_TOO_LARGE));
         if (!isAmbiguousNetworkFailure || attempt === 2) throw error;
         await new Promise(resolve => globalThis.setTimeout(resolve, 1_000 * (attempt + 1)));
       }
@@ -777,7 +821,11 @@ export class HttpProjectRepository implements ProjectRepository {
         const errorCode = responseErrorCode(response.status, data.code);
         throw new ProjectStorageError(
           data.error || response.statusText || 'Richiesta server non riuscita.',
-          errorCode
+          errorCode,
+          {
+            contentType: response.headers?.get('content-type') || undefined,
+            status: response.status,
+          }
         );
       }
 

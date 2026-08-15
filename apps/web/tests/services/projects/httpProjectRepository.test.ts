@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
 import {
@@ -8,6 +9,7 @@ import {
 } from '../../../services/projects/courseSources.ts';
 import { HttpProjectRepository } from '../../../services/projects/httpProjectRepository.ts';
 import {
+  PROJECT_REQUEST_TOO_LARGE_MESSAGE,
   PROJECT_SYNC_ERROR_MESSAGE,
   ProjectStorageError,
 } from '../../../services/projects/projectRepository.ts';
@@ -179,6 +181,74 @@ test('HttpProjectRepository only uses the server unavailable message for network
       error.message ===
         'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.'
   );
+});
+
+test('HttpProjectRepository preserves a non-JSON proxy 413 response', async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response('<html>Request Entity Too Large</html>', {
+      headers: { 'Content-Type': 'text/html' },
+      status: 413,
+      statusText: 'Content Too Large',
+    })
+  );
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(repository.listFolders()).rejects.toMatchObject({
+    code: 'quota-exceeded',
+    httpStatus: 413,
+    message: PROJECT_REQUEST_TOO_LARGE_MESSAGE,
+    name: 'ProjectStorageError',
+    responseContentType: 'text/html',
+  });
+});
+
+test('HttpProjectRepository does not retry a non-JSON proxy 413 during chunk upload', async () => {
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 20_000_000,
+            maxChunkBytes: 16_000_000,
+            maxChunkCount: 32,
+            maxSerializedBytes: 280_000_000,
+            requestTimeoutMs: 120_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce(
+      new Response('<html>Request Entity Too Large</html>', {
+        headers: { 'Content-Type': 'text/html' },
+        status: 413,
+        statusText: 'Content Too Large',
+      })
+    )
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      json: async () => ({ success: true }),
+    });
+
+  await expect(
+    new HttpProjectRepository('http://localhost:3301').importProjectArchive(
+      new Blob(['project backup'], { type: 'application/zip' }),
+      'restored-project'
+    )
+  ).rejects.toMatchObject({
+    code: 'quota-exceeded',
+    httpStatus: 413,
+    message: PROJECT_REQUEST_TOO_LARGE_MESSAGE,
+    responseContentType: 'text/html',
+  });
+
+  const uploadCalls = fetchMock.mock.calls.filter(call =>
+    /\/api\/projects\/import\/chunks\/[^/]+\/0\?chunkCount=1$/u.test(String(call[0]))
+  );
+  expect(uploadCalls).toHaveLength(1);
 });
 
 test('HttpProjectRepository reports request timeouts without claiming the backend is offline', async () => {
@@ -478,11 +548,15 @@ test('HttpProjectRepository sends every document source in the atomic project PU
   );
   const savedSnapshot = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     .snapshot as ProjectSnapshot;
-  expect(savedSnapshot.source?.file.data).toBe('Zmlyc3Q=');
+  expect(savedSnapshot.source?.file).toMatchObject({
+    data: '',
+    sourceId: descriptors[0]?.id,
+  });
   expect(savedSnapshot.source?.sources?.map(descriptor => descriptor.file.data)).toEqual([
     'Zmlyc3Q=',
     'c2Vjb25k',
   ]);
+  expect(() => decodeProjectSnapshotWire(savedSnapshot)).not.toThrow();
 });
 
 test('HttpProjectRepository uploads archives as binary multipart without a JSON content type', async () => {
