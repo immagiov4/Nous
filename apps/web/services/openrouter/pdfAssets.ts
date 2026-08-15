@@ -1,5 +1,5 @@
-import { PDF_TEXT_QUALITY } from '@shared/pdfDocumentPolicy';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
+import { assessPdfTextQuality, type PdfTextQualityReport } from '@shared/pdfTextQuality';
 import { sanitizePartialPages } from '@shared/sanitizePartialPages';
 import type {
   LessonImageRef,
@@ -73,14 +73,7 @@ export interface PdfAssetSession {
   outlineOrigin: 'deterministic' | 'native' | 'none';
 }
 
-export interface PdfTextQualityReport {
-  averageCharsPerPage: number;
-  extractedCharacterCount: number;
-  pageCount: number;
-  status: 'low-text' | 'no-text' | 'ok';
-  substantivePageCount: number;
-  substantivePageRatio: number;
-}
+export type { PdfTextQualityReport } from '@shared/pdfTextQuality';
 
 class PdfTextQualityError extends Error {
   readonly code = 'PDF_TEXT_QUALITY_INSUFFICIENT';
@@ -107,71 +100,8 @@ const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupEnd();
 };
 
-const countNormalizedTextChars = (text: string): number =>
-  text.replaceAll(/\s+/g, ' ').trim().length;
-
 const canCaptionBackendImage = (image: BackendPdfImage): boolean =>
   isOpenRouterDataUrlInlineSafe(image.dataUrl);
-
-const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport => {
-  const extractedCharacterCount = countNormalizedTextChars(session.extractedText);
-  const pageCount = Math.max(session.pageCount || session.pages.length || 1, 1);
-  const substantivePageCount = session.pages.filter(
-    page => countNormalizedTextChars(page.text) >= PDF_TEXT_QUALITY.SUBSTANTIVE_PAGE_MIN_CHARS
-  ).length;
-  const substantivePageRatio =
-    session.pages.length > 0 ? substantivePageCount / session.pages.length : 0;
-  const averageCharsPerPage = extractedCharacterCount / pageCount;
-  const minTotalChars =
-    pageCount <= PDF_TEXT_QUALITY.SHORT_DOCUMENT_MAX_PAGES
-      ? PDF_TEXT_QUALITY.MIN_SHORT_DOCUMENT_CHARS
-      : PDF_TEXT_QUALITY.MIN_MULTI_PAGE_DOCUMENT_CHARS;
-
-  const hasEnoughTotalText = extractedCharacterCount >= minTotalChars;
-  const hasEnoughTextDensity = averageCharsPerPage >= PDF_TEXT_QUALITY.MIN_AVERAGE_CHARS_PER_PAGE;
-  const hasEnoughPageCoverage =
-    session.pages.length === 0 ||
-    pageCount <= PDF_TEXT_QUALITY.SHORT_DOCUMENT_MAX_PAGES ||
-    substantivePageRatio >= PDF_TEXT_QUALITY.MIN_TEXT_PAGE_RATIO;
-
-  const status = resolvePdfTextQualityStatus({
-    extractedCharacterCount,
-    hasEnoughPageCoverage,
-    hasEnoughTextDensity,
-    hasEnoughTotalText,
-  });
-
-  return {
-    averageCharsPerPage: Number.parseFloat(averageCharsPerPage.toFixed(2)),
-    extractedCharacterCount,
-    pageCount,
-    status,
-    substantivePageCount,
-    substantivePageRatio: Number.parseFloat(substantivePageRatio.toFixed(4)),
-  };
-};
-
-const resolvePdfTextQualityStatus = ({
-  extractedCharacterCount,
-  hasEnoughPageCoverage,
-  hasEnoughTextDensity,
-  hasEnoughTotalText,
-}: {
-  extractedCharacterCount: number;
-  hasEnoughPageCoverage: boolean;
-  hasEnoughTextDensity: boolean;
-  hasEnoughTotalText: boolean;
-}): PdfTextQualityReport['status'] => {
-  if (extractedCharacterCount === 0) {
-    return 'no-text';
-  }
-
-  if (hasEnoughTotalText && hasEnoughTextDensity && hasEnoughPageCoverage) {
-    return 'ok';
-  }
-
-  return 'low-text';
-};
 
 export const validatePdfTextSource = async (
   file: FileData
