@@ -101,7 +101,7 @@ describe('project source Storage backup artifact', () => {
         },
       ],
     });
-    expect(await readdir(directory)).toEqual(['manifest.json', 'objects']);
+    expect((await readdir(directory)).sort()).toEqual(['manifest.json', 'objects']);
     expect(
       await verifyProjectSourceStorageBackup({
         databaseDumpSha256: DATABASE_DUMP_SHA256,
