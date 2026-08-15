@@ -88,11 +88,14 @@ export const createAssessmentPlanningCommands = (
     state.setScreenState(AppState.LIBRARY);
   };
 
-  const ensureInterviewProject = async (mode: 'document' | 'learn'): Promise<string> => {
+  const ensureInterviewProject = async (
+    mode: 'document' | 'learn',
+    source: ProjectSource | null = domain.source
+  ): Promise<string> => {
     const existingProjectId = projectLibrary.getCurrentProjectId();
     if (existingProjectId) {
       const saved = await projectLibrary.saveCurrentProject(
-        { isLearnMode: mode === 'learn', state: AppState.ASSESSMENT },
+        { isLearnMode: mode === 'learn', source, state: AppState.ASSESSMENT },
         { throwOnError: true }
       );
       if (!saved) throw new Error('Non è stato possibile preparare l’intervista del corso.');
@@ -110,7 +113,7 @@ export const createAssessmentPlanningCommands = (
         isLearnMode: mode === 'learn',
         researchCoursePlan: domain.researchCoursePlan,
         researchDossiersBySectionId: domain.researchDossiersBySectionId,
-        source: domain.source,
+        source,
         state: AppState.ASSESSMENT,
         syllabus: domain.syllabus,
       }),
@@ -359,6 +362,7 @@ export const createAssessmentPlanningCommands = (
       let mode: 'document' | 'learn' = 'learn';
       let sourceContext: string | undefined;
       let sourceWarnings: Array<{ message: string; name: string }> = [];
+      let preparedSource: ProjectSource | null = null;
 
       if (selectedFiles.length > 0) {
         let nextSource: ProjectSource | null = null;
@@ -444,6 +448,7 @@ export const createAssessmentPlanningCommands = (
         }
 
         domain.setSource(nextSource);
+        preparedSource = nextSource;
         if (nextSource.kind === 'archive') {
           projectLibrary.setProjectHydrated(true);
         }
@@ -469,7 +474,7 @@ export const createAssessmentPlanningCommands = (
         domain.setIsLearnMode(true);
       }
 
-      const projectId = await ensureInterviewProject(mode);
+      const projectId = await ensureInterviewProject(mode, preparedSource);
       const outcome = await startOrResumeInterview({
         hasReliableSourceContext,
         initialMessage: trimmedInput,

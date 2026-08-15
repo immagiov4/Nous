@@ -2089,6 +2089,20 @@ test('handleSourceUpload rejects unsupported binary sources with a clear error',
   assert.equal(projectLibrary.persistedSnapshots.length, 0);
 });
 
+test('startHomeChat persists the uploaded source before React state propagates', async () => {
+  const { controller, projectLibrary } = createControllerHarness({
+    domain: { setSource: () => {} },
+  });
+
+  const result = await controller.startHomeChat({
+    input: 'Crea un corso da questo PDF',
+    selectedFile: new File(['pdf'], 'source.pdf', { type: 'application/pdf' }),
+  });
+
+  assert.equal(result.outcome, 'continued');
+  assert.equal(projectLibrary.persistedSnapshots[0]?.source?.kind, 'pdf');
+});
+
 test('startHomeChat starts a durable interview with the visible user message', async () => {
   const startCourseInterview = vi.fn(
     async (
