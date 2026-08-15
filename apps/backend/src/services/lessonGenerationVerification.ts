@@ -80,7 +80,7 @@ const buildVerificationPrompt = (
 ): string => {
   const checklist = buildLessonVerificationChecklist(input.instructionPacks);
   const scopeRules = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
-  return `Sei il verificatore finale di Nous Reader. Correggi SOLO cio che serve nella bozza e conserva tutto il contenuto valido.
+  return String.raw`Sei il verificatore finale di Nous Reader. Correggi SOLO cio che serve nella bozza e conserva tutto il contenuto valido.
 
 CONTRATTO DI GENERAZIONE DA RISPETTARE:
 ${buildLessonGenerationPrompt(input)}
@@ -101,7 +101,7 @@ ${LESSON_LOCAL_PROPEDEUTIC_RULES.map(rule => `- ${rule}`).join('\n')}
 - Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}
 - Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.
 - ${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati.
-- Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico. Se descrivi letteralmente un comando LaTeX, usa codice inline e non delimitatori matematici.
+- Ogni ambiente LaTeX aperto con \begin{...} deve chiudersi con il corrispondente \end{...} nello stesso blocco matematico. Se descrivi letteralmente un comando LaTeX, usa codice inline e non delimitatori matematici.
 - Codice, pseudocodice, comandi e output devono stare in un solo code block valido; non trasformare prosa o formule in codice.
 
 BOZZA DA VERIFICARE:

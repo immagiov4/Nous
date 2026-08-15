@@ -187,7 +187,7 @@ describe('workflow runtime production composition', () => {
       received.push((event.payload as { order: number }).order);
       return undefined;
     });
-    const runtime = createWorkflowRuntimeComposition({ store });
+    const runtime = createWorkflowRuntimeComposition({ registry: createWorkflowRegistry(), store });
 
     try {
       await runtime.api.receiveSignal({
@@ -214,7 +214,11 @@ describe('workflow runtime production composition', () => {
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockRejectedValue(workerFailure),
     };
-    const runtime = createWorkflowRuntimeComposition({ store, worker });
+    const runtime = createWorkflowRuntimeComposition({
+      registry: createWorkflowRegistry(),
+      store,
+      worker,
+    });
 
     await expect(runtime.close()).rejects.toBe(workerFailure);
     expect(worker.stop).toHaveBeenCalledOnce();
@@ -261,7 +265,7 @@ describe('workflow runtime production composition', () => {
     };
     const store = createStore();
     vi.mocked(store.getRunState).mockResolvedValue(state);
-    const runtime = createWorkflowRuntimeComposition({ store });
+    const runtime = createWorkflowRuntimeComposition({ registry: createWorkflowRegistry(), store });
 
     const publicState = await runtime.api.getRunState({ runId: RUN_ID, userId: 'user-1' });
 
@@ -303,7 +307,7 @@ describe('workflow runtime production composition', () => {
       },
       waits: [],
     });
-    const runtime = createWorkflowRuntimeComposition({ store });
+    const runtime = createWorkflowRuntimeComposition({ registry: createWorkflowRegistry(), store });
 
     const publicState = await runtime.api.getRunState({ runId: RUN_ID, userId: 'user-1' });
 
@@ -358,7 +362,7 @@ describe('workflow runtime production composition', () => {
       },
       waits: [],
     });
-    const runtime = createWorkflowRuntimeComposition({ store });
+    const runtime = createWorkflowRuntimeComposition({ registry: createWorkflowRegistry(), store });
 
     const publicState = await runtime.api.getRunState({ runId: RUN_ID, userId: 'user-1' });
 

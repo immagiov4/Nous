@@ -7,6 +7,7 @@ Semgrep CLI through `uvx`. There is no alternate Semgrep runner.
 ## Routine checks
 
 ```bash
+bun run doctor
 bun run quality
 bun run check:fallow
 bun run test
@@ -14,6 +15,10 @@ bun run gate
 bun run gate:full
 ```
 
+- `doctor` verifies the local toolchain and versioned Fallow baseline, then runs the core
+  service-free quality and test checks independently so one failure does not hide later failures.
+  It reports local Sonar readiness but never starts services; coverage, Sonar, and Supabase
+  contracts remain explicit follow-up checks.
 - `quality` runs the TypeScript checks, Biome, dependency boundaries, and React Hooks lint.
 - `test` runs the Vitest suite under Bun.
 - `gate:checks` runs `quality`, the Semgrep rule tests and repository scan, and Fallow.

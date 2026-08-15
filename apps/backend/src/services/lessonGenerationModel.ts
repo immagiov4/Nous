@@ -413,6 +413,14 @@ const assertValidQuizPlacement = (draft: LessonContentDraft, label: string): voi
 };
 
 const LATEX_ENVIRONMENT_TOKEN_REGEX = /\\(begin|end)\{([A-Za-z][A-Za-z0-9*]*)\}/g;
+const MARKDOWN_FENCE_REGEX = /^\s*(`{3,}|~{3,})/u;
+
+type MarkdownFenceState = {
+  character: string;
+  length: number;
+};
+
+const CLOSED_MARKDOWN_FENCE: MarkdownFenceState = { character: '', length: 0 };
 
 const stripInlineCode = (line: string): string => {
   let output = '';
@@ -437,43 +445,55 @@ const stripInlineCode = (line: string): string => {
   return output;
 };
 
+const updateMarkdownFence = (
+  currentFence: MarkdownFenceState,
+  token: string
+): MarkdownFenceState => {
+  if (!currentFence.character) {
+    return { character: token[0] as string, length: token.length };
+  }
+  if (token.startsWith(currentFence.character) && token.length >= currentFence.length) {
+    return CLOSED_MARKDOWN_FENCE;
+  }
+  return currentFence;
+};
+
+const assertLineLatexEnvironments = (
+  line: string,
+  environments: string[],
+  errorMessage: string
+) => {
+  for (const match of stripInlineCode(line).matchAll(LATEX_ENVIRONMENT_TOKEN_REGEX)) {
+    const [, operation, environment] = match;
+    if (operation === 'begin') {
+      environments.push(environment as string);
+      continue;
+    }
+    if (environments.pop() !== environment) throw new Error(errorMessage);
+  }
+};
+
+const assertBalancedLatexInMarkdown = (markdown: string, label: string) => {
+  const environments: string[] = [];
+  const errorMessage = `${label} lesson has unbalanced LaTeX environments.`;
+  let fence = CLOSED_MARKDOWN_FENCE;
+
+  for (const line of markdown.split('\n')) {
+    const fenceToken = MARKDOWN_FENCE_REGEX.exec(line)?.[1];
+    if (fenceToken) {
+      fence = updateMarkdownFence(fence, fenceToken);
+      continue;
+    }
+    if (fence.character) continue;
+    assertLineLatexEnvironments(line, environments, errorMessage);
+  }
+
+  if (environments.length > 0) throw new Error(errorMessage);
+};
+
 const assertBalancedLatexEnvironments = (draft: LessonContentDraft, label: string): void => {
   for (const block of draft.contentBlocks) {
-    if (block.type !== 'markdown') continue;
-    const environments: string[] = [];
-    let fenceCharacter = '';
-    let fenceLength = 0;
-
-    for (const line of block.markdown.split('\n')) {
-      const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/u);
-      if (fenceMatch) {
-        const token = fenceMatch[1] as string;
-        if (!fenceCharacter) {
-          fenceCharacter = token[0] as string;
-          fenceLength = token.length;
-        } else if (token[0] === fenceCharacter && token.length >= fenceLength) {
-          fenceCharacter = '';
-          fenceLength = 0;
-        }
-        continue;
-      }
-      if (fenceCharacter) continue;
-
-      for (const match of stripInlineCode(line).matchAll(LATEX_ENVIRONMENT_TOKEN_REGEX)) {
-        const [, operation, environment] = match;
-        if (operation === 'begin') {
-          environments.push(environment as string);
-          continue;
-        }
-        if (environments.pop() !== environment) {
-          throw new Error(`${label} lesson has unbalanced LaTeX environments.`);
-        }
-      }
-    }
-
-    if (environments.length > 0) {
-      throw new Error(`${label} lesson has unbalanced LaTeX environments.`);
-    }
+    if (block.type === 'markdown') assertBalancedLatexInMarkdown(block.markdown, label);
   }
 };
 

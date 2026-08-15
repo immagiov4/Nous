@@ -400,7 +400,7 @@ const spawnCodexAppServer = (options: { allowImageGeneration?: boolean } = {}): 
     stderr: 'pipe',
   });
   const events = new EventEmitter();
-  void subprocess.exited.then(
+  subprocess.exited.then(
     code => events.emit('exit', code),
     error => events.emit('error', error)
   );

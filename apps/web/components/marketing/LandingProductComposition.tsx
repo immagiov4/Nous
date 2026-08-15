@@ -1212,7 +1212,7 @@ export const LandingProductVideoFrame = ({
       remotionScale,
       scrollHeight: notePreview.scrollHeight,
     });
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- The render must react to the measured DOM scroll range.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Layout measurement must update the rendered scroll range.
     setNotePreviewScrollRange(currentRange =>
       Math.abs(currentRange - measuredRange) < 0.25 ? currentRange : measuredRange
     );
@@ -1532,7 +1532,7 @@ export const LandingProductVideoFrame = ({
       remotionScale,
       scrollHeight: messagesContainer.scrollHeight,
     });
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- The render must react to the measured DOM scroll range.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Layout measurement must update the rendered scroll range.
     setContextAnswerMessagesScrollRange(currentRange =>
       Math.abs(currentRange - measuredRange) < 0.25 ? currentRange : measuredRange
     );

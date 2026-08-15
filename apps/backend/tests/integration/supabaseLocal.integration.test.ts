@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
@@ -344,7 +345,7 @@ describeLocalSupabase('Supabase local integration', () => {
     ];
     const sourceDescriptors = sourceFiles.map((file, position) => ({
       file,
-      hash: '',
+      hash: createHash('sha256').update(Buffer.from(file.data, 'base64')).digest('hex'),
       id: file.sourceId,
       kind: position === 0 ? 'pdf' : 'text',
       name: file.name,

@@ -214,6 +214,16 @@ const readCompletedResult = (
   };
 };
 
+const shouldReadCompletedLesson = ({
+  forceRegenerate,
+  lastGenerationRunId,
+  runId,
+}: {
+  forceRegenerate: boolean;
+  lastGenerationRunId: unknown;
+  runId: string;
+}) => !forceRegenerate || lastGenerationRunId === runId;
+
 const prepareLesson =
   (
     dependencies: LessonGenerationStageDependencies
@@ -224,10 +234,14 @@ const prepareLesson =
     if (!record) throw new Error('Lesson generation project is missing.');
     const section = findProjectLessonSection(record.snapshot, sectionId);
     if (!section) throw new Error('Lesson generation target is missing.');
-    if (!forceRegenerate || section.lastGenerationRunId === context.execution.runId) {
-      const completed = readCompletedResult(record.snapshot, sectionId, record.revision);
-      if (completed) return completed;
-    }
+    const completed = shouldReadCompletedLesson({
+      forceRegenerate,
+      lastGenerationRunId: section.lastGenerationRunId,
+      runId: context.execution.runId,
+    })
+      ? readCompletedResult(record.snapshot, sectionId, record.revision)
+      : null;
+    if (completed) return completed;
     if (!dependencies.store) {
       throw new Error('Lesson source store is unavailable.');
     }

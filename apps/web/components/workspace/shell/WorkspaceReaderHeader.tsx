@@ -1,5 +1,5 @@
 import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
@@ -88,21 +88,24 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     onRegenerateActiveSection();
   };
   const visibleLoadingStatus = isMobileViewport ? loadingStatus : loadingStatus.toUpperCase();
-  const loadingBadge = isLoading ? (
-    <div
-      className={`flex min-w-0 animate-pulse items-center gap-2 rounded-full bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 ${
-        isMobileViewport
-          ? 'w-full max-w-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em]'
-          : 'max-w-[16rem] px-4 py-1.5 text-xs font-bold'
-      }`}
-      title={loadingStatus}
-    >
-      <span className="h-2 w-2 rounded-full bg-orange-500" />
-      <span className="truncate">{visibleLoadingStatus}</span>
-    </div>
-  ) : syncState === 'error' ? (
-    <SyncBadge syncState={syncState} />
-  ) : null;
+  let loadingBadge: ReactNode = null;
+  if (isLoading) {
+    loadingBadge = (
+      <div
+        className={`flex min-w-0 animate-pulse items-center gap-2 rounded-full bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 ${
+          isMobileViewport
+            ? 'w-full max-w-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em]'
+            : 'max-w-[16rem] px-4 py-1.5 text-xs font-bold'
+        }`}
+        title={loadingStatus}
+      >
+        <span className="h-2 w-2 rounded-full bg-orange-500" />
+        <span className="truncate">{visibleLoadingStatus}</span>
+      </div>
+    );
+  } else if (syncState === 'error') {
+    loadingBadge = <SyncBadge syncState={syncState} />;
+  }
   const regenerateDialogClassName = isMobileViewport
     ? 'mx-auto w-[min(20rem,calc(100vw-2rem))]'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))]';
