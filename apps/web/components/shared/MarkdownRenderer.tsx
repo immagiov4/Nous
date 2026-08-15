@@ -87,29 +87,58 @@ const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
 const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
 
-interface AnnotationHighlightCap {
-  rect: DOMRect;
-  side: 'start' | 'end';
+interface AnnotationHighlightLineRect {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
 }
 
-const getAnnotationHighlightCaps = (
+const areHighlightRectsOnSameLine = (
+  first: AnnotationHighlightLineRect,
+  second: DOMRect
+): boolean => {
+  const firstHeight = first.bottom - first.top;
+  const firstCenter = first.top + firstHeight / 2;
+  const secondCenter = second.top + second.height / 2;
+  return Math.abs(firstCenter - secondCenter) <= Math.min(firstHeight, second.height) / 2;
+};
+
+const mergeAnnotationHighlightLineRects = (
   entries: SectionAnnotationHighlightEntry[]
-): AnnotationHighlightCap[] =>
-  entries.flatMap(entry =>
-    entry.ranges.flatMap(range => {
-      const rects = Array.from(range.getClientRects()).filter(
-        rect => rect.width > 0 && rect.height > 0
-      );
-      const firstRect = rects[0];
-      const lastRect = rects.at(-1);
-      return firstRect && lastRect
-        ? [
-            { rect: firstRect, side: 'start' as const },
-            { rect: lastRect, side: 'end' as const },
-          ]
-        : [];
-    })
-  );
+): AnnotationHighlightLineRect[] => {
+  const rects = entries
+    .flatMap(entry => entry.ranges)
+    .flatMap(range => Array.from(range.getClientRects()))
+    .filter(rect => rect.width > 0 && rect.height > 0)
+    .sort((first, second) => first.top - second.top || first.left - second.left);
+  const mergedRects: AnnotationHighlightLineRect[] = [];
+
+  for (const rect of rects) {
+    const mergeTarget = mergedRects.find(
+      candidate =>
+        areHighlightRectsOnSameLine(candidate, rect) &&
+        rect.left <= candidate.right + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2 &&
+        rect.right >= candidate.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
+    );
+    if (!mergeTarget) {
+      mergedRects.push({
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+      });
+      continue;
+    }
+
+    mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
+    mergeTarget.left = Math.min(mergeTarget.left, rect.left);
+    mergeTarget.right = Math.max(mergeTarget.right, rect.right);
+    mergeTarget.top = Math.min(mergeTarget.top, rect.top);
+  }
+
+  return mergedRects;
+};
 const CODE_LANGUAGE_ALIASES: Record<string, string> = {
   'c++': 'cpp',
   cs: 'csharp',
@@ -440,18 +469,22 @@ const MarkdownRenderer = ({
     const renderHighlightCaps = () => {
       const articleRect = article.getBoundingClientRect();
       const fragment = document.createDocumentFragment();
-      for (const { rect, side } of getAnnotationHighlightCaps(entries)) {
-        const cap = document.createElement('span');
-        cap.className = `nous-annotation-highlight-cap nous-annotation-highlight-cap-${side}`;
-        cap.style.left = `${
-          side === 'start'
-            ? rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX
-            : rect.right - articleRect.left
-        }px`;
-        cap.style.top = `${rect.top - articleRect.top}px`;
-        cap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-        cap.style.height = `${rect.bottom - rect.top}px`;
-        fragment.append(cap);
+      for (const rect of mergeAnnotationHighlightLineRects(entries)) {
+        const leftCap = document.createElement('span');
+        leftCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-start';
+        leftCap.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        leftCap.style.top = `${rect.top - articleRect.top}px`;
+        leftCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        leftCap.style.height = `${rect.bottom - rect.top}px`;
+
+        const rightCap = document.createElement('span');
+        rightCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-end';
+        rightCap.style.left = `${rect.right - articleRect.left}px`;
+        rightCap.style.top = `${rect.top - articleRect.top}px`;
+        rightCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        rightCap.style.height = `${rect.bottom - rect.top}px`;
+
+        fragment.append(leftCap, rightCap);
       }
       capsContainer.replaceChildren(fragment);
     };
