@@ -405,6 +405,41 @@ describe('useProjectLibrary', () => {
     expect(result.current.savedProjects).toBe(initialProjects);
   });
 
+  test('syncs a favorite changed on another device and catches up after reconnect', async () => {
+    const initialMeta = {
+      ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+      isFavorite: false,
+    };
+    repositoryMocks.listProjects
+      .mockResolvedValueOnce([initialMeta])
+      .mockResolvedValueOnce([{ ...initialMeta, isFavorite: true, revision: 2 }])
+      .mockResolvedValueOnce([{ ...initialMeta, isFavorite: false, revision: 3 }]);
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    act(() => {
+      revisionListener?.({ projectId: 'project-1', revision: 2 });
+    });
+    await waitFor(() =>
+      expect(result.current.savedProjects[0]).toMatchObject({ isFavorite: true, revision: 2 })
+    );
+
+    act(() => {
+      revisionReconnect?.();
+    });
+    await waitFor(() =>
+      expect(result.current.savedProjects[0]).toMatchObject({ isFavorite: false, revision: 3 })
+    );
+
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
+  });
+
   test('persistSnapshot syncs metadata and keeps the newest project first', async () => {
     repositoryMocks.listProjects.mockResolvedValue([
       buildMeta('older', '2026-04-01T10:00:00.000Z'),
