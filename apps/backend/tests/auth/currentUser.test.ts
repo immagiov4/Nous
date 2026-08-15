@@ -275,6 +275,36 @@ describe('resolveCurrentUser', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test('rejects an unknown JWKS key after exactly one refresh', async () => {
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_URL = 'http://unknown-key.test';
+    const keyPair = await webcrypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify']
+    );
+    const publicJwk = await webcrypto.subtle.exportKey('jwk', keyPair.publicKey);
+    const token = await signEs256Jwt(
+      keyPair,
+      'unknown-key',
+      createAccessTokenPayload({ iss: 'http://unknown-key.test/auth/v1' })
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: 'different-key' }] }), {
+          status: 200,
+        })
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const response = await request(createPrivateApp())
+      .get('/private')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test.each([
     ['without expiration', { exp: undefined }],
     ['from a different issuer', { iss: 'https://attacker.example/auth/v1' }],

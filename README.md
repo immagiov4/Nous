@@ -39,9 +39,12 @@ Nous now uses authenticated server storage as the product path.
 - Set `SUPABASE_JWT_ISSUER` when the token issuer is different from the backend's internal `SUPABASE_URL`.
 - Backend route tests use an in-memory `ProjectStore`; PostgreSQL is the only runtime project store.
 
-The public production origin must be listed explicitly with `CORS_ALLOWED_ORIGINS`.
-Do not expose a `local-bypass` backend to an untrusted LAN: CORS limits browser origins but does not
-replace authentication.
+Always list the public production origin explicitly with `CORS_ALLOWED_ORIGINS`, including when the
+backend listens on loopback behind a reverse proxy. When `BACKEND_HOST` exposes the backend beyond
+loopback, list every other trusted frontend origin explicitly too, especially when using
+`local-bypass`. The backend still accepts every HTTP RFC1918 origin on Vite port 5173 in every
+environment; `CORS_ALLOWED_ORIGINS` does not disable this convenience. CORS limits browser origins
+but does not replace authentication; do not expose a `local-bypass` backend to an untrusted LAN.
 
 Supabase email templates live in `supabase/templates/` and are synced with:
 
