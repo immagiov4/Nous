@@ -87,9 +87,9 @@ describe('MarkdownRenderer', () => {
       'true'
     );
     const highlightCaps = container.querySelectorAll('.nous-annotation-highlight-cap');
-    expect(highlightCaps).toHaveLength(2);
-    expect(container.querySelectorAll('.nous-annotation-highlight-cap-start')).toHaveLength(1);
-    expect(container.querySelectorAll('.nous-annotation-highlight-cap-end')).toHaveLength(1);
+    expect(highlightCaps).toHaveLength(4);
+    expect(container.querySelectorAll('.nous-annotation-highlight-cap-start')).toHaveLength(2);
+    expect(container.querySelectorAll('.nous-annotation-highlight-cap-end')).toHaveLength(2);
     expect(Array.from(highlightCaps).every(cap => (cap as HTMLElement).style.width === '3px')).toBe(
       true
     );
@@ -310,10 +310,32 @@ describe('MarkdownRenderer', () => {
     const endCaps = Array.from(
       container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-cap-end')
     );
-    expect(startCaps).toHaveLength(3);
-    expect(endCaps).toHaveLength(3);
-    expect(startCaps.map(cap => cap.style.left)).toEqual(['17px', '17px', '17px']);
-    expect(endCaps.map(cap => cap.style.left)).toEqual(['70px', '70px', '70px']);
+    expect(startCaps).toHaveLength(9);
+    expect(endCaps).toHaveLength(9);
+    expect(startCaps.map(cap => cap.style.left)).toEqual([
+      '17px',
+      '-3px',
+      '7px',
+      '17px',
+      '-3px',
+      '7px',
+      '17px',
+      '-3px',
+      '7px',
+    ]);
+    expect(endCaps.map(cap => cap.style.left)).toEqual([
+      '80px',
+      '100px',
+      '70px',
+      '80px',
+      '100px',
+      '70px',
+      '80px',
+      '100px',
+      '70px',
+    ]);
+    expect(startCaps.map(cap => cap.style.height)).toEqual(Array(9).fill('18px'));
+    expect(endCaps.map(cap => cap.style.height)).toEqual(Array(9).fill('18px'));
   });
 
   test('resolves native highlights around inline KaTeX from the canonical TeX projection', () => {
