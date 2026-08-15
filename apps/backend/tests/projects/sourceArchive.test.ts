@@ -128,11 +128,41 @@ describe('indexSourceArchive', () => {
       text: notes,
     });
     expect(result.totalExpandedBytes).toBe(
-      validPdfBytes.byteLength +
+      textEncoder.encode('Capitolo estratto dal PDF').byteLength +
         scannedPdfBytes.byteLength +
         textEncoder.encode(notes).byteLength +
         unreadablePdfBytes.byteLength
     );
+  });
+
+  test('keeps extracted PDF text within entry and expanded archive limits', async () => {
+    const pdfBytes = textEncoder.encode('%PDF-data');
+    const archive = await createArchive([
+      { content: pdfBytes, path: 'docs/source.pdf', type: 'file' },
+    ]);
+    const extractedText = 'Testo estratto oltre il budget';
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ text: extractedText });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const entryLimited = await indexSourceArchive(archive, {
+      ...GENEROUS_LIMITS,
+      maxEntryBytes: extractedText.length - 1,
+    });
+    const totalLimited = await indexSourceArchive(archive, {
+      ...GENEROUS_LIMITS,
+      maxExpandedBytes: extractedText.length - 1,
+    });
+
+    for (const result of [entryLimited, totalLimited]) {
+      expect(result.entries.find(entry => entry.path === 'docs/source.pdf')).toMatchObject({
+        byteSize: pdfBytes.byteLength,
+        content: pdfBytes,
+        hash: createHash('sha256').update(pdfBytes).digest('hex'),
+        kind: 'file',
+        path: 'docs/source.pdf',
+      });
+      expect(result.totalExpandedBytes).toBe(pdfBytes.byteLength);
+    }
   });
 
   test('builds a complete lexicographic tree and preserves every file byte', async () => {
