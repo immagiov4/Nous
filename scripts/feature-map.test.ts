@@ -53,7 +53,8 @@ describe('generated feature map', () => {
     await mkdir(sourceDirectory, { recursive: true });
     await writeFile(
       path.join(sourceDirectory, 'Registry.ts'),
-      `export const registry = {
+      `import './Admin.tsx';
+      export const registry = {
         admin: () => import('./Admin.tsx'),
         missing: () => import('./Missing.tsx'),
       };
@@ -67,12 +68,17 @@ describe('generated feature map', () => {
     const edges = extractImportEdges(repoRoot, path.join(sourceDirectory, 'Registry.ts'));
 
     expect(edges[0]).toMatchObject({
+      kind: 'static',
+      specifier: './Admin.tsx',
+      target: 'apps/web/Admin.tsx',
+    });
+    expect(edges[1]).toMatchObject({
       kind: 'dynamic',
       specifier: './Admin.tsx',
       target: 'apps/web/Admin.tsx',
     });
-    expect(edges[1]).toMatchObject({ kind: 'dynamic', specifier: './Missing.tsx' });
-    expect(edges[1]).not.toHaveProperty('target');
+    expect(edges[2]).toMatchObject({ kind: 'dynamic', specifier: './Missing.tsx' });
+    expect(edges[2]).not.toHaveProperty('target');
   });
 
   test('discovers production, admin, demo, backend routes and keeps usage unknown', () => {

@@ -691,17 +691,18 @@ export const useProjectLibrary = ({
         ...domainStateRef.current,
         ...overrides,
       });
-      const expectedRevision = getExpectedRevision(currentProjectId);
+      let expectedRevision: number | undefined;
       const rebaseMode = isNavigationOnlyProjectOverride(overrides)
         ? PROJECT_PATCH_REBASE_MODE.navigation
         : undefined;
       try {
-        const meta = await runTrackedProjectWrite(currentProjectId, () =>
-          projectRepositoryRef.current.patchProject(currentProjectId, patch, {
+        const meta = await runTrackedProjectWrite(currentProjectId, () => {
+          expectedRevision = getExpectedRevision(currentProjectId);
+          return projectRepositoryRef.current.patchProject(currentProjectId, patch, {
             expectedRevision,
             ...(rebaseMode === undefined ? {} : { rebaseMode }),
-          })
-        );
+          });
+        });
         const writeState = getProjectWriteState(currentProjectId);
         if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);

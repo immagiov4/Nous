@@ -172,46 +172,38 @@ const readStringLiteral = (expression: ts.Expression | undefined): string | unde
     ? expression.text
     : undefined;
 
+const getPreprocessedImportKind = (
+  sourceText: string,
+  specifierStart: number
+): ImportEdge['kind'] => {
+  const importKeywordStart = sourceText.lastIndexOf('import', specifierStart);
+  if (importKeywordStart < 0) return 'static';
+  return /^import\s*\(\s*$/su.test(sourceText.slice(importKeywordStart, specifierStart))
+    ? 'dynamic'
+    : 'static';
+};
+
+const getSourceLine = (sourceText: string, position: number): number =>
+  sourceText.slice(0, position).split('\n').length;
+
 export const extractImportEdges = (repoRoot: string, absolutePath: string): ImportEdge[] => {
   const sourceText = readFileSync(absolutePath, 'utf8');
-  const sourceFile = ts.createSourceFile(
-    absolutePath,
-    sourceText,
-    ts.ScriptTarget.Latest,
-    true,
-    absolutePath.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
   const source = toRepoPath(repoRoot, absolutePath);
-  const edges: ImportEdge[] = [];
-  const append = (specifier: string, node: ts.Node, kind: ImportEdge['kind']) => {
-    const resolved = resolveImport(repoRoot, absolutePath, specifier);
-    edges.push({
-      kind,
-      source,
-      sourceLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
-      specifier,
-      ...(resolved ? { target: toRepoPath(repoRoot, resolved) } : {}),
-    });
-  };
-  const visit = (node: ts.Node) => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      const specifier = readStringLiteral(node.moduleSpecifier);
-      if (specifier) append(specifier, node, 'static');
-    }
-    if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      node.arguments.length === 1
-    ) {
-      const specifier = readStringLiteral(node.arguments[0]);
-      if (specifier) append(specifier, node, 'dynamic');
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return edges.sort((left, right) =>
-    compareText(`${left.sourceLine}:${left.specifier}`, `${right.sourceLine}:${right.specifier}`)
-  );
+  return ts
+    .preProcessFile(sourceText, true, true)
+    .importedFiles.map(importedFile => {
+      const resolved = resolveImport(repoRoot, absolutePath, importedFile.fileName);
+      return {
+        kind: getPreprocessedImportKind(sourceText, importedFile.pos),
+        source,
+        sourceLine: getSourceLine(sourceText, importedFile.pos),
+        specifier: importedFile.fileName,
+        ...(resolved ? { target: toRepoPath(repoRoot, resolved) } : {}),
+      };
+    })
+    .sort((left, right) =>
+      compareText(`${left.sourceLine}:${left.specifier}`, `${right.sourceLine}:${right.specifier}`)
+    );
 };
 
 const findHtmlEntrypoint = (repoRoot: string): DiscoveredEntrypoint => {
@@ -445,14 +437,23 @@ const traverse = (
   entrypoint: DiscoveredEntrypoint,
   edgesBySource: ReadonlyMap<string, ImportEdge[]>
 ): Set<string> => {
+  const includeDynamicImports = entrypoint.id !== 'production-shell';
+  return traversePaths([entrypoint.path], edgesBySource, includeDynamicImports);
+};
+
+const traversePaths = (
+  initialPaths: string[],
+  edgesBySource: ReadonlyMap<string, ImportEdge[]>,
+  includeDynamicImports = true
+): Set<string> => {
   const visited = new Set<string>();
-  const pending = [entrypoint.path];
+  const pending = [...initialPaths];
   while (pending.length > 0) {
     const current = pending.shift();
     if (!current || visited.has(current)) continue;
     visited.add(current);
     for (const edge of edgesBySource.get(current) ?? []) {
-      if (entrypoint.id === 'production-shell' && edge.kind === 'dynamic') continue;
+      if (!includeDynamicImports && edge.kind === 'dynamic') continue;
       if (edge.target && !visited.has(edge.target)) pending.push(edge.target);
     }
   }
@@ -522,14 +523,9 @@ export const buildFeatureMap = async (
   const reachability = new Map(
     entrypoints.map(entrypoint => [entrypoint.id, traverse(entrypoint, edgesBySource)])
   );
-  const testEntrypoints = testFiles.map(filePath => ({
-    id: `test:${toRepoPath(repoRoot, filePath)}`,
-    kind: 'demo' as const,
-    path: toRepoPath(repoRoot, filePath),
-    source: 'Vitest',
-  }));
-  const testReachable = new Set(
-    testEntrypoints.flatMap(entrypoint => [...traverse(entrypoint, edgesBySource)])
+  const testReachable = traversePaths(
+    testFiles.map(filePath => toRepoPath(repoRoot, filePath)),
+    edgesBySource
   );
   const journeys = await readObservations(observationDirectory);
   const observedByModule = new Map<string, string[]>();

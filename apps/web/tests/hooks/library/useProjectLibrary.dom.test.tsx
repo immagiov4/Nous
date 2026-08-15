@@ -1632,6 +1632,63 @@ describe('useProjectLibrary', () => {
     expect(await secondWrite).toBe(true);
   });
 
+  test('reads patchCurrentProject revisions only when each queued write starts', async () => {
+    vi.useFakeTimers();
+    const patchResolvers: Array<(meta: SavedProjectMeta) => void> = [];
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.patchProject.mockImplementation(
+      () =>
+        new Promise<SavedProjectMeta>(resolve => {
+          patchResolvers.push(resolve);
+        })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let firstWrite!: Promise<SavedProjectMeta | null>;
+    let secondWrite!: Promise<SavedProjectMeta | null>;
+    act(() => {
+      firstWrite = result.current.patchCurrentProject({ title: 'Prima patch' });
+      secondWrite = result.current.patchCurrentProject({ title: 'Seconda patch' });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toEqual({ expectedRevision: 1 });
+
+    await act(async () => {
+      patchResolvers[0]?.(buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(2);
+    expect(repositoryMocks.patchProject.mock.calls[1]?.[2]).toEqual({ expectedRevision: 2 });
+
+    await act(async () => {
+      patchResolvers[1]?.(buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3));
+      await Promise.all([firstWrite, secondWrite]);
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(await firstWrite).toMatchObject({ revision: 2 });
+    expect(await secondWrite).toMatchObject({ revision: 3 });
+  });
+
   test('does not let a write for another project block an active project refresh', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
     const otherMeta = buildMeta('project-2', '2026-04-02T10:00:00.000Z', 1);
