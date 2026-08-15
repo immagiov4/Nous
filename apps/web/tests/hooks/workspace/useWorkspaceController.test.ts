@@ -2281,6 +2281,84 @@ test('startHomeChat saves a ZIP before assessment and uses only the server index
   assert.equal(assessmentText.includes('docs/server.md'), true);
 });
 
+test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF entry', async () => {
+  const canonicalEntries = [
+    {
+      byteSize: 24,
+      contentKind: 'text' as const,
+      kind: 'file' as const,
+      path: 'docs/dispensa.pdf',
+      preview: 'Testo estratto dalla dispensa',
+    },
+    {
+      byteSize: 128,
+      contentKind: 'binary' as const,
+      kind: 'file' as const,
+      path: 'scansioni/allegato.pdf',
+    },
+    {
+      byteSize: 64,
+      contentKind: 'binary' as const,
+      kind: 'file' as const,
+      path: 'corrotti/non-leggibile.PDF',
+    },
+    {
+      byteSize: 16,
+      contentKind: 'text' as const,
+      kind: 'file' as const,
+      path: 'note.txt',
+      preview: 'Note valide',
+    },
+  ];
+  let assessmentText = '';
+  const { controller } = createControllerHarness({
+    openRouter: {
+      buildAssessmentDocumentContextFromTextSource: source => {
+        assessmentText = source.text;
+        return { content: source.text, hasReliableSourceContext: true };
+      },
+    },
+    projectLibrary: {
+      persistSnapshot: async snapshot => {
+        if (snapshot.source?.kind !== 'archive') {
+          throw new Error('Expected archive source');
+        }
+        return {
+          meta: buildMeta(snapshot.id),
+          snapshot: {
+            ...snapshot,
+            source: {
+              ...snapshot.source,
+              index: { entries: canonicalEntries },
+            },
+          },
+        };
+      },
+    },
+  });
+
+  const result = await controller.startHomeChat({
+    input: 'Preparami un corso da questo archivio',
+    selectedFile: new File(['opaque archive'], 'materiali.zip', { type: 'application/zip' }),
+  });
+
+  assert.equal(result.outcome, 'continued');
+  assert.deepEqual(result.sourceWarnings, [
+    {
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'scansioni/allegato.pdf',
+    },
+    {
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'corrotti/non-leggibile.PDF',
+    },
+  ]);
+  assert.equal(assessmentText.includes('docs/dispensa.pdf'), true);
+  assert.equal(assessmentText.includes('Testo estratto dalla dispensa'), true);
+  assert.equal(assessmentText.includes('scansioni/allegato.pdf'), true);
+  assert.equal(assessmentText.includes('note.txt'), true);
+});
+
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {
   const { controller } = createControllerHarness({
     openRouter: {
