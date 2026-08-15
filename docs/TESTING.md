@@ -28,9 +28,11 @@ bun run gate:full
 - `test` runs the Vitest suite under Bun.
 - `gate:checks` runs `quality`, the Semgrep rule tests and repository scan, and Fallow.
 - `gate` adds the Vitest suite to `gate:checks`.
-- `gate:ci` uses the same blocking checks and fails when Fallow exceeds its versioned regression
-  baseline. The local `check:fallow` command remains informational. Refreshing the baseline first
-  verifies that the current result does not increase the recorded debt.
+- `gate:ci` uses the same blocking checks and fails when Fallow reports a finding identity that is
+  absent from its versioned regression baseline. The output classifies findings as new, removed,
+  or unchanged, so replacing one accepted finding with one new finding still fails even when the
+  total is unchanged. The local `check:fallow` command remains informational. Refreshing the
+  baseline first verifies that the current result introduces no new recorded debt.
 - `gate:full` checks local Sonar readiness, then runs quality, Semgrep, the blocking Fallow
   regression check, and the complete Bun suite as independent lanes. After every lane finishes, it
   generates application LCOV coverage on Node and launches the local Sonar scan. Coverage and
@@ -39,6 +41,12 @@ bun run gate:full
   twice. The full gate completes every stage so an earlier failure cannot silently skip Sonar,
   then exits with a failure if any stage failed. The scanner waits for the Sonar quality-gate
   result and propagates a failing gate.
+
+Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
+Source coordinates and suggested remediation actions are excluded, so moving a finding within the
+same file does not change its identity. File moves and file or symbol renames appear as one removed
+finding plus one new finding; the new identity remains blocking until the refactor is reviewed and
+the baseline is refreshed explicitly.
 
 Before the first local full gate, start and initialize Sonar with `bun run sonar:up` and
 `bun run sonar:bootstrap`. The generated credentials stay in the ignored
