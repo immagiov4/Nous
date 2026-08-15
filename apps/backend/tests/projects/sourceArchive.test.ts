@@ -76,6 +76,7 @@ describe('indexSourceArchive', () => {
     const validPdfBytes = textEncoder.encode('%PDF-valid');
     const scannedPdfBytes = textEncoder.encode('%PDF-scanned');
     const unreadablePdfBytes = textEncoder.encode('%PDF-unreadable');
+    const usablePdfText = 'Contenuto didattico estratto dal PDF. '.repeat(8).trim();
     const notes = 'Materiale testuale valido';
     const archive = await createArchive([
       { content: validPdfBytes, path: 'docs/a-valid.PDF', type: 'file' },
@@ -84,8 +85,8 @@ describe('indexSourceArchive', () => {
       { content: notes, path: 'docs/notes.txt', type: 'file' },
     ]);
     pdfTextExtractorMocks.extractPdfText
-      .mockResolvedValueOnce({ text: 'Capitolo estratto dal PDF' })
-      .mockResolvedValueOnce({ text: '   ' })
+      .mockResolvedValueOnce({ pages: [{ text: usablePdfText }], text: usablePdfText })
+      .mockResolvedValueOnce({ pages: [], text: '   ' })
       .mockRejectedValueOnce(new Error('scanned document'));
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -97,13 +98,13 @@ describe('indexSourceArchive', () => {
       [`data:application/pdf;base64,${Buffer.from(unreadablePdfBytes).toString('base64')}`],
     ]);
     expect(result.entries.find(entry => entry.path === 'docs/a-valid.PDF')).toMatchObject({
-      byteSize: textEncoder.encode('Capitolo estratto dal PDF').byteLength,
-      content: textEncoder.encode('Capitolo estratto dal PDF'),
-      hash: createHash('sha256').update('Capitolo estratto dal PDF').digest('hex'),
+      byteSize: textEncoder.encode(usablePdfText).byteLength,
+      content: textEncoder.encode(usablePdfText),
+      hash: createHash('sha256').update(usablePdfText).digest('hex'),
       kind: 'file',
       path: 'docs/a-valid.PDF',
-      preview: 'Capitolo estratto dal PDF',
-      text: 'Capitolo estratto dal PDF',
+      preview: usablePdfText,
+      text: usablePdfText,
     });
     const scannedEntry = result.entries.find(entry => entry.path === 'docs/b-scanned.pdf');
     expect(scannedEntry).toMatchObject({
@@ -128,7 +129,7 @@ describe('indexSourceArchive', () => {
       text: notes,
     });
     expect(result.totalExpandedBytes).toBe(
-      textEncoder.encode('Capitolo estratto dal PDF').byteLength +
+      textEncoder.encode(usablePdfText).byteLength +
         scannedPdfBytes.byteLength +
         textEncoder.encode(notes).byteLength +
         unreadablePdfBytes.byteLength
@@ -140,8 +141,11 @@ describe('indexSourceArchive', () => {
     const archive = await createArchive([
       { content: pdfBytes, path: 'docs/source.pdf', type: 'file' },
     ]);
-    const extractedText = 'Testo estratto oltre il budget';
-    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ text: extractedText });
+    const extractedText = 'Testo estratto oltre il budget. '.repeat(10).trim();
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+      pages: [{ text: extractedText }],
+      text: extractedText,
+    });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const entryLimited = await indexSourceArchive(archive, {
@@ -163,6 +167,28 @@ describe('indexSourceArchive', () => {
       });
       expect(result.totalExpandedBytes).toBe(pdfBytes.byteLength);
     }
+  });
+
+  test('keeps PDFs with only incidental extracted text as unusable binary entries', async () => {
+    const pdfBytes = textEncoder.encode('%PDF-watermark');
+    const archive = await createArchive([
+      { content: pdfBytes, path: 'scans/watermarked.pdf', type: 'file' },
+    ]);
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+      pages: [{ text: '1' }, { text: 'CONFIDENTIAL' }],
+      text: '1\n\nCONFIDENTIAL',
+    });
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    const entry = result.entries.find(candidate => candidate.path === 'scans/watermarked.pdf');
+    expect(entry).toMatchObject({
+      byteSize: pdfBytes.byteLength,
+      content: pdfBytes,
+      kind: 'file',
+      path: 'scans/watermarked.pdf',
+    });
+    expect(entry).not.toHaveProperty('text');
   });
 
   test('builds a complete lexicographic tree and preserves every file byte', async () => {

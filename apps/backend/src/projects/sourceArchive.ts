@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-
+import { assessPdfTextQuality } from '@shared/pdfTextQuality';
 import { createSourceArchivePreview } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
 import { extractPdfText } from '../services/pdfTextExtractor.js';
@@ -359,8 +359,16 @@ const prepareSourceArchiveFile = async (
   }
 
   try {
-    const extractedText = (await extractPdfText(encodePdfDataUrl(entry.content))).text.trim();
-    if (extractedText) {
+    const extractedPdf = await extractPdfText(encodePdfDataUrl(entry.content));
+    const extractedText = extractedPdf.text.trim();
+    if (
+      extractedText &&
+      assessPdfTextQuality({
+        extractedText,
+        pageCount: extractedPdf.pageCount,
+        pages: extractedPdf.pages,
+      }).status === 'ok'
+    ) {
       const content = new TextEncoder().encode(extractedText);
       if (content.byteLength > maxPreparedBytes) {
         console.warn('[Backend] Extracted PDF text exceeds source archive limits.', {
