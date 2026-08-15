@@ -141,11 +141,12 @@ export const buildProjectSourceEntryObjectPath = (
   projectId: string,
   sourceId: string,
   sourceHash: string,
-  entryPath: string
+  entryPath: string,
+  entryHash: string
 ): string => {
   const originalPath = buildProjectSourceObjectPath(userId, projectId, sourceId, sourceHash);
   const entryPathId = createHash('sha256').update(entryPath).digest('hex');
-  return `${originalPath.slice(0, -'/original'.length)}/entries/${entryPathId}`;
+  return `${originalPath.slice(0, -'/original'.length)}/entries/${entryPathId}/${entryHash}`;
 };
 
 export const detachProjectSource = (

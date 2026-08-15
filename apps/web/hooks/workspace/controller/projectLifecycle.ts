@@ -33,8 +33,10 @@ import {
 } from '../../../utils/pdf/projectHydration.ts';
 import {
   getProjectSourceWarnings,
+  hasUsableArchiveText,
   prepareUploadedCourseSource,
   readSourceFileData,
+  UNUSABLE_ARCHIVE_SOURCE_MESSAGE,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -160,6 +162,7 @@ export const createProjectLifecycleCommands = (
       size: selectedFile.size,
       type: selectedFile.type || null,
     });
+    let sourceWarnings: Array<{ message: string; name: string }> = [];
 
     try {
       let nextSource: ProjectSource | null = null;
@@ -225,7 +228,7 @@ export const createProjectLifecycleCommands = (
         throw new Error('Unable to prepare project source');
       }
 
-      let sourceWarnings = getProjectSourceWarnings(nextSource);
+      sourceWarnings = getProjectSourceWarnings(nextSource);
 
       if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
         state.setWorkflowMessage('attachSource', requestId, t('Verifica testo PDF...'));
@@ -267,6 +270,20 @@ export const createProjectLifecycleCommands = (
           if (!saved) {
             throw new Error('La sorgente del progetto non è stata salvata.');
           }
+          if (nextSource.kind === 'archive') {
+            const persistedProject = await projectLibrary.loadStoredProject(
+              projectLibrary.currentProjectId
+            );
+            if (!persistedProject?.source) {
+              throw new Error('La sorgente del progetto non è stata ricaricata.');
+            }
+            nextSource = persistedProject.source;
+            sourceWarnings = getProjectSourceWarnings(nextSource);
+            if (!hasUsableArchiveText(nextSource)) {
+              throw new Error(UNUSABLE_ARCHIVE_SOURCE_MESSAGE);
+            }
+            domain.setSource(nextSource);
+          }
         } catch (error) {
           domain.setSource(previousSource);
           projectLibrary.setProjectHydrated(true);
@@ -299,6 +316,9 @@ export const createProjectLifecycleCommands = (
       }
       nextSource = saved.snapshot.source;
       sourceWarnings = getProjectSourceWarnings(nextSource);
+      if (!hasUsableArchiveText(nextSource)) {
+        throw new Error(UNUSABLE_ARCHIVE_SOURCE_MESSAGE);
+      }
       domain.setSource(nextSource);
       projectLibrary.setProjectHydrated(true);
       state.succeedWorkflow('attachSource', requestId);
@@ -335,6 +355,7 @@ export const createProjectLifecycleCommands = (
       return {
         outcome: options?.mode === 'reattach-source' ? 'failed' : 'started-assessment',
         errorMessage,
+        sourceWarnings,
       };
     }
   }

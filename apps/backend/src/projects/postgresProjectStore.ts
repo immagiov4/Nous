@@ -2062,7 +2062,8 @@ export class PostgresProjectStore implements ProjectStore {
             projectId,
             prepared.primaryRef.id,
             prepared.primaryRef.hash,
-            entry.path
+            entry.path,
+            entry.hash
           );
           prepared.archiveEntries.push({
             byte_size: entry.byteSize,
