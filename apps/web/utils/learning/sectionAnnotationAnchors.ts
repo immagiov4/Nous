@@ -110,12 +110,15 @@ const contextMatches = (
   const after = normalizeWhitespace(
     text.slice(matchStart + matchLength, matchStart + matchLength + SELECTOR_CONTEXT_LENGTH + 16)
   );
-  const prefixMatches =
-    !selector.prefix || before.endsWith(selector.prefix) || selector.prefix.endsWith(before);
-  const suffixMatches =
-    !selector.suffix || after.startsWith(selector.suffix) || selector.suffix.startsWith(after);
+  const prefix = normalizeWhitespace(selector.prefix);
+  const suffix = normalizeWhitespace(selector.suffix);
+  const prefixMatches = !prefix || before.endsWith(prefix) || prefix.endsWith(before);
+  const suffixMatches = !suffix || after.startsWith(suffix) || suffix.startsWith(after);
   return prefixMatches && suffixMatches;
 };
+
+const hasSelectorContext = (selector: SectionAnnotationTextSelector): boolean =>
+  Boolean(normalizeWhitespace(selector.prefix) || normalizeWhitespace(selector.suffix));
 
 const resolveSectionAnnotationSegmentsWithContext = (
   content: string,
@@ -130,7 +133,13 @@ const resolveSectionAnnotationSegmentsWithContext = (
   const positionalRange = getProjectionRange(context.projection, selector);
   if (
     positionalRange &&
-    normalizeWhitespace(positionalRange.text) === normalizeWhitespace(selector.exact)
+    normalizeWhitespace(positionalRange.text) === normalizeWhitespace(selector.exact) &&
+    contextMatches(
+      context.projection.text,
+      positionalRange.start,
+      positionalRange.end - positionalRange.start,
+      selector
+    )
   ) {
     return buildSegmentsFromProjectionRange(
       content,
@@ -149,7 +158,7 @@ const resolveSectionAnnotationSegmentsWithContext = (
   const contextualMatches = matches.filter(match =>
     contextMatches(context.projection.text, match.index ?? 0, match[0].length, selector)
   );
-  const candidates = contextualMatches.length > 0 ? contextualMatches : matches;
+  const candidates = hasSelectorContext(selector) ? contextualMatches : matches;
   if (candidates.length !== 1) {
     return [];
   }

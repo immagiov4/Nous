@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import {
   applySectionAnnotation,
@@ -75,6 +75,42 @@ test('detached annotations re-anchor by quote and context after content shifts',
       created.annotations
     ),
     'Introduzione nuova. Alpha <mark data-nous-annotation-id="annotation-detached">beta gamma</mark> delta.'
+  );
+});
+
+test('persisted annotations prefer saved context when the old offset now contains a duplicate', () => {
+  const created = applySectionAnnotation({
+    annotations: [],
+    content: 'Beta uno. Beta due.',
+    contextAfter: ' due.',
+    contextBefore: 'Beta uno. ',
+    createId: () => 'annotation-persisted-second-beta',
+    selectedText: 'Beta',
+    selectedTextStart: 10,
+  });
+  assert.ok(created);
+
+  const restoredAnnotations = JSON.parse(JSON.stringify(created.annotations));
+  expect(materializeSectionAnnotationMarks('Beta due. Beta uno.', restoredAnnotations)).toBe(
+    '<mark data-nous-annotation-id="annotation-persisted-second-beta">Beta</mark> due. Beta uno.'
+  );
+});
+
+test('persisted annotations stay orphaned when only a context-mismatched duplicate remains', () => {
+  const created = applySectionAnnotation({
+    annotations: [],
+    content: 'Beta uno. Beta due.',
+    contextAfter: ' due.',
+    contextBefore: 'Beta uno. ',
+    createId: () => 'annotation-unresolved-second-beta',
+    selectedText: 'Beta',
+    selectedTextStart: 10,
+  });
+  assert.ok(created);
+
+  const changedContent = 'Beta uno.';
+  expect(materializeSectionAnnotationMarks(changedContent, created.annotations)).toBe(
+    changedContent
   );
 });
 

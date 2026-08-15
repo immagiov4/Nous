@@ -90,6 +90,13 @@ const appendProjectedMath = (
   }
 };
 
+const isStructuralWhitespace = (node: Text): boolean =>
+  !node.data.trim() &&
+  [node.previousSibling, node.nextSibling].some(
+    sibling =>
+      sibling?.nodeType === Node.ELEMENT_NODE && (sibling as Element).matches(BLOCK_SELECTOR)
+  );
+
 const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
   const projection: DomTextProjection = { characters: [], text: '' };
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -105,6 +112,9 @@ const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
 
     const block = parent.closest(BLOCK_SELECTOR);
     const katexNode = parent.closest(KATEX_SELECTOR);
+    if (isStructuralWhitespace(node)) {
+      continue;
+    }
     if (
       previousBlock &&
       block &&
@@ -175,6 +185,9 @@ const contextMatches = (
   );
 };
 
+const hasSelectorContext = (selector: SectionAnnotationTextSelector): boolean =>
+  Boolean(normalizeWhitespace(selector.prefix) || normalizeWhitespace(selector.suffix));
+
 const findSelectorRange = (
   projection: DomTextProjection,
   selector: SectionAnnotationTextSelector
@@ -198,7 +211,7 @@ const findSelectorRange = (
   const contextualMatches = matches.filter(matchStart =>
     contextMatches(projection.text, matchStart, exact.length, selector)
   );
-  const candidates = contextualMatches.length > 0 ? contextualMatches : matches;
+  const candidates = hasSelectorContext(selector) ? contextualMatches : matches;
   return candidates.length === 1
     ? { start: candidates[0], end: candidates[0] + exact.length }
     : null;
@@ -213,6 +226,13 @@ const createHighlightRanges = (
   let currentRange: Range | null = null;
   let previousHighlightElement: Element | null = null;
   let previousCharacter: ProjectionCharacter | null = null;
+
+  const crossesBlockBoundary = (
+    previous: ProjectionCharacter,
+    current: ProjectionCharacter
+  ): boolean =>
+    previous.node.parentElement?.closest(BLOCK_SELECTOR) !==
+    current.node.parentElement?.closest(BLOCK_SELECTOR);
 
   for (let index = start; index < end; index += 1) {
     const character = projection.characters[index];
@@ -241,7 +261,11 @@ const createHighlightRanges = (
       continue;
     }
 
-    if (previousCharacter && hasIgnoredDomGap(previousCharacter, character)) {
+    if (
+      previousCharacter &&
+      (crossesBlockBoundary(previousCharacter, character) ||
+        hasIgnoredDomGap(previousCharacter, character))
+    ) {
       if (currentRange) {
         ranges.push(currentRange);
       }
