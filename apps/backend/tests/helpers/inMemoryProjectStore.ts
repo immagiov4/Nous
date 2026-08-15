@@ -17,9 +17,10 @@ import {
   buildImportedProjectAssetIdentity,
   remapProjectAssetReferences,
 } from '@shared/projectBackupAssets';
+import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { resolveAvailableFolderName } from '../../src/projects/folderNames.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from '../../src/projects/projectMeta.js';
-import { applyProjectPatch } from '../../src/projects/projectPatch.js';
+import { applyProjectPatch, isNavigationProjectPatch } from '../../src/projects/projectPatch.js';
 import {
   ProjectNotFoundError,
   ProjectRevisionConflictError,
@@ -377,10 +378,17 @@ export class InMemoryProjectStore implements ProjectStore {
       throw new ProjectNotFoundError();
     }
     if (
+      options.rebaseMode !== PROJECT_PATCH_REBASE_MODE.navigation &&
       options.expectedRevision !== undefined &&
       existing.meta.revision !== options.expectedRevision
     ) {
       throw new ProjectRevisionConflictError();
+    }
+    if (
+      options.rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation &&
+      !isNavigationProjectPatch(patch)
+    ) {
+      throw new TypeError('Navigation rebase accepts only navigation fields.');
     }
 
     const snapshot = applyProjectPatch(existing.snapshot, patch, patch.updatedAt || timestampIso());

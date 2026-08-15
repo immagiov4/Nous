@@ -45,6 +45,7 @@ export interface TransactionalProjectPatchInput {
   projectId: string;
   updatedAt: string;
   userId: string;
+  waitForProjectLock?: boolean;
 }
 
 export interface TransactionalProjectSaveResult extends ProjectSaveResult {
@@ -60,24 +61,37 @@ export class ProjectTransactionTargetNotFoundError extends Error {
 
 const lockProjectInTransaction = async (
   transaction: TransactionSql,
-  input: { projectId: string; userId: string }
+  input: Pick<TransactionalProjectPatchInput, 'projectId' | 'userId' | 'waitForProjectLock'>
 ): Promise<{
   currentRevision: number;
   currentSnapshot: ProjectSnapshot;
   row: LockedProjectRow;
 }> => {
-  const rows = await transaction<LockedProjectRow[]>`
-    select
-      project.meta,
-      project.revision,
-      project_snapshot.snapshot,
-      project_snapshot.document_index
-    from public.projects project
-    join public.project_snapshots project_snapshot
-      on project_snapshot.user_id = project.user_id and project_snapshot.id = project.id
-    where project.user_id = ${input.userId} and project.id = ${input.projectId}
-    for update of project, project_snapshot nowait
-  `;
+  const rows = input.waitForProjectLock
+    ? await transaction<LockedProjectRow[]>`
+      select
+        project.meta,
+        project.revision,
+        project_snapshot.snapshot,
+        project_snapshot.document_index
+      from public.projects project
+      join public.project_snapshots project_snapshot
+        on project_snapshot.user_id = project.user_id and project_snapshot.id = project.id
+      where project.user_id = ${input.userId} and project.id = ${input.projectId}
+      for update of project, project_snapshot
+    `
+    : await transaction<LockedProjectRow[]>`
+      select
+        project.meta,
+        project.revision,
+        project_snapshot.snapshot,
+        project_snapshot.document_index
+      from public.projects project
+      join public.project_snapshots project_snapshot
+        on project_snapshot.user_id = project.user_id and project_snapshot.id = project.id
+      where project.user_id = ${input.userId} and project.id = ${input.projectId}
+      for update of project, project_snapshot nowait
+    `;
   const row = rows[0];
   if (!row) throw new ProjectTransactionTargetNotFoundError(input.projectId);
   return {

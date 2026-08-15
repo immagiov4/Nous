@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
@@ -746,7 +747,10 @@ describe('useProjectLibrary', () => {
       expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
         'project-1',
         expect.objectContaining({ activeSectionId: 'lesson-1' }),
-        { expectedRevision: 5 }
+        {
+          expectedRevision: 5,
+          rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+        }
       );
       expect(result.current.savedProjects[0]).toMatchObject({ revision: 6 });
     } finally {
@@ -804,7 +808,10 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
       'project-1',
       expect.objectContaining({ activeSectionId: 'lesson-1' }),
-      { expectedRevision: 6 }
+      {
+        expectedRevision: 6,
+        rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+      }
     );
   });
 
@@ -853,7 +860,10 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.patchProject).toHaveBeenLastCalledWith(
       'project-1',
       expect.objectContaining({ activeSectionId: 'lesson-1' }),
-      { expectedRevision: 6 }
+      {
+        expectedRevision: 6,
+        rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+      }
     );
   });
 
@@ -1473,6 +1483,96 @@ describe('useProjectLibrary', () => {
 
     expect(hydrateSnapshot).toHaveBeenCalledTimes(1);
     expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledWith('project-1');
+  });
+
+  test('catches up generated lesson content after stale navigation is atomically rebased', async () => {
+    let resolveNavigationPatch!: (meta: SavedProjectMeta) => void;
+    const navigationPatch = new Promise<SavedProjectMeta>(resolve => {
+      resolveNavigationPatch = resolve;
+    });
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    const plannedState: WorkspaceDomainState = {
+      ...createEmptyWorkspaceDomainState(),
+      activeSectionId: 'lesson-a',
+      learningPlan: buildTestLearningPlan([
+        buildTestLesson({ content: '# Lezione A', id: 'lesson-a' }),
+        buildTestLesson({ id: 'lesson-b' }),
+      ]),
+    };
+    const initialSnapshot = buildSnapshot('project-1', {
+      ...plannedState,
+      state: AppState.READING,
+    });
+    const generatedSnapshot = buildSnapshot('project-1', {
+      ...plannedState,
+      learningPlan: buildTestLearningPlan([
+        buildTestLesson({ content: '# Lezione A', id: 'lesson-a' }),
+        buildTestLesson({ content: '# Lezione B generata', id: 'lesson-b' }),
+      ]),
+    });
+    const hydrateSnapshot = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValueOnce([initialMeta]);
+    repositoryMocks.patchProject.mockReturnValue(navigationPatch);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 3,
+      snapshot: generatedSnapshot,
+    });
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: plannedState, hydrateSnapshot })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.completeProjectHydration({ revision: 1, snapshot: initialSnapshot });
+    });
+
+    let navigationWrite!: Promise<SavedProjectMeta | null>;
+    act(() => {
+      navigationWrite = result.current.patchCurrentProject({
+        activeSectionId: 'lesson-a',
+        state: AppState.READING,
+      });
+    });
+    await waitFor(() => expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(1));
+    expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+      'project-1',
+      expect.objectContaining({ activeSectionId: 'lesson-a', state: AppState.READING }),
+      {
+        expectedRevision: 1,
+        rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+      }
+    );
+
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2),
+    ]);
+    await act(async () => {
+      revisionListener?.({ projectId: 'project-1', revision: 2 });
+      await Promise.resolve();
+    });
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveNavigationPatch(buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3));
+      await navigationWrite;
+    });
+
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledWith('project-1');
+    expect(hydrateSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeSectionId: 'lesson-a',
+        learningPlan: expect.objectContaining({
+          modules: expect.arrayContaining([
+            expect.objectContaining({
+              children: expect.arrayContaining([
+                expect.objectContaining({ content: '# Lezione B generata', id: 'lesson-b' }),
+              ]),
+            }),
+          ]),
+        }),
+      })
+    );
+    expect(result.current.storageError).toBeNull();
   });
 
   test('serializes concurrent local writes against successive server revisions', async () => {

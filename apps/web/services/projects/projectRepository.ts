@@ -17,14 +17,20 @@ export const PROJECT_SYNC_ERROR_MESSAGE =
   'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.';
 export const PROJECT_REVISION_CONFLICT_MESSAGE =
   "Il progetto è stato modificato in un'altra sessione. Ricaricalo prima di salvare.";
+export const PROJECT_COVER_REVISION_CONFLICT_MESSAGE =
+  'Il corso è cambiato prima del salvataggio della cover.';
+export const PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE =
+  'L’archivio sorgente è cambiato. Ricarica il progetto e riprova.';
 export const REMOTE_PROJECT_DELETED_MESSAGE = 'Questo corso è stato cancellato';
 
 export class ProjectStorageError extends Error {
   code:
     | 'persistence-failed'
     | 'project-deleted'
+    | 'cover-revision-conflict'
     | 'quota-exceeded'
     | 'revision-conflict'
+    | 'source-archive-changed'
     | 'unknown';
 
   constructor(message: string, code: ProjectStorageError['code'] = 'unknown') {

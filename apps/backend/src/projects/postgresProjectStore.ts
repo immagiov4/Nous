@@ -15,6 +15,7 @@ import {
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
+import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import postgres from 'postgres';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
@@ -30,7 +31,7 @@ import {
 } from './projectAssetImport.js';
 import { reconcileProjectAssets } from './projectAssetReconciliation.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
-import { applyProjectPatch } from './projectPatch.js';
+import { applyProjectPatch, isNavigationProjectPatch } from './projectPatch.js';
 import {
   mergeProjectMetaRow,
   mergeProjectSnapshotRow,
@@ -53,6 +54,10 @@ import {
   readEmbeddedProjectSources,
 } from './projectSource.js';
 import { ProjectSourceStorageError, SupabaseProjectSourceStorage } from './projectSourceStorage.js';
+import {
+  ProjectTransactionTargetNotFoundError,
+  patchProjectInTransaction,
+} from './projectTransaction.js';
 import {
   PROJECT_SOURCE_ARCHIVE_LIMITS,
   PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
@@ -886,6 +891,29 @@ export class PostgresProjectStore implements ProjectStore {
     patch: ProjectPatch,
     options: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
+    if (options.rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation) {
+      if (!isNavigationProjectPatch(patch)) {
+        throw new TypeError('Navigation rebase accepts only navigation fields.');
+      }
+      try {
+        const saved = await this.sql.begin(transaction =>
+          patchProjectInTransaction(transaction, {
+            buildPatch: () => patch,
+            projectId: id,
+            updatedAt: patch.updatedAt || timestampIso(),
+            userId,
+            waitForProjectLock: true,
+          })
+        );
+        return saved.meta;
+      } catch (error) {
+        if (error instanceof ProjectTransactionTargetNotFoundError) {
+          throw new ProjectNotFoundError();
+        }
+        throw error;
+      }
+    }
+
     const existing = await this.loadProjectWithRevision(userId, id);
     if (!existing) {
       throw new ProjectNotFoundError();

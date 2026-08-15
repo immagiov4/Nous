@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
 import {
@@ -702,6 +703,7 @@ test('HttpProjectRepository sends the expected revision and preserves a 409 conf
     status: 409,
     statusText: 'Conflict',
     json: async () => ({
+      code: PROJECT_API_ERROR_CODE.revisionConflict,
       success: false,
       error: "Il progetto è stato modificato in un'altra sessione.",
     }),
@@ -722,6 +724,72 @@ test('HttpProjectRepository sends the expected revision and preserves a 409 conf
     expectedRevision: 4,
     patch: { state: AppState.READING },
   });
+});
+
+test('HttpProjectRepository sends an explicit navigation rebase mode', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({ success: true, meta: { id: 'project-1', revision: 6 } }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await repository.patchProject(
+    'project-1',
+    { activeSectionId: 'lesson-1', state: AppState.READING },
+    { expectedRevision: 4, rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation }
+  );
+
+  expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    expectedRevision: 4,
+    patch: { activeSectionId: 'lesson-1', state: AppState.READING },
+    rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+  });
+});
+
+test('HttpProjectRepository does not mislabel an unrelated 409 as a revision conflict', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: false,
+    status: 409,
+    statusText: 'Conflict',
+    json: async () => ({ success: false, error: 'Workflow request key already in use.' }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await assert.rejects(
+    () => repository.patchProject('project-1', { state: AppState.READING }),
+    (error: unknown) =>
+      error instanceof ProjectStorageError &&
+      error.code === 'persistence-failed' &&
+      error.message === PROJECT_SYNC_ERROR_MESSAGE
+  );
+});
+
+test('HttpProjectRepository distinguishes a cover revision conflict', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: false,
+    status: 409,
+    statusText: 'Conflict',
+    json: async () => ({
+      code: PROJECT_API_ERROR_CODE.coverRevisionConflict,
+      success: false,
+      error: 'technical backend detail',
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await assert.rejects(
+    () =>
+      repository.saveProjectCover('project-1', {
+        data: 'iVBORw0KGgo=',
+        mimeType: 'image/png',
+        name: 'cover.png',
+      }),
+    (error: unknown) =>
+      error instanceof ProjectStorageError &&
+      error.code === 'cover-revision-conflict' &&
+      error.message === 'Il corso è cambiato prima del salvataggio della cover.'
+  );
 });
 
 test('HttpProjectRepository distinguishes a deleted project from a revision conflict', async () => {
