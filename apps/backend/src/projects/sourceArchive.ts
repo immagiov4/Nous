@@ -342,8 +342,17 @@ const compareEntryPaths = (
 
 const isPdfArchivePath = (path: string): boolean => path.toLowerCase().endsWith('.pdf');
 
-export const prepareSourceArchiveFile = async (
-  entry: SourceArchiveFileEntry
+const toBinarySourceArchiveFile = (entry: SourceArchiveFileEntry): SourceArchiveFileEntry => ({
+  byteSize: entry.byteSize,
+  content: entry.content,
+  hash: entry.hash,
+  kind: 'file',
+  path: entry.path,
+});
+
+const prepareSourceArchiveFile = async (
+  entry: SourceArchiveFileEntry,
+  maxPreparedBytes: number
 ): Promise<SourceArchiveFileEntry> => {
   if (!isPdfArchivePath(entry.path)) {
     return entry;
@@ -353,6 +362,12 @@ export const prepareSourceArchiveFile = async (
     const extractedText = (await extractPdfText(encodePdfDataUrl(entry.content))).text.trim();
     if (extractedText) {
       const content = new TextEncoder().encode(extractedText);
+      if (content.byteLength > maxPreparedBytes) {
+        console.warn('[Backend] Extracted PDF text exceeds source archive limits.', {
+          path: entry.path,
+        });
+        return toBinarySourceArchiveFile(entry);
+      }
       return {
         ...entry,
         byteSize: content.byteLength,
@@ -369,13 +384,7 @@ export const prepareSourceArchiveFile = async (
     });
   }
 
-  return {
-    byteSize: entry.byteSize,
-    content: entry.content,
-    hash: entry.hash,
-    kind: 'file',
-    path: entry.path,
-  };
+  return toBinarySourceArchiveFile(entry);
 };
 
 export async function* streamSourceArchive(
@@ -384,7 +393,10 @@ export async function* streamSourceArchive(
 ): AsyncGenerator<SourceArchiveEntry> {
   validateLimits(limits);
   const centralEntries = parseCentralDirectory(archiveBytes);
-  const { entriesByPath } = inspectCentralDirectory(centralEntries, limits);
+  const { entriesByPath, totalExpandedBytes: originalTotalExpandedBytes } = inspectCentralDirectory(
+    centralEntries,
+    limits
+  );
   const loadedArchive = await loadArchive(archiveBytes);
   const loadedEntriesByPath = mapLoadedEntries(loadedArchive, entriesByPath);
   const directories = new Map<string, SourceArchiveDirectoryEntry>();
@@ -408,6 +420,7 @@ export async function* streamSourceArchive(
     ...filePaths.map(path => ({ kind: 'file' as const, path })),
   ].sort(compareEntryPaths);
   let actualExpandedBytes = 0;
+  let preparedExpandedBytes = 0;
   for (const entry of orderedEntries) {
     if (entry.kind === 'directory') {
       yield entry;
@@ -430,7 +443,7 @@ export async function* streamSourceArchive(
     actualExpandedBytes += content.byteLength;
 
     const text = decodeUtf8(content);
-    yield {
+    const sourceEntry: SourceArchiveFileEntry = {
       byteSize: content.byteLength,
       content,
       hash: createHash('sha256').update(content).digest('hex'),
@@ -443,6 +456,15 @@ export async function* streamSourceArchive(
             text,
           }),
     };
+    const remainingOriginalBytes = originalTotalExpandedBytes - actualExpandedBytes;
+    const remainingPreparedBytes =
+      limits.maxExpandedBytes - preparedExpandedBytes - remainingOriginalBytes;
+    const preparedEntry = await prepareSourceArchiveFile(
+      sourceEntry,
+      Math.min(limits.maxEntryBytes, remainingPreparedBytes)
+    );
+    preparedExpandedBytes += preparedEntry.byteSize;
+    yield preparedEntry;
   }
 }
 
@@ -454,12 +476,10 @@ export const indexSourceArchive = async (
   let fileCount = 0;
   let totalExpandedBytes = 0;
   for await (const entry of streamSourceArchive(archiveBytes, limits)) {
+    entries.push(entry);
     if (entry.kind === 'file') {
       fileCount += 1;
       totalExpandedBytes += entry.byteSize;
-      entries.push(await prepareSourceArchiveFile(entry));
-    } else {
-      entries.push(entry);
     }
   }
   return {
