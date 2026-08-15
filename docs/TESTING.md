@@ -31,10 +31,12 @@ bun run gate:full
 - `gate:ci` uses the same blocking checks and fails when Fallow exceeds its versioned regression
   baseline. The local `check:fallow` command remains informational. Refreshing the baseline first
   verifies that the current result does not increase the recorded debt.
-- `gate:full` checks local Sonar readiness, runs `gate`, generates frontend LCOV coverage on Node,
-  and launches the local Sonar scan. The complete suite still runs on Bun; the Node pass is limited
-  to frontend tests because backend deployment tests exercise Bun-specific APIs. The full gate
-  completes every stage so a local readiness, lint, or test failure cannot silently skip Sonar,
+- `gate:full` checks local Sonar readiness, then runs quality, Semgrep, the blocking Fallow
+  regression check, and the complete Bun suite as independent lanes. After every lane finishes, it
+  generates application LCOV coverage on Node and launches the local Sonar scan. Coverage and
+  Sonar remain sequential because the scanner consumes the LCOV report. The React Hooks ESLint
+  lane also creates the external-issues report consumed by Sonar, so the same lint pass is not run
+  twice. The full gate completes every stage so an earlier failure cannot silently skip Sonar,
   then exits with a failure if any stage failed. The scanner waits for the Sonar quality-gate
   result and propagates a failing gate.
 

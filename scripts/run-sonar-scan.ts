@@ -1,9 +1,10 @@
 // Runs the local Sonar scan workflow for this repository.
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { generateReactHooksLintReport, resolveEslintReportPath } from './run-eslint-react-hooks.ts';
+
 const LOCAL_SETTINGS_PATH = path.resolve('sonar.local.properties');
-const ESLINT_REPORT_PATH = path.resolve('.temp/sonar/eslint-report.json');
 
 type LocalSettings = Record<string, string>;
 
@@ -45,26 +46,6 @@ const runCommand = async (command: string[]) => {
   return processHandle.exited;
 };
 
-const exportEslintReport = async () => {
-  mkdirSync(path.dirname(ESLINT_REPORT_PATH), { recursive: true });
-
-  const eslintExitCode = await runCommand([
-    process.execPath,
-    path.resolve('node_modules/eslint/bin/eslint.js'),
-    'apps/web',
-    '--config',
-    'eslint.config.mjs',
-    '--format',
-    'json',
-    '--output-file',
-    ESLINT_REPORT_PATH,
-  ]);
-
-  if (eslintExitCode > 1) {
-    process.exit(eslintExitCode);
-  }
-};
-
 const main = async () => {
   const settings = parsePropertiesFile(LOCAL_SETTINGS_PATH);
   const sonarHostUrl = settings['sonar.host.url']?.trim();
@@ -76,14 +57,18 @@ const main = async () => {
     );
   }
 
-  await exportEslintReport();
+  const eslintReportPath = resolveEslintReportPath();
+  const preparedByFullGate = Boolean(process.env.SONAR_ESLINT_REPORT_PATH);
+  if (!preparedByFullGate || !existsSync(eslintReportPath)) {
+    await generateReactHooksLintReport(eslintReportPath);
+  }
 
   const scannerExecutable = resolveScannerExecutable();
   const exitCode = await runCommand([
     scannerExecutable,
     `-Dsonar.host.url=${sonarHostUrl}`,
     `-Dsonar.token=${sonarToken}`,
-    `-Dsonar.eslint.reportPaths=${ESLINT_REPORT_PATH}`,
+    `-Dsonar.eslint.reportPaths=${eslintReportPath}`,
   ]);
   if (exitCode !== 0) {
     process.exit(exitCode);
