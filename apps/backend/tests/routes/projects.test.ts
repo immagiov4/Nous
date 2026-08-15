@@ -479,7 +479,18 @@ describe('/api/projects', () => {
   test('rejects chunked archive completion when the project revision changed during upload', async () => {
     const app = createApp();
     const projectId = 'concurrent-archive-project';
-    const initialSnapshot = createSnapshot(projectId, 'Corso iniziale');
+    const concurrentSourceData = 'JVBERi0xLjQKc291cmNlLWZyb20tcmV2aXNpb24tdHdv';
+    const initialSnapshot = {
+      ...createSnapshot(projectId, 'Corso iniziale'),
+      source: {
+        kind: 'pdf' as const,
+        file: {
+          data: concurrentSourceData,
+          mimeType: 'application/pdf',
+          name: 'revisione-due.pdf',
+        },
+      },
+    } satisfies ProjectSnapshot;
     const initialSave = await request(app)
       .put(`/api/projects/projects/${projectId}`)
       .send({ snapshot: initialSnapshot });
@@ -490,7 +501,7 @@ describe('/api/projects', () => {
     const sourceBytes = Buffer.from(await sourceZip.generateAsync({ type: 'uint8array' }));
     const uploadId = '623e4567-e89b-42d3-a456-426614174000';
     const chunkResponse = await request(app)
-      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1&expectedRevision=1`)
       .set('Content-Type', 'application/octet-stream')
       .send(sourceBytes);
     expect(chunkResponse.status).toBe(202);
@@ -516,7 +527,6 @@ describe('/api/projects', () => {
     const completionResponse = await request(app)
       .post(`/api/projects/import/chunks/${uploadId}/complete`)
       .send({
-        expectedRevision: 1,
         payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
         snapshot: archiveSnapshot,
         sourceFile: { mimeType: 'application/zip', name: 'engine.zip' },
@@ -526,11 +536,17 @@ describe('/api/projects', () => {
     expect(completionResponse.body.code).toBe(PROJECT_API_ERROR_CODE.revisionConflict);
     const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
     expect(loadResponse.body).toMatchObject({
-      project: { activeSectionId: 'saved-concurrently', source: null },
+      project: {
+        activeSectionId: 'saved-concurrently',
+        source: { file: { data: '', name: 'revisione-due.pdf' }, kind: 'pdf' },
+      },
       revision: 2,
     });
     const sourceResponse = await request(app).get(`/api/projects/projects/${projectId}/source`);
-    expect(sourceResponse.body.source).toBeNull();
+    expect(sourceResponse.body.source).toMatchObject({
+      data: concurrentSourceData,
+      name: 'revisione-due.pdf',
+    });
   });
 
   test('rejects unsupported chunk content types before a generic body parser can buffer them', async () => {

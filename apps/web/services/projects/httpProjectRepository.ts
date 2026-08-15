@@ -457,7 +457,11 @@ export class HttpProjectRepository implements ProjectRepository {
         'persistence-failed'
       );
     }
-    const uploadId = await this.uploadBinaryProjectImport(archiveFile, config);
+    const uploadId = await this.uploadBinaryProjectImport(
+      archiveFile,
+      config,
+      options.expectedRevision
+    );
     try {
       const response = await this.requestImportUpload<{
         meta?: SavedProjectMeta;
@@ -698,7 +702,8 @@ export class HttpProjectRepository implements ProjectRepository {
 
   private async uploadBinaryProjectImport(
     archive: Blob,
-    config: ProjectImportConfig
+    config: ProjectImportConfig,
+    expectedRevision?: number
   ): Promise<string> {
     const chunkCount = Math.ceil(archive.size / config.maxChunkBytes);
     if (chunkCount > config.maxChunkCount || archive.size > config.maxSerializedBytes) {
@@ -708,10 +713,12 @@ export class HttpProjectRepository implements ProjectRepository {
       );
     }
     const uploadId = globalThis.crypto.randomUUID();
+    const expectedRevisionQuery =
+      expectedRevision === undefined ? '' : `&expectedRevision=${expectedRevision}`;
     try {
       for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
         await this.requestImportUpload(
-          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}`,
+          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}${expectedRevisionQuery}`,
           {
             body: archive.slice(
               chunkIndex * config.maxChunkBytes,
