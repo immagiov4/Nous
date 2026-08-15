@@ -284,6 +284,67 @@ describe('NewHomeView library interactions', () => {
     ).not.toBeInTheDocument();
   });
 
+  test('keeps a newer course menu open when an earlier export finishes', async () => {
+    const user = userEvent.setup();
+    let finishExport: (() => void) | undefined;
+    const onExportProject = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishExport = resolve;
+        })
+    );
+    const nextProject = { ...project, id: 'project-2', title: 'Corso Successivo' };
+    const renderView = (isExportingProject: boolean) => (
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={isExportingProject}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onExportProject={onExportProject}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project, nextProject]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    const view = render(renderView(false));
+
+    await user.click(
+      screen.getByRole('button', { name: /Azioni per Corso Mobile|Actions for Corso Mobile/ })
+    );
+    await user.click(screen.getByRole('button', { name: /^(Esporta|Export)$/ }));
+    view.rerender(renderView(true));
+    await user.click(
+      screen.getByRole('button', { name: /Chiudi azioni corso|Close course actions/ })
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: /Azioni per Corso Successivo|Actions for Corso Successivo/,
+      })
+    );
+
+    await act(async () => {
+      finishExport?.();
+      await onExportProject.mock.results[0]?.value;
+    });
+
+    expect(
+      screen.getByRole('button', { name: /Chiudi azioni corso|Close course actions/ })
+    ).toBeInTheDocument();
+  });
+
   test('renames course and folder names inline on double click', async () => {
     const user = userEvent.setup();
     const onOpenProject = vi.fn();
