@@ -111,7 +111,8 @@ bun run test          # Vitest test suite (runs under Bun runtime)
 `doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without
 starting, restarting, configuring, or migrating services. The default `checks` profile runs the
 service-free checks; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all`
-combines them. `gate:full` starts with `doctor:gate`, then runs `gate`, coverage, and Sonar analysis;
+combines them. `gate:full` starts with `doctor:gate`, runs quality, Semgrep, the Fallow regression
+check, and the Bun suite as independent lanes, then runs coverage and Sonar analysis sequentially;
 it completes every stage and exits with failure if any stage fails.
 
 Run the narrowest meaningful validation first. Before completing a non-trivial local batch,
