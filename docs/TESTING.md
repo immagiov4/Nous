@@ -8,6 +8,9 @@ Semgrep CLI through `uvx`. There is no alternate Semgrep runner.
 
 ```bash
 bun run doctor
+bun run doctor -- --profile gate
+bun run doctor -- --profile local
+bun run doctor -- --profile all
 bun run quality
 bun run check:fallow
 bun run test
@@ -15,10 +18,12 @@ bun run gate
 bun run gate:full
 ```
 
-- `doctor` verifies the local toolchain and versioned Fallow baseline, then runs the core
-  service-free quality and test checks independently so one failure does not hide later failures.
-  It reports local Sonar readiness but never starts services; coverage, Sonar, and Supabase
-  contracts remain explicit follow-up checks.
+- `doctor` verifies the Bun/CI runtime contract, installed project executables, and versioned
+  Fallow baseline, then runs the core service-free quality and test checks independently so one
+  failure does not hide later failures. The `gate` profile checks the existing local Sonar service
+  and token, the `local` profile checks the existing local Supabase services and migration parity,
+  and `all` combines every profile. Every profile is read-only: it never starts, restarts,
+  configures, or migrates a service.
 - `quality` runs the TypeScript checks, Biome, dependency boundaries, and React Hooks lint.
 - `test` runs the Vitest suite under Bun.
 - `gate:checks` runs `quality`, the Semgrep rule tests and repository scan, and Fallow.
@@ -26,11 +31,12 @@ bun run gate:full
 - `gate:ci` uses the same blocking checks and fails when Fallow exceeds its versioned regression
   baseline. The local `check:fallow` command remains informational. Refreshing the baseline first
   verifies that the current result does not increase the recorded debt.
-- `gate:full` runs `gate`, generates frontend LCOV coverage on Node, and launches the local Sonar
-  scan. The complete suite still runs on Bun; the Node pass is limited to frontend tests because
-  backend deployment tests exercise Bun-specific APIs. The full gate completes every stage so a
-  local lint or test failure cannot silently skip Sonar, then exits with a failure if any stage
-  failed. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
+- `gate:full` checks local Sonar readiness, runs `gate`, generates frontend LCOV coverage on Node,
+  and launches the local Sonar scan. The complete suite still runs on Bun; the Node pass is limited
+  to frontend tests because backend deployment tests exercise Bun-specific APIs. The full gate
+  completes every stage so a local readiness, lint, or test failure cannot silently skip Sonar,
+  then exits with a failure if any stage failed. The scanner waits for the Sonar quality-gate
+  result and propagates a failing gate.
 
 Before the first local full gate, start and initialize Sonar with `bun run sonar:up` and
 `bun run sonar:bootstrap`. The generated credentials stay in the ignored

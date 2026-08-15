@@ -5,6 +5,7 @@ type GateStage = {
 };
 
 const GATE_STAGES: GateStage[] = [
+  { label: 'Local gate readiness', script: 'doctor:gate' },
   { label: 'Quality checks and Bun test suite', script: 'gate' },
   { label: 'Application LCOV coverage', script: 'test:coverage' },
   { label: 'Sonar analysis', script: 'sonar:scan' },
