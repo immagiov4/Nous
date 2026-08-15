@@ -756,13 +756,13 @@ test('HttpProjectRepository does not mislabel an unrelated 409 as a revision con
   });
   const repository = new HttpProjectRepository('http://localhost:3301');
 
-  await assert.rejects(
-    () => repository.patchProject('project-1', { state: AppState.READING }),
-    (error: unknown) =>
-      error instanceof ProjectStorageError &&
-      error.code === 'persistence-failed' &&
-      error.message === PROJECT_SYNC_ERROR_MESSAGE
-  );
+  await expect(
+    repository.patchProject('project-1', { state: AppState.READING })
+  ).rejects.toMatchObject({
+    code: 'persistence-failed',
+    message: PROJECT_SYNC_ERROR_MESSAGE,
+    name: 'ProjectStorageError',
+  });
 });
 
 test('HttpProjectRepository distinguishes a cover revision conflict', async () => {
@@ -778,18 +778,17 @@ test('HttpProjectRepository distinguishes a cover revision conflict', async () =
   });
   const repository = new HttpProjectRepository('http://localhost:3301');
 
-  await assert.rejects(
-    () =>
-      repository.saveProjectCover('project-1', {
-        data: 'iVBORw0KGgo=',
-        mimeType: 'image/png',
-        name: 'cover.png',
-      }),
-    (error: unknown) =>
-      error instanceof ProjectStorageError &&
-      error.code === 'cover-revision-conflict' &&
-      error.message === 'Il corso è cambiato prima del salvataggio della cover.'
-  );
+  await expect(
+    repository.saveProjectCover('project-1', {
+      data: 'iVBORw0KGgo=',
+      mimeType: 'image/png',
+      name: 'cover.png',
+    })
+  ).rejects.toMatchObject({
+    code: 'cover-revision-conflict',
+    message: 'Il corso è cambiato prima del salvataggio della cover.',
+    name: 'ProjectStorageError',
+  });
 });
 
 test('HttpProjectRepository distinguishes a deleted project from a revision conflict', async () => {

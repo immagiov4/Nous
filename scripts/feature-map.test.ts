@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 
 import {
   buildFeatureMap,
@@ -12,6 +12,32 @@ import {
 } from './feature-map.ts';
 
 const temporaryDirectories: string[] = [];
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
+let featureMap: Awaited<ReturnType<typeof buildFeatureMap>>;
+let observationDirectory: string;
+
+beforeAll(async () => {
+  observationDirectory = await mkdtemp(path.join(os.tmpdir(), 'nous-feature-map-observations-'));
+  await writeFile(
+    path.join(observationDirectory, 'runtime.json'),
+    JSON.stringify({
+      auth: { kind: 'supabase-test-jwt', seedUserId: 'seed-user' },
+      browser: { assertions: ['rendered'], environment: 'jsdom', viewport: 'desktop' },
+      id: 'runtime',
+      limitations: [],
+      modules: ['apps/web/components/newHome/NewHomeView.tsx'],
+      network: [{ method: 'GET', path: '/api/projects/projects', status: 200 }],
+      persistence: [{ entity: 'project:seed', kind: 'in-memory-project-store', proof: 'seeded' }],
+      title: 'Runtime fixture',
+      workflows: [],
+    })
+  );
+  featureMap = await buildFeatureMap(repositoryRoot, observationDirectory);
+});
+
+afterAll(async () => {
+  await rm(observationDirectory, { force: true, recursive: true });
+});
 
 afterEach(async () => {
   await Promise.all(
@@ -49,33 +75,7 @@ describe('generated feature map', () => {
     expect(edges[1]).not.toHaveProperty('target');
   });
 
-  test('discovers production, admin, demo, backend routes and keeps usage unknown', async () => {
-    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
-    const observationDirectory = await mkdtemp(
-      path.join(os.tmpdir(), 'nous-feature-map-observations-')
-    );
-    temporaryDirectories.push(observationDirectory);
-    await writeFile(
-      path.join(observationDirectory, 'runtime.json'),
-      JSON.stringify({
-        auth: { kind: 'supabase-test-jwt', seedUserId: 'seed-user' },
-        browser: { assertions: ['rendered'], environment: 'jsdom', viewport: 'desktop' },
-        id: 'runtime',
-        limitations: [],
-        modules: ['apps/web/components/newHome/NewHomeView.tsx'],
-        network: [{ method: 'GET', path: '/api/projects/projects', status: 200 }],
-        persistence: [{ entity: 'project:seed', kind: 'in-memory-project-store', proof: 'seeded' }],
-        title: 'Runtime fixture',
-        workflows: [],
-      })
-    );
-
-    const featureMap = await buildFeatureMap(repoRoot, observationDirectory);
-    const repeatedFeatureMap = await buildFeatureMap(repoRoot, observationDirectory);
-
-    expect(repeatedFeatureMap).toEqual(featureMap);
-    expect(renderFeatureMapMarkdown(repeatedFeatureMap)).toBe(renderFeatureMapMarkdown(featureMap));
-
+  test('discovers production, admin, demo, backend routes and keeps usage unknown', () => {
     expect(featureMap.entrypoints).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'production-shell', path: 'apps/web/index.tsx' }),
@@ -112,9 +112,15 @@ describe('generated feature map', () => {
     ).toBe(true);
   });
 
+  test('regenerates identical output from the same evidence', async () => {
+    const repeatedFeatureMap = await buildFeatureMap(repositoryRoot, observationDirectory);
+
+    expect(repeatedFeatureMap).toEqual(featureMap);
+    expect(renderFeatureMapMarkdown(repeatedFeatureMap)).toBe(renderFeatureMapMarkdown(featureMap));
+  });
+
   test('keeps backend route discovery stable and ordered', () => {
-    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
-    const routes = discoverBackendRoutes(repoRoot);
+    const routes = discoverBackendRoutes(repositoryRoot);
     const routeKeys = routes.map(route => `${route.path}:${route.method}`);
     expect(routeKeys).toEqual([...routeKeys].sort());
   });
