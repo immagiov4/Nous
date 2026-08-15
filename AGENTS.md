@@ -246,6 +246,7 @@ UI code should minimize visual noise and avoid redundant feedback:
 - Centralize aesthetic decisions: colors, spacing, animation timings, layout dimensions.
 - Use consistent visual patterns across similar UI elements.
 - Do not fix layout bugs by randomly forcing sizes — understand the layout model and fix the underlying constraint.
+- Do not use blur or `backdrop-filter` as decorative UI defaults. Introduce either only when functionally necessary and after verifying performance on the affected devices and browsers, especially mobile Firefox.
 - When rendering dynamic lists from unordered data structures, sort before display for a stable UI.
 
 Before writing any UI component, identify the existing component patterns in the codebase. Extend what exists. Do not invent new visual patterns unless none exist.
