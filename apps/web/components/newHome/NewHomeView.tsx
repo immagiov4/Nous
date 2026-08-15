@@ -98,6 +98,7 @@ const buildCoursePromptTemplate = (prefix: string, suffix: string): ChatDraftTem
 interface NewHomeViewProps {
   readonly chatProps: ChatProps;
   readonly isDarkMode: boolean;
+  readonly isExportingProject: boolean;
   readonly isLibraryLoading: boolean;
   readonly libraryFolders: LibraryFolder[];
   readonly libraryTree: LibraryTree;
@@ -112,7 +113,7 @@ interface NewHomeViewProps {
   readonly onDeleteFolder?: (folderId: string) => Promise<void>;
   readonly onDeleteProject?: (projectId: string) => void | Promise<void>;
   readonly onExportLibraryBackup?: () => Promise<number>;
-  readonly onExportProject?: (projectId: string) => void;
+  readonly onExportProject?: (projectId: string) => Promise<void>;
   readonly onImportLibraryBackup?: (file: File) => Promise<number>;
   readonly onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onOpenProject: (projectId: string) => void;
@@ -569,6 +570,7 @@ const CourseList = ({
   coverImages,
   favoriteIds,
   filter,
+  isExportingProject,
   isPhoneViewport,
   libraryFolders,
   libraryTree,
@@ -591,6 +593,7 @@ const CourseList = ({
   coverImages: Record<string, string>;
   favoriteIds: string[];
   filter: CourseFilter;
+  isExportingProject: boolean;
   isPhoneViewport: boolean;
   libraryFolders: LibraryFolder[];
   libraryTree: LibraryTree;
@@ -598,7 +601,7 @@ const CourseList = ({
   onConfirmDeleteFolder?: (folderName: string) => Promise<boolean>;
   onDeleteFolder?: (folderId: string) => Promise<void>;
   onDeleteProject?: (projectId: string) => void | Promise<void>;
-  onExportProject?: (projectId: string) => void;
+  onExportProject?: (projectId: string) => Promise<void>;
   onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
@@ -1260,12 +1263,20 @@ const CourseList = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setOpenCourseMenu(null);
-                        onExportProject(courseMenuProject.id);
+                        void onExportProject(courseMenuProject.id).finally(() => {
+                          setOpenCourseMenu(null);
+                        });
                       }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-white/5"
+                      disabled={isExportingProject}
+                      aria-busy={isExportingProject}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 disabled:cursor-wait disabled:opacity-70 dark:text-stone-200 dark:hover:bg-white/5"
                     >
-                      <Download className="h-4 w-4" /> {t('Esporta')}
+                      {isExportingProject ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}{' '}
+                      {isExportingProject ? t('Esportazione...') : t('Esporta')}
                     </button>
                   ) : null}
                   {onDeleteProject ? (
@@ -1311,6 +1322,7 @@ const HomePage = ({
   chatProps,
   coverImages,
   favoriteIds,
+  isExportingProject,
   isPhoneViewport,
   isLibraryLoading,
   libraryFolders,
@@ -1331,6 +1343,7 @@ const HomePage = ({
   chatProps: ChatProps;
   coverImages: Record<string, string>;
   favoriteIds: string[];
+  isExportingProject: boolean;
   isPhoneViewport: boolean;
   isLibraryLoading: boolean;
   libraryFolders: LibraryFolder[];
@@ -1339,7 +1352,7 @@ const HomePage = ({
   onConfirmDeleteFolder?: (folderName: string) => Promise<boolean>;
   onDeleteFolder?: (folderId: string) => Promise<void>;
   onDeleteProject?: (projectId: string) => void | Promise<void>;
-  onExportProject?: (projectId: string) => void;
+  onExportProject?: (projectId: string) => Promise<void>;
   onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
@@ -1459,6 +1472,7 @@ const HomePage = ({
             coverImages={coverImages}
             favoriteIds={favoriteIds}
             filter={filter}
+            isExportingProject={isExportingProject}
             isPhoneViewport={isPhoneViewport}
             libraryFolders={libraryFolders}
             libraryTree={libraryTree}
@@ -1816,6 +1830,7 @@ const SourceLibraryPage = ({
 export const NewHomeView = ({
   chatProps,
   isDarkMode,
+  isExportingProject,
   isLibraryLoading,
   libraryFolders,
   libraryTree,
@@ -1931,6 +1946,7 @@ export const NewHomeView = ({
               chatProps={chatProps}
               coverImages={coverImages}
               favoriteIds={favoriteIds}
+              isExportingProject={isExportingProject}
               isPhoneViewport={isPhoneViewport}
               isLibraryLoading={isLibraryLoading}
               libraryFolders={libraryFolders}
