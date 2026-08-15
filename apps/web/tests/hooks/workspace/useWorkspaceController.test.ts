@@ -1885,6 +1885,37 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
     },
     projectLibrary: {
       currentProjectId: 'archive-project',
+      loadStoredProject: async () =>
+        createProjectSnapshot({
+          id: 'archive-project',
+          source: {
+            ...existingSource,
+            file: {
+              data: '',
+              mimeType: 'application/zip',
+              name: 'new-engine.zip',
+              sourceId: existingSourceId,
+            },
+            index: {
+              entries: [
+                {
+                  byteSize: 28,
+                  contentKind: 'text',
+                  kind: 'file',
+                  path: 'src/main.ts',
+                  preview: 'export const changed = true;',
+                },
+                {
+                  byteSize: 96,
+                  contentKind: 'binary',
+                  kind: 'file',
+                  path: 'scansioni/allegato.pdf',
+                },
+              ],
+            },
+            name: 'new-engine.zip',
+          },
+        }),
     },
   });
   const archive = new JSZip();
@@ -1902,6 +1933,12 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
   assert.equal(projectLibrary.savedOverrides[0]?.source?.kind, 'archive');
   assert.equal(projectLibrary.savedOverrides[0]?.source?.file.sourceId, existingSourceId);
   assert.deepEqual(projectLibrary.saveOptions, [{ archiveFile: uploadedFile, throwOnError: true }]);
+  assert.deepEqual(result.sourceWarnings, [
+    {
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'scansioni/allegato.pdf',
+    },
+  ]);
 });
 
 test('handleSourceUpload bounds previews for a 20k-file archive before starting assessment', async () => {
@@ -2357,6 +2394,65 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
   expect(assessmentText).toContain('Testo estratto dalla dispensa');
   expect(assessmentText).toContain('scansioni/allegato.pdf');
   expect(assessmentText).toContain('note.txt');
+});
+
+test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () => {
+  const canonicalEntries = [
+    {
+      byteSize: 128,
+      contentKind: 'binary' as const,
+      kind: 'file' as const,
+      path: 'scansioni/allegato.pdf',
+    },
+    {
+      byteSize: 64,
+      contentKind: 'binary' as const,
+      kind: 'file' as const,
+      path: 'corrotti/non-leggibile.PDF',
+    },
+  ];
+  const buildAssessmentContext = vi.fn();
+  const { controller } = createControllerHarness({
+    openRouter: {
+      buildAssessmentDocumentContextFromTextSource: buildAssessmentContext,
+    },
+    projectLibrary: {
+      persistSnapshot: async snapshot => {
+        if (snapshot.source?.kind !== 'archive') {
+          throw new Error('Expected archive source');
+        }
+        return {
+          meta: buildMeta(snapshot.id),
+          snapshot: {
+            ...snapshot,
+            source: {
+              ...snapshot.source,
+              index: { entries: canonicalEntries },
+            },
+          },
+        };
+      },
+    },
+  });
+
+  const result = await controller.startHomeChat({
+    input: 'Preparami un corso da questo archivio',
+    selectedFile: new File(['opaque archive'], 'scansioni.zip', { type: 'application/zip' }),
+  });
+
+  expect(result.outcome).toBe('failed');
+  expect(result.errorMessage).toBe('L’archivio non contiene alcun testo utilizzabile.');
+  expect(result.sourceWarnings).toEqual([
+    {
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'scansioni/allegato.pdf',
+    },
+    {
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'corrotti/non-leggibile.PDF',
+    },
+  ]);
+  expect(buildAssessmentContext).not.toHaveBeenCalled();
 });
 
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {

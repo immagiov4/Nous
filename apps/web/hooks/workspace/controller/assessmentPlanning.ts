@@ -36,8 +36,10 @@ import {
 } from '../../../types.ts';
 import {
   getProjectSourceWarnings,
+  hasUsableArchiveText,
   prepareUploadedCourseSource,
   readSourceFileData,
+  UNUSABLE_ARCHIVE_SOURCE_MESSAGE,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -355,6 +357,7 @@ export const createAssessmentPlanningCommands = (
       'assessment',
       t(selectedFiles.length > 0 ? 'Preparazione sorgente...' : 'Avvio conversazione...')
     );
+    let sourceWarnings: Array<{ message: string; name: string }> = [];
 
     try {
       domain.resetDomain();
@@ -365,7 +368,6 @@ export const createAssessmentPlanningCommands = (
       let hasReliableSourceContext = false;
       let mode: 'document' | 'learn' = 'learn';
       let sourceContext: string | undefined;
-      let sourceWarnings: Array<{ message: string; name: string }> = [];
       let preparedSource: ProjectSource | null = null;
 
       if (selectedFiles.length > 0) {
@@ -442,6 +444,10 @@ export const createAssessmentPlanningCommands = (
             throw new Error('La sorgente archivio non è stata salvata.');
           }
           nextSource = saved.snapshot.source;
+          sourceWarnings = getProjectSourceWarnings(nextSource);
+          if (!hasUsableArchiveText(nextSource)) {
+            throw new Error(UNUSABLE_ARCHIVE_SOURCE_MESSAGE);
+          }
         }
 
         sourceWarnings = getProjectSourceWarnings(nextSource);
@@ -503,7 +509,7 @@ export const createAssessmentPlanningCommands = (
         }
       }
       resetInterviewClientState();
-      return { outcome: 'failed', errorMessage };
+      return { outcome: 'failed', errorMessage, sourceWarnings };
     }
   }
 

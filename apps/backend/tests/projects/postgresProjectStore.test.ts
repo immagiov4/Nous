@@ -1343,9 +1343,9 @@ describe('PostgresProjectStore', () => {
     expect(uploadedPaths[0]).toMatch(/\/original$/u);
     expect(uploadedPaths.slice(1)).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/\/entries\/[0-9a-f]{64}$/u),
-        expect.stringMatching(/\/entries\/[0-9a-f]{64}$/u),
-        expect.stringMatching(/\/entries\/[0-9a-f]{64}$/u),
+        expect.stringMatching(/\/entries\/[0-9a-f]{64}\/[0-9a-f]{64}$/u),
+        expect.stringMatching(/\/entries\/[0-9a-f]{64}\/[0-9a-f]{64}$/u),
+        expect.stringMatching(/\/entries\/[0-9a-f]{64}\/[0-9a-f]{64}$/u),
       ])
     );
     expect(
