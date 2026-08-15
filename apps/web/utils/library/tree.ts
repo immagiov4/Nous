@@ -166,31 +166,6 @@ export const buildLibraryTree = ({
   };
 };
 
-export const flattenLibraryTreeNodes = (
-  nodes: LibraryTreeNode[],
-  options?: { includeProjects?: boolean }
-): Array<LibraryTreeNode & { depth: number }> => {
-  const includeProjects = options?.includeProjects !== false;
-  const flattenedNodes: Array<LibraryTreeNode & { depth: number }> = [];
-
-  const walk = (currentNodes: LibraryTreeNode[], depth: number) => {
-    currentNodes.forEach(node => {
-      if (node.kind === 'folder') {
-        flattenedNodes.push({ ...node, depth });
-        walk(node.children, depth + 1);
-        return;
-      }
-
-      if (includeProjects) {
-        flattenedNodes.push({ ...node, depth });
-      }
-    });
-  };
-
-  walk(nodes, 0);
-  return flattenedNodes;
-};
-
 export const resolveScopedProjectIds = ({
   attachedContextRefs,
   tree,

@@ -40,6 +40,7 @@ sonar.local.properties
 ai-slop-report.json
 cookies-chromium.json
 .codex-*.png
+design-qa-*.png
 .codex-remote-attachments/
 multitasking-context-switch*.png
 multitasking-context-switch.svg
@@ -52,5 +53,7 @@ multitasking-context-switch.svg
 
 .venv/
 .temp/
+.temp/feature-map/
+tmp/
 deploy/secrets/*
 !deploy/secrets/.gitkeep
