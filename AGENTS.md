@@ -94,6 +94,10 @@ a feature is core or better left to external tools.
 ## Validation Commands
 
 ```bash
+bun run doctor        # Read-only diagnostic; defaults to the checks profile
+bun run doctor -- --profile gate   # Probe the existing local Sonar service
+bun run doctor -- --profile local  # Probe local Supabase services and migration parity
+bun run doctor -- --profile all    # Run checks plus every service probe
 bun run quality       # TypeScript type checks + Biome lint
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
 bun run gate          # Full gate: quality + fallow + tests
@@ -103,6 +107,12 @@ bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
 ```
+
+`doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without
+starting, restarting, configuring, or migrating services. The default `checks` profile runs the
+service-free checks; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all`
+combines them. `gate:full` starts with `doctor:gate`, then runs `gate`, coverage, and Sonar analysis;
+it completes every stage and exits with failure if any stage fails.
 
 Run the narrowest meaningful validation first. Before completing a non-trivial local batch,
 run `bun run gate:full`; it must still reach Sonar when an earlier stage fails. Triage every new
