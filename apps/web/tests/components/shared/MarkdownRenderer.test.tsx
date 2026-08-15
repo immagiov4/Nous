@@ -87,9 +87,9 @@ describe('MarkdownRenderer', () => {
       'true'
     );
     const highlightCaps = container.querySelectorAll('.nous-annotation-highlight-cap');
-    expect(highlightCaps).toHaveLength(4);
-    expect(container.querySelectorAll('.nous-annotation-highlight-cap-start')).toHaveLength(2);
-    expect(container.querySelectorAll('.nous-annotation-highlight-cap-end')).toHaveLength(2);
+    expect(highlightCaps).toHaveLength(2);
+    expect(container.querySelectorAll('.nous-annotation-highlight-cap-start')).toHaveLength(1);
+    expect(container.querySelectorAll('.nous-annotation-highlight-cap-end')).toHaveLength(1);
     expect(Array.from(highlightCaps).every(cap => (cap as HTMLElement).style.width === '3px')).toBe(
       true
     );
@@ -202,6 +202,118 @@ describe('MarkdownRenderer', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.ranges).toHaveLength(2);
     expect(entries[0]?.ranges.map(range => range.toString())).toEqual(['Prima', 'finale.']);
+  });
+
+  test('native persisted highlights re-anchor a repeated quote only where saved context matches', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '<p>Beta due. Beta uno.</p>';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 14,
+            exact: 'Beta',
+            prefix: 'Beta uno.',
+            start: 10,
+            suffix: 'due.',
+          },
+        },
+        createdAt: '2026-08-15T10:00:00.000Z',
+        id: 'annotation-native-repeated',
+        note: '',
+        updatedAt: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.ranges).toHaveLength(1);
+    expect(entries[0]?.ranges[0]?.toString()).toBe('Beta');
+    expect(entries[0]?.ranges[0]?.startOffset).toBe(0);
+  });
+
+  test('native persisted highlights stay hidden when the remaining duplicate mismatches context', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '<p>Beta uno.</p>';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 14,
+            exact: 'Beta',
+            prefix: 'Beta uno.',
+            start: 10,
+            suffix: 'due.',
+          },
+        },
+        createdAt: '2026-08-15T10:00:00.000Z',
+        id: 'annotation-native-orphaned',
+        note: '',
+        updatedAt: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toEqual([]);
+  });
+
+  test('keeps long multi-paragraph highlights inside paragraph ranges without side bands', () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    vi.stubGlobal('CSS', { highlights: new Map<string, TestHighlight>() });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: function (this: Range) {
+        const paragraphIndex = [
+          'Primo paragrafo lungo.',
+          'Secondo paragrafo lungo.',
+          'Terzo paragrafo lungo.',
+        ].indexOf(this.toString());
+        const top = paragraphIndex * 72;
+        return [
+          { bottom: top + 18, height: 18, left: 20, right: 80, top, width: 60 },
+          { bottom: top + 36, height: 18, left: 0, right: 100, top: top + 18, width: 100 },
+          { bottom: top + 54, height: 18, left: 10, right: 70, top: top + 36, width: 60 },
+        ];
+      },
+    });
+
+    const exact = 'Primo paragrafo lungo. Secondo paragrafo lungo. Terzo paragrafo lungo.';
+    const { container } = render(
+      <MarkdownRenderer
+        content={'Primo paragrafo lungo.\n\nSecondo paragrafo lungo.\n\nTerzo paragrafo lungo.'}
+        sectionAnnotations={[
+          {
+            anchor: {
+              kind: 'selection',
+              selector: { end: exact.length, exact, prefix: '', start: 0, suffix: '' },
+            },
+            createdAt: '2026-08-15T10:00:00.000Z',
+            id: 'annotation-multi-paragraph',
+            note: '',
+            updatedAt: '2026-08-15T10:00:00.000Z',
+          },
+        ]}
+      />
+    );
+
+    const highlight = (CSS.highlights as Map<string, TestHighlight>).get('nous-annotations');
+    expect(Array.from(highlight || []).map(range => range.toString())).toEqual([
+      'Primo paragrafo lungo.',
+      'Secondo paragrafo lungo.',
+      'Terzo paragrafo lungo.',
+    ]);
+    const startCaps = Array.from(
+      container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-cap-start')
+    );
+    const endCaps = Array.from(
+      container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-cap-end')
+    );
+    expect(startCaps).toHaveLength(3);
+    expect(endCaps).toHaveLength(3);
+    expect(startCaps.map(cap => cap.style.left)).toEqual(['17px', '17px', '17px']);
+    expect(endCaps.map(cap => cap.style.left)).toEqual(['70px', '70px', '70px']);
   });
 
   test('resolves native highlights around inline KaTeX from the canonical TeX projection', () => {
