@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
-import { test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type {
   WorkspaceControllerStateAdapter,
   WorkspaceGenerationKind,
@@ -2100,8 +2100,8 @@ test('startHomeChat persists the uploaded source before React state propagates',
     selectedFile: new File(['pdf'], 'source.pdf', { type: 'application/pdf' }),
   });
 
-  assert.equal(result.outcome, 'continued');
-  assert.equal(projectLibrary.persistedSnapshots[0]?.source?.kind, 'pdf');
+  expect(result.outcome).toBe('continued');
+  expect(projectLibrary.persistedSnapshots[0]?.source?.kind).toBe('pdf');
 });
 
 test('startHomeChat starts a durable interview with the visible user message', async () => {
@@ -2342,8 +2342,8 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
     selectedFile: new File(['opaque archive'], 'materiali.zip', { type: 'application/zip' }),
   });
 
-  assert.equal(result.outcome, 'continued');
-  assert.deepEqual(result.sourceWarnings, [
+  expect(result.outcome).toBe('continued');
+  expect(result.sourceWarnings).toEqual([
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
       name: 'scansioni/allegato.pdf',
@@ -2353,10 +2353,10 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
       name: 'corrotti/non-leggibile.PDF',
     },
   ]);
-  assert.equal(assessmentText.includes('docs/dispensa.pdf'), true);
-  assert.equal(assessmentText.includes('Testo estratto dalla dispensa'), true);
-  assert.equal(assessmentText.includes('scansioni/allegato.pdf'), true);
-  assert.equal(assessmentText.includes('note.txt'), true);
+  expect(assessmentText).toContain('docs/dispensa.pdf');
+  expect(assessmentText).toContain('Testo estratto dalla dispensa');
+  expect(assessmentText).toContain('scansioni/allegato.pdf');
+  expect(assessmentText).toContain('note.txt');
 });
 
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {
