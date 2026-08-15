@@ -1263,8 +1263,11 @@ const CourseList = ({
                     <button
                       type="button"
                       onClick={() => {
-                        void onExportProject(courseMenuProject.id).finally(() => {
-                          setOpenCourseMenu(null);
+                        const exportedProjectId = courseMenuProject.id;
+                        void onExportProject(exportedProjectId).finally(() => {
+                          setOpenCourseMenu(currentMenu =>
+                            currentMenu?.id === exportedProjectId ? null : currentMenu
+                          );
                         });
                       }}
                       disabled={isExportingProject}
