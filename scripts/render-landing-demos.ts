@@ -11,7 +11,7 @@ const RENDER_CONCURRENCY = Number.isFinite(requestedConcurrency)
   ? Math.min(8, Math.max(1, requestedConcurrency))
   : 4;
 const requestedCompositions = new Set(Bun.argv.slice(2));
-const unknownCompositions = [...requestedCompositions].filter(
+const unknownCompositions: string[] = [...requestedCompositions].filter(
   composition => !DEMO_COMPOSITIONS.includes(composition)
 );
 if (unknownCompositions.length > 0) {

@@ -14,7 +14,7 @@ Nous Reader turns uploaded documents and researched topics into personalized cou
 
 1. Install the Bun workspace dependencies:
    ```bash
-   bun install
+   bun run deps:install
    ```
 2. Copy [.env.example](.env.example) to `.env.local` and set the local Supabase keys plus `OPENROUTER_API_KEY`. `OPENAI_API_KEY` is optional.
 3. Start the app:
@@ -71,5 +71,6 @@ Authenticated sessions use server storage. Import/export remains available for m
 
 ## Useful Commands
 
-Use `bun run gate` for the complete local quality gate. See
+Use `bun run doctor` for an actionable local health report and `bun run gate` for the complete
+local quality gate. See
 [Testing and quality gates](docs/TESTING.md) for the canonical command list and CI contract.

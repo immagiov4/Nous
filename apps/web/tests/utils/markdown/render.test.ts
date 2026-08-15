@@ -28,9 +28,14 @@ test('normalizeMarkdownForRendering converts single-line cpp snippets into fence
   assert.equal(output, 'Sintassi:\n\n```cpp\nwhile (i < 5) { std::cout << i; }\n```');
 });
 
-test('normalizeMarkdownForRendering keeps ordinary prose ending in a comma as prose', () => {
-  const input = 'Una unità nascosta può calcolare, per esempio,';
-
+test.each([
+  ['ordinary prose ending in a comma', 'Una unità nascosta può calcolare, per esempio,'],
+  ['an existing fenced code block', '```cpp\n#include <iostream>\n```'],
+  [
+    'bare parenthetical prose',
+    'The result (see section A) and the note (this is important) stay as prose.',
+  ],
+])('normalizeMarkdownForRendering keeps %s unchanged', (_case, input) => {
   assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
@@ -104,12 +109,6 @@ test('normalizeMarkdownForRendering escapes disallowed raw html while preserving
   const output = normalizeMarkdownForRendering(input);
 
   assert.equal(output, 'Header &lt;iostream&gt; e <mark>focus</mark>.');
-});
-
-test('normalizeMarkdownForRendering leaves existing fenced code blocks untouched', () => {
-  const input = '```cpp\n#include <iostream>\n```';
-
-  assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
 test('normalizeMarkdownForRendering extracts trailing prose from existing fenced code blocks', () => {
@@ -467,12 +466,6 @@ test('normalizeMarkdownForRendering converts bare-paren inline math containing L
     normalizeMarkdownForRendering(input),
     'Una matrice (A) applicata a (x) produce (y = Ax). Se $A \\in \\mathbb{R}^{m\\times n}$ e $x \\in \\mathbb{R}^n$, il risultato (Ax) appartiene a $\\mathbb{R}^m$.'
   );
-});
-
-test('normalizeMarkdownForRendering leaves bare-paren spans without LaTeX commands as plain text', () => {
-  const input = 'The result (see section A) and the note (this is important) stay as prose.';
-
-  assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
 test('normalizeMarkdownForRendering does not double-convert content already inside dollar math spans', () => {

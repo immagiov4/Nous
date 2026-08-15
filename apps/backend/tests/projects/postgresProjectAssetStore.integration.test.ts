@@ -204,8 +204,10 @@ describe.skipIf(!shouldRun || !databaseUrl)('PostgresProjectAssetStore integrati
           name: 'cover.png',
         },
         project: {
+          activeSectionId: 'lesson-1',
           createdAt: '2026-07-29T10:00:00.000Z',
           id: 'archived-project',
+          isLearnMode: false,
           lastOpenedAt: '2026-07-29T10:00:00.000Z',
           learningPlan: {
             sections: [
@@ -215,7 +217,12 @@ describe.skipIf(!shouldRun || !databaseUrl)('PostgresProjectAssetStore integrati
               },
             ],
           },
+          source: null,
+          sourceKind: 'document',
+          state: 'READING',
+          syllabus: [],
           updatedAt: '2026-07-29T10:00:00.000Z',
+          userProfile: null,
           version: '4.1',
         },
       },
@@ -502,7 +509,9 @@ describe.skipIf(!shouldRun || !databaseUrl)('PostgresProjectAssetStore integrati
     await expect(projectStore.deleteProject(userId, deletionProjectId)).resolves.toBeUndefined();
 
     expect(await sql`select id from public.projects where id = ${deletionProjectId}`).toEqual([]);
-    expect(await sql`select id from public.workflow_runs where id = ${runId}`).toEqual([]);
+    expect(await sql`select id, project_id from public.workflow_runs where id = ${runId}`).toEqual([
+      { id: runId, project_id: null },
+    ]);
     expect(
       await sql`select id from public.project_assets where project_id = ${deletionProjectId}`
     ).toEqual([]);

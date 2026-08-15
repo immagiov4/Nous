@@ -226,6 +226,16 @@ interface ContextRequestState {
   toolPreferences: ContextChatToolPreferences;
 }
 
+const createContextRequestStateStore = (initialState: ContextRequestState) => {
+  let currentState = initialState;
+  return {
+    read: () => currentState,
+    write: (nextState: ContextRequestState) => {
+      currentState = nextState;
+    },
+  };
+};
+
 const buildContextDraftLesson = (
   contextAnswer: ContextAnswerState,
   requestState: ContextRequestState | undefined
@@ -378,25 +388,8 @@ function ContextAnswerPanelSession({
     contextAnswer.selectedTextStart,
   ]);
 
-  const contextRequestStateRef = useRef<ContextRequestState>({
-    attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
-    attachedAnnotationText: contextAnswer.attachedAnnotationText,
-    contextAfter: contextAnswer.contextAfter,
-    contextBefore: contextAnswer.contextBefore,
-    contextScope: contextAnswer.contextScope,
-    lessonContent: contextAnswer.lessonContent,
-    lessonDescription: contextAnswer.lessonDescription,
-    lessonTitle: contextAnswer.lessonTitle,
-    selectedText: contextAnswer.selectedText,
-    selectedTextStart: contextAnswer.selectedTextStart,
-    sourceKind: contextAnswer.sourceKind,
-    sourceMaterial: contextAnswer.sourceMaterial,
-    sourceName: contextAnswer.sourceName,
-    toolPreferences,
-  });
-
-  useEffect(() => {
-    contextRequestStateRef.current = {
+  const currentContextRequestState = useMemo<ContextRequestState>(
+    () => ({
       attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
       attachedAnnotationText: contextAnswer.attachedAnnotationText,
       contextAfter: contextAnswer.contextAfter,
@@ -411,32 +404,40 @@ function ContextAnswerPanelSession({
       sourceMaterial: contextAnswer.sourceMaterial,
       sourceName: contextAnswer.sourceName,
       toolPreferences,
-    };
-  }, [
-    contextAnswer.attachedAnnotationNote,
-    contextAnswer.attachedAnnotationText,
-    contextAnswer.contextAfter,
-    contextAnswer.contextBefore,
-    contextAnswer.contextScope,
-    contextAnswer.lessonContent,
-    contextAnswer.lessonDescription,
-    contextAnswer.lessonTitle,
-    contextAnswer.selectedText,
-    contextAnswer.selectedTextStart,
-    contextAnswer.sourceKind,
-    contextAnswer.sourceMaterial,
-    contextAnswer.sourceName,
-    toolPreferences,
-  ]);
+    }),
+    [
+      contextAnswer.attachedAnnotationNote,
+      contextAnswer.attachedAnnotationText,
+      contextAnswer.contextAfter,
+      contextAnswer.contextBefore,
+      contextAnswer.contextScope,
+      contextAnswer.lessonContent,
+      contextAnswer.lessonDescription,
+      contextAnswer.lessonTitle,
+      contextAnswer.selectedText,
+      contextAnswer.selectedTextStart,
+      contextAnswer.sourceKind,
+      contextAnswer.sourceMaterial,
+      contextAnswer.sourceName,
+      toolPreferences,
+    ]
+  );
+  const [contextRequestStateStore] = useState(() =>
+    createContextRequestStateStore(currentContextRequestState)
+  );
+
+  useEffect(() => {
+    contextRequestStateStore.write(currentContextRequestState);
+  }, [contextRequestStateStore, currentContextRequestState]);
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport<ContextChatMessage>({
         api: `${getBackendUrl()}/api/chat/context`,
         fetch: fetchWithSupabaseAuth,
-        // `useChat` keeps the initial transport instance, so request data must come from a ref.
+        // `useChat` keeps the initial transport instance, so request data comes from its stable store.
         prepareSendMessagesRequest: ({ headers, id, messages }) => {
-          const currentRequestState = contextRequestStateRef.current;
+          const currentRequestState = contextRequestStateStore.read();
 
           return {
             headers,
@@ -460,7 +461,7 @@ function ContextAnswerPanelSession({
           };
         },
       }),
-    []
+    [contextRequestStateStore]
   );
 
   const { addToolOutput, error, messages, sendMessage, status } = useChat<ContextChatMessage>({
@@ -502,7 +503,7 @@ function ContextAnswerPanelSession({
 
       if (toolCall.toolName === 'generateCurrentLessonArtifact') {
         const artifactInput = readGenerateCurrentLessonArtifactInput(toolCall.input);
-        const currentState = contextRequestStateRef.current;
+        const currentState = contextRequestStateStore.read();
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
         const allArtifactPayloads = [
           ...currentLessonArtifactPayloads,
@@ -694,7 +695,7 @@ function ContextAnswerPanelSession({
       return;
     }
 
-    const currentState = contextRequestStateRef.current;
+    const currentState = contextRequestStateStore.read();
     const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
     const mode: 'new' | 'update' = hasExistingNote ? 'update' : 'new';
     const runMutation = mode === 'update' ? onUpdateConversationNote : onSaveConversationNote;
@@ -806,7 +807,7 @@ function ContextAnswerPanelSession({
     instructions,
   }: ChatArtifactRegenerateRequest): Promise<boolean> => {
     const payload = artifactPayloadsById.get(artifactId);
-    const currentState = contextRequestStateRef.current;
+    const currentState = contextRequestStateStore.read();
     const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
     if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson)
       return false;
