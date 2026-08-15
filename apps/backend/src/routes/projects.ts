@@ -145,6 +145,18 @@ const projectImportChunkErrorStatus = (error: unknown): number => {
   return 500;
 };
 
+const readProjectImportExpectedRevision = (value: unknown): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new ProjectImportInputError('Revisione progetto non valida.');
+  }
+  try {
+    return readExpectedRevision({ expectedRevision: Number(value) });
+  } catch {
+    throw new ProjectImportInputError('Revisione progetto non valida.');
+  }
+};
+
 const parseArchiveProjectSave = async (
   req: Request,
   projectId: string
@@ -257,6 +269,7 @@ const requireProjectSnapshot = (
 const importBinaryProjectUpload = async (input: {
   body: Record<string, unknown>;
   bytes: Uint8Array;
+  expectedRevision?: number;
   store: ReturnType<typeof getProjectStore>;
   userId: string;
 }) => {
@@ -290,7 +303,7 @@ const importBinaryProjectUpload = async (input: {
     throw new ProjectImportInputError('Metadati della sorgente archivio non validi.');
   }
   return input.store.saveProject(input.userId, snapshot, {
-    expectedRevision: readExpectedRevision(input.body),
+    expectedRevision: input.expectedRevision ?? readExpectedRevision(input.body),
     sourceFile: { bytes: input.bytes, name: sourceFile.name, mimeType: sourceFile.mimeType },
   });
 };
@@ -850,6 +863,7 @@ router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Res
       chunkIndex: readOptionalSafeInteger(Number(getRouteParam(req.params.chunkIndex))) ?? -1,
       chunkCount: readOptionalSafeInteger(Number(req.query.chunkCount)) ?? -1,
       chunk,
+      expectedRevision: readProjectImportExpectedRevision(req.query.expectedRevision),
     });
     res.status(202).json({ success: true, complete: false, ...result });
   } catch (error) {
@@ -923,10 +937,11 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
         publishMetaRevision(userId, imported.meta);
         return { projectId: imported.meta.id, meta: imported.meta };
       },
-      importBinary: async bytes => {
+      importBinary: async (bytes, expectedRevision) => {
         const imported = await importBinaryProjectUpload({
           body: completionBody,
           bytes,
+          expectedRevision,
           store,
           userId,
         });

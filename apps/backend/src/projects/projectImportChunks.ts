@@ -24,6 +24,7 @@ interface ProjectImportChunk {
   chunk: string | Uint8Array;
   chunkCount: number;
   chunkIndex: number;
+  expectedRevision?: number;
   uploadId: string;
   userId: string;
 }
@@ -44,6 +45,7 @@ interface UploadSession {
   completed?: CompletedImport;
   completion?: Promise<CompletedImport>;
   directory: string;
+  expectedRevision?: number;
   format: 'binary' | 'text';
   key: string;
   lock: Promise<void>;
@@ -206,6 +208,7 @@ const createSession = async (input: ProjectImportChunk): Promise<UploadSession> 
     chunkCount: input.chunkCount,
     chunks: new Map(),
     directory,
+    expectedRevision: input.expectedRevision,
     format: typeof input.chunk === 'string' ? 'text' : 'binary',
     key,
     lock: Promise.resolve(),
@@ -272,6 +275,9 @@ export const storeProjectImportChunk = async (
     }
     if (session.format !== (typeof input.chunk === 'string' ? 'text' : 'binary')) {
       throw new ProjectImportInputError('Il formato delle parti del backup non e coerente.');
+    }
+    if (session.expectedRevision !== input.expectedRevision) {
+      throw new ProjectImportInputError('La revisione del progetto non e coerente.');
     }
 
     const digest = createHash('sha256').update(input.chunk).digest('hex');
@@ -340,7 +346,7 @@ export const getProjectImportUploadStatus = (
 const assembleAndImport = async (
   session: UploadSession,
   importData?: (data: unknown) => Promise<CompletedImport>,
-  importBinary?: (bytes: Uint8Array) => Promise<CompletedImport>
+  importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>
 ): Promise<CompletedImport> => {
   const assembledPath = join(session.directory, 'assembled');
   await writeFile(assembledPath, '', { flag: 'wx', mode: 0o600 });
@@ -353,7 +359,7 @@ const assembleAndImport = async (
 
   if (session.format === 'binary') {
     if (!importBinary) throw new ProjectImportInputError('Formato del backup non valido.');
-    return importBinary(new Uint8Array(await readFile(assembledPath)));
+    return importBinary(new Uint8Array(await readFile(assembledPath)), session.expectedRevision);
   }
 
   if (!importData) throw new ProjectImportInputError('Formato del backup non valido.');
@@ -375,7 +381,7 @@ export const completeProjectImportUpload = async ({
   uploadId,
   userId,
 }: {
-  importBinary?: (bytes: Uint8Array) => Promise<CompletedImport>;
+  importBinary?: (bytes: Uint8Array, expectedRevision?: number) => Promise<CompletedImport>;
   importData?: (data: unknown) => Promise<CompletedImport>;
   uploadId: string;
   userId: string;

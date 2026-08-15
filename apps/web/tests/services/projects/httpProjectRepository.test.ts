@@ -699,10 +699,10 @@ test('HttpProjectRepository preserves the expected revision when saving chunked 
 
   expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(fetchMock.mock.calls.slice(1, 3).every(call => call[1]?.body instanceof Blob)).toBe(true);
+  expect(
+    fetchMock.mock.calls.slice(1, 3).every(call => String(call[0]).includes('expectedRevision=7'))
+  ).toBe(true);
   expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
-  expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toMatchObject({
-    expectedRevision: 7,
-  });
 });
 
 test('HttpProjectRepository does not fall back to Base64 JSON for archives', async () => {
