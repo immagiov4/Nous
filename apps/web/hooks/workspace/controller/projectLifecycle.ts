@@ -31,7 +31,11 @@ import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
 } from '../../../utils/pdf/projectHydration.ts';
-import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
+import {
+  getProjectSourceWarnings,
+  prepareUploadedCourseSource,
+  readSourceFileData,
+} from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -221,12 +225,7 @@ export const createProjectLifecycleCommands = (
         throw new Error('Unable to prepare project source');
       }
 
-      const sourceWarnings = (nextSource.sources || [])
-        .filter(source => source.status === 'error')
-        .map(source => ({
-          message: source.errorMessage || 'Questa fonte non è utilizzabile.',
-          name: source.name,
-        }));
+      let sourceWarnings = getProjectSourceWarnings(nextSource);
 
       if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
         state.setWorkflowMessage('attachSource', requestId, t('Verifica testo PDF...'));
@@ -299,6 +298,7 @@ export const createProjectLifecycleCommands = (
         throw new Error('La sorgente del progetto non è stata salvata.');
       }
       nextSource = saved.snapshot.source;
+      sourceWarnings = getProjectSourceWarnings(nextSource);
       domain.setSource(nextSource);
       projectLibrary.setProjectHydrated(true);
       state.succeedWorkflow('attachSource', requestId);

@@ -64,6 +64,7 @@ import {
 import {
   PROJECT_SOURCE_ARCHIVE_LIMITS,
   PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
+  prepareSourceArchiveFile,
   streamSourceArchive,
 } from './sourceArchive.js';
 import type {
@@ -2057,6 +2058,7 @@ export class PostgresProjectStore implements ProjectStore {
             });
             continue;
           }
+          const storedEntry = await prepareSourceArchiveFile(entry);
           const objectPath = buildProjectSourceEntryObjectPath(
             userId,
             projectId,
@@ -2065,17 +2067,17 @@ export class PostgresProjectStore implements ProjectStore {
             entry.path
           );
           prepared.archiveEntries.push({
-            byte_size: entry.byteSize,
-            content_kind: entry.text === undefined ? 'binary' : 'text',
-            kind: entry.kind,
+            byte_size: storedEntry.byteSize,
+            content_kind: storedEntry.text === undefined ? 'binary' : 'text',
+            kind: storedEntry.kind,
             object_path: objectPath,
-            path: entry.path,
-            preview: entry.preview ?? null,
-            source_hash: entry.hash,
+            path: storedEntry.path,
+            preview: storedEntry.preview ?? null,
+            source_hash: storedEntry.hash,
           });
           await scheduleUpload({
-            bytes: entry.content,
-            mimeType: entry.text === undefined ? 'application/octet-stream' : 'text/plain',
+            bytes: storedEntry.content,
+            mimeType: storedEntry.text === undefined ? 'application/octet-stream' : 'text/plain',
             path: objectPath,
           });
         }

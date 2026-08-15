@@ -1,7 +1,16 @@
 import { createHash } from 'node:crypto';
 import { SOURCE_ARCHIVE_PREVIEW_MAX_CHARS } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+const pdfTextExtractorMocks = vi.hoisted(() => ({
+  extractPdfText: vi.fn(),
+}));
+
+vi.mock('../../src/services/pdfTextExtractor.js', () => ({
+  extractPdfText: pdfTextExtractorMocks.extractPdfText,
+}));
+
 import { indexSourceArchive, type SourceArchiveLimits } from '../../src/projects/sourceArchive.js';
 
 const textEncoder = new TextEncoder();
@@ -54,11 +63,78 @@ const replaceAscii = (bytes: Uint8Array, from: string, to: string) => {
   return result;
 };
 
+beforeEach(() => {
+  pdfTextExtractorMocks.extractPdfText.mockReset();
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe('indexSourceArchive', () => {
+  test('indexes usable PDF text by ZIP path and keeps unreadable PDFs isolated', async () => {
+    const validPdfBytes = textEncoder.encode('%PDF-valid');
+    const scannedPdfBytes = textEncoder.encode('%PDF-scanned');
+    const unreadablePdfBytes = textEncoder.encode('%PDF-unreadable');
+    const notes = 'Materiale testuale valido';
+    const archive = await createArchive([
+      { content: validPdfBytes, path: 'docs/a-valid.PDF', type: 'file' },
+      { content: scannedPdfBytes, path: 'docs/b-scanned.pdf', type: 'file' },
+      { content: unreadablePdfBytes, path: 'docs/c-unreadable.pdf', type: 'file' },
+      { content: notes, path: 'docs/notes.txt', type: 'file' },
+    ]);
+    pdfTextExtractorMocks.extractPdfText
+      .mockResolvedValueOnce({ text: 'Capitolo estratto dal PDF' })
+      .mockResolvedValueOnce({ text: '   ' })
+      .mockRejectedValueOnce(new Error('scanned document'));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    expect(pdfTextExtractorMocks.extractPdfText.mock.calls).toEqual([
+      [`data:application/pdf;base64,${Buffer.from(validPdfBytes).toString('base64')}`],
+      [`data:application/pdf;base64,${Buffer.from(scannedPdfBytes).toString('base64')}`],
+      [`data:application/pdf;base64,${Buffer.from(unreadablePdfBytes).toString('base64')}`],
+    ]);
+    expect(result.entries.find(entry => entry.path === 'docs/a-valid.PDF')).toMatchObject({
+      byteSize: textEncoder.encode('Capitolo estratto dal PDF').byteLength,
+      content: textEncoder.encode('Capitolo estratto dal PDF'),
+      hash: createHash('sha256').update('Capitolo estratto dal PDF').digest('hex'),
+      kind: 'file',
+      path: 'docs/a-valid.PDF',
+      preview: 'Capitolo estratto dal PDF',
+      text: 'Capitolo estratto dal PDF',
+    });
+    const scannedEntry = result.entries.find(entry => entry.path === 'docs/b-scanned.pdf');
+    expect(scannedEntry).toMatchObject({
+      byteSize: scannedPdfBytes.byteLength,
+      content: scannedPdfBytes,
+      hash: createHash('sha256').update(scannedPdfBytes).digest('hex'),
+      kind: 'file',
+      path: 'docs/b-scanned.pdf',
+    });
+    expect(scannedEntry).not.toHaveProperty('preview');
+    expect(scannedEntry).not.toHaveProperty('text');
+    expect(result.entries.find(entry => entry.path === 'docs/c-unreadable.pdf')).toMatchObject({
+      byteSize: unreadablePdfBytes.byteLength,
+      content: unreadablePdfBytes,
+      hash: createHash('sha256').update(unreadablePdfBytes).digest('hex'),
+      kind: 'file',
+      path: 'docs/c-unreadable.pdf',
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/notes.txt')).toMatchObject({
+      kind: 'file',
+      path: 'docs/notes.txt',
+      text: notes,
+    });
+    expect(result.totalExpandedBytes).toBe(
+      validPdfBytes.byteLength +
+        scannedPdfBytes.byteLength +
+        textEncoder.encode(notes).byteLength +
+        unreadablePdfBytes.byteLength
+    );
+  });
+
   test('builds a complete lexicographic tree and preserves every file byte', async () => {
     const sourceLines = Array.from({ length: 26 }, (_, index) => `line ${index + 1}`);
     const sourceText = sourceLines.join('\r\n');

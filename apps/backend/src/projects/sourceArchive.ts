@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 
 import { createSourceArchivePreview } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
+import { extractPdfText } from '../services/pdfTextExtractor.js';
+import { encodePdfDataUrl } from '../utils/pdfDataUrl.js';
 
 export interface SourceArchiveLimits {
   maxEntries: number;
@@ -338,6 +340,44 @@ const compareEntryPaths = (
   right: Pick<SourceArchiveEntry, 'path'>
 ) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
 
+const isPdfArchivePath = (path: string): boolean => path.toLowerCase().endsWith('.pdf');
+
+export const prepareSourceArchiveFile = async (
+  entry: SourceArchiveFileEntry
+): Promise<SourceArchiveFileEntry> => {
+  if (!isPdfArchivePath(entry.path)) {
+    return entry;
+  }
+
+  try {
+    const extractedText = (await extractPdfText(encodePdfDataUrl(entry.content))).text.trim();
+    if (extractedText) {
+      const content = new TextEncoder().encode(extractedText);
+      return {
+        ...entry,
+        byteSize: content.byteLength,
+        content,
+        hash: createHash('sha256').update(content).digest('hex'),
+        preview: createSourceArchivePreview(extractedText),
+        text: extractedText,
+      };
+    }
+  } catch (error) {
+    console.warn('[Backend] PDF text extraction failed for a source archive entry.', {
+      error,
+      path: entry.path,
+    });
+  }
+
+  return {
+    byteSize: entry.byteSize,
+    content: entry.content,
+    hash: entry.hash,
+    kind: 'file',
+    path: entry.path,
+  };
+};
+
 export async function* streamSourceArchive(
   archiveBytes: Uint8Array,
   limits: SourceArchiveLimits
@@ -414,10 +454,12 @@ export const indexSourceArchive = async (
   let fileCount = 0;
   let totalExpandedBytes = 0;
   for await (const entry of streamSourceArchive(archiveBytes, limits)) {
-    entries.push(entry);
     if (entry.kind === 'file') {
       fileCount += 1;
       totalExpandedBytes += entry.byteSize;
+      entries.push(await prepareSourceArchiveFile(entry));
+    } else {
+      entries.push(entry);
     }
   }
   return {
