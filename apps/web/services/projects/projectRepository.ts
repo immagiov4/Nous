@@ -21,6 +21,8 @@ export const PROJECT_COVER_REVISION_CONFLICT_MESSAGE =
   'Il corso è cambiato prima del salvataggio della cover.';
 export const PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE =
   'L’archivio sorgente è cambiato. Ricarica il progetto e riprova.';
+export const PROJECT_REQUEST_TOO_LARGE_MESSAGE =
+  'La richiesta supera il limite di dimensione del server (HTTP 413).';
 export const REMOTE_PROJECT_DELETED_MESSAGE = 'Questo corso è stato cancellato';
 
 export class ProjectStorageError extends Error {
@@ -32,11 +34,19 @@ export class ProjectStorageError extends Error {
     | 'revision-conflict'
     | 'source-archive-changed'
     | 'unknown';
+  readonly httpStatus?: number;
+  readonly responseContentType?: string;
 
-  constructor(message: string, code: ProjectStorageError['code'] = 'unknown') {
+  constructor(
+    message: string,
+    code: ProjectStorageError['code'] = 'unknown',
+    response?: { contentType?: string; status?: number }
+  ) {
     super(message);
     this.name = 'ProjectStorageError';
     this.code = code;
+    this.httpStatus = response?.status;
+    this.responseContentType = response?.contentType;
   }
 }
 

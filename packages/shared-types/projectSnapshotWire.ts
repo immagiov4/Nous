@@ -327,6 +327,22 @@ const validateSourceDescriptors = (value: unknown): void => {
   }
 };
 
+const hasPrimarySourceDescriptor = (
+  source: Record<string, unknown>,
+  file: Record<string, unknown>
+): boolean => {
+  if (!hasNonEmptyString(file, 'sourceId') || !Array.isArray(source.sources)) {
+    return false;
+  }
+  return source.sources.some(
+    descriptor =>
+      isRecord(descriptor) &&
+      descriptor.id === file.sourceId &&
+      isRecord(descriptor.file) &&
+      descriptor.file.sourceId === file.sourceId
+  );
+};
+
 const validateArchiveIndex = (value: unknown): void => {
   if (!isRecord(value) || !Array.isArray(value.entries)) {
     throw new ProjectSnapshotWireError('Sorgente archivio non valida: index.');
@@ -351,13 +367,16 @@ const validateCanonicalSource = (
   source: Record<string, unknown>,
   options: ProjectSnapshotWireDecodeOptions
 ): void => {
+  validateSourceDescriptors(source.sources);
+  const sourceFile = isRecord(source.file) ? source.file : {};
   const file = readValidSourceFile(
     source.file,
     source.ref,
     'Sorgente progetto non valida: file.',
-    source.kind !== 'archive' || !options.externalArchiveBytesAvailable
+    source.kind === 'archive'
+      ? !options.externalArchiveBytesAvailable
+      : !hasPrimarySourceDescriptor(source, sourceFile)
   );
-  validateSourceDescriptors(source.sources);
   if (source.kind === 'pdf' && file.mimeType !== 'application/pdf') {
     throw new ProjectSnapshotWireError('Sorgente PDF non valida: mimeType.');
   }
