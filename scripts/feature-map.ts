@@ -56,6 +56,11 @@ interface BackendRoute {
   sourceLine: number;
 }
 
+interface RouterMount {
+  prefix?: string;
+  target: string;
+}
+
 interface FeatureMapModule {
   classifications: FeatureMapClassification[];
   evidence: string[];
@@ -94,22 +99,34 @@ interface FeatureMap {
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const;
 const GENERATED_DIRECTORIES = new Set(['dist']);
+const WEB_SCAN_EXCLUDED_DIRECTORIES = new Set([...GENERATED_DIRECTORIES, 'tests']);
 const LOCAL_PREFIXES = ['.', '@/', '@shared/'] as const;
 const HTTP_METHODS = new Set(['delete', 'get', 'patch', 'post', 'put']);
+const GIT_EXECUTABLE =
+  process.platform === 'win32'
+    ? path.join(process.env.ProgramFiles ?? String.raw`C:\Program Files`, 'Git', 'cmd', 'git.exe')
+    : '/usr/bin/git';
 
 const toRepoPath = (repoRoot: string, absolutePath: string): string =>
   path.relative(repoRoot, absolutePath).replaceAll('\\', '/');
 
-const compareText = (left: string, right: string): number =>
-  left < right ? -1 : left > right ? 1 : 0;
+const compareText = (left: string, right: string): number => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
 
-const collectSourceFiles = (root: string): string[] => {
-  if (!statSync(root).isDirectory()) return [];
+const collectSourceFiles = (
+  root: string,
+  excludedDirectories = GENERATED_DIRECTORIES
+): string[] => {
   return readdirSync(root, { withFileTypes: true })
     .flatMap(entry => {
       const absolutePath = path.join(root, entry.name);
       if (entry.isDirectory()) {
-        return GENERATED_DIRECTORIES.has(entry.name) ? [] : collectSourceFiles(absolutePath);
+        return excludedDirectories.has(entry.name)
+          ? []
+          : collectSourceFiles(absolutePath, excludedDirectories);
       }
       return SOURCE_EXTENSIONS.some(extension => entry.name.endsWith(extension))
         ? [absolutePath]
@@ -200,7 +217,7 @@ export const extractImportEdges = (repoRoot: string, absolutePath: string): Impo
 const findHtmlEntrypoint = (repoRoot: string): DiscoveredEntrypoint => {
   const htmlPath = path.join(repoRoot, 'apps/web/index.html');
   const html = readFileSync(htmlPath, 'utf8');
-  const scriptPath = html.match(/<script[^>]+type=["']module["'][^>]+src=["']([^"']+)["']/u)?.[1];
+  const scriptPath = /<script[^>]+type=["']module["'][^>]+src=["']([^"']+)["']/u.exec(html)?.[1];
   if (!scriptPath)
     throw new Error('Unable to discover the Vite module entrypoint from index.html.');
   const absolutePath = resolveWithExtensions(
@@ -322,6 +339,56 @@ const routerBindingName = (expression: ts.Expression): string | undefined => {
   return undefined;
 };
 
+const isBackendRouteModule = (repoRoot: string, target: string): boolean =>
+  toRepoPath(repoRoot, target).startsWith('apps/backend/src/routes/');
+
+const extractRouterMounts = (
+  repoRoot: string,
+  bindings: Map<string, string>,
+  node: ts.Node
+): RouterMount[] => {
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isPropertyAccessExpression(node.expression) ||
+    node.expression.name.text !== 'use'
+  ) {
+    return [];
+  }
+
+  const prefix = readStringLiteral(node.arguments[0]);
+  const routerArguments = prefix ? node.arguments.slice(1) : node.arguments;
+  return routerArguments.flatMap(argument => {
+    const binding = routerBindingName(argument);
+    const target = binding ? bindings.get(binding) : undefined;
+    return target && isBackendRouteModule(repoRoot, target) ? [{ prefix, target }] : [];
+  });
+};
+
+const extractHttpRoute = (
+  repoRoot: string,
+  absolutePath: string,
+  prefix: string,
+  sourceFile: ts.SourceFile,
+  node: ts.Node
+): BackendRoute | undefined => {
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isPropertyAccessExpression(node.expression) ||
+    !HTTP_METHODS.has(node.expression.name.text)
+  ) {
+    return undefined;
+  }
+
+  const routePath = readStringLiteral(node.arguments[0]);
+  if (routePath === undefined) return undefined;
+  return {
+    method: node.expression.name.text.toUpperCase(),
+    path: `${prefix}${routePath === '/' ? '' : routePath}` || '/',
+    source: toRepoPath(repoRoot, absolutePath),
+    sourceLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+  };
+};
+
 const extractRouterRoutes = (
   repoRoot: string,
   absolutePath: string,
@@ -335,37 +402,12 @@ const extractRouterRoutes = (
   const bindings = getImportedBindings(repoRoot, absolutePath);
   const routes: BackendRoute[] = [];
   const visit = (node: ts.Node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      HTTP_METHODS.has(node.expression.name.text)
-    ) {
-      const routePath = readStringLiteral(node.arguments[0]);
-      if (routePath !== undefined) {
-        routes.push({
-          method: node.expression.name.text.toUpperCase(),
-          path: `${prefix}${routePath === '/' ? '' : routePath}` || '/',
-          source: toRepoPath(repoRoot, absolutePath),
-          sourceLine: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
-        });
-      }
-    }
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'use'
-    ) {
-      const nestedPrefix = readStringLiteral(node.arguments[0]);
-      const routerArguments = nestedPrefix ? node.arguments.slice(1) : node.arguments;
-      for (const argument of routerArguments) {
-        const binding = routerBindingName(argument);
-        const target = binding ? bindings.get(binding) : undefined;
-        if (target && toRepoPath(repoRoot, target).startsWith('apps/backend/src/routes/')) {
-          routes.push(
-            ...extractRouterRoutes(repoRoot, target, `${prefix}${nestedPrefix ?? ''}`, visited)
-          );
-        }
-      }
+    const route = extractHttpRoute(repoRoot, absolutePath, prefix, sourceFile, node);
+    if (route) routes.push(route);
+    for (const mount of extractRouterMounts(repoRoot, bindings, node)) {
+      routes.push(
+        ...extractRouterRoutes(repoRoot, mount.target, `${prefix}${mount.prefix ?? ''}`, visited)
+      );
     }
     ts.forEachChild(node, visit);
   };
@@ -380,21 +422,8 @@ export const discoverBackendRoutes = (repoRoot: string): BackendRoute[] => {
   const sourceFile = ts.createSourceFile(indexPath, sourceText, ts.ScriptTarget.Latest, true);
   const mounts: Array<{ prefix: string; target: string }> = [];
   const visit = (node: ts.Node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'use'
-    ) {
-      const prefix = readStringLiteral(node.arguments[0]);
-      if (prefix) {
-        for (const argument of node.arguments.slice(1)) {
-          const binding = routerBindingName(argument);
-          const target = binding ? bindings.get(binding) : undefined;
-          if (target && toRepoPath(repoRoot, target).startsWith('apps/backend/src/routes/')) {
-            mounts.push({ prefix, target });
-          }
-        }
-      }
+    for (const mount of extractRouterMounts(repoRoot, bindings, node)) {
+      if (mount.prefix) mounts.push({ prefix: mount.prefix, target: mount.target });
     }
     ts.forEachChild(node, visit);
   };
@@ -460,7 +489,7 @@ const readObservations = async (observationDirectory: string): Promise<FeatureMa
 };
 
 const gitValue = (repoRoot: string, argumentsValue: string[]): string => {
-  const result = spawnSync('git', argumentsValue, { cwd: repoRoot, encoding: 'utf8' });
+  const result = spawnSync(GIT_EXECUTABLE, argumentsValue, { cwd: repoRoot, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
 };
@@ -469,8 +498,9 @@ export const buildFeatureMap = async (
   repoRoot: string,
   observationDirectory = path.join(repoRoot, 'tmp/feature-map-observations')
 ): Promise<FeatureMap> => {
-  const webFiles = collectSourceFiles(path.join(repoRoot, 'apps/web')).filter(
-    filePath => !filePath.includes(`${path.sep}tests${path.sep}`)
+  const webFiles = collectSourceFiles(
+    path.join(repoRoot, 'apps/web'),
+    WEB_SCAN_EXCLUDED_DIRECTORIES
   );
   const testFiles = collectSourceFiles(path.join(repoRoot, 'apps/web/tests'));
   const allFiles = [
@@ -597,15 +627,17 @@ export const buildFeatureMap = async (
       usage: 'unknown' as const,
     }));
 
+  gaps.sort((left, right) =>
+    compareText(
+      `${left.kind}:${left.source}:${left.detail}`,
+      `${right.kind}:${right.source}:${right.detail}`
+    )
+  );
+
   return {
     backendRoutes,
     entrypoints,
-    gaps: gaps.sort((left, right) =>
-      compareText(
-        `${left.kind}:${left.source}:${left.detail}`,
-        `${right.kind}:${right.source}:${right.detail}`
-      )
-    ),
+    gaps,
     generatedFrom: {
       command: 'bun run feature-map',
       commitSha: gitValue(repoRoot, ['rev-parse', 'HEAD']),
@@ -624,6 +656,19 @@ export const buildFeatureMap = async (
 };
 
 const FEATURE_MAP_OUTPUT_DIRECTORY = '.temp/feature-map';
+
+const joinFeatureMapCells = (values: string[]): string => values.join('<br>') || '—';
+
+const renderJourneyRow = (journey: FeatureMapObservation): string => {
+  const network = journey.network.map(
+    request => `${request.method} ${request.path} → ${request.status}`
+  );
+  const workflows = journey.workflows.map(
+    workflow => `${workflow.runId}: ${workflow.status} (${workflow.event})`
+  );
+  const persistence = journey.persistence.map(proof => `${proof.kind}: ${proof.proof}`);
+  return `| ${journey.title} | ${journey.browser.environment}/${journey.browser.viewport} | ${joinFeatureMapCells(network)} | ${joinFeatureMapCells(workflows)} | ${joinFeatureMapCells(persistence)} | ${joinFeatureMapCells(journey.limitations)} |`;
+};
 
 export const renderFeatureMapMarkdown = (featureMap: FeatureMap): string => {
   const classificationCounts = new Map<FeatureMapClassification, number>();
@@ -664,10 +709,7 @@ export const renderFeatureMapMarkdown = (featureMap: FeatureMap): string => {
     '',
     '| Journey | Browser | Network | Workflow | Persistence | Limits |',
     '| --- | --- | --- | --- | --- | --- |',
-    ...featureMap.journeys.map(
-      journey =>
-        `| ${journey.title} | ${journey.browser.environment}/${journey.browser.viewport} | ${journey.network.map(request => `${request.method} ${request.path} → ${request.status}`).join('<br>') || '—'} | ${journey.workflows.map(workflow => `${workflow.runId}: ${workflow.status} (${workflow.event})`).join('<br>') || '—'} | ${journey.persistence.map(proof => `${proof.kind}: ${proof.proof}`).join('<br>') || '—'} | ${journey.limitations.join('<br>') || '—'} |`
-    ),
+    ...featureMap.journeys.map(renderJourneyRow),
     '',
     '## Legacy candidates',
     '',
