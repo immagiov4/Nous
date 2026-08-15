@@ -8,6 +8,21 @@ import type {
 } from './types.js';
 
 const LEARNING_PLAN_NOT_FOUND_ERROR = 'Learning plan non trovato';
+const NAVIGATION_PATCH_FIELDS = new Set<keyof ProjectPatch>([
+  'activeSectionId',
+  'state',
+  'updatedAt',
+]);
+
+export const isNavigationProjectPatch = (patch: ProjectPatch): boolean => {
+  const populatedFields = Object.entries(patch)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key as keyof ProjectPatch);
+  return (
+    populatedFields.includes('activeSectionId') &&
+    populatedFields.every(field => NAVIGATION_PATCH_FIELDS.has(field))
+  );
+};
 
 const applySectionPatchToNode = (
   node: LearningPlanNodeSnapshot,

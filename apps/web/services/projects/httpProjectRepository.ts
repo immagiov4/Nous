@@ -1,3 +1,4 @@
+import { PROJECT_API_ERROR_CODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import {
   type DecodedProjectSnapshotWire,
@@ -23,7 +24,9 @@ import { getBackendUrl } from '../openrouter/config.ts';
 import { attachStoredSources, getCourseSourceDescriptors } from './courseSources.ts';
 import type { ProjectRepository, ProjectSaveOptions, ProjectSaveResult } from './projectRepository';
 import {
+  PROJECT_COVER_REVISION_CONFLICT_MESSAGE,
   PROJECT_REVISION_CONFLICT_MESSAGE,
+  PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE,
   PROJECT_SYNC_ERROR_MESSAGE,
   ProjectStorageError,
   REMOTE_PROJECT_DELETED_MESSAGE,
@@ -32,6 +35,7 @@ import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
 import { exportProjectData, normalizeStoredProject } from './projectSnapshot.ts';
 
 interface ApiResponse {
+  code?: string;
   complete?: boolean;
   cover?: FileData | null;
   ready?: boolean;
@@ -123,9 +127,11 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
   return new ProjectStorageError(PROJECT_SYNC_ERROR_MESSAGE, 'persistence-failed');
 };
 
-const responseErrorCode = (status: number): ProjectStorageError['code'] => {
+const responseErrorCode = (status: number, apiCode?: string): ProjectStorageError['code'] => {
   if (status === 404) return 'project-deleted';
-  if (status === 409) return 'revision-conflict';
+  if (apiCode === PROJECT_API_ERROR_CODE.revisionConflict) return 'revision-conflict';
+  if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
+  if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveChanged) return 'source-archive-changed';
   if (status === 429) return 'quota-exceeded';
   return 'persistence-failed';
 };
@@ -133,6 +139,8 @@ const responseErrorCode = (status: number): ProjectStorageError['code'] => {
 function responseErrorMessage(code: ProjectStorageError['code']): string {
   if (code === 'project-deleted') return REMOTE_PROJECT_DELETED_MESSAGE;
   if (code === 'revision-conflict') return PROJECT_REVISION_CONFLICT_MESSAGE;
+  if (code === 'cover-revision-conflict') return PROJECT_COVER_REVISION_CONFLICT_MESSAGE;
+  if (code === 'source-archive-changed') return PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE;
   return PROJECT_SYNC_ERROR_MESSAGE;
 }
 
@@ -766,7 +774,7 @@ export class HttpProjectRepository implements ProjectRepository {
       const data = await readApiResponse<T>(response);
 
       if (!response.ok || data.success === false) {
-        const errorCode = responseErrorCode(response.status);
+        const errorCode = responseErrorCode(response.status, data.code);
         throw new ProjectStorageError(
           data.error || response.statusText || 'Richiesta server non riuscita.',
           errorCode

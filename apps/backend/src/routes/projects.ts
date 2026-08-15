@@ -3,7 +3,12 @@
 import { Readable } from 'node:stream';
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
 import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
-import { PROJECT_REVISION_RESYNC_EVENT } from '@shared/projectContract';
+import {
+  PROJECT_API_ERROR_CODE,
+  PROJECT_PATCH_REBASE_MODE,
+  PROJECT_REVISION_RESYNC_EVENT,
+  type ProjectPatchRebaseMode,
+} from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import {
   decodeProjectSnapshotWire,
@@ -27,6 +32,7 @@ import {
   storeProjectImportChunk,
 } from '../projects/projectImportChunks.js';
 import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js';
+import { isNavigationProjectPatch } from '../projects/projectPatch.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import { PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES } from '../projects/sourceArchive.js';
@@ -116,6 +122,16 @@ const readExpectedRevision = (body: Record<string, unknown>): number | undefined
   return body.expectedRevision as number;
 };
 
+const readProjectPatchRebaseMode = (
+  body: Record<string, unknown>
+): ProjectPatchRebaseMode | undefined => {
+  if (body.rebaseMode === undefined) return undefined;
+  if (body.rebaseMode !== PROJECT_PATCH_REBASE_MODE.navigation) {
+    throw new Error('Modalità di rebase progetto non valida.');
+  }
+  return body.rebaseMode;
+};
+
 const readProjectImportChunk = (req: Request): string | Uint8Array => {
   if (req.is('application/octet-stream')) {
     return Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : new Uint8Array();
@@ -203,6 +219,10 @@ const sendProjectWriteError = (
   fallbackMessage: string,
   fallbackStatus = 400
 ): void => {
+  if (error instanceof ProjectRevisionConflictError) {
+    res.status(409).json({ code: error.code, error: error.message, success: false });
+    return;
+  }
   sendErrorResponse(
     res,
     error instanceof ProjectNotFoundError
@@ -287,6 +307,8 @@ const requireSourceArchiveSelector = (value: unknown): SourceArchiveSelector => 
 };
 
 class SourceArchiveVersionMismatchError extends Error {
+  readonly code = PROJECT_API_ERROR_CODE.sourceArchiveChanged;
+
   constructor() {
     super('L’archivio sorgente è cambiato. Ricarica il progetto e riprova.');
     this.name = 'SourceArchiveVersionMismatchError';
@@ -600,12 +622,11 @@ router.post('/projects/:id/source/archive/query', async (req: Request, res: Resp
     }
     res.json({ success: true, result });
   } catch (error) {
-    sendErrorResponse(
-      res,
-      error instanceof SourceArchiveVersionMismatchError ? 409 : 400,
-      error,
-      'Failed to query project source archive'
-    );
+    if (error instanceof SourceArchiveVersionMismatchError) {
+      res.status(409).json({ code: error.code, error: error.message, success: false });
+      return;
+    }
+    sendErrorResponse(res, 400, error, 'Failed to query project source archive');
   }
 });
 
@@ -630,6 +651,7 @@ router.post('/projects/:id/cover', async (req: Request, res: Response) => {
     );
     if (!saved) {
       res.status(409).json({
+        code: PROJECT_API_ERROR_CODE.coverRevisionConflict,
         success: false,
         error: 'Il corso è cambiato prima del salvataggio della cover.',
       });
@@ -749,8 +771,13 @@ router.patch('/projects/:id', async (req: Request, res: Response) => {
     const projectId = getRouteParam(req.params.id);
     const userId = getCurrentUser(req).id;
     const patch = requireProjectPatch(body, projectId);
+    const rebaseMode = readProjectPatchRebaseMode(body);
+    if (rebaseMode === PROJECT_PATCH_REBASE_MODE.navigation && !isNavigationProjectPatch(patch)) {
+      throw new Error('Il rebase di navigazione accetta solo campi di navigazione.');
+    }
     const meta = await getProjectStore().patchProject(userId, projectId, patch, {
       expectedRevision: readExpectedRevision(body),
+      rebaseMode,
     });
     publishMetaRevision(userId, meta);
     res.json({ success: true, meta });
@@ -913,15 +940,11 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
     }
     res.json({ success: true, complete: true, meta: completed.meta, snapshot });
   } catch (error) {
-    sendErrorResponse(
+    sendProjectWriteError(
       res,
-      error instanceof ProjectRevisionConflictError
-        ? 409
-        : error instanceof ProjectImportInputError
-          ? 400
-          : 500,
       error,
-      'Failed to complete project import'
+      'Failed to complete project import',
+      error instanceof ProjectImportInputError ? 400 : 500
     );
   }
 });

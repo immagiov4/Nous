@@ -170,6 +170,42 @@ describe('patchProjectInTransaction', () => {
     });
   });
 
+  test('waits for the project lock when applying a safely rebasable patch', async () => {
+    const { calls, sql } = createTransactionSql([
+      [
+        {
+          document_index: null,
+          meta: STORED_META,
+          revision: '5',
+          snapshot: {
+            ...STORED_SNAPSHOT,
+            learningPlan: {
+              ...STORED_SNAPSHOT.learningPlan,
+              sections: [{ id: 'section-1', content: 'Lezione generata' }],
+            },
+          },
+        },
+      ],
+      [{ meta: STORED_META, revision: '6' }],
+      [{ id: 'project-1' }],
+    ]);
+
+    const result = await patchProjectInTransaction(sql, {
+      buildPatch: () => ({ activeSectionId: 'section-1' }),
+      projectId: 'project-1',
+      updatedAt: '2026-07-29T12:00:00.000Z',
+      userId: 'user-1',
+      waitForProjectLock: true,
+    });
+
+    expect(calls[0].statement).toContain('for update of project, project_snapshot');
+    expect(calls[0].statement).not.toContain('nowait');
+    expect(result.snapshot.activeSectionId).toBe('section-1');
+    expect(result.snapshot.learningPlan?.sections?.[0]).toMatchObject({
+      content: 'Lezione generata',
+    });
+  });
+
   test('does not write when the target project does not exist', async () => {
     const { calls, sql } = createTransactionSql([[]]);
 

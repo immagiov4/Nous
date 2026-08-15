@@ -64,8 +64,22 @@ export interface ProjectRevisionEvent {
 
 export const PROJECT_REVISION_RESYNC_EVENT = 'project-revision-resync';
 
+export const PROJECT_API_ERROR_CODE = {
+  coverRevisionConflict: 'project_cover_revision_conflict',
+  revisionConflict: 'project_revision_conflict',
+  sourceArchiveChanged: 'project_source_archive_changed',
+} as const;
+
+export const PROJECT_PATCH_REBASE_MODE = {
+  navigation: 'navigation',
+} as const;
+
+export type ProjectPatchRebaseMode =
+  (typeof PROJECT_PATCH_REBASE_MODE)[keyof typeof PROJECT_PATCH_REBASE_MODE];
+
 export interface ProjectWriteOptions {
   expectedRevision?: number;
+  rebaseMode?: ProjectPatchRebaseMode;
 }
 
 export interface SectionPatch {

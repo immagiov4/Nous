@@ -4,6 +4,7 @@ import {
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
+import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import JSZip from 'jszip';
 import request from 'supertest';
@@ -522,6 +523,7 @@ describe('/api/projects', () => {
       });
 
     expect(completionResponse.status).toBe(409);
+    expect(completionResponse.body.code).toBe(PROJECT_API_ERROR_CODE.revisionConflict);
     const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
     expect(loadResponse.body).toMatchObject({
       project: { activeSectionId: 'saved-concurrently', source: null },
@@ -880,6 +882,7 @@ describe('/api/projects', () => {
       .post(`/api/projects/projects/${projectId}/source/archive/query`)
       .send({ archiveVersion, operation: 'read-file', path: 'packages/core/guide.md' });
     expect(staleReadResponse.status).toBe(409);
+    expect(staleReadResponse.body.code).toBe(PROJECT_API_ERROR_CODE.sourceArchiveChanged);
     expect(staleReadResponse.body.error).toMatch(/cambiato|ricarica/iu);
 
     const exportResponse = await request(app).post(`/api/projects/projects/${projectId}/export`);
@@ -1250,11 +1253,77 @@ describe('/api/projects', () => {
         patch: { activeSectionId: 'session-b' },
       });
     expect(stalePatch.status).toBe(409);
+    expect(stalePatch.body.code).toBe(PROJECT_API_ERROR_CODE.revisionConflict);
 
     const loadResponse = await request(app).get('/api/projects/projects/shared-project');
     expect(loadResponse.body.project.activeSectionId).toBe('session-a');
     const listResponse = await request(app).get('/api/projects/projects');
     expect(listResponse.body.projects[0].revision).toBe(2);
+  });
+
+  test('rebases stale navigation onto a newly generated lesson without losing either change', async () => {
+    const app = createApp();
+    const projectId = 'navigation-rebase-project';
+    const saveResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot: createModuleSnapshot(projectId, 'Corso pianificato') });
+    expect(saveResponse.body.meta.revision).toBe(1);
+
+    const generationResponse = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: 1,
+        patch: {
+          section: {
+            sectionId: 'lesson-2',
+            content: '# Lezione B generata',
+            lastGenerationRunId: 'lesson-b-run',
+          },
+        },
+      });
+    expect(generationResponse.status).toBe(200);
+    expect(generationResponse.body.meta.revision).toBe(2);
+
+    const staleNavigationResponse = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: 1,
+        patch: { activeSectionId: 'lesson-1', state: 'READING' },
+        rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+      });
+    expect(staleNavigationResponse.status).toBe(200);
+    expect(staleNavigationResponse.body.meta.revision).toBe(3);
+
+    const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loadResponse.body.project.activeSectionId).toBe('lesson-1');
+    expect(loadResponse.body.project.learningPlan.modules[1].children[0]).toMatchObject({
+      content: '# Lezione B generata',
+      id: 'lesson-2',
+      lastGenerationRunId: 'lesson-b-run',
+    });
+  });
+
+  test('rejects navigation rebase for a broad project patch', async () => {
+    const app = createApp();
+    const projectId = 'invalid-navigation-rebase';
+    await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot: createModuleSnapshot(projectId, 'Titolo originale') });
+
+    const response = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: 1,
+        patch: { activeSectionId: 'lesson-1', title: 'Titolo concorrente' },
+        rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+      });
+
+    expect(response.status).toBe(400);
+    const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loadResponse.body.project).toMatchObject({
+      activeSectionId: null,
+      learningPlan: { title: 'Titolo originale' },
+    });
   });
 
   test('records sanitized library import diagnostics without archive content', async () => {

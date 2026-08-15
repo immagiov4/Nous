@@ -1,3 +1,4 @@
+import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
@@ -58,6 +59,18 @@ interface UseProjectLibraryArgs {
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
   setSource: (source: ProjectSource | null) => void;
 }
+
+const isNavigationOnlyProjectOverride = (overrides: Partial<ProjectSnapshot>): boolean =>
+  overrides.activeSectionId !== undefined &&
+  Object.keys(overrides).every(key => key === 'activeSectionId' || key === 'state');
+
+const didRebaseOverRemoteRevision = (
+  expectedRevision: number | undefined,
+  savedRevision: number | undefined
+): savedRevision is number =>
+  expectedRevision !== undefined &&
+  savedRevision !== undefined &&
+  savedRevision > expectedRevision + 1;
 
 interface PersistSnapshotOptions {
   archiveFile?: File;
@@ -678,16 +691,28 @@ export const useProjectLibrary = ({
         ...domainStateRef.current,
         ...overrides,
       });
+      const expectedRevision = getExpectedRevision(currentProjectId);
+      const rebaseMode = isNavigationOnlyProjectOverride(overrides)
+        ? PROJECT_PATCH_REBASE_MODE.navigation
+        : undefined;
       try {
         const meta = await runTrackedProjectWrite(currentProjectId, () =>
           projectRepositoryRef.current.patchProject(currentProjectId, patch, {
-            expectedRevision: getExpectedRevision(currentProjectId),
+            expectedRevision,
+            ...(rebaseMode === undefined ? {} : { rebaseMode }),
           })
         );
         const writeState = getProjectWriteState(currentProjectId);
         if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
           lastPersistedSignatureRef.current = persistedSignature;
+        }
+        const savedRevision = meta.revision;
+        if (rebaseMode && didRebaseOverRemoteRevision(expectedRevision, savedRevision)) {
+          await applyPersistedProjectRevision({
+            projectId: currentProjectId,
+            revision: savedRevision,
+          });
         }
         void requestPersistentStorage();
         return meta;
@@ -700,6 +725,7 @@ export const useProjectLibrary = ({
     },
     [
       currentProjectId,
+      applyPersistedProjectRevision,
       getExpectedRevision,
       getProjectWriteState,
       requestPersistentStorage,
