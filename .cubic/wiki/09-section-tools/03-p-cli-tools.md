@@ -72,7 +72,7 @@ To optimize Continuous Integration, Nous utilizes specialized scripts to determi
 ### Contract Selection Logic
 The selector identifies changes within specific ownership boundaries:
 *  **Infrastructure**: `supabase/migrations/`, `supabase/config.toml`.
-*  **Backend Logic**: `apps/backend/src/projects/postgresProjectStore.ts`, `apps/backend/src/workflows/postgresWorkflowStore.ts`.
+*  **Backend Logic**: `apps/backend/src/projects/postgresProjectStore.ts`, `apps/backend/src/workflows/persistence/postgresWorkflowStore.ts`.
 *  **Shared Types**: `packages/shared-types/projectContract.ts`.
 *  **CI Configuration**: `.github/workflows/ci.yml`.
 
