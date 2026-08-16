@@ -24,6 +24,7 @@ import {
 } from '../../src/projects/projectRevision.js';
 import { buildProjectSourceObjectPath } from '../../src/projects/projectSource.js';
 import { ProjectSourceStorageError } from '../../src/projects/projectSourceStorage.js';
+import type { SourceArchiveUnusableError } from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot, SavedProjectMeta } from '../../src/projects/types.js';
 
 const PROJECT_META: SavedProjectMeta = {
@@ -1392,6 +1393,7 @@ describe('PostgresProjectStore', () => {
   test('finishes ZIP PDF preparation before reserving a database session', async () => {
     const zip = new JSZip();
     zip.file('docs/manual.pdf', '%PDF-manual');
+    zip.file('docs/notes.txt', 'Appunti validi');
     const archiveBytes = await zip.generateAsync({ type: 'uint8array' });
     const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) =>
@@ -1450,7 +1452,7 @@ describe('PostgresProjectStore', () => {
     const saved = await save;
 
     expect(sqlClient.reserve).toHaveBeenCalledOnce();
-    expect(storage.upload).toHaveBeenCalledTimes(2);
+    expect(storage.upload).toHaveBeenCalledTimes(3);
     expect(saved.snapshot.source?.kind).toBe('archive');
     expect(
       saved.snapshot.source?.kind === 'archive' ? saved.snapshot.source.index.entries : []
@@ -1465,6 +1467,48 @@ describe('PostgresProjectStore', () => {
         }),
       ])
     );
+  });
+
+  test('rejects an all-unusable ZIP before reserving a database session', async () => {
+    const zip = new JSZip();
+    zip.file('scans/manual.pdf', '%PDF-manual');
+    const archiveBytes = await zip.generateAsync({ type: 'uint8array' });
+    const sqlClient = Object.assign(
+      vi.fn(async () => []),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const storage = {
+      delete: vi.fn(async () => undefined),
+      download: vi.fn(),
+      upload: vi.fn(async () => undefined),
+    };
+    const store = createPostgresProjectStore(sqlClient, storage);
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ pages: [], text: '' });
+    const snapshot: ProjectSnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: Buffer.from(archiveBytes).toString('base64'),
+          mimeType: 'application/zip',
+          name: 'scans.zip',
+        },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'scans.zip',
+      },
+    };
+
+    await expect(store.saveProject('user-1', snapshot)).rejects.toMatchObject({
+      name: 'SourceArchiveUnusableError',
+      warnings: [{ path: 'scans/manual.pdf', reason: 'no-usable-text' }],
+    } satisfies Partial<SourceArchiveUnusableError>);
+    expect(sqlClient.reserve).not.toHaveBeenCalled();
+    expect(sqlClient.begin).not.toHaveBeenCalled();
+    expect(storage.upload).not.toHaveBeenCalled();
   });
 
   test('stops archive ingestion when the original object upload fails', async () => {

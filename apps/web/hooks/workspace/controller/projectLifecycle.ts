@@ -6,6 +6,7 @@ import {
   getCourseSourceDescriptors,
   mergeCourseSourceDescriptors,
 } from '../../../services/projects/courseSources.ts';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -39,10 +40,8 @@ import {
 } from '../../../utils/pdf/projectHydration.ts';
 import {
   getProjectSourceWarnings,
-  hasUsableArchiveText,
   prepareUploadedCourseSource,
   readSourceFileData,
-  UNUSABLE_ARCHIVE_SOURCE_MESSAGE,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -285,9 +284,6 @@ export const createProjectLifecycleCommands = (
             }
             nextSource = persistedProject.source;
             sourceWarnings = getProjectSourceWarnings(nextSource);
-            if (!hasUsableArchiveText(nextSource)) {
-              throw new Error(UNUSABLE_ARCHIVE_SOURCE_MESSAGE);
-            }
             domain.setSource(nextSource);
           }
         } catch (error) {
@@ -322,9 +318,6 @@ export const createProjectLifecycleCommands = (
       }
       nextSource = saved.snapshot.source;
       sourceWarnings = getProjectSourceWarnings(nextSource);
-      if (!hasUsableArchiveText(nextSource)) {
-        throw new Error(UNUSABLE_ARCHIVE_SOURCE_MESSAGE);
-      }
       domain.setSource(nextSource);
       projectLibrary.setProjectHydrated(true);
       state.succeedWorkflow('attachSource', requestId);
@@ -356,6 +349,30 @@ export const createProjectLifecycleCommands = (
       );
       return { outcome: 'started-assessment', sourceWarnings };
     } catch (error) {
+      if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
+        sourceWarnings = error.sourceWarnings;
+      }
+      if (
+        options?.mode !== 'reattach-source' &&
+        error instanceof ProjectStorageError &&
+        error.code === 'source-archive-unusable'
+      ) {
+        const rejectedProjectId = projectLibrary.getCurrentProjectId();
+        if (rejectedProjectId) {
+          try {
+            await projectLibrary.deleteStoredProject(rejectedProjectId);
+          } catch (cleanupError) {
+            pushNousDebugTrace('attach-source:rejected-archive-cleanup-failed', {
+              errorMessage: getErrorMessage(cleanupError),
+              projectId: rejectedProjectId,
+            });
+          }
+        }
+        domain.resetDomain();
+        projectLibrary.setCurrentProjectId(null);
+        projectLibrary.setProjectHydrated(true);
+        state.setScreenState(AppState.LIBRARY);
+      }
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('attachSource', requestId, errorMessage);
       return {

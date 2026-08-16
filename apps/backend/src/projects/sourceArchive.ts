@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { assessPdfTextQuality } from '@shared/pdfTextQuality';
 import { createSourceArchivePreview } from '@shared/sourceArchivePreview';
-import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
+import type {
+  SourceArchivePdfWarningDetail,
+  SourceArchivePdfWarningReason,
+} from '@shared/sourceArchiveWarnings';
 import JSZip from 'jszip';
 import { extractPdfText, PdfTextExtractionTimeoutError } from '../services/pdfTextExtractor.js';
 import { encodePdfDataUrl } from '../utils/pdfDataUrl.js';
@@ -34,6 +37,16 @@ export class SourceArchivePreparationCapacityError extends Error {
   constructor() {
     super('È già in corso la preparazione di un archivio ZIP. Riprova tra poco.');
     this.name = 'SourceArchivePreparationCapacityError';
+  }
+}
+
+export class SourceArchiveUnusableError extends Error {
+  readonly warnings: SourceArchivePdfWarningDetail[];
+
+  constructor(warnings: SourceArchivePdfWarningDetail[]) {
+    super('L’archivio non contiene alcun testo utilizzabile.');
+    this.name = 'SourceArchiveUnusableError';
+    this.warnings = warnings;
   }
 }
 

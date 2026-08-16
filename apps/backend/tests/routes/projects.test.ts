@@ -13,7 +13,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
-import { SourceArchivePreparationCapacityError } from '../../src/projects/sourceArchive.js';
+import {
+  SourceArchivePreparationCapacityError,
+  SourceArchiveUnusableError,
+} from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
@@ -178,6 +181,30 @@ describe('/api/projects', () => {
     expect(response.status).toBe(429);
     expect(response.body).toEqual({
       error: 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.',
+      success: false,
+    });
+  });
+
+  test('returns structured PDF details when an archive has no usable text', async () => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(
+      new SourceArchiveUnusableError([
+        { path: 'scans/a.pdf', reason: 'no-usable-text' },
+        { path: 'broken/b.pdf', reason: 'parser-failed' },
+      ])
+    );
+
+    const response = await request(createApp())
+      .put('/api/projects/projects/unusable-project')
+      .send({ snapshot: createSnapshot('unusable-project', 'Archivio inutilizzabile') });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toEqual({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
+      error: 'L’archivio non contiene alcun testo utilizzabile.',
+      sourceWarnings: [
+        { path: 'scans/a.pdf', reason: 'no-usable-text' },
+        { path: 'broken/b.pdf', reason: 'parser-failed' },
+      ],
       success: false,
     });
   });

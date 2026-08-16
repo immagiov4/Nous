@@ -7,6 +7,11 @@ export const SOURCE_ARCHIVE_PDF_WARNING_REASONS = [
 
 export type SourceArchivePdfWarningReason = (typeof SOURCE_ARCHIVE_PDF_WARNING_REASONS)[number];
 
+export interface SourceArchivePdfWarningDetail {
+  path: string;
+  reason: SourceArchivePdfWarningReason;
+}
+
 const sourceArchivePdfWarningReasons = new Set<string>(SOURCE_ARCHIVE_PDF_WARNING_REASONS);
 
 export const isSourceArchivePdfWarningReason = (

@@ -68,6 +68,7 @@ import {
 import {
   PROJECT_SOURCE_ARCHIVE_LIMITS,
   PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
+  SourceArchiveUnusableError,
   streamSourceArchive,
   withSourceArchivePreparationAdmission,
 } from './sourceArchive.js';
@@ -2056,6 +2057,13 @@ export class PostgresProjectStore implements ProjectStore {
             path: objectPath,
             temporaryPath,
           });
+        }
+        if (!prepared.archiveEntries.some(entry => entry.content_kind === 'text')) {
+          throw new SourceArchiveUnusableError(
+            prepared.archiveEntries.flatMap(entry =>
+              entry.warning_reason ? [{ path: entry.path, reason: entry.warning_reason }] : []
+            )
+          );
         }
         return prepared;
       } catch (error) {
