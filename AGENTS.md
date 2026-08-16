@@ -66,6 +66,17 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 - Do not introduce a project-specific heuristic for ranking, classification, ordering, placement, filtering, fallback selection, or semantic inference without explicit developer approval. When proposing one, label the question clearly as `EURISTICA PROPOSTA` and explain its decision rule and failure modes so it cannot be mistaken for a routine clarification. Established standard algorithms and deterministic validation of an explicit contract do not require this extra approval.
 - Do not introduce or change collateral product behavior or any quantitative threshold without explicit developer approval. This includes timeouts, token limits, context budgets, retry counts, concurrency caps, file-size limits, rate limits, fallback cutoffs, distribution curves, ranking weights, and similar policies. Discovering that a limit is needed does not authorize choosing its value: ask before implementing or changing the number or policy.
 
+## Task Model Selection
+
+Use the execution model deliberately:
+
+- Complex or high-impact implementation: `gpt-5.6-sol` with `high` reasoning.
+- Medium-scope implementation: `gpt-5.6-terra` with `high` reasoning.
+- Simple bounded exploration: `gpt-5.6-luna` with `medium` or `high` reasoning.
+- Complex exploration: `gpt-5.6-luna` with `xhigh` reasoning.
+- Simple documentation-only implementation: `gpt-5.6-luna` with `high` reasoning.
+
+Do not use Luna for non-trivial code implementation. Run implementation work in separate visible Codex tasks with isolated worktrees; use local subagents only for short, read-only verification in the current chat.
 ## Product Manifesto
 
 This project has a living product/design manifesto in GitHub discussion #33 (https://github.com/immagiov4/Lumina-Reader/discussions/33):
@@ -334,6 +345,8 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
 
 When a Codex GitHub review is requested, treat an eyes reaction as review-in-progress and wait for the completed review before merging. React to every Codex finding with thumbs up or thumbs down, reply with the evidence-based disposition, and do not leave its thread unresolved: resolve it only after the fix is merged or the finding is explicitly rejected with evidence.
+
+For every pull request, name every issue it resolves in the pull-request description with GitHub-closing references where appropriate (for example, `Closes #123`). Before reporting the work complete, verify that each resolved issue was actually closed. Do not leave a completed issue open without an explicit reason such as a remaining manual-verification gate.
 
 ## Performance Awareness
 
