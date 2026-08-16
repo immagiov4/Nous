@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { buildDeterministicPdfOutline } from '../../src/services/pdfTextExtractor.js';
+import {
+  buildBoundedPdfTextWorkerPayload,
+  PdfTextWorkerOutputLimitError,
+} from '../../src/services/pdfTextWorkerOutput.js';
 
 describe('buildDeterministicPdfOutline', () => {
   test('builds a stable hierarchy from numbered headings and keeps page provenance', () => {
@@ -28,5 +32,40 @@ describe('buildDeterministicPdfOutline', () => {
       'outline-3',
       'outline-4',
     ]);
+  });
+});
+
+describe('buildBoundedPdfTextWorkerPayload', () => {
+  test('sends page text once and keeps it below the structured-clone budget', () => {
+    const payload = buildBoundedPdfTextWorkerPayload({
+      fallbackText: 'duplicato non necessario',
+      maxOutputBytes: 32,
+      outline: [],
+      pages: [{ num: 3, text: 'Testo pagina' }],
+    });
+
+    expect(payload).toEqual({
+      outline: [],
+      pages: [{ pageNumber: 3, text: 'Testo pagina' }],
+    });
+  });
+
+  test('rejects UTF-8 text and outlines that exceed the worker output budget', () => {
+    expect(() =>
+      buildBoundedPdfTextWorkerPayload({
+        fallbackText: '',
+        maxOutputBytes: 3,
+        outline: [],
+        pages: [{ num: 1, text: 'éé' }],
+      })
+    ).toThrow(PdfTextWorkerOutputLimitError);
+    expect(() =>
+      buildBoundedPdfTextWorkerPayload({
+        fallbackText: '',
+        maxOutputBytes: 4,
+        outline: [{ title: 'capitolo' }],
+        pages: [],
+      })
+    ).toThrow(PdfTextWorkerOutputLimitError);
   });
 });

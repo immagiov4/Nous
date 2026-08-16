@@ -1,9 +1,14 @@
 import { parentPort, workerData } from 'node:worker_threads';
 
 import { PDFParse } from 'pdf-parse';
+import {
+  buildBoundedPdfTextWorkerPayload,
+  PdfTextWorkerOutputLimitError,
+} from './pdfTextWorkerOutput.js';
 
 interface PdfTextWorkerInput {
   bytes: Uint8Array;
+  maxOutputBytes?: number;
   mode: 'fallback' | 'outline';
 }
 
@@ -15,21 +20,29 @@ const parser = new PDFParse({
 try {
   if (input.mode === 'outline') {
     const info = await parser.getInfo();
-    parentPort?.postMessage({ outline: info.outline || [] });
+    const boundedOutput = buildBoundedPdfTextWorkerPayload({
+      fallbackText: '',
+      maxOutputBytes: input.maxOutputBytes,
+      outline: info.outline || [],
+      pages: [],
+    });
+    parentPort?.postMessage({ outline: boundedOutput.outline });
   } else {
     const [text, info] = await Promise.all([parser.getText(), parser.getInfo().catch(() => null)]);
     parentPort?.postMessage({
-      outline: info?.outline || [],
       pageCount: info?.total ?? text.total,
-      pages: Array.isArray(text.pages)
-        ? text.pages.map(page => ({ pageNumber: page.num, text: page.text }))
-        : [],
-      text: text.text,
+      ...buildBoundedPdfTextWorkerPayload({
+        fallbackText: text.text,
+        maxOutputBytes: input.maxOutputBytes,
+        outline: info?.outline || [],
+        pages: Array.isArray(text.pages) ? text.pages : [],
+      }),
     });
   }
 } catch (error) {
   parentPort?.postMessage({
     error: error instanceof Error ? error.message : 'PDF fallback parsing failed.',
+    ...(error instanceof PdfTextWorkerOutputLimitError ? { errorCode: 'output-limit' } : {}),
   });
 } finally {
   await parser.destroy().catch(() => undefined);

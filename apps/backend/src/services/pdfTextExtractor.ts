@@ -18,15 +18,24 @@ const TMP_DIR_PREFIX = 'nous-pdf-text-';
 const PDF_TEXT_FALLBACK_WARNING =
   'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
 
-export interface PdfTextExtractionTimeouts {
+export interface PdfTextExtractionOptions {
   fallbackTimeoutMs?: number;
+  maxOutputBytes?: number;
   pdftotextTimeoutMs?: number;
+  workerMaxOldGenerationSizeMb?: number;
 }
 
 export class PdfTextExtractionTimeoutError extends Error {
   constructor(readonly stage: 'pdf-parse' | 'pdftotext') {
     super(`PDF text extraction timed out during ${stage}.`);
     this.name = 'PdfTextExtractionTimeoutError';
+  }
+}
+
+export class PdfTextExtractionOutputLimitError extends Error {
+  constructor() {
+    super('PDF text extraction exceeded the configured output limit.');
+    this.name = 'PdfTextExtractionOutputLimitError';
   }
 }
 
@@ -58,6 +67,7 @@ export interface ExtractedPdfText {
 
 interface PdfTextWorkerResult {
   error?: string;
+  errorCode?: string;
   outline?: unknown;
   pageCount?: unknown;
   pages?: unknown;
@@ -160,7 +170,8 @@ const normalizeNativePdfOutline = (outline: unknown): ExtractedPdfOutlineNode[] 
 const runPdfTextWorker = (
   pdfBuffer: Buffer,
   mode: 'fallback' | 'outline',
-  timeoutMs: number
+  timeoutMs: number,
+  limits: Pick<PdfTextExtractionOptions, 'maxOutputBytes' | 'workerMaxOldGenerationSizeMb'> = {}
 ): Promise<PdfTextWorkerResult> =>
   new Promise((resolve, reject) => {
     const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
@@ -169,7 +180,18 @@ const runPdfTextWorker = (
       `pdfTextFallbackWorker.${extension}`
     );
     const worker = new Worker(pathToFileURL(workerPath), {
-      workerData: { bytes: new Uint8Array(pdfBuffer), mode },
+      ...(limits.workerMaxOldGenerationSizeMb === undefined
+        ? {}
+        : {
+            resourceLimits: {
+              maxOldGenerationSizeMb: limits.workerMaxOldGenerationSizeMb,
+            },
+          }),
+      workerData: {
+        bytes: new Uint8Array(pdfBuffer),
+        maxOutputBytes: limits.maxOutputBytes,
+        mode,
+      },
     });
     let settled = false;
     const timeout = globalThis.setTimeout(() => {
@@ -188,6 +210,10 @@ const runPdfTextWorker = (
     };
     worker.once('message', (result: PdfTextWorkerResult) =>
       settle(() => {
+        if (result.errorCode === 'output-limit') {
+          reject(new PdfTextExtractionOutputLimitError());
+          return;
+        }
         if (result.error) {
           reject(new Error(result.error));
           return;
@@ -195,7 +221,15 @@ const runPdfTextWorker = (
         resolve(result);
       })
     );
-    worker.once('error', error => settle(() => reject(error)));
+    worker.once('error', error =>
+      settle(() =>
+        reject(
+          (error as NodeJS.ErrnoException).code === 'ERR_WORKER_OUT_OF_MEMORY'
+            ? new PdfTextExtractionOutputLimitError()
+            : error
+        )
+      )
+    );
     worker.once('exit', code =>
       settle(() => reject(new Error(`PDF fallback worker exited with code ${code}.`)))
     );
@@ -203,12 +237,13 @@ const runPdfTextWorker = (
 
 const extractNativePdfOutline = async (
   pdfBuffer: Buffer,
-  timeoutMs?: number
+  options: PdfTextExtractionOptions = {}
 ): Promise<ExtractedPdfOutlineNode[]> => {
+  const timeoutMs = options.fallbackTimeoutMs;
   if (timeoutMs !== undefined) {
     if (timeoutMs <= 0) return [];
     try {
-      const result = await runPdfTextWorker(pdfBuffer, 'outline', timeoutMs);
+      const result = await runPdfTextWorker(pdfBuffer, 'outline', timeoutMs, options);
       return normalizeNativePdfOutline(result.outline);
     } catch {
       return [];
@@ -259,9 +294,9 @@ export const buildDeterministicPdfOutline = (
 const attachPdfOutline = async (
   pdfBuffer: Buffer,
   result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'>,
-  timeoutMs?: number
+  options: PdfTextExtractionOptions = {}
 ): Promise<Omit<ExtractedPdfText, 'sourceHash'>> => {
-  const nativeOutline = await extractNativePdfOutline(pdfBuffer, timeoutMs);
+  const nativeOutline = await extractNativePdfOutline(pdfBuffer, options);
   if (nativeOutline.length > 0) {
     return { ...result, outline: nativeOutline, outlineOrigin: 'native' };
   }
@@ -275,11 +310,12 @@ const attachPdfOutline = async (
 
 const extractWithPdfParse = async (
   pdfBuffer: Buffer,
-  timeoutMs?: number
+  options: PdfTextExtractionOptions = {}
 ): Promise<Omit<ExtractedPdfText, 'sourceHash'>> => {
+  const timeoutMs = options.fallbackTimeoutMs;
   if (timeoutMs !== undefined) {
     if (timeoutMs <= 0) throw new PdfTextExtractionTimeoutError('pdf-parse');
-    const result = await runPdfTextWorker(pdfBuffer, 'fallback', timeoutMs);
+    const result = await runPdfTextWorker(pdfBuffer, 'fallback', timeoutMs, options);
     const rawPages = Array.isArray(result.pages) ? result.pages : [];
     const fallbackText = typeof result.text === 'string' ? result.text : '';
     const pages = buildExtractedPages(
@@ -361,11 +397,12 @@ const extractWithPdfParse = async (
 
 const extractWithPdftotext = async (
   pdfBuffer: Buffer,
-  timeoutMs?: number
+  options: PdfTextExtractionOptions = {}
 ): Promise<{
   result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'> | null;
   failureReason?: string;
 }> => {
+  const timeoutMs = options.pdftotextTimeoutMs;
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), TMP_DIR_PREFIX));
   const pdfPath = path.join(tmpDir, 'document.pdf');
 
@@ -377,7 +414,7 @@ const extractWithPdftotext = async (
       ['-layout', '-enc', 'UTF-8', '-eol', 'unix', pdfPath, '-'],
       {
         windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024,
+        maxBuffer: Math.min(64 * 1024 * 1024, options.maxOutputBytes ?? Number.MAX_SAFE_INTEGER),
         ...(timeoutMs === undefined ? {} : { killSignal: 'SIGKILL', timeout: timeoutMs }),
       }
     );
@@ -421,20 +458,20 @@ const extractWithPdftotext = async (
 
 export const extractPdfText = async (
   pdfDataUrl: string,
-  timeouts: PdfTextExtractionTimeouts = {}
+  options: PdfTextExtractionOptions = {}
 ): Promise<ExtractedPdfText> => {
   const pdfBuffer = decodePdfDataUrl(pdfDataUrl);
   const sourceHash = buildSourceHash(pdfBuffer);
 
-  const pdftotextResult = await extractWithPdftotext(pdfBuffer, timeouts.pdftotextTimeoutMs);
+  const pdftotextResult = await extractWithPdftotext(pdfBuffer, options);
   if (pdftotextResult.result) {
     return {
-      ...(await attachPdfOutline(pdfBuffer, pdftotextResult.result, timeouts.fallbackTimeoutMs)),
+      ...(await attachPdfOutline(pdfBuffer, pdftotextResult.result, options)),
       sourceHash,
     };
   }
 
-  const fallbackResult = await extractWithPdfParse(pdfBuffer, timeouts.fallbackTimeoutMs);
+  const fallbackResult = await extractWithPdfParse(pdfBuffer, options);
   return {
     ...fallbackResult,
     parserFallbackReason: pdftotextResult.failureReason,
