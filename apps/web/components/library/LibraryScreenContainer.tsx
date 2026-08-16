@@ -258,6 +258,7 @@ export const LibraryScreenContainer = ({
           onUploadSourceClick: fileActions.handleUploadSourceClick,
         }}
         isDarkMode={readerState.readerChrome.isDarkMode}
+        isExportingProject={fileActions.isExportingProject}
         isLibraryLoading={isLibraryLoading}
         libraryFolders={projectLibrary.libraryFolders}
         libraryTree={projectLibrary.libraryTree}
@@ -278,9 +279,7 @@ export const LibraryScreenContainer = ({
         onDeleteFolder={projectLibrary.deleteFolder}
         onDeleteProject={fileActions.handleDeleteProject}
         onExportLibraryBackup={projectLibrary.downloadLibraryBackup}
-        onExportProject={projectId => {
-          void fileActions.handleExportProject(projectId);
-        }}
+        onExportProject={fileActions.handleExportProject}
         onImportLibraryBackup={projectLibrary.importLibraryBackup}
         onImportProjectFile={fileActions.handlePlanUpload}
         onOpenProject={projectId => {

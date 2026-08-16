@@ -39,6 +39,7 @@ const buildProps = () =>
       workflowState: { assessment: { message: '', status: 'idle' } },
     },
     fileActions: {
+      isExportingProject: false,
       sourceFileInputId: 'library-source-file',
     },
     libraryAssistantChat: {

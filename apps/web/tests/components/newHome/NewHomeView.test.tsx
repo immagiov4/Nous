@@ -98,7 +98,7 @@ const mockPhoneViewport = (isPhoneViewport: boolean) => {
   }));
 };
 
-describe('NewHomeView library rename', () => {
+describe('NewHomeView library interactions', () => {
   beforeEach(() => {
     globalThis.history.replaceState({}, '', '/');
     globalThis.localStorage.clear();
@@ -126,6 +126,7 @@ describe('NewHomeView library rename', () => {
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
+        isExportingProject={false}
         isLibraryLoading={false}
         libraryFolders={[]}
         libraryTree={{
@@ -163,6 +164,7 @@ describe('NewHomeView library rename', () => {
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
+        isExportingProject={false}
         isLibraryLoading={false}
         libraryFolders={[folder]}
         libraryTree={tree}
@@ -193,6 +195,7 @@ describe('NewHomeView library rename', () => {
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
+        isExportingProject={false}
         isLibraryLoading={false}
         libraryFolders={[folder]}
         libraryTree={tree}
@@ -216,6 +219,132 @@ describe('NewHomeView library rename', () => {
     expect(onImportProjectFile.mock.calls[0]?.[0].target.files?.[0]).toBe(file);
   });
 
+  test.each([
+    { filterLabel: null, isPhoneViewport: false },
+    { filterLabel: /^(Preferiti|Favorites)$/, isPhoneViewport: true },
+    { filterLabel: /^Frontend/, isPhoneViewport: false },
+  ])('keeps export visibly busy for $filterLabel on phone viewport $isPhoneViewport', async ({
+    filterLabel,
+    isPhoneViewport,
+  }) => {
+    mockPhoneViewport(isPhoneViewport);
+    const user = userEvent.setup();
+    let finishExport: (() => void) | undefined;
+    const onExportProject = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishExport = resolve;
+        })
+    );
+    const renderView = (isExportingProject: boolean) => (
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={isExportingProject}
+        isLibraryLoading={false}
+        libraryFolders={[folder]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onExportProject={onExportProject}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[{ ...project, isFavorite: true }]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    const view = render(renderView(false));
+
+    if (filterLabel) {
+      await user.click(screen.getByRole('button', { name: filterLabel }));
+    }
+    await user.click(
+      screen.getByRole('button', { name: /Azioni per Corso Mobile|Actions for Corso Mobile/ })
+    );
+    await user.click(screen.getByRole('button', { name: /^(Esporta|Export)$/ }));
+
+    expect(onExportProject).toHaveBeenCalledOnce();
+    expect(onExportProject).toHaveBeenCalledWith(project.id);
+    view.rerender(renderView(true));
+    const busyExportButton = screen.getByRole('button', {
+      name: /Esportazione\.\.\.|Exporting\.\.\./,
+    });
+    expect(busyExportButton).toBeDisabled();
+    expect(busyExportButton).toHaveAttribute('aria-busy', 'true');
+
+    await act(async () => {
+      finishExport?.();
+      await onExportProject.mock.results[0]?.value;
+    });
+    expect(
+      screen.queryByRole('button', { name: /Esportazione\.\.\.|Exporting\.\.\./ })
+    ).not.toBeInTheDocument();
+  });
+
+  test('keeps a newer course menu open when an earlier export finishes', async () => {
+    const user = userEvent.setup();
+    let finishExport: (() => void) | undefined;
+    const onExportProject = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishExport = resolve;
+        })
+    );
+    const nextProject = { ...project, id: 'project-2', title: 'Corso Successivo' };
+    const renderView = (isExportingProject: boolean) => (
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={isExportingProject}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onExportProject={onExportProject}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project, nextProject]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    const view = render(renderView(false));
+
+    await user.click(
+      screen.getByRole('button', { name: /Azioni per Corso Mobile|Actions for Corso Mobile/ })
+    );
+    await user.click(screen.getByRole('button', { name: /^(Esporta|Export)$/ }));
+    view.rerender(renderView(true));
+    await user.click(
+      screen.getByRole('button', { name: /Chiudi azioni corso|Close course actions/ })
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: /Azioni per Corso Successivo|Actions for Corso Successivo/,
+      })
+    );
+
+    await act(async () => {
+      finishExport?.();
+      await onExportProject.mock.results[0]?.value;
+    });
+
+    expect(
+      screen.getByRole('button', { name: /Chiudi azioni corso|Close course actions/ })
+    ).toBeInTheDocument();
+  });
+
   test('renames course and folder names inline on double click', async () => {
     const user = userEvent.setup();
     const onOpenProject = vi.fn();
@@ -225,6 +354,7 @@ describe('NewHomeView library rename', () => {
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
+        isExportingProject={false}
         isLibraryLoading={false}
         libraryFolders={[folder]}
         libraryTree={tree}
@@ -289,6 +419,7 @@ describe('NewHomeView library rename', () => {
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
+        isExportingProject={false}
         isLibraryLoading={false}
         libraryFolders={[folder]}
         libraryTree={tree}
@@ -360,6 +491,7 @@ describe('NewHomeView library rename', () => {
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
+        isExportingProject={false}
         isLibraryLoading={false}
         libraryFolders={[folder]}
         libraryTree={tree}
@@ -410,6 +542,7 @@ describe('NewHomeView library rename', () => {
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
+        isExportingProject={false}
         isLibraryLoading={false}
         libraryFolders={[folder]}
         libraryTree={tree}
