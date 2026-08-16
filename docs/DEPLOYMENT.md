@@ -513,9 +513,17 @@ migration remains in the migration history as an audit record, but it is not a r
 path.
 
 Before deploying this change against an existing database, run the following read-only preflight with
-the service role and stop if either legacy staging table still exists or embedded source bytes remain:
+the service role and stop if the `project_sources` schema is not the post-cutover form, either legacy
+staging table still exists, or embedded source bytes remain:
 
 ```sql
+select column_name
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'project_sources'
+  and column_name in ('data', 'source_kind')
+order by column_name;
+
 select table_name
 from information_schema.tables
 where table_schema = 'public'
@@ -538,13 +546,15 @@ where coalesce(snapshot #>> '{source,file,data}', '') <> ''
    );
 ```
 
-The expected result is no legacy tables and `embedded_source_snapshots = 0`. Validate a fresh
-import and reload with `bun run test:supabase-local` against an isolated local database before
-deployment. If preflight or fresh-import validation fails before deployment, keep the current
-release running, correct the data or validation problem, and rerun the checks. Reserve application
-rollback and the paired verified database/Storage backup recovery procedure above for incidents
-where a deployment or another live operation already changed production data. Do not recreate the
-retired migrator or delete current object-storage data as a rollback.
+The expected result is exactly the `source_kind` column, no legacy tables, and
+`embedded_source_snapshots = 0`. A returned `data` column or a missing `source_kind` column means
+the database still has an unsupported pre-cutover schema. Validate a fresh import and reload with
+`bun run test:supabase-local` against an isolated local database before deployment. If preflight or
+fresh-import validation fails before deployment, keep the current release running, correct the data
+or validation problem, and rerun the checks. Reserve application rollback and the paired verified
+database/Storage backup recovery procedure above for incidents where a deployment or another live
+operation already changed production data. Do not recreate the retired migrator or delete current
+object-storage data as a rollback.
 
 ## Pinned Supabase upgrade and secret rotation
 

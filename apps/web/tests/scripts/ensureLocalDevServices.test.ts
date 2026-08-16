@@ -162,12 +162,11 @@ describe('ensureLocalDevServices', () => {
   });
 
   test('stops startup when pending migrations cannot be applied', async () => {
-    const { healthRequests, runtime } = createRuntime([true, true, true, false]);
+    const { healthRequests, runtime } = createRuntime([true, true, false]);
 
     await expect(
       ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime)
     ).rejects.toThrow('Local Supabase migrations could not be applied');
     expect(healthRequests).toEqual([]);
   });
-
 });
