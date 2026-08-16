@@ -68,12 +68,12 @@ import {
   getCorrelationId,
   runWithCorrelationId,
 } from './workflows/requestObservability.js';
-import { toWorkflowErrorDiagnostic } from './workflows/workflowErrorDiagnostics.js';
-import { consoleWorkflowLogger, emitWorkflowLog } from './workflows/workflowObservability.js';
 import {
   unavailableWorkflowRuntimeApi,
   type WorkflowRuntimeApi,
 } from './workflows/runtime/workflowRuntimeApi.js';
+import { toWorkflowErrorDiagnostic } from './workflows/workflowErrorDiagnostics.js';
+import { consoleWorkflowLogger, emitWorkflowLog } from './workflows/workflowObservability.js';
 
 const DEFAULT_FRONTEND_PORT = '5173';
 const DEFAULT_FRONTEND_ORIGINS = [

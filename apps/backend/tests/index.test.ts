@@ -1,5 +1,4 @@
 import { once } from 'node:events';
-import request from 'supertest';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createApp, isPrivateNetworkFrontendOrigin } from '../src/index.js';
 import type { LessonGenerationApi } from '../src/workflows/lessonGenerationApi.js';
@@ -59,27 +58,49 @@ describe('request lifecycle observability', () => {
       start: vi.fn().mockRejectedValue(new Error(internalMessage)),
       startSublesson: vi.fn(),
     } satisfies LessonGenerationApi;
+    const server = createApp({ lessonGenerationApi }).listen(0, '127.0.0.1');
 
-    const response = await request(createApp({ lessonGenerationApi }))
-      .post('/api/lesson-workflows/lessons')
-      .send({ projectId: 'project-1', requestKey: 'request-1', sectionId: 'lesson-1' });
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected the test server to listen on a TCP port.');
+    }
 
-    expect(response.status).toBe(500);
-    expect(response.body).toEqual({
-      error: 'Errore interno del server.',
-      success: false,
-    });
-    expect(errorLog).toHaveBeenCalledWith(
-      '[Backend] Unhandled error:',
-      expect.objectContaining({
-        correlationId: expect.any(String),
-        diagnostic: {
-          message: internalMessage,
-          type: 'Error',
-        },
-        stack: expect.any(String),
-      })
-    );
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/lesson-workflows/lessons`,
+        {
+          body: JSON.stringify({
+            projectId: 'project-1',
+            requestKey: 'request-1',
+            sectionId: 'lesson-1',
+          }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        }
+      );
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        error: 'Errore interno del server.',
+        success: false,
+      });
+      expect(errorLog).toHaveBeenCalledWith(
+        '[Backend] Unhandled error:',
+        expect.objectContaining({
+          correlationId: expect.any(String),
+          diagnostic: {
+            message: internalMessage,
+            type: 'Error',
+          },
+          stack: expect.any(String),
+        })
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => (error ? reject(error) : resolve()));
+      });
+    }
   });
 
   test('never retains malformed request payloads in unhandled-error logs', async () => {
