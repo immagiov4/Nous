@@ -50,6 +50,7 @@ import {
   detachProjectSources,
   prepareProjectSource,
   prepareProjectSourceBytes,
+  preserveStoredProjectSource,
   readEmbeddedProjectSource,
   readEmbeddedProjectSources,
 } from './projectSource.js';
@@ -716,6 +717,9 @@ export class PostgresProjectStore implements ProjectStore {
     const existingSnapshot = await this.loadProject(userId, snapshot.id);
     if (expectedRevision !== undefined && !existingSnapshot) {
       throw new ProjectNotFoundError();
+    }
+    if (existingSnapshot) {
+      snapshot = preserveStoredProjectSource(snapshot, existingSnapshot);
     }
     if (existingSnapshot?.source) {
       snapshot = await this.detachUnchangedEmbeddedSource(userId, snapshot, existingSnapshot);

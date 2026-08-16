@@ -754,13 +754,15 @@ const requireProjectPatch = (body: unknown, _routeProjectId: string): ProjectPat
   if (!isRecord(patchRecord)) {
     throw new Error('Patch progetto mancante o non valida.');
   }
+  if (Object.hasOwn(patchRecord, 'source')) {
+    throw new Error('La sorgente non può essere modificata da una patch progetto generica.');
+  }
 
   return {
     title: readOptionalString(patchRecord.title),
     activeSectionId: readNullableString(patchRecord.activeSectionId),
     state: readOptionalString(patchRecord.state),
     isLearnMode: typeof patchRecord.isLearnMode === 'boolean' ? patchRecord.isLearnMode : undefined,
-    source: patchRecord.source,
     learningPlan: patchRecord.learningPlan as Record<string, unknown> | null | undefined,
     userProfile: patchRecord.userProfile as Record<string, unknown> | null | undefined,
     syllabus: Array.isArray(patchRecord.syllabus) ? patchRecord.syllabus : undefined,

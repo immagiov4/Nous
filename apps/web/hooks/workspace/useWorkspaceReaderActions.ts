@@ -4,6 +4,10 @@ import type {
   SaveConversationNoteResult,
 } from '../../components/workspace/shell/types.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import {
+  LESSON_SOURCE_UNAVAILABLE_MESSAGE,
+  LessonSourceUnavailableError,
+} from '../../services/openrouter/lessonGenerationClient.ts';
 import type {
   ApplicationExerciseNode,
   ContextMenuState,
@@ -28,7 +32,7 @@ import {
   updateSectionAnnotationNote,
   upsertSectionAnnotationArtifactRefs,
 } from '../../utils/learning/sectionAnnotations.ts';
-import type { CreateLessonOutcome } from './controller/types.ts';
+import type { CreateLessonOutcome, OpenSectionOutcome } from './controller/types.ts';
 
 interface UseWorkspaceReaderActionsArgs {
   activeSectionId: string | null;
@@ -82,7 +86,7 @@ interface UseWorkspaceReaderActionsArgs {
     generatedVisuals?: StoredLessonVisual[]
   ) => Promise<boolean>;
   projectId: string | null;
-  regenerateActiveSection: () => Promise<unknown>;
+  regenerateActiveSection: () => Promise<OpenSectionOutcome>;
   sectionContent: string;
   scrollContainerRef: RefObject<HTMLElement | null>;
   setIsMobileSidebarOpen: (value: boolean) => void;
@@ -347,7 +351,11 @@ export const useWorkspaceReaderActions = ({
 
   const handleRegenerateActiveSection = useCallback(() => {
     void regenerateActiveSection().catch(error => {
-      notify(getErrorMessage(error));
+      notify(
+        error instanceof LessonSourceUnavailableError
+          ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
+          : getErrorMessage(error)
+      );
     });
   }, [notify, regenerateActiveSection]);
 

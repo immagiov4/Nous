@@ -1518,6 +1518,14 @@ describe('PostgresProjectStore', () => {
     storage.delete.mockClear();
     transactionStatements.length = 0;
 
+    const sourceOmitted = await store.saveProject('user-1', {
+      ...embeddedSnapshot,
+      source: null,
+    });
+    expect(sourceOmitted.snapshot.source?.ref).toEqual(stored.snapshot.source?.ref);
+    expect(sourceOmitted.snapshot.sourceKind).toBe(stored.snapshot.sourceKind);
+    stored = sourceOmitted;
+
     const second = await store.saveProject('user-1', {
       ...embeddedSnapshot,
       source: {

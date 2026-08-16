@@ -103,7 +103,6 @@ export const applyProjectPatch = (
   if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
   if (patch.state !== undefined) snapshot.state = patch.state;
   if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
-  if (patch.source !== undefined) snapshot.source = patch.source as ProjectSnapshot['source'];
   if (patch.learningPlan !== undefined) {
     snapshot.learningPlan = patch.learningPlan as ProjectSnapshot['learningPlan'];
   }
