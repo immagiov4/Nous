@@ -847,6 +847,124 @@ describe('useProjectLibrary', () => {
     }
   });
 
+  test('patches the newly selected project before React rerenders the library hook', async () => {
+    const firstMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    const secondMeta = buildMeta('project-2', '2026-04-02T11:00:00.000Z', 7);
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
+    repositoryMocks.patchProject.mockResolvedValue({ ...secondMeta, revision: 8 });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    let patchPromise!: Promise<unknown>;
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+      patchPromise = result.current.patchCurrentProject({ activeSectionId: 'lesson-2' });
+    });
+    await act(async () => {
+      await patchPromise;
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+      'project-2',
+      expect.objectContaining({ activeSectionId: 'lesson-2' }),
+      {
+        expectedRevision: 7,
+        rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+      }
+    );
+  });
+
+  test('keeps an async patch on the project where its workflow started', async () => {
+    const firstMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    const secondMeta = buildMeta('project-2', '2026-04-02T11:00:00.000Z', 7);
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
+    repositoryMocks.patchProject.mockResolvedValue({ ...firstMeta, revision: 5 });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+    });
+    const originatingProjectId = result.current.getCurrentProjectId();
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+    });
+    await act(async () => {
+      await result.current.patchCurrentProject(
+        { activeSectionId: 'lesson-1' },
+        originatingProjectId
+      );
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+      'project-1',
+      expect.objectContaining({ activeSectionId: 'lesson-1' }),
+      {
+        expectedRevision: 4,
+        rebaseMode: PROJECT_PATCH_REBASE_MODE.navigation,
+      }
+    );
+  });
+
+  test('does not apply a completed patch baseline to a newly selected project', async () => {
+    vi.useFakeTimers();
+    const firstMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    const secondMeta = buildMeta('project-2', '2026-04-02T11:00:00.000Z', 7);
+    let resolvePatch!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
+    repositoryMocks.patchProject.mockReturnValue(
+      new Promise<SavedProjectMeta>(resolve => {
+        resolvePatch = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let patchPromise!: Promise<SavedProjectMeta | null>;
+    act(() => {
+      patchPromise = result.current.patchCurrentProject({ activeSectionId: 'lesson-1' });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(repositoryMocks.patchProject).toHaveBeenCalledOnce();
+
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+      result.current.setProjectHydrated(true);
+    });
+    await act(async () => {
+      resolvePatch({ ...firstMeta, revision: 5 });
+      await patchPromise;
+      vi.advanceTimersByTime(400);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    expect(result.current.storageError).toBeNull();
+  });
+
   test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     const newerSnapshot = buildSnapshot('project-1', {
@@ -1133,6 +1251,43 @@ describe('useProjectLibrary', () => {
 
     expect(persisted).toBe(false);
     expect(result.current.storageError).toBe('annotazioni non salvate');
+  });
+
+  test('patchSectionAnnotations does not surface an old project failure after selection changes', async () => {
+    let rejectPatch: ((reason?: unknown) => void) | undefined;
+    repositoryMocks.patchProject.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectPatch = reject;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let persisted!: Promise<boolean>;
+    act(() => {
+      persisted = result.current.patchSectionAnnotations('lesson-1', []);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+    });
+    await act(async () => {
+      rejectPatch?.(new Error('annotazioni del vecchio corso non salvate'));
+      await persisted;
+    });
+
+    expect(result.current.storageError).toBeNull();
   });
 
   test('does not synthesize a timeout error while library init is still pending', async () => {

@@ -73,6 +73,54 @@ const didRebaseOverRemoteRevision = (
   savedRevision !== undefined &&
   savedRevision > expectedRevision + 1;
 
+type PatchableProjectField =
+  | 'activeSectionId'
+  | 'state'
+  | 'isLearnMode'
+  | 'source'
+  | 'learningPlan'
+  | 'userProfile'
+  | 'syllabus'
+  | 'researchCoursePlan'
+  | 'researchDossiersBySectionId'
+  | 'documentAssets';
+
+const PATCHABLE_PROJECT_FIELDS: readonly PatchableProjectField[] = [
+  'activeSectionId',
+  'state',
+  'isLearnMode',
+  'source',
+  'learningPlan',
+  'userProfile',
+  'syllabus',
+  'researchCoursePlan',
+  'researchDossiersBySectionId',
+  'documentAssets',
+];
+
+const buildCurrentProjectPatch = (
+  overrides: Partial<ProjectSnapshot>,
+  currentDocumentIndex: WorkspaceDomainState['documentIndex'],
+  projectId: string
+): Record<string, unknown> => {
+  const patch: Record<string, unknown> = {};
+  for (const field of PATCHABLE_PROJECT_FIELDS) {
+    if (overrides[field] !== undefined) patch[field] = overrides[field];
+  }
+  if (overrides.documentIndex !== undefined) {
+    if (overrides.documentIndex === null && currentDocumentIndex != null) {
+      console.warn(
+        '[Nous][patchCurrentProject] Skipping documentIndex:null patch because in-memory documentIndex is non-null.',
+        { projectId }
+      );
+    } else {
+      patch.documentIndex = overrides.documentIndex;
+    }
+  }
+  patch.updatedAt = timestampIso();
+  return patch;
+};
+
 interface PersistSnapshotOptions {
   archiveFile?: File;
   throwOnError?: boolean;
@@ -650,43 +698,25 @@ export const useProjectLibrary = ({
   /**
    * patchCurrentProject — sends a granular PATCH instead of a full snapshot PUT.
    * Use this for small targeted saves from controllers (section completion, active
-   * section change). Requires overrides — calling without overrides is an error.
-   * No sync indicator (background).
+   * section change). Async workflows can pass the project they started from so
+   * a later selection change cannot redirect their write. Requires overrides —
+   * calling without overrides is an error. No sync indicator (background).
    */
   const patchCurrentProject = useCallback(
-    async (overrides?: Partial<ProjectSnapshot>): Promise<SavedProjectMeta | null> => {
-      if (!currentProjectId || !overrides) {
+    async (
+      overrides?: Partial<ProjectSnapshot>,
+      originatingProjectId: string | null = currentProjectIdRef.current
+    ): Promise<SavedProjectMeta | null> => {
+      const selectedProjectId = originatingProjectId;
+      if (!selectedProjectId || !overrides) {
         return null;
       }
 
-      const patch: Record<string, unknown> = {};
-
-      if (overrides.activeSectionId !== undefined)
-        patch.activeSectionId = overrides.activeSectionId;
-      if (overrides.state !== undefined) patch.state = overrides.state;
-      if (overrides.isLearnMode !== undefined) patch.isLearnMode = overrides.isLearnMode;
-      if (overrides.source !== undefined) patch.source = overrides.source;
-      if (overrides.learningPlan !== undefined) patch.learningPlan = overrides.learningPlan;
-      if (overrides.userProfile !== undefined) patch.userProfile = overrides.userProfile;
-      if (overrides.syllabus !== undefined) patch.syllabus = overrides.syllabus;
-      if (overrides.researchCoursePlan !== undefined)
-        patch.researchCoursePlan = overrides.researchCoursePlan;
-      if (overrides.researchDossiersBySectionId !== undefined)
-        patch.researchDossiersBySectionId = overrides.researchDossiersBySectionId;
-      if (overrides.documentAssets !== undefined) patch.documentAssets = overrides.documentAssets;
-      if (overrides.documentIndex !== undefined) {
-        // A failed background refresh must not erase an index that is still usable in memory.
-        if (overrides.documentIndex === null && domainStateRef.current.documentIndex != null) {
-          console.warn(
-            '[Nous][patchCurrentProject] Skipping documentIndex:null patch because in-memory documentIndex is non-null.',
-            { projectId: currentProjectId }
-          );
-        } else {
-          patch.documentIndex = overrides.documentIndex;
-        }
-      }
-
-      patch.updatedAt = timestampIso();
+      const patch = buildCurrentProjectPatch(
+        overrides,
+        domainStateRef.current.documentIndex,
+        selectedProjectId
+      );
 
       const persistedSignature = buildAutosaveSignature({
         ...domainStateRef.current,
@@ -697,36 +727,41 @@ export const useProjectLibrary = ({
         ? PROJECT_PATCH_REBASE_MODE.navigation
         : undefined;
       try {
-        const meta = await runTrackedProjectWrite(currentProjectId, () => {
-          expectedRevision = getExpectedRevision(currentProjectId);
-          return projectRepositoryRef.current.patchProject(currentProjectId, patch, {
+        const meta = await runTrackedProjectWrite(selectedProjectId, () => {
+          expectedRevision = getExpectedRevision(selectedProjectId);
+          return projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
             expectedRevision,
             ...(rebaseMode === undefined ? {} : { rebaseMode }),
           });
         });
-        const writeState = getProjectWriteState(currentProjectId);
-        if (writeState.pendingCount === 0 && !writeState.batchFailed) {
+        const writeState = getProjectWriteState(selectedProjectId);
+        if (
+          currentProjectIdRef.current === selectedProjectId &&
+          writeState.pendingCount === 0 &&
+          !writeState.batchFailed
+        ) {
           setStorageError(null);
           lastPersistedSignatureRef.current = persistedSignature;
         }
         const savedRevision = meta.revision;
         if (rebaseMode && didRebaseOverRemoteRevision(expectedRevision, savedRevision)) {
           await applyPersistedProjectRevision({
-            projectId: currentProjectId,
+            projectId: selectedProjectId,
             revision: savedRevision,
           });
         }
         void requestPersistentStorage();
         return meta;
       } catch (error) {
-        const message =
-          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
-        setStorageError(message);
+        if (currentProjectIdRef.current === selectedProjectId) {
+          const message =
+            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          setStorageError(message);
+        }
         return null;
       }
     },
     [
-      currentProjectId,
       applyPersistedProjectRevision,
       getExpectedRevision,
       getProjectWriteState,
@@ -751,6 +786,7 @@ export const useProjectLibrary = ({
       generatedVisuals?: LearningSection['generatedVisuals']
     ): Promise<boolean> => {
       if (!currentProjectId) return false;
+      const selectedProjectId = currentProjectId;
 
       const patch: Record<string, unknown> = {
         section: { sectionId, annotations, content, generatedVisuals },
@@ -760,12 +796,14 @@ export const useProjectLibrary = ({
       const persistedSignature = buildAutosaveSignature(domainStateRef.current);
       try {
         markSyncSaving();
-        await runTrackedProjectWrite(currentProjectId, () =>
-          projectRepositoryRef.current.patchProject(currentProjectId, patch, {
-            expectedRevision: getExpectedRevision(currentProjectId),
+        await runTrackedProjectWrite(selectedProjectId, () =>
+          projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
+            expectedRevision: getExpectedRevision(selectedProjectId),
           })
         );
-        const writeState = getProjectWriteState(currentProjectId);
+        if (currentProjectIdRef.current !== selectedProjectId) return true;
+
+        const writeState = getProjectWriteState(selectedProjectId);
         if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
           lastPersistedSignatureRef.current = persistedSignature;
@@ -775,10 +813,12 @@ export const useProjectLibrary = ({
         }
         return true;
       } catch (error) {
-        const message =
-          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
-        setStorageError(message);
-        markSyncError();
+        if (currentProjectIdRef.current === selectedProjectId) {
+          const message =
+            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          setStorageError(message);
+          markSyncError();
+        }
         return false;
       }
     },

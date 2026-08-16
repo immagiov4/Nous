@@ -319,6 +319,8 @@ describe('POST /api/chat/context', () => {
         lessonTitle: 'Lezione 1',
         lessonDescription: 'Descrizione',
         lessonContent: 'Contenuto lezione',
+        projectId: 'project-1',
+        projectTitle: 'Corso di grafi',
         attachedAnnotationNote: 'Nota gia presente',
         attachedAnnotationText: 'Puntatore',
         sourceKind: 'pdf',
@@ -341,12 +343,21 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Puntatore');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Materiale sorgente');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      JSON.stringify({ projectId: 'project-1', projectTitle: 'Corso di grafi' })
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       serializeContextSourceReferencesForPrompt(sourceReferences)
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('NOTA GIA ASSOCIATA');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Annota: attiva');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
+      getLearningArtifacts: expect.any(Object),
+      getLessonDetails: expect.any(Object),
+      getProjectOverviews: expect.any(Object),
+      getProjectStructures: expect.any(Object),
+      listLibraryTree: expect.any(Object),
+      searchLibrary: expect.any(Object),
       searchWeb: expect.any(Object),
       requestAddToNotes: expect.any(Object),
     });
@@ -363,7 +374,16 @@ describe('POST /api/chat/context', () => {
     });
 
     expect(initialStep).toMatchObject({
-      activeTools: expect.arrayContaining(['searchWeb', 'requestAddToNotes']),
+      activeTools: expect.arrayContaining([
+        'getLearningArtifacts',
+        'getLessonDetails',
+        'getProjectOverviews',
+        'getProjectStructures',
+        'listLibraryTree',
+        'searchLibrary',
+        'searchWeb',
+        'requestAddToNotes',
+      ]),
     });
     expect(initialStep.activeTools).not.toContain('saveConversationNote');
     expect(initialStep.activeTools).not.toContain('updateConversationNote');

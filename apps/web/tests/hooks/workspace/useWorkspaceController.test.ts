@@ -956,6 +956,218 @@ test('openProject resumes an active durable course instead of restarting assessm
   assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
+test('openProject hydrates the explicitly requested lesson from a library reference', async () => {
+  const snapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-library-reference',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    loadedSnapshot: snapshot,
+  });
+
+  const result = await controller.openProject(snapshot.id, { activeSectionId: 'lesson-2' });
+
+  expect(result.outcome).toBe('opened');
+  expect(domain.activeSectionId).toBe('lesson-2');
+  expect(projectLibrary.savedOverrides.at(-1)?.activeSectionId).toBe('lesson-2');
+});
+
+test('openProject invalidates workflows owned by the previously selected project', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-b',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller, projectLibrary, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
+  });
+  projectLibrary.adapter.setCurrentProjectId('project-a');
+  const evaluationRequestId = state.adapter.beginWorkflow(
+    'evaluateExercise',
+    'Valutazione in corso'
+  );
+
+  const result = await controller.openProject(snapshot.id);
+
+  expect(result.outcome).toBe('opened');
+  expect(state.adapter.isWorkflowCurrent('evaluateExercise', evaluationRequestId)).toBe(false);
+  expect(projectLibrary.adapter.currentProjectId).toBe(snapshot.id);
+});
+
+test('openProject supersedes a source reattach before loading another project', async () => {
+  const originalSource = createProjectSourceFromFile(markdownFile);
+  const targetSnapshot = createProjectSnapshot({
+    id: 'project-b',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  let resolveSave:
+    | ((result: { meta: SavedProjectMeta; snapshot: ProjectSnapshot }) => void)
+    | undefined;
+  let markSaveStarted: (() => void) | undefined;
+  const saveResult = new Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>(resolve => {
+    resolveSave = resolve;
+  });
+  const saveStarted = new Promise<void>(resolve => {
+    markSaveStarted = resolve;
+  });
+  let resolveLoad: ((snapshot: ProjectSnapshot) => void) | undefined;
+  let markLoadStarted: (() => void) | undefined;
+  const loadResult = new Promise<ProjectSnapshot>(resolve => {
+    resolveLoad = resolve;
+  });
+  const loadStarted = new Promise<void>(resolve => {
+    markLoadStarted = resolve;
+  });
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    domain: { source: originalSource },
+    projectLibrary: {
+      currentProjectId: 'project-a',
+      loadStoredProject: async () => {
+        markLoadStarted?.();
+        return loadResult;
+      },
+      saveCurrentProject: async () => {
+        markSaveStarted?.();
+        return saveResult;
+      },
+    },
+  });
+
+  const reattachment = controller.handleSourceUpload(
+    new File(['nuova fonte'], 'nuova-fonte.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+  await saveStarted;
+  const replacementSource = domain.source;
+  expect(replacementSource).not.toBeNull();
+
+  const opening = controller.openProject(targetSnapshot.id);
+  await loadStarted;
+  resolveSave?.({
+    meta: buildMeta('project-a'),
+    snapshot: createProjectSnapshot({ id: 'project-a', source: replacementSource }),
+  });
+
+  expect(await reattachment).toEqual({ outcome: 'failed' });
+  resolveLoad?.(targetSnapshot);
+  expect(await opening).toEqual({ outcome: 'opened' });
+  expect(projectLibrary.adapter.currentProjectId).toBe(targetSnapshot.id);
+});
+
+test('cancelProjectOpen prevents a superseded project from hydrating', async () => {
+  const targetSnapshot = createProjectSnapshot({
+    id: 'project-b',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  let resolveLoad: ((snapshot: ProjectSnapshot) => void) | undefined;
+  let markLoadStarted: (() => void) | undefined;
+  const loadResult = new Promise<ProjectSnapshot>(resolve => {
+    resolveLoad = resolve;
+  });
+  const loadStarted = new Promise<void>(resolve => {
+    markLoadStarted = resolve;
+  });
+  const { controller, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      currentProjectId: 'project-a',
+      loadStoredProject: async () => {
+        markLoadStarted?.();
+        return loadResult;
+      },
+    },
+  });
+
+  const opening = controller.openProject(targetSnapshot.id);
+  await loadStarted;
+  controller.cancelProjectOpen();
+  resolveLoad?.(targetSnapshot);
+
+  expect(await opening).toEqual({ outcome: 'stale' });
+  expect(projectLibrary.adapter.currentProjectId).toBe('project-a');
+});
+
+test('openProject resolves an explicitly requested lesson after migrating a legacy plan', async () => {
+  const snapshot = {
+    ...createProjectSnapshot({
+      activeSectionId: 'legacy-lesson',
+      id: 'project-legacy-library-reference',
+      state: AppState.READING,
+    }),
+    learningPlan: {
+      title: 'Percorso legacy',
+      summary: 'Sintesi',
+      sections: [
+        buildTestLesson({
+          content: '# Contenuto pronto',
+          id: 'legacy-lesson',
+          title: 'Lezione legacy',
+        }),
+      ],
+    },
+  } as unknown as ProjectSnapshot;
+  const { controller, domain } = createControllerHarness({ loadedSnapshot: snapshot });
+
+  const result = await controller.openProject(snapshot.id, {
+    activeSectionId: 'legacy-lesson',
+  });
+
+  expect(result.outcome).toBe('opened');
+  expect(domain.activeSectionId).toBe('legacy-lesson');
+});
+
+test('openProject remains opened when requested lesson generation fails after hydration', async () => {
+  const snapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-library-generation-failure',
+    learningPlan: buildPlan({
+      sections: [
+        buildTestLesson({ content: '# Pronta', id: 'lesson-1' }),
+        buildTestLesson({ content: '', id: 'lesson-2' }),
+      ],
+    }),
+    state: AppState.READING,
+  });
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: {
+      generateDurableLesson: async () => {
+        throw new Error('generation unavailable');
+      },
+    },
+  });
+
+  const result = await controller.openProject(snapshot.id, { activeSectionId: 'lesson-2' });
+  await Promise.resolve();
+
+  expect(result.outcome).toBe('opened');
+  expect(projectLibrary.adapter.currentProjectId).toBe(snapshot.id);
+  expect(domain.activeSectionId).toBe('lesson-2');
+});
+
+test('openProject rejects a stale lesson reference before replacing the current workspace', async () => {
+  const snapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-stale-library-reference',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller, domain } = createControllerHarness({ loadedSnapshot: snapshot });
+
+  const result = await controller.openProject(snapshot.id, {
+    activeSectionId: 'lesson-deleted',
+  });
+
+  expect(result).toEqual({
+    errorMessage: t('Non sono riuscito ad aprire il materiale recuperato. Riprova.'),
+    outcome: 'failed',
+  });
+  expect(domain.activeSectionId).toBeNull();
+});
+
 test('openProject preserves authoritative durable course progress while resuming', async () => {
   const snapshot = createProjectSnapshot({
     id: 'project-progress',
@@ -1919,6 +2131,162 @@ test('handleSourceUpload resets a new project after a definitive archive prepara
   expect(projectLibrary.deletedProjectIds).toHaveLength(1);
   expect(projectLibrary.adapter.currentProjectId).toBeNull();
   expect(domain.source).toBeNull();
+  expect(hydrationStates).toEqual([false, true]);
+});
+
+test('handleSourceUpload does not restore a stale source after switching projects', async () => {
+  const originalSource = createProjectSourceFromFile(markdownFile);
+  const nextProjectSource = createProjectSourceFromFile(pdfFile);
+  const hydrationStates: boolean[] = [];
+  let rejectSave: ((reason?: unknown) => void) | undefined;
+  let markSaveStarted: (() => void) | undefined;
+  const saveResult = new Promise<null>((_resolve, reject) => {
+    rejectSave = reject;
+  });
+  const saveStarted = new Promise<void>(resolve => {
+    markSaveStarted = resolve;
+  });
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    domain: { source: originalSource },
+    projectLibrary: {
+      currentProjectId: 'project-a',
+      saveCurrentProject: async () => {
+        markSaveStarted?.();
+        return saveResult;
+      },
+      setProjectHydrated: value => hydrationStates.push(value),
+    },
+  });
+
+  const reattachment = controller.handleSourceUpload(
+    new File(['nuova fonte'], 'nuova-fonte.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+  await saveStarted;
+  projectLibrary.adapter.setCurrentProjectId('project-b');
+  domain.setSource(nextProjectSource);
+  state.adapter.invalidateWorkflows(['attachSource']);
+  rejectSave?.(new Error('Salvataggio A fallito'));
+
+  expect(await reattachment).toEqual({ outcome: 'failed' });
+  expect(domain.source).toBe(nextProjectSource);
+  expect(hydrationStates).toEqual([false]);
+});
+
+test('handleSourceUpload restores hydration and source after a stale reattach failure', async () => {
+  const originalSource = createProjectSourceFromFile(markdownFile);
+  const hydrationStates: boolean[] = [];
+  let rejectSave: ((reason?: unknown) => void) | undefined;
+  let markSaveStarted: (() => void) | undefined;
+  const saveResult = new Promise<null>((_resolve, reject) => {
+    rejectSave = reject;
+  });
+  const saveStarted = new Promise<void>(resolve => {
+    markSaveStarted = resolve;
+  });
+  const { controller, domain, state } = createControllerHarness({
+    domain: { source: originalSource },
+    projectLibrary: {
+      currentProjectId: 'project-a',
+      saveCurrentProject: async () => {
+        markSaveStarted?.();
+        return saveResult;
+      },
+      setProjectHydrated: value => hydrationStates.push(value),
+    },
+  });
+
+  const reattachment = controller.handleSourceUpload(
+    new File(['nuova fonte'], 'nuova-fonte.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+  await saveStarted;
+  state.adapter.invalidateWorkflows(['attachSource']);
+  rejectSave?.(new Error('Salvataggio obsoleto fallito'));
+
+  expect(await reattachment).toEqual({ outcome: 'failed' });
+  expect(domain.source).toBe(originalSource);
+  expect(hydrationStates).toEqual([false, true]);
+});
+
+test('handleSourceUpload leaves a newer same-project reattach source in control', async () => {
+  const originalSource = createProjectSourceFromFile(markdownFile);
+  const newerSource = createProjectSourceFromFile(pdfFile);
+  const hydrationStates: boolean[] = [];
+  let rejectSave: ((reason?: unknown) => void) | undefined;
+  let markSaveStarted: (() => void) | undefined;
+  const saveResult = new Promise<null>((_resolve, reject) => {
+    rejectSave = reject;
+  });
+  const saveStarted = new Promise<void>(resolve => {
+    markSaveStarted = resolve;
+  });
+  const { controller, domain, state } = createControllerHarness({
+    domain: { source: originalSource },
+    projectLibrary: {
+      currentProjectId: 'project-a',
+      saveCurrentProject: async () => {
+        markSaveStarted?.();
+        return saveResult;
+      },
+      setProjectHydrated: value => hydrationStates.push(value),
+    },
+  });
+
+  const reattachment = controller.handleSourceUpload(
+    new File(['prima fonte'], 'prima-fonte.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+  await saveStarted;
+  domain.setSource(newerSource);
+  state.adapter.invalidateWorkflows(['attachSource']);
+  rejectSave?.(new Error('Prima richiesta fallita'));
+
+  expect(await reattachment).toEqual({ outcome: 'failed' });
+  expect(domain.source).toBe(newerSource);
+  expect(hydrationStates).toEqual([false]);
+});
+
+test('handleSourceUpload restores hydration after a stale reattach succeeds', async () => {
+  const originalSource = createProjectSourceFromFile(markdownFile);
+  const hydrationStates: boolean[] = [];
+  let resolveSave:
+    | ((result: { meta: SavedProjectMeta; snapshot: ProjectSnapshot }) => void)
+    | undefined;
+  let markSaveStarted: (() => void) | undefined;
+  const saveResult = new Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>(resolve => {
+    resolveSave = resolve;
+  });
+  const saveStarted = new Promise<void>(resolve => {
+    markSaveStarted = resolve;
+  });
+  const { controller, domain, state } = createControllerHarness({
+    domain: { source: originalSource },
+    projectLibrary: {
+      currentProjectId: 'project-a',
+      saveCurrentProject: async () => {
+        markSaveStarted?.();
+        return saveResult;
+      },
+      setProjectHydrated: value => hydrationStates.push(value),
+    },
+  });
+
+  const reattachment = controller.handleSourceUpload(
+    new File(['nuova fonte'], 'nuova-fonte.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+  await saveStarted;
+  state.adapter.invalidateWorkflows(['attachSource']);
+  const replacementSource = domain.source;
+  expect(replacementSource).not.toBeNull();
+  resolveSave?.({
+    meta: buildMeta('project-a'),
+    snapshot: createProjectSnapshot({ id: 'project-a', source: replacementSource }),
+  });
+
+  expect(await reattachment).toEqual({ outcome: 'failed' });
+  expect(domain.source).toBe(replacementSource);
   expect(hydrationStates).toEqual([false, true]);
 });
 
@@ -4363,6 +4731,70 @@ test('evaluateApplicationExercise ignores a duplicate request and persists feedb
     feedback
   );
   assert.equal(state.internalState.workflowState.evaluateExercise.status, 'succeeded');
+});
+
+test('evaluateApplicationExercise does not apply feedback after switching projects', async () => {
+  const exercise: ApplicationExerciseNode = {
+    kind: 'exercise',
+    id: 'exercise-project-a',
+    title: 'Laboratorio pratico',
+    description: 'Applica il metodo.',
+    assessedObjective: 'Motivare una diagnosi.',
+    brief: 'Consegna una diagnosi motivata.',
+    internalText: 'Bozza A',
+    attachments: [],
+    currentFeedback: null,
+    isCompleted: false,
+    feedbackStale: false,
+    updatedAt: '2026-03-20T10:00:00.000Z',
+  };
+  const projectAPlan = buildPlan();
+  projectAPlan.modules[0]?.children.push(exercise);
+  const projectBPlan = buildPlan({ title: 'Progetto B' });
+  const feedback: ExerciseFeedback = {
+    evaluatedAt: '2026-03-20T10:05:00.000Z',
+    score: 84,
+    qualitativeLabel: 'Obiettivo raggiunto',
+    summary: 'Feedback progetto A.',
+    strengths: ['Prove osservabili'],
+    improvements: ['Esplicita un limite'],
+    caveats: [],
+  };
+  let resolveSave: (() => void) | undefined;
+  let markSaveStarted: (() => void) | undefined;
+  const saveResult = new Promise<void>(resolve => {
+    resolveSave = resolve;
+  });
+  const saveStarted = new Promise<void>(resolve => {
+    markSaveStarted = resolve;
+  });
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    domain: {
+      activeSectionId: exercise.id,
+      learningPlan: projectAPlan,
+    },
+    openRouter: {
+      generateApplicationExerciseFeedback: async () => feedback,
+    },
+    projectLibrary: {
+      currentProjectId: 'project-a',
+      patchCurrentProject: async () => {
+        markSaveStarted?.();
+        await saveResult;
+        return buildMeta('project-a');
+      },
+    },
+  });
+
+  const evaluation = controller.evaluateApplicationExercise(exercise.id, 'Bozza aggiornata A');
+  await saveStarted;
+  projectLibrary.adapter.setCurrentProjectId('project-b');
+  domain.setLearningPlan(projectBPlan);
+  state.adapter.invalidateWorkflows(['evaluateExercise']);
+  resolveSave?.();
+
+  expect(await evaluation).toEqual({ outcome: 'noop' });
+  expect(domain.learningPlan).toBe(projectBPlan);
 });
 
 test('completeActiveSection marks progress and opens the next lesson, then reports journey completion on the last one', async () => {

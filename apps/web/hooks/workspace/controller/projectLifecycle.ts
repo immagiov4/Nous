@@ -34,6 +34,7 @@ import {
   type ProjectSource,
   type ProjectSourceWarning,
 } from '../../../types.ts';
+import { findPathNodeById } from '../../../utils/learning/pathNodes.ts';
 import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
@@ -46,6 +47,7 @@ import {
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
+  OpenProjectOptions,
   OpenSectionOptions,
   OpenSectionOutcome,
   WorkspaceControllerContext,
@@ -91,6 +93,10 @@ const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
   'createLesson',
   'completeSection',
 ] as const;
+const PROJECT_SWITCH_WORKFLOWS_TO_INVALIDATE = WORKSPACE_WORKFLOW_IDS.filter(
+  workflowId => workflowId !== 'openProject'
+);
+const PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE = ['attachSource'] as const;
 
 export const createProjectLifecycleCommands = (
   context: WorkspaceControllerContext,
@@ -249,6 +255,11 @@ export const createProjectLifecycleCommands = (
       });
 
       if (options?.mode === 'reattach-source' && projectLibrary.currentProjectId) {
+        const reattachProjectId = projectLibrary.currentProjectId;
+        const isReattachProjectSelected = () =>
+          projectLibrary.getCurrentProjectId() === reattachProjectId;
+        const isReattachCurrent = () =>
+          state.isWorkflowCurrent('attachSource', requestId) && isReattachProjectSelected();
         const replacementSources = getCourseSourceDescriptors(nextSource);
         const existingSources = getCourseSourceDescriptors(domain.source);
         if (replacementSources.length > 0 && existingSources.length > 0) {
@@ -272,6 +283,12 @@ export const createProjectLifecycleCommands = (
             { source: nextSource },
             { archiveFile, throwOnError: true }
           );
+          if (!isReattachCurrent()) {
+            if (isReattachProjectSelected() && domain.source === nextSource) {
+              projectLibrary.setProjectHydrated(true);
+            }
+            return { outcome: 'failed' };
+          }
           if (!saved) {
             throw new Error('La sorgente del progetto non è stata salvata.');
           }
@@ -284,6 +301,13 @@ export const createProjectLifecycleCommands = (
             domain.setSource(nextSource);
           }
         } catch (error) {
+          if (!isReattachCurrent()) {
+            if (isReattachProjectSelected() && domain.source === nextSource) {
+              domain.setSource(previousSource);
+              projectLibrary.setProjectHydrated(true);
+            }
+            return { outcome: 'failed' };
+          }
           domain.setSource(previousSource);
           projectLibrary.setProjectHydrated(true);
           throw error;
@@ -399,9 +423,13 @@ export const createProjectLifecycleCommands = (
   }
 
   async function openProject(
-    projectId: string
+    projectId: string,
+    options: OpenProjectOptions = {}
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }> {
     const requestId = state.beginWorkflow('openProject', t('Apertura progetto...'));
+    if (projectLibrary.getCurrentProjectId() !== projectId) {
+      state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
+    }
     let didSettleOpenWorkflow = false;
     state.setOpeningProjectId(projectId);
     pushNousDebugTrace('open-project:start', { projectId, requestId });
@@ -514,6 +542,15 @@ export const createProjectLifecycleCommands = (
 
       const hydration = prepareSnapshotForHydrationResult(snapshotToHydrate);
       let preparedSnapshot = hydration.snapshot;
+      const requestedPathNode = options.activeSectionId
+        ? findPathNodeById(preparedSnapshot.learningPlan?.modules, options.activeSectionId)
+        : null;
+      if (options.activeSectionId && requestedPathNode?.kind !== 'lesson') {
+        throw new Error(t('Non sono riuscito ad aprire il materiale recuperato. Riprova.'));
+      }
+      if (projectLibrary.getCurrentProjectId() !== projectId) {
+        state.invalidateWorkflows([...PROJECT_SWITCH_WORKFLOWS_TO_INVALIDATE]);
+      }
       persistHydratedSnapshot(preparedSnapshot, repairedProjectRevision);
       pushNousDebugTrace('open-project:hydrated-snapshot', {
         hasLearningPlan: Boolean(preparedSnapshot.learningPlan),
@@ -594,13 +631,31 @@ export const createProjectLifecycleCommands = (
           await startLearnAssessment();
         }
       } else if (preparedSnapshot.learningPlan) {
-        const nextSection = resolvePlanLesson(
-          preparedSnapshot.learningPlan,
-          preparedSnapshot.activeSectionId
-        );
+        const requestedSection = requestedPathNode?.kind === 'lesson' ? requestedPathNode : null;
+        const nextSection =
+          requestedSection ||
+          resolvePlanLesson(preparedSnapshot.learningPlan, preparedSnapshot.activeSectionId);
+        if (requestedSection) {
+          if (requestedSection.content?.length) {
+            const openOutcome = await openSection(requestedSection, { allowWhileBlocking: true });
+            if (openOutcome === 'ignored-busy') {
+              throw new Error(t('Non sono riuscito ad aprire il materiale recuperato. Riprova.'));
+            }
+          } else {
+            void openSection(requestedSection, { allowWhileBlocking: true }).catch(error => {
+              pushNousDebugTrace('open-project:requested-section-load-failed', {
+                errorMessage: getErrorMessage(error),
+                projectId,
+                requestId,
+                sectionId: requestedSection.id,
+              });
+            });
+          }
+        }
         const hydratedPdfFile =
           preparedSnapshot.source?.kind === 'pdf' ? preparedSnapshot.source.file : null;
         if (
+          !requestedSection &&
           !needsPdfProjectHydration(
             hydratedPdfFile,
             preparedSnapshot.learningPlan,
@@ -611,7 +666,7 @@ export const createProjectLifecycleCommands = (
         ) {
           void (async () => {
             if (
-              projectLibrary.currentProjectId !== projectId ||
+              projectLibrary.getCurrentProjectId() !== projectId ||
               !state.isWorkflowCurrent('openProject', requestId)
             ) {
               return;
@@ -669,6 +724,15 @@ export const createProjectLifecycleCommands = (
     await projectLibrary.refreshLibraryState();
   }
 
+  function cancelProjectOpen(): void {
+    if (state.getWorkflowState().openProject.status !== 'pending') return;
+
+    const projectId = state.getOpeningProjectId();
+    state.invalidateWorkflows(['openProject']);
+    state.setOpeningProjectId(null);
+    pushNousDebugTrace('open-project:cancelled', { projectId });
+  }
+
   function handleRemoteProjectDeleted(projectId: string): void {
     pushNousDebugTrace('project:remote-deleted', { projectId });
     stopAudio(true);
@@ -681,6 +745,7 @@ export const createProjectLifecycleCommands = (
   }
 
   return {
+    cancelProjectOpen,
     deleteProject,
     handleRemoteProjectDeleted,
     handleSourceUpload,

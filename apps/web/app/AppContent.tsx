@@ -136,6 +136,7 @@ const AppContent = () => {
           <ReadingScreenContainer
             controller={controller}
             readerState={readerState}
+            projectLibrary={projectLibrary}
             fileActions={fileActions}
             navigation={navigation}
             notify={notify}

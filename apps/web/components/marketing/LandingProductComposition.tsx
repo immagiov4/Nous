@@ -1704,6 +1704,18 @@ export const LandingProductVideoFrame = ({
       },
     },
     overlays: {
+      libraryAssistantDataSource: {
+        attachedContextRefs: [],
+        folders: [],
+        loadProjectsById: resolvedEmptyArray,
+        projects: [],
+        tree: {
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        },
+      },
       contextAnswerArtifactActionFeedbackOverride: undefined,
       contextAnswerArtifactPreviewIdOverride:
         frame >= LESSON_ARTIFACT_PREVIEW_FRAME && frame < LESSON_ARTIFACT_DISMISS_FRAME
@@ -1798,6 +1810,7 @@ export const LandingProductVideoFrame = ({
       onDeleteAnnotation: () => {},
       onDetachArtifactFromAnnotation: () => {},
       onHighlight: () => {},
+      onOpenLibraryReference: () => {},
       onSaveConversationNote: resolvedNoteSave,
       onSaveNote: () => {},
       onUpdateConversationNote: resolvedNoteSave,

@@ -141,7 +141,10 @@ export interface WorkspaceProjectLibraryAdapter {
     overrides?: Partial<ProjectSnapshot>,
     options?: { archiveFile?: File; throwOnError?: boolean }
   ) => Promise<ProjectSaveResult | null>;
-  patchCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
+  patchCurrentProject: (
+    overrides?: Partial<ProjectSnapshot>,
+    originatingProjectId?: string | null
+  ) => Promise<SavedProjectMeta | null>;
   patchSectionAnnotations: (
     sectionId: string,
     annotations: unknown,
@@ -236,6 +239,10 @@ export interface OpenSectionOptions {
   forceRegenerate?: boolean;
 }
 
+export interface OpenProjectOptions {
+  activeSectionId?: string;
+}
+
 export interface WorkspaceControllerContext {
   domain: WorkspaceDomainControllerAdapter;
   openRouter: OpenRouterServiceModule;
@@ -249,6 +256,7 @@ export interface WorkspaceControllerContext {
 
 export interface WorkspaceControllerCommands {
   cancelAssessment: () => Promise<void>;
+  cancelProjectOpen: () => void;
   askContextQuestion: (args: {
     contextAfter?: string;
     contextBefore?: string;
@@ -280,7 +288,8 @@ export interface WorkspaceControllerCommands {
     selectedFile: File
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'imported' }>;
   openProject: (
-    projectId: string
+    projectId: string,
+    options?: OpenProjectOptions
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }>;
   attachExerciseFiles: (exerciseId: string, attachments: ExerciseAttachment[]) => Promise<void>;
   evaluateApplicationExercise: (

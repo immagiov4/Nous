@@ -42,6 +42,11 @@ export interface SectionAnnotationHighlightHit {
   selectedText: string;
 }
 
+export interface SectionAnnotationHighlightTarget {
+  element: Element;
+  hit: SectionAnnotationHighlightHit;
+}
+
 const highlightHitsByEvent = new WeakMap<Event, SectionAnnotationHighlightHit>();
 const activeHighlightEntries = new Set<SectionAnnotationHighlightEntry>();
 
@@ -420,6 +425,39 @@ export const findActiveSectionAnnotationHighlightHit = (
   y: number
 ): SectionAnnotationHighlightHit | null =>
   findSectionAnnotationHighlightHit(Array.from(activeHighlightEntries), x, y);
+
+export const resolveSectionAnnotationHighlightTarget = (
+  entries: SectionAnnotationHighlightEntry[],
+  annotationId: string
+): SectionAnnotationHighlightTarget | null => {
+  const entry = entries.find(candidate => candidate.annotationId === annotationId);
+  const range = entry?.ranges[0];
+  if (!entry || !range) {
+    return null;
+  }
+
+  const element =
+    range.startContainer instanceof Element
+      ? range.startContainer
+      : range.startContainer.parentElement;
+  if (!element) {
+    return null;
+  }
+
+  return {
+    element,
+    hit: {
+      annotationId: entry.annotationId,
+      rect: range.getBoundingClientRect(),
+      selectedText: entry.selectedText,
+    },
+  };
+};
+
+export const resolveActiveSectionAnnotationHighlightTarget = (
+  annotationId: string
+): SectionAnnotationHighlightTarget | null =>
+  resolveSectionAnnotationHighlightTarget(Array.from(activeHighlightEntries), annotationId);
 
 export const setSectionAnnotationHighlightHit = (
   event: Event,

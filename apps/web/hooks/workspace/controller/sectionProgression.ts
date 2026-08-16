@@ -53,6 +53,11 @@ interface ActiveGeneration {
   token: number;
 }
 
+const getDeliverableValidationMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return t('La consegna non contiene testo leggibile.');
+};
+
 export const createSectionCommands = (context: WorkspaceControllerContext) => {
   const { domain, openRouter, projectLibrary, state, stopAudio } = context;
 
@@ -90,7 +95,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const workflowState = state.getWorkflowState();
     if (
-      state.isGenerationActive(projectLibrary.currentProjectId) ||
+      state.isGenerationActive(projectLibrary.getCurrentProjectId()) ||
       workflowState.generateExercise.status === 'pending' ||
       workflowState.loadSection.status === 'pending' ||
       selectIsBlocking(workflowState)
@@ -98,7 +103,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return;
     }
 
-    const projectId = projectLibrary.currentProjectId;
+    const projectId = projectLibrary.getCurrentProjectId();
     const generationToken = state.tryBeginGeneration(projectId, 'exercise');
     if (generationToken === null) {
       return;
@@ -114,7 +119,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       state.setGeneratingSectionId(projectId, generationToken, exercise.id);
       const requestId = state.beginWorkflow('loadSection', t('Controllo le lezioni precedenti...'));
       const isGenerationRequestCurrent = () =>
-        projectLibrary.currentProjectId === projectId &&
+        projectLibrary.getCurrentProjectId() === projectId &&
         state.isWorkflowCurrent('loadSection', requestId);
 
       try {
@@ -143,11 +148,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           })
         );
         domain.setLearningPlan(updatedPlan);
-        void projectLibrary.patchCurrentProject({
-          learningPlan: updatedPlan,
-          activeSectionId: exercise.id,
-          state: AppState.READING,
-        });
+        void projectLibrary.patchCurrentProject(
+          {
+            learningPlan: updatedPlan,
+            activeSectionId: exercise.id,
+            state: AppState.READING,
+          },
+          projectId
+        );
         state.succeedWorkflow('loadSection', requestId);
       } catch (error) {
         if (!isGenerationRequestCurrent()) {
@@ -169,7 +177,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const workflowState = state.getWorkflowState();
     if (
-      state.isGenerationActive(projectLibrary.currentProjectId) ||
+      state.isGenerationActive(projectLibrary.getCurrentProjectId()) ||
       workflowState.generateExercise.status === 'pending' ||
       workflowState.loadSection.status === 'pending' ||
       selectIsBlocking(workflowState)
@@ -177,7 +185,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return { outcome: 'noop' };
     }
 
-    const projectId = projectLibrary.currentProjectId;
+    const projectId = projectLibrary.getCurrentProjectId();
     const generationToken = state.tryBeginGeneration(projectId, 'exercise');
     if (generationToken === null) {
       return { outcome: 'noop' };
@@ -209,11 +217,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         }
 
         domain.setLearningPlan(result.plan);
-        void projectLibrary.patchCurrentProject({
-          learningPlan: result.plan,
-          activeSectionId: domain.activeSectionId,
-          state: AppState.READING,
-        });
+        void projectLibrary.patchCurrentProject(
+          {
+            learningPlan: result.plan,
+            activeSectionId: domain.activeSectionId,
+            state: AppState.READING,
+          },
+          projectId
+        );
         state.succeedWorkflow('generateExercise', requestId);
         return { outcome: 'repaired' };
       } catch (error) {
@@ -231,11 +242,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           attempts
         );
         domain.setLearningPlan(failedPlan);
-        void projectLibrary.patchCurrentProject({
-          learningPlan: failedPlan,
-          activeSectionId: domain.activeSectionId,
-          state: AppState.READING,
-        });
+        void projectLibrary.patchCurrentProject(
+          {
+            learningPlan: failedPlan,
+            activeSectionId: domain.activeSectionId,
+            state: AppState.READING,
+          },
+          projectId
+        );
         state.failWorkflow('generateExercise', requestId, getErrorMessage(error));
         throw error;
       }
@@ -299,6 +313,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     const requestId = state.beginWorkflow('evaluateExercise', t('Valuto la consegna…'));
+    const projectId = projectLibrary.getCurrentProjectId();
     let deliverable: ExerciseDeliverableValidationResult;
 
     try {
@@ -307,10 +322,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         internalText: submittedExercise.internalText,
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error && error.message.trim()
-          ? error.message
-          : t('La consegna non contiene testo leggibile.');
+      const errorMessage = getDeliverableValidationMessage(error);
       state.failWorkflow('evaluateExercise', requestId, errorMessage);
       return { errorMessage, outcome: 'failed' };
     }
@@ -343,19 +355,34 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         submittedExercise.id,
         node => withExerciseFeedback(node, feedback)
       );
-      const savedProject = await projectLibrary.patchCurrentProject({
-        learningPlan: updatedPlan,
-        activeSectionId: submittedExercise.id,
-        state: AppState.READING,
-      });
+      const savedProject = await projectLibrary.patchCurrentProject(
+        {
+          learningPlan: updatedPlan,
+          activeSectionId: submittedExercise.id,
+          state: AppState.READING,
+        },
+        projectId
+      );
       if (!savedProject) {
         throw new Error('Application exercise feedback persistence failed');
+      }
+      if (
+        !state.isWorkflowCurrent('evaluateExercise', requestId) ||
+        projectLibrary.getCurrentProjectId() !== projectId
+      ) {
+        return { outcome: 'noop' };
       }
 
       domain.setLearningPlan(updatedPlan);
       state.succeedWorkflow('evaluateExercise', requestId);
       return { outcome: 'evaluated' };
     } catch (error) {
+      if (
+        !state.isWorkflowCurrent('evaluateExercise', requestId) ||
+        projectLibrary.getCurrentProjectId() !== projectId
+      ) {
+        return { outcome: 'noop' };
+      }
       console.error('Application exercise feedback failed', error);
       const errorMessage = t('Non sono riuscito a valutare la consegna. Riprova.');
       state.failWorkflow('evaluateExercise', requestId, errorMessage);
@@ -389,7 +416,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // Ready lessons remain navigable, but every new lesson or sublesson generation
     // shares this gate so workflow invalidation and command recreation cannot open a race.
     const workflowState = state.getWorkflowState();
-    const currentProjectId = projectLibrary.currentProjectId;
+    const currentProjectId = projectLibrary.getCurrentProjectId();
     if (
       !forceRegenerate &&
       workflowState.loadSection.status === 'pending' &&
@@ -419,7 +446,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const ownsGenerationGate = activeGeneration === undefined;
     if (!activeGeneration) {
-      const projectId = projectLibrary.currentProjectId;
+      const projectId = projectLibrary.getCurrentProjectId();
       const token = state.tryBeginGeneration(projectId, 'lesson');
       if (token === null) {
         return 'ignored-busy';
@@ -433,16 +460,19 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
     );
     const isGenerationRequestCurrent = () =>
-      projectLibrary.currentProjectId === activeGeneration.projectId &&
+      projectLibrary.getCurrentProjectId() === activeGeneration.projectId &&
       state.isWorkflowCurrent('loadSection', requestId);
 
     stopAudio(true);
     domain.setActiveSectionId(section.id);
 
-    void projectLibrary.patchCurrentProject({
-      activeSectionId: section.id,
-      state: AppState.READING,
-    });
+    void projectLibrary.patchCurrentProject(
+      {
+        activeSectionId: section.id,
+        state: AppState.READING,
+      },
+      activeGeneration.projectId
+    );
 
     const projectId = activeGeneration.projectId;
     if (!projectId) {
@@ -633,7 +663,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         errorMessage: t('Rigenerazione in corso'),
       };
     }
-    const projectId = projectLibrary.currentProjectId;
+    const projectId = projectLibrary.getCurrentProjectId();
     if (!projectId) {
       return {
         outcome: 'failed',
@@ -709,10 +739,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (domain.activeSectionId !== result.sectionId) {
         stopAudio(true);
         domain.setActiveSectionId(result.sectionId);
-        void projectLibrary.patchCurrentProject({
-          activeSectionId: result.sectionId,
-          state: AppState.READING,
-        });
+        void projectLibrary.patchCurrentProject(
+          {
+            activeSectionId: result.sectionId,
+            state: AppState.READING,
+          },
+          projectId
+        );
       }
       await progressObserver.finish();
       progressObserver.complete();

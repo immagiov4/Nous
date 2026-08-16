@@ -30,6 +30,11 @@ import {
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
+import {
+  executeLibraryAssistantTool,
+  isLibraryAssistantToolName,
+  type LibraryAssistantDataSource,
+} from '../../../services/library/toolExecutor.ts';
 import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
@@ -48,7 +53,7 @@ import {
   dedupeUiMessagesById,
   getUiMessageRenderableParts,
   getUiMessageText,
-  hasSuccessfulToolOutput,
+  hasOnlySuccessfulToolOutputs,
 } from '../../../utils/uiChat.ts';
 import {
   getStoredLessonVisualKind,
@@ -62,6 +67,10 @@ import type {
   ChatArtifactReplaceRequest,
 } from '../../shared/ChatArtifactRenderer.tsx';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
+import ChatToolActivityStrip from '../../shared/ChatToolActivityStrip.tsx';
+import LibraryToolReferences, {
+  type LibraryNavigationTarget,
+} from '../../shared/LibraryToolReferences.tsx';
 import {
   appendSpeechTranscription,
   default as SpeechInputButton,
@@ -145,6 +154,35 @@ const hasPendingAddToNotesRequest = (messages: ContextChatMessage[]): boolean =>
     )
   );
 
+const readArtifactId = (artifact: unknown): string | null => {
+  if (!artifact || typeof artifact !== 'object' || !('id' in artifact)) return null;
+  return typeof artifact.id === 'string' ? artifact.id : null;
+};
+
+const readArtifactIds = (output: unknown): string[] => {
+  if (!output || typeof output !== 'object') return [];
+  const artifacts = (output as { artifacts?: unknown }).artifacts;
+  return Array.isArray(artifacts)
+    ? artifacts.flatMap(artifact => {
+        const artifactId = readArtifactId(artifact);
+        return artifactId ? [artifactId] : [];
+      })
+    : [];
+};
+
+const getRetrievedArtifactIds = (messages: ContextChatMessage[]): Set<string> =>
+  new Set(
+    messages.flatMap(message =>
+      message.parts.flatMap(part =>
+        isToolUIPart(part) &&
+        part.type === 'tool-getLearningArtifacts' &&
+        part.state === 'output-available'
+          ? readArtifactIds(part.output)
+          : []
+      )
+    )
+  );
+
 const readCurrentLessonArtifactsToolInput = (value: unknown): CurrentLessonArtifactsToolInput => {
   if (!value || typeof value !== 'object') {
     return {};
@@ -222,6 +260,8 @@ interface ContextRequestState {
   lessonContent?: string;
   lessonDescription?: string;
   lessonTitle?: string;
+  projectId?: string;
+  projectTitle?: string;
   selectedText: string;
   selectedTextStart?: number;
   sourceKind?: ContextAnswerState['sourceKind'];
@@ -294,9 +334,11 @@ interface ContextAnswerPanelProps {
   readonly inputValueOverride?: string;
   readonly isMobileViewport: boolean;
   readonly loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
+  readonly libraryAssistantDataSource: LibraryAssistantDataSource;
   readonly messagesScrollTopOverride?: number;
   readonly currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   readonly onClose: () => void;
+  readonly onOpenLibraryReference: (reference: LibraryNavigationTarget) => void;
   readonly onSaveConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
@@ -342,9 +384,11 @@ function ContextAnswerPanelSession({
   inputValueOverride,
   isMobileViewport,
   loadDocumentSourceFile,
+  libraryAssistantDataSource,
   messagesScrollTopOverride,
   currentLessonArtifactPayloads = [],
   onClose,
+  onOpenLibraryReference,
   onSaveConversationNote,
   onUpdateConversationNote,
   onSaveArtifactToLesson,
@@ -428,6 +472,8 @@ function ContextAnswerPanelSession({
       lessonContent: contextAnswer.lessonContent,
       lessonDescription: contextAnswer.lessonDescription,
       lessonTitle: contextAnswer.lessonTitle,
+      projectId: contextAnswer.projectId,
+      projectTitle: contextAnswer.projectTitle,
       selectedText: contextAnswer.selectedText,
       selectedTextStart: contextAnswer.selectedTextStart,
       sourceKind: contextAnswer.sourceKind,
@@ -444,6 +490,8 @@ function ContextAnswerPanelSession({
       contextAnswer.lessonContent,
       contextAnswer.lessonDescription,
       contextAnswer.lessonTitle,
+      contextAnswer.projectId,
+      contextAnswer.projectTitle,
       contextAnswer.selectedText,
       contextAnswer.selectedTextStart,
       contextAnswer.sourceKind,
@@ -479,6 +527,8 @@ function ContextAnswerPanelSession({
               lessonContent: currentRequestState.lessonContent,
               lessonDescription: currentRequestState.lessonDescription,
               lessonTitle: currentRequestState.lessonTitle,
+              projectId: currentRequestState.projectId,
+              projectTitle: currentRequestState.projectTitle,
               selectedText: currentRequestState.selectedText,
               sourceKind: currentRequestState.sourceKind,
               sourceMaterial: currentRequestState.sourceMaterial,
@@ -499,7 +549,7 @@ function ContextAnswerPanelSession({
     transport,
     experimental_throttle: 96,
     sendAutomaticallyWhen: options =>
-      !hasSuccessfulToolOutput(options.messages, 'tool-generateCurrentLessonArtifact') &&
+      !hasOnlySuccessfulToolOutputs(options.messages, 'tool-generateCurrentLessonArtifact') &&
       lastAssistantMessageIsCompleteWithToolCalls(options),
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
@@ -641,6 +691,49 @@ function ContextAnswerPanelSession({
           },
         });
       }
+
+      if (isLibraryAssistantToolName(toolCall.toolName)) {
+        let result: Awaited<ReturnType<typeof executeLibraryAssistantTool>>;
+        try {
+          result = await executeLibraryAssistantTool({
+            dataSource: libraryAssistantDataSource,
+            input: toolCall.input,
+            toolName: toolCall.toolName,
+          });
+        } catch (toolError) {
+          console.error('[Nous][Context library] Tool execution failed.', toolError);
+          void addToolOutput({
+            tool: toolCall.toolName,
+            toolCallId: toolCall.toolCallId,
+            state: 'output-error',
+            errorText: t('Non sono riuscito a recuperare i dati della libreria.'),
+          });
+          return;
+        }
+
+        if (toolCall.toolName === 'getLearningArtifacts') {
+          setArtifactPayloadsByToolCallId(currentPayloads => ({
+            ...currentPayloads,
+            [toolCall.toolCallId]: result.renderPayloads ?? [],
+          }));
+        }
+
+        if (result.outputError) {
+          void addToolOutput({
+            tool: toolCall.toolName,
+            toolCallId: toolCall.toolCallId,
+            state: 'output-error',
+            errorText: result.outputError,
+          });
+          return;
+        }
+
+        void addToolOutput({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output: result.output || {},
+        });
+      }
     },
   });
 
@@ -651,6 +744,7 @@ function ContextAnswerPanelSession({
     ];
     return new Map(payloads.map(payload => [payload.summary.id, payload]));
   }, [artifactPayloadsByToolCallId, currentLessonArtifactPayloads]);
+  const retrievedArtifactIds = useMemo(() => getRetrievedArtifactIds(messages), [messages]);
   const replacementDraftPayloads = useMemo(
     () =>
       Object.entries(artifactPayloadsByToolCallId).flatMap(([toolCallId, payloads]) =>
@@ -745,6 +839,28 @@ function ContextAnswerPanelSession({
           : latestGeneratedArtifactIdRef.current
             ? [latestGeneratedArtifactIdRef.current]
             : [];
+      const hasUnsavableArtifact = noteArtifactIds.some(artifactId => {
+        const payload = artifactPayloadsById.get(artifactId);
+        if (!payload) return retrievedArtifactIds.has(artifactId);
+        return (
+          payload.summary.kind !== 'generated-visual' &&
+          (payload.summary.projectId !== contextAnswer.projectId ||
+            payload.summary.lessonId !== contextAnswer.lessonId)
+        );
+      });
+      if (hasUnsavableArtifact) {
+        void addToolOutput({
+          tool: 'requestAddToNotes',
+          toolCallId,
+          output: {
+            approved: true,
+            mode,
+            saved: false,
+            error: t('Non sono riuscito a salvare la nota.'),
+          },
+        });
+        return;
+      }
       const candidates = buildConversationNoteSaveCandidates({
         anchor: selectionAnchorRef.current,
         toolInput: {
@@ -761,8 +877,14 @@ function ContextAnswerPanelSession({
               : [];
           }),
           generatedVisuals: noteArtifactIds.flatMap(artifactId => {
-            const visual = generatedVisualsByArtifactId[artifactId];
-            return visual ? [visual] : [];
+            const generatedVisual = generatedVisualsByArtifactId[artifactId];
+            if (generatedVisual) return [generatedVisual];
+
+            const retrievedPayload = artifactPayloadsById.get(artifactId);
+            return retrievedPayload?.summary.kind === 'generated-visual' &&
+              'visual' in retrievedPayload
+              ? [retrievedPayload.visual]
+              : [];
           }),
           note: inputValue.noteDraft,
           selectedText: inputValue.selectedTextDraft,
@@ -1220,6 +1342,7 @@ function ContextAnswerPanelSession({
 
     if (
       part.type === 'tool-getCurrentLessonArtifacts' ||
+      part.type === 'tool-getLearningArtifacts' ||
       part.type === 'tool-generateCurrentLessonArtifact'
     ) {
       const shouldRenderAttachments =
@@ -1257,6 +1380,7 @@ function ContextAnswerPanelSession({
       const isAwaitingArtifactOutput =
         part.type === 'tool-generateCurrentLessonArtifact' &&
         (part.state === 'input-streaming' || part.state === 'input-available');
+      const canMutateArtifacts = part.type !== 'tool-getLearningArtifacts';
       return (
         <ChatArtifactRenderer
           key={`${messageId}-${part.toolCallId}`}
@@ -1267,9 +1391,9 @@ function ContextAnswerPanelSession({
           openArtifactIdOverride={artifactPreviewIdOverride}
           portalContainer={artifactPortalContainer}
           regenerationLifecycle={artifactRegenerationLifecycle}
-          onDiscardArtifact={handleDiscardArtifact}
-          onRegenerateArtifact={handleRegenerateArtifact}
-          onReplaceArtifact={handleReplaceArtifact}
+          onDiscardArtifact={canMutateArtifacts ? handleDiscardArtifact : undefined}
+          onRegenerateArtifact={canMutateArtifacts ? handleRegenerateArtifact : undefined}
+          onReplaceArtifact={canMutateArtifacts ? handleReplaceArtifact : undefined}
           onSaveArtifact={
             part.type === 'tool-generateCurrentLessonArtifact'
               ? handleSaveGeneratedArtifact
@@ -1362,6 +1486,11 @@ function ContextAnswerPanelSession({
 
               return (
                 <div key={message.id} className="space-y-4">
+                  <ChatToolActivityStrip
+                    isMobileViewport={isMobileViewport}
+                    messageId={message.id}
+                    parts={message.parts}
+                  />
                   {renderableParts.map(part =>
                     part.kind === 'text' ? (
                       <StreamingMarkdownRenderer
@@ -1375,6 +1504,7 @@ function ContextAnswerPanelSession({
                       renderToolPart(part.part, `${message.id}-${part.key}`)
                     )
                   )}
+                  <LibraryToolReferences parts={message.parts} onOpen={onOpenLibraryReference} />
                 </div>
               );
             })}
