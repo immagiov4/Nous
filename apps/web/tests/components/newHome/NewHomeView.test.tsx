@@ -139,6 +139,7 @@ describe('NewHomeView library interactions', () => {
         loadProjectSource={vi.fn(async () => null)}
         loadProjectsById={vi.fn(async () => [])}
         onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onToggleDarkMode={vi.fn()}
         openingProjectId={null}
@@ -172,6 +173,7 @@ describe('NewHomeView library interactions', () => {
         loadProjectSource={vi.fn(async () => null)}
         loadProjectsById={vi.fn(async () => [])}
         onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onToggleDarkMode={vi.fn()}
         openingProjectId={null}
@@ -237,6 +239,7 @@ describe('NewHomeView library interactions', () => {
         loadProjectSource={vi.fn(async () => null)}
         loadProjectsById={vi.fn(async () => [])}
         onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onToggleDarkMode={vi.fn()}
         openingProjectId={null}
@@ -286,6 +289,7 @@ describe('NewHomeView library interactions', () => {
         loadProjectSource={vi.fn(async () => null)}
         loadProjectsById={vi.fn(async () => [])}
         onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onToggleDarkMode={vi.fn()}
         openingProjectId={null}
@@ -299,17 +303,43 @@ describe('NewHomeView library interactions', () => {
     let bounds = { top: 100, bottom: 120, left: 700, right: 720 };
     vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => bounds as DOMRect);
 
-    await user.click(trigger);
-    const menu = screen.getByRole('menu');
-    expect(menu).toHaveStyle({ top: '124px' });
+    const visualViewport = new EventTarget() as VisualViewport;
+    Object.assign(visualViewport, {
+      height: 400,
+      offsetLeft: 80,
+      offsetTop: 40,
+      width: 400,
+    });
+    const originalVisualViewport = window.visualViewport;
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: visualViewport,
+    });
 
-    bounds = { top: 300, bottom: 320, left: 700, right: 720 };
-    window.dispatchEvent(new Event('scroll'));
-    await waitFor(() => expect(menu).toHaveStyle({ top: '324px' }));
+    try {
+      await user.click(trigger);
+      const menu = screen.getByRole('button', { name: /^(Apri corso|Open course)$/ })
+        .parentElement as HTMLElement;
+      expect(menu).toHaveStyle({ left: '276px', top: '124px' });
+      const exportButton = screen.getByRole('button', { name: /^(Esporta|Export)$/ });
+      exportButton.focus();
 
-    await user.keyboard('{Escape}');
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+      bounds = { top: 300, bottom: 320, left: 700, right: 720 };
+      window.dispatchEvent(new Event('scroll'));
+      await waitFor(() => expect(menu).toHaveStyle({ top: '84px' }));
+      expect(exportButton).toHaveFocus();
+
+      await user.keyboard('{Escape}');
+      expect(
+        screen.queryByRole('button', { name: /^(Apri corso|Open course)$/ })
+      ).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    } finally {
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: originalVisualViewport,
+      });
+    }
   });
 
   test.each([

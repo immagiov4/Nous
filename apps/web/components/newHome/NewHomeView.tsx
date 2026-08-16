@@ -493,16 +493,21 @@ const getFloatingMenuState = (
   menuHeight: number
 ): FloatingMenuState => {
   const anchor = trigger.getBoundingClientRect();
+  const visualViewport = globalThis.window.visualViewport;
+  const viewportLeft = visualViewport?.offsetLeft ?? 0;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportWidth = visualViewport?.width ?? globalThis.window.innerWidth;
+  const viewportHeight = visualViewport?.height ?? globalThis.window.innerHeight;
   return {
     id,
     left: Math.max(
-      12,
-      Math.min(anchor.right - menuWidth, globalThis.window.innerWidth - menuWidth - 12)
+      viewportLeft + 12,
+      Math.min(anchor.right - menuWidth, viewportLeft + viewportWidth - menuWidth - 12)
     ),
     top:
-      anchor.bottom + menuHeight + 8 <= globalThis.window.innerHeight
+      anchor.bottom + menuHeight + 8 <= viewportTop + viewportHeight
         ? anchor.bottom + 4
-        : Math.max(12, anchor.top - menuHeight - 4),
+        : Math.max(viewportTop + 12, anchor.top - menuHeight - 4),
     trigger,
     menuHeight,
     menuWidth,
@@ -772,9 +777,15 @@ const CourseList = ({
     };
   }, [openCourseMenu, openFolderMenu]);
 
+  const openMenuId = openFolderMenu?.id ?? openCourseMenu?.id;
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, [openMenuId]);
+
   useEffect(() => {
     if (!openFolderMenu && !openCourseMenu) return;
-    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
@@ -1087,7 +1098,6 @@ const CourseList = ({
                   <div className="ml-auto">
                     <button
                       type="button"
-                      aria-haspopup="menu"
                       aria-expanded={openFolderMenu?.id === group.id}
                       aria-label={t('Azioni per la cartella {folderName}', {
                         folderName: group.label,
@@ -1235,7 +1245,6 @@ const CourseList = ({
                         </button>
                         <button
                           type="button"
-                          aria-haspopup="menu"
                           aria-expanded={openCourseMenu?.id === project.id}
                           aria-label={t('Azioni per {courseTitle}', {
                             courseTitle: project.title,
@@ -1277,7 +1286,6 @@ const CourseList = ({
                 />
                 <div
                   ref={menuRef}
-                  role="menu"
                   className="fixed z-[80] w-44 rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#211f1e]"
                   style={{ left: openFolderMenu.left, top: openFolderMenu.top }}
                 >
@@ -1330,7 +1338,6 @@ const CourseList = ({
                 />
                 <div
                   ref={menuRef}
-                  role="menu"
                   className="fixed z-[80] w-48 rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#211f1e]"
                   style={{ left: openCourseMenu.left, top: openCourseMenu.top }}
                 >
