@@ -562,14 +562,12 @@ const getPreferredLanguages = (language: string): string[] => {
 const estimateTokens = (value: string): number =>
   Math.ceil(value.length / ESTIMATED_CHARACTERS_PER_TOKEN);
 
-const formatTranscript = (
+const fitTranscriptToBudget = (
   transcript: YouTubeTranscript,
   maxTokens: number
 ): {
   estimatedTokens: number;
   segments: YouTubeTranscriptSegment[];
-  text: string;
-  tokens: number;
 } => {
   const segments = transcript.segments.flatMap(segment => {
     if (
@@ -591,8 +589,6 @@ const formatTranscript = (
   return {
     estimatedTokens,
     segments: fitsBudget ? segments : [],
-    text: fitsBudget ? text : '',
-    tokens: fitsBudget ? estimatedTokens : 0,
   };
 };
 
@@ -679,11 +675,11 @@ export const mergeYouTubeResearchOutcomes = (
       0,
       Math.min(budget.perTranscriptMaxTokens, budget.remainingTokens - prefixTokens - 1)
     );
-    const formatted = formatTranscript(
+    const budgetedTranscript = fitTranscriptToBudget(
       { kind: 'manual', language: '', segments: candidate.segments },
       availableTranscriptTokens
     );
-    const safeSegments = formatted.segments.map(segment => ({
+    const safeSegments = budgetedTranscript.segments.map(segment => ({
       ...segment,
       text: sanitizeTranscriptForPrompt(segment.text),
     }));
@@ -821,15 +817,15 @@ const buildYouTubeResearch = async (
         0,
         Math.min(budget.perTranscriptMaxTokens, budget.remainingTokens - prefixTokens - 1)
       );
-      const formattedTranscript = formatTranscript(transcript, availableTranscriptTokens);
-      const safeSegments = formattedTranscript.segments.map(segment => ({
+      const budgetedTranscript = fitTranscriptToBudget(transcript, availableTranscriptTokens);
+      const safeSegments = budgetedTranscript.segments.map(segment => ({
         ...segment,
         text: sanitizeTranscriptForPrompt(segment.text),
       }));
       const safeTranscript = formatYouTubeTranscript(safeSegments);
       const source = `${sourcePrefix}${safeTranscript}\n`;
       const sourceTokens = estimateTokens(source);
-      diagnostic.estimatedTokens = prefixTokens + formattedTranscript.estimatedTokens;
+      diagnostic.estimatedTokens = prefixTokens + budgetedTranscript.estimatedTokens;
       diagnostic.includedTokens = sourceTokens;
       diagnostic.transcript = {
         characterCount: safeTranscript.length,

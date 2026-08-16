@@ -344,6 +344,13 @@ code bundle, alternate filesystem store, or post-cutover fallback. Creating a ne
 project is one application write: Storage uploads are verified first, project and source metadata are
 committed together, and a failed database write removes the uploaded objects.
 
+Project backup archives currently use `archiveVersion: 2`. A persisted `youtubeTranscript` contains
+only `segments`, where every segment has `startSeconds`, `endSeconds`, and `text`. Timestamped model
+text, clip bounds, and diagnostics are derived from those segments; formatted text is not a second
+source of truth. Version 1 archives may contain the historical parallel `text` and `ranges` fields:
+the import boundary normalizes them immediately to segments, and every subsequent export emits only
+the version 2 representation.
+
 ### Large source archives
 
 ZIP sources are indexed as archives rather than flattened text. The backend preserves the original

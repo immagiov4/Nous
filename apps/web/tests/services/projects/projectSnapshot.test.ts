@@ -341,7 +341,15 @@ test('new exports keep one inspectable transcript representation and round-trip 
     ranges: segments.map(({ endSeconds, startSeconds }) => ({ endSeconds, startSeconds })),
     text: formatYouTubeTranscript(segments),
   };
-  assert.ok(JSON.stringify(transcript).length < JSON.stringify(legacyTranscript).length);
+  const encodedBytes = (value: unknown) =>
+    new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const canonicalBytes = encodedBytes(transcript);
+  const legacyBytes = encodedBytes(legacyTranscript);
+
+  assert.ok(
+    canonicalBytes < legacyBytes,
+    `expected segment-only transcript (${canonicalBytes} bytes) to be smaller than legacy transcript (${legacyBytes} bytes)`
+  );
 });
 
 test('normalizeImportedProject preserves YouTube research decisions and rationale', () => {
