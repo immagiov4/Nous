@@ -22,6 +22,7 @@ import {
 const LESSON_GENERATION_ERROR = 'La generazione della lezione non è riuscita. Riprova.';
 const LESSON_GENERATION_TIMEOUT_ERROR =
   'La generazione della lezione ha superato il tempo disponibile. Riprova.';
+const LESSON_GENERATION_BUSY_STATUS = 409;
 const LESSON_TERMINAL_PHASE_MESSAGES: Readonly<Record<string, string>> = {
   lesson_document_sources_failed:
     'Non è stato possibile elaborare le immagini delle fonti PDF. Riprova.',
@@ -266,13 +267,18 @@ const runDurableLessonRequest = async ({
       body: JSON.stringify({ ...requestPayload, projectId, requestKey: request.requestKey }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
-    }
+    },
+    { expectedStatuses: [LESSON_GENERATION_BUSY_STATUS] }
   );
   if (isDefinitiveWorkflowStartRejection(response)) request.clear();
   const payload = await readWorkflowJson(response);
-  const busyJob = response.status === 409 ? readWorkflowJob(payload, false) : null;
+  const busyJob =
+    response.status === LESSON_GENERATION_BUSY_STATUS ? readWorkflowJob(payload, false) : null;
   if (busyJob) {
     throw new LessonGenerationBusyError(busyJob.sectionId);
+  }
+  if (response.status === LESSON_GENERATION_BUSY_STATUS) {
+    logBackendFailureCorrelationId(response.headers.get('x-request-id'));
   }
   const job = readWorkflowJob(payload);
   if (

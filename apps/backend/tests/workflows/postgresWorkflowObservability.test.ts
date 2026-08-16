@@ -378,6 +378,7 @@ describe('PostgreSQL workflow observability', () => {
     const waitDatabase = createScriptedSql(
       [
         {
+          correlation_id: PERSISTED_CORRELATION_ID,
           node_instance_id: 'root/private-item/approval',
           run_id: RUN_ID,
           signal_type: 'approve',
@@ -404,6 +405,7 @@ describe('PostgreSQL workflow observability', () => {
     expect(waitLogs.events).toEqual([
       expect.objectContaining({
         action: 'expired',
+        correlationId: PERSISTED_CORRELATION_ID,
         event: 'workflow.wait',
         failureCode: 'workflow_wait_expired',
         waitId: 'wait-1',

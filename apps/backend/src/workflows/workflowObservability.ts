@@ -150,6 +150,7 @@ interface WorkflowAttemptLogEvent {
 
 interface WorkflowWaitLogEvent {
   readonly action: 'cancelled' | 'created' | 'expired' | 'signal-consumed' | 'signal-replayed';
+  readonly correlationId?: string;
   readonly event: 'workflow.wait';
   readonly failureCode?: string;
   readonly level: WorkflowLogLevel;
@@ -298,6 +299,7 @@ interface WorkflowAttemptLogSource {
 
 interface WorkflowWaitLogSource {
   readonly action: WorkflowWaitLogEvent['action'];
+  readonly correlationId?: string;
   readonly entity: 'wait';
   readonly failureCode?: string;
   readonly nodeInstanceId: string;
@@ -526,6 +528,9 @@ const projectLifecycleLogEvent = (source: LifecycleLogSource): LifecycleLogEvent
 
 const projectWaitLogEvent = (source: WorkflowWaitLogSource): WorkflowWaitLogEvent => ({
   action: source.action,
+  ...((source.correlationId ?? getCorrelationId())
+    ? { correlationId: source.correlationId ?? getCorrelationId() }
+    : {}),
   event: 'workflow.wait',
   ...(source.failureCode ? { failureCode: source.failureCode } : {}),
   level: WAIT_LEVEL_BY_ACTION[source.action],

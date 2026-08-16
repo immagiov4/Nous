@@ -792,17 +792,25 @@ describe('Supabase auth session storage', () => {
   });
 
   test.each([
-    { body: { code: 'weak_password' }, status: 422, reason: 'weak-password' },
-    { body: { code: 'validation_failed' }, status: 422, reason: 'retryable' },
-    { body: null, status: 503, reason: 'retryable' },
+    { body: { code: 'weak_password' }, logsFailure: false, status: 422, reason: 'weak-password' },
+    { body: { code: 'validation_failed' }, logsFailure: true, status: 422, reason: 'retryable' },
+    { body: null, logsFailure: true, status: 503, reason: 'retryable' },
   ] as const)('preserves a pending gate after a $status setup response', async ({
     body,
+    logsFailure,
     reason,
     status,
   }) => {
+    const correlationId = '48eb116c-a283-440b-b875-a528e5e4f5f1';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const accessToken = createAccessToken({ passwordSetupRequired: true });
     saveSupabaseSession({ accessToken, authAction: 'invite' });
-    fetchMock.mockResolvedValueOnce(new Response(body ? JSON.stringify(body) : '', { status }));
+    fetchMock.mockResolvedValueOnce(
+      new Response(body ? JSON.stringify(body) : '', {
+        headers: { 'x-request-id': correlationId },
+        status,
+      })
+    );
 
     await expect(completeSupabasePasswordSetup('new-password')).rejects.toMatchObject({ reason });
 
@@ -811,6 +819,10 @@ describe('Supabase auth session storage', () => {
       authAction: 'invite',
       user: { passwordSetupRequired: true },
     });
+    const supportCode = `[Nous][API] Codice assistenza: ${correlationId}`;
+    if (logsFailure) expect(warn).toHaveBeenCalledWith(supportCode);
+    else expect(warn).not.toHaveBeenCalledWith(supportCode);
+    warn.mockRestore();
   });
 
   test('sends password recovery to the native endpoint with a root redirect', async () => {

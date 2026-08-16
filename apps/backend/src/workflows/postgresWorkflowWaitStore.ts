@@ -9,6 +9,7 @@ import {
 } from './workflowObservability.js';
 
 interface ExpiredWaitCandidateRow {
+  correlation_id: string;
   node_instance_id: string;
   run_id: string;
   signal_type: string;
@@ -37,6 +38,7 @@ export class PostgresWorkflowWaitStore {
     const expired = await this.sql.begin(async sql => {
       const candidates = await sql<ExpiredWaitCandidateRow[]>`
         select
+          run.correlation_id,
           wait.id::text as wait_id,
           wait.run_id,
           wait.node_instance_id,
@@ -114,6 +116,7 @@ export class PostgresWorkflowWaitStore {
       `;
       await sql`select pg_notify('workflow_cleanup', ${candidate.run_id})`;
       return {
+        correlationId: candidate.correlation_id,
         result: {
           nodeInstanceId: candidate.node_instance_id,
           runId: candidate.run_id,
@@ -125,6 +128,7 @@ export class PostgresWorkflowWaitStore {
     if (expired) {
       emitWorkflowLog(this.logger, {
         action: 'expired',
+        correlationId: expired.correlationId,
         entity: 'wait',
         failureCode: WAIT_EXPIRED_FAILURE.code,
         nodeInstanceId: expired.result.nodeInstanceId,

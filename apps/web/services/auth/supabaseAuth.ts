@@ -54,6 +54,7 @@ interface SupabaseAuthResponse {
 const SUPABASE_SESSION_STORAGE_KEY = 'nousSupabaseSession';
 const SUPABASE_SESSION_CHANGE_EVENT = 'nous:supabase-session-change';
 const SESSION_EXPIRY_SKEW_SECONDS = 30;
+const PASSWORD_VALIDATION_STATUS = 422;
 export const SUPABASE_SESSION_REFRESH_RETRY_MS = 30_000;
 const SUPABASE_REFRESH_UNAVAILABLE_MESSAGE =
   'Aggiornamento sessione temporaneamente non disponibile.';
@@ -603,7 +604,7 @@ const readPasswordSetupFailure = async (
   if (response.status === 401) {
     return 'expired';
   }
-  if (response.status === 422) {
+  if (response.status === PASSWORD_VALIDATION_STATUS) {
     const body = (await response.json().catch(() => ({}))) as {
       code?: unknown;
       error_code?: unknown;
@@ -663,16 +664,23 @@ export const completeSupabasePasswordSetup = async (password: string): Promise<v
 
   let response: Response;
   try {
-    response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/auth/password-setup`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
+    response = await fetchWithSupabaseAuth(
+      `${getBackendUrl()}/api/auth/password-setup`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      },
+      { expectedStatuses: [PASSWORD_VALIDATION_STATUS] }
+    );
   } catch {
     throw new SupabasePasswordSetupError('retryable');
   }
 
   const failureReason = await readPasswordSetupFailure(response);
+  if (response.status === PASSWORD_VALIDATION_STATUS && failureReason !== 'weak-password') {
+    logBackendFailureCorrelationId(response.headers.get('x-request-id'));
+  }
   if (failureReason === 'expired') {
     clearSupabaseSession();
     throw new SupabasePasswordSetupError('expired');
