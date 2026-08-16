@@ -1,6 +1,7 @@
 // Handles library-scoped chat requests for the backend API.
 import {
   convertToModelMessages,
+  generateId,
   jsonSchema,
   pipeUIMessageStreamToResponse,
   stepCountIs,
@@ -603,6 +604,7 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       const stream = await createCodexChatStream({
         messages: modelMessages,
         model: contextModelConfig.model,
+        originalMessages: messages,
         reasoningEffort: contextModelConfig.reasoningEffort,
         system,
         tools: libraryTools,
@@ -625,7 +627,11 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
 
     pipeUIMessageStreamToResponse({
       response: res,
-      stream: result.toUIMessageStream({ onError: () => SAFE_AI_STREAM_ERROR }),
+      stream: result.toUIMessageStream({
+        originalMessages: messages,
+        generateMessageId: generateId,
+        onError: () => SAFE_AI_STREAM_ERROR,
+      }),
     });
   } catch (error) {
     console.error('[Library Chat Route] Error:', error);

@@ -53,7 +53,6 @@ import {
   getUiMessageRenderableParts,
   getUiMessageText,
   hasOnlySuccessfulToolOutputs,
-  reconcileToolMessageSnapshots,
 } from '../../../utils/uiChat.ts';
 import {
   getStoredLessonVisualKind,
@@ -1187,9 +1186,7 @@ function ContextAnswerPanelSession({
   };
 
   const renderedMessages = (displayMessages as ContextChatMessage[] | undefined) ?? messages;
-  const visibleMessages = reconcileToolMessageSnapshots(
-    dedupeUiMessagesById(renderedMessages)
-  ).filter(message => {
+  const visibleMessages = dedupeUiMessagesById(renderedMessages).filter(message => {
     if (message.role === 'user') {
       return true;
     }

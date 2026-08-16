@@ -3,6 +3,7 @@
 import type { ContextSourceReference } from '@shared/lessonSourceContext';
 import {
   convertToModelMessages,
+  generateId,
   jsonSchema,
   pipeUIMessageStreamToResponse,
   stepCountIs,
@@ -609,6 +610,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       const stream = await createCodexChatStream({
         messages: modelMessages,
         model: contextModelConfig.model,
+        originalMessages: messages,
         reasoningEffort: contextModelConfig.reasoningEffort,
         system,
         tools: contextTools,
@@ -631,7 +633,11 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
 
     pipeUIMessageStreamToResponse({
       response: res,
-      stream: result.toUIMessageStream({ onError: () => SAFE_AI_STREAM_ERROR }),
+      stream: result.toUIMessageStream({
+        originalMessages: messages,
+        generateMessageId: generateId,
+        onError: () => SAFE_AI_STREAM_ERROR,
+      }),
     });
   } catch (error) {
     console.error('[Chat Route] Error:', error);
