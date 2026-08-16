@@ -229,8 +229,15 @@ describe('courseGenerationClient', () => {
   });
 
   test('rejects a successful response whose course job violates the client contract', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock
-      .mockResolvedValueOnce(workflowResponse({ id: 'run-malformed', status: 'running' }))
+      .mockResolvedValueOnce(
+        workflowResponse({
+          correlationId: CORRELATION_ID,
+          id: 'run-malformed',
+          status: 'running',
+        })
+      )
       .mockResolvedValueOnce(
         workflowResponse({
           id: 'run-malformed',
@@ -254,6 +261,7 @@ describe('courseGenerationClient', () => {
 
     await rejection;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('retains the course request key when the start response is transient', async () => {
@@ -473,8 +481,15 @@ describe('courseGenerationClient', () => {
   });
 
   test('rejects a successful response whose PDF repair job violates the client contract', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock
-      .mockResolvedValueOnce(workflowResponse({ id: 'repair-malformed', status: 'running' }))
+      .mockResolvedValueOnce(
+        workflowResponse({
+          correlationId: CORRELATION_ID,
+          id: 'repair-malformed',
+          status: 'running',
+        })
+      )
       .mockResolvedValueOnce(
         workflowResponse({
           id: 'repair-malformed',
@@ -491,6 +506,7 @@ describe('courseGenerationClient', () => {
 
     await rejection;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('retains the PDF repair request key when its start response is transient', async () => {

@@ -30,6 +30,7 @@ const completedResult = {
   sectionId: 'lesson-1',
   warnings: [],
 };
+const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 const terminalPhaseMessages = [
   [
@@ -232,8 +233,11 @@ describe('generateDurableLesson', () => {
   });
 
   test('rejects a successful response whose running job violates the client contract', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock
-      .mockResolvedValueOnce(response({ id: 'run-malformed', status: 'running' }))
+      .mockResolvedValueOnce(
+        response({ correlationId: CORRELATION_ID, id: 'run-malformed', status: 'running' })
+      )
       .mockResolvedValueOnce(
         response({
           id: 'run-malformed',
@@ -253,6 +257,7 @@ describe('generateDurableLesson', () => {
 
     await rejection;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('retains the lesson request key when a successful start body is malformed', async () => {

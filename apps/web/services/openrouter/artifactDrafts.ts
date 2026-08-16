@@ -21,6 +21,7 @@ import {
   assertWorkflowPollResponse,
   isDefinitiveWorkflowStartRejection,
   isWorkflowSnapshotEnvelope,
+  logMalformedWorkflowSnapshotCorrelationId,
   pollWorkflow,
   readWorkflowJson,
   readWorkflowPollJson,
@@ -130,6 +131,7 @@ const readWorkflowJob = (payload: unknown): ArtifactDraftWorkflowSnapshot | null
     !ARTIFACT_DRAFT_STATUSES.has(job.status) ||
     (job.result !== undefined && (!isRecord(job.result) || !('visual' in job.result)))
   ) {
+    logMalformedWorkflowSnapshotCorrelationId(job);
     return null;
   }
   return job as unknown as ArtifactDraftWorkflowSnapshot;

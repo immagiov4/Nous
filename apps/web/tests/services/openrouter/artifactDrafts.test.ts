@@ -114,11 +114,12 @@ describe('generateLessonArtifactDraft', () => {
   });
 
   test('rejects a successful response whose artifact job violates the client contract', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock
       .mockResolvedValueOnce(
         jsonResponse({
           created: true,
-          job: { id: 'run-malformed', status: 'running' },
+          job: { correlationId: CORRELATION_ID, id: 'run-malformed', status: 'running' },
           success: true,
         })
       )
@@ -138,6 +139,7 @@ describe('generateLessonArtifactDraft', () => {
 
     await rejection;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('retains the artifact request key when a successful start body is malformed', async () => {

@@ -13,6 +13,7 @@ import {
   assertWorkflowPollResponse,
   isDefinitiveWorkflowStartRejection,
   isWorkflowSnapshotEnvelope,
+  logMalformedWorkflowSnapshotCorrelationId,
   pollWorkflow,
   readWorkflowJson,
   readWorkflowPollJson,
@@ -190,7 +191,9 @@ const readWorkflowJob = (
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
   const response = payload as Record<string, unknown>;
   if (requireSuccess && response.success !== true) return null;
-  return isLessonWorkflowSnapshot(response.job) ? response.job : null;
+  if (isLessonWorkflowSnapshot(response.job)) return response.job;
+  logMalformedWorkflowSnapshotCorrelationId(response.job);
+  return null;
 };
 
 const waitForTerminalRun = async (

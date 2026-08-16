@@ -18,6 +18,7 @@ import {
   clearWorkflowRequestKey,
   isDefinitiveWorkflowStartRejection,
   isWorkflowSnapshotEnvelope,
+  logMalformedWorkflowSnapshotCorrelationId,
   pollWorkflow,
   readWorkflowJson,
   readWorkflowPollJson,
@@ -112,7 +113,9 @@ const readWorkflowJob = <Snapshot>(
   isSnapshot: (value: unknown) => value is Snapshot
 ): Snapshot | null => {
   if (!isRecord(payload) || payload.success !== true) return null;
-  return isSnapshot(payload.job) ? payload.job : null;
+  if (isSnapshot(payload.job)) return payload.job;
+  logMalformedWorkflowSnapshotCorrelationId(payload.job);
+  return null;
 };
 
 const waitForTerminalRun = async (
@@ -308,6 +311,7 @@ export const repairDurablePdfMapping = async ({
     return parsePdfMappingRepairResult(payload.result, projectId);
   }
   const job = isPdfMappingRepairSnapshot(payload.job) ? payload.job : null;
+  if (!job) logMalformedWorkflowSnapshotCorrelationId(payload.job);
   if (job?.projectId !== projectId) {
     throw new Error(PDF_MAPPING_REPAIR_ERROR);
   }

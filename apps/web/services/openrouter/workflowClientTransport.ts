@@ -1,4 +1,5 @@
 import { TransientRequestError } from '../core/errorMessage.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 
 const WORKFLOW_STATUS_POLL_MS = 1_000;
 const TRANSIENT_WORKFLOW_HTTP_STATUSES = new Set([408, 429]);
@@ -114,6 +115,11 @@ export interface WorkflowSnapshotEnvelope {
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && Boolean(value.trim());
+
+export const logMalformedWorkflowSnapshotCorrelationId = (value: unknown): void => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return;
+  logBackendFailureCorrelationId((value as Record<string, unknown>).correlationId);
+};
 
 export const isWorkflowSnapshotEnvelope = (
   value: unknown
