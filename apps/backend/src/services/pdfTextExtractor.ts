@@ -22,16 +22,19 @@ export const resolvePdfTextFallbackNodeExecutable = (
   configuredExecutable = process.env.PDF_TEXT_FALLBACK_NODE_EXECUTABLE
 ): string => {
   const executable = configuredExecutable?.trim();
-  if (executable) {
-    if (!path.isAbsolute(executable)) {
-      throw new TypeError('PDF_TEXT_FALLBACK_NODE_EXECUTABLE must be an absolute path.');
-    }
-    return executable;
+  if (executable && !path.isAbsolute(executable)) {
+    throw new TypeError('PDF_TEXT_FALLBACK_NODE_EXECUTABLE must be an absolute path.');
   }
-  if (process.platform === 'win32') {
-    return String.raw`C:\Program Files\nodejs\node.exe`;
+
+  const resolvedExecutable = Bun.which(executable || 'node');
+  if (!resolvedExecutable || !path.isAbsolute(resolvedExecutable)) {
+    throw new TypeError(
+      executable
+        ? 'PDF_TEXT_FALLBACK_NODE_EXECUTABLE must point to an executable file.'
+        : 'Node.js is required for PDF fallback extraction but was not found on PATH.'
+    );
   }
-  return path.join(path.dirname(process.execPath), 'node');
+  return resolvedExecutable;
 };
 const PDF_TEXT_FALLBACK_NODE_EXECUTABLE = resolvePdfTextFallbackNodeExecutable();
 const PDF_TEXT_FALLBACK_WARNING =

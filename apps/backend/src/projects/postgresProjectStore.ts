@@ -68,8 +68,8 @@ import {
 } from './projectTransaction.js';
 import {
   acquireSourceArchivePreparationAdmission,
+  assertSourceArchiveCompressedSize,
   PROJECT_SOURCE_ARCHIVE_LIMITS,
-  PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
   SourceArchiveUnusableError,
   streamSourceArchive,
 } from './sourceArchive.js';
@@ -2059,9 +2059,7 @@ export class PostgresProjectStore implements ProjectStore {
         sourceKind: 'file',
       };
     }
-    if (sourceBytes.byteLength > PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES) {
-      throw new Error('Project source archive exceeds the configured compressed-size limit.');
-    }
+    assertSourceArchiveCompressedSize(sourceBytes.byteLength);
 
     const admission = acquireSourceArchivePreparationAdmission(userId);
     try {

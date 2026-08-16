@@ -260,11 +260,34 @@ describe('extractPdfText resource limits', () => {
 
 describe('resolvePdfTextFallbackNodeExecutable', () => {
   test('accepts only an absolute operator override', () => {
-    const absoluteExecutable = path.join(path.parse(process.execPath).root, 'tools', 'node');
+    const absoluteExecutable = Bun.which('node');
+    if (!absoluteExecutable) throw new Error('Expected Node.js on PATH for the test runtime.');
 
     expect(resolvePdfTextFallbackNodeExecutable(` ${absoluteExecutable} `)).toBe(
       absoluteExecutable
     );
     expect(() => resolvePdfTextFallbackNodeExecutable('node')).toThrow(TypeError);
+  });
+
+  test('resolves Node from PATH to an absolute executable before spawning', () => {
+    const nodeExecutable = path.join(path.parse(process.execPath).root, 'tools', 'node');
+    const which = vi.spyOn(Bun, 'which').mockReturnValueOnce(nodeExecutable);
+
+    try {
+      expect(resolvePdfTextFallbackNodeExecutable('')).toBe(nodeExecutable);
+      expect(which).toHaveBeenCalledWith('node');
+    } finally {
+      which.mockRestore();
+    }
+  });
+
+  test('fails at startup when Node cannot be resolved', () => {
+    const which = vi.spyOn(Bun, 'which').mockReturnValueOnce(null);
+
+    try {
+      expect(() => resolvePdfTextFallbackNodeExecutable('')).toThrow(/not found on PATH/u);
+    } finally {
+      which.mockRestore();
+    }
   });
 });
