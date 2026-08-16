@@ -83,6 +83,9 @@ const EMPTY_SECTION_ANNOTATIONS: SectionAnnotation[] = [];
 const EMPTY_NOTE_ANNOTATION_IDS = new Set<string>();
 const ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX = 3;
 const ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE = 'data-nous-annotation-inline-highlight';
+const ANNOTATION_NATIVE_BACKED_ATTRIBUTE = 'data-nous-annotation-native-backed';
+const ANNOTATION_PERSISTED_MARK_SELECTOR =
+  'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
 const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
@@ -463,6 +466,28 @@ const MarkdownRenderer = ({
     const entries = resolveSectionAnnotationHighlightEntries(article, sectionAnnotations);
     annotationHighlightEntriesRef.current = entries;
     const unregisterHighlights = registerSectionAnnotationHighlights(entries);
+    const resolvedAnnotationIds = new Set(entries.map(entry => entry.annotationId));
+    const nativeBackedAnnotationMarks = Array.from(
+      article.querySelectorAll<HTMLElement>(ANNOTATION_PERSISTED_MARK_SELECTOR)
+    )
+      .filter(mark => {
+        const annotationId =
+          mark.getAttribute('data-nous-annotation-id') ||
+          mark.getAttribute('data-lumina-annotation-id');
+        return annotationId ? resolvedAnnotationIds.has(annotationId) : false;
+      })
+      .map(mark => ({
+        backgroundColor: mark.style.backgroundColor,
+        borderRadius: mark.style.borderRadius,
+        element: mark,
+        padding: mark.style.padding,
+      }));
+    nativeBackedAnnotationMarks.forEach(({ element }) => {
+      element.setAttribute(ANNOTATION_NATIVE_BACKED_ATTRIBUTE, 'true');
+      element.style.backgroundColor = 'transparent';
+      element.style.borderRadius = '0';
+      element.style.padding = '0';
+    });
     const highlightedInlineCodeElements = Array.from(
       article.querySelectorAll('code:not(pre code)')
     ).filter(codeElement =>
@@ -505,6 +530,12 @@ const MarkdownRenderer = ({
       highlightLayer.replaceChildren();
       highlightedInlineCodeElements.forEach(codeElement => {
         codeElement.removeAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE);
+      });
+      nativeBackedAnnotationMarks.forEach(({ backgroundColor, borderRadius, element, padding }) => {
+        element.removeAttribute(ANNOTATION_NATIVE_BACKED_ATTRIBUTE);
+        element.style.backgroundColor = backgroundColor;
+        element.style.borderRadius = borderRadius;
+        element.style.padding = padding;
       });
       unregisterHighlights();
       if (annotationHighlightEntriesRef.current === entries) {

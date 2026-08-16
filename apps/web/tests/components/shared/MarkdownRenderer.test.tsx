@@ -115,6 +115,68 @@ describe('MarkdownRenderer', () => {
     expect(highlights.get('nous-annotations')?.size).toBe(0);
   });
 
+  test('lets the native line overlay exclusively paint resolved persisted marks', () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    vi.stubGlobal('CSS', { highlights: new Map<string, TestHighlight>() });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ bottom: 28, height: 18, left: 10, right: 80, top: 10, width: 70 }],
+    });
+    const annotation = {
+      anchor: {
+        kind: 'selection' as const,
+        selector: {
+          end: 10,
+          exact: 'Alpha beta',
+          prefix: '',
+          start: 0,
+          suffix: '',
+        },
+      },
+      createdAt: '2026-08-16T00:00:00.000Z',
+      id: 'annotation-persisted-native',
+      note: 'Nota',
+      updatedAt: '2026-08-16T00:00:00.000Z',
+    };
+    const content =
+      '<mark data-nous-annotation-id="annotation-persisted-native">Alpha beta</mark> gamma.';
+    const { container, rerender } = render(
+      <MarkdownRenderer content={content} sectionAnnotations={[annotation]} />
+    );
+    const mark = container.querySelector<HTMLElement>('mark[data-nous-annotation-id]');
+
+    expect(mark).toHaveAttribute('data-nous-annotation-native-backed', 'true');
+    expect(mark?.style.backgroundColor).toBe('transparent');
+    expect(mark?.style.borderRadius).toBe('0px');
+    expect(mark?.style.padding).toBe('0px');
+    expect(container.querySelectorAll('.nous-annotation-highlight-line')).toHaveLength(1);
+
+    rerender(
+      <MarkdownRenderer
+        content={content}
+        sectionAnnotations={[
+          {
+            ...annotation,
+            anchor: {
+              kind: 'selection',
+              selector: {
+                ...annotation.anchor.selector,
+                exact: 'Passaggio assente',
+              },
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(mark).not.toHaveAttribute('data-nous-annotation-native-backed');
+    expect(mark?.style.backgroundColor).toBe('var(--annotation-highlight-color)');
+    expect(mark?.style.padding).toBe('0px 3px');
+    expect(container.querySelector('.nous-annotation-highlight-line')).toBeNull();
+  });
+
   test('resolves native annotation clicks from highlight rectangles when caret lookup is unavailable', () => {
     class TestHighlight extends Set<AbstractRange> {}
 
