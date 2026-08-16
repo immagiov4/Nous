@@ -112,7 +112,7 @@ bun run doctor -- --profile all    # Run checks plus every service probe
 bun run quality       # TypeScript type checks + Biome lint
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
 bun run gate          # Full gate: quality + fallow + tests
-bun run gate:full     # Mandatory local merge gate: checks + coverage + Sonar
+bun run gate:full     # Local merge gate when Sonar is required: checks + coverage + Sonar
 bun run gate:ci       # CI gate: quality + fallow regression + tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
@@ -127,15 +127,21 @@ check, and the Bun suite as independent lanes, then runs coverage and Sonar anal
 it completes every stage and exits with failure if any stage fails.
 
 Run the narrowest meaningful validation first. Before completing a non-trivial local batch,
-run `bun run gate:full`; it must still reach Sonar when an earlier stage fails. Every pull request
-must pass `bun run gate:full` on its exact head commit before it may be merged. SonarQube remains a
-local-only merge gate and is intentionally not part of GitHub Actions: a green CI run never
-substitutes for the local Sonar quality gate. If the local Sonar service is unavailable, the merge
-owner must start it with `bun run sonar:up`, initialize it with `bun run sonar:bootstrap` when the
-local settings are missing or invalid, and rerun the full gate so coverage completes before the
-Sonar scan. A skipped, failed, or unreachable Sonar scan blocks the merge. Triage every new Sonar
-bug, vulnerability, and security hotspot, and fix or explicitly resolve each new finding before
-merging. Use `bun run fix` to auto-fix lint and format issues.
+run `bun run gate:full`; it must still reach Sonar when an earlier stage fails. SonarQube remains a
+local-only merge gate and is intentionally not part of GitHub Actions. It is mandatory for pull
+requests that change analyzable application source (`apps/`, `packages/`, or analyzed tooling under
+`scripts/`), tests that change or establish behavioral contracts, source/build/dependency/security
+configuration that changes analyzed runtime behavior, or an explicit review or CI request. For a
+trivially scoped pull request limited to documentation, metadata, or workflow files, with no
+analyzable application-code or runtime-behavior change, clean CI and review, and no explicit Sonar
+request, the merge owner may skip the local scan only after recording that rationale. Diff size or
+file count alone never qualifies; when scope is uncertain, run the full gate. A required Sonar scan
+that is skipped, failed, or unreachable blocks the merge. If the local Sonar service is unavailable,
+the merge owner must start it with `bun run sonar:up`, initialize it with `bun run sonar:bootstrap`
+when the local settings are missing or invalid, and rerun the full gate so coverage completes before
+the Sonar scan. Triage every new Sonar bug, vulnerability, and security hotspot, and fix or
+explicitly resolve each new finding before merging. Use `bun run fix` to auto-fix lint and format
+issues.
 Do not claim validation passed unless it was actually run.
 
 ## Core Philosophy

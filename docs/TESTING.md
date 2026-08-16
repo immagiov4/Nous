@@ -42,23 +42,46 @@ bun run gate:full
   then exits with a failure if any stage failed. The scanner waits for the Sonar quality-gate
   result and propagates a failing gate.
 
-## Pull request merge requirement
+## Pull request Sonar merge policy
 
-Every pull request must pass the local full gate on the exact commit proposed for merge:
+SonarQube remains a local merge gate and is intentionally excluded from GitHub Actions. CI results
+for TypeScript, tests, coverage, Semgrep, Fallow, and relevant contracts remain independent
+authoritative checks. Classify the pull request before merging.
+
+Sonar is required when the diff includes any of the following:
+
+- analyzable application source in `apps/`, `packages/`, or analyzed tooling under `scripts/`;
+- tests that change or establish behavioral contracts;
+- source, build, dependency, or security configuration that changes analyzed runtime behavior; or
+- an explicit review or CI request for Sonar.
+
+For those pull requests, run the full gate on the exact commit proposed for merge:
 
 ```bash
 bun run gate:full
 ```
 
-This is a mandatory merge requirement, not an optional deep audit. SonarQube remains local and is
-intentionally excluded from GitHub Actions; CI results for TypeScript, tests, coverage, Semgrep,
-Fallow, and relevant contracts remain independent authoritative checks, but a green CI run does
-not satisfy the local Sonar requirement. The pull request must not be merged until the full gate
-exits successfully, including the Sonar quality gate after coverage, and every new Sonar finding
-has been fixed or explicitly resolved with an owner-visible disposition.
+The command must exit successfully, including the Sonar quality gate after coverage. A green CI
+run does not substitute for this local result. Every new Sonar bug, vulnerability, security
+hotspot, or code smell must be fixed or explicitly resolved with an owner-visible disposition
+before merging.
 
-If the local Sonar service is unavailable, the merge owner must restore the existing local
-lifecycle before rerunning the full gate:
+Sonar may be skipped only when all of these conditions hold:
+
+- the diff is trivially scoped and limited to documentation, metadata, or workflow files;
+- it contains no analyzable application-code change and no source/build/dependency/security
+  configuration change that affects analyzed runtime behavior;
+- all required CI checks and review are clean; and
+- no reviewer or CI signal requests Sonar.
+
+The merge owner must record the skip rationale in the pull request. A small diff, a one-line
+change, or the cost of running Sonar is not sufficient by itself; when scope is uncertain, run the
+full gate. Do not treat a failed or unreachable required Sonar scan as a skip.
+
+### When required Sonar is unavailable
+
+If Sonar is required and the local service is unavailable, the merge owner must restore the
+existing local lifecycle before rerunning the full gate:
 
 ```bash
 bun run sonar:up
@@ -67,9 +90,9 @@ bun run gate:full
 ```
 
 Run `sonar:bootstrap` when `sonar.local.properties` is missing or its token is invalid. Do not
-replace the full gate with an isolated or skipped Sonar scan, and do not merge while Sonar is
-failed, unreachable, or unverified. Record the successful full-gate command and Sonar result in
-the pull request before merging.
+replace a required full gate with an isolated or skipped Sonar scan, and do not merge while a
+required Sonar result is failed, unreachable, or unverified. Record the successful full-gate
+command and Sonar result in the pull request before merging.
 
 Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
 Source coordinates and suggested remediation actions are excluded, so moving a finding within the
