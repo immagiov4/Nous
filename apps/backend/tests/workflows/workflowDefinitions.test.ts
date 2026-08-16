@@ -225,6 +225,34 @@ describe('workflow definition registration', () => {
     );
   });
 
+  test('retains multiple historical definitions for runs crossing consecutive deploys', () => {
+    const previous = makeLessonWorkflow({
+      compatibilityId: 'lesson-generation-v1',
+      waitForApproval: false,
+    });
+    const registry = createWorkflowRegistry();
+    const registration = registry.register({
+      current: makeLessonWorkflow({
+        compatibilityId: 'lesson-generation-v2',
+        waitForApproval: true,
+      }),
+      previous: [previous, preCompatibilityIdPrevious(previous)],
+    });
+    const [durablePrevious, preCompatibilityPrevious] = registration.previousDefinitions;
+    if (!durablePrevious || !preCompatibilityPrevious) {
+      throw new Error('Expected both historical workflow definitions.');
+    }
+
+    expect(registration.previous).toBe(durablePrevious);
+    expect(registry.resolve('lesson-generation', durablePrevious.definitionHash)).toBe(
+      durablePrevious
+    );
+    expect(registry.resolve('lesson-generation', preCompatibilityPrevious.definitionHash)).toBe(
+      preCompatibilityPrevious
+    );
+    expect(registry.listDefinitionDeployments()[0]?.supportedDefinitions).toHaveLength(3);
+  });
+
   test('accepts type-erased resumable definitions with historical schemas', () => {
     const current = workflow({
       compatibilityId: 'current-contract',

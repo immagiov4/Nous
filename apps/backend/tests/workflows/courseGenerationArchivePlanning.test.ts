@@ -6,7 +6,11 @@ import {
   createCourseArchivePlanningStages,
   type OpenedCourseArchive,
 } from '../../src/workflows/courseGenerationArchivePlanning.js';
-import { CourseResearchStateSchema } from '../../src/workflows/courseGenerationWorkflowContract.js';
+import {
+  CoursePlanVerificationStateSchema,
+  CourseResearchStateSchema,
+  validateRefinedCoursePlan,
+} from '../../src/workflows/courseGenerationWorkflowContract.js';
 
 const researchState = CourseResearchStateSchema.parse({
   context: {
@@ -90,12 +94,29 @@ const createArchive = (byteSize = 32): OpenedCourseArchive => {
 const stageContext = (input: typeof researchState) => ({
   attemptNumber: 1,
   config: { maxAttempts: 3, models: {} as never, timeoutMs: 1 },
-  execution: { nodeInstanceId: 'draft-archive-course', runId: 'run-1' },
+  execution: { nodeInstanceId: 'draft-course-plan', runId: 'run-1' },
   idempotencyKey: 'draft-key',
   input,
   retryFeedback: '',
   signal: new AbortController().signal,
 });
+
+const verification = {
+  coverage: { feedback: 'Copertura adeguata.', status: 'pass' as const },
+  duplication: { feedback: 'Nessuna duplicazione.', status: 'pass' as const },
+  fragmentation: {
+    canGroupCoherently: false,
+    feedback: 'La struttura e coerente.',
+    moduleIds: [],
+  },
+  granularity: { feedback: 'Granularita adeguata.', status: 'pass' as const },
+  moduleCohesion: { feedback: 'Modulo coeso.', status: 'pass' as const },
+  prerequisites: { feedback: 'Prerequisiti coerenti.', status: 'pass' as const },
+  progression: { feedback: 'Progressione coerente.', status: 'pass' as const },
+  proportionality: { feedback: 'Proporzioni adeguate.', status: 'pass' as const },
+  summary: 'Il piano puo essere raffinato conservando i selettori.',
+  verdict: 'pass' as const,
+};
 
 describe('course archive planning', () => {
   test('offers bounded archive tools and persists exact validated selectors', async () => {
@@ -109,9 +130,10 @@ describe('course archive planning', () => {
       generateObject: generateObject as never,
       now: () => '2026-07-30T12:00:00.000Z',
       openArchive: vi.fn(async () => archive),
+      verifyRefinedPlan: vi.fn(async () => verification),
     });
 
-    const result = await stages.draftArchiveCourse(stageContext(researchState));
+    const result = await stages.draftCoursePlan(stageContext(researchState));
 
     expect(result.plan.modules[0]?.children[0]).toMatchObject({
       id: 'module-1-lesson-1',
@@ -134,9 +156,10 @@ describe('course archive planning', () => {
     const stages = createCourseArchivePlanningStages({
       generateObject: vi.fn(async () => rawArchivePlan()) as never,
       openArchive: vi.fn(async () => createArchive(SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES + 1)),
+      verifyRefinedPlan: vi.fn(async () => verification),
     });
 
-    await expect(stages.draftArchiveCourse(stageContext(researchState))).rejects.toThrowError(
+    await expect(stages.draftCoursePlan(stageContext(researchState))).rejects.toThrowError(
       expect.objectContaining({
         failure: expect.objectContaining({
           code: 'course_archive_selector_invalid',
@@ -152,17 +175,30 @@ describe('course archive planning', () => {
     const stages = createCourseArchivePlanningStages({
       generateObject: generateObject as never,
       openArchive: vi.fn(async () => archive),
+      verifyRefinedPlan: vi.fn(async () => verification),
     });
-    const draft = await stages.draftArchiveCourse(stageContext(researchState));
+    const draft = await stages.draftCoursePlan(stageContext(researchState));
+    const verified = CoursePlanVerificationStateSchema.parse({
+      ...draft,
+      stage: 'plan-verification',
+      verification,
+    });
 
-    const result = await stages.refineArchiveCourse({
+    const result = await stages.refineCoursePlan({
       ...stageContext(researchState),
-      execution: { nodeInstanceId: 'refine-archive-course', runId: 'run-1' },
+      execution: { nodeInstanceId: 'refine-course-plan', runId: 'run-1' },
       idempotencyKey: 'refine-key',
-      input: draft,
+      input: verified,
     });
+    const finalPlan = validateRefinedCoursePlan(result);
 
-    expect(result.plan.modules[0]?.children[0]).toMatchObject({
+    expect(result.refinedPlan.plan.modules[0]?.children[0]).toMatchObject({
+      sourceArchiveSelectors: [{ kind: 'file', path: 'src/index.ts' }],
+    });
+    expect(result.rawRefinedPlan.modules[0]?.lessons[0]).toMatchObject({
+      sourceArchiveSelectors: [{ kind: 'file', path: 'src/index.ts' }],
+    });
+    expect(finalPlan.plan.modules[0]?.children[0]).toMatchObject({
       sourceArchiveSelectors: [{ kind: 'file', path: 'src/index.ts' }],
     });
     expect(generateObject).toHaveBeenCalledTimes(2);

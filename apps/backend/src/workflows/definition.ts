@@ -438,7 +438,7 @@ export class WorkflowRegistry {
 
   register<Input, Output, Config, Services>(input: {
     current: WorkflowDefinition<Input, Output, Config, Services>;
-    previous?: PreviousWorkflowDefinition;
+    previous?: PreviousWorkflowDefinition | readonly PreviousWorkflowDefinition[];
   }): WorkflowRegistration<Input, Output, Config, Services> {
     if (this.registrations.has(input.current.id)) {
       throw new Error(`Workflow already registered: ${input.current.id}`);
@@ -449,14 +449,18 @@ export class WorkflowRegistry {
       Config,
       Services
     >;
-    const previousInput = input.previous;
-    const previous =
-      previousInput === undefined
-        ? null
-        : 'hashMode' in previousInput
-          ? registerDefinition(previousInput.definition, previousInput.hashMode)
-          : registerDefinition(previousInput);
-    const allDefinitions = previous === null ? [current] : [current, previous];
+    const previousInputs =
+      input.previous === undefined
+        ? []
+        : Array.isArray(input.previous)
+          ? input.previous
+          : [input.previous];
+    const previousDefinitions = previousInputs.map(previousInput =>
+      'hashMode' in previousInput
+        ? registerDefinition(previousInput.definition, previousInput.hashMode)
+        : registerDefinition(previousInput)
+    );
+    const allDefinitions = [current, ...previousDefinitions];
     if (allDefinitions.some(definition => definition.id !== current.id)) {
       throw new Error(`Resumable definitions must use workflow id ${current.id}.`);
     }
@@ -466,7 +470,8 @@ export class WorkflowRegistry {
     }
     const registration = Object.freeze({
       current,
-      previous,
+      previous: previousDefinitions[0] ?? null,
+      previousDefinitions: Object.freeze(previousDefinitions),
     });
     this.registrations.set(current.id, registration);
     return registration;
@@ -481,16 +486,17 @@ export class WorkflowRegistry {
     const registration = this.registrations.get(workflowId) as WorkflowRegistration | undefined;
     if (!registration) return null;
     if (registration.current.definitionHash === definitionHash) return registration.current;
-    return registration.previous?.definitionHash === definitionHash ? registration.previous : null;
+    return (
+      registration.previousDefinitions.find(
+        definition => definition.definitionHash === definitionHash
+      ) ?? null
+    );
   }
 
   listRegisteredBoundaries(): readonly WorkflowDefinitionBoundary[] {
     return [...this.registrations.values()].flatMap(value => {
       const registration = value as WorkflowRegistration;
-      const definitions =
-        registration.previous === null
-          ? [registration.current]
-          : [registration.current, registration.previous];
+      const definitions = [registration.current, ...registration.previousDefinitions];
       return definitions.map(definition => ({
         definitionHash: definition.definitionHash,
         definitionHashVersion: definition.definitionHashVersion,
@@ -512,7 +518,7 @@ export class WorkflowRegistry {
         const current = toBoundary(registration.current);
         const supportedDefinitions = [
           current,
-          ...(registration.previous === null ? [] : [toBoundary(registration.previous)]),
+          ...registration.previousDefinitions.map(toBoundary),
         ].sort(
           (left, right) =>
             left.definitionHash.localeCompare(right.definitionHash) ||

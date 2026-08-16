@@ -1,9 +1,13 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import {
+  buildCoursePlanOutput,
   buildCoursePlanState,
   createCoursePlanningStages,
+  requirePassingRefinedVerification,
 } from '../../src/workflows/courseGenerationPlanning.js';
+import { CoursePlanVerificationStateSchema } from '../../src/workflows/courseGenerationWorkflowContract.js';
+import { WorkflowStepError } from '../../src/workflows/retryPolicy.js';
 
 const youtubeUrl = 'https://www.youtube.com/watch?v=abc';
 const webUrl = 'https://example.com/distributed-systems';
@@ -79,7 +83,37 @@ const rawPlan = (sourceUrls: string[] = [youtubeUrl, webUrl]) => ({
   title: 'Sistemi distribuiti',
 });
 
+const verification = {
+  coverage: { feedback: 'Copertura adeguata.', status: 'pass' as const },
+  duplication: { feedback: 'Nessuna duplicazione.', status: 'pass' as const },
+  fragmentation: {
+    canGroupCoherently: false,
+    feedback: 'La struttura non e frammentata.',
+    moduleIds: [],
+  },
+  granularity: { feedback: 'Granularita adeguata.', status: 'pass' as const },
+  moduleCohesion: { feedback: 'Moduli coesi.', status: 'pass' as const },
+  prerequisites: { feedback: 'Prerequisiti coerenti.', status: 'pass' as const },
+  progression: { feedback: 'Progressione coerente.', status: 'pass' as const },
+  proportionality: { feedback: 'Proporzioni adeguate.', status: 'pass' as const },
+  summary: 'Il piano puo essere raffinato.',
+  verdict: 'pass' as const,
+};
+
 describe('course generation planning', () => {
+  test('rejects whitespace-only required raw course text', () => {
+    expect(() =>
+      buildCoursePlanState(
+        {
+          ...rawPlan(),
+          title: '   ',
+        },
+        researchState,
+        '2026-07-30T09:00:00.000Z'
+      )
+    ).toThrow();
+  });
+
   test('assigns one deterministic identity shared by plan, syllabus and research lessons', () => {
     const result = buildCoursePlanState(rawPlan(), researchState, '2026-07-30T09:00:00.000Z');
 
@@ -105,12 +139,13 @@ describe('course generation planning', () => {
     const stages = createCoursePlanningStages({
       generateObject: generateObject as never,
       readSourceMaterials: vi.fn().mockResolvedValue([]),
+      verifyRefinedPlan: vi.fn(async () => verification),
     });
 
-    await stages.planLearnCourse({
+    await stages.draftCoursePlan({
       attemptNumber: 1,
       config: { models: {} as never } as never,
-      execution: { nodeInstanceId: 'plan-learn-course', runId: 'run-1' },
+      execution: { nodeInstanceId: 'draft-course-plan', runId: 'run-1' },
       idempotencyKey: 'plan-key',
       input: researchState,
       retryFeedback: '',
@@ -136,10 +171,11 @@ describe('course generation planning', () => {
       id: 'source-2',
       name: 'second.txt',
     };
-    const generateObject = vi.fn(async () => ({
+    const generatedPlan = {
       ...rawPlan([]),
       modules: [{ ...rawPlan([]).modules[0], lessons: [rawLesson(1)] }],
-    }));
+    };
+    const generateObject = vi.fn(async () => generatedPlan);
     const stages = createCoursePlanningStages({
       generateObject: generateObject as never,
       readSourceMaterials: vi.fn().mockResolvedValue([
@@ -149,12 +185,13 @@ describe('course generation planning', () => {
         },
         { descriptor: secondDescriptor, text: 'Second source.' },
       ]),
+      verifyRefinedPlan: vi.fn(async () => verification),
     });
 
-    await stages.planSourceSetCourse({
+    await stages.draftCoursePlan({
       attemptNumber: 1,
       config: { models: {} as never } as never,
-      execution: { nodeInstanceId: 'plan-source-set-course', runId: 'run-1' },
+      execution: { nodeInstanceId: 'draft-course-plan', runId: 'run-1' },
       idempotencyKey: 'plan-key',
       input: {
         ...researchState,
@@ -172,7 +209,7 @@ describe('course generation planning', () => {
     expect(prompt).toContain('FIRST_END');
   });
 
-  test('keeps research only in the draft that still needs refinement', async () => {
+  test('keeps the draft and verification inspectable beside the refined output', async () => {
     const source = {
       hash: 'a'.repeat(64),
       id: 'source-1',
@@ -186,37 +223,101 @@ describe('course generation planning', () => {
       request: { ...researchState.request, mode: 'document' as const },
       strategy: 'single-source' as const,
     };
-    const generateObject = vi.fn(async () => ({
+    const draftGeneratedPlan = {
       ...rawPlan([]),
       modules: [{ ...rawPlan([]).modules[0], lessons: [rawLesson(1)] }],
-    }));
+    };
+    const refinedGeneratedPlan = {
+      ...draftGeneratedPlan,
+      summary: 'Progressione raffinata dai fondamenti alle conseguenze operative.',
+    };
+    const generateObject = vi
+      .fn()
+      .mockResolvedValueOnce(draftGeneratedPlan)
+      .mockResolvedValueOnce(refinedGeneratedPlan);
+    const verifyRefinedPlan = vi.fn(async () => verification);
     const stages = createCoursePlanningStages({
       generateObject: generateObject as never,
       readSourceMaterials: vi
         .fn()
         .mockResolvedValue([{ descriptor: source, text: 'Source text.' }]),
+      verifyRefinedPlan,
     });
     const context = {
       attemptNumber: 1,
       config: { models: {} as never } as never,
-      execution: { nodeInstanceId: 'draft-source-course', runId: 'run-1' },
+      execution: { nodeInstanceId: 'draft-course-plan', runId: 'run-1' },
       idempotencyKey: 'draft-key',
       input: documentState,
       retryFeedback: '',
       signal: new AbortController().signal,
     };
 
-    const draft = await stages.draftSourceCourse(context);
-    const refined = await stages.refineSourceCourse({
+    const draft = await stages.draftCoursePlan(context);
+    const verified = CoursePlanVerificationStateSchema.parse({
+      ...draft,
+      stage: 'plan-verification',
+      verification,
+    });
+    const refined = await stages.refineCoursePlan({
       ...context,
-      execution: { nodeInstanceId: 'refine-source-course', runId: 'run-1' },
+      execution: { nodeInstanceId: 'refine-course-plan', runId: 'run-1' },
       idempotencyKey: 'refine-key',
-      input: draft,
+      input: verified,
     });
 
     expect(draft).toHaveProperty('research');
-    expect(refined).not.toHaveProperty('research');
+    expect(generateObject).toHaveBeenCalledTimes(2);
+    expect(draft.rawDraftPlan).toEqual(draftGeneratedPlan);
     expect(refined.plan).toEqual(draft.plan);
+    expect(refined.verification).toEqual(verification);
+    expect(verifyRefinedPlan).toHaveBeenCalledOnce();
+    expect(refined.refinedPlan.plan.summary).toBe(refinedGeneratedPlan.summary);
+    expect(refined.refinedVerification).toEqual(verification);
+    expect(refined.rawRefinedPlan).toEqual(refinedGeneratedPlan);
+  });
+
+  test('retries refinement when the refined candidate still fails semantic verification', () => {
+    const rejectedRawPlan = rawPlan();
+    const rejectedPlan = buildCoursePlanOutput(
+      rejectedRawPlan,
+      researchState,
+      '2026-07-30T09:00:00.000Z'
+    ).plan;
+    const rejectedVerification = {
+      ...verification,
+      granularity: { feedback: 'La struttura resta frammentata.', status: 'needs-refinement' },
+      verdict: 'refine' as const,
+    };
+    let thrown: unknown;
+
+    try {
+      requirePassingRefinedVerification({
+        plan: rejectedPlan,
+        rawPlan: rejectedRawPlan,
+        verification: rejectedVerification,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(WorkflowStepError);
+    const failure = (thrown as WorkflowStepError).failure;
+    expect(failure).toMatchObject({
+      code: 'course_plan_refinement_incomplete',
+      kind: 'corrective',
+    });
+    expect(JSON.parse(failure.feedback ?? '')).toEqual({
+      rejectedCandidate: {
+        modules: rejectedPlan.modules.map((module, rawModuleIndex) => ({
+          id: module.id,
+          rawModuleIndex,
+          title: module.title,
+        })),
+        rawPlan: rejectedRawPlan,
+      },
+      verification: rejectedVerification,
+    });
   });
 
   test('rejects source URLs that were not returned by authoritative research', () => {

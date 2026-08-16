@@ -28,6 +28,7 @@ import {
   COURSE_GENERATION_WORKFLOW_ID,
   CourseGenerationWorkflowConfigSchema,
   createCourseGenerationWorkflow,
+  createPreviousCourseGenerationWorkflow,
 } from './courseGenerationWorkflow.js';
 import {
   type CourseInterviewApi,
@@ -195,7 +196,9 @@ const createProductionRegistry = (): WorkflowRegistry => {
     models,
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
   });
-  const previousCourseWorkflow = createCourseGenerationWorkflow(courseWorkflow.executionDefaults);
+  const previousCourseWorkflow = createPreviousCourseGenerationWorkflow(
+    courseWorkflow.executionDefaults
+  );
   const courseInterviewWorkflow = createCourseInterviewWorkflow(
     {
       maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -240,7 +243,7 @@ const createProductionRegistry = (): WorkflowRegistry => {
   });
   registry.register({
     current: courseWorkflow,
-    previous: preCompatibilityIdPrevious(previousCourseWorkflow),
+    previous: [previousCourseWorkflow, preCompatibilityIdPrevious(previousCourseWorkflow)],
   });
   registry.register({
     current: lessonWorkflow,

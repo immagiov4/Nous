@@ -1,5 +1,5 @@
 import type { TransactionSql } from 'postgres';
-import type * as z from 'zod';
+import * as z from 'zod';
 
 import type { GlobalModelConfig, TextModelSlot } from '../config/modelConfig.js';
 import {
@@ -23,12 +23,17 @@ import {
   CoursePersistenceStateSchema,
   type CoursePlanState,
   CoursePlanStateSchema,
+  type CoursePlanVerificationState,
+  CoursePlanVerificationStateSchema,
   type CoursePreparationState,
   CoursePreparationStateSchema,
+  type CourseRefinedPlanState,
+  CourseRefinedPlanStateSchema,
   type CourseResearchState,
   CourseResearchStateSchema,
   type CourseSourcesFinalizedState,
   CourseSourcesFinalizedStateSchema,
+  validateRefinedCoursePlan,
 } from './courseGenerationWorkflowContract.js';
 import {
   type CourseSourceFinalizationServices,
@@ -40,7 +45,7 @@ import {
   PROJECT_REVISION_EVENT_SCHEMA_VERSION,
   ProjectRevisionEventSchema,
 } from './projectRevisionNotifications.js';
-import { runWorkflowStage } from './retryPolicy.js';
+import { failPermanently, runWorkflowStage } from './retryPolicy.js';
 import type { StepExecutionContext, WorkflowStepExecutionIdentity } from './types.js';
 import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
 
@@ -59,8 +64,7 @@ export interface CourseGenerationWorkflowServices
     CourseExercisesState,
     CoursePersistenceState
   >;
-  readonly draftArchiveCourse: CourseGenerationStage<CourseResearchState, CourseDraftPlanState>;
-  readonly draftSourceCourse: CourseGenerationStage<CourseResearchState, CourseDraftPlanState>;
+  readonly draftCoursePlan: CourseGenerationStage<CourseResearchState, CourseDraftPlanState>;
   readonly finalizeCourse: CourseGenerationStage<
     CoursePersistenceState,
     CourseGenerationWorkflowResult
@@ -75,14 +79,14 @@ export interface CourseGenerationWorkflowServices
     CourseSourcesFinalizedState,
     CourseExercisesState
   >;
-  readonly planLearnCourse: CourseGenerationStage<CourseResearchState, CoursePlanState>;
-  readonly planSourceSetCourse: CourseGenerationStage<CourseResearchState, CoursePlanState>;
   readonly prepareCourse: CourseGenerationStage<
     CourseGenerationWorkflowInput,
     CoursePreparationState
   >;
-  readonly refineArchiveCourse: CourseGenerationStage<CourseDraftPlanState, CoursePlanState>;
-  readonly refineSourceCourse: CourseGenerationStage<CourseDraftPlanState, CoursePlanState>;
+  readonly refineCoursePlan: CourseGenerationStage<
+    CoursePlanVerificationState,
+    CourseRefinedPlanState
+  >;
   readonly undoCourse: (input: {
     execution: WorkflowStepExecutionIdentity;
     idempotencyKey: string;
@@ -90,6 +94,10 @@ export interface CourseGenerationWorkflowServices
     output: CoursePersistenceState;
     signal: AbortSignal;
   }) => Promise<void>;
+  readonly verifyCoursePlan: CourseGenerationStage<
+    CourseDraftPlanState,
+    CoursePlanVerificationState
+  >;
 }
 
 interface StageFailure {
@@ -123,12 +131,39 @@ const runStage = async <Input, Output, Services extends CourseGenerationWorkflow
   });
 };
 
-export const createCourseGenerationWorkflow = <
+// These schemas are part of the immediately previous durable manifest. Active runs may
+// still hold its hash, so changing this shape would make those runs impossible to resume.
+const PreviousCourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend({
+  plan: CoursePlanStateSchema.shape.plan,
+  researchCoursePlan: CoursePlanStateSchema.shape.researchCoursePlan,
+  stage: z.literal('plan'),
+  syllabus: CoursePlanStateSchema.shape.syllabus,
+});
+
+type CoursePlanningTopology = 'current' | 'previous';
+
+const withStageInput = <Input, NextInput>(
+  stage: CourseGenerationStageContext<Input>,
+  input: NextInput,
+  operation: string
+): CourseGenerationStageContext<NextInput> => ({
+  attemptNumber: stage.attemptNumber,
+  config: stage.config,
+  execution: stage.execution,
+  idempotencyKey: `${stage.idempotencyKey}:${operation}`,
+  input,
+  ...(stage.previousAttemptFailure ? { previousAttemptFailure: stage.previousAttemptFailure } : {}),
+  retryFeedback: stage.retryFeedback,
+  signal: stage.signal,
+});
+
+const createCourseGenerationWorkflowDefinition = <
   Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
   Services extends CourseGenerationWorkflowServices = CourseGenerationWorkflowServices,
 >(
   executionDefaults: Config,
-  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
+  configSchema: z.ZodType<Config>,
+  planningTopology: CoursePlanningTopology
 ) => {
   const prepareCourse = step<
     typeof CourseGenerationWorkflowInputSchema,
@@ -152,40 +187,140 @@ export const createCourseGenerationWorkflow = <
 
   const courseResearch = createCourseResearchNode<Config, Services>();
 
-  const planningStep = (
-    id: string,
-    operation: (
-      services: Services,
-      stage: CourseGenerationStageContext<CourseResearchState>
-    ) => Promise<CoursePlanState>
-  ) =>
+  const draftCoursePlan = step<
+    typeof CourseResearchStateSchema,
+    typeof CourseDraftPlanStateSchema,
+    Config,
+    Services
+  >({
+    id: 'draft-course-plan',
+    inputSchema: CourseResearchStateSchema,
+    outputSchema: CourseDraftPlanStateSchema,
+    run: context =>
+      runStage(
+        context,
+        {
+          code: 'course_planning_failed',
+          message: 'The course plan could not be generated.',
+          modelSlot: 'course',
+        },
+        stage => context.services.draftCoursePlan(stage)
+      ),
+  });
+
+  const verifyCoursePlan = step<
+    typeof CourseDraftPlanStateSchema,
+    typeof CoursePlanVerificationStateSchema,
+    Config,
+    Services
+  >({
+    id: 'verify-course-plan',
+    inputSchema: CourseDraftPlanStateSchema,
+    outputSchema: CoursePlanVerificationStateSchema,
+    run: context =>
+      runStage(
+        context,
+        {
+          code: 'course_plan_verification_failed',
+          message: 'The course plan could not be verified.',
+          modelSlot: 'course',
+        },
+        stage => context.services.verifyCoursePlan(stage)
+      ),
+  });
+
+  const refineCoursePlan = step<
+    typeof CoursePlanVerificationStateSchema,
+    typeof CourseRefinedPlanStateSchema,
+    Config,
+    Services
+  >({
+    id: 'refine-course-plan',
+    inputSchema: CoursePlanVerificationStateSchema,
+    outputSchema: CourseRefinedPlanStateSchema,
+    run: context =>
+      runStage(
+        context,
+        {
+          code: 'course_refinement_failed',
+          message: 'The course plan could not be refined.',
+          modelSlot: 'course',
+        },
+        stage => context.services.refineCoursePlan(stage)
+      ),
+  });
+
+  const validateCoursePlan = step<
+    typeof CourseRefinedPlanStateSchema,
+    typeof CoursePlanStateSchema,
+    Config,
+    Services
+  >({
+    id: 'validate-course-plan',
+    inputSchema: CourseRefinedPlanStateSchema,
+    outputSchema: CoursePlanStateSchema,
+    run: async context => {
+      try {
+        return validateRefinedCoursePlan(context.input);
+      } catch {
+        throw failPermanently({
+          code: 'course_plan_validation_failed',
+          message: 'The refined course plan is invalid.',
+        });
+      }
+    },
+  });
+
+  const runPreviousPlanningContract = async <Input>(
+    context: StepExecutionContext<Input, CourseGenerationWorkflowConfig, Services>,
+    researchState: CourseResearchState
+  ): Promise<CoursePlanState> =>
+    runStage(
+      context,
+      {
+        code: 'course_planning_failed',
+        message: 'The course plan could not be generated.',
+        modelSlot: 'course',
+      },
+      async stage => {
+        const draft = await context.services.draftCoursePlan(
+          withStageInput(stage, researchState, 'draft')
+        );
+        const verified = await context.services.verifyCoursePlan(
+          withStageInput(stage, draft, 'verify')
+        );
+        const refined = await context.services.refineCoursePlan(
+          withStageInput(stage, verified, 'refine')
+        );
+        try {
+          return validateRefinedCoursePlan(refined);
+        } catch {
+          throw failPermanently({
+            code: 'course_plan_validation_failed',
+            message: 'The refined course plan is invalid.',
+          });
+        }
+      }
+    );
+
+  const previousPlanningStep = (id: string) =>
     step<typeof CourseResearchStateSchema, typeof CoursePlanStateSchema, Config, Services>({
       id,
       inputSchema: CourseResearchStateSchema,
       outputSchema: CoursePlanStateSchema,
-      run: context =>
-        runStage(
-          context,
-          {
-            code: 'course_planning_failed',
-            message: 'The course plan could not be generated.',
-            modelSlot: 'course',
-          },
-          stage => operation(context.services, stage)
-        ),
+      run: context => runPreviousPlanningContract(context, context.input),
     });
 
-  const draftPlanningStep = (
-    id: string,
-    operation: (
-      services: Services,
-      stage: CourseGenerationStageContext<CourseResearchState>
-    ) => Promise<CourseDraftPlanState>
-  ) =>
-    step<typeof CourseResearchStateSchema, typeof CourseDraftPlanStateSchema, Config, Services>({
+  const previousDraftPlanningStep = (id: string) =>
+    step<
+      typeof CourseResearchStateSchema,
+      typeof PreviousCourseDraftPlanStateSchema,
+      Config,
+      Services
+    >({
       id,
       inputSchema: CourseResearchStateSchema,
-      outputSchema: CourseDraftPlanStateSchema,
+      outputSchema: PreviousCourseDraftPlanStateSchema,
       run: context =>
         runStage(
           context,
@@ -194,64 +329,49 @@ export const createCourseGenerationWorkflow = <
             message: 'The course plan could not be generated.',
             modelSlot: 'course',
           },
-          stage => operation(context.services, stage)
+          async stage => {
+            const draft = await context.services.draftCoursePlan(
+              withStageInput(stage, context.input, 'draft')
+            );
+            return PreviousCourseDraftPlanStateSchema.parse({ ...draft, stage: 'plan' });
+          }
         ),
     });
 
-  const refinementStep = (
-    id: string,
-    operation: (
-      services: Services,
-      stage: CourseGenerationStageContext<CourseDraftPlanState>
-    ) => Promise<CoursePlanState>
-  ) =>
-    step<typeof CourseDraftPlanStateSchema, typeof CoursePlanStateSchema, Config, Services>({
-      id,
-      inputSchema: CourseDraftPlanStateSchema,
-      outputSchema: CoursePlanStateSchema,
-      run: context =>
-        runStage(
-          context,
-          {
-            code: 'course_refinement_failed',
-            message: 'The course plan could not be refined.',
-            modelSlot: 'course',
-          },
-          stage => operation(context.services, stage)
-        ),
-    });
+  const previousRefinementStep = (id: string) =>
+    step<typeof PreviousCourseDraftPlanStateSchema, typeof CoursePlanStateSchema, Config, Services>(
+      {
+        id,
+        inputSchema: PreviousCourseDraftPlanStateSchema,
+        outputSchema: CoursePlanStateSchema,
+        run: context => {
+          const researchState = CourseResearchStateSchema.parse({
+            ...context.input,
+            stage: 'research',
+          });
+          return runPreviousPlanningContract(context, researchState);
+        },
+      }
+    );
 
-  const planLearnCourse = planningStep('plan-learn-course', (services, stage) =>
-    services.planLearnCourse(stage)
-  );
-  const draftSourceCourse = draftPlanningStep('draft-source-course', (services, stage) =>
-    services.draftSourceCourse(stage)
-  );
-  const refineSourceCourse = refinementStep('refine-source-course', (services, stage) =>
-    services.refineSourceCourse(stage)
-  );
-  const planSourceSetCourse = planningStep('plan-source-set-course', (services, stage) =>
-    services.planSourceSetCourse(stage)
-  );
-  const draftArchiveCourse = draftPlanningStep('draft-archive-course', (services, stage) =>
-    services.draftArchiveCourse(stage)
-  );
-  const refineArchiveCourse = refinementStep('refine-archive-course', (services, stage) =>
-    services.refineArchiveCourse(stage)
-  );
-
-  const routeCoursePlanning = routeBy({
+  const previousRouteCoursePlanning = routeBy({
     cases: {
       archive: sequence({
         id: 'plan-archive-course',
-        nodes: [draftArchiveCourse, refineArchiveCourse] as const,
+        nodes: [
+          previousDraftPlanningStep('draft-archive-course'),
+          previousRefinementStep('refine-archive-course'),
+        ] as const,
       }),
-      learn: planLearnCourse,
+      learn: previousPlanningStep('plan-learn-course'),
       'single-source': sequence({
         id: 'plan-single-source-course',
-        nodes: [draftSourceCourse, refineSourceCourse] as const,
+        nodes: [
+          previousDraftPlanningStep('draft-source-course'),
+          previousRefinementStep('refine-source-course'),
+        ] as const,
       }),
-      'source-set': planSourceSetCourse,
+      'source-set': previousPlanningStep('plan-source-set-course'),
     },
     id: 'route-course-planning',
     inputSchema: CourseResearchStateSchema,
@@ -337,6 +457,38 @@ export const createCourseGenerationWorkflow = <
       }),
   });
 
+  const root =
+    planningTopology === 'current'
+      ? sequence({
+          id: COURSE_GENERATION_WORKFLOW_ID,
+          nodes: [
+            prepareCourse,
+            courseResearch,
+            draftCoursePlan,
+            verifyCoursePlan,
+            refineCoursePlan,
+            validateCoursePlan,
+            finalizeCourseSources,
+            placeApplicationExercises,
+            persistCourse,
+            returnGeneratedCourse,
+            publishCourseProjectRevision,
+          ] as const,
+        })
+      : sequence({
+          id: COURSE_GENERATION_WORKFLOW_ID,
+          nodes: [
+            prepareCourse,
+            courseResearch,
+            previousRouteCoursePlanning,
+            finalizeCourseSources,
+            placeApplicationExercises,
+            persistCourse,
+            returnGeneratedCourse,
+            publishCourseProjectRevision,
+          ] as const,
+        });
+
   return workflow({
     compatibilityId: 'course-generation-v1',
     configSchema,
@@ -351,18 +503,32 @@ export const createCourseGenerationWorkflow = <
     id: COURSE_GENERATION_WORKFLOW_ID,
     inputSchema: CourseGenerationWorkflowInputSchema,
     outputSchema: CourseGenerationWorkflowResultSchema,
-    root: sequence({
-      id: COURSE_GENERATION_WORKFLOW_ID,
-      nodes: [
-        prepareCourse,
-        courseResearch,
-        routeCoursePlanning,
-        finalizeCourseSources,
-        placeApplicationExercises,
-        persistCourse,
-        returnGeneratedCourse,
-        publishCourseProjectRevision,
-      ] as const,
-    }),
+    root,
   });
 };
+
+export const createCourseGenerationWorkflow = <
+  Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
+  Services extends CourseGenerationWorkflowServices = CourseGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createCourseGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    'current'
+  );
+
+export const createPreviousCourseGenerationWorkflow = <
+  Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
+  Services extends CourseGenerationWorkflowServices = CourseGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createCourseGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    'previous'
+  );

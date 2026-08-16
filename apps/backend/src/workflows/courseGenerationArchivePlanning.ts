@@ -15,13 +15,15 @@ import type { OpenedCourseArchive } from './courseGenerationArchiveAccess.js';
 import { type CourseObjectToolSet, generateCourseObject } from './courseGenerationModel.js';
 import {
   buildCourseDraftPlanState,
-  buildCoursePlanState,
-  type CourseRawArchivePlan,
-  CourseRawArchivePlanSchema,
+  buildCoursePlanOutput,
+  buildCourseRefinedPlanState,
+  requirePassingRefinedVerification,
 } from './courseGenerationPlanning.js';
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
 import {
-  type CoursePlanState,
+  type CoursePlanCandidateVerifier,
+  type CourseRawArchivePlan,
+  CourseRawArchivePlanSchema,
   type CourseResearchState,
   CourseResearchStateSchema,
 } from './courseGenerationWorkflowContract.js';
@@ -31,8 +33,8 @@ export type { OpenedCourseArchive } from './courseGenerationArchiveAccess.js';
 
 type GenerateCourseObject = typeof generateCourseObject;
 type ArchivePlanningContext =
-  | Parameters<CourseGenerationWorkflowServices['draftArchiveCourse']>[0]
-  | Parameters<CourseGenerationWorkflowServices['refineArchiveCourse']>[0];
+  | Parameters<CourseGenerationWorkflowServices['draftCoursePlan']>[0]
+  | Parameters<CourseGenerationWorkflowServices['refineCoursePlan']>[0];
 type OpenCourseArchive = (
   state: Pick<CourseResearchState, 'context' | 'projectRevision' | 'request'>,
   signal: AbortSignal
@@ -157,11 +159,15 @@ const buildArchivePrompt = ({
   index,
   retryFeedback,
   state,
+  verification,
 }: {
-  readonly draft?: CoursePlanState['plan'];
+  readonly draft?: CourseRawArchivePlan;
   readonly index: ProjectSourceArchiveIndex;
   readonly retryFeedback: string;
   readonly state: CourseResearchState;
+  readonly verification?: Parameters<
+    CourseGenerationWorkflowServices['refineCoursePlan']
+  >[0]['input']['verification'];
 }): string => `Progetta un corso in ${state.context.language} su "${state.context.topic}" usando la sorgente archivio persistita.
 
 CONTESTO UTENTE:
@@ -176,6 +182,7 @@ ${formatSourceArchiveIndex(index, {
   previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
 })}
 ${draft ? `\nPIANO DA RAFFINARE:\n${JSON.stringify(draft)}` : ''}
+${verification ? `\nVERIFICA STRUTTURALE DA APPLICARE:\n${JSON.stringify(verification)}` : ''}
 ${retryFeedback ? `\nCORREZIONE OBBLIGATORIA:\n${retryFeedback}` : ''}
 
 REGOLE:
@@ -199,7 +206,12 @@ const generateArchivePlan = async ({
 }): Promise<{ rawPlan: CourseRawArchivePlan; state: CourseResearchState }> => {
   const state = CourseResearchStateSchema.parse({ ...context.input, stage: 'research' });
   const archive = await openArchive(state, context.signal);
-  const draft = context.input.stage === 'plan' ? context.input.plan : undefined;
+  const draft =
+    context.input.stage === 'plan-verification'
+      ? CourseRawArchivePlanSchema.parse(context.input.rawDraftPlan)
+      : undefined;
+  const verification =
+    context.input.stage === 'plan-verification' ? context.input.verification : undefined;
   const rawPlan = await generateObject({
     config: context.config.models,
     developerInstructions:
@@ -211,6 +223,7 @@ const generateArchivePlan = async ({
       index: archive.index,
       retryFeedback: context.retryFeedback,
       state,
+      ...(verification ? { verification } : {}),
     }),
     schema: CourseRawArchivePlanSchema,
     signal: context.signal,
@@ -224,17 +237,38 @@ export const createCourseArchivePlanningStages = ({
   generateObject = generateCourseObject,
   now = () => new Date().toISOString(),
   openArchive,
+  verifyRefinedPlan,
 }: {
   readonly generateObject?: GenerateCourseObject;
   readonly now?: () => string;
   readonly openArchive: OpenCourseArchive;
-}): Pick<CourseGenerationWorkflowServices, 'draftArchiveCourse' | 'refineArchiveCourse'> => ({
-  draftArchiveCourse: async context => {
+  readonly verifyRefinedPlan: CoursePlanCandidateVerifier;
+}): Pick<CourseGenerationWorkflowServices, 'draftCoursePlan' | 'refineCoursePlan'> => ({
+  draftCoursePlan: async context => {
     const generated = await generateArchivePlan({ context, generateObject, openArchive });
     return buildCourseDraftPlanState(generated.rawPlan, generated.state, now());
   },
-  refineArchiveCourse: async context => {
+  refineCoursePlan: async context => {
     const generated = await generateArchivePlan({ context, generateObject, openArchive });
-    return buildCoursePlanState(generated.rawPlan, generated.state, now());
+    const generatedAt = now();
+    const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
+    const refinedVerification = requirePassingRefinedVerification({
+      plan: refinedPlan.plan,
+      rawPlan: generated.rawPlan,
+      verification: await verifyRefinedPlan({
+        models: context.config.models,
+        plan: refinedPlan.plan,
+        rawPlan: generated.rawPlan,
+        retryFeedback: context.retryFeedback,
+        signal: context.signal,
+        state: generated.state,
+      }),
+    });
+    return buildCourseRefinedPlanState(
+      generated.rawPlan,
+      context.input,
+      refinedVerification,
+      generatedAt
+    );
   },
 });

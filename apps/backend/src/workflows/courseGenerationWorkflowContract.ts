@@ -1,3 +1,4 @@
+import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
 import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
@@ -49,6 +50,55 @@ const CourseSourceReferenceSchema = z.object({
   pageStart: z.number().int().positive().optional(),
   sourceId: z.string().min(1),
 });
+
+const CourseRequiredTextSchema = z.string().regex(/\S/);
+
+const CourseRawLessonFields = {
+  description: CourseRequiredTextSchema,
+  guidingQuestions: z.array(CourseRequiredTextSchema),
+  instructionPacks: z.array(z.enum(LESSON_INSTRUCTION_PACK_IDS)),
+  keyConcepts: z.array(CourseRequiredTextSchema),
+  miniLab: CourseRequiredTextSchema.nullable(),
+  prerequisites: z.array(CourseRequiredTextSchema),
+  simplificationRisks: z.array(CourseRequiredTextSchema),
+  sourceUrls: z.array(z.url()),
+  title: CourseRequiredTextSchema,
+  type: z.enum(['prerequisite', 'core', 'summary', 'deep-dive']),
+} as const;
+
+const CourseRawLessonSchema = z.object(CourseRawLessonFields);
+const CourseRawArchiveLessonSchema = z.object({
+  ...CourseRawLessonFields,
+  sourceArchiveSelectors: z
+    .array(
+      z.object({
+        kind: z.enum(['directory', 'file']),
+        path: z.string().min(1),
+      })
+    )
+    .min(1),
+});
+
+const createCourseRawPlanSchema = <LessonSchema extends z.ZodType>(lessonSchema: LessonSchema) =>
+  z.object({
+    lessonCountReason: CourseRequiredTextSchema,
+    modules: z
+      .array(
+        z.object({
+          description: CourseRequiredTextSchema,
+          lessons: z.array(lessonSchema).min(1),
+          title: CourseRequiredTextSchema,
+          type: z.enum(['prerequisite', 'core', 'summary', 'deep-dive']),
+        })
+      )
+      .min(1),
+    summary: CourseRequiredTextSchema,
+    title: CourseRequiredTextSchema,
+  });
+
+export const CourseRawPlanSchema = createCourseRawPlanSchema(CourseRawLessonSchema);
+export const CourseRawArchivePlanSchema = createCourseRawPlanSchema(CourseRawArchiveLessonSchema);
+const CourseRawPlanOutputSchema = z.union([CourseRawArchivePlanSchema, CourseRawPlanSchema]);
 
 export const CourseLessonSchema = z.object({
   contextPrompt: z.string().optional(),
@@ -307,20 +357,60 @@ export const CourseResearchStateSchema = CoursePreparationStateSchema.omit({ sta
   stage: z.literal('research'),
 });
 
-const CoursePlanStateFields = {
+const CoursePlanOutputSchema = z.object({
   plan: CourseLearningPlanSchema,
   researchCoursePlan: CourseResearchPlanSchema.nullable(),
-  stage: z.literal('plan'),
   syllabus: z.array(CourseSyllabusItemSchema),
-} as const;
+});
 
-export const CourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend(
-  CoursePlanStateFields
-);
+const CoursePlanQualityDimensionSchema = z.object({
+  feedback: CourseRequiredTextSchema,
+  status: z.enum(['pass', 'needs-refinement']),
+});
 
-export const CoursePlanStateSchema = CoursePreparationStateSchema.omit({ stage: true }).extend(
-  CoursePlanStateFields
-);
+export const CoursePlanVerificationSchema = z.object({
+  coverage: CoursePlanQualityDimensionSchema,
+  duplication: CoursePlanQualityDimensionSchema,
+  fragmentation: z.object({
+    canGroupCoherently: z.boolean(),
+    feedback: CourseRequiredTextSchema,
+    moduleIds: z.array(z.string().min(1)),
+  }),
+  granularity: CoursePlanQualityDimensionSchema,
+  moduleCohesion: CoursePlanQualityDimensionSchema,
+  prerequisites: CoursePlanQualityDimensionSchema,
+  progression: CoursePlanQualityDimensionSchema,
+  proportionality: CoursePlanQualityDimensionSchema,
+  summary: CourseRequiredTextSchema,
+  verdict: z.enum(['pass', 'refine']),
+});
+
+export const CourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend({
+  ...CoursePlanOutputSchema.shape,
+  rawDraftPlan: CourseRawPlanOutputSchema,
+  stage: z.literal('plan-draft'),
+});
+
+export const CoursePlanVerificationStateSchema = CourseDraftPlanStateSchema.omit({
+  stage: true,
+}).extend({
+  stage: z.literal('plan-verification'),
+  verification: CoursePlanVerificationSchema,
+});
+
+export const CourseRefinedPlanStateSchema = CoursePlanVerificationStateSchema.omit({
+  stage: true,
+}).extend({
+  refinedPlan: CoursePlanOutputSchema,
+  refinedVerification: CoursePlanVerificationSchema,
+  rawRefinedPlan: CourseRawPlanOutputSchema,
+  stage: z.literal('plan-refined'),
+});
+
+export const CoursePlanStateSchema = CoursePreparationStateSchema.omit({ stage: true }).extend({
+  ...CoursePlanOutputSchema.shape,
+  stage: z.literal('plan'),
+});
 
 export const CourseSourcesFinalizedStateSchema = CoursePlanStateSchema.omit({ stage: true }).extend(
   {
@@ -369,11 +459,51 @@ export type CourseGenerationWorkflowInput = z.infer<typeof CourseGenerationWorkf
 export type CourseGenerationWorkflowResult = z.infer<typeof CourseGenerationWorkflowResultSchema>;
 export type CourseLearningPlan = z.infer<typeof CourseLearningPlanSchema>;
 export type CoursePersistenceState = z.infer<typeof CoursePersistenceStateSchema>;
+export type CoursePlanCandidateVerifier = (input: {
+  readonly models: DeepReadonly<GlobalModelConfig>;
+  readonly plan: CourseLearningPlan;
+  readonly rawPlan: CourseRawArchivePlan | CourseRawPlan;
+  readonly retryFeedback: string;
+  readonly signal: AbortSignal;
+  readonly state: CourseResearchState;
+}) => Promise<CoursePlanVerification>;
 export type CoursePlanState = z.infer<typeof CoursePlanStateSchema>;
+export type CoursePlanVerification = z.infer<typeof CoursePlanVerificationSchema>;
+export type CoursePlanVerificationState = z.infer<typeof CoursePlanVerificationStateSchema>;
 export type CoursePreparationState = z.infer<typeof CoursePreparationStateSchema>;
+export type CourseRawArchivePlan = z.infer<typeof CourseRawArchivePlanSchema>;
+export type CourseRawPlan = z.infer<typeof CourseRawPlanSchema>;
+export type CourseRefinedPlanState = z.infer<typeof CourseRefinedPlanStateSchema>;
 export type CourseResearchState = z.infer<typeof CourseResearchStateSchema>;
 export type CourseSourcesFinalizedState = z.infer<typeof CourseSourcesFinalizedStateSchema>;
 export type CourseWebResearch = z.infer<typeof CourseWebResearchSchema>;
 export type CourseYoutubeQueryInput = z.infer<typeof CourseYoutubeQueryInputSchema>;
 export type CourseYoutubeQueryPlan = z.infer<typeof CourseYoutubeQueryPlanSchema>;
 export type CourseYoutubeResearch = z.infer<typeof CourseYoutubeResearchSchema>;
+
+export const validateRefinedCoursePlan = (state: CourseRefinedPlanState): CoursePlanState => {
+  const qualityDimensions = [
+    state.refinedVerification.coverage,
+    state.refinedVerification.duplication,
+    state.refinedVerification.granularity,
+    state.refinedVerification.moduleCohesion,
+    state.refinedVerification.prerequisites,
+    state.refinedVerification.progression,
+    state.refinedVerification.proportionality,
+  ];
+  if (
+    state.refinedVerification.verdict !== 'pass' ||
+    state.refinedVerification.fragmentation.canGroupCoherently ||
+    qualityDimensions.some(dimension => dimension.status !== 'pass')
+  ) {
+    throw new Error('The refined course plan has unresolved structural quality findings.');
+  }
+  return CoursePlanStateSchema.parse({
+    context: state.context,
+    ...state.refinedPlan,
+    projectRevision: state.projectRevision,
+    request: state.request,
+    stage: 'plan',
+    strategy: state.strategy,
+  });
+};
