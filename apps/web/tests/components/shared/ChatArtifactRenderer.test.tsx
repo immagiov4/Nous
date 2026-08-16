@@ -5,7 +5,7 @@ import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import ChatArtifactRenderer, {
   type ChatArtifactRegenerationStates,
@@ -17,6 +17,10 @@ vi.mock('../../../services/projects/projectDocumentImageResolver.ts', async impo
   ...(await importOriginal()),
   resolveProjectDocumentImage: vi.fn(),
 }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const pdfArtifact: LearningArtifactRenderPayload = {
   image: {
@@ -370,7 +374,7 @@ describe('ChatArtifactRenderer', () => {
       .fn()
       .mockImplementationOnce(() => pendingDiscard)
       .mockResolvedValue(undefined);
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const MultiSurfaceArtifacts = () => {
       const [hasDraft, setHasDraft] = useState(true);
@@ -437,7 +441,6 @@ describe('ChatArtifactRenderer', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText('Nuova bozza pronta.')).toBeNull();
     expect(discardRequest).toHaveBeenCalledTimes(2);
-    consoleErrorSpy.mockRestore();
   });
 
   test('reports a failed regeneration without claiming that a new draft was created', async () => {
@@ -493,6 +496,65 @@ describe('ChatArtifactRenderer', () => {
 
     expect(onSaveArtifact).toHaveBeenCalledWith({ artifactId: htmlArtifact.summary.id });
     expect(await screen.findByText('Salvato.')).toBeInTheDocument();
+  });
+
+  test('shows the reported failure instead of claiming an artifact was saved', async () => {
+    const user = userEvent.setup();
+    const onSaveArtifact = vi.fn().mockResolvedValue({
+      error: 'Il corso originale non è più attivo.',
+      succeeded: false,
+    });
+    render(
+      <ChatArtifactRenderer
+        artifacts={[htmlArtifact]}
+        isDarkMode={false}
+        onSaveArtifact={onSaveArtifact}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
+    await user.click(screen.getByRole('button', { name: /Salva artefatto nella lezione/i }));
+
+    expect(await screen.findByText('Il corso originale non è più attivo.')).toBeInTheDocument();
+    expect(screen.queryByText('Salvato.')).toBeNull();
+  });
+
+  test('replaces a custom save error with feedback from later failed actions', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onDiscardArtifact = vi.fn().mockRejectedValue(new Error('discard failed'));
+    const onRegenerateArtifact = vi.fn().mockResolvedValue(false);
+    const onSaveArtifact = vi.fn().mockResolvedValue({
+      error: 'Il corso originale non è più attivo.',
+      succeeded: false,
+    });
+    render(
+      <ChatArtifactRenderer
+        artifacts={[htmlArtifact]}
+        isDarkMode={false}
+        onDiscardArtifact={onDiscardArtifact}
+        onRegenerateArtifact={onRegenerateArtifact}
+        onSaveArtifact={onSaveArtifact}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
+    await user.click(screen.getByRole('button', { name: /Salva artefatto nella lezione/i }));
+    expect(await screen.findByText('Il corso originale non è più attivo.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Scarta artefatto/i }));
+    expect(
+      await screen.findByText('Operazione non riuscita. L artefatto non e stato modificato.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Il corso originale non è più attivo.')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+    await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Correggi il simulatore.');
+    await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
+    expect(
+      await screen.findByText('Rigenerazione fallita. La bozza precedente non e stata modificata.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Il corso originale non è più attivo.')).toBeNull();
   });
 
   test('shows replace action for replacement drafts', async () => {

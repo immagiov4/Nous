@@ -1,5 +1,6 @@
 import { type RefObject, useCallback, useEffect, useRef } from 'react';
 import type {
+  ContextLessonMutationTarget,
   SaveConversationNoteInput,
   SaveConversationNoteResult,
 } from '../../components/workspace/shell/types.ts';
@@ -172,35 +173,66 @@ export const useWorkspaceReaderActions = ({
     [contextMenuScrollTopRef, scrollContainerRef, updateSection]
   );
   const persistSectionAnnotationsPreservingReaderScroll = useCallback(
-    (sectionId: string, annotations: unknown) => {
+    (
+      sectionId: string,
+      annotations: unknown,
+      generatedVisuals?: StoredLessonVisual[]
+    ): Promise<boolean> => {
       const scrollContainer = scrollContainerRef.current;
       const scrollTop = contextMenuScrollTopRef.current ?? scrollContainer?.scrollTop;
-      void patchSectionAnnotations(sectionId, annotations).finally(() => {
-        if (!scrollContainer || scrollTop === undefined) {
-          return;
-        }
-
-        globalThis.requestAnimationFrame(() => {
-          if (
-            activeSectionIdRef.current === sectionId &&
-            scrollContainerRef.current === scrollContainer
-          ) {
-            scrollContainer.scrollTop = scrollTop;
+      return patchSectionAnnotations(sectionId, annotations, undefined, generatedVisuals).finally(
+        () => {
+          if (!scrollContainer || scrollTop === undefined) {
+            return;
           }
-        });
-      });
+
+          globalThis.requestAnimationFrame(() => {
+            if (
+              activeSectionIdRef.current === sectionId &&
+              scrollContainerRef.current === scrollContainer
+            ) {
+              scrollContainer.scrollTop = scrollTop;
+            }
+          });
+        }
+      );
     },
     [contextMenuScrollTopRef, patchSectionAnnotations, scrollContainerRef]
   );
+  const getSectionById = useCallback(
+    (sectionId: string | undefined) => {
+      if (!sectionId || !learningPlan) {
+        return null;
+      }
+
+      return flattenLessons(learningPlan.modules).find(section => section.id === sectionId) || null;
+    },
+    [learningPlan]
+  );
   const getCurrentSection = useCallback(() => {
-    if (!activeSectionId || !learningPlan) {
+    if (!activeSectionId) {
       return null;
     }
 
-    return (
-      flattenLessons(learningPlan.modules).find(section => section.id === activeSectionId) || null
-    );
-  }, [activeSectionId, learningPlan]);
+    return getSectionById(activeSectionId);
+  }, [activeSectionId, getSectionById]);
+
+  const resolveMutationSection = useCallback(
+    ({ lessonId, projectId: targetProjectId }: ContextLessonMutationTarget) => {
+      if (!lessonId || !projectId) {
+        return { error: t('Non ho trovato la sezione corrente.') } as const;
+      }
+      if (targetProjectId && targetProjectId !== projectId) {
+        return { error: t('Il corso originale non è più attivo.') } as const;
+      }
+
+      const section = getSectionById(lessonId);
+      return section
+        ? ({ lessonId, section } as const)
+        : ({ error: t('Non ho trovato la sezione corrente.') } as const);
+    },
+    [getSectionById, projectId]
+  );
 
   const handleContextQuestion = useCallback(
     (question: string) => {
@@ -392,7 +424,7 @@ export const useWorkspaceReaderActions = ({
       ...section,
       annotations: result.annotations,
     }));
-    persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+    void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
     closeContextMenu();
     clearNativeSelection();
   }, [
@@ -442,7 +474,7 @@ export const useWorkspaceReaderActions = ({
           ...section,
           annotations: result.annotations,
         }));
-        persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+        void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
         closeContextMenu();
         clearNativeSelection();
         return;
@@ -467,7 +499,7 @@ export const useWorkspaceReaderActions = ({
         ...section,
         annotations: result.annotations,
       }));
-      persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+      void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
       closeContextMenu();
     },
     [
@@ -506,7 +538,7 @@ export const useWorkspaceReaderActions = ({
       ...section,
       annotations: result.annotations,
     }));
-    persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+    void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
     closeContextMenu();
   }, [
     activeSectionId,
@@ -544,7 +576,7 @@ export const useWorkspaceReaderActions = ({
         ...section,
         annotations: result.annotations,
       }));
-      persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+      void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
     },
     [
       activeSectionId,
@@ -597,32 +629,28 @@ export const useWorkspaceReaderActions = ({
   );
 
   const handleSaveConversationNote = useCallback(
-    async ({
-      artifactRefs,
-      fallbackSelection,
-      generatedVisuals,
-      contextAfter,
-      contextBefore,
-      note,
-      selectedText,
-      selectedTextStart,
-    }: SaveConversationNoteInput): Promise<SaveConversationNoteResult> => {
-      if (!activeSectionId) {
+    async (
+      target: ContextLessonMutationTarget,
+      {
+        artifactRefs,
+        fallbackSelection,
+        generatedVisuals,
+        contextAfter,
+        contextBefore,
+        note,
+        selectedText,
+        selectedTextStart,
+      }: SaveConversationNoteInput
+    ): Promise<SaveConversationNoteResult> => {
+      const resolution = resolveMutationSection(target);
+      if ('error' in resolution) {
         return {
           saved: false,
           merged: false,
-          error: t('La sezione attiva non e disponibile.'),
+          error: resolution.error,
         };
       }
-
-      const currentSection = getCurrentSection();
-      if (!currentSection) {
-        return {
-          saved: false,
-          merged: false,
-          error: t('Non ho trovato la sezione corrente.'),
-        };
-      }
+      const { lessonId, section } = resolution;
 
       const trySave = (input: {
         contextAfter?: string;
@@ -631,9 +659,9 @@ export const useWorkspaceReaderActions = ({
         selectedTextStart?: number;
       }) =>
         applySectionAnnotation({
-          annotations: currentSection.annotations,
+          annotations: section.annotations,
           artifactRefs,
-          content: currentSection.content || sectionContent,
+          content: section.content || (lessonId === activeSectionId ? sectionContent : ''),
           contextAfter: input.contextAfter,
           contextBefore: input.contextBefore,
           note,
@@ -671,23 +699,37 @@ export const useWorkspaceReaderActions = ({
       }
 
       const nextGeneratedVisuals = mergeGeneratedVisuals(
-        currentSection.generatedVisuals,
+        section.generatedVisuals,
         generatedVisuals
       );
 
-      updateSection(activeSectionId, section => ({
-        ...section,
+      const updateMutationSection =
+        lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection;
+      updateMutationSection(lessonId, currentLesson => ({
+        ...currentLesson,
         annotations: result.annotations,
         generatedVisuals: nextGeneratedVisuals,
       }));
-      const persisted = await patchSectionAnnotations(
-        activeSectionId,
-        result.annotations,
-        undefined,
-        nextGeneratedVisuals
-      );
+      const persisted = await (lessonId === activeSectionId
+        ? persistSectionAnnotationsPreservingReaderScroll(
+            lessonId,
+            result.annotations,
+            nextGeneratedVisuals
+          )
+        : patchSectionAnnotations(lessonId, result.annotations, undefined, nextGeneratedVisuals));
 
       if (!persisted) {
+        updateMutationSection(lessonId, currentLesson => ({
+          ...currentLesson,
+          annotations:
+            currentLesson.annotations === result.annotations
+              ? section.annotations
+              : currentLesson.annotations,
+          generatedVisuals:
+            currentLesson.generatedVisuals === nextGeneratedVisuals
+              ? section.generatedVisuals
+              : currentLesson.generatedVisuals,
+        }));
         return {
           saved: false,
           merged: result.merged,
@@ -702,36 +744,40 @@ export const useWorkspaceReaderActions = ({
         resolvedText: result.resolvedText,
       };
     },
-    [activeSectionId, getCurrentSection, patchSectionAnnotations, sectionContent, updateSection]
+    [
+      activeSectionId,
+      patchSectionAnnotations,
+      persistSectionAnnotationsPreservingReaderScroll,
+      resolveMutationSection,
+      sectionContent,
+      updateSection,
+      updateSectionPreservingReaderScroll,
+    ]
   );
 
   const handleUpdateConversationNote = useCallback(
-    async ({
-      artifactRefs,
-      fallbackSelection,
-      generatedVisuals,
-      contextAfter,
-      contextBefore,
-      note,
-      selectedText,
-      selectedTextStart,
-    }: SaveConversationNoteInput): Promise<SaveConversationNoteResult> => {
-      if (!activeSectionId) {
+    async (
+      target: ContextLessonMutationTarget,
+      {
+        artifactRefs,
+        fallbackSelection,
+        generatedVisuals,
+        contextAfter,
+        contextBefore,
+        note,
+        selectedText,
+        selectedTextStart,
+      }: SaveConversationNoteInput
+    ): Promise<SaveConversationNoteResult> => {
+      const resolution = resolveMutationSection(target);
+      if ('error' in resolution) {
         return {
           saved: false,
           merged: false,
-          error: t('La sezione attiva non e disponibile.'),
+          error: resolution.error,
         };
       }
-
-      const currentSection = getCurrentSection();
-      if (!currentSection) {
-        return {
-          saved: false,
-          merged: false,
-          error: t('Non ho trovato la sezione corrente.'),
-        };
-      }
+      const { lessonId, section } = resolution;
 
       const resolveMatch = (input: {
         contextAfter?: string;
@@ -740,8 +786,8 @@ export const useWorkspaceReaderActions = ({
         selectedTextStart?: number;
       }) =>
         findSectionAnnotationForSelection({
-          annotations: currentSection.annotations,
-          content: currentSection.content || sectionContent,
+          annotations: section.annotations,
+          content: section.content || (lessonId === activeSectionId ? sectionContent : ''),
           contextAfter: input.contextAfter,
           contextBefore: input.contextBefore,
           selectedText: input.selectedText,
@@ -769,7 +815,7 @@ export const useWorkspaceReaderActions = ({
 
       const result = updateSectionAnnotationNote({
         annotationId: match.annotation.id,
-        annotations: currentSection.annotations,
+        annotations: section.annotations,
         artifactRefs,
         note,
       });
@@ -783,23 +829,37 @@ export const useWorkspaceReaderActions = ({
       }
 
       const nextGeneratedVisuals = mergeGeneratedVisuals(
-        currentSection.generatedVisuals,
+        section.generatedVisuals,
         generatedVisuals
       );
 
-      updateSection(activeSectionId, section => ({
-        ...section,
+      const updateMutationSection =
+        lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection;
+      updateMutationSection(lessonId, currentLesson => ({
+        ...currentLesson,
         annotations: result.annotations,
         generatedVisuals: nextGeneratedVisuals,
       }));
-      const persisted = await patchSectionAnnotations(
-        activeSectionId,
-        result.annotations,
-        undefined,
-        nextGeneratedVisuals
-      );
+      const persisted = await (lessonId === activeSectionId
+        ? persistSectionAnnotationsPreservingReaderScroll(
+            lessonId,
+            result.annotations,
+            nextGeneratedVisuals
+          )
+        : patchSectionAnnotations(lessonId, result.annotations, undefined, nextGeneratedVisuals));
 
       if (!persisted) {
+        updateMutationSection(lessonId, currentLesson => ({
+          ...currentLesson,
+          annotations:
+            currentLesson.annotations === result.annotations
+              ? section.annotations
+              : currentLesson.annotations,
+          generatedVisuals:
+            currentLesson.generatedVisuals === nextGeneratedVisuals
+              ? section.generatedVisuals
+              : currentLesson.generatedVisuals,
+        }));
         return {
           saved: false,
           merged: false,
@@ -814,7 +874,15 @@ export const useWorkspaceReaderActions = ({
         resolvedText: match.resolvedText,
       };
     },
-    [activeSectionId, getCurrentSection, patchSectionAnnotations, sectionContent, updateSection]
+    [
+      activeSectionId,
+      patchSectionAnnotations,
+      persistSectionAnnotationsPreservingReaderScroll,
+      resolveMutationSection,
+      sectionContent,
+      updateSection,
+      updateSectionPreservingReaderScroll,
+    ]
   );
 
   const handleCompleteSection = useCallback(async () => {
@@ -859,64 +927,97 @@ export const useWorkspaceReaderActions = ({
 
   const handleSaveArtifactToLesson = useCallback(
     async (
+      target: ContextLessonMutationTarget,
       visual: StoredLessonVisual,
       artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
-    ): Promise<void> => {
-      if (!activeSectionId) return;
+    ) => {
+      const resolution = resolveMutationSection(target);
+      if ('error' in resolution) {
+        return { error: resolution.error, succeeded: false };
+      }
+      const { lessonId, section } = resolution;
 
-      const currentSection = getCurrentSection();
-      if (!currentSection) return;
-
-      const nextGeneratedVisuals = mergeGeneratedVisuals(currentSection.generatedVisuals, [visual]);
+      const nextGeneratedVisuals = mergeGeneratedVisuals(section.generatedVisuals, [visual]);
 
       const annotationResult = createLessonSectionAnnotation({
-        annotations: currentSection.annotations,
+        annotations: section.annotations,
         artifactRefs: [artifactRef],
         note: '',
       });
 
-      updateSection(activeSectionId, section => ({
-        ...section,
+      updateSection(lessonId, currentLesson => ({
+        ...currentLesson,
         annotations: annotationResult.annotations,
         generatedVisuals: nextGeneratedVisuals,
       }));
-      await patchSectionAnnotations(
-        activeSectionId,
+      const persisted = await patchSectionAnnotations(
+        lessonId,
         annotationResult.annotations,
         undefined,
         nextGeneratedVisuals
       );
+      if (!persisted) {
+        updateSection(lessonId, currentLesson => ({
+          ...currentLesson,
+          annotations:
+            currentLesson.annotations === annotationResult.annotations
+              ? section.annotations
+              : currentLesson.annotations,
+          generatedVisuals:
+            currentLesson.generatedVisuals === nextGeneratedVisuals
+              ? section.generatedVisuals
+              : currentLesson.generatedVisuals,
+        }));
+      }
+      return persisted
+        ? { succeeded: true }
+        : { error: t("Non sono riuscito a salvare l'artefatto."), succeeded: false };
     },
-    [activeSectionId, getCurrentSection, patchSectionAnnotations, updateSection]
+    [patchSectionAnnotations, resolveMutationSection, updateSection]
   );
 
   const handleReplaceArtifactInLesson = useCallback(
-    async (artifactId: string, visual: StoredLessonVisual): Promise<void> => {
-      if (!activeSectionId) return;
-
-      const currentSection = getCurrentSection();
-      if (!currentSection) return;
+    async (target: ContextLessonMutationTarget, artifactId: string, visual: StoredLessonVisual) => {
+      const resolution = resolveMutationSection(target);
+      if ('error' in resolution) {
+        return { error: resolution.error, succeeded: false };
+      }
+      const { lessonId, section } = resolution;
 
       const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
         artifactId,
         replacementVisual: visual,
-        visuals: currentSection.generatedVisuals,
+        visuals: section.generatedVisuals,
       });
-      if (!nextGeneratedVisuals) return;
+      if (!nextGeneratedVisuals) {
+        return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
+      }
 
-      updateSection(activeSectionId, section => ({
-        ...section,
+      updateSection(lessonId, currentLesson => ({
+        ...currentLesson,
         generatedVisuals: nextGeneratedVisuals,
       }));
 
-      await patchSectionAnnotations(
-        activeSectionId,
-        currentSection.annotations,
+      const persisted = await patchSectionAnnotations(
+        lessonId,
+        undefined,
         undefined,
         nextGeneratedVisuals
       );
+      if (!persisted) {
+        updateSection(lessonId, currentLesson => ({
+          ...currentLesson,
+          generatedVisuals:
+            currentLesson.generatedVisuals === nextGeneratedVisuals
+              ? section.generatedVisuals
+              : currentLesson.generatedVisuals,
+        }));
+      }
+      return persisted
+        ? { succeeded: true }
+        : { error: t("Non sono riuscito a sostituire l'artefatto."), succeeded: false };
     },
-    [activeSectionId, getCurrentSection, patchSectionAnnotations, updateSection]
+    [patchSectionAnnotations, resolveMutationSection, updateSection]
   );
 
   return {

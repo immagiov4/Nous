@@ -44,15 +44,18 @@ const runNextAnimationFrame = () => {
 };
 
 const createNavigationHarness = (overrides: Partial<NavigationDependencies> = {}) => {
+  const cancelContextAnswerLessonRetention = vi.fn();
   const cancelPendingProjectOpen = vi.fn();
   const clearPendingReference = vi.fn();
   const closeContextAnswer = vi.fn();
   const openProject = vi.fn(async () => ({ outcome: 'opened' }));
   const openSection = vi.fn(async () => 'loaded' as const);
   const reportFailure = vi.fn();
+  const retainContextAnswerForLesson = vi.fn();
   const revealAnnotation = vi.fn();
   const dependencies: NavigationDependencies = {
     activeSectionId: 'lesson-1',
+    cancelContextAnswerLessonRetention,
     cancelPendingProjectOpen,
     clearPendingReference,
     closeContextAnswer,
@@ -66,10 +69,12 @@ const createNavigationHarness = (overrides: Partial<NavigationDependencies> = {}
     openProject,
     openSection,
     reportFailure,
+    retainContextAnswerForLesson,
     revealAnnotation,
     ...overrides,
   };
   return {
+    cancelContextAnswerLessonRetention,
     cancelPendingProjectOpen,
     clearPendingReference,
     closeContextAnswer,
@@ -77,11 +82,12 @@ const createNavigationHarness = (overrides: Partial<NavigationDependencies> = {}
     openProject,
     openSection,
     reportFailure,
+    retainContextAnswerForLesson,
     revealAnnotation,
   };
 };
 
-test('opens a cross-course lesson and closes the contextual answer', async () => {
+test('opens a cross-course lesson at the requested target', async () => {
   const harness = createNavigationHarness();
 
   await navigateToLibraryReference(
@@ -98,14 +104,29 @@ test('opens a cross-course lesson and closes the contextual answer', async () =>
     activeSectionId: 'lesson-other',
     source: 'library',
   });
+  expect(harness.retainContextAnswerForLesson).toHaveBeenCalledWith('lesson-other');
+  expect(harness.cancelContextAnswerLessonRetention).not.toHaveBeenCalled();
+  expect(harness.closeContextAnswer).not.toHaveBeenCalled();
+});
+
+test('closes the retained answer after opening a cross-course project reference', async () => {
+  const harness = createNavigationHarness();
+
+  await navigateToLibraryReference(
+    { kind: 'project', projectId: 'project-other', projectTitle: 'Altro corso' },
+    harness.dependencies
+  );
+
+  expect(harness.openProject).toHaveBeenCalledOnce();
   expect(harness.closeContextAnswer).toHaveBeenCalledOnce();
+  expect(harness.retainContextAnswerForLesson).not.toHaveBeenCalled();
 });
 
 test.each([
   ['failed', 'clear'] as const,
   ['stale', 'clear'] as const,
   ['missing', 'report'] as const,
-])('handles a cross-course %s outcome without closing the answer', async (outcome, action) => {
+])('handles a cross-course %s project-open outcome', async (outcome, action) => {
   const harness = createNavigationHarness({
     openProject: vi.fn(async () => ({ outcome })),
   });
@@ -115,9 +136,9 @@ test.each([
     harness.dependencies
   );
 
-  expect(harness.closeContextAnswer).not.toHaveBeenCalled();
   expect(harness.clearPendingReference).toHaveBeenCalledTimes(action === 'clear' ? 1 : 0);
   expect(harness.reportFailure).toHaveBeenCalledTimes(action === 'report' ? 1 : 0);
+  expect(harness.cancelContextAnswerLessonRetention).toHaveBeenCalledOnce();
 });
 
 test('rejects cross-course navigation while a section is loading', async () => {
@@ -148,11 +169,29 @@ test('reveals an annotation in the active lesson', async () => {
 
   expect(harness.openSection).not.toHaveBeenCalled();
   expect(harness.cancelPendingProjectOpen).toHaveBeenCalledOnce();
-  expect(harness.closeContextAnswer).toHaveBeenCalledOnce();
   expect(harness.revealAnnotation).toHaveBeenCalledOnce();
+  expect(harness.closeContextAnswer).not.toHaveBeenCalled();
 });
 
-test('closes a current-course reference that does not target a lesson', async () => {
+test('closes the retained answer when the active lesson reference has no annotation target', async () => {
+  const harness = createNavigationHarness();
+
+  await navigateToLibraryReference(
+    {
+      kind: 'lesson',
+      lessonId: 'lesson-1',
+      projectId: 'project-current',
+      projectTitle: 'Corso corrente',
+    },
+    harness.dependencies
+  );
+
+  expect(harness.openSection).not.toHaveBeenCalled();
+  expect(harness.revealAnnotation).not.toHaveBeenCalled();
+  expect(harness.closeContextAnswer).toHaveBeenCalledOnce();
+});
+
+test('closes the retained answer for a current-course reference without a lesson target', async () => {
   const harness = createNavigationHarness();
 
   await navigateToLibraryReference(
@@ -160,8 +199,8 @@ test('closes a current-course reference that does not target a lesson', async ()
     harness.dependencies
   );
 
-  expect(harness.closeContextAnswer).toHaveBeenCalledOnce();
   expect(harness.openSection).not.toHaveBeenCalled();
+  expect(harness.closeContextAnswer).toHaveBeenCalledOnce();
 });
 
 test('does not reveal an active-lesson reference after its request is superseded', async () => {
@@ -177,7 +216,6 @@ test('does not reveal an active-lesson reference after its request is superseded
     harness.dependencies
   );
 
-  expect(harness.closeContextAnswer).not.toHaveBeenCalled();
   expect(harness.revealAnnotation).not.toHaveBeenCalled();
 });
 
@@ -195,7 +233,7 @@ test('opens and reveals a reference in another lesson of the current course', as
   );
 
   expect(harness.openSection).toHaveBeenCalledWith(expect.objectContaining({ id: 'lesson-2' }));
-  expect(harness.closeContextAnswer).toHaveBeenCalledOnce();
+  expect(harness.retainContextAnswerForLesson).toHaveBeenCalledWith('lesson-2');
   expect(harness.revealAnnotation).toHaveBeenCalledOnce();
 });
 
@@ -223,7 +261,9 @@ test.each([
   await navigateToLibraryReference(options.reference, harness.dependencies);
 
   expect(harness.reportFailure).toHaveBeenCalledWith();
-  expect(harness.closeContextAnswer).not.toHaveBeenCalled();
+  expect(harness.cancelContextAnswerLessonRetention).toHaveBeenCalledTimes(
+    options.openSection ? 1 : 0
+  );
 });
 
 test('does not finish a superseded navigation request', async () => {
@@ -240,11 +280,11 @@ test('does not finish a superseded navigation request', async () => {
   );
 
   expect(harness.openSection).toHaveBeenCalledOnce();
-  expect(harness.closeContextAnswer).not.toHaveBeenCalled();
+  expect(harness.cancelContextAnswerLessonRetention).toHaveBeenCalledOnce();
   expect(harness.revealAnnotation).not.toHaveBeenCalled();
 });
 
-test('does not close the answer after a cross-course request is superseded', async () => {
+test('does not reveal a superseded cross-course request', async () => {
   const harness = createNavigationHarness({ isCurrentRequest: () => false });
 
   await navigateToLibraryReference(
@@ -270,6 +310,7 @@ test('reports unexpected navigation failures', async () => {
   );
 
   expect(harness.reportFailure).toHaveBeenCalledWith(error);
+  expect(harness.cancelContextAnswerLessonRetention).toHaveBeenCalledOnce();
 });
 
 test('reveals an annotation rendered as a mark', () => {

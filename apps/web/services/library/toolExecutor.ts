@@ -13,6 +13,7 @@ import {
   filterLearningArtifactPayloads,
   summarizeLearningArtifacts,
 } from '../../utils/learning/artifacts.ts';
+import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import {
   buildLessonDetailPayload,
   buildLibraryScopeSummary,
@@ -435,11 +436,27 @@ const executeLearningArtifactsTool = async (
     query: isRecord(input) && typeof input.query === 'string' ? input.query : undefined,
   });
   const renderPayloads = shouldRenderLearningArtifacts(input) ? filteredArtifacts : undefined;
+  const lessonContentAvailabilityByProject = new Map(
+    resolvedProjectIds.map(projectId => [
+      projectId,
+      new Map(
+        flattenLessons(snapshotsById.get(projectId)?.learningPlan?.modules).map(lesson => [
+          lesson.id,
+          Boolean(lesson.content?.trim()),
+        ])
+      ),
+    ])
+  );
 
   return {
     output: {
       artifactCount: filteredArtifacts.length,
-      artifacts: summarizeLearningArtifacts(filteredArtifacts),
+      artifacts: summarizeLearningArtifacts(filteredArtifacts).map(artifact => ({
+        ...artifact,
+        hasContent:
+          lessonContentAvailabilityByProject.get(artifact.projectId)?.get(artifact.lessonId) ??
+          false,
+      })),
       query: isRecord(input) && typeof input.query === 'string' ? input.query : undefined,
       renderMode: renderPayloads ? 'attachments' : 'metadata-only',
       renderedArtifactCount: renderPayloads?.length ?? 0,

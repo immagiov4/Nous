@@ -44,6 +44,11 @@ interface ContextAnswerResizeState {
   startHeight: number;
 }
 
+interface ContextAnswerLessonRetention {
+  lessonId: string;
+  navigationId: number;
+}
+
 interface UseReaderContextArgs {
   activeSectionId: string | null;
   contentRef: RefObject<HTMLDivElement | null>;
@@ -105,16 +110,13 @@ export const useReaderContext = ({
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(createClosedContextMenuState);
   const [contextAnswer, setContextAnswer] = useState<ContextAnswerState | null>(null);
   const [contextMenuOwnerSectionId, setContextMenuOwnerSectionId] = useState<string | null>(null);
-  const [contextAnswerOwnerSectionId, setContextAnswerOwnerSectionId] = useState<string | null>(
-    null
-  );
   const [contextAnswerSize, setContextAnswerSize] = useState<ContextAnswerSize>(
     CONTEXT_ANSWER_DEFAULT_SIZE
   );
-  const visibleContextAnswer =
-    contextAnswerOwnerSectionId === activeSectionId ? contextAnswer : null;
+  const canShowContextMenuWithAnswer = contextMenu.visible && contextMenu.type === 'annotation';
   const visibleContextMenu =
-    visibleContextAnswer || contextMenuOwnerSectionId !== activeSectionId
+    contextMenuOwnerSectionId !== activeSectionId ||
+    (contextAnswer && !canShowContextMenuWithAnswer)
       ? createClosedContextMenuState()
       : contextMenu;
 
@@ -131,6 +133,8 @@ export const useReaderContext = ({
   const pendingDesktopSelectionContextMenuRef = useRef<{ x: number; y: number } | null>(null);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const contextAnswerDraftSizeRef = useRef<ContextAnswerSize>(CONTEXT_ANSWER_DEFAULT_SIZE);
+  const contextAnswerLessonRetentionRef = useRef<ContextAnswerLessonRetention | null>(null);
+  const previousActiveSectionIdRef = useRef(activeSectionId);
   // Mirror of contextMenu state consumed from callbacks that must keep a stable
   // identity. Reading contextMenu directly from those callbacks would force
   // them to list it in their deps, which in turn would invalidate every
@@ -243,10 +247,38 @@ export const useReaderContext = ({
     });
   }, [clearSelectionMenuTimeout]);
 
+  const cancelContextAnswerLessonRetention = useCallback((navigationId?: number) => {
+    if (
+      navigationId === undefined ||
+      contextAnswerLessonRetentionRef.current?.navigationId === navigationId
+    ) {
+      contextAnswerLessonRetentionRef.current = null;
+    }
+  }, []);
+
   const closeContextAnswer = useCallback(() => {
-    setContextAnswerOwnerSectionId(null);
+    contextAnswerLessonRetentionRef.current = null;
     setContextAnswer(null);
   }, []);
+
+  const retainContextAnswerForLesson = useCallback((navigationId: number, lessonId: string) => {
+    contextAnswerLessonRetentionRef.current = { lessonId, navigationId };
+  }, []);
+
+  useEffect(() => {
+    if (previousActiveSectionIdRef.current === activeSectionId) {
+      return;
+    }
+
+    previousActiveSectionIdRef.current = activeSectionId;
+    const retainedLessonId = contextAnswerLessonRetentionRef.current?.lessonId;
+    contextAnswerLessonRetentionRef.current = null;
+    if (retainedLessonId === activeSectionId) {
+      return;
+    }
+
+    setContextAnswer(null);
+  }, [activeSectionId]);
 
   const openContextAnswer = useCallback(
     ({
@@ -269,7 +301,7 @@ export const useReaderContext = ({
       sourceMaterial,
     }: Omit<ContextAnswerState, 'id'>) => {
       closeContextMenu();
-      setContextAnswerOwnerSectionId(activeSectionId);
+      contextAnswerLessonRetentionRef.current = null;
       setContextAnswer({
         attachedAnnotationNote,
         attachedAnnotationText,
@@ -291,7 +323,7 @@ export const useReaderContext = ({
         sourceMaterial,
       });
     },
-    [activeSectionId, closeContextMenu]
+    [closeContextMenu]
   );
 
   const openContextMenuFromLesson = useCallback(
@@ -856,9 +888,10 @@ export const useReaderContext = ({
 
   return useMemo(
     () => ({
+      cancelContextAnswerLessonRetention,
       closeContextAnswer,
       closeContextMenu,
-      contextAnswer: visibleContextAnswer,
+      contextAnswer,
       contextAnswerPanelRef,
       contextAnswerResizePreviewRef,
       contextAnswerSize,
@@ -871,11 +904,13 @@ export const useReaderContext = ({
       handleContextAnswerResizeStart,
       openContextAnswer,
       openContextMenuFromSelection,
+      retainContextAnswerForLesson,
     }),
     [
+      cancelContextAnswerLessonRetention,
       closeContextAnswer,
       closeContextMenu,
-      visibleContextAnswer,
+      contextAnswer,
       contextAnswerSize,
       visibleContextMenu,
       handleContentContextMenu,
@@ -884,6 +919,7 @@ export const useReaderContext = ({
       handleContextAnswerResizeStart,
       openContextAnswer,
       openContextMenuFromSelection,
+      retainContextAnswerForLesson,
     ]
   );
 };

@@ -120,6 +120,120 @@ test('opening a context answer atomically closes the selection menu and cancels 
   vi.useRealTimers();
 });
 
+test('closes the contextual answer after an ordinary lesson change', () => {
+  const container = document.createElement('div');
+  const contentRef = { current: container };
+  const { result, rerender } = renderHook(
+    ({ activeSectionId }) =>
+      useReaderContext({
+        activeSectionId,
+        contentRef,
+        isMobileViewport: false,
+        sectionContent: 'Alpha beta gamma delta',
+      }),
+    { initialProps: { activeSectionId: 'section-1' } }
+  );
+
+  act(() => {
+    result.current.openContextAnswer({
+      initialQuestion: 'Spiega beta',
+      selectedText: 'beta',
+    });
+  });
+  rerender({ activeSectionId: 'section-2' });
+
+  assert.equal(result.current.contextAnswer, null);
+});
+
+test('retains the contextual answer only for the permitted recovered lesson transition', () => {
+  const container = document.createElement('div');
+  const contentRef = { current: container };
+  const { result, rerender } = renderHook(
+    ({ activeSectionId }) =>
+      useReaderContext({
+        activeSectionId,
+        contentRef,
+        isMobileViewport: false,
+        sectionContent: 'Alpha beta gamma delta',
+      }),
+    { initialProps: { activeSectionId: 'section-1' } }
+  );
+
+  act(() => {
+    result.current.openContextAnswer({
+      initialQuestion: 'Spiega beta',
+      selectedText: 'beta',
+    });
+    result.current.retainContextAnswerForLesson(1, 'section-2');
+  });
+  const contextAnswerId = result.current.contextAnswer?.id;
+
+  rerender({ activeSectionId: 'section-2' });
+
+  assert.equal(result.current.contextAnswer?.id, contextAnswerId);
+  assert.equal(result.current.contextAnswer?.initialQuestion, 'Spiega beta');
+
+  rerender({ activeSectionId: 'section-3' });
+
+  assert.equal(result.current.contextAnswer, null);
+});
+
+test('reveals an annotation menu above a retained contextual answer', () => {
+  const container = document.createElement('div');
+  container.innerHTML = '<mark data-nous-annotation-id="annotation-1">beta</mark>';
+  document.body.append(container);
+  const mark = container.querySelector('mark');
+  assert.ok(mark);
+  mark.getBoundingClientRect = () =>
+    ({ bottom: 120, height: 20, left: 40, right: 82, top: 100, width: 42 }) as DOMRect;
+  container.getBoundingClientRect = () => ({ left: 24, right: 420 }) as DOMRect;
+  const selectionSpy = vi.spyOn(globalThis, 'getSelection').mockReturnValue({
+    isCollapsed: true,
+    rangeCount: 0,
+    toString: () => '',
+  } as unknown as Selection);
+  const contentRef = { current: container };
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: true,
+      sectionAnnotations: [
+        {
+          anchor: {
+            kind: 'selection',
+            selector: { end: 4, exact: 'beta', prefix: '', start: 0, suffix: '' },
+          },
+          id: 'annotation-1',
+          note: 'Nota recuperata',
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      sectionContent: 'beta',
+    })
+  );
+
+  act(() => {
+    result.current.openContextAnswer({
+      initialQuestion: 'Spiega beta',
+      lessonId: 'section-1',
+      projectId: 'project-1',
+      selectedText: 'beta',
+    });
+    result.current.handleContentClick({ target: mark } as never);
+  });
+
+  try {
+    assert.ok(result.current.contextAnswer);
+    assert.equal(result.current.contextMenu.visible, true);
+    assert.equal(result.current.contextMenu.type, 'annotation');
+  } finally {
+    selectionSpy.mockRestore();
+    container.remove();
+  }
+});
+
 test('desktop right pointer-down opens the selection menu immediately', () => {
   const container = document.createElement('div');
   const textNode = document.createTextNode('Alpha beta gamma delta');
