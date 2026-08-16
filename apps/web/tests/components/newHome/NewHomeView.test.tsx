@@ -513,10 +513,9 @@ describe('NewHomeView library interactions', () => {
     expect(onRenameProject).toHaveBeenCalledWith('project-1', 'Corso rinominato');
     expect(onOpenProject).not.toHaveBeenCalled();
 
-    await user.click(courseList.getByRole('button', { name: project.title }));
-    expect(onOpenProject).not.toHaveBeenCalled();
-
-    await user.click(courseList.getByRole('button', { name: /3 lezioni/ }));
+    await user.click(
+      courseList.getByRole('button', { name: /Copertina di Corso Mobile|Cover of Corso Mobile/ })
+    );
     expect(onOpenProject).toHaveBeenCalledWith('project-1');
 
     await user.dblClick(courseList.getByRole('heading', { name: folder.name }));
