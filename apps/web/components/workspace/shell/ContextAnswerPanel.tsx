@@ -436,7 +436,6 @@ function ContextAnswerPanelSession({
   // after HARD_TIMEOUT.
   const stuckToolTimestampsRef = useRef<Map<string, number>>(new Map());
   const latestGeneratedArtifactIdRef = useRef<string | null>(null);
-  const handledToolCallIdsRef = useRef(new Set<string>());
   const [expiredGraceTools, setExpiredGraceTools] = useState<Set<string>>(new Set());
   const [processingNoteToolCallIds, setProcessingNoteToolCallIds] = useState<Set<string>>(
     new Set()
@@ -553,11 +552,6 @@ function ContextAnswerPanelSession({
       if (toolCall.dynamic) {
         return;
       }
-      if (handledToolCallIdsRef.current.has(toolCall.toolCallId)) {
-        return;
-      }
-      handledToolCallIdsRef.current.add(toolCall.toolCallId);
-
       if (toolCall.toolName === 'getCurrentLessonArtifacts') {
         const artifactInput = readCurrentLessonArtifactsToolInput(toolCall.input);
         const matchingPayloads = filterLearningArtifactPayloads(currentLessonArtifactPayloads, {
