@@ -7,6 +7,10 @@ const pdfRuntimeMocks = vi.hoisted(() => ({
   processResults: [] as unknown[],
   spawnCalls: [] as unknown[],
 }));
+const expectedFallbackNodeExecutable =
+  process.platform === 'win32'
+    ? String.raw`C:\Program Files\nodejs\node.exe`
+    : '/usr/local/bin/node';
 
 vi.mock('node:child_process', async importOriginal => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
@@ -141,7 +145,7 @@ describe('extractPdfText resource limits', () => {
     expect(pdfRuntimeMocks.spawnCalls).toEqual([
       expect.objectContaining({
         args: expect.arrayContaining(['--max-old-space-size=272', 'outline', '1000']),
-        command: 'node',
+        command: expectedFallbackNodeExecutable,
       }),
     ]);
   });
@@ -166,7 +170,7 @@ describe('extractPdfText resource limits', () => {
     expect(pdfRuntimeMocks.spawnCalls).toEqual([
       expect.objectContaining({
         args: expect.arrayContaining(['--max-old-space-size=272', 'fallback', '32']),
-        command: 'node',
+        command: expectedFallbackNodeExecutable,
       }),
     ]);
   });

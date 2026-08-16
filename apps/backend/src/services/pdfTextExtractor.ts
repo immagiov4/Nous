@@ -18,6 +18,10 @@ const TMP_DIR_PREFIX = 'nous-pdf-text-';
 const PDF_PROCESS_SERIALIZATION_OVERHEAD_BYTES = 1_000_000;
 const PDF_PROCESS_SERIALIZATION_BYTES_PER_OUTPUT_BYTE = 2;
 const PDF_PROCESS_STDERR_MAX_CHARS = 8_192;
+const PDF_TEXT_FALLBACK_NODE_EXECUTABLE =
+  process.platform === 'win32'
+    ? String.raw`C:\Program Files\nodejs\node.exe`
+    : '/usr/local/bin/node';
 const PDF_TEXT_FALLBACK_WARNING =
   'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
 
@@ -192,7 +196,7 @@ const runPdfTextFallbackProcess = (
       mode,
       limits.maxOutputBytes?.toString() ?? '',
     ];
-    const fallbackProcess = spawn('node', processArguments, {
+    const fallbackProcess = spawn(PDF_TEXT_FALLBACK_NODE_EXECUTABLE, processArguments, {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });
