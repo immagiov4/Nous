@@ -14,16 +14,16 @@ import {
   workflow,
 } from '../../src/workflows/definition.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
-import { PostgresWorkflowStore } from '../../src/workflows/postgresWorkflowStore.js';
+import { PostgresWorkflowStore } from '../../src/workflows/persistence/postgresWorkflowStore.js';
 import { failPermanently } from '../../src/workflows/retryPolicy.js';
-import type { RegisteredWorkflow, WorkflowStepClaim } from '../../src/workflows/types.js';
-import { reconcileUnavailableWorkflowDefinitions } from '../../src/workflows/workflowDefinitionReconciler.js';
 import {
   createWorkflowRuntimeWorker,
   type WorkflowRuntimeAssetCleanup,
   type WorkflowRuntimeLoopError,
   type WorkflowRuntimeWorkerInput,
-} from '../../src/workflows/workflowRuntimeWorker.js';
+} from '../../src/workflows/runtime/workflowRuntimeWorker.js';
+import type { RegisteredWorkflow, WorkflowStepClaim } from '../../src/workflows/types.js';
+import { reconcileUnavailableWorkflowDefinitions } from '../../src/workflows/workflowDefinitionReconciler.js';
 import { runWorkflowStepClaim } from '../../src/workflows/workflowStepRunner.js';
 import { runWorkflowUndoClaim } from '../../src/workflows/workflowUndoRunner.js';
 import {

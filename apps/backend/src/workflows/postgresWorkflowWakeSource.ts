@@ -2,7 +2,7 @@ import type {
   WorkflowRuntimeWake,
   WorkflowRuntimeWakeSource,
   WorkflowRuntimeWakeSubscription,
-} from './workflowRuntimeWorker.js';
+} from './runtime/workflowRuntimeWorker.js';
 
 export interface WorkflowListenClient {
   end(options?: { timeout?: number }): Promise<void>;

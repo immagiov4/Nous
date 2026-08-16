@@ -8,7 +8,7 @@ import {
   LessonVisualRetryTargetError,
 } from '../../src/workflows/lessonVisualRetryStart.js';
 import { createLessonVisualWorkflows } from '../../src/workflows/lessonVisualWorkflow.js';
-import type { CreateWorkflowRunInput } from '../../src/workflows/postgresWorkflowStore.js';
+import type { CreateWorkflowRunInput } from '../../src/workflows/persistence/postgresWorkflowStore.js';
 import type { WorkflowRun } from '../../src/workflows/types.js';
 
 const visualConfig = {

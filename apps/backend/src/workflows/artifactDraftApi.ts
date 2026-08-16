@@ -16,11 +16,11 @@ import {
 } from './artifactDraftWorkflow.js';
 import type { WorkflowRegistry } from './definition.js';
 import { ProjectLessonVisualSchema } from './lessonGenerationWorkflowSchemas.js';
+import { WorkflowRuntimeUnavailableError } from './runtime/workflowRuntimeApi.js';
 import type { WorkflowRun } from './types.js';
 import { WorkflowRunNotFoundError } from './workflowErrors.js';
 import type { WorkflowTransientEventPublisher } from './workflowObservability.js';
 import type { WorkflowNodeRunState, WorkflowRunState } from './workflowReadModel.js';
-import { WorkflowRuntimeUnavailableError } from './workflowRuntimeApi.js';
 import type { WorkflowRunCreator } from './workflowStart.js';
 import { startWorkflowRun } from './workflowStart.js';
 

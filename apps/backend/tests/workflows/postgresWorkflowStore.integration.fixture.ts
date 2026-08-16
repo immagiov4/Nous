@@ -12,7 +12,7 @@ import {
   workflow,
 } from '../../src/workflows/definition.js';
 import type { WorkflowStartMaterialization } from '../../src/workflows/materialization.js';
-import { PostgresWorkflowStore } from '../../src/workflows/postgresWorkflowStore.js';
+import { PostgresWorkflowStore } from '../../src/workflows/persistence/postgresWorkflowStore.js';
 import type { RegisteredWorkflow } from '../../src/workflows/types.js';
 
 export interface PostgresWorkflowIntegrationContext {

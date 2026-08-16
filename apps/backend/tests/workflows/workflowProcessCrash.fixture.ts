@@ -11,7 +11,7 @@ import {
   waitForSignal,
   workflow,
 } from '../../src/workflows/definition.js';
-import { PostgresWorkflowStore } from '../../src/workflows/postgresWorkflowStore.js';
+import { PostgresWorkflowStore } from '../../src/workflows/persistence/postgresWorkflowStore.js';
 import type { WorkflowDefinition, WorkflowExecutionDefaults } from '../../src/workflows/types.js';
 import { runWorkflowStepClaim } from '../../src/workflows/workflowStepRunner.js';
 import { runWorkflowUndoClaim } from '../../src/workflows/workflowUndoRunner.js';

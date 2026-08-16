@@ -1,20 +1,20 @@
-import type { WorkflowRegistry } from './definition.js';
-import type { WorkflowCancellationRequestResult } from './postgresWorkflowCancellationStore.js';
+import type { WorkflowRegistry } from '../definition.js';
+import type { WorkflowCancellationRequestResult } from '../postgresWorkflowCancellationStore.js';
 import type {
   ReceiveWorkflowSignalInput,
   ReceiveWorkflowSignalResult,
-} from './postgresWorkflowSignalStore.js';
-import type { JsonValue, RegisteredWorkflow } from './types.js';
+} from '../postgresWorkflowSignalStore.js';
+import type { JsonValue, RegisteredWorkflow } from '../types.js';
 import {
   publishWorkflowTransientEvents,
   type WorkflowTransientEventPublisher,
-} from './workflowObservability.js';
+} from '../workflowObservability.js';
 import {
   createWorkflowPublicRunState,
   type WorkflowPublicRunState,
   type WorkflowPublishedEventState,
   type WorkflowRunState,
-} from './workflowReadModel.js';
+} from '../workflowReadModel.js';
 
 export type WorkflowPublishedEventProjector = (
   state: WorkflowRunState

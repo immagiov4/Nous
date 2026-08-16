@@ -33,7 +33,7 @@ import { createLessonGenerationStageServices } from './lessonGenerationStageServ
 import type { LessonGenerationWorkflowServices } from './lessonGenerationWorkflow.js';
 import { createLessonSublessonStages } from './lessonSublesson.js';
 import { createLessonVisualRetryFinalizer } from './lessonVisualPersistence.js';
-import type { PostgresWorkflowStore } from './postgresWorkflowStore.js';
+import type { PostgresWorkflowStore } from './persistence/postgresWorkflowStore.js';
 
 type LessonWorkflowStore = Pick<
   PostgresWorkflowStore,

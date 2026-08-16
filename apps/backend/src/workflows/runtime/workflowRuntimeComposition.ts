@@ -1,88 +1,91 @@
 import { randomUUID } from 'node:crypto';
 
-import { getGlobalModelConfig, getResolvedModelConfigForProvider } from '../config/modelConfig.js';
-import type { ProjectAssetObjectStorage } from '../projects/projectAsset.js';
+import {
+  getGlobalModelConfig,
+  getResolvedModelConfigForProvider,
+} from '../../config/modelConfig.js';
+import type { ProjectAssetObjectStorage } from '../../projects/projectAsset.js';
 import {
   type ProjectAssetReader,
   unavailableProjectAssetReader,
-} from '../projects/projectAssetReader.js';
-import { getProjectStore } from '../projects/projectStore.js';
+} from '../../projects/projectAssetReader.js';
+import { getProjectStore } from '../../projects/projectStore.js';
 import {
   type LessonVisualModelConfig,
   resolveLessonVisualModelConfig,
-} from '../services/lessonVisualModelConfig.js';
+} from '../../services/lessonVisualModelConfig.js';
 import {
   type ArtifactDraftApi,
   createArtifactDraftApi,
   unavailableArtifactDraftApi,
-} from './artifactDraftApi.js';
-import { createArtifactDraftWorkflow } from './artifactDraftWorkflow.js';
+} from '../artifactDraftApi.js';
+import { createArtifactDraftWorkflow } from '../artifactDraftWorkflow.js';
 import {
   type CourseGenerationApi,
   createCourseGenerationApi,
   unavailableCourseGenerationApi,
-} from './courseGenerationApi.js';
-import { createProductionCourseGenerationServices } from './courseGenerationProduction.js';
-import { createCourseGenerationStarter } from './courseGenerationStart.js';
+} from '../courseGenerationApi.js';
+import { createProductionCourseGenerationServices } from '../courseGenerationProduction.js';
+import { createCourseGenerationStarter } from '../courseGenerationStart.js';
 import {
   COURSE_GENERATION_WORKFLOW_ID,
   CourseGenerationWorkflowConfigSchema,
   createCourseGenerationWorkflow,
   createPreviousCourseGenerationWorkflow,
-} from './courseGenerationWorkflow.js';
+} from '../courseGenerationWorkflow.js';
 import {
   type CourseInterviewApi,
   createCourseInterviewApi,
   projectCourseInterviewEvents,
   unavailableCourseInterviewApi,
-} from './courseInterviewApi.js';
-import { createProductionCourseInterviewServices } from './courseInterviewProduction.js';
-import { createCourseInterviewStarter } from './courseInterviewStart.js';
+} from '../courseInterviewApi.js';
+import { createProductionCourseInterviewServices } from '../courseInterviewProduction.js';
+import { createCourseInterviewStarter } from '../courseInterviewStart.js';
 import {
   COURSE_INTERVIEW_WORKFLOW_ID,
   CourseInterviewWorkflowConfigSchema,
   createCourseInterviewWorkflow,
-} from './courseInterviewWorkflow.js';
+} from '../courseInterviewWorkflow.js';
 import {
   createWorkflowRegistry,
   preCompatibilityIdAndExternalEffectPrevious,
   preExternalEffectPrevious,
   preProviderPostprocessingPrevious,
   type WorkflowRegistry,
-} from './definition.js';
+} from '../definition.js';
 import {
   createLessonGenerationApi,
   type LessonGenerationApi,
   unavailableLessonGenerationApi,
-} from './lessonGenerationApi.js';
-import { createProductionLessonGenerationServices } from './lessonGenerationProduction.js';
+} from '../lessonGenerationApi.js';
+import { createProductionLessonGenerationServices } from '../lessonGenerationProduction.js';
 import {
   createLessonGenerationStarter,
   LESSON_GENERATION_WORKFLOW_ID,
-} from './lessonGenerationStart.js';
-import { createLessonGenerationWorkflow } from './lessonGenerationWorkflow.js';
+} from '../lessonGenerationStart.js';
+import { createLessonGenerationWorkflow } from '../lessonGenerationWorkflow.js';
 import {
   createLessonVisualRetryStarter,
   type LessonVisualRetryStarter,
   unavailableLessonVisualRetryStarter,
-} from './lessonVisualRetryStart.js';
+} from '../lessonVisualRetryStart.js';
 import {
   createLessonVisualWorkflows,
   LESSON_VISUAL_RETRY_WORKFLOW_ID,
-} from './lessonVisualWorkflow.js';
+} from '../lessonVisualWorkflow.js';
 import {
   createPdfMappingRepairApi,
   createPdfMappingRepairStarter,
   type PdfMappingRepairApi,
   unavailablePdfMappingRepairApi,
-} from './pdfMappingRepairApi.js';
+} from '../pdfMappingRepairApi.js';
 import {
   createPdfMappingRepairWorkflow,
   createProductionPdfMappingRepairServices,
   PDF_MAPPING_REPAIR_WORKFLOW_ID,
-} from './pdfMappingRepairWorkflow.js';
-import type { PostgresWorkflowOutboxStore } from './postgresWorkflowOutboxStore.js';
-import { PostgresWorkflowStore } from './postgresWorkflowStore.js';
+} from '../pdfMappingRepairWorkflow.js';
+import { PostgresWorkflowStore } from '../persistence/postgresWorkflowStore.js';
+import type { PostgresWorkflowOutboxStore } from '../postgresWorkflowOutboxStore.js';
 import {
   COURSE_PROJECT_REVISION_EVENT,
   courseProjectRevisionEventProjector,
@@ -90,12 +93,12 @@ import {
   LESSON_PROJECT_REVISION_EVENT,
   lessonProjectRevisionEventProjector,
   type ProjectRevisionNotificationReceiver,
-} from './projectRevisionNotifications.js';
-import { reconcileUnavailableWorkflowDefinitions } from './workflowDefinitionReconciler.js';
+} from '../projectRevisionNotifications.js';
+import { reconcileUnavailableWorkflowDefinitions } from '../workflowDefinitionReconciler.js';
 import {
   publishWorkflowTransientEvent,
   type WorkflowTransientEventPublisher,
-} from './workflowObservability.js';
+} from '../workflowObservability.js';
 import {
   createWorkflowRuntimeApi,
   type WorkflowPublishedEventProjector,

@@ -1,13 +1,13 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { WorkflowRegistry } from '../../src/workflows/definition.js';
-import type { ErasedRegisteredWorkflow } from '../../src/workflows/types.js';
-import { WorkflowSignalError } from '../../src/workflows/workflowErrors.js';
-import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
 import {
   createWorkflowRuntimeApi,
   type WorkflowRuntimeApiStore,
-} from '../../src/workflows/workflowRuntimeApi.js';
+} from '../../src/workflows/runtime/workflowRuntimeApi.js';
+import type { ErasedRegisteredWorkflow } from '../../src/workflows/types.js';
+import { WorkflowSignalError } from '../../src/workflows/workflowErrors.js';
+import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const WAIT_ID = 'f58eeb9b-7abd-4d0f-a589-e54192284062';

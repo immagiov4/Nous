@@ -12,10 +12,10 @@ import {
   LessonGenerationRequestSchema,
   LessonGenerationWorkflowResultSchema,
 } from './lessonGenerationWorkflowContract.js';
+import { WorkflowRuntimeUnavailableError } from './runtime/workflowRuntimeApi.js';
 import type { WorkflowRun } from './types.js';
 import { WorkflowRunNotFoundError } from './workflowErrors.js';
 import type { WorkflowNodeRunState, WorkflowRunState } from './workflowReadModel.js';
-import { WorkflowRuntimeUnavailableError } from './workflowRuntimeApi.js';
 
 const SOURCE_STAGE_NODES = new Set([
   'compact-sublesson-request',

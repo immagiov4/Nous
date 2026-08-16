@@ -24,7 +24,7 @@ import { resolveLessonVisualModelConfig } from '../apps/backend/src/services/les
 import {
   createWorkflowRuntimeComposition,
   type WorkflowRuntimeComposition,
-} from '../apps/backend/src/workflows/workflowRuntimeComposition.js';
+} from '../apps/backend/src/workflows/runtime/workflowRuntimeComposition.js';
 
 const COST_ACKNOWLEDGEMENT = 'I_ACCEPT_REAL_PROVIDER_COSTS';
 const COURSE_MODEL = 'gpt-5.6-luna';

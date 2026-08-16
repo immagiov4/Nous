@@ -2,6 +2,10 @@ import { type NextFunction, type Request, type Response, Router } from 'express'
 import * as z from 'zod';
 
 import { getCurrentUser } from '../auth/currentUser.js';
+import {
+  type WorkflowRuntimeApi,
+  WorkflowRuntimeUnavailableError,
+} from '../workflows/runtime/workflowRuntimeApi.js';
 import type { StepFailure } from '../workflows/types.js';
 import {
   WorkflowReplicaOutdatedError,
@@ -11,10 +15,6 @@ import {
   type WorkflowSignalErrorCode,
 } from '../workflows/workflowErrors.js';
 import type { WorkflowPublicRunState } from '../workflows/workflowReadModel.js';
-import {
-  type WorkflowRuntimeApi,
-  WorkflowRuntimeUnavailableError,
-} from '../workflows/workflowRuntimeApi.js';
 
 const WORKFLOW_CACHE_CONTROL = 'private, no-store';
 const INVALID_REQUEST_RESPONSE = {

@@ -65,7 +65,7 @@ import {
 import {
   unavailableWorkflowRuntimeApi,
   type WorkflowRuntimeApi,
-} from './workflows/workflowRuntimeApi.js';
+} from './workflows/runtime/workflowRuntimeApi.js';
 
 const DEFAULT_FRONTEND_PORT = '5173';
 const DEFAULT_FRONTEND_ORIGINS = [
