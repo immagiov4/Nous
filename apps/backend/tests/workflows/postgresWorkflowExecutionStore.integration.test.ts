@@ -80,7 +80,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       definitionHashVersion: 1,
       id: randomUUID(),
       materialization: stepMaterialization({ prompt: 'test' }, 'generate'),
-      input: { prompt: 'test' },
+      input: { content: 'test' },
       projectId,
       requestKey: randomUUID(),
       userId,
@@ -113,6 +113,114 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       },
     ]);
     await sql`delete from public.workflow_runs where id = ${created.run.id}`;
+  });
+
+  test('keeps one authoritative provider result across overlapping attempts', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = createStore(sql);
+    const runId = randomUUID();
+    const definition = registeredStepWorkflow('provider-result-test', 'generate');
+    await store.createRun({
+      config: definition.executionDefaults,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      id: runId,
+      input: { prompt: 'test' },
+      materialization: materializeWorkflowStart(
+        definition,
+        { content: 'test' },
+        {
+          resolvedConfig: definition.executionDefaults,
+        }
+      ),
+      projectId,
+      requestKey: randomUUID(),
+      userId,
+      workflowId: 'provider-result-test',
+    });
+    const claim = await claimNextStep(store, definition, 'provider-worker');
+    if (!claim) throw new Error('Expected a provider workflow claim.');
+    const identity = {
+      idempotencyKey: `workflow:forward:run:36:${runId}:node:8:generate`,
+      nodeInstanceId: claim.nodeInstanceId,
+      runId,
+    };
+    const usage = (model: string) => ({
+      attemptNumber: claim.attemptNumber,
+      id: randomUUID(),
+      inputTokens: 5,
+      model,
+      nodeInstanceId: claim.nodeInstanceId,
+      outputTokens: 3,
+      provider: 'test-provider',
+      runId,
+    });
+
+    const results = await Promise.all([
+      store.providerEffects.recordResult({
+        ...identity,
+        aiUsage: [usage('first-model')],
+        output: { content: 'first' },
+      }),
+      store.providerEffects.recordResult({
+        ...identity,
+        aiUsage: [usage('second-model')],
+        output: { content: 'second' },
+      }),
+    ]);
+
+    expect(results[0]).toEqual(results[1]);
+    expect([{ content: 'first' }, { content: 'second' }]).toContainEqual(results[0]);
+    await expect(store.providerEffects.getResult(identity)).resolves.toEqual(results[0]);
+    const verificationIdentity = {
+      ...identity,
+      idempotencyKey: `${identity.idempotencyKey}:provider:verify`,
+    };
+    await expect(
+      store.providerEffects.recordResult({
+        ...verificationIdentity,
+        output: { content: 'verified' },
+      })
+    ).resolves.toEqual({ content: 'verified' });
+    const rows = await sql`
+      select finalized, output
+      from public.workflow_provider_effect_results
+      where run_id = ${runId} and node_instance_id = ${claim.nodeInstanceId}
+      order by idempotency_key
+    `;
+    expect(rows).toEqual([
+      { finalized: false, output: results[0] },
+      { finalized: false, output: { content: 'verified' } },
+    ]);
+    expect(
+      await sql`
+        select model
+        from public.workflow_ai_usage
+        where run_id = ${runId} and node_instance_id = ${claim.nodeInstanceId}
+        order by model
+      `
+    ).toEqual([{ model: 'first-model' }, { model: 'second-model' }]);
+    await expect(
+      store.checkpointStep({ claim, definition, output: results[0] })
+    ).resolves.toMatchObject({ status: 'checkpointed' });
+    expect(
+      await sql`
+        select ai_usage, finalized, output
+        from public.workflow_provider_effect_results
+        where run_id = ${runId} and node_instance_id = ${claim.nodeInstanceId}
+        order by idempotency_key
+      `
+    ).toEqual([
+      { ai_usage: [], finalized: true, output: null },
+      { ai_usage: [], finalized: true, output: null },
+    ]);
+    await expect(store.providerEffects.getResult(identity)).rejects.toBeInstanceOf(
+      WorkflowLeaseLostError
+    );
+    await expect(
+      store.providerEffects.recordResult({ ...identity, output: { content: 'late' } })
+    ).rejects.toBeInstanceOf(WorkflowLeaseLostError);
+    await sql`delete from public.workflow_runs where id = ${runId}`;
   });
 
   test('renews leases, retries without losing diagnostics, and rejects stale or rolled-back commits', async () => {

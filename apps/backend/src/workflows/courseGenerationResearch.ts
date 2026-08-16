@@ -243,6 +243,7 @@ export const createCourseResearchNode = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'research-course-web',
     inputSchema: CourseResearchBranchInputSchema,
     outputSchema: CourseResearchBranchOutputSchema,
@@ -262,6 +263,7 @@ export const createCourseResearchNode = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'plan-course-youtube-queries',
     inputSchema: CourseResearchBranchInputSchema,
     outputSchema: CourseYoutubeQueryPlanStateSchema,
@@ -281,6 +283,7 @@ export const createCourseResearchNode = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'research-course-youtube-query',
     inputSchema: CourseYoutubeQueryInputSchema,
     outputSchema: YouTubeResearchOutcomeSchema,

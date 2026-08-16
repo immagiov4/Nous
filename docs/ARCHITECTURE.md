@@ -262,6 +262,22 @@ reverse order and records every undo attempt; a no-op repeated undo does not pub
 project revision. Cancellation uses the same durable terminal path and also aborts provider work
 when the provider supports it.
 
+Step callbacks have a public **at-least-once** contract: a timeout, crash, or lost lease may start a
+retry while the earlier callback is still running, so `AbortSignal` is only cooperative cleanup.
+Production effects use these durability boundaries:
+
+| Effect | Authoritative idempotency mechanism |
+| --- | --- |
+| PostgreSQL project/profile mutations | `commit` runs in the same transaction as the fenced checkpoint. |
+| AI, research, image, and document providers | Provider steps persist each schema-valid output and its pending usage in `workflow_provider_effect_results`, keyed by the stable step and operation identity; overlapping retries read those results and idempotently flush metering before continuing. Terminal node transitions compact payloads to tombstones so late callbacks cannot repeat providers without retaining large outputs. |
+| Staged project assets | Object keys derive from the step `idempotencyKey`; adoption runs in `commit`. |
+| Child workflow starts | The parent step `idempotencyKey` is the child `requestKey`, whose request fingerprint rejects conflicting reuse. |
+| Durable events | The checkpoint writes the outbox transactionally; recipient inboxes deduplicate delivery. |
+
+Undo callbacks use their own stable idempotency key and must remain repeat-safe. They may be retried
+after a worker interruption; a completed or no-op undo is recorded once and must not create another
+project revision.
+
 Committed project revisions leave the workflow transaction through the **coda durevole delle
 notifiche**, implemented with a transactional outbox and an idempotent recipient inbox. Delivery
 records the PostgreSQL inbox entry before `LISTEN`/`NOTIFY` wakes every backend replica, which fans

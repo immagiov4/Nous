@@ -232,6 +232,7 @@ export const createCourseInterviewWorkflow = (
     CourseInterviewWorkflowConfig,
     CourseInterviewWorkflowServices
   >({
+    externalEffect: 'provider',
     id: 'assess-course-interview',
     inputSchema: CourseInterviewStateSchema,
     outputSchema: CourseInterviewTurnStateSchema,

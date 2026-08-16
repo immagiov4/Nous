@@ -175,6 +175,11 @@ describe.skipIf(!shouldRun || !databaseUrl)('PostgresProjectAssetStore integrati
         { id: unadopted.id, state: 'deletion-pending' },
       ].sort((left, right) => left.id.localeCompare(right.id))
     );
+    await sql`
+      update public.project_assets
+      set deletion_queued_at = '-infinity'::timestamptz
+      where id = ${unadopted.id}
+    `;
 
     const claim = await store.claimNextCleanup({ leaseMs: 60_000, workerId: 'asset-cleaner' });
     expect(claim?.id).toBe(unadopted.id);
@@ -182,7 +187,7 @@ describe.skipIf(!shouldRun || !databaseUrl)('PostgresProjectAssetStore integrati
     expect(await store.cleanup(claim)).toEqual({ status: 'deleted' });
     expect(storage.objects.size).toBe(1);
     expect([...storage.objects.values()]).toEqual([new TextEncoder().encode('adopted')]);
-    expect(await store.claimNextCleanup({ leaseMs: 60_000, workerId: 'asset-cleaner' })).toBeNull();
+    expect(await sql`select id from public.project_assets where id = ${unadopted.id}`).toEqual([]);
   });
 
   test('imports a self-contained backup without synthetic workflow rows', async () => {

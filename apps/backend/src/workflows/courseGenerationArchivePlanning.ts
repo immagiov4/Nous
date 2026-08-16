@@ -22,6 +22,7 @@ import {
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
 import {
   type CoursePlanCandidateVerifier,
+  CoursePlanVerificationSchema,
   type CourseRawArchivePlan,
   CourseRawArchivePlanSchema,
   type CourseResearchState,
@@ -39,6 +40,11 @@ type OpenCourseArchive = (
   state: Pick<CourseResearchState, 'context' | 'projectRevision' | 'request'>,
   signal: AbortSignal
 ) => Promise<OpenedCourseArchive>;
+
+const CourseArchivePlanGenerationResultSchema = z.object({
+  rawPlan: CourseRawArchivePlanSchema,
+  state: CourseResearchStateSchema,
+});
 
 const readFileInput = z
   .object({
@@ -249,20 +255,31 @@ export const createCourseArchivePlanningStages = ({
     return buildCourseDraftPlanState(generated.rawPlan, generated.state, now());
   },
   refineCoursePlan: async context => {
-    const generated = await generateArchivePlan({ context, generateObject, openArchive });
+    if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
+    const generated = await context.providerEffect.run({
+      key: 'generate-refined-plan',
+      operation: () => generateArchivePlan({ context, generateObject, openArchive }),
+      outputSchema: CourseArchivePlanGenerationResultSchema,
+    });
     const generatedAt = now();
     const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
+    const verification = await context.providerEffect.run({
+      key: 'verify-refined-plan',
+      operation: () =>
+        verifyRefinedPlan({
+          models: context.config.models,
+          plan: refinedPlan.plan,
+          rawPlan: generated.rawPlan,
+          retryFeedback: context.retryFeedback,
+          signal: context.signal,
+          state: generated.state,
+        }),
+      outputSchema: CoursePlanVerificationSchema,
+    });
     const refinedVerification = requirePassingRefinedVerification({
       plan: refinedPlan.plan,
       rawPlan: generated.rawPlan,
-      verification: await verifyRefinedPlan({
-        models: context.config.models,
-        plan: refinedPlan.plan,
-        rawPlan: generated.rawPlan,
-        retryFeedback: context.retryFeedback,
-        signal: context.signal,
-        state: generated.state,
-      }),
+      verification,
     });
     return buildCourseRefinedPlanState(
       generated.rawPlan,

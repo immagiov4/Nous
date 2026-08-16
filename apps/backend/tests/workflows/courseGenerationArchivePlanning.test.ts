@@ -11,6 +11,11 @@ import {
   CourseResearchStateSchema,
   validateRefinedCoursePlan,
 } from '../../src/workflows/courseGenerationWorkflowContract.js';
+import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
+
+const immediateProviderEffect: WorkflowProviderEffectExecutor = {
+  run: async ({ operation, outputSchema }) => outputSchema.parse(await operation()),
+};
 
 const researchState = CourseResearchStateSchema.parse({
   context: {
@@ -97,6 +102,7 @@ const stageContext = (input: typeof researchState) => ({
   execution: { nodeInstanceId: 'draft-course-plan', runId: 'run-1' },
   idempotencyKey: 'draft-key',
   input,
+  providerEffect: immediateProviderEffect,
   retryFeedback: '',
   signal: new AbortController().signal,
 });

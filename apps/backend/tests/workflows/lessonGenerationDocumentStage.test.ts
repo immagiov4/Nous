@@ -14,6 +14,7 @@ import {
 } from '../../src/workflows/lessonGenerationAuthority.js';
 import { createLessonDocumentSourceStage } from '../../src/workflows/lessonGenerationDocumentStage.js';
 import { LessonCoverageStateSchema } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 
 const project: ProjectSnapshot = {
@@ -97,6 +98,10 @@ const storedAsset: ProjectAssetRef = {
   hash: 'b'.repeat(64),
   id: 'c'.repeat(64),
   mediaType: 'image/png',
+};
+
+const immediateProviderEffect: WorkflowProviderEffectExecutor = {
+  run: async ({ operation, outputSchema }) => outputSchema.parse(await operation()),
 };
 
 describe('durable lesson document stage', () => {
@@ -370,6 +375,7 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'root/stage-document-sources', runId: 'run-1' },
       idempotencyKey: 'stage-documents-key',
       input,
+      providerEffect: immediateProviderEffect,
       retryFeedback: '',
       signal,
     });
@@ -421,6 +427,7 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'stage', runId: 'run-1' },
       idempotencyKey: 'key',
       input,
+      providerEffect: immediateProviderEffect,
       retryFeedback: '',
       signal: new AbortController().signal,
     }).catch(error => error);
@@ -457,6 +464,7 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'stage', runId: 'run-1' },
       idempotencyKey: 'legacy-key',
       input: legacyInput,
+      providerEffect: immediateProviderEffect,
       retryFeedback: '',
       signal: new AbortController().signal,
     });
@@ -469,6 +477,44 @@ describe('durable lesson document stage', () => {
       expect.objectContaining({ id: 'pdf-img-1' }),
     ]);
     expect(JSON.stringify(output)).not.toContain('data:image');
+  });
+
+  test('reuses extracted captions when asset staging is retried', async () => {
+    const extractImages = vi.fn().mockResolvedValue({ assets: [extractedImage], warnings: [] });
+    const stage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('asset storage unavailable'))
+      .mockResolvedValueOnce(storedAsset);
+    let persistedExtraction: unknown;
+    const providerEffect: WorkflowProviderEffectExecutor = {
+      run: async ({ operation, outputSchema }) => {
+        persistedExtraction ??= outputSchema.parse(await operation());
+        return outputSchema.parse(persistedExtraction);
+      },
+    };
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      extractImages,
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+    const context = {
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'retry-key',
+      input,
+      providerEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    };
+
+    await expect(run(context)).rejects.toThrow('asset storage unavailable');
+    await expect(run({ ...context, attemptNumber: 2 })).resolves.toMatchObject({
+      stage: 'sources',
+    });
+
+    expect(extractImages).toHaveBeenCalledOnce();
+    expect(stage).toHaveBeenCalledTimes(2);
   });
 
   test('ranks PDF images against mapped pages from their own source', async () => {
@@ -556,6 +602,7 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'stage', runId: 'run-1' },
       idempotencyKey: 'scoped-key',
       input: scopedInput,
+      providerEffect: immediateProviderEffect,
       retryFeedback: '',
       signal: new AbortController().signal,
     });
@@ -629,6 +676,7 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'stage', runId: 'run-1' },
       idempotencyKey: 'legacy-multi-source-key',
       input: scopedInput,
+      providerEffect: immediateProviderEffect,
       retryFeedback: '',
       signal: new AbortController().signal,
     });

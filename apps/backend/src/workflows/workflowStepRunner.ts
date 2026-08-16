@@ -2,6 +2,7 @@ import type { TransactionSql } from 'postgres';
 
 import { snapshotImmutableJson } from './jsonSnapshot.js';
 import type { WorkflowCheckpointResult } from './postgresWorkflowCheckpoint.js';
+import type { RecordWorkflowProviderResultInput } from './postgresWorkflowProviderEffectStore.js';
 import type {
   WorkflowHeartbeatResult,
   WorkflowStepFailureResult,
@@ -9,9 +10,11 @@ import type {
 import { toStepFailure } from './retryPolicy.js';
 import type {
   ErasedRegisteredWorkflow,
+  JsonValue,
   StepCommitContext,
   StepExecutionContext,
   StepFailure,
+  WorkflowProviderEffectExecutor,
   WorkflowStepClaim,
 } from './types.js';
 import {
@@ -53,6 +56,12 @@ export interface WorkflowStepRunnerStore {
     releaseClaim(claim: WorkflowStepClaim): Promise<void>;
   };
   recordAiUsage(usage: WorkflowAiUsageRecord): Promise<void>;
+  providerEffects: {
+    getResult(
+      input: Omit<RecordWorkflowProviderResultInput, 'output'>
+    ): Promise<JsonValue | undefined>;
+    recordResult(input: RecordWorkflowProviderResultInput): Promise<JsonValue>;
+  };
   steps: {
     heartbeat(input: {
       claim: WorkflowStepClaim;
@@ -186,6 +195,104 @@ interface WorkflowStepAttemptResult {
   timedOut: boolean;
 }
 
+type ParsedStepOutput = { output: JsonValue; valid: true } | { valid: false };
+
+const parseStepOutput = (resolved: ResolvedWorkflowStep, value: unknown): ParsedStepOutput => {
+  try {
+    const output = snapshotImmutableJson(resolved.step.outputSchema.parse(value)) as JsonValue;
+    return { output, valid: true };
+  } catch {
+    return { valid: false };
+  }
+};
+
+const persistProviderResult = async (input: {
+  claim: WorkflowStepClaim;
+  leaseMs: number;
+  pendingAiUsage: WorkflowAiUsageRecord[];
+  resolved: ResolvedWorkflowStep;
+  store: WorkflowStepRunnerStore;
+  value: unknown;
+}): Promise<unknown> => {
+  if (input.resolved.step.externalEffect !== 'provider') return input.value;
+  const parsed = parseStepOutput(input.resolved, input.value);
+  if (!parsed.valid) return input.value;
+  const aiUsage = [...input.pendingAiUsage];
+  const authoritative = await executeWorkflowCheckpointWithRetry(
+    () =>
+      input.store.providerEffects.recordResult({
+        aiUsage,
+        idempotencyKey: workflowStepIdempotencyKey(input.claim),
+        nodeInstanceId: input.claim.nodeInstanceId,
+        output: parsed.output,
+        runId: input.claim.runId,
+      }),
+    AbortSignal.timeout(input.leaseMs)
+  );
+  input.pendingAiUsage.splice(0, aiUsage.length);
+  return authoritative;
+};
+
+const readProviderResult = async (input: {
+  claim: WorkflowStepClaim;
+  idempotencyKey?: string;
+  signal: AbortSignal;
+  store: WorkflowStepRunnerStore;
+}): Promise<JsonValue | undefined> => {
+  return executeWorkflowCheckpointWithRetry(
+    () =>
+      input.store.providerEffects.getResult({
+        idempotencyKey: input.idempotencyKey ?? workflowStepIdempotencyKey(input.claim),
+        nodeInstanceId: input.claim.nodeInstanceId,
+        runId: input.claim.runId,
+      }),
+    input.signal
+  );
+};
+
+const createProviderEffectExecutor = (input: {
+  claim: WorkflowStepClaim;
+  leaseMs: number;
+  pendingAiUsage: WorkflowAiUsageRecord[];
+  signal: AbortSignal;
+  store: WorkflowStepRunnerStore;
+}): WorkflowProviderEffectExecutor => ({
+  async run({ key, operation, outputSchema }) {
+    const idempotencyKey = `${workflowStepIdempotencyKey(input.claim)}:provider:${key}`;
+    const persisted = await readProviderResult({ ...input, idempotencyKey });
+    if (persisted !== undefined) return outputSchema.parse(persisted);
+    const usageStart = input.pendingAiUsage.length;
+    const output = snapshotImmutableJson(outputSchema.parse(await operation())) as JsonValue;
+    const aiUsage = input.pendingAiUsage.slice(usageStart);
+    const authoritative = await executeWorkflowCheckpointWithRetry(
+      () =>
+        input.store.providerEffects.recordResult({
+          aiUsage,
+          idempotencyKey,
+          nodeInstanceId: input.claim.nodeInstanceId,
+          output,
+          runId: input.claim.runId,
+        }),
+      AbortSignal.timeout(input.leaseMs)
+    );
+    input.pendingAiUsage.splice(usageStart, aiUsage.length);
+    return outputSchema.parse(authoritative);
+  },
+});
+
+const flushPendingAiUsage = async (input: {
+  leaseMs: number;
+  pendingAiUsage: WorkflowAiUsageRecord[];
+  store: WorkflowStepRunnerStore;
+}): Promise<void> => {
+  for (const usage of input.pendingAiUsage.splice(0)) {
+    await executeWorkflowCheckpointWithRetry(
+      () => input.store.recordAiUsage(usage),
+      AbortSignal.timeout(input.leaseMs)
+    );
+  }
+};
+
 const executeStepCallback = async <Services>(input: {
   claim: WorkflowStepClaim;
   heartbeatIntervalMs: number;
@@ -213,28 +320,38 @@ const executeStepCallback = async <Services>(input: {
   const run = input.resolved.step.run as unknown as (
     context: StepExecutionContext<unknown, Record<string, unknown>, Services>
   ) => Promise<unknown>;
+  const pendingAiUsage: WorkflowAiUsageRecord[] = [];
   try {
+    if (input.resolved.step.externalEffect === 'provider') {
+      const persistedResult = await raceOperationWithAbort(
+        () =>
+          readProviderResult({
+            claim: input.claim,
+            signal: controller.signal,
+            store: input.store,
+          }),
+        controller.signal
+      );
+      if (persistedResult.status !== 'succeeded' || persistedResult.value !== undefined) {
+        return { controller, monitor, runResult: persistedResult, timedOut };
+      }
+    }
     const runResult = await raceOperationWithAbort(
       () =>
         runWithWorkflowAttemptMetering(
           {
             attemptNumber: input.claim.attemptNumber,
             nodeInstanceId: input.claim.nodeInstanceId,
-            record: usage => {
-              const meteringSignal = AbortSignal.timeout(input.leaseMs);
-              const persistedUsage = {
+            record: async usage => {
+              pendingAiUsage.push({
                 ...usage,
                 ...(controller.signal.aborted ? { reportedAfterInterruption: true as const } : {}),
-              };
-              return executeWorkflowCheckpointWithRetry(
-                () => input.store.recordAiUsage(persistedUsage),
-                meteringSignal
-              );
+              });
             },
             runId: input.claim.runId,
           },
-          () =>
-            run({
+          async () => {
+            const value = await run({
               attemptNumber: input.claim.attemptNumber,
               config: input.resolved.config,
               execution: Object.freeze({
@@ -247,9 +364,46 @@ const executeStepCallback = async <Services>(input: {
                 ? { previousAttemptFailure: input.claim.previousAttemptFailure }
                 : {}),
               retryFeedback: input.claim.retryFeedback,
+              ...(input.resolved.step.externalEffect === 'provider-with-postprocessing'
+                ? {
+                    providerEffect: createProviderEffectExecutor({
+                      claim: input.claim,
+                      leaseMs: input.leaseMs,
+                      pendingAiUsage,
+                      signal: controller.signal,
+                      store: input.store,
+                    }),
+                  }
+                : {}),
               services: input.services,
               signal: controller.signal,
-            })
+            });
+            return persistProviderResult({
+              claim: input.claim,
+              leaseMs: input.leaseMs,
+              pendingAiUsage,
+              resolved: input.resolved,
+              store: input.store,
+              value,
+            });
+          }
+        ).then(
+          async value => {
+            await flushPendingAiUsage({
+              leaseMs: input.leaseMs,
+              pendingAiUsage,
+              store: input.store,
+            });
+            return value;
+          },
+          async error => {
+            await flushPendingAiUsage({
+              leaseMs: input.leaseMs,
+              pendingAiUsage,
+              store: input.store,
+            });
+            throw error;
+          }
         ),
       controller.signal
     );
@@ -277,16 +431,6 @@ const finishFailedStepAttempt = async (input: {
     input.definition,
     input.attempt.timedOut ? timeoutFailure() : toStepFailure(failureCause)
   );
-};
-
-type ParsedStepOutput = { output: unknown; valid: true } | { valid: false };
-
-const parseStepOutput = (resolved: ResolvedWorkflowStep, value: unknown): ParsedStepOutput => {
-  try {
-    return { output: snapshotImmutableJson(resolved.step.outputSchema.parse(value)), valid: true };
-  } catch {
-    return { valid: false };
-  }
 };
 
 const checkpointStepOutput = async <Services>(input: {

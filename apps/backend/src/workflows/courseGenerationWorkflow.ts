@@ -193,6 +193,7 @@ const createCourseGenerationWorkflowDefinition = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'draft-course-plan',
     inputSchema: CourseResearchStateSchema,
     outputSchema: CourseDraftPlanStateSchema,
@@ -214,6 +215,7 @@ const createCourseGenerationWorkflowDefinition = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'verify-course-plan',
     inputSchema: CourseDraftPlanStateSchema,
     outputSchema: CoursePlanVerificationStateSchema,
@@ -235,6 +237,7 @@ const createCourseGenerationWorkflowDefinition = <
     Config,
     Services
   >({
+    externalEffect: 'provider-with-postprocessing',
     id: 'refine-course-plan',
     inputSchema: CoursePlanVerificationStateSchema,
     outputSchema: CourseRefinedPlanStateSchema,
@@ -305,6 +308,7 @@ const createCourseGenerationWorkflowDefinition = <
 
   const previousPlanningStep = (id: string) =>
     step<typeof CourseResearchStateSchema, typeof CoursePlanStateSchema, Config, Services>({
+      externalEffect: 'provider',
       id,
       inputSchema: CourseResearchStateSchema,
       outputSchema: CoursePlanStateSchema,
@@ -318,6 +322,7 @@ const createCourseGenerationWorkflowDefinition = <
       Config,
       Services
     >({
+      externalEffect: 'provider',
       id,
       inputSchema: CourseResearchStateSchema,
       outputSchema: PreviousCourseDraftPlanStateSchema,
@@ -341,6 +346,7 @@ const createCourseGenerationWorkflowDefinition = <
   const previousRefinementStep = (id: string) =>
     step<typeof PreviousCourseDraftPlanStateSchema, typeof CoursePlanStateSchema, Config, Services>(
       {
+        externalEffect: 'provider',
         id,
         inputSchema: PreviousCourseDraftPlanStateSchema,
         outputSchema: CoursePlanStateSchema,
@@ -387,6 +393,7 @@ const createCourseGenerationWorkflowDefinition = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'place-application-exercises',
     inputSchema: CourseSourcesFinalizedStateSchema,
     outputSchema: CourseExercisesStateSchema,

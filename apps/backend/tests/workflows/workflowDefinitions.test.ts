@@ -7,7 +7,10 @@ import {
   emit,
   fanOut,
   finishRepeat,
+  preCompatibilityIdAndExternalEffectPrevious,
   preCompatibilityIdPrevious,
+  preExternalEffectPrevious,
+  preProviderPostprocessingPrevious,
   repeat,
   repeatDecisionSchema,
   routeBy,
@@ -31,10 +34,12 @@ const TEST_CONFIG_SCHEMA = WorkflowExecutionDefaultsSchema;
 
 const makeLessonWorkflow = (options: {
   compatibilityId?: string;
+  externalEffect?: 'provider' | 'provider-with-postprocessing';
   promptVariant?: string;
   waitForApproval?: boolean;
 }) => {
   const prepare = step({
+    ...(options.externalEffect ? { externalEffect: options.externalEffect } : {}),
     id: 'prepare',
     inputSchema: LessonInput,
     outputSchema: LessonDraft,
@@ -155,6 +160,96 @@ describe('workflow definition registration', () => {
     }).current;
 
     expect(first.definitionHash).toBe(second.definitionHash);
+  });
+
+  test('changes the hash when a step gains provider result persistence', () => {
+    const plain = createWorkflowRegistry().register({
+      current: makeLessonWorkflow({ waitForApproval: false }),
+    }).current;
+    const provider = createWorkflowRegistry().register({
+      current: makeLessonWorkflow({ externalEffect: 'provider', waitForApproval: false }),
+    }).current;
+
+    expect(provider.definitionHash).not.toBe(plain.definitionHash);
+  });
+
+  test('reconstructs the previous hash before provider effects entered manifests', () => {
+    const plain = createWorkflowRegistry().register({
+      current: makeLessonWorkflow({ waitForApproval: false }),
+    }).current;
+    const providerDefinition = makeLessonWorkflow({
+      externalEffect: 'provider',
+      waitForApproval: false,
+    });
+    const registered = createWorkflowRegistry().register({
+      current: providerDefinition,
+      previous: preExternalEffectPrevious(providerDefinition),
+    });
+
+    expect(registered.current.definitionHash).not.toBe(plain.definitionHash);
+    expect(registered.previous?.definitionHash).toBe(plain.definitionHash);
+  });
+
+  test('reconstructs the previous hash before provider post-processing had its own boundary', () => {
+    const provider = createWorkflowRegistry().register({
+      current: makeLessonWorkflow({ externalEffect: 'provider', waitForApproval: false }),
+    }).current;
+    const postprocessedDefinition = makeLessonWorkflow({
+      externalEffect: 'provider-with-postprocessing',
+      waitForApproval: false,
+    });
+    const registered = createWorkflowRegistry().register({
+      current: postprocessedDefinition,
+      previous: preProviderPostprocessingPrevious(postprocessedDefinition),
+    });
+
+    expect(registered.current.definitionHash).not.toBe(provider.definitionHash);
+    expect(registered.previous?.definitionHash).toBe(provider.definitionHash);
+  });
+
+  test('reconstructs hashes predating compatibility ids and provider effects', () => {
+    const plainDefinition = makeLessonWorkflow({ waitForApproval: false });
+    const historical = createWorkflowRegistry().register({
+      current: plainDefinition,
+      previous: preCompatibilityIdPrevious(plainDefinition),
+    }).previous;
+    const providerDefinition = makeLessonWorkflow({
+      externalEffect: 'provider',
+      waitForApproval: false,
+    });
+    const registered = createWorkflowRegistry().register({
+      current: providerDefinition,
+      previous: preCompatibilityIdAndExternalEffectPrevious(providerDefinition),
+    });
+
+    expect(registered.previous?.definitionHash).toBe(historical?.definitionHash);
+  });
+
+  test('keeps unrelated externalEffect schema fields in the previous hash', () => {
+    const State = z.object({ externalEffect: z.string() });
+    const definitionFor = (providerEffect: boolean) =>
+      workflow({
+        compatibilityId: 'schema-field-v1',
+        configSchema: TEST_CONFIG_SCHEMA,
+        executionDefaults: TEST_EXECUTION_DEFAULTS,
+        id: 'schema-field',
+        inputSchema: State,
+        outputSchema: State,
+        root: step({
+          ...(providerEffect ? { externalEffect: 'provider' as const } : {}),
+          id: 'identity',
+          inputSchema: State,
+          outputSchema: State,
+          run: async ({ input }) => input,
+        }),
+      });
+    const plain = createWorkflowRegistry().register({ current: definitionFor(false) }).current;
+    const registered = createWorkflowRegistry().register({
+      current: definitionFor(true),
+      previous: preExternalEffectPrevious(definitionFor(true)),
+    });
+
+    expect(registered.previous?.definitionHash).toBe(plain.definitionHash);
   });
 
   test('changes the hash for structural and explicit compatibility changes', () => {

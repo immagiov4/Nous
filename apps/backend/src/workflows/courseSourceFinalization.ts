@@ -474,6 +474,7 @@ export const createCourseSourceFinalizationNode = <
       Config,
       Services
     >({
+      externalEffect: 'provider',
       id,
       inputSchema: CourseChunkMappingBatchSchema,
       outputSchema: CourseChunkMappingAttemptSchema,

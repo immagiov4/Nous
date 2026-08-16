@@ -1,5 +1,5 @@
 import { buildVisibleImageLabel, selectCandidatePdfImages } from '@shared/lessonPdfImageSelection';
-
+import * as z from 'zod';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot } from '../projects/types.js';
@@ -20,6 +20,7 @@ import type {
   LessonSourcesState,
 } from './lessonGenerationWorkflowContract.js';
 import {
+  LessonGenerationWarningSchema,
   type LessonPdfImageMetadata,
   LessonPdfImageMetadataSchema,
 } from './lessonGenerationWorkflowSchemas.js';
@@ -34,6 +35,27 @@ interface LessonDocumentSourceStageDependencies {
   }) => Promise<LessonPdfImageExtractionOutcome>;
   readonly loadProject: (userId: string, projectId: string) => Promise<ProjectSnapshot | null>;
 }
+
+const LessonPdfImageExtractionOutcomeSchema = z.object({
+  assets: z.array(
+    z.object({
+      caption: z.string().optional(),
+      dataUrl: z.string(),
+      id: z.string(),
+      intrinsicHeight: z.number().int().positive().optional(),
+      intrinsicWidth: z.number().int().positive().optional(),
+      mimeType: z.string(),
+      pageNumber: z.number().int().positive().optional(),
+      sizeBytes: z.number().int().nonnegative().optional(),
+      sourceId: z.string().optional(),
+      sourceOrder: z.number().int().nonnegative(),
+      textAfter: z.string(),
+      textBefore: z.string(),
+      textCurrent: z.string().optional(),
+    })
+  ),
+  warnings: z.array(LessonGenerationWarningSchema),
+});
 
 const readDurablePdfImages = (project: ProjectSnapshot): LessonPdfImageMetadata[] => {
   if (!isRecord(project.documentAssets) || !Array.isArray(project.documentAssets.usedImages)) {
@@ -148,7 +170,12 @@ export const createLessonDocumentSourceStage =
       });
     }
 
-    const extraction = await extractImages({ context, project, section });
+    if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
+    const extraction = await context.providerEffect.run({
+      key: 'extract-images',
+      operation: () => extractImages({ context, project, section }),
+      outputSchema: LessonPdfImageExtractionOutcomeSchema,
+    });
     const durable = readDurablePdfImages(project);
     const durableIds = new Set(durable.map(image => image.id));
     const legacy = readExistingPdfImageAssets(project).filter(image => !durableIds.has(image.id));

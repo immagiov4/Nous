@@ -1,22 +1,30 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { ProjectAssetReader } from '../../src/projects/projectAssetReader.js';
+import { ARTIFACT_DRAFT_WORKFLOW_ID } from '../../src/workflows/artifactDraftWorkflow.js';
 import type { CourseGenerationApi } from '../../src/workflows/courseGenerationApi.js';
 import type { CourseInterviewApi } from '../../src/workflows/courseInterviewApi.js';
+import { COURSE_INTERVIEW_WORKFLOW_ID } from '../../src/workflows/courseInterviewWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 import type { LessonVisualRetryStarter } from '../../src/workflows/lessonVisualRetryStart.js';
 import type { WorkflowOutboxClaim } from '../../src/workflows/postgresWorkflowOutboxStore.js';
 import { COURSE_PROJECT_REVISION_EVENT } from '../../src/workflows/projectRevisionNotifications.js';
+import {
+  hashPreExternalEffectWorkflowManifest,
+  hashPreProviderPostprocessingWorkflowManifest,
+} from '../../src/workflows/validation.js';
 import { WorkflowSignalError } from '../../src/workflows/workflowErrors.js';
 import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflowObservability.js';
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
 import {
+  createProductionRegistry,
   createRuntimeProjectRevisionNotificationDelivery,
   createWorkflowRuntimeComposition,
   type WorkflowRuntimeCompositionStore,
 } from '../../src/workflows/workflowRuntimeComposition.js';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
+const productionRegistry = createProductionRegistry();
 
 const createStore = (): WorkflowRuntimeCompositionStore => ({
   cancellation: {
@@ -49,6 +57,26 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
+  test('resumes visual workflows created before provider post-processing was isolated', () => {
+    const current = productionRegistry.current(ARTIFACT_DRAFT_WORKFLOW_ID);
+    expect(current).not.toBeNull();
+    if (!current) throw new Error('Artifact draft workflow is not registered.');
+
+    const precedingHash = hashPreProviderPostprocessingWorkflowManifest(current.manifest);
+
+    expect(productionRegistry.resolve(ARTIFACT_DRAFT_WORKFLOW_ID, precedingHash)).not.toBeNull();
+  });
+
+  test('resumes the immediately preceding course interview definition', () => {
+    const current = productionRegistry.current(COURSE_INTERVIEW_WORKFLOW_ID);
+    expect(current).not.toBeNull();
+    if (!current) throw new Error('Course interview workflow is not registered.');
+
+    const precedingHash = hashPreExternalEffectWorkflowManifest(current.manifest);
+
+    expect(productionRegistry.resolve(COURSE_INTERVIEW_WORKFLOW_ID, precedingHash)).not.toBeNull();
+  });
+
   test('accepts supported revision events through the durable recipient boundary', async () => {
     const receiveNotification = vi.fn(async () => undefined);
     const deliver = createRuntimeProjectRevisionNotificationDelivery(receiveNotification);

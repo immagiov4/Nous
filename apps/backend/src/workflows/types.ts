@@ -85,6 +85,14 @@ export interface WorkflowStepExecutionIdentity {
   readonly runId: string;
 }
 
+export interface WorkflowProviderEffectExecutor {
+  run<Output>(input: {
+    key: string;
+    operation: () => Promise<Output>;
+    outputSchema: ZodType<Output>;
+  }): Promise<Output>;
+}
+
 export interface StepExecutionContext<Input, Config, Services> {
   attemptNumber: number;
   config: DeepReadonly<Config>;
@@ -93,6 +101,8 @@ export interface StepExecutionContext<Input, Config, Services> {
   readonly idempotencyKey: string;
   input: Input;
   previousAttemptFailure?: StepFailure;
+  /** Available to provider-with-postprocessing steps for persisting the paid result first. */
+  readonly providerEffect?: WorkflowProviderEffectExecutor;
   retryFeedback: string;
   services: Services;
   signal: AbortSignal;
@@ -140,6 +150,11 @@ export interface StepDefinition<
   /** Runs atomically with the durable checkpoint and may only perform transactional effects. */
   readonly commit?: (context: StepCommitContext<Input, Output, Config, Services>) => Promise<void>;
   readonly config?: WorkflowConfigOverride<Config>;
+  /**
+   * Persists one authoritative result for callbacks that may outlive their attempt. Use
+   * provider-with-postprocessing when a paid result must be recorded before a later effect.
+   */
+  readonly externalEffect?: 'provider' | 'provider-with-postprocessing';
   readonly kind: 'step';
   readonly maxAttempts?: number;
   /**
@@ -238,6 +253,7 @@ export interface RepeatDefinition<
 interface RuntimeStepDefinition {
   readonly commit?: (context: never) => Promise<void>;
   readonly config?: unknown;
+  readonly externalEffect?: StepDefinition['externalEffect'];
   readonly kind: 'step';
   readonly maxAttempts?: number;
   readonly run: (context: never) => Promise<unknown>;
