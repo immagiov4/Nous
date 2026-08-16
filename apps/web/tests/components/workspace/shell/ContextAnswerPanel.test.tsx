@@ -541,7 +541,7 @@ describe('ContextAnswerPanel', () => {
     expect(request.headers).toEqual({ 'X-Existing-Header': 'kept' });
   });
 
-  test('shows distinct context sources and sends provenance without file contents', () => {
+  test('keeps lesson sources out of the follow-up header and sends provenance without file contents', () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -581,8 +581,8 @@ describe('ContextAnswerPanel', () => {
 
     render(<ContextAnswerPanel {...buildProps({ documentSourceReferences })} />);
 
-    expect(screen.getByText(/2 (sources|fonti)/i)).toBeInTheDocument();
-    expect(screen.getByTitle('01.pdf, 049.pdf')).toBeInTheDocument();
+    expect(screen.queryByText(/2 (sources|fonti)/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle('01.pdf, 049.pdf')).not.toBeInTheDocument();
 
     const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
       id: 'chat-sources',

@@ -12,6 +12,7 @@ import { type CodexTurnTool, runCodexAppServerTurn } from './codexAppServer.js';
 interface CodexChatStreamInput {
   messages: ModelMessage[];
   model: string;
+  originalMessages: UIMessage[];
   reasoningEffort: ReasoningEffort;
   system: string;
   tools: ToolSet;
@@ -109,6 +110,7 @@ const buildCodexTools = async (
 export const createCodexChatStream = async ({
   messages,
   model,
+  originalMessages,
   reasoningEffort,
   system,
   tools,
@@ -119,6 +121,7 @@ export const createCodexChatStream = async ({
     : system;
 
   return createUIMessageStream<UIMessage>({
+    originalMessages,
     onError: () => SAFE_AI_STREAM_ERROR,
     execute: async ({ writer }) => {
       let clientToolCalled = false;

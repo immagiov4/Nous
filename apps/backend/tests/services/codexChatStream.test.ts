@@ -46,6 +46,9 @@ describe('Codex UI message adapter', () => {
     const stream = await createCodexChatStream({
       messages: [{ role: 'user', content: 'Salva questa nota.' }],
       model: 'gpt-test',
+      originalMessages: [
+        { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Salva questa nota.' }] },
+      ],
       reasoningEffort: 'medium',
       system: 'Agisci come tutor.',
       tools: {
@@ -77,6 +80,7 @@ describe('Codex UI message adapter', () => {
     const completedStream = await createCodexChatStream({
       messages: [{ role: 'user', content: 'Ciao' }],
       model: 'gpt-test',
+      originalMessages: [{ id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Ciao' }] }],
       reasoningEffort: 'low',
       system: 'Tutor.',
       tools: {},
@@ -94,6 +98,7 @@ describe('Codex UI message adapter', () => {
     const failedStream = await createCodexChatStream({
       messages: [{ role: 'user', content: 'Ciao' }],
       model: 'gpt-test',
+      originalMessages: [{ id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Ciao' }] }],
       reasoningEffort: 'low',
       system: 'Tutor.',
       tools: {},
@@ -103,5 +108,36 @@ describe('Codex UI message adapter', () => {
     expect(failedChunks).toContainEqual({ type: 'error', errorText: SAFE_AI_STREAM_ERROR });
     expect(JSON.stringify(failedChunks)).not.toContain('auth.json');
     expect(failedChunks.some(chunk => chunk.type === 'finish')).toBe(false);
+  });
+
+  test('continues the existing assistant message across a tool result round trip', async () => {
+    codexMocks.runCodexAppServerTurn.mockResolvedValue('Risposta finale');
+
+    const stream = await createCodexChatStream({
+      messages: [{ role: 'user', content: 'Continua.' }],
+      model: 'gpt-test',
+      originalMessages: [
+        { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Cerca.' }] },
+        {
+          id: 'assistant-existing',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-searchLibrary',
+              toolCallId: 'search-1',
+              state: 'output-available',
+              input: { query: 'modulo 3' },
+              output: { hits: [] },
+            },
+          ],
+        },
+      ],
+      reasoningEffort: 'low',
+      system: 'Tutor.',
+      tools: {},
+    });
+    const chunks = await readStreamChunks(stream);
+
+    expect(chunks).toContainEqual({ type: 'start', messageId: 'assistant-existing' });
   });
 });

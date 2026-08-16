@@ -1,6 +1,7 @@
 // Handles library-scoped chat requests for the backend API.
 import {
   convertToModelMessages,
+  generateId,
   jsonSchema,
   pipeUIMessageStreamToResponse,
   stepCountIs,
@@ -133,7 +134,7 @@ const libraryChatTools = {
   }),
   getProjectStructures: tool({
     description:
-      'Recupera struttura delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note, highlight e aiuti didattici. Se `projectIds` e omesso usa tutto lo scope corrente. Usalo per individuare le lezioni prima di leggere contenuto o glossario con getLessonDetails.',
+      'Recupera la struttura ordinata delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note, highlight e aiuti didattici. Se `projectIds` e omesso usa tutto lo scope corrente. Usalo per risolvere riferimenti strutturali o ordinali espressi dall utente, come modulo 3, capitolo 3 o terza lezione, prima di leggere il contenuto con getLessonDetails.',
     inputSchema: jsonSchema<{
       projectIds?: string[];
     }>({
@@ -603,6 +604,7 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       const stream = await createCodexChatStream({
         messages: modelMessages,
         model: contextModelConfig.model,
+        originalMessages: messages,
         reasoningEffort: contextModelConfig.reasoningEffort,
         system,
         tools: libraryTools,
@@ -625,7 +627,11 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
 
     pipeUIMessageStreamToResponse({
       response: res,
-      stream: result.toUIMessageStream({ onError: () => SAFE_AI_STREAM_ERROR }),
+      stream: result.toUIMessageStream({
+        originalMessages: messages,
+        generateMessageId: generateId,
+        onError: () => SAFE_AI_STREAM_ERROR,
+      }),
     });
   } catch (error) {
     console.error('[Library Chat Route] Error:', error);

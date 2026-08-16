@@ -486,8 +486,14 @@ describe('POST /api/chat/context', () => {
     });
     expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
     const streamOptions = aiMocks.toUIMessageStream.mock.calls[0]?.[0] as {
+      generateMessageId?: () => string;
       onError?: (error: unknown) => string;
+      originalMessages?: unknown[];
     };
+    expect(streamOptions.originalMessages).toEqual([
+      { id: '1', role: 'user', content: 'Spiegami' },
+    ]);
+    expect(streamOptions.generateMessageId).toEqual(expect.any(Function));
     expect(streamOptions.onError?.(new Error('provider token detail'))).toBe(
       'Il servizio AI non ha completato la richiesta. Riprova tra poco.'
     );
@@ -513,6 +519,7 @@ describe('POST /api/chat/context', () => {
       expect.objectContaining({
         messages: [{ role: 'user', content: 'Ciao' }],
         model: 'gpt-codex-context',
+        originalMessages: [{ id: '1', role: 'user', content: 'Spiegami' }],
         reasoningEffort: 'high',
         tools: expect.objectContaining({
           searchWeb: expect.any(Object),
@@ -893,6 +900,12 @@ describe('POST /api/chat/library', () => {
     expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
       model: 'server/library-model',
     });
+    expect(aiMocks.toUIMessageStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generateMessageId: expect.any(Function),
+        originalMessages: [{ id: '1', role: 'user', content: 'Riassumimi le note' }],
+      })
+    );
   });
 
   test('uses the authenticated user provider for library chat', async () => {

@@ -195,7 +195,6 @@ const ENGLISH_UI_MESSAGES = {
   '1 fonte': '1 source',
   '{courseCount} corsi': '{courseCount} courses',
   '{sourceCount} fonti': '{sourceCount} sources',
-  'Chunk sorgente ({chunkCount})': 'Source chunks ({chunkCount})',
   '{lessonCount} lezioni · {lastOpenedDate}': '{lessonCount} lessons · {lastOpenedDate}',
   '{streakDays} giorni': '{streakDays} days',
   ', prestando particolare attenzione a ciò che ho annotato e sottolineato.':
@@ -1122,7 +1121,6 @@ const ENGLISH_UI_MESSAGES = {
   'Apertura progetto...': 'Opening project...',
   'Apertura documento...': 'Opening document...',
   'Documento originale non disponibile.': 'Original document unavailable.',
-  'Associazione chunk alla nuova lezione...': 'Linking source chunks to the new lesson...',
   'Avvio conversazione...': 'Starting conversation...',
   'Avvio domande valutazione...': 'Starting assessment questions...',
   'Avvio Profilazione...': 'Starting profile setup...',

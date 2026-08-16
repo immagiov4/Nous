@@ -261,6 +261,8 @@ Do not add compatibility layers unless the project explicitly supports multiple 
 
 Follow the project's localization and language conventions. Centralize strings where the project already does so. Do not mix languages in UI. Technical comments may use the language dominant in the codebase.
 
+Keep implementation terminology out of the product interface. Internal names such as chunks, IDs, storage keys, tool names, provider details, and excessive diagnostic detail belong in logs or developer diagnostics, not in user-facing labels, progress messages, errors, or source attribution. Translate internal structures into the user's domain language, such as document names and page ranges.
+
 ## UI and Interaction Design
 
 UI code should minimize visual noise and avoid redundant feedback:
@@ -341,6 +343,8 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 ## Version Control Discipline
 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
+
+When a Codex GitHub review is requested, treat an eyes reaction as review-in-progress and wait for the completed review before merging. React to every Codex finding with thumbs up or thumbs down, reply with the evidence-based disposition, and do not leave its thread unresolved: resolve it only after the fix is merged or the finding is explicitly rejected with evidence.
 
 For every pull request, name every issue it resolves in the pull-request description with GitHub-closing references where appropriate (for example, `Closes #123`). Before reporting the work complete, verify that each resolved issue was actually closed. Do not leave a completed issue open without an explicit reason such as a remaining manual-verification gate.
 

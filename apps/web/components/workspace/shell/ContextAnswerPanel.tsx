@@ -39,7 +39,6 @@ import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
 import type {
-  FileData,
   LearningArtifactRenderPayload,
   LearningSection,
   StoredLessonVisual,
@@ -77,7 +76,6 @@ import {
 } from '../../shared/SpeechInputButton.tsx';
 import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
-import LessonDocumentSources from './LessonDocumentSources.tsx';
 import type {
   ContextAnswerSize,
   ContextAnswerState,
@@ -333,7 +331,6 @@ interface ContextAnswerPanelProps {
   readonly isDarkMode: boolean;
   readonly inputValueOverride?: string;
   readonly isMobileViewport: boolean;
-  readonly loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   readonly libraryAssistantDataSource: LibraryAssistantDataSource;
   readonly messagesScrollTopOverride?: number;
   readonly currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
@@ -383,7 +380,6 @@ function ContextAnswerPanelSession({
   isDarkMode,
   inputValueOverride,
   isMobileViewport,
-  loadDocumentSourceFile,
   libraryAssistantDataSource,
   messagesScrollTopOverride,
   currentLessonArtifactPayloads = [],
@@ -555,7 +551,6 @@ function ContextAnswerPanelSession({
       if (toolCall.dynamic) {
         return;
       }
-
       if (toolCall.toolName === 'getCurrentLessonArtifacts') {
         const artifactInput = readCurrentLessonArtifactsToolInput(toolCall.input);
         const matchingPayloads = filterLearningArtifactPayloads(currentLessonArtifactPayloads, {
@@ -1447,11 +1442,6 @@ function ContextAnswerPanelSession({
         <p className="line-clamp-2 text-sm leading-6 text-stone-500 dark:text-stone-400">
           {contextAnswer.selectedText}
         </p>
-        <LessonDocumentSources
-          compact
-          loadSourceFile={loadDocumentSourceFile}
-          sources={contextAnswer.documentSourceReferences || []}
-        />
       </div>
 
       <div className="relative min-h-0 flex-1">
