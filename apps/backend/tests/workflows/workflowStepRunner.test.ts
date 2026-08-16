@@ -1272,6 +1272,65 @@ describe('single workflow step runner', () => {
     expect(store.checkpointStep).toHaveBeenCalledOnce();
   });
 
+  test('persists only the unflushed usage suffix with the failure checkpoint', async () => {
+    const run = vi.fn(async () => {
+      await recordWorkflowAiUsage({
+        inputTokens: 9,
+        model: 'first-model',
+        outputTokens: 4,
+        provider: 'fake-provider',
+      });
+      await recordWorkflowAiUsage({
+        inputTokens: 11,
+        model: 'second-model',
+        outputTokens: 6,
+        provider: 'fake-provider',
+      });
+      return { text: 'generated' };
+    });
+    const work = step({ id: 'work', inputSchema: Text, outputSchema: Text, run });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'usage-persistence-suffix',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const recordAiUsage = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(postgresError('23505'));
+    const recordFailure = vi.fn(async () => ({
+      status: 'failed' as const,
+      transientEvents: [],
+    }));
+    const store = makeStore({ recordAiUsage, recordFailure });
+
+    await expect(
+      runWorkflowStepClaim({
+        claim: makeClaim(registered, { nodeInstanceId: 'work' }),
+        registry,
+        services: {},
+        store,
+      })
+    ).resolves.toMatchObject({ status: 'failure-recorded' });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(recordAiUsage).toHaveBeenCalledTimes(2);
+    const persistedUsage = recordAiUsage.mock.calls[0]?.[0];
+    const unflushedUsage = recordAiUsage.mock.calls[1]?.[0];
+    expect(recordFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ aiUsage: [unflushedUsage] })
+    );
+    expect(recordFailure.mock.calls[0]?.[0].aiUsage).not.toContain(persistedUsage);
+    expect(store.checkpointStep).not.toHaveBeenCalled();
+  });
+
   test('keeps recorded usage when cancellation wins during checkpoint', async () => {
     const run = vi.fn(async () => {
       await recordWorkflowAiUsage({
