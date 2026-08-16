@@ -70,11 +70,10 @@ Sources: [scripts/ensure-local-dev-services.ts:75-126](scripts/ensure-local-dev-
 
 ### Database Migrations
 The setup ensures the local database is in sync with the project source code.
-1.  **Project Sources:** Runs `scripts/migrate-project-sources-to-storage.ts` to stage local assets.
-2.  **Supabase Migrations:** Executes `supabase migration up --local` to apply pending schema changes.
-3.  **Migration Drift:** The `doctor` script checks for drift by comparing local migration files against the migration history recorded in the database.
+1.  **Supabase Migrations:** Executes `supabase migration up --local` to apply pending schema changes, including the project-source Storage schema and private bucket. Local startup does not run a separate project-source staging script.
+2.  **Migration Drift:** The `doctor` script checks for drift by comparing local migration files against the migration history recorded in the database.
 
-Sources: [scripts/ensure-local-dev-services.ts:108-124](scripts/ensure-local-dev-services.ts#L108-L124), [scripts/doctor.ts:333-356](scripts/doctor.ts#L333-L356)
+Sources: [scripts/ensure-local-dev-services.ts:125-135](scripts/ensure-local-dev-services.ts#L125-L135), [scripts/doctor.ts:501-541](scripts/doctor.ts#L501-L541), [supabase/migrations/202607190002_project_sources_storage.sql](supabase/migrations/202607190002_project_sources_storage.sql), [supabase/migrations/20260816152200_provision_private_project_source_bucket.sql](supabase/migrations/20260816152200_provision_private_project_source_bucket.sql)
 
 ## Quality and Diagnostics
 

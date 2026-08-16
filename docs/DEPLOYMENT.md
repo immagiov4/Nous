@@ -118,7 +118,7 @@ Project-source creation uses the authenticated `/api/projects` write path, whose
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable
 for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate
 from the request limit. The source-backed storage and archive-indexing flow is maintained in Cubic's
-[Project Assets & Storage Archives](../.cubic/wiki/04-sec-data/02-p-asset-management.md#archive-indexing).
+[Project Assets & Storage Archives](../.cubic/wiki/04-section-data/02-p-asset-management.md#archive-storage-and-ingestion).
 
 ### Managed profile
 
