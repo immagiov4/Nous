@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -217,6 +217,99 @@ describe('NewHomeView library interactions', () => {
 
     expect(onImportProjectFile).toHaveBeenCalledTimes(1);
     expect(onImportProjectFile.mock.calls[0]?.[0].target.files?.[0]).toBe(file);
+  });
+
+  test('keeps the Favorites count reactive and localized for empty, singular, and plural states', () => {
+    const renderView = (projects: SavedProjectMeta[]) => (
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={projects}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    const view = render(renderView([]));
+    const favoritesChip = screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ });
+    expect(favoritesChip).toHaveAttribute('title', '0 corsi');
+
+    view.rerender(renderView([{ ...project, isFavorite: true }]));
+    expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveAttribute(
+      'title',
+      '1 corso'
+    );
+
+    view.rerender(
+      renderView([
+        { ...project, isFavorite: true },
+        { ...project, id: 'project-2', isFavorite: true },
+      ])
+    );
+    expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveAttribute(
+      'title',
+      '2 corsi'
+    );
+  });
+
+  test('repositions an open course menu and restores focus on Escape', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    const trigger = within(container.querySelector('#courses') as HTMLElement).getByRole('button', {
+      name: /Azioni per Corso Mobile|Actions for Corso Mobile/,
+    });
+    let bounds = { top: 100, bottom: 120, left: 700, right: 720 };
+    vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => bounds as DOMRect);
+
+    await user.click(trigger);
+    const menu = screen.getByRole('menu');
+    expect(menu).toHaveStyle({ top: '124px' });
+
+    bounds = { top: 300, bottom: 320, left: 700, right: 720 };
+    window.dispatchEvent(new Event('scroll'));
+    await waitFor(() => expect(menu).toHaveStyle({ top: '324px' }));
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   test.each([
