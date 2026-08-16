@@ -24,6 +24,7 @@ import type {
   PdfTextIndex,
   ProjectSnapshot,
   ProjectSource,
+  ProjectSourceWarning,
   QuizQuestion,
   ResearchCoursePlan,
   ResearchDossiersBySectionId,
@@ -139,7 +140,7 @@ export interface WorkspaceProjectLibraryAdapter {
   saveCurrentProject: (
     overrides?: Partial<ProjectSnapshot>,
     options?: { archiveFile?: File; throwOnError?: boolean }
-  ) => Promise<SavedProjectMeta | null>;
+  ) => Promise<ProjectSaveResult | null>;
   patchCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
   patchSectionAnnotations: (
     sectionId: string,
@@ -273,7 +274,7 @@ export interface WorkspaceControllerCommands {
   ) => Promise<{
     errorMessage?: string;
     outcome: 'failed' | 'imported' | 'started-assessment' | 'reattached';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }>;
   importProjectFile: (
     selectedFile: File
@@ -306,7 +307,7 @@ export interface WorkspaceControllerCommands {
       | 'imported'
       | 'noop'
       | 'planned';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }>;
   submitAssessment: (
     input: string,
@@ -314,7 +315,7 @@ export interface WorkspaceControllerCommands {
   ) => Promise<{
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }>;
   updateApplicationExercise: (
     exerciseId: string,

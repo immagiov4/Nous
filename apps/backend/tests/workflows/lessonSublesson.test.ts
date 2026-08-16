@@ -160,7 +160,11 @@ describe('durable sublesson stages', () => {
   test('preserves an explicit empty archive selection and exposes bounded archive tools', async () => {
     const archiveIndex = {
       entries: [{ contentKind: 'text', kind: 'file', path: 'src/clock.ts' }],
-      version: { sourceHash: 'b'.repeat(64), sourceId: 'archive-1' },
+      version: {
+        representationHash: 'c'.repeat(64),
+        sourceHash: 'b'.repeat(64),
+        sourceId: 'archive-1',
+      },
     } as never;
     const project = snapshot({
       source: {

@@ -8,6 +8,7 @@ import type {
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSnapshot,
+  ProjectSourceWarning,
   ProjectWriteOptions,
   SavedProjectMeta,
   StoredProjectSourceFile,
@@ -32,21 +33,30 @@ export class ProjectStorageError extends Error {
     | 'cover-revision-conflict'
     | 'quota-exceeded'
     | 'revision-conflict'
+    | 'source-archive-busy'
     | 'source-archive-changed'
+    | 'source-archive-invalid'
+    | 'source-archive-unusable'
     | 'unknown';
   readonly httpStatus?: number;
   readonly responseContentType?: string;
+  readonly sourceWarnings?: ProjectSourceWarning[];
 
   constructor(
     message: string,
     code: ProjectStorageError['code'] = 'unknown',
-    response?: { contentType?: string; status?: number }
+    response?: {
+      contentType?: string;
+      sourceWarnings?: ProjectSourceWarning[];
+      status?: number;
+    }
   ) {
     super(message);
     this.name = 'ProjectStorageError';
     this.code = code;
     this.httpStatus = response?.status;
     this.responseContentType = response?.contentType;
+    this.sourceWarnings = response?.sourceWarnings;
   }
 }
 

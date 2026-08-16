@@ -6,7 +6,16 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
 import JSZip from 'jszip';
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+const pdfTextExtractorMocks = vi.hoisted(() => ({
+  extractPdfText: vi.fn(),
+}));
+
+vi.mock('../../src/services/pdfTextExtractor.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/services/pdfTextExtractor.js')>()),
+  extractPdfText: pdfTextExtractorMocks.extractPdfText,
+}));
 
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
 import {
@@ -15,6 +24,10 @@ import {
 } from '../../src/projects/projectRevision.js';
 import { buildProjectSourceObjectPath } from '../../src/projects/projectSource.js';
 import { ProjectSourceStorageError } from '../../src/projects/projectSourceStorage.js';
+import {
+  SourceArchivePreparationCapacityError,
+  type SourceArchiveUnusableError,
+} from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot, SavedProjectMeta } from '../../src/projects/types.js';
 
 const PROJECT_META: SavedProjectMeta = {
@@ -31,6 +44,10 @@ const PROJECT_META: SavedProjectMeta = {
   hasSourceFile: true,
   coverLabel: '23 lezioni',
 };
+
+beforeEach(() => {
+  pdfTextExtractorMocks.extractPdfText.mockReset();
+});
 
 const createMultiSourceSnapshot = (): ProjectSnapshot => ({
   activeSectionId: null,
@@ -1343,9 +1360,9 @@ describe('PostgresProjectStore', () => {
     expect(uploadedPaths[0]).toMatch(/\/original$/u);
     expect(uploadedPaths.slice(1)).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/\/entries\/[0-9a-f]{64}$/u),
-        expect.stringMatching(/\/entries\/[0-9a-f]{64}$/u),
-        expect.stringMatching(/\/entries\/[0-9a-f]{64}$/u),
+        expect.stringMatching(/\/entries\/[0-9a-f]{64}\/[0-9a-f]{64}$/u),
+        expect.stringMatching(/\/entries\/[0-9a-f]{64}\/[0-9a-f]{64}$/u),
+        expect.stringMatching(/\/entries\/[0-9a-f]{64}\/[0-9a-f]{64}$/u),
       ])
     );
     expect(
@@ -1374,6 +1391,128 @@ describe('PostgresProjectStore', () => {
         preview: '# Guide\n\nComplete documentation',
       })
     );
+  });
+
+  test('finishes ZIP PDF preparation before reserving a database session', async () => {
+    const zip = new JSZip();
+    zip.file('docs/manual.pdf', '%PDF-manual');
+    zip.file('docs/notes.txt', 'Appunti validi');
+    const archiveBytes = await zip.generateAsync({ type: 'uint8array' });
+    const transactionSql = Object.assign(
+      vi.fn((strings: TemplateStringsArray) =>
+        Promise.resolve(
+          strings.join('?').includes('returning meta, revision')
+            ? [{ meta: PROJECT_META, revision: 1 }]
+            : []
+        )
+      ),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sqlClient = Object.assign(
+      vi.fn(async () => []),
+      {
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const storage = {
+      delete: vi.fn(async () => undefined),
+      download: vi.fn(),
+      upload: vi.fn(async () => undefined),
+    };
+    const store = createPostgresProjectStore(sqlClient, storage);
+    const reserve = sqlClient.reserve;
+    if (!reserve) throw new Error('Expected the test SQL client to expose reserve().');
+    sqlClient.reserve = vi.fn(() => reserve());
+    let completeExtraction!: (value: { pages: Array<{ text: string }>; text: string }) => void;
+    pdfTextExtractorMocks.extractPdfText.mockReturnValue(
+      new Promise(resolve => {
+        completeExtraction = resolve;
+      })
+    );
+    const snapshot: ProjectSnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: Buffer.from(archiveBytes).toString('base64'),
+          mimeType: 'application/zip',
+          name: 'manuals.zip',
+        },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'manuals.zip',
+      },
+    };
+
+    const save = store.saveProject('user-1', snapshot);
+    await vi.waitFor(() => expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledOnce());
+    expect(sqlClient.reserve).not.toHaveBeenCalled();
+
+    completeExtraction({ pages: [], text: '' });
+    const saved = await save;
+
+    expect(sqlClient.reserve).toHaveBeenCalledOnce();
+    expect(storage.upload).toHaveBeenCalledTimes(3);
+    expect(saved.snapshot.source?.kind).toBe('archive');
+    expect(
+      saved.snapshot.source?.kind === 'archive' ? saved.snapshot.source.index.entries : []
+    ).toContainEqual(
+      expect.objectContaining({ path: 'docs/manual.pdf', warningReason: 'no-usable-text' })
+    );
+    expect(sqlClient.json).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'docs/manual.pdf',
+          warning_reason: 'no-usable-text',
+        }),
+      ])
+    );
+  });
+
+  test('rejects an all-unusable ZIP before reserving a database session', async () => {
+    const zip = new JSZip();
+    zip.file('scans/manual.pdf', '%PDF-manual');
+    zip.file('notes/blank.txt', '   \n');
+    const archiveBytes = await zip.generateAsync({ type: 'uint8array' });
+    const sqlClient = Object.assign(
+      vi.fn(async () => []),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const storage = {
+      delete: vi.fn(async () => undefined),
+      download: vi.fn(),
+      upload: vi.fn(async () => undefined),
+    };
+    const store = createPostgresProjectStore(sqlClient, storage);
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({ pages: [], text: '' });
+    const snapshot: ProjectSnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: Buffer.from(archiveBytes).toString('base64'),
+          mimeType: 'application/zip',
+          name: 'scans.zip',
+        },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'scans.zip',
+      },
+    };
+
+    await expect(store.saveProject('user-1', snapshot)).rejects.toMatchObject({
+      name: 'SourceArchiveUnusableError',
+      warnings: [{ path: 'scans/manual.pdf', reason: 'no-usable-text' }],
+    } satisfies Partial<SourceArchiveUnusableError>);
+    expect(sqlClient.reserve).not.toHaveBeenCalled();
+    expect(sqlClient.begin).not.toHaveBeenCalled();
+    expect(storage.upload).not.toHaveBeenCalled();
   });
 
   test('stops archive ingestion when the original object upload fails', async () => {
@@ -1427,7 +1566,7 @@ describe('PostgresProjectStore', () => {
     expect(sqlClient.begin).not.toHaveBeenCalled();
   });
 
-  test('bounds concurrent archive uploads and starts the metadata transaction only afterwards', async () => {
+  test('holds archive admission through bounded uploads and starts metadata afterwards', async () => {
     const zip = new JSZip();
     for (let index = 0; index < 6; index += 1) {
       zip.file(`src/file-${index}.ts`, `export const value${index} = ${index};`);
@@ -1491,7 +1630,30 @@ describe('PostgresProjectStore', () => {
       },
     });
 
-    await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(1));
+    expect(sqlClient.begin).not.toHaveBeenCalled();
+    await expect(
+      store.saveProject('user-2', {
+        ...createMultiSourceSnapshot(),
+        id: 'concurrent-archive',
+        sourceKind: 'codebase',
+        source: {
+          file: {
+            data: Buffer.from(archiveBytes).toString('base64'),
+            mimeType: 'application/zip',
+            name: 'concurrent.zip',
+          },
+          index: { entries: [] },
+          kind: 'archive',
+          name: 'concurrent.zip',
+        },
+      })
+    ).rejects.toBeInstanceOf(SourceArchivePreparationCapacityError);
+    expect(storage.upload).toHaveBeenCalledTimes(1);
+    for (const resolve of pendingUploads.splice(0)) {
+      resolve();
+    }
+    await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(5));
     expect(sqlClient.begin).not.toHaveBeenCalled();
     for (const resolve of pendingUploads.splice(0)) {
       resolve();
@@ -1903,6 +2065,7 @@ describe('PostgresProjectStore', () => {
   test('loads archive metadata separately and verifies entry bytes through Storage', async () => {
     const entryBytes = new TextEncoder().encode('complete entry');
     const entryHash = createHash('sha256').update(entryBytes).digest('hex');
+    let representationIsCurrent = true;
     const sqlClient = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
@@ -1911,6 +2074,7 @@ describe('PostgresProjectStore', () => {
             {
               archive_source_hash: 'a'.repeat(64),
               archive_source_id: 'source-archive',
+              archive_representation_hash: null,
               byte_size: null,
               content_kind: null,
               kind: 'directory',
@@ -1922,28 +2086,35 @@ describe('PostgresProjectStore', () => {
             {
               archive_source_hash: 'a'.repeat(64),
               archive_source_id: 'source-archive',
+              archive_representation_hash: null,
               byte_size: entryBytes.byteLength,
               content_kind: 'text',
               kind: 'file',
+              object_path: 'users/user/projects/hash/source/entries/hash',
               path: 'src/index.ts',
               preview: 'complete entry',
               source_hash: entryHash,
               source_kind: 'archive',
+              warning_reason: null,
             },
           ]);
         }
         if (
-          statement.includes('from public.project_source_entries') &&
-          statement.includes('path =')
+          statement.includes('from public.project_source_entries entry') &&
+          statement.includes('source.representation_hash =')
         ) {
-          return Promise.resolve([
-            {
-              byte_size: entryBytes.byteLength,
-              content_kind: 'text',
-              object_path: 'users/user/projects/hash/source/entries/hash',
-              source_hash: entryHash,
-            },
-          ]);
+          return Promise.resolve(
+            representationIsCurrent
+              ? [
+                  {
+                    byte_size: entryBytes.byteLength,
+                    content_kind: 'text',
+                    object_path: 'users/user/projects/hash/source/entries/hash',
+                    source_hash: entryHash,
+                  },
+                ]
+              : []
+          );
         }
         return Promise.resolve([]);
       }),
@@ -1958,23 +2129,18 @@ describe('PostgresProjectStore', () => {
     const store = createPostgresProjectStore(sqlClient, storage);
 
     const index = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
+    if (!index) throw new Error('Expected the stored archive index.');
     const loadedEntry = await store.loadProjectSourceArchiveEntry(
       'user-1',
       PROJECT_META.id,
       'src/index.ts',
-      {
-        sourceHash: 'a'.repeat(64),
-        sourceId: 'source-archive',
-      }
+      index.version
     );
     const loadedRange = await store.loadProjectSourceArchiveEntryRange(
       'user-1',
       PROJECT_META.id,
       'src/index.ts',
-      {
-        sourceHash: 'a'.repeat(64),
-        sourceId: 'source-archive',
-      },
+      index.version,
       2,
       9
     );
@@ -1992,6 +2158,7 @@ describe('PostgresProjectStore', () => {
         },
       ],
       version: {
+        representationHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
         sourceHash: 'a'.repeat(64),
         sourceId: 'source-archive',
       },
@@ -2008,6 +2175,52 @@ describe('PostgresProjectStore', () => {
     );
     expect(loadedEntry).toEqual(entryBytes);
     expect(loadedRange).toEqual(entryBytes.slice(2, 9));
+
+    representationIsCurrent = false;
+    await expect(
+      store.loadProjectSourceArchiveEntry('user-1', PROJECT_META.id, 'src/index.ts', index.version)
+    ).resolves.toBeNull();
+    expect(storage.download).toHaveBeenCalledOnce();
+  });
+
+  test('versions the prepared representation independently from the original ZIP hash', async () => {
+    let preparedEntryHash = 'b'.repeat(64);
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) =>
+        strings.join('?').includes('from public.project_sources source')
+          ? Promise.resolve([
+              {
+                archive_source_hash: 'a'.repeat(64),
+                archive_source_id: 'source-archive',
+                byte_size: 12,
+                content_kind: 'text',
+                kind: 'file',
+                path: 'docs/manual.pdf',
+                preview: 'Testo estratto',
+                source_hash: preparedEntryHash,
+                source_kind: 'archive',
+                warning_reason: null,
+              },
+            ])
+          : Promise.resolve([])
+      ),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const first = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
+    preparedEntryHash = 'c'.repeat(64);
+    const second = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
+
+    expect(first?.version).toMatchObject({
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    });
+    expect(second?.version).toMatchObject({
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    });
+    expect(first?.version.representationHash).not.toBe(second?.version.representationHash);
   });
 
   test('saves a cover only while the project revision still matches', async () => {

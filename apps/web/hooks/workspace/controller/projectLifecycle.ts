@@ -6,6 +6,7 @@ import {
   getCourseSourceDescriptors,
   mergeCourseSourceDescriptors,
 } from '../../../services/projects/courseSources.ts';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -26,12 +27,22 @@ import {
   resolvePlanLesson,
 } from '../../../services/workspace/controller/snapshotHydration.ts';
 import { WORKSPACE_WORKFLOW_IDS } from '../../../services/workspace/workflow.ts';
-import { AppState, type FileData, type LessonNode, type ProjectSource } from '../../../types.ts';
+import {
+  AppState,
+  type FileData,
+  type LessonNode,
+  type ProjectSource,
+  type ProjectSourceWarning,
+} from '../../../types.ts';
 import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
 } from '../../../utils/pdf/projectHydration.ts';
-import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
+import {
+  getProjectSourceWarnings,
+  prepareUploadedCourseSource,
+  readSourceFileData,
+} from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -135,7 +146,7 @@ export const createProjectLifecycleCommands = (
   ): Promise<{
     errorMessage?: string;
     outcome: 'failed' | 'imported' | 'started-assessment' | 'reattached';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }> {
     const requestId = state.beginWorkflow('attachSource', t('Caricamento...'));
     const selectedFiles = Array.isArray(selectedFilesInput)
@@ -156,6 +167,7 @@ export const createProjectLifecycleCommands = (
       size: selectedFile.size,
       type: selectedFile.type || null,
     });
+    let sourceWarnings: ProjectSourceWarning[] = [];
 
     try {
       let nextSource: ProjectSource | null = null;
@@ -221,12 +233,7 @@ export const createProjectLifecycleCommands = (
         throw new Error('Unable to prepare project source');
       }
 
-      const sourceWarnings = (nextSource.sources || [])
-        .filter(source => source.status === 'error')
-        .map(source => ({
-          message: source.errorMessage || 'Questa fonte non è utilizzabile.',
-          name: source.name,
-        }));
+      sourceWarnings = getProjectSourceWarnings(nextSource);
 
       if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
         state.setWorkflowMessage('attachSource', requestId, t('Verifica testo PDF...'));
@@ -268,6 +275,14 @@ export const createProjectLifecycleCommands = (
           if (!saved) {
             throw new Error('La sorgente del progetto non è stata salvata.');
           }
+          if (nextSource.kind === 'archive') {
+            if (saved.snapshot.source?.kind !== 'archive') {
+              throw new Error('La sorgente archivio salvata non è valida.');
+            }
+            nextSource = saved.snapshot.source;
+            sourceWarnings = getProjectSourceWarnings(nextSource);
+            domain.setSource(nextSource);
+          }
         } catch (error) {
           domain.setSource(previousSource);
           projectLibrary.setProjectHydrated(true);
@@ -299,6 +314,7 @@ export const createProjectLifecycleCommands = (
         throw new Error('La sorgente del progetto non è stata salvata.');
       }
       nextSource = saved.snapshot.source;
+      sourceWarnings = getProjectSourceWarnings(nextSource);
       domain.setSource(nextSource);
       projectLibrary.setProjectHydrated(true);
       state.succeedWorkflow('attachSource', requestId);
@@ -330,11 +346,38 @@ export const createProjectLifecycleCommands = (
       );
       return { outcome: 'started-assessment', sourceWarnings };
     } catch (error) {
+      if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
+        sourceWarnings = error.sourceWarnings;
+      }
+      if (
+        options?.mode !== 'reattach-source' &&
+        error instanceof ProjectStorageError &&
+        (error.code === 'source-archive-unusable' ||
+          error.code === 'source-archive-busy' ||
+          error.code === 'source-archive-invalid')
+      ) {
+        const rejectedProjectId = projectLibrary.getCurrentProjectId();
+        if (rejectedProjectId) {
+          try {
+            await projectLibrary.deleteStoredProject(rejectedProjectId);
+          } catch (cleanupError) {
+            pushNousDebugTrace('attach-source:rejected-archive-cleanup-failed', {
+              errorMessage: getErrorMessage(cleanupError),
+              projectId: rejectedProjectId,
+            });
+          }
+        }
+        domain.resetDomain();
+        projectLibrary.setCurrentProjectId(null);
+        projectLibrary.setProjectHydrated(true);
+        state.setScreenState(AppState.LIBRARY);
+      }
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('attachSource', requestId, errorMessage);
       return {
         outcome: options?.mode === 'reattach-source' ? 'failed' : 'started-assessment',
         errorMessage,
+        sourceWarnings,
       };
     }
   }

@@ -21,7 +21,11 @@ const archiveState = {
 describe('course archive access', () => {
   test('opens only the frozen archive version and reads through the project store', async () => {
     const bytes = new TextEncoder().encode('export const answer = 42;');
-    const version = { sourceHash: 'a'.repeat(64), sourceId: 'source-archive' };
+    const version = {
+      representationHash: 'b'.repeat(64),
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    };
     const loadProjectSourceArchiveEntry = vi.fn(async () => bytes);
     const loadProjectSourceArchiveEntryRange = vi.fn(
       async (_userId, _projectId, _path, _version, start, endExclusive) =>
@@ -71,7 +75,11 @@ describe('course archive access', () => {
       loadProjectSourceArchiveEntryRange: vi.fn(),
       loadProjectSourceArchiveIndex: vi.fn(async () => ({
         entries: [],
-        version: { sourceHash: 'c'.repeat(64), sourceId: 'source-archive' },
+        version: {
+          representationHash: 'd'.repeat(64),
+          sourceHash: 'c'.repeat(64),
+          sourceId: 'source-archive',
+        },
       })),
       loadProjectWithRevision: vi.fn(async () => ({ revision: 4, snapshot: {} as never })),
     });

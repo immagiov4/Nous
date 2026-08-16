@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   attachProjectSources,
+  buildProjectSourceEntryObjectPath,
   detachProjectSources,
   readEmbeddedProjectSources,
 } from '../../src/projects/projectSource.js';
@@ -97,4 +98,22 @@ test('backend source storage detaches and hydrates every file in a source set', 
   assert.equal(hydratedSource.file.sourceId, 'source-primary');
   assert.equal(hydratedSource.sources[0]?.file.data, 'restored-primary');
   assert.equal(hydratedSource.sources[1]?.file.data, 'restored-secondary');
+});
+
+test('archive entry object paths include canonical content identity', () => {
+  const originalHash = 'a'.repeat(64);
+  const extractedHash = 'b'.repeat(64);
+  const commonArguments = [
+    'user-1',
+    'project-1',
+    'source-1',
+    originalHash,
+    'docs/guide.pdf',
+  ] as const;
+
+  const originalPath = buildProjectSourceEntryObjectPath(...commonArguments, originalHash);
+  const extractedPath = buildProjectSourceEntryObjectPath(...commonArguments, extractedHash);
+
+  expect(originalPath).not.toBe(extractedPath);
+  expect(extractedPath.endsWith(`/${extractedHash}`)).toBe(true);
 });

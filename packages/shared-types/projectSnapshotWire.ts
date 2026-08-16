@@ -1,4 +1,5 @@
 import type { ProjectSourceKind } from './projectContract';
+import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
 
 export const PROJECT_SNAPSHOT_FORMAT_VERSION = 1 as const;
 export type ProjectSnapshotFormatVersion = typeof PROJECT_SNAPSHOT_FORMAT_VERSION;
@@ -356,7 +357,8 @@ const validateArchiveIndex = (value: unknown): void => {
       entry.kind !== 'file' ||
       !Number.isSafeInteger(entry.byteSize) ||
       (entry.byteSize as number) < 0 ||
-      (entry.contentKind !== 'binary' && entry.contentKind !== 'text')
+      (entry.contentKind !== 'binary' && entry.contentKind !== 'text') ||
+      (entry.warningReason !== undefined && !isSourceArchivePdfWarningReason(entry.warningReason))
     ) {
       throw new ProjectSnapshotWireError('Sorgente archivio non valida: entry.');
     }

@@ -1,9 +1,12 @@
-// Extracts text from uploaded PDF files through the backend worker flow.
-import { execFile } from 'node:child_process';
+// Extracts text from uploaded PDF files through the backend parser flow.
+import { execFile, spawn } from 'node:child_process';
+import { accessSync, constants as fsConstants } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { deserialize } from 'node:v8';
 
 import { PDFParse } from 'pdf-parse';
 
@@ -13,8 +16,69 @@ import { normalizeLineEndings } from '../utils/text.js';
 
 const execFileAsync = promisify(execFile);
 const TMP_DIR_PREFIX = 'nous-pdf-text-';
+const PDF_PROCESS_SERIALIZATION_OVERHEAD_BYTES = 1_000_000;
+const PDF_PROCESS_SERIALIZATION_BYTES_PER_OUTPUT_BYTE = 2;
+const PDF_PROCESS_STDERR_MAX_CHARS = 8_192;
+
+const isExecutableFile = (candidate: string): boolean => {
+  try {
+    accessSync(candidate, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const findNodeExecutableOnPath = (): string | undefined => {
+  const executableName = process.platform === 'win32' ? 'node.exe' : 'node';
+  return (process.env.PATH ?? '')
+    .split(path.delimiter)
+    .map(directory => path.resolve(directory, executableName))
+    .find(isExecutableFile);
+};
+
+export const resolvePdfTextFallbackNodeExecutable = (
+  configuredExecutable = process.env.PDF_TEXT_FALLBACK_NODE_EXECUTABLE
+): string => {
+  const executable = configuredExecutable?.trim();
+  if (executable && !path.isAbsolute(executable)) {
+    throw new TypeError('PDF_TEXT_FALLBACK_NODE_EXECUTABLE must be an absolute path.');
+  }
+
+  const resolvedExecutable = executable || findNodeExecutableOnPath();
+  if (!resolvedExecutable || !isExecutableFile(resolvedExecutable)) {
+    throw new TypeError(
+      executable
+        ? 'PDF_TEXT_FALLBACK_NODE_EXECUTABLE must point to an executable file.'
+        : 'Node.js is required for PDF fallback extraction but was not found on PATH.'
+    );
+  }
+  return resolvedExecutable;
+};
+const PDF_TEXT_FALLBACK_NODE_EXECUTABLE = resolvePdfTextFallbackNodeExecutable();
 const PDF_TEXT_FALLBACK_WARNING =
   'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
+
+export interface PdfTextExtractionOptions {
+  fallbackTimeoutMs?: number;
+  maxOutputBytes?: number;
+  pdftotextTimeoutMs?: number;
+  fallbackProcessMaxOldGenerationSizeMb?: number;
+}
+
+export class PdfTextExtractionTimeoutError extends Error {
+  constructor(readonly stage: 'pdf-parse' | 'pdftotext') {
+    super(`PDF text extraction timed out during ${stage}.`);
+    this.name = 'PdfTextExtractionTimeoutError';
+  }
+}
+
+export class PdfTextExtractionOutputLimitError extends Error {
+  constructor() {
+    super('PDF text extraction exceeded the configured output limit.');
+    this.name = 'PdfTextExtractionOutputLimitError';
+  }
+}
 
 export interface ExtractedPdfTextPage {
   pageNumber: number;
@@ -40,6 +104,21 @@ export interface ExtractedPdfText {
   usedFallbackParser: boolean;
   outline: ExtractedPdfOutlineNode[];
   outlineOrigin: 'deterministic' | 'native' | 'none';
+}
+
+type ExtractedPdfTextWithoutSourceHash = Omit<ExtractedPdfText, 'sourceHash'>;
+type ExtractedPdfTextWithoutSourceMetadata = Omit<
+  ExtractedPdfText,
+  'sourceHash' | 'outline' | 'outlineOrigin'
+>;
+
+interface PdfTextProcessResult {
+  error?: string;
+  errorCode?: string;
+  outline?: unknown;
+  pageCount?: unknown;
+  pages?: unknown;
+  text?: unknown;
 }
 
 const buildSourceHash = (buffer: Buffer): string => buildSha256HexDigest(buffer);
@@ -102,33 +181,157 @@ const buildOutlineTree = (
   return roots;
 };
 
-const extractNativePdfOutline = async (pdfBuffer: Buffer): Promise<ExtractedPdfOutlineNode[]> => {
+const normalizeNativePdfOutline = (outline: unknown): ExtractedPdfOutlineNode[] => {
+  if (!Array.isArray(outline)) {
+    return [];
+  }
+  let sequence = 0;
+  const normalize = (items: unknown[], level: number): ExtractedPdfOutlineNode[] =>
+    items.flatMap(item => {
+      if (!item || typeof item !== 'object') {
+        return [];
+      }
+      const record = item as Record<string, unknown>;
+      const title = typeof record.title === 'string' ? record.title.trim() : '';
+      if (!title) {
+        return [];
+      }
+      sequence += 1;
+      const destinationPage =
+        Array.isArray(record.dest) && typeof record.dest[0] === 'number'
+          ? Math.trunc(record.dest[0]) + 1
+          : undefined;
+      return [
+        {
+          children: normalize(Array.isArray(record.items) ? record.items : [], level + 1),
+          id: `outline-${sequence}`,
+          level,
+          page: destinationPage,
+          title,
+        },
+      ];
+    });
+  return normalize(outline, 1);
+};
+
+const runPdfTextFallbackProcess = (
+  pdfBuffer: Buffer,
+  mode: 'fallback' | 'outline',
+  timeoutMs: number,
+  limits: Pick<
+    PdfTextExtractionOptions,
+    'fallbackProcessMaxOldGenerationSizeMb' | 'maxOutputBytes'
+  > = {}
+): Promise<PdfTextProcessResult> =>
+  new Promise((resolve, reject) => {
+    const processPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'pdfTextFallbackProcess.mjs'
+    );
+    const processArguments = [
+      ...(limits.fallbackProcessMaxOldGenerationSizeMb === undefined
+        ? []
+        : [`--max-old-space-size=${limits.fallbackProcessMaxOldGenerationSizeMb}`]),
+      processPath,
+      mode,
+      limits.maxOutputBytes?.toString() ?? '',
+    ];
+    const fallbackProcess = spawn(PDF_TEXT_FALLBACK_NODE_EXECUTABLE, processArguments, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let settled = false;
+    const stdoutChunks: Buffer[] = [];
+    let stdoutBytes = 0;
+    const maxSerializedBytes =
+      limits.maxOutputBytes === undefined
+        ? undefined
+        : limits.maxOutputBytes * PDF_PROCESS_SERIALIZATION_BYTES_PER_OUTPUT_BYTE +
+          PDF_PROCESS_SERIALIZATION_OVERHEAD_BYTES;
+    let stderr = '';
+    const timeout = globalThis.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      fallbackProcess.kill();
+      reject(new PdfTextExtractionTimeoutError('pdf-parse'));
+    }, timeoutMs);
+
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      fallbackProcess.removeAllListeners();
+      callback();
+    };
+
+    fallbackProcess.stdout.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      stdoutBytes += chunk.byteLength;
+      if (maxSerializedBytes !== undefined && stdoutBytes > maxSerializedBytes) {
+        settle(() => {
+          fallbackProcess.kill();
+          reject(new PdfTextExtractionOutputLimitError());
+        });
+        return;
+      }
+      stdoutChunks.push(chunk);
+    });
+    fallbackProcess.stderr.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      if (stderr.length < PDF_PROCESS_STDERR_MAX_CHARS) stderr += chunk.toString('utf8');
+    });
+    fallbackProcess.once('error', error => settle(() => reject(error)));
+    fallbackProcess.stdin.on('error', error => {
+      if (!settled) settle(() => reject(error));
+    });
+    fallbackProcess.once('close', code =>
+      settle(() => {
+        if (code !== 0) {
+          reject(
+            /heap out of memory/iu.test(stderr)
+              ? new PdfTextExtractionOutputLimitError()
+              : new Error(`PDF fallback process exited with code ${code}.`)
+          );
+          return;
+        }
+        let result: PdfTextProcessResult;
+        try {
+          result = deserialize(Buffer.concat(stdoutChunks)) as PdfTextProcessResult;
+        } catch {
+          reject(new Error('PDF fallback process returned an invalid response.'));
+          return;
+        }
+        if (result.errorCode === 'output-limit') {
+          reject(new PdfTextExtractionOutputLimitError());
+          return;
+        }
+        if (result.error) {
+          reject(new Error(result.error));
+          return;
+        }
+        resolve(result);
+      })
+    );
+    fallbackProcess.stdin.end(pdfBuffer);
+  });
+
+const extractNativePdfOutline = async (
+  pdfBuffer: Buffer,
+  options: PdfTextExtractionOptions = {}
+): Promise<ExtractedPdfOutlineNode[]> => {
+  const timeoutMs = options.fallbackTimeoutMs;
+  if (timeoutMs !== undefined) {
+    if (timeoutMs <= 0) return [];
+    try {
+      const result = await runPdfTextFallbackProcess(pdfBuffer, 'outline', timeoutMs, options);
+      return normalizeNativePdfOutline(result.outline);
+    } catch {
+      return [];
+    }
+  }
   const parser = new PDFParse({ data: pdfBuffer });
   try {
-    const outline = (await parser.getInfo()).outline || [];
-    let sequence = 0;
-    const normalize = (items: typeof outline, level: number): ExtractedPdfOutlineNode[] =>
-      items.flatMap(item => {
-        const title = item.title?.trim();
-        if (!title) {
-          return [];
-        }
-        sequence += 1;
-        const destinationPage =
-          Array.isArray(item.dest) && typeof item.dest[0] === 'number'
-            ? Math.trunc(item.dest[0]) + 1
-            : undefined;
-        return [
-          {
-            children: normalize(item.items || [], level + 1),
-            id: `outline-${sequence}`,
-            level,
-            page: destinationPage,
-            title,
-          },
-        ];
-      });
-    return normalize(outline, 1);
+    return normalizeNativePdfOutline((await parser.getInfo()).outline);
   } catch {
     return [];
   } finally {
@@ -170,23 +373,77 @@ export const buildDeterministicPdfOutline = (
 
 const attachPdfOutline = async (
   pdfBuffer: Buffer,
-  result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'>
-): Promise<Omit<ExtractedPdfText, 'sourceHash'>> => {
-  const nativeOutline = await extractNativePdfOutline(pdfBuffer);
-  if (nativeOutline.length > 0) {
-    return { ...result, outline: nativeOutline, outlineOrigin: 'native' };
-  }
-  const deterministicOutline = buildDeterministicPdfOutline(result.pages);
+  result: ExtractedPdfTextWithoutSourceMetadata,
+  options: PdfTextExtractionOptions = {}
+): Promise<ExtractedPdfTextWithoutSourceHash> => {
+  const nativeOutline = await extractNativePdfOutline(pdfBuffer, options);
   return {
     ...result,
+    ...buildPdfOutlineFields(result.pages, nativeOutline),
+  };
+};
+
+const buildPdfOutlineFields = (
+  pages: ExtractedPdfTextPage[],
+  nativeOutline: ExtractedPdfOutlineNode[]
+): Pick<ExtractedPdfText, 'outline' | 'outlineOrigin'> => {
+  if (nativeOutline.length > 0) {
+    return { outline: nativeOutline, outlineOrigin: 'native' };
+  }
+  const deterministicOutline = buildDeterministicPdfOutline(pages);
+  return {
     outline: deterministicOutline,
     outlineOrigin: deterministicOutline.length > 0 ? 'deterministic' : 'none',
   };
 };
 
+const buildFallbackProcessPages = (result: PdfTextProcessResult): ExtractedPdfTextPage[] => {
+  const rawPages = Array.isArray(result.pages) ? result.pages : [];
+  const fallbackText = typeof result.text === 'string' ? result.text : '';
+  if (rawPages.length === 0) {
+    return buildExtractedPages([{ pageNumber: 1, text: fallbackText }]);
+  }
+  return buildExtractedPages(
+    rawPages.flatMap(page => {
+      if (!page || typeof page !== 'object') return [];
+      const record = page as Record<string, unknown>;
+      if (typeof record.pageNumber !== 'number' || typeof record.text !== 'string') return [];
+      return [{ pageNumber: record.pageNumber, text: record.text }];
+    })
+  );
+};
+
+const extractWithFallbackProcess = async (
+  pdfBuffer: Buffer,
+  timeoutMs: number,
+  options: PdfTextExtractionOptions
+): Promise<ExtractedPdfTextWithoutSourceHash> => {
+  if (timeoutMs <= 0) throw new PdfTextExtractionTimeoutError('pdf-parse');
+  const result = await runPdfTextFallbackProcess(pdfBuffer, 'fallback', timeoutMs, options);
+  const pages = buildFallbackProcessPages(result);
+  const outlineFields = buildPdfOutlineFields(pages, normalizeNativePdfOutline(result.outline));
+  return {
+    ...outlineFields,
+    pageCount:
+      typeof result.pageCount === 'number' && Number.isFinite(result.pageCount)
+        ? result.pageCount
+        : pages.length,
+    pages,
+    parser: 'pdf-parse',
+    qualityWarning: PDF_TEXT_FALLBACK_WARNING,
+    text: joinExtractedPages(pages),
+    usedFallbackParser: true,
+  };
+};
+
 const extractWithPdfParse = async (
-  pdfBuffer: Buffer
-): Promise<Omit<ExtractedPdfText, 'sourceHash'>> => {
+  pdfBuffer: Buffer,
+  options: PdfTextExtractionOptions = {}
+): Promise<ExtractedPdfTextWithoutSourceHash> => {
+  const timeoutMs = options.fallbackTimeoutMs;
+  if (timeoutMs !== undefined) {
+    return extractWithFallbackProcess(pdfBuffer, timeoutMs, options);
+  }
   const parser = new PDFParse({ data: pdfBuffer });
 
   try {
@@ -208,25 +465,32 @@ const extractWithPdfParse = async (
           ]
     );
 
-    return attachPdfOutline(pdfBuffer, {
+    const outlineFields = buildPdfOutlineFields(
+      pages,
+      normalizeNativePdfOutline(infoResult?.outline)
+    );
+    return {
+      ...outlineFields,
       text: joinExtractedPages(pages),
       pages,
       parser: 'pdf-parse',
       pageCount: infoResult?.total ?? textResult.total ?? pages.length,
       qualityWarning: PDF_TEXT_FALLBACK_WARNING,
       usedFallbackParser: true,
-    });
+    };
   } finally {
     await parser.destroy().catch(() => undefined);
   }
 };
 
 const extractWithPdftotext = async (
-  pdfBuffer: Buffer
+  pdfBuffer: Buffer,
+  options: PdfTextExtractionOptions = {}
 ): Promise<{
-  result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'> | null;
+  result: ExtractedPdfTextWithoutSourceMetadata | null;
   failureReason?: string;
 }> => {
+  const timeoutMs = options.pdftotextTimeoutMs;
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), TMP_DIR_PREFIX));
   const pdfPath = path.join(tmpDir, 'document.pdf');
 
@@ -238,7 +502,8 @@ const extractWithPdftotext = async (
       ['-layout', '-enc', 'UTF-8', '-eol', 'unix', pdfPath, '-'],
       {
         windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024,
+        maxBuffer: Math.min(64 * 1024 * 1024, options.maxOutputBytes ?? Number.MAX_SAFE_INTEGER),
+        ...(timeoutMs === undefined ? {} : { killSignal: 'SIGKILL', timeout: timeoutMs }),
       }
     );
 
@@ -258,7 +523,7 @@ const extractWithPdftotext = async (
       return { result: null, failureReason: 'pdftotext_empty_output' };
     }
 
-    const result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'> = {
+    const result: ExtractedPdfTextWithoutSourceMetadata = {
       text: normalizedText,
       pages,
       parser: 'pdftotext',
@@ -279,19 +544,22 @@ const extractWithPdftotext = async (
   }
 };
 
-export const extractPdfText = async (pdfDataUrl: string): Promise<ExtractedPdfText> => {
+export const extractPdfText = async (
+  pdfDataUrl: string,
+  options: PdfTextExtractionOptions = {}
+): Promise<ExtractedPdfText> => {
   const pdfBuffer = decodePdfDataUrl(pdfDataUrl);
   const sourceHash = buildSourceHash(pdfBuffer);
 
-  const pdftotextResult = await extractWithPdftotext(pdfBuffer);
+  const pdftotextResult = await extractWithPdftotext(pdfBuffer, options);
   if (pdftotextResult.result) {
     return {
-      ...(await attachPdfOutline(pdfBuffer, pdftotextResult.result)),
+      ...(await attachPdfOutline(pdfBuffer, pdftotextResult.result, options)),
       sourceHash,
     };
   }
 
-  const fallbackResult = await extractWithPdfParse(pdfBuffer);
+  const fallbackResult = await extractWithPdfParse(pdfBuffer, options);
   return {
     ...fallbackResult,
     parserFallbackReason: pdftotextResult.failureReason,
