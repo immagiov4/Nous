@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { formatYouTubeTranscript } from '@shared/youtubeTranscript';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -137,7 +137,7 @@ test('keeps a selected durable PDF image renderable across export and reload', (
   const reopened = normalizeStoredProject(wireSnapshot);
   const [artifact] = collectLearningArtifactPayloads({ snapshot: reopened });
 
-  assert.deepEqual(reopened.documentAssets?.usedImages[0], {
+  expect(reopened.documentAssets?.usedImages[0]).toEqual({
     ...image,
     caption: undefined,
     intrinsicHeight: undefined,
@@ -145,11 +145,10 @@ test('keeps a selected durable PDF image renderable across export and reload', (
     pageNumber: undefined,
     textCurrent: '',
   });
-  assert.equal(artifact && 'image' in artifact ? artifact.image.id : undefined, image.id);
-  assert.deepEqual(
-    artifact && 'image' in artifact && 'asset' in artifact.image ? artifact.image.asset : undefined,
-    image.asset
-  );
+  expect(artifact && 'image' in artifact ? artifact.image.id : undefined).toBe(image.id);
+  expect(
+    artifact && 'image' in artifact && 'asset' in artifact.image ? artifact.image.asset : undefined
+  ).toEqual(image.asset);
 });
 
 test('modern archive exports round-trip raw bytes, storage reference, and the complete index', () => {
