@@ -102,6 +102,12 @@ a feature is core or better left to external tools.
 - Centralize shared AI prompt constants and environment-specific rules.
 - If a feature changes AI behavior, update the shared instructions and entrypoint docs together.
 
+## Cubic Wiki Governance
+
+- Once the Cubic/wiki documentation is stabilized, every pull request that changes contracts, APIs, persistence, workflows, user-visible behavior, or UI must update the pertinent `.cubic/wiki` page in the same cycle, or explicitly state in the pull request why no update is needed.
+- Cubic remains the regenerable foundation for architectural documentation. Do not duplicate architectural documentation outside `.cubic/wiki`.
+- The historical `Lumina-Reader` repository is out of scope and must not be consulted or used.
+
 ## Validation Commands
 
 ```bash
