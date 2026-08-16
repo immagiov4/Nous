@@ -1,5 +1,8 @@
 ARG BUN_VERSION=1.3.13
 ARG CODEX_VERSION=0.144.3
+ARG NODE_VERSION=22.23.2
+FROM node:${NODE_VERSION}-bookworm-slim AS node-runtime
+
 FROM oven/bun:${BUN_VERSION}-slim AS dependencies
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -38,8 +41,9 @@ COPY packages packages
 FROM oven/bun:${BUN_VERSION}-slim AS backend
 ARG CODEX_VERSION
 USER root
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates nodejs poppler-utils \
+    && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
     && BUN_INSTALL=/usr/local bun add --global "@openai/codex@${CODEX_VERSION}" \
     && mkdir -p /home/bun/.codex \
     && chown bun:bun /home/bun/.codex \
