@@ -53,7 +53,7 @@ router.post('/research-context', async (req, res) => {
   try {
     const research = await buildYouTubeResearchOutcome(query, language);
     const videoClipsEnabled = areVideoClipsEnabled();
-    // The writer needs the transcript text and title in addition to timestamp ranges.
+    // Model context and clip candidates are both derived from the authoritative timed segments.
     return res.json({
       success: true,
       context: research.context,
