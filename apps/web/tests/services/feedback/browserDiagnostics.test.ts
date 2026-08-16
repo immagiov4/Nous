@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
+  clearFeedbackDiagnostics,
   getFeedbackDiagnosticsSnapshot,
   initializeFeedbackDiagnostics,
   sanitizeFeedbackDiagnosticText,
@@ -10,6 +11,7 @@ describe('browser feedback diagnostics', () => {
   let cleanup: () => void;
 
   beforeEach(() => {
+    clearFeedbackDiagnostics();
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     globalThis.history.replaceState({}, '', '/course/123?access_token=page-secret#lesson');
@@ -18,6 +20,7 @@ describe('browser feedback diagnostics', () => {
 
   afterEach(() => {
     cleanup();
+    clearFeedbackDiagnostics();
     vi.restoreAllMocks();
   });
 
@@ -65,6 +68,20 @@ describe('browser feedback diagnostics', () => {
           'Errore non gestito: Rendering failed for [EMAIL RIMOSSA] (https://nous.test/assets/app.js:42)',
       }),
     ]);
+  });
+
+  test('preserves diagnostics across observer teardown until explicitly cleared', () => {
+    console.error('[Nous] multi-step failure correlation 123e4567-e89b-12d3-a456-426614174000');
+    cleanup();
+    expect(getFeedbackDiagnosticsSnapshot().consoleEntries).toHaveLength(1);
+
+    cleanup = initializeFeedbackDiagnostics();
+    expect(getFeedbackDiagnosticsSnapshot().consoleEntries[0]?.message).toContain(
+      'multi-step failure'
+    );
+
+    clearFeedbackDiagnostics();
+    expect(getFeedbackDiagnosticsSnapshot().consoleEntries).toHaveLength(0);
   });
 
   test('redacts quoted and unquoted credential fields', () => {

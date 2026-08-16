@@ -466,6 +466,14 @@ const buildAuthenticatedHeaders = (
   ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
 });
 
+const logBackendFailureCorrelation = (response: Response): void => {
+  if (response.ok) return;
+  const correlationId = response.headers?.get('x-request-id')?.trim();
+  if (correlationId) {
+    console.warn(`[Nous][API] Codice assistenza: ${correlationId}`);
+  }
+};
+
 export const fetchWithSupabaseAuth = async (
   input: RequestInfo | URL,
   init: RequestInit = {}
@@ -479,11 +487,13 @@ export const fetchWithSupabaseAuth = async (
 
   const response = await sendRequest(session);
   if (response.status !== 401) {
+    logBackendFailureCorrelation(response);
     return response;
   }
 
   const refreshedSession = await refreshSupabaseSession();
   if (!refreshedSession) {
+    logBackendFailureCorrelation(response);
     return response;
   }
 
@@ -491,6 +501,7 @@ export const fetchWithSupabaseAuth = async (
   if (retryResponse.status === 401) {
     clearSupabaseSession();
   }
+  logBackendFailureCorrelation(retryResponse);
   return retryResponse;
 };
 

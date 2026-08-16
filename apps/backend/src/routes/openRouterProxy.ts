@@ -26,6 +26,7 @@ import {
 } from '../services/codexAppServer.js';
 import { openRouterModelSupportsImages } from '../services/openRouterModelCapabilities.js';
 import { isRecord } from '../utils/validation.js';
+import { consoleWorkflowLogger, emitWorkflowLog } from '../workflows/workflowObservability.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
@@ -517,9 +518,19 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
 
     pipeAiResponse(upstreamResponse, res);
   } catch (error) {
+    emitWorkflowLog(consoleWorkflowLogger, {
+      action: 'failed',
+      entity: 'lifecycle',
+      failure: {
+        code: error instanceof CodexAppServerError ? error.code : 'ai_proxy_request_failed',
+        kind: 'operational',
+        message: error instanceof Error ? error.message : 'AI proxy request failed.',
+      },
+      operation: 'ai_generation',
+      provider: resolvedRequest?.provider,
+    });
     console.error('[AI Proxy] Request failed.', {
       errorCode: error instanceof CodexAppServerError ? error.code : undefined,
-      errorMessage: error instanceof Error ? error.message : String(error),
       errorType: error instanceof Error ? error.name : 'unknown',
       headersSent: res.headersSent,
       model: resolvedRequest?.body.model,

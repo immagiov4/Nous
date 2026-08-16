@@ -5,6 +5,7 @@ import type { WorkflowRegistry } from './definition.js';
 import { snapshotImmutableJson } from './jsonSnapshot.js';
 import { materializeWorkflowStart } from './materialization.js';
 import type { CreateWorkflowRunInput } from './persistence/postgresWorkflowStore.js';
+import { getCorrelationId } from './requestObservability.js';
 import type { JsonValue, RegisteredWorkflow, WorkflowRun } from './types.js';
 import {
   publishWorkflowTransientEvents,
@@ -66,6 +67,7 @@ export const startWorkflowRun = async (
 
   const result = await input.store.createRun({
     config: resolvedConfig,
+    correlationId: getCorrelationId(),
     ...(input.dedupeKey === undefined ? {} : { dedupeKey: input.dedupeKey }),
     definitionHash: definition.definitionHash,
     definitionHashVersion: definition.definitionHashVersion,

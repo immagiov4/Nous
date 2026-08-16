@@ -62,6 +62,8 @@ import {
   type PdfMappingRepairApi,
   unavailablePdfMappingRepairApi,
 } from './workflows/pdfMappingRepairApi.js';
+import { createCorrelationId, runWithCorrelationId } from './workflows/requestObservability.js';
+import { consoleWorkflowLogger, emitWorkflowLog } from './workflows/workflowObservability.js';
 import {
   unavailableWorkflowRuntimeApi,
   type WorkflowRuntimeApi,
@@ -79,6 +81,7 @@ const PROJECTS_JSON_BODY_LIMIT = '300mb';
 const STT_JSON_BODY_LIMIT = '20mb';
 const FEEDBACK_JSON_BODY_LIMIT = '2mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const isPrivateIpv4Address = (hostname: string): boolean => {
   const octets = hostname.split('.').map(value => Number.parseInt(value, 10));
@@ -180,6 +183,41 @@ export const createApp = (options: CreateAppOptions = {}) => {
       credentials: true,
     })
   );
+  app.use((req, res, next) => {
+    const requestedCorrelationId = req.header('x-request-id')?.trim();
+    const correlationId =
+      requestedCorrelationId && UUID_PATTERN.test(requestedCorrelationId)
+        ? requestedCorrelationId
+        : createCorrelationId();
+    res.setHeader('x-request-id', correlationId);
+    res.on('finish', () => {
+      const requestPath = getRequestLogPath(req);
+      if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
+        emitWorkflowLog(consoleWorkflowLogger, {
+          action: res.statusCode >= 400 ? 'failed' : 'completed',
+          correlationId,
+          entity: 'lifecycle',
+          method: req.method,
+          operation: 'http_request',
+          path: requestPath,
+          statusCode: res.statusCode,
+        });
+      }
+    });
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        emitWorkflowLog(consoleWorkflowLogger, {
+          action: 'disconnected',
+          correlationId,
+          entity: 'lifecycle',
+          method: req.method,
+          operation: 'http_request',
+          path: getRequestLogPath(req),
+        });
+      }
+    });
+    runWithCorrelationId(correlationId, next);
+  });
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
   app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
   app.use('/api/projects', resolveCurrentUser);
@@ -200,16 +238,6 @@ export const createApp = (options: CreateAppOptions = {}) => {
   app.use('/api/stt', express.json({ limit: STT_JSON_BODY_LIMIT }));
   app.use('/api/feedback', express.json({ limit: FEEDBACK_JSON_BODY_LIMIT }));
   app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
-
-  app.use((req, res, next) => {
-    res.on('finish', () => {
-      const requestPath = getRequestLogPath(req);
-      if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
-        console.log(`[Backend] ${req.method} ${requestPath} -> ${res.statusCode}`);
-      }
-    });
-    next();
-  });
 
   app.use('/api/tts', resolveCurrentUser, ttsRouter);
   app.use('/api/auth', resolveCurrentUserForPasswordSetup, authRouter);
@@ -282,7 +310,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
 
   app.use(
     (
-      err: Error & { status?: number; type?: string },
+      err: Error & { code?: string; status?: number; type?: string },
       _req: express.Request,
       res: express.Response,
       _next: express.NextFunction
@@ -299,7 +327,24 @@ export const createApp = (options: CreateAppOptions = {}) => {
         return;
       }
 
-      console.error('[Backend] Unhandled error:', err);
+      emitWorkflowLog(consoleWorkflowLogger, {
+        action: 'failed',
+        entity: 'lifecycle',
+        failure: {
+          code: err.code ?? 'backend_unhandled_error',
+          kind: 'operational',
+          message: err.message,
+        },
+        operation: 'http_request',
+        path: getRequestLogPath(_req),
+        statusCode: 500,
+      });
+
+      console.error('[Backend] Unhandled error:', {
+        code: err.code,
+        status: err.status,
+        type: err.type,
+      });
       res.status(500).json({
         success: false,
         error: 'Errore interno del server.',

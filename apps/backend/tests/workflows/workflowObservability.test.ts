@@ -260,4 +260,36 @@ describe('workflow observability', () => {
     expect(output.info).not.toHaveBeenCalled();
     expect(output.warn).not.toHaveBeenCalled();
   });
+
+  test('projects correlated lifecycle failures without private payloads', () => {
+    const event = projectWorkflowLogEvent({
+      action: 'failed',
+      correlationId: '123e4567-e89b-12d3-a456-426614174000',
+      entity: 'lifecycle',
+      failure: {
+        code: 'schema_invalid',
+        details: {
+          diagnostic: { type: 'ZodError' },
+        },
+        kind: 'permanent',
+        message: 'private generated response',
+      },
+      method: 'POST',
+      operation: 'ai_generation',
+      path: '/api/openrouter/chat/completions',
+      provider: 'openrouter',
+      statusCode: 502,
+    });
+
+    expect(event).toMatchObject({
+      action: 'failed',
+      correlationId: '123e4567-e89b-12d3-a456-426614174000',
+      event: 'lifecycle',
+      failureCode: 'schema_invalid',
+      level: 'error',
+      operation: 'ai_generation',
+      provider: 'openrouter',
+    });
+    expect(JSON.stringify(event)).not.toContain('private');
+  });
 });

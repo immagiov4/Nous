@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 
 const callOpenRouterMock = vi.hoisted(() => vi.fn());
 
@@ -6,7 +7,7 @@ vi.mock('../../../services/openrouter/client.ts', () => ({
   callOpenRouter: callOpenRouterMock,
 }));
 
-const { createGenerationProgressObserver } = await import(
+const { createGenerationProgressBridge, createGenerationProgressObserver } = await import(
   '../../../services/openrouter/generationProgress.ts'
 );
 
@@ -19,6 +20,43 @@ describe('generation progress observer', () => {
         sections: ['Introduzione', 'Introduzione', 'Applicazioni'],
       })
     );
+  });
+
+  test('keeps the authoritative timer origin while recovery updates retry state', () => {
+    const progress: GenerationProgressSnapshot = {
+      operation: 'lesson',
+      sections: ['Preparo il materiale'],
+      stage: 'sources',
+      startedAt: Date.parse('2026-07-29T20:00:00.000Z'),
+      stepOffset: 0,
+      subject: 'Memoria',
+    };
+    let current = progress;
+    const bridge = createGenerationProgressBridge({
+      getProgress: () => current,
+      setProgress: next => {
+        current = next;
+      },
+    });
+
+    bridge.updateFromWorkflow({
+      attempt: 1,
+      createdAt: '2026-07-29T20:00:00.000Z',
+      retrying: false,
+      startedAt: '2026-07-29T20:00:02.000Z',
+    });
+    bridge.updateFromWorkflow({
+      attempt: 2,
+      createdAt: '2026-07-29T20:00:00.000Z',
+      failure: { code: 'provider_unavailable', kind: 'operational' },
+      retrying: true,
+      startedAt: '2026-07-29T20:00:03.000Z',
+    });
+
+    expect(current.startedAt).toBe(Date.parse('2026-07-29T20:00:00.000Z'));
+    expect(current.attempt).toBe(2);
+    expect(current.retrying).toBe(true);
+    expect(current.failure).toEqual({ code: 'provider_unavailable', kind: 'operational' });
   });
 
   afterEach(() => {

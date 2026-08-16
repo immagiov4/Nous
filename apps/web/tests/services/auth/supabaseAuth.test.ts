@@ -331,6 +331,22 @@ describe('Supabase auth session storage', () => {
     });
   });
 
+  test('records the backend correlation code for a terminal request failure', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValueOnce({
+      headers: new Headers({ 'x-request-id': '123e4567-e89b-12d3-a456-426614174000' }),
+      ok: false,
+      status: 503,
+    });
+
+    await fetchWithSupabaseAuth('https://backend.test/api/projects');
+
+    expect(warn).toHaveBeenCalledWith(
+      '[Nous][API] Codice assistenza: 123e4567-e89b-12d3-a456-426614174000'
+    );
+    warn.mockRestore();
+  });
+
   test('does not retry again when the refreshed token also receives a 401', async () => {
     saveSupabaseSession({
       accessToken: 'access-token-old',

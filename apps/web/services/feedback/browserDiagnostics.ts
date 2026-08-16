@@ -94,6 +94,10 @@ export const getFeedbackDiagnosticsSnapshot = (): FeedbackDiagnosticsSnapshot =>
   };
 };
 
+export const clearFeedbackDiagnostics = (): void => {
+  entries.length = 0;
+};
+
 export const initializeFeedbackDiagnostics = (): (() => void) => {
   if (initialized || typeof globalThis.window === 'undefined') return () => undefined;
   initialized = true;
@@ -132,7 +136,6 @@ export const initializeFeedbackDiagnostics = (): (() => void) => {
     for (const [level, original] of originalMethods) console[level] = original;
     globalThis.removeEventListener('error', handleWindowError);
     globalThis.removeEventListener('unhandledrejection', handleUnhandledRejection);
-    entries.length = 0;
     initialized = false;
   };
 };

@@ -33,6 +33,7 @@ import {
 
 interface ClaimCandidateRow {
   attempt_count: number;
+  correlation_id: string;
   definition_hash: string;
   definition_hash_version: number;
   input: unknown;
@@ -67,6 +68,7 @@ interface ClaimRunRow {
 
 interface ExpiredStepRow {
   attempt_count: number;
+  correlation_id: string;
   definition_hash: string;
   definition_hash_version: number;
   fencing_token: string;
@@ -252,6 +254,7 @@ export class PostgresWorkflowStepStore {
           node.error as previous_error,
           node.attempt_count,
           run.workflow_id,
+          run.correlation_id,
           run.definition_hash,
           run.definition_hash_version,
           run.step_policies,
@@ -343,6 +346,7 @@ export class PostgresWorkflowStepStore {
         nodeInstanceId: candidate.node_instance_id,
         ...(failure ? { previousAttemptFailure: failure } : {}),
         retryFeedback: retryFeedback(failure),
+        correlationId: candidate.correlation_id,
         runId: candidate.run_id,
         stepPolicies: candidate.step_policies,
         stepPoliciesVersion: candidate.step_policies_version,
@@ -533,6 +537,7 @@ export class PostgresWorkflowStepStore {
           node.fencing_token::text,
           node.worker_id,
           run.workflow_id,
+          run.correlation_id,
           run.definition_hash,
           run.definition_hash_version,
           run.step_policies,
@@ -571,6 +576,7 @@ export class PostgresWorkflowStepStore {
         runId: candidate.run_id,
         workerId: candidate.worker_id,
         workflowId: candidate.workflow_id,
+        correlationId: candidate.correlation_id,
       };
 
       const runRows = await sql<Array<{ cancellation_requested: boolean }>>`
