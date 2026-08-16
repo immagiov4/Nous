@@ -18,7 +18,10 @@ import {
   type SourceArchiveLimits,
   withSourceArchivePreparationAdmission,
 } from '../../src/projects/sourceArchive.js';
-import { PdfTextExtractionTimeoutError } from '../../src/services/pdfTextExtractor.js';
+import {
+  PdfTextExtractionOutputLimitError,
+  PdfTextExtractionTimeoutError,
+} from '../../src/services/pdfTextExtractor.js';
 
 const textEncoder = new TextEncoder();
 const GENEROUS_LIMITS: SourceArchiveLimits = {
@@ -314,10 +317,30 @@ describe('indexSourceArchive', () => {
 
     expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledWith(expect.any(String), {
       fallbackTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
+      maxOutputBytes: GENEROUS_LIMITS.maxEntryBytes,
       pdftotextTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.pdftotextTimeoutMs,
+      workerMaxOldGenerationSizeMb: expect.any(Number),
     });
     expect(result.entries.find(entry => entry.path === 'docs/timeout.pdf')).toMatchObject({
       warningReason: 'timeout',
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/valid.txt')).toMatchObject({
+      text: 'Fonte valida',
+    });
+  });
+
+  test('reports fallback output exhaustion as an independent PDF safety warning', async () => {
+    const archive = await createArchive([
+      { content: '%PDF-expanded', path: 'docs/expanded.pdf', type: 'file' },
+      { content: 'Fonte valida', path: 'docs/valid.txt', type: 'file' },
+    ]);
+    pdfTextExtractorMocks.extractPdfText.mockRejectedValue(new PdfTextExtractionOutputLimitError());
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    expect(result.entries.find(entry => entry.path === 'docs/expanded.pdf')).toMatchObject({
+      warningReason: 'safety-limit',
     });
     expect(result.entries.find(entry => entry.path === 'docs/valid.txt')).toMatchObject({
       text: 'Fonte valida',

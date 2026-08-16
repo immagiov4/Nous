@@ -7,7 +7,11 @@ import type {
   SourceArchivePdfWarningReason,
 } from '@shared/sourceArchiveWarnings';
 import JSZip from 'jszip';
-import { extractPdfText, PdfTextExtractionTimeoutError } from '../services/pdfTextExtractor.js';
+import {
+  extractPdfText,
+  PdfTextExtractionOutputLimitError,
+  PdfTextExtractionTimeoutError,
+} from '../services/pdfTextExtractor.js';
 import { encodePdfDataUrl } from '../utils/pdfDataUrl.js';
 
 export interface SourceArchiveLimits {
@@ -23,6 +27,10 @@ export const PROJECT_SOURCE_ARCHIVE_LIMITS: SourceArchiveLimits = {
 };
 
 export const PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES = 256_000_000;
+const BYTES_PER_MEGABYTE = 1_000_000;
+// pdf-parse can hold both aggregate and per-page JavaScript strings; UTF-16 needs up to
+// two heap bytes per output byte, so the approved input/output budgets derive this cap.
+const PDF_FALLBACK_TEXT_HEAP_MULTIPLIER = 4;
 
 export const PROJECT_SOURCE_ARCHIVE_PDF_POLICY = {
   archivePreparationTimeoutMs: 480_000,
@@ -509,6 +517,9 @@ const prepareSourceArchiveFile = async (
   if (admissionWarning) {
     return toBinarySourceArchiveFile(entry, admissionWarning);
   }
+  if (maxPreparedBytes <= 0) {
+    return toBinarySourceArchiveFile(entry, 'safety-limit');
+  }
 
   try {
     const remainingArchiveMs = Math.max(1, pdfBudget.deadlineAt - Date.now());
@@ -528,7 +539,17 @@ const prepareSourceArchiveFile = async (
     const extractedPdf = await withTimeout(
       extractPdfText(encodePdfDataUrl(entry.content), {
         fallbackTimeoutMs,
+        maxOutputBytes: Math.min(
+          maxPreparedBytes,
+          PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes
+        ),
         pdftotextTimeoutMs,
+        workerMaxOldGenerationSizeMb: Math.ceil(
+          (PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes +
+            PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes *
+              PDF_FALLBACK_TEXT_HEAP_MULTIPLIER) /
+            BYTES_PER_MEGABYTE
+        ),
       }),
       pdfTimeoutMs
     );
@@ -562,10 +583,10 @@ const prepareSourceArchiveFile = async (
       error,
       path: entry.path,
     });
-    return toBinarySourceArchiveFile(
-      entry,
-      error instanceof PdfTextExtractionTimeoutError ? 'timeout' : 'parser-failed'
-    );
+    let warningReason: SourceArchivePdfWarningReason = 'parser-failed';
+    if (error instanceof PdfTextExtractionTimeoutError) warningReason = 'timeout';
+    if (error instanceof PdfTextExtractionOutputLimitError) warningReason = 'safety-limit';
+    return toBinarySourceArchiveFile(entry, warningReason);
   }
 
   return toBinarySourceArchiveFile(entry, 'no-usable-text');
