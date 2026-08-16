@@ -18,10 +18,22 @@ const TMP_DIR_PREFIX = 'nous-pdf-text-';
 const PDF_PROCESS_SERIALIZATION_OVERHEAD_BYTES = 1_000_000;
 const PDF_PROCESS_SERIALIZATION_BYTES_PER_OUTPUT_BYTE = 2;
 const PDF_PROCESS_STDERR_MAX_CHARS = 8_192;
-const PDF_TEXT_FALLBACK_NODE_EXECUTABLE =
-  process.platform === 'win32'
-    ? String.raw`C:\Program Files\nodejs\node.exe`
-    : '/usr/local/bin/node';
+export const resolvePdfTextFallbackNodeExecutable = (
+  configuredExecutable = process.env.PDF_TEXT_FALLBACK_NODE_EXECUTABLE
+): string => {
+  const executable = configuredExecutable?.trim();
+  if (executable) {
+    if (!path.isAbsolute(executable)) {
+      throw new TypeError('PDF_TEXT_FALLBACK_NODE_EXECUTABLE must be an absolute path.');
+    }
+    return executable;
+  }
+  if (process.platform === 'win32') {
+    return String.raw`C:\Program Files\nodejs\node.exe`;
+  }
+  return path.join(path.dirname(process.execPath), 'node');
+};
+const PDF_TEXT_FALLBACK_NODE_EXECUTABLE = resolvePdfTextFallbackNodeExecutable();
 const PDF_TEXT_FALLBACK_WARNING =
   'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
 
@@ -247,6 +259,9 @@ const runPdfTextFallbackProcess = (
       if (stderr.length < PDF_PROCESS_STDERR_MAX_CHARS) stderr += chunk.toString('utf8');
     });
     fallbackProcess.once('error', error => settle(() => reject(error)));
+    fallbackProcess.stdin.on('error', error => {
+      if (!settled) settle(() => reject(error));
+    });
     fallbackProcess.once('close', code =>
       settle(() => {
         if (code !== 0) {
