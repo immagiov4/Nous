@@ -533,6 +533,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
     });
     emitWorkflowLog(this.logger, {
       action: result.created ? 'created' : 'deduplicated',
+      correlationId: input.correlationId,
       entity: 'run',
       run: result.run,
     });

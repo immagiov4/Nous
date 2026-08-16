@@ -4,6 +4,7 @@ import {
   clearFeedbackDiagnostics,
   getFeedbackDiagnosticsSnapshot,
   initializeFeedbackDiagnostics,
+  logBackendFailureCorrelationId,
   sanitizeFeedbackDiagnosticText,
 } from '../../../services/feedback/browserDiagnostics.ts';
 
@@ -13,6 +14,7 @@ describe('browser feedback diagnostics', () => {
   beforeEach(() => {
     clearFeedbackDiagnostics();
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     globalThis.history.replaceState({}, '', '/course/123?access_token=page-secret#lesson');
     cleanup = initializeFeedbackDiagnostics();
@@ -68,6 +70,23 @@ describe('browser feedback diagnostics', () => {
           'Errore non gestito: Rendering failed for [EMAIL RIMOSSA] (https://nous.test/assets/app.js:42)',
       }),
     ]);
+  });
+
+  test('records validated backend support codes in feedback diagnostics', () => {
+    const correlationId = '123e4567-e89b-42d3-a456-426614174000';
+
+    logBackendFailureCorrelationId(correlationId);
+    logBackendFailureCorrelationId('private-invalid-value');
+
+    expect(getFeedbackDiagnosticsSnapshot()).toMatchObject({
+      correlationIds: [correlationId],
+      consoleEntries: [
+        {
+          level: 'warn',
+          message: `[Nous][API] Codice assistenza: ${correlationId}`,
+        },
+      ],
+    });
   });
 
   test('preserves diagnostics across observer teardown until explicitly cleared', () => {

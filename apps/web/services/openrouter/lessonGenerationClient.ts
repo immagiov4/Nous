@@ -6,6 +6,7 @@ import type {
 
 import type { LessonNode, PdfDocumentAssets, ResearchLessonDossier } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -226,6 +227,7 @@ const waitForTerminalRun = async (
 };
 
 const throwForTerminalFailure = (job: LessonWorkflowSnapshot): never => {
+  logBackendFailureCorrelationId(job.correlationId);
   if (job.errorCode === 'lesson_source_unavailable') {
     throw new LessonSourceUnavailableError();
   }

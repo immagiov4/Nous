@@ -264,6 +264,7 @@ interface WorkflowNotificationLogIdentity {
 type WorkflowRunLogSource =
   | {
       readonly action: 'created' | 'deduplicated';
+      readonly correlationId?: string;
       readonly entity: 'run';
       readonly run: WorkflowRun;
     }
@@ -427,9 +428,14 @@ const attemptLevel = (
 
 const projectRunLogEvent = (source: WorkflowRunLogSource): WorkflowRunLogEvent => {
   if ('run' in source) {
+    const currentCorrelationId = source.correlationId ?? getCorrelationId();
+    const correlationId =
+      source.action === 'deduplicated'
+        ? (currentCorrelationId ?? source.run.correlationId)
+        : (source.run.correlationId ?? currentCorrelationId);
     return {
       action: source.action,
-      ...(source.run.correlationId ? { correlationId: source.run.correlationId } : {}),
+      ...(correlationId ? { correlationId } : {}),
       cleanupStatus: source.run.cleanupStatus,
       event: 'workflow.run',
       level: RUN_LEVEL_BY_ACTION[source.action],

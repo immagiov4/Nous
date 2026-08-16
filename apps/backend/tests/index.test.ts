@@ -1,6 +1,8 @@
 import { once } from 'node:events';
+import request from 'supertest';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createApp, isPrivateNetworkFrontendOrigin } from '../src/index.js';
+import type { LessonGenerationApi } from '../src/workflows/lessonGenerationApi.js';
 
 describe('private-network frontend origins', () => {
   test('allows the local Vite app from a private LAN address', () => {
@@ -42,6 +44,78 @@ describe('request lifecycle observability', () => {
       );
       expect(info).toHaveBeenCalledWith(expect.stringContaining('"event":"lifecycle"'));
       expect(info).toHaveBeenCalledWith(expect.stringContaining('"operation":"http_request"'));
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  test('keeps safe internal exception details in backend logs and a stable client response', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const internalMessage = 'Database transaction lost.';
+    const lessonGenerationApi = {
+      get: vi.fn(),
+      start: vi.fn().mockRejectedValue(new Error(internalMessage)),
+      startSublesson: vi.fn(),
+    } satisfies LessonGenerationApi;
+
+    const response = await request(createApp({ lessonGenerationApi }))
+      .post('/api/lesson-workflows/lessons')
+      .send({ projectId: 'project-1', requestKey: 'request-1', sectionId: 'lesson-1' });
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      error: 'Errore interno del server.',
+      success: false,
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      '[Backend] Unhandled error:',
+      expect.objectContaining({
+        correlationId: expect.any(String),
+        diagnostic: {
+          message: internalMessage,
+          type: 'Error',
+        },
+        stack: expect.any(String),
+      })
+    );
+  });
+
+  test('never retains malformed request payloads in unhandled-error logs', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const server = createApp().listen(0, '127.0.0.1');
+
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected the test server to listen on a TCP port.');
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/chat`, {
+        body: '{"api_key":"private-credential",',
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        error: 'Errore interno del server.',
+        success: false,
+      });
+      const internalLog = errorLog.mock.calls.find(
+        ([message]) => message === '[Backend] Unhandled error:'
+      );
+      expect(internalLog?.[1]).toMatchObject({
+        correlationId: expect.any(String),
+        diagnostic: {
+          type: 'SyntaxError',
+        },
+        stack: expect.any(String),
+      });
+      expect(internalLog?.[1]).not.toHaveProperty('diagnostic.message');
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain('private-credential');
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close(error => (error ? reject(error) : resolve()));

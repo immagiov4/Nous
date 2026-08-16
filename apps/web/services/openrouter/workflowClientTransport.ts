@@ -100,6 +100,7 @@ export const readWorkflowPollJson = async (
 
 export interface WorkflowSnapshotEnvelope {
   readonly attempt?: number;
+  readonly correlationId?: string;
   readonly createdAt: string;
   readonly errorCode?: string;
   readonly id: string;
@@ -127,6 +128,7 @@ export const isWorkflowSnapshotEnvelope = (
     isNonEmptyString(snapshot.updatedAt) &&
     (snapshot.attempt === undefined ||
       (Number.isSafeInteger(snapshot.attempt) && Number(snapshot.attempt) > 0)) &&
+    (snapshot.correlationId === undefined || isNonEmptyString(snapshot.correlationId)) &&
     (snapshot.errorCode === undefined || isNonEmptyString(snapshot.errorCode)) &&
     (snapshot.startedAt === undefined || isNonEmptyString(snapshot.startedAt))
   );

@@ -23,7 +23,9 @@ const JWT_PATTERN = /\beyJ[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]+\b
 const PROVIDER_SECRET_PATTERN = /\b(?:github_pat_|gh[pousr]_|sk-)[a-z0-9_-]{16,}\b/gi;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const CORRELATION_CONTEXT_PATTERN = /(assistenza|correlation|request.?id)/i;
-const CORRELATION_ID_PATTERN = /\b(?:[0-9a-f]{8}-[0-9a-f-]{27,}|[a-z0-9][a-z0-9_-]{7,63})\b/gi;
+const CORRELATION_ID_PATTERN =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/giu;
+const EXACT_CORRELATION_ID_PATTERN = new RegExp(`^(?:${CORRELATION_ID_PATTERN.source})$`, 'iu');
 
 const entries: FeedbackConsoleEntry[] = [];
 let initialized = false;
@@ -96,6 +98,13 @@ export const getFeedbackDiagnosticsSnapshot = (): FeedbackDiagnosticsSnapshot =>
 
 export const clearFeedbackDiagnostics = (): void => {
   entries.length = 0;
+};
+
+export const logBackendFailureCorrelationId = (value: unknown): void => {
+  if (typeof value !== 'string') return;
+  const correlationId = value.trim();
+  if (!EXACT_CORRELATION_ID_PATTERN.test(correlationId)) return;
+  console.warn(`[Nous][API] Codice assistenza: ${correlationId}`);
 };
 
 export const initializeFeedbackDiagnostics = (): (() => void) => {

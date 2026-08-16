@@ -513,8 +513,10 @@ describe('generateDurableLesson', () => {
   });
 
   test('surfaces a terminal workflow failure without exposing backend details', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       response({
+        correlationId: '123e4567-e89b-12d3-a456-426614174000',
         errorCode: 'lesson_provider_failed',
         id: 'run-failed',
         projectId: 'project-1',
@@ -527,6 +529,10 @@ describe('generateDurableLesson', () => {
     await expect(
       generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
     ).rejects.toThrow('La generazione della lezione non è riuscita');
+    expect(warn).toHaveBeenCalledWith(
+      '[Nous][API] Codice assistenza: 123e4567-e89b-12d3-a456-426614174000'
+    );
+    warn.mockRestore();
   });
 
   test.each(

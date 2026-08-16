@@ -55,6 +55,7 @@ describe('/api/openrouter proxy', () => {
     fetchMock.mockResolvedValue({
       body: null,
       headers: new Headers({ 'content-type': 'application/json' }),
+      ok: true,
       status: 200,
     });
   });
@@ -82,6 +83,31 @@ describe('/api/openrouter proxy', () => {
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
     expect(fetchOptions?.body).toContain('"model":"server/assessment-model"');
     expect(fetchOptions?.body).not.toContain('client/ignored-model');
+  });
+
+  test('records provider-specific AI failures for non-successful upstream responses', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ privateProviderResponse: 'must-not-be-logged' }), {
+        headers: { 'content-type': 'application/json' },
+        status: 429,
+      })
+    );
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
+      .send({ messages: [{ role: 'user', content: 'Ciao' }] });
+
+    expect(response.status).toBe(429);
+    const lifecycleFailure = errorLog.mock.calls
+      .flat()
+      .find(value => typeof value === 'string' && value.includes('"operation":"ai_generation"'));
+    expect(lifecycleFailure).toContain('"failureCode":"ai_provider_http_429"');
+    expect(lifecycleFailure).toContain('"provider":"openrouter"');
+    expect(lifecycleFailure).toContain('"statusCode":429');
+    expect(lifecycleFailure).not.toContain('must-not-be-logged');
+    errorLog.mockRestore();
   });
 
   test('rejects missing and unknown model slots instead of defaulting to lesson', async () => {
@@ -171,6 +197,7 @@ describe('/api/openrouter proxy', () => {
     fetchMock.mockResolvedValue({
       body: null,
       headers: new Headers({ 'content-type': 'application/json' }),
+      ok: true,
       status: 200,
     });
 
@@ -353,6 +380,7 @@ describe('/api/openrouter proxy', () => {
       .mockResolvedValueOnce({
         body: null,
         headers: new Headers({ 'content-type': 'application/json' }),
+        ok: true,
         status: 200,
       });
 

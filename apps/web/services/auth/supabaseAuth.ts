@@ -1,4 +1,5 @@
 import { TransientRequestError } from '../core/errorMessage.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 import { getNousRuntimeConfig } from '../runtimeConfig.ts';
 
@@ -468,10 +469,7 @@ const buildAuthenticatedHeaders = (
 
 const logBackendFailureCorrelation = (response: Response): void => {
   if (response.ok) return;
-  const correlationId = response.headers?.get('x-request-id')?.trim();
-  if (correlationId) {
-    console.warn(`[Nous][API] Codice assistenza: ${correlationId}`);
-  }
+  logBackendFailureCorrelationId(response.headers?.get('x-request-id'));
 };
 
 export const fetchWithSupabaseAuth = async (

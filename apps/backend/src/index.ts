@@ -37,6 +37,7 @@ import {
 } from './routes/workflowOutboxAdmin.js';
 import { createWorkflowRouter } from './routes/workflows.js';
 import youtubeRouter from './routes/youtube.js';
+import { sanitizeDiagnosticText } from './utils/sanitizeDiagnosticText.js';
 import { timestampIso } from './utils/time.js';
 import {
   type ArtifactDraftApi,
@@ -62,7 +63,12 @@ import {
   type PdfMappingRepairApi,
   unavailablePdfMappingRepairApi,
 } from './workflows/pdfMappingRepairApi.js';
-import { createCorrelationId, runWithCorrelationId } from './workflows/requestObservability.js';
+import {
+  createCorrelationId,
+  getCorrelationId,
+  runWithCorrelationId,
+} from './workflows/requestObservability.js';
+import { toWorkflowErrorDiagnostic } from './workflows/workflowErrorDiagnostics.js';
 import { consoleWorkflowLogger, emitWorkflowLog } from './workflows/workflowObservability.js';
 import {
   unavailableWorkflowRuntimeApi,
@@ -122,6 +128,19 @@ const shouldLogRequest = (method: string, path: string, statusCode: number): boo
 
 const getRequestLogPath = (req: express.Request): string =>
   req.originalUrl.split('?')[0] || req.path;
+
+const readSafeStackFrames = (error: Error): string | undefined => {
+  const stackFrames = error.stack?.split('\n').slice(1).join('\n').trim();
+  return stackFrames ? sanitizeDiagnosticText(stackFrames, stackFrames.length) : undefined;
+};
+
+const toBackendErrorDiagnostic = (
+  error: Error & { code?: string; status?: number; type?: string }
+) =>
+  toWorkflowErrorDiagnostic(
+    error,
+    error.type === 'entity.parse.failed' ? {} : { trustedMessage: error.message }
+  );
 
 const requireProjectImportChunkContentType: express.RequestHandler = (req, res, next) => {
   if (req.is('application/octet-stream') || req.is('text/plain')) {
@@ -328,13 +347,16 @@ export const createApp = (options: CreateAppOptions = {}) => {
         return;
       }
 
+      const diagnostic = toBackendErrorDiagnostic(err);
+      const stack = readSafeStackFrames(err);
       emitWorkflowLog(consoleWorkflowLogger, {
         action: 'failed',
         entity: 'lifecycle',
         failure: {
           code: err.code ?? 'backend_unhandled_error',
+          details: { diagnostic },
           kind: 'operational',
-          message: err.message,
+          message: 'Unhandled backend exception.',
         },
         operation: 'http_request',
         path: getRequestLogPath(_req),
@@ -342,9 +364,9 @@ export const createApp = (options: CreateAppOptions = {}) => {
       });
 
       console.error('[Backend] Unhandled error:', {
-        code: err.code,
-        status: err.status,
-        type: err.type,
+        correlationId: getCorrelationId(),
+        diagnostic,
+        ...(stack ? { stack } : {}),
       });
       res.status(500).json({
         success: false,

@@ -490,6 +490,26 @@ const pipeAiResponse = (upstreamResponse: globalThis.Response, res: Response): v
   Readable.fromWeb(upstreamResponse.body as unknown as NodeReadableStream<Uint8Array>).pipe(res);
 };
 
+const emitAiGenerationFailure = (input: {
+  code: string;
+  message: string;
+  provider?: AiProvider;
+  statusCode?: number;
+}): void => {
+  emitWorkflowLog(consoleWorkflowLogger, {
+    action: 'failed',
+    entity: 'lifecycle',
+    failure: {
+      code: input.code,
+      kind: 'operational',
+      message: input.message,
+    },
+    operation: 'ai_generation',
+    provider: input.provider,
+    statusCode: input.statusCode,
+  });
+};
+
 const router = Router();
 
 router.post('/chat/completions', async (req: Request, res: Response) => {
@@ -516,17 +536,19 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
       }
     );
 
+    if (!upstreamResponse.ok) {
+      emitAiGenerationFailure({
+        code: `ai_provider_http_${upstreamResponse.status}`,
+        message: 'The AI provider returned a non-success status.',
+        provider: resolvedRequest.provider,
+        statusCode: upstreamResponse.status,
+      });
+    }
     pipeAiResponse(upstreamResponse, res);
   } catch (error) {
-    emitWorkflowLog(consoleWorkflowLogger, {
-      action: 'failed',
-      entity: 'lifecycle',
-      failure: {
-        code: error instanceof CodexAppServerError ? error.code : 'ai_proxy_request_failed',
-        kind: 'operational',
-        message: error instanceof Error ? error.message : 'AI proxy request failed.',
-      },
-      operation: 'ai_generation',
+    emitAiGenerationFailure({
+      code: error instanceof CodexAppServerError ? error.code : 'ai_proxy_request_failed',
+      message: error instanceof Error ? error.message : 'AI proxy request failed.',
       provider: resolvedRequest?.provider,
     });
     console.error('[AI Proxy] Request failed.', {

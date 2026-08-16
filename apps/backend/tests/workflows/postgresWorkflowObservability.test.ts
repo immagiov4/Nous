@@ -14,6 +14,7 @@ import {
   type WorkflowUndoClaim,
 } from '../../src/workflows/postgresWorkflowUndoStore.js';
 import { PostgresWorkflowWaitStore } from '../../src/workflows/postgresWorkflowWaitStore.js';
+import { runWithCorrelationId } from '../../src/workflows/requestObservability.js';
 import { canonicalJson } from '../../src/workflows/schemaFingerprint.js';
 import type { RegisteredWorkflow, WorkflowStepClaim } from '../../src/workflows/types.js';
 import type {
@@ -22,6 +23,8 @@ import type {
 } from '../../src/workflows/workflowObservability.js';
 
 const RUN_ID = '00000000-0000-0000-0000-000000000001';
+const PERSISTED_CORRELATION_ID = '123e4567-e89b-12d3-a456-426614174000';
+const RETRY_CORRELATION_ID = '223e4567-e89b-42d3-a456-426614174001';
 const NOW = '2026-07-29T10:00:00.000Z';
 const STORED_RUN_INPUT = { prompt: 'private prompt' };
 const STORED_REQUEST_FINGERPRINT = buildSha256HexDigest(
@@ -71,6 +74,7 @@ const storedRun = {
   cancellation_requested: false,
   cleanup_status: 'not-required',
   completed_at: null,
+  correlation_id: PERSISTED_CORRELATION_ID,
   created_at: NOW,
   definition_hash: 'a'.repeat(64),
   definition_hash_version: 1,
@@ -132,6 +136,7 @@ const definition = {
 
 const undoClaim: WorkflowUndoClaim = {
   attemptNumber: 1,
+  correlationId: PERSISTED_CORRELATION_ID,
   definitionHash: stepClaim.definitionHash,
   definitionHashVersion: stepClaim.definitionHashVersion,
   fencingToken: '1',
@@ -215,17 +220,29 @@ describe('PostgreSQL workflow observability', () => {
     };
 
     await expect(store.createRun(input)).resolves.toMatchObject({ created: true });
-    await expect(store.createRun(input)).resolves.toMatchObject({ created: false });
+    await expect(
+      runWithCorrelationId(RETRY_CORRELATION_ID, () => store.createRun(input))
+    ).resolves.toMatchObject({ created: false });
 
     expect(logs.events).toEqual([
-      expect.objectContaining({ action: 'created', event: 'workflow.run', runId: RUN_ID }),
+      expect.objectContaining({
+        action: 'created',
+        correlationId: PERSISTED_CORRELATION_ID,
+        event: 'workflow.run',
+        runId: RUN_ID,
+      }),
       expect.objectContaining({
         action: 'created',
         event: 'workflow.wait',
         runId: RUN_ID,
         waitId: 'wait-1',
       }),
-      expect.objectContaining({ action: 'deduplicated', event: 'workflow.run', runId: RUN_ID }),
+      expect.objectContaining({
+        action: 'deduplicated',
+        correlationId: RETRY_CORRELATION_ID,
+        event: 'workflow.run',
+        runId: RUN_ID,
+      }),
     ]);
     expect(JSON.stringify(logs.events)).not.toContain('private');
     expect(database.remaining()).toBe(0);
@@ -236,6 +253,7 @@ describe('PostgreSQL workflow observability', () => {
       [
         {
           attempt_count: 0,
+          correlation_id: PERSISTED_CORRELATION_ID,
           definition_hash: 'a'.repeat(64),
           definition_hash_version: 1,
           input: { prompt: 'private step input' },
@@ -283,6 +301,7 @@ describe('PostgreSQL workflow observability', () => {
       [
         {
           attempt_count: 0,
+          correlation_id: PERSISTED_CORRELATION_ID,
           definition_hash: 'a'.repeat(64),
           definition_hash_version: 1,
           input: { content: 'private undo input' },
@@ -331,7 +350,12 @@ describe('PostgreSQL workflow observability', () => {
       expect.objectContaining({ action: 'claimed', event: 'workflow.attempt', operation: 'step' }),
     ]);
     expect(undoLogs.events).toEqual([
-      expect.objectContaining({ action: 'claimed', event: 'workflow.attempt', operation: 'undo' }),
+      expect.objectContaining({
+        action: 'claimed',
+        correlationId: PERSISTED_CORRELATION_ID,
+        event: 'workflow.attempt',
+        operation: 'undo',
+      }),
     ]);
     expect(JSON.stringify([...stepLogs.events, ...undoLogs.events])).not.toContain('private');
     expect(stepDatabase.remaining()).toBe(0);
