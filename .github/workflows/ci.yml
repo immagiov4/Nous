@@ -52,6 +52,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -75,18 +77,22 @@ jobs:
       - name: Run Canonical Auth/RLS Contract
         run: bun run test:supabase-contract
 
-      - name: Run Critical Workflow PostgreSQL Contract
+      - name: Select Workflow PostgreSQL Contract
+        id: workflow-postgres
         if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -o pipefail
+          git diff --name-only --no-renames -z "$BASE_SHA" "$HEAD_SHA" | \
+            bun run scripts/select-workflow-postgres-contract.ts
+
+      - name: Run Critical Workflow PostgreSQL Contract
+        if: github.event_name == 'pull_request' && steps.workflow-postgres.outputs.changed == 'true'
         run: |
           eval "$(bunx supabase status -o env)"
-          WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL" RUN_WORKFLOW_INTEGRATION_TESTS=1 \
-            bun --bun vitest run --config apps/web/vitest.config.ts \
-              apps/backend/tests/workflows/postgresWorkflowRunStore.integration.test.ts \
-              apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts \
-              apps/backend/tests/workflows/postgresWorkflowSignalStore.integration.test.ts && \
-          WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL" RUN_WORKFLOW_INTEGRATION_TESTS=1 \
-            bun --bun vitest run --config apps/web/vitest.config.ts \
-              apps/backend/tests/workflows/workflowProcessCrash.integration.test.ts
+          WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL" bun run test:workflow-postgres:critical
 
       - name: Run Full Workflow PostgreSQL Contract
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

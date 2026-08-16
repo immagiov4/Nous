@@ -115,8 +115,20 @@ recovery runs separately. The suite also covers rolling-definition authority, st
 workflow-set version ordering, late checkpoint/undo fencing, worker crashes, and cross-replica
 project-revision inbox delivery.
 
-CI runs the critical run/execution/signal/crash subset on pull requests and the complete
-`test:workflow-postgres` contract on pushes to `main`. Real provider tests remain manual and paid.
+CI runs `test:workflow-postgres:critical` on pull requests that change backend runtime code,
+workflow integration tests, shared persistence contracts, migrations, dependency resolution, or the
+CI/test configuration and shared Vitest setup. The backend boundary intentionally includes
+transitive workflow dependencies in configuration, services, and utilities. The selector reads the
+complete base-to-head Git diff, with rename detection disabled so moving a load-bearing file out of
+an owned directory still selects the contract. The subset covers run persistence, fencing, signal
+replay, and abrupt-process recovery. The complete `test:workflow-postgres` matrix, including undo
+and project transactions, runs on every push to `main`. Real provider tests remain manual and paid.
+
+Evidence from three successful `main` runs on 2026-08-15 (Actions runs 31906123273, 31908105475,
+and 31908540049) measured the complete PostgreSQL test step at 13–15 seconds. The surrounding
+Supabase contract job took 4 minutes 12 seconds to 4 minutes 28 seconds, of which local Supabase
+startup took 3 minutes 8 seconds to 3 minutes 17 seconds. The pull-request subset therefore reuses
+the already-running Supabase job instead of provisioning a second database stack.
 
 ## Real Codex workflow smoke test (manual and paid)
 

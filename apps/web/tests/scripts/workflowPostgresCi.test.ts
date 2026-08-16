@@ -4,9 +4,13 @@ import { describe, expect, test } from 'vitest';
 import { parse } from 'yaml';
 
 type WorkflowStep = {
+  env?: Record<string, string>;
   if?: string;
+  id?: string;
   name?: string;
   run?: string;
+  uses?: string;
+  with?: Record<string, unknown>;
 };
 
 type WorkflowConfig = {
@@ -14,6 +18,10 @@ type WorkflowConfig = {
 };
 
 const workflow = parse(readFileSync(resolve('.github/workflows/ci.yml'), 'utf8')) as WorkflowConfig;
+const packageScripts = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).scripts as Record<
+  string,
+  string
+>;
 const supabaseSteps = workflow.jobs['supabase-contract'].steps;
 
 function requireStep(name: string): WorkflowStep {
@@ -23,17 +31,39 @@ function requireStep(name: string): WorkflowStep {
 }
 
 describe('workflow PostgreSQL CI contract', () => {
-  test('runs the load-bearing workflow stores and crash recovery on pull requests', () => {
+  test('selects relevant pull request changes from the complete base-to-head diff', () => {
+    const checkout = requireStep('Checkout');
+    const selector = requireStep('Select Workflow PostgreSQL Contract');
+
+    expect(checkout.with?.['fetch-depth']).toBe(0);
+    expect(selector.id).toBe('workflow-postgres');
+    expect(selector.if).toBe("github.event_name == 'pull_request'");
+    expect(selector.env).toEqual({
+      BASE_SHA: `\${{ github.event.pull_request.base.sha }}`,
+      HEAD_SHA: `\${{ github.event.pull_request.head.sha }}`,
+    });
+    expect(selector.run).toBe(
+      [
+        'set -o pipefail',
+        'git diff --name-only --no-renames -z "$BASE_SHA" "$HEAD_SHA" | \\',
+        '  bun run scripts/select-workflow-postgres-contract.ts',
+        '',
+      ].join('\n')
+    );
+  });
+
+  test('runs the load-bearing workflow stores and crash recovery for selected pull requests', () => {
     const step = requireStep('Run Critical Workflow PostgreSQL Contract');
 
-    expect(step.if).toBe("github.event_name == 'pull_request'");
+    expect(step.if).toBe(
+      "github.event_name == 'pull_request' && steps.workflow-postgres.outputs.changed == 'true'"
+    );
     expect(step.run).toContain('bunx supabase status -o env');
     expect(step.run).toContain('WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL"');
-    expect(step.run).toContain('RUN_WORKFLOW_INTEGRATION_TESTS=1');
-    expect(step.run).toContain('postgresWorkflowRunStore.integration.test.ts');
-    expect(step.run).toContain('postgresWorkflowExecutionStore.integration.test.ts');
-    expect(step.run).toContain('postgresWorkflowSignalStore.integration.test.ts');
-    expect(step.run).toContain('workflowProcessCrash.integration.test.ts');
+    expect(step.run).toContain('bun run test:workflow-postgres:critical');
+    expect(packageScripts['test:workflow-postgres:critical']).toBe(
+      'bun run scripts/run-workflow-postgres-contract.ts critical'
+    );
   });
 
   test('runs the complete deterministic PostgreSQL contract on main', () => {
@@ -43,6 +73,9 @@ describe('workflow PostgreSQL CI contract', () => {
     expect(step.run).toContain('bunx supabase status -o env');
     expect(step.run).toContain('WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL"');
     expect(step.run).toContain('bun run test:workflow-postgres');
+    expect(packageScripts['test:workflow-postgres']).toBe(
+      'bun run scripts/run-workflow-postgres-contract.ts full'
+    );
   });
 
   test('keeps real-provider workflow tests outside CI', () => {
