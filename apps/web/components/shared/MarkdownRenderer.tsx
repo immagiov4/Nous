@@ -471,10 +471,8 @@ const MarkdownRenderer = ({
       article.querySelectorAll<HTMLElement>(ANNOTATION_PERSISTED_MARK_SELECTOR)
     )
       .filter(mark => {
-        const annotationId =
-          mark.getAttribute('data-nous-annotation-id') ||
-          mark.getAttribute('data-lumina-annotation-id');
-        return annotationId ? resolvedAnnotationIds.has(annotationId) : false;
+        const annotationId = mark.dataset.nousAnnotationId ?? mark.dataset.luminaAnnotationId;
+        return resolvedAnnotationIds.has(annotationId as string);
       })
       .map(mark => ({
         backgroundColor: mark.style.backgroundColor,

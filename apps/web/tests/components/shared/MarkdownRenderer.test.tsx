@@ -141,11 +141,11 @@ describe('MarkdownRenderer', () => {
       updatedAt: '2026-08-16T00:00:00.000Z',
     };
     const content =
-      '<mark data-nous-annotation-id="annotation-persisted-native">Alpha beta</mark> gamma.';
+      '<mark data-lumina-annotation-id="annotation-persisted-native">Alpha beta</mark> gamma.';
     const { container, rerender } = render(
       <MarkdownRenderer content={content} sectionAnnotations={[annotation]} />
     );
-    const mark = container.querySelector<HTMLElement>('mark[data-nous-annotation-id]');
+    const mark = container.querySelector<HTMLElement>('mark[data-lumina-annotation-id]');
 
     expect(mark).toHaveAttribute('data-nous-annotation-native-backed', 'true');
     expect(mark?.style.backgroundColor).toBe('transparent');
