@@ -1,15 +1,21 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
 import { projectKatexAnnotationSource } from '../markdown/codeRanges.ts';
-import { isSelectionAnnotation } from './sectionAnnotationAnchors.ts';
+import {
+  buildSectionAnnotationContextText,
+  hasSectionAnnotationSelectorContext,
+  isSelectionAnnotation,
+  matchesSectionAnnotationSelectorContext,
+  type SectionAnnotationBoundaryContext,
+} from './sectionAnnotationAnchors.ts';
 
 const ANNOTATION_HIGHLIGHT_NAME = 'nous-annotations';
 const NOTE_HIGHLIGHT_NAME = 'nous-annotation-notes';
-const SELECTOR_CONTEXT_LENGTH = 48;
 const PROJECTION_IGNORED_SELECTOR = 'script, style, [data-nous-speech="ignore"]';
 const HIGHLIGHT_IGNORED_SELECTOR = 'pre, .katex, [data-nous-speech="ignore"]';
 const KATEX_SELECTOR = '.katex';
 const KATEX_TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]';
 const BLOCK_SELECTOR = 'p, div, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, pre';
+const HTML_LIKE_TAG_REGEX = /^<\/?[A-Za-z][A-Za-z0-9-]*\b[^>]*>/u;
 
 interface ProjectionCharacter {
   highlightElement?: Element;
@@ -25,6 +31,7 @@ interface DomTextProjection {
 export interface SectionAnnotationHighlightEntry {
   annotationId: string;
   hasAttachedNote: boolean;
+  rangeGroups: Range[][];
   ranges: Range[];
   selectedText: string;
 }
@@ -56,8 +63,16 @@ const appendProjectionCharacter = (
 };
 
 const appendNormalizedText = (projection: DomTextProjection, node: Text) => {
+  const preservesLiteralTags = Boolean(node.parentElement?.closest('code, pre'));
   for (let offset = 0; offset < node.data.length; offset += 1) {
     const character = node.data[offset];
+    if (!preservesLiteralTags && character === '<') {
+      const tag = HTML_LIKE_TAG_REGEX.exec(node.data.slice(offset))?.[0];
+      if (tag) {
+        offset += tag.length - 1;
+        continue;
+      }
+    }
     if (/\s/u.test(character)) {
       if (projection.text.length > 0 && !projection.text.endsWith(' ')) {
         appendProjectionCharacter(projection, ' ', node, offset);
@@ -90,6 +105,13 @@ const appendProjectedMath = (
   }
 };
 
+const isStructuralWhitespace = (node: Text): boolean =>
+  !node.data.trim() &&
+  [node.previousSibling, node.nextSibling].every(
+    sibling =>
+      sibling?.nodeType === Node.ELEMENT_NODE && (sibling as Element).matches(BLOCK_SELECTOR)
+  );
+
 const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
   const projection: DomTextProjection = { characters: [], text: '' };
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -105,6 +127,9 @@ const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
 
     const block = parent.closest(BLOCK_SELECTOR);
     const katexNode = parent.closest(KATEX_SELECTOR);
+    if (isStructuralWhitespace(node)) {
+      continue;
+    }
     if (
       previousBlock &&
       block &&
@@ -155,29 +180,10 @@ const hasIgnoredDomGap = (
   return Boolean(gapRange.cloneContents().querySelector(PROJECTION_IGNORED_SELECTOR));
 };
 
-const contextMatches = (
-  text: string,
-  matchStart: number,
-  matchLength: number,
-  selector: SectionAnnotationTextSelector
-): boolean => {
-  const before = normalizeWhitespace(
-    text.slice(Math.max(0, matchStart - SELECTOR_CONTEXT_LENGTH - 16), matchStart)
-  );
-  const after = normalizeWhitespace(
-    text.slice(matchStart + matchLength, matchStart + matchLength + SELECTOR_CONTEXT_LENGTH + 16)
-  );
-  const prefix = normalizeWhitespace(selector.prefix);
-  const suffix = normalizeWhitespace(selector.suffix);
-  return (
-    (!prefix || before.endsWith(prefix) || prefix.endsWith(before)) &&
-    (!suffix || after.startsWith(suffix) || suffix.startsWith(after))
-  );
-};
-
 const findSelectorRange = (
   projection: DomTextProjection,
-  selector: SectionAnnotationTextSelector
+  selector: SectionAnnotationTextSelector,
+  boundaryContext?: SectionAnnotationBoundaryContext
 ): { end: number; start: number } | null => {
   const exact = normalizeWhitespace(selector.exact);
   if (!exact) {
@@ -195,36 +201,61 @@ const findSelectorRange = (
     searchFrom = matchStart + 1;
   }
 
+  const contextualProjection = buildSectionAnnotationContextText(projection.text, boundaryContext);
   const contextualMatches = matches.filter(matchStart =>
-    contextMatches(projection.text, matchStart, exact.length, selector)
+    matchesSectionAnnotationSelectorContext(
+      contextualProjection.text,
+      matchStart + contextualProjection.offset,
+      exact.length,
+      selector
+    )
   );
-  const candidates = contextualMatches.length > 0 ? contextualMatches : matches;
+  const candidates = hasSectionAnnotationSelectorContext(selector) ? contextualMatches : matches;
   return candidates.length === 1
     ? { start: candidates[0], end: candidates[0] + exact.length }
     : null;
 };
 
-const createHighlightRanges = (
+const createHighlightRangeGroups = (
   projection: DomTextProjection,
   start: number,
   end: number
-): Range[] => {
-  const ranges: Range[] = [];
+): Range[][] => {
+  const rangeGroups: Range[][] = [];
+  let currentGroup: Range[] = [];
   let currentRange: Range | null = null;
   let previousHighlightElement: Element | null = null;
   let previousCharacter: ProjectionCharacter | null = null;
 
+  const pushCurrentRange = () => {
+    if (currentRange) {
+      currentGroup.push(currentRange);
+      currentRange = null;
+    }
+  };
+  const finishCurrentGroup = () => {
+    pushCurrentRange();
+    if (currentGroup.length > 0) {
+      rangeGroups.push(currentGroup);
+      currentGroup = [];
+    }
+  };
+
+  const crossesBlockBoundary = (
+    previous: ProjectionCharacter,
+    current: ProjectionCharacter
+  ): boolean =>
+    previous.node.parentElement?.closest(BLOCK_SELECTOR) !==
+    current.node.parentElement?.closest(BLOCK_SELECTOR);
+
   for (let index = start; index < end; index += 1) {
     const character = projection.characters[index];
     if (character?.highlightElement) {
-      if (currentRange) {
-        ranges.push(currentRange);
-        currentRange = null;
-      }
+      pushCurrentRange();
       if (previousHighlightElement !== character.highlightElement) {
         const mathRange = document.createRange();
         mathRange.selectNodeContents(character.highlightElement);
-        ranges.push(mathRange);
+        currentGroup.push(mathRange);
       }
       previousHighlightElement = character.highlightElement;
       previousCharacter = null;
@@ -233,19 +264,17 @@ const createHighlightRanges = (
 
     previousHighlightElement = null;
     if (!character || character.node.parentElement?.closest(HIGHLIGHT_IGNORED_SELECTOR)) {
-      if (currentRange) {
-        ranges.push(currentRange);
-        currentRange = null;
-      }
+      finishCurrentGroup();
       previousCharacter = null;
       continue;
     }
 
-    if (previousCharacter && hasIgnoredDomGap(previousCharacter, character)) {
-      if (currentRange) {
-        ranges.push(currentRange);
-      }
-      currentRange = null;
+    if (
+      previousCharacter &&
+      (crossesBlockBoundary(previousCharacter, character) ||
+        hasIgnoredDomGap(previousCharacter, character))
+    ) {
+      finishCurrentGroup();
     }
 
     if (!currentRange) {
@@ -257,16 +286,14 @@ const createHighlightRanges = (
     previousCharacter = character;
   }
 
-  if (currentRange) {
-    ranges.push(currentRange);
-  }
-
-  return ranges;
+  finishCurrentGroup();
+  return rangeGroups;
 };
 
 export const resolveSectionAnnotationHighlightEntries = (
   root: HTMLElement,
-  annotations?: SectionAnnotation[]
+  annotations?: SectionAnnotation[],
+  boundaryContext?: SectionAnnotationBoundaryContext
 ): SectionAnnotationHighlightEntry[] => {
   const selectionAnnotations = (annotations || []).filter(isSelectionAnnotation);
   if (selectionAnnotations.length === 0) {
@@ -275,18 +302,28 @@ export const resolveSectionAnnotationHighlightEntries = (
 
   const projection = buildDomTextProjection(root);
   return selectionAnnotations.flatMap(annotation => {
-    const projectionRange = findSelectorRange(projection, annotation.anchor.selector);
+    const projectionRange = findSelectorRange(
+      projection,
+      annotation.anchor.selector,
+      boundaryContext
+    );
     if (!projectionRange) {
       return [];
     }
 
-    const ranges = createHighlightRanges(projection, projectionRange.start, projectionRange.end);
+    const rangeGroups = createHighlightRangeGroups(
+      projection,
+      projectionRange.start,
+      projectionRange.end
+    );
+    const ranges = rangeGroups.flat();
     return ranges.length > 0
       ? [
           {
             annotationId: annotation.id,
             hasAttachedNote:
               annotation.note.trim().length > 0 || (annotation.artifactRefs?.length || 0) > 0,
+            rangeGroups,
             ranges,
             selectedText: annotation.anchor.selector.exact,
           },

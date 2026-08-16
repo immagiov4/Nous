@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import {
   applySectionAnnotation,
@@ -76,6 +76,90 @@ test('detached annotations re-anchor by quote and context after content shifts',
     ),
     'Introduzione nuova. Alpha <mark data-nous-annotation-id="annotation-detached">beta gamma</mark> delta.'
   );
+});
+
+test('persisted annotations prefer saved context when the old offset now contains a duplicate', () => {
+  const created = applySectionAnnotation({
+    annotations: [],
+    content: 'Beta uno. Beta due.',
+    contextAfter: ' due.',
+    contextBefore: 'Beta uno. ',
+    createId: () => 'annotation-persisted-second-beta',
+    selectedText: 'Beta',
+    selectedTextStart: 10,
+  });
+  assert.ok(created);
+
+  const restoredAnnotations = JSON.parse(JSON.stringify(created.annotations));
+  expect(materializeSectionAnnotationMarks('Nuovo. Beta uno. Beta due.', restoredAnnotations)).toBe(
+    'Nuovo. Beta uno. <mark data-nous-annotation-id="annotation-persisted-second-beta">Beta</mark> due.'
+  );
+});
+
+test('persisted annotations stay orphaned when only a context-mismatched duplicate remains', () => {
+  const created = applySectionAnnotation({
+    annotations: [],
+    content: 'Beta uno. Beta due.',
+    contextAfter: ' due.',
+    contextBefore: 'Beta uno. ',
+    createId: () => 'annotation-unresolved-second-beta',
+    selectedText: 'Beta',
+    selectedTextStart: 10,
+  });
+  assert.ok(created);
+
+  const changedContent = 'Beta uno.';
+  expect(materializeSectionAnnotationMarks(changedContent, created.annotations)).toBe(
+    changedContent
+  );
+});
+
+test('persisted annotations stay orphaned when boundary context is unavailable', () => {
+  const content = 'Beta due.';
+  const annotations = [
+    {
+      anchor: {
+        kind: 'selection' as const,
+        selector: {
+          end: 14,
+          exact: 'Beta',
+          prefix: 'Beta uno.',
+          start: 10,
+          suffix: '',
+        },
+      },
+      createdAt: '2026-08-15T10:00:00.000Z',
+      id: 'annotation-unavailable-boundary-context',
+      note: '',
+      updatedAt: '2026-08-15T10:00:00.000Z',
+    },
+  ];
+
+  expect(materializeSectionAnnotationMarks(content, annotations)).toBe(content);
+});
+
+test('persisted annotations stay orphaned when only truncated saved context remains', () => {
+  const content = 'uno. Beta due.';
+  const annotations = [
+    {
+      anchor: {
+        kind: 'selection' as const,
+        selector: {
+          end: 14,
+          exact: 'Beta',
+          prefix: 'Beta uno.',
+          start: 10,
+          suffix: 'due.',
+        },
+      },
+      createdAt: '2026-08-15T10:00:00.000Z',
+      id: 'annotation-truncated-context',
+      note: '',
+      updatedAt: '2026-08-15T10:00:00.000Z',
+    },
+  ];
+
+  expect(materializeSectionAnnotationMarks(content, annotations)).toBe(content);
 });
 
 test('detached annotations stay orphaned when an ambiguous quote has no matching context', () => {
@@ -198,6 +282,25 @@ test('materialized annotations preserve inline Markdown as one highlight', () =>
   assert.equal(
     materializeSectionAnnotationMarks(content, created.annotations),
     '<mark data-nous-annotation-id="annotation-inline-detached">Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test))</mark>.'
+  );
+});
+
+test('materialized annotations retain saved context across typed markdown block boundaries', () => {
+  const firstBlock = 'Contesto precedente che identifica il passaggio.';
+  const secondBlock = 'Bersaglio vicino al confine del secondo blocco.';
+  const fullContent = `${firstBlock}\n\n${secondBlock}`;
+  const created = applySectionAnnotation({
+    annotations: [],
+    content: fullContent,
+    createId: () => 'annotation-block-boundary',
+    selectedText: 'Bersaglio',
+  });
+
+  assert.ok(created);
+  assert.equal(materializeSectionAnnotationMarks(secondBlock, created.annotations), secondBlock);
+  assert.equal(
+    materializeSectionAnnotationMarks(secondBlock, created.annotations, { before: firstBlock }),
+    '<mark data-nous-annotation-id="annotation-block-boundary">Bersaglio</mark> vicino al confine del secondo blocco.'
   );
 });
 

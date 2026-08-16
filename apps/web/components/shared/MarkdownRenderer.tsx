@@ -44,6 +44,7 @@ import type {
   SectionAnnotation,
   StoredLessonVisual,
 } from '../../types';
+import type { SectionAnnotationBoundaryContext } from '../../utils/learning/sectionAnnotationAnchors.ts';
 import {
   findSectionAnnotationHighlightHit,
   registerSectionAnnotationHighlights,
@@ -68,6 +69,7 @@ export interface MarkdownRendererProps {
   readonly generatedVisualsById?: Record<string, StoredLessonVisual>;
   readonly lessonImageRefsById?: Record<string, LessonImageRef>;
   readonly projectId?: string | null;
+  readonly sectionAnnotationBoundaryContext?: SectionAnnotationBoundaryContext;
   readonly sectionAnnotations?: SectionAnnotation[];
 }
 
@@ -83,6 +85,9 @@ const EMPTY_SECTION_ANNOTATIONS: SectionAnnotation[] = [];
 const EMPTY_NOTE_ANNOTATION_IDS = new Set<string>();
 const ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX = 3;
 const ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE = 'data-nous-annotation-inline-highlight';
+const ANNOTATION_NATIVE_BACKED_ATTRIBUTE = 'data-nous-annotation-native-backed';
+const ANNOTATION_PERSISTED_MARK_SELECTOR =
+  'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
 const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
@@ -106,39 +111,46 @@ const areHighlightRectsOnSameLine = (
 
 const mergeAnnotationHighlightLineRects = (
   entries: SectionAnnotationHighlightEntry[]
-): AnnotationHighlightLineRect[] => {
-  const rects = entries
-    .flatMap(entry => entry.ranges)
-    .flatMap(range => Array.from(range.getClientRects()))
-    .filter(rect => rect.width > 0 && rect.height > 0)
-    .sort((first, second) => first.top - second.top || first.left - second.left);
-  const mergedRects: AnnotationHighlightLineRect[] = [];
+): AnnotationHighlightLineRect[] =>
+  entries.flatMap(entry =>
+    entry.rangeGroups.flatMap(rangeGroup => {
+      const rects = rangeGroup
+        .flatMap(range => Array.from(range.getClientRects()))
+        .filter(rect => rect.width > 0 && rect.height > 0)
+        .sort((first, second) => first.top - second.top || first.left - second.left);
+      const mergedRects: AnnotationHighlightLineRect[] = [];
 
-  for (const rect of rects) {
-    const mergeTarget = mergedRects.find(
-      candidate =>
-        areHighlightRectsOnSameLine(candidate, rect) &&
-        rect.left <= candidate.right + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2 &&
-        rect.right >= candidate.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
-    );
-    if (!mergeTarget) {
-      mergedRects.push({
-        bottom: rect.bottom,
-        left: rect.left,
-        right: rect.right,
-        top: rect.top,
-      });
-      continue;
-    }
+      for (const rect of rects) {
+        const mergeTargets = mergedRects.filter(candidate =>
+          areHighlightRectsOnSameLine(candidate, rect)
+        );
+        const mergeTarget = mergeTargets[0];
+        if (!mergeTarget) {
+          mergedRects.push({
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+          });
+          continue;
+        }
 
-    mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
-    mergeTarget.left = Math.min(mergeTarget.left, rect.left);
-    mergeTarget.right = Math.max(mergeTarget.right, rect.right);
-    mergeTarget.top = Math.min(mergeTarget.top, rect.top);
-  }
+        mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
+        mergeTarget.left = Math.min(mergeTarget.left, rect.left);
+        mergeTarget.right = Math.max(mergeTarget.right, rect.right);
+        mergeTarget.top = Math.min(mergeTarget.top, rect.top);
+        for (const bridgedRect of mergeTargets.slice(1)) {
+          mergeTarget.bottom = Math.max(mergeTarget.bottom, bridgedRect.bottom);
+          mergeTarget.left = Math.min(mergeTarget.left, bridgedRect.left);
+          mergeTarget.right = Math.max(mergeTarget.right, bridgedRect.right);
+          mergeTarget.top = Math.min(mergeTarget.top, bridgedRect.top);
+          mergedRects.splice(mergedRects.indexOf(bridgedRect), 1);
+        }
+      }
 
-  return mergedRects;
-};
+      return mergedRects;
+    })
+  );
 const CODE_LANGUAGE_ALIASES: Record<string, string> = {
   'c++': 'cpp',
   cs: 'csharp',
@@ -410,10 +422,11 @@ const MarkdownRenderer = ({
   lessonAssetsById = EMPTY_LESSON_ASSETS_BY_ID,
   lessonImageRefsById = EMPTY_LESSON_IMAGE_REFS_BY_ID,
   projectId,
+  sectionAnnotationBoundaryContext,
   sectionAnnotations = EMPTY_SECTION_ANNOTATIONS,
 }: MarkdownRendererProps) => {
   const articleRef = useRef<HTMLElement>(null);
-  const annotationHighlightCapsRef = useRef<HTMLDivElement>(null);
+  const annotationHighlightLayerRef = useRef<HTMLDivElement>(null);
   const annotationHighlightEntriesRef = useRef<SectionAnnotationHighlightEntry[]>([]);
   const usesNativeAnnotationHighlights = supportsSectionAnnotationHighlights();
   const syntaxTheme = useMemo(
@@ -449,15 +462,39 @@ const MarkdownRenderer = ({
   const classNameValue = useMemo(() => articleClassName(className), [className]);
   useLayoutEffect(() => {
     const article = articleRef.current;
-    const capsContainer = annotationHighlightCapsRef.current;
-    if (!article || !capsContainer || !content.trim() || !usesNativeAnnotationHighlights) {
+    const highlightLayer = annotationHighlightLayerRef.current;
+    if (!article || !highlightLayer || !content.trim() || !usesNativeAnnotationHighlights) {
       annotationHighlightEntriesRef.current = [];
       return;
     }
 
-    const entries = resolveSectionAnnotationHighlightEntries(article, sectionAnnotations);
+    const entries = resolveSectionAnnotationHighlightEntries(
+      article,
+      sectionAnnotations,
+      sectionAnnotationBoundaryContext
+    );
     annotationHighlightEntriesRef.current = entries;
     const unregisterHighlights = registerSectionAnnotationHighlights(entries);
+    const resolvedAnnotationIds = new Set(entries.map(entry => entry.annotationId));
+    const nativeBackedAnnotationMarks = Array.from(
+      article.querySelectorAll<HTMLElement>(ANNOTATION_PERSISTED_MARK_SELECTOR)
+    )
+      .filter(mark => {
+        const annotationId = mark.dataset.nousAnnotationId ?? mark.dataset.luminaAnnotationId;
+        return resolvedAnnotationIds.has(annotationId as string);
+      })
+      .map(mark => ({
+        backgroundColor: mark.style.backgroundColor,
+        borderRadius: mark.style.borderRadius,
+        element: mark,
+        padding: mark.style.padding,
+      }));
+    nativeBackedAnnotationMarks.forEach(({ element }) => {
+      element.setAttribute(ANNOTATION_NATIVE_BACKED_ATTRIBUTE, 'true');
+      element.style.backgroundColor = 'transparent';
+      element.style.borderRadius = '0';
+      element.style.padding = '0';
+    });
     const highlightedInlineCodeElements = Array.from(
       article.querySelectorAll('code:not(pre code)')
     ).filter(codeElement =>
@@ -466,45 +503,75 @@ const MarkdownRenderer = ({
     highlightedInlineCodeElements.forEach(codeElement => {
       codeElement.setAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE, 'true');
     });
-    const renderHighlightCaps = () => {
+    const renderHighlightLines = () => {
       const articleRect = article.getBoundingClientRect();
       const fragment = document.createDocumentFragment();
       for (const rect of mergeAnnotationHighlightLineRects(entries)) {
-        const leftCap = document.createElement('span');
-        leftCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-start';
-        leftCap.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-        leftCap.style.top = `${rect.top - articleRect.top}px`;
-        leftCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-        leftCap.style.height = `${rect.bottom - rect.top}px`;
-
-        const rightCap = document.createElement('span');
-        rightCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-end';
-        rightCap.style.left = `${rect.right - articleRect.left}px`;
-        rightCap.style.top = `${rect.top - articleRect.top}px`;
-        rightCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-        rightCap.style.height = `${rect.bottom - rect.top}px`;
-
-        fragment.append(leftCap, rightCap);
+        const lineHighlight = document.createElement('span');
+        lineHighlight.className = 'nous-annotation-highlight-line';
+        lineHighlight.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        lineHighlight.style.top = `${rect.top - articleRect.top}px`;
+        lineHighlight.style.width = `${
+          rect.right - rect.left + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
+        }px`;
+        lineHighlight.style.height = `${rect.bottom - rect.top}px`;
+        lineHighlight.style.maxWidth = 'none';
+        fragment.append(lineHighlight);
       }
-      capsContainer.replaceChildren(fragment);
+      highlightLayer.replaceChildren(fragment);
     };
 
-    renderHighlightCaps();
+    renderHighlightLines();
+    let isHighlightLayerActive = true;
+    let scrollRenderFrame: number | null = null;
+    const scheduleHighlightLineRender = () => {
+      if (scrollRenderFrame !== null) {
+        return;
+      }
+      scrollRenderFrame = requestAnimationFrame(() => {
+        scrollRenderFrame = null;
+        if (isHighlightLayerActive) {
+          renderHighlightLines();
+        }
+      });
+    };
+    void document.fonts?.ready.then(() => {
+      if (isHighlightLayerActive) {
+        renderHighlightLines();
+      }
+    });
     const resizeObserver =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(renderHighlightCaps);
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(renderHighlightLines);
     resizeObserver?.observe(article);
+    article.addEventListener('scroll', scheduleHighlightLineRender, true);
     return () => {
+      isHighlightLayerActive = false;
       resizeObserver?.disconnect();
-      capsContainer.replaceChildren();
+      article.removeEventListener('scroll', scheduleHighlightLineRender, true);
+      if (scrollRenderFrame !== null) {
+        cancelAnimationFrame(scrollRenderFrame);
+      }
+      highlightLayer.replaceChildren();
       highlightedInlineCodeElements.forEach(codeElement => {
         codeElement.removeAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE);
+      });
+      nativeBackedAnnotationMarks.forEach(({ backgroundColor, borderRadius, element, padding }) => {
+        element.removeAttribute(ANNOTATION_NATIVE_BACKED_ATTRIBUTE);
+        element.style.backgroundColor = backgroundColor;
+        element.style.borderRadius = borderRadius;
+        element.style.padding = padding;
       });
       unregisterHighlights();
       if (annotationHighlightEntriesRef.current === entries) {
         annotationHighlightEntriesRef.current = [];
       }
     };
-  }, [content, sectionAnnotations, usesNativeAnnotationHighlights]);
+  }, [
+    content,
+    sectionAnnotationBoundaryContext,
+    sectionAnnotations,
+    usesNativeAnnotationHighlights,
+  ]);
   const handleClick = useCallback(
     (event: MouseEvent<HTMLElement>) => {
       if (usesNativeAnnotationHighlights) {
@@ -539,9 +606,9 @@ const MarkdownRenderer = ({
       onContextMenu={onContextMenu}
     >
       <div
-        ref={annotationHighlightCapsRef}
+        ref={annotationHighlightLayerRef}
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10"
+        className="pointer-events-none absolute inset-0 z-10 mix-blend-multiply dark:mix-blend-screen"
       />
       {contentParts.map(part =>
         part.type === 'markdown' ? (
