@@ -432,7 +432,7 @@ const attemptLevel = (
 
 const projectRunLogEvent = (source: WorkflowRunLogSource): WorkflowRunLogEvent => {
   if ('run' in source) {
-    const currentCorrelationId = source.correlationId ?? getCorrelationId();
+    const currentCorrelationId = getCorrelationId() ?? source.correlationId;
     const correlationId =
       source.action === 'deduplicated'
         ? (currentCorrelationId ?? source.run.correlationId)

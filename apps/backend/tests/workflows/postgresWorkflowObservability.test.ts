@@ -178,6 +178,7 @@ describe('PostgreSQL workflow observability', () => {
     });
     const input = {
       config: { apiKey: 'private-key' },
+      correlationId: PERSISTED_CORRELATION_ID,
       definitionHash: 'a'.repeat(64),
       definitionHashVersion: 1,
       id: RUN_ID,
