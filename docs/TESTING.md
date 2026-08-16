@@ -93,7 +93,10 @@ bun run gate:full
 `sonar:up` creates or reconciles the local service with its loopback-only binding and returns only
 after the Docker-internal permission provisioner succeeds. On a fresh volume, that one-shot
 provisioner grants the `Anyone` pseudo-group `Create Projects` and `Execute Analysis`, so no scanner
-token or developer credential bootstrap is required. Do not
+token or developer credential bootstrap is required. It polls readiness every second, fails immediately
+when SonarQube reports `DB_MIGRATION_NEEDED`, and times out after 133 seconds. That bound is twice the
+slowest observed local successful startup (66.4 seconds), preserving one additional full startup window
+before classifying the service as unavailable. Do not
 replace a required full gate with an isolated or skipped Sonar scan, and do not merge while a
 required Sonar result is failed, unreachable, or unverified. Record the successful full-gate command
 and Sonar result in the pull request before merging.

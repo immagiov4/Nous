@@ -24,10 +24,25 @@ services:
     environment:
       SONAR_PROVISIONING_ADMIN_LOGIN: ${SONAR_PROVISIONING_ADMIN_LOGIN:-admin}
       SONAR_PROVISIONING_ADMIN_PASSWORD: ${SONAR_PROVISIONING_ADMIN_PASSWORD:-admin}
+      SONAR_READINESS_POLL_SECONDS: '1'
+      SONAR_READINESS_TIMEOUT_SECONDS: '133'
     command:
       - |
-        until curl --fail --silent --show-error http://sonarqube:9000/api/system/status | grep --fixed-strings '"status":"UP"' > /dev/null; do
-          sleep 1
+        SONAR_READINESS_DEADLINE="$$(($$(date +%s) + $${SONAR_READINESS_TIMEOUT_SECONDS}))"
+        while true; do
+          SONAR_STATUS="$$(curl --fail --silent --max-time "$${SONAR_READINESS_POLL_SECONDS}" http://sonarqube:9000/api/system/status || true)"
+          if printf '%s' "$$SONAR_STATUS" | grep --quiet --fixed-strings '"status":"UP"'; then
+            break
+          fi
+          if printf '%s' "$$SONAR_STATUS" | grep --quiet --fixed-strings '"status":"DB_MIGRATION_NEEDED"'; then
+            printf '%s\n' 'SonarQube requires a database migration before local analysis can run.' >&2
+            exit 1
+          fi
+          if [ "$$(date +%s)" -ge "$$SONAR_READINESS_DEADLINE" ]; then
+            printf '%s\n' 'SonarQube did not reach UP within 133 seconds.' >&2
+            exit 1
+          fi
+          sleep "$${SONAR_READINESS_POLL_SECONDS}"
         done
         SONAR_PROVISIONING_CREDENTIALS="$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}"
         if ! curl --fail --silent --show-error --user "$$SONAR_PROVISIONING_CREDENTIALS" \
