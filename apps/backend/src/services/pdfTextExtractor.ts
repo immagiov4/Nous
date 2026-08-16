@@ -237,7 +237,7 @@ const runPdfTextFallbackProcess = (
       if (stderr.length < PDF_PROCESS_STDERR_MAX_CHARS) stderr += chunk.toString('utf8');
     });
     fallbackProcess.once('error', error => settle(() => reject(error)));
-    fallbackProcess.once('exit', code =>
+    fallbackProcess.once('close', code =>
       settle(() => {
         if (code !== 0) {
           reject(
