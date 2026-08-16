@@ -106,6 +106,16 @@ interface RequestAddToNotesOutput {
   error?: string;
 }
 
+const resolveRequestedNoteArtifactIds = (
+  requestedArtifactIds: string[] | undefined,
+  latestGeneratedArtifactId: string | null
+): string[] => {
+  if (requestedArtifactIds?.length) {
+    return requestedArtifactIds;
+  }
+  return latestGeneratedArtifactId ? [latestGeneratedArtifactId] : [];
+};
+
 interface CurrentLessonArtifactsToolInput {
   artifactIds?: string[];
   kinds?: LearningArtifactRenderPayload['summary']['kind'][];
@@ -877,12 +887,10 @@ function ContextAnswerPanelSession({
     try {
       let lastResult: SaveConversationNoteResult | null = null;
 
-      const noteArtifactIds =
-        inputValue.artifactIds && inputValue.artifactIds.length > 0
-          ? inputValue.artifactIds
-          : latestGeneratedArtifactIdRef.current
-            ? [latestGeneratedArtifactIdRef.current]
-            : [];
+      const noteArtifactIds = resolveRequestedNoteArtifactIds(
+        inputValue.artifactIds,
+        latestGeneratedArtifactIdRef.current
+      );
       const hasUnsavableArtifact = noteArtifactIds.some(artifactId => {
         const payload = artifactPayloadsById.get(artifactId);
         if (!payload) return retrievedArtifactIds.has(artifactId);

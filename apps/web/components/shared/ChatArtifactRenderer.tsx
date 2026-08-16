@@ -259,7 +259,7 @@ const ArtifactOverlay = ({
         artifactId: artifact.summary.id,
         replacementOfArtifactId,
       });
-      if (result && result.succeeded === false) {
+      if (result?.succeeded === false) {
         setActionFailureMessage(result.error || null);
         setActionFeedback('actionFailed');
         return;
@@ -281,7 +281,7 @@ const ArtifactOverlay = ({
     setActionFailureMessage(null);
     try {
       const result = await onSaveArtifact({ artifactId: artifact.summary.id });
-      if (result && result.succeeded === false) {
+      if (result?.succeeded === false) {
         setActionFailureMessage(result.error || null);
         setActionFeedback('actionFailed');
         return;
@@ -620,11 +620,11 @@ const ChatArtifactRenderer = ({
         if (!result || result.succeeded) {
           clearSucceededRegenerationState(request.replacementOfArtifactId);
         }
-        return result || undefined;
+        return result ?? undefined;
       }
     : undefined;
   const handleSaveFromOverlay = onSaveArtifact
-    ? async (request: ChatArtifactActionRequest) => (await onSaveArtifact(request)) || undefined
+    ? async (request: ChatArtifactActionRequest) => (await onSaveArtifact(request)) ?? undefined
     : undefined;
   const handleRemoveArtifact = onRemoveArtifact
     ? (artifactId: string) => {

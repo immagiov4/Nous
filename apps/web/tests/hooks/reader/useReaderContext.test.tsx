@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react';
-import { test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { useReaderContext } from '../../../hooks/reader/useReaderContext.ts';
 
 const buildSelection = (_container: HTMLDivElement, textNode: Text, selectedText: string) => {
@@ -142,7 +142,7 @@ test('closes the contextual answer after an ordinary lesson change', () => {
   });
   rerender({ activeSectionId: 'section-2' });
 
-  assert.equal(result.current.contextAnswer, null);
+  expect(result.current.contextAnswer).toBeNull();
 });
 
 test('retains the contextual answer only for the permitted recovered lesson transition', () => {
@@ -170,7 +170,7 @@ test('retains the contextual answer only for the permitted recovered lesson tran
 
   rerender({ activeSectionId: 'section-2' });
 
-  assert.equal(result.current.contextAnswer?.id, contextAnswerId);
+  expect(result.current.contextAnswer?.id).toBe(contextAnswerId);
   assert.equal(result.current.contextAnswer?.initialQuestion, 'Spiega beta');
 
   rerender({ activeSectionId: 'section-3' });
@@ -226,7 +226,7 @@ test('reveals an annotation menu above a retained contextual answer', () => {
 
   try {
     assert.ok(result.current.contextAnswer);
-    assert.equal(result.current.contextMenu.visible, true);
+    expect(result.current.contextMenu.visible).toBe(true);
     assert.equal(result.current.contextMenu.type, 'annotation');
   } finally {
     selectionSpy.mockRestore();
