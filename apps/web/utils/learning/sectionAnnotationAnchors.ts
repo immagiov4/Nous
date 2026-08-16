@@ -117,16 +117,10 @@ export const matchesSectionAnnotationSelectorContext = (
   const prefix = normalizeWhitespace(selector.prefix);
   const suffix = normalizeWhitespace(selector.suffix);
   const prefixMatches =
-    Boolean(prefix && before) && (before.endsWith(prefix) || prefix.endsWith(before));
+    !prefix || (Boolean(before) && (before.endsWith(prefix) || prefix.endsWith(before)));
   const suffixMatches =
-    Boolean(suffix && after) && (after.startsWith(suffix) || suffix.startsWith(after));
-  const availablePrefixMatches = !prefix || !before || prefixMatches;
-  const availableSuffixMatches = !suffix || !after || suffixMatches;
-  return (
-    availablePrefixMatches &&
-    availableSuffixMatches &&
-    (!hasSectionAnnotationSelectorContext(selector) || prefixMatches || suffixMatches)
-  );
+    !suffix || (Boolean(after) && (after.startsWith(suffix) || suffix.startsWith(after)));
+  return prefixMatches && suffixMatches;
 };
 
 const resolveSectionAnnotationSegmentsWithContext = (
