@@ -42,6 +42,35 @@ bun run gate:full
   then exits with a failure if any stage failed. The scanner waits for the Sonar quality-gate
   result and propagates a failing gate.
 
+## Pull request merge requirement
+
+Every pull request must pass the local full gate on the exact commit proposed for merge:
+
+```bash
+bun run gate:full
+```
+
+This is a mandatory merge requirement, not an optional deep audit. SonarQube remains local and is
+intentionally excluded from GitHub Actions; CI results for TypeScript, tests, coverage, Semgrep,
+Fallow, and relevant contracts remain independent authoritative checks, but a green CI run does
+not satisfy the local Sonar requirement. The pull request must not be merged until the full gate
+exits successfully, including the Sonar quality gate after coverage, and every new Sonar finding
+has been fixed or explicitly resolved with an owner-visible disposition.
+
+If the local Sonar service is unavailable, the merge owner must restore the existing local
+lifecycle before rerunning the full gate:
+
+```bash
+bun run sonar:up
+bun run sonar:bootstrap
+bun run gate:full
+```
+
+Run `sonar:bootstrap` when `sonar.local.properties` is missing or its token is invalid. Do not
+replace the full gate with an isolated or skipped Sonar scan, and do not merge while Sonar is
+failed, unreachable, or unverified. Record the successful full-gate command and Sonar result in
+the pull request before merging.
+
 Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
 Source coordinates and suggested remediation actions are excluded, so moving a finding within the
 same file does not change its identity. File moves and file or symbol renames appear as one removed
