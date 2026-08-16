@@ -316,6 +316,30 @@ describe('retryDurableLessonVisual', () => {
     warn.mockRestore();
   });
 
+  test('records the support code before rejecting malformed retry run metadata', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(startResponse('run-correlated-malformed'))
+      .mockResolvedValueOnce(
+        runResponse({
+          correlationId: CORRELATION_ID,
+          projectId: 'wrong-project',
+          runId: 'run-correlated-malformed',
+          status: 'running',
+        })
+      );
+
+    await expect(
+      retryDurableLessonVisual({
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        slotId: 'slot-1',
+      })
+    ).rejects.toThrow('La rigenerazione dell’esempio visivo non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
+  });
+
   test('stops abandoned polling without discarding the reconnect request key', async () => {
     fetchWithSupabaseAuthMock
       .mockResolvedValueOnce(startResponse('run-abandoned'))

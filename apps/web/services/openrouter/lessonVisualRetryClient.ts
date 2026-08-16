@@ -71,34 +71,39 @@ const readRunState = async (
     !isRecord(payload) ||
     payload.success !== true ||
     !isRecord(payload.state) ||
-    !isRecord(payload.state.run) ||
-    !Array.isArray(payload.state.publishedEvents)
+    !isRecord(payload.state.run)
   ) {
     throw new Error(LESSON_VISUAL_RETRY_ERROR);
   }
   const run = payload.state.run;
-  if (
-    run.id !== expectedRunId ||
-    run.projectId !== expectedProjectId ||
-    run.workflowId !== LESSON_VISUAL_RETRY_WORKFLOW_ID ||
-    typeof run.cleanupStatus !== 'string' ||
-    typeof run.status !== 'string'
-  ) {
-    throw new Error(LESSON_VISUAL_RETRY_ERROR);
-  }
-  const errorCode =
-    isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
   const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
-  return {
-    cleanupStatus: run.cleanupStatus,
-    ...(correlationId ? { correlationId } : {}),
-    ...(errorCode ? { errorCode } : {}),
-    projectId: expectedProjectId,
-    publishedEvents: payload.state.publishedEvents,
-    runId: expectedRunId,
-    status: run.status,
-    workflowId: LESSON_VISUAL_RETRY_WORKFLOW_ID,
-  };
+  try {
+    if (
+      !Array.isArray(payload.state.publishedEvents) ||
+      run.id !== expectedRunId ||
+      run.projectId !== expectedProjectId ||
+      run.workflowId !== LESSON_VISUAL_RETRY_WORKFLOW_ID ||
+      typeof run.cleanupStatus !== 'string' ||
+      typeof run.status !== 'string'
+    ) {
+      throw new Error(LESSON_VISUAL_RETRY_ERROR);
+    }
+    const errorCode =
+      isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
+    return {
+      cleanupStatus: run.cleanupStatus,
+      ...(correlationId ? { correlationId } : {}),
+      ...(errorCode ? { errorCode } : {}),
+      projectId: expectedProjectId,
+      publishedEvents: payload.state.publishedEvents,
+      runId: expectedRunId,
+      status: run.status,
+      workflowId: LESSON_VISUAL_RETRY_WORKFLOW_ID,
+    };
+  } catch (error) {
+    logBackendFailureCorrelationId(correlationId);
+    throw error;
+  }
 };
 
 const readProjectRevision = (state: RetryRunState): number | null => {

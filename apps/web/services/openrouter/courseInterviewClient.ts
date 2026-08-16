@@ -197,58 +197,56 @@ const parseRunState = (
     !isRecord(payload) ||
     payload.success !== true ||
     !isRecord(payload.state) ||
-    !isRecord(payload.state.run) ||
-    !Array.isArray(payload.state.publishedEvents) ||
-    !Array.isArray(payload.state.waits)
+    !isRecord(payload.state.run)
   ) {
     throw new Error(COURSE_INTERVIEW_ERROR);
   }
   const run = payload.state.run;
-  const cleanupStatus = run.cleanupStatus;
-  if (
-    run.id !== expectedRunId ||
-    run.projectId !== expectedProjectId ||
-    run.workflowId !== COURSE_INTERVIEW_WORKFLOW_ID ||
-    typeof run.status !== 'string' ||
-    !isCourseInterviewStatus(run.status) ||
-    (cleanupStatus !== 'completed' &&
-      cleanupStatus !== 'failed' &&
-      cleanupStatus !== 'not-required' &&
-      cleanupStatus !== 'pending' &&
-      cleanupStatus !== 'running')
-  ) {
-    throw new Error(COURSE_INTERVIEW_ERROR);
-  }
   const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
-  let events: WorkflowEventSnapshot[];
-  let waits: WorkflowWaitSnapshot[];
   try {
-    events = payload.state.publishedEvents.map(value => {
+    const cleanupStatus = run.cleanupStatus;
+    if (
+      !Array.isArray(payload.state.publishedEvents) ||
+      !Array.isArray(payload.state.waits) ||
+      run.id !== expectedRunId ||
+      run.projectId !== expectedProjectId ||
+      run.workflowId !== COURSE_INTERVIEW_WORKFLOW_ID ||
+      typeof run.status !== 'string' ||
+      !isCourseInterviewStatus(run.status) ||
+      (cleanupStatus !== 'completed' &&
+        cleanupStatus !== 'failed' &&
+        cleanupStatus !== 'not-required' &&
+        cleanupStatus !== 'pending' &&
+        cleanupStatus !== 'running')
+    ) {
+      throw new Error(COURSE_INTERVIEW_ERROR);
+    }
+    const events: WorkflowEventSnapshot[] = payload.state.publishedEvents.map(value => {
       const event = readWorkflowEvent(value);
       if (!event) throw new Error(COURSE_INTERVIEW_ERROR);
       return event;
     });
-    waits = payload.state.waits.map(value => {
+    const waits: WorkflowWaitSnapshot[] = payload.state.waits.map(value => {
       const wait = readWorkflowWait(value);
       if (!wait) throw new Error(COURSE_INTERVIEW_ERROR);
       return wait;
     });
+    const errorCode =
+      isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
+    return {
+      cleanupStatus,
+      ...(correlationId ? { correlationId } : {}),
+      ...(errorCode ? { errorCode } : {}),
+      events,
+      projectId: expectedProjectId,
+      runId: expectedRunId,
+      status: run.status,
+      waits,
+    };
   } catch (error) {
     logBackendFailureCorrelationId(correlationId);
     throw error;
   }
-  const errorCode =
-    isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
-  return {
-    cleanupStatus,
-    ...(correlationId ? { correlationId } : {}),
-    ...(errorCode ? { errorCode } : {}),
-    events,
-    projectId: expectedProjectId,
-    runId: expectedRunId,
-    status: run.status,
-    waits,
-  };
 };
 
 const fetchRunStateIfPresent = async (
