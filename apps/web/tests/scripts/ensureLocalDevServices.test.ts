@@ -33,7 +33,6 @@ describe('ensureLocalDevServices', () => {
       true,
       true,
       true,
-      true,
     ]);
 
     await ensureLocalDevServices(
@@ -51,7 +50,6 @@ describe('ensureLocalDevServices', () => {
       ['bunx', 'supabase', 'status'],
       ['bunx', 'supabase', 'start', '--yes'],
       ['bunx', 'supabase', 'status'],
-      ['bun', 'run', 'scripts/migrate-project-sources-to-storage.ts'],
       ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
     ]);
     expect(healthRequests).toEqual(['http://127.0.0.1:54321/auth/v1/health']);
@@ -86,20 +84,19 @@ describe('ensureLocalDevServices', () => {
   });
 
   test('applies pending migrations when local Supabase is already running', async () => {
-    const { commands, runtime } = createRuntime([true, true, true]);
+    const { commands, runtime } = createRuntime([true, true]);
 
     await ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime);
 
     expect(commands).toEqual([
       ['docker', 'info'],
       ['bunx', 'supabase', 'status'],
-      ['bun', 'run', 'scripts/migrate-project-sources-to-storage.ts'],
       ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
     ]);
   });
 
   test('accepts a healthy stack when supabase start exits with an error', async () => {
-    const { commands, runtime } = createRuntime([true, false, false, true, true]);
+    const { commands, runtime } = createRuntime([true, false, false, true]);
 
     await ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime);
 
@@ -108,7 +105,6 @@ describe('ensureLocalDevServices', () => {
       ['bunx', 'supabase', 'status'],
       ['bunx', 'supabase', 'start', '--yes'],
       ['bunx', 'supabase', 'status'],
-      ['bun', 'run', 'scripts/migrate-project-sources-to-storage.ts'],
       ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
     ]);
   });
@@ -140,7 +136,6 @@ describe('ensureLocalDevServices', () => {
       true,
       true,
       true,
-      true,
     ]);
 
     await ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime);
@@ -153,7 +148,6 @@ describe('ensureLocalDevServices', () => {
       ['bunx', 'supabase', 'stop'],
       ['bunx', 'supabase', 'start', '--yes'],
       ['bunx', 'supabase', 'status'],
-      ['bun', 'run', 'scripts/migrate-project-sources-to-storage.ts'],
       ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
     ]);
   });
@@ -176,12 +170,4 @@ describe('ensureLocalDevServices', () => {
     expect(healthRequests).toEqual([]);
   });
 
-  test('stops startup when source objects cannot be staged before cutover', async () => {
-    const { healthRequests, runtime } = createRuntime([true, true, false]);
-
-    await expect(
-      ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime)
-    ).rejects.toThrow('Local project sources could not be staged');
-    expect(healthRequests).toEqual([]);
-  });
 });

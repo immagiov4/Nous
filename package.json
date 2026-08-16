@@ -51,7 +51,7 @@
     "sonar:logs": "docker compose -f docker-compose.sonarqube.yml logs -f sonarqube",
     "sonar:scan": "bun run scripts/run-sonar-scan.ts",
     "sonar:up": "docker compose -f docker-compose.sonarqube.yml up -d",
-    "supabase:migrate": "bun run scripts/migrate-project-sources-to-storage.ts && supabase db push",
+    "supabase:migrate": "supabase db push",
     "supabase:templates:diff": "bun run scripts/sync-supabase-auth-emails.ts",
     "supabase:templates:sync": "bun run scripts/sync-supabase-auth-emails.ts --apply",
     "supabase:typecheck": "supabase gen types typescript --local --schema public > apps/backend/src/supabase/database.types.ts",

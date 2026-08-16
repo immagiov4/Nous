@@ -504,6 +504,45 @@ Repository mechanism proof on 2026-07-11: a Postgres 17 custom-format dump was p
 
 Application rollback checks out the previous release and runs `redeploy`. Database migrations are forward-only; restoring a verified backup is a separate incident operation, never an automatic application rollback.
 
+## Legacy project-source migrator retirement
+
+The one-time project-source migrator is retired. Deployments apply the versioned Supabase migrations
+directly; local startup and Compose no longer stage legacy rows. The historical storage-cutover
+migration remains in the migration history as an audit record, but it is not a runtime compatibility
+path.
+
+Before deploying this change against an existing database, run the following read-only preflight with
+the service role and stop if either legacy staging table still exists or embedded source bytes remain:
+
+```sql
+select table_name
+from information_schema.tables
+where table_schema = 'public'
+  and table_name in ('project_sources_legacy', 'project_source_storage_stage');
+
+select count(*) as embedded_source_snapshots
+from public.project_snapshots
+where coalesce(snapshot #>> '{source,file,data}', '') <> ''
+   or coalesce(snapshot #>> '{source,aggregatedText}', '') <> ''
+   or exists (
+     select 1
+     from jsonb_array_elements(
+       case
+         when jsonb_typeof(snapshot #> '{source,sources}') = 'array'
+           then snapshot #> '{source,sources}'
+         else '[]'::jsonb
+       end
+     ) descriptor
+     where coalesce(descriptor #>> '{file,data}', '') <> ''
+   );
+```
+
+The expected result is no legacy tables and `embedded_source_snapshots = 0`. Validate a fresh
+import and reload with `bun run test:supabase-local` against an isolated local database before
+deployment. If preflight or fresh-import validation fails, do not continue: restore the previous
+application release and use the paired verified database/Storage backup procedure above for database
+recovery. Do not recreate the retired migrator or delete current object-storage data as a rollback.
+
 ## Pinned Supabase upgrade and secret rotation
 
 1. Back up and complete a restore proof.

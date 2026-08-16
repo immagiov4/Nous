@@ -122,15 +122,6 @@ const ensureSupabase = async (runtime: LocalDevServicesRuntime): Promise<void> =
     }
   }
 
-  const sourceMigrationError = await runtime.run([
-    'bun',
-    'run',
-    'scripts/migrate-project-sources-to-storage.ts',
-  ]);
-  if (sourceMigrationError) {
-    throw new Error(`Local project sources could not be staged: ${sourceMigrationError}`);
-  }
-
   const migrationError = await runtime.run([
     'bunx',
     'supabase',
