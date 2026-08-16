@@ -82,7 +82,7 @@ The generation is governed by strict planning rules defined in `LESSON_VISUAL_PL
 *  **Language**: Visuals must use the same language as the lesson text.
 *  **Anchoring**: Visuals must be anchored to specific headings (`anchorHeading`) within the markdown.
 
-Sources: `[packages/shared-types/lessonVisualContracts.ts:127-143](packages/shared-types/lessonVisualContracts.ts#L127-L143)`, `[apps/backend/src/services/lessonGenerationPrompt.ts:117-122](apps/backend/src/services/lessonGenerationPrompt.ts#L117-L122)`
+Sources: [packages/shared-types/lessonVisualContracts.ts:153-164](packages/shared-types/lessonVisualContracts.ts#L153-L164)
 
 ## Visual Rendering and Sandboxing
 

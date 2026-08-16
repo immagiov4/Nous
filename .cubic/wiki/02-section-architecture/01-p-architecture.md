@@ -77,7 +77,7 @@ sequenceDiagram
     participant Storage as Object Storage
     participant DB as PostgreSQL
     
-    Web->>API: PUT /api/projects/:id (Snapshot + File)
+    Web->>API: PUT /api/projects/projects/:id (Snapshot + File)
     API->>Storage: Upload Immutable File (Hash-based path)
     Storage-->>API: Confirm Upload
     API->>DB: BEGIN Transaction
@@ -89,7 +89,7 @@ sequenceDiagram
 ```
 
 This sequence ensures that binary data is stored safely before database records are committed.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:415-450](apps/backend/src/projects/postgresProjectStore.ts#L415-L450), [apps/backend/tests/routes/projects.test.ts:240-270](apps/backend/tests/routes/projects.test.ts#L240-L270)
+Sources: [apps/backend/src/index.ts:254-265](apps/backend/src/index.ts#L254-L265), [apps/backend/src/routes/projects.ts:740-755](apps/backend/src/routes/projects.ts#L740-L755), [apps/backend/src/projects/postgresProjectStore.ts:415-450](apps/backend/src/projects/postgresProjectStore.ts#L415-L450), [apps/backend/tests/routes/projects.test.ts:240-270](apps/backend/tests/routes/projects.test.ts#L240-L270)
 
 ## Course Generation Workflow
 
@@ -136,9 +136,9 @@ export type ProjectSource =
 Sources: [apps/web/services/projects/projectSnapshot.ts:285-320](apps/web/services/projects/projectSnapshot.ts#L285-L320)
 
 ### File Identification
-The system uses `buildStableProjectSourceHash` to generate deterministic IDs and storage paths, ensuring that identical files are not duplicated in storage across different projects.
+The system derives a deterministic hash from each source's bytes, then includes a hash of the project ID in the immutable object path. Identical uploads can therefore retain the same source hash while being stored separately in different projects.
 
-Sources: [apps/web/services/projects/courseSources.ts:165-180](apps/web/services/projects/courseSources.ts#L165-L180), [apps/backend/src/projects/postgresProjectStore.ts:550-570](apps/backend/src/projects/postgresProjectStore.ts#L550-L570)
+Sources: [apps/backend/src/projects/projectSource.ts:70-85](apps/backend/src/projects/projectSource.ts#L70-L85), [apps/backend/src/projects/projectSource.ts:129-136](apps/backend/src/projects/projectSource.ts#L129-L136)
 
 ## Conclusion
 The Nous architecture prioritizes data integrity and performance by separating heavy binary assets from light JSON snapshots. This modular design allows the system to scale its storage independently of its processing logic, facilitating complex AI workflows while maintaining a stable, versioned record of the user's learning journey.

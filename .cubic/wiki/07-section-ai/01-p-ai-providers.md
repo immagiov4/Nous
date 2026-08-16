@@ -60,11 +60,11 @@ The `GlobalModelConfig` structure defines the default models and reasoning level
 | Parameter | Description | Supported Values |
 | :--- | :--- | :--- |
 | `aiProvider` | The default AI provider for the system. | `openrouter`, `openai`, `codex` |
-| `reasoningEffort` | The level of computation/reasoning the model should apply. | `none`, `minimal`, `low`, `medium`, `high` |
-| `serviceTier` | The priority level for API requests (specific to Codex/OpenRouter). | `fast`, `flex` |
+| Per-slot reasoning fields | The reasoning level is configured per text-model slot (for example, `lessonReasoningEffort` or `researchReasoningEffort`). | `none`, `minimal`, `low`, `medium`, `high` |
+| `codexFastModelSlots` | Selects the Codex slots for which the `fast` service tier is derived. | Text-model slot names |
 | `aiProviderOverrides` | Map of specific slots to alternative providers. | Key-Value pairs (e.g., `lesson: codex`) |
 
-Sources: [apps/backend/src/config/modelConfig.ts](apps/backend/src/config/modelConfig.ts), [apps/backend/tests/config/modelConfig.test.ts:13-52](apps/backend/tests/config/modelConfig.test.ts#L13-L52)
+Sources: [apps/backend/src/config/modelConfig.ts:27-69](apps/backend/src/config/modelConfig.ts#L27-L69), [apps/backend/src/config/modelConfig.ts:284-287](apps/backend/src/config/modelConfig.ts#L284-L287), [apps/backend/tests/config/modelConfig.test.ts:13-52](apps/backend/tests/config/modelConfig.test.ts#L13-L52)
 
 ### Model Slots
 The system categorizes AI tasks into distinct slots, allowing granular control over which model handles which type of work:

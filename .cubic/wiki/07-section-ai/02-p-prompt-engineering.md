@@ -51,7 +51,7 @@ flowchart TD
 ```
 
 The prompt builder integrates user-specific customization notes, which are given high priority unless they conflict with structural safety or JSON schema requirements.
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:32-60](apps/backend/src/services/lessonGenerationPrompt.ts#L32-L60), [packages/shared-types/lessonWritingContract.ts:103-118](packages/shared-types/lessonWritingContract.ts#L103-L118)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:32-60](apps/backend/src/services/lessonGenerationPrompt.ts#L32-L60), [packages/shared-types/lessonWritingContract.ts:81-96](packages/shared-types/lessonWritingContract.ts#L81-L96)
 
 ## Shared Writing Contracts
 
@@ -112,8 +112,8 @@ The system defines specific rules for how different visual formats should be use
 Sources: [packages/shared-types/lessonVisualContracts.ts:121-137](packages/shared-types/lessonVisualContracts.ts#L121-L137)
 
 ### Image Security and Integrity
-Visual contracts strictly forbid the model from using Markdown image syntax (`![]()`) or `<img>` tags directly in the text. Instead, it must use `imageRefs` linked to validated `assetId` values from the source material.
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:25-30](apps/backend/src/services/lessonGenerationPrompt.ts#L25-L30), [packages/shared-types/lessonVisualContracts.ts:312-320](packages/shared-types/lessonVisualContracts.ts#L312-L320)
+The lesson-generation prompt forbids Markdown image syntax (`![]()`) and `<img>` tags in Markdown blocks. Original images are represented through `imageRefs`, using only the supplied asset IDs.
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:21-31](apps/backend/src/services/lessonGenerationPrompt.ts#L21-L31), [apps/backend/src/services/lessonGenerationPrompt.ts:72-80](apps/backend/src/services/lessonGenerationPrompt.ts#L72-L80)
 
 ## Validation & Verification
 

@@ -40,7 +40,8 @@ flowchart TD
         Router[contextChatRouter]
         PromptBuilder[buildContextSystemPrompt]
         ToolSet[buildContextToolSet]
-        Proxy[openRouterProxy]
+        Model[Configured Text Model]
+        CodexStream[Codex Chat Stream]
     end
 
     subgraph AI[AI Services]
@@ -52,16 +53,17 @@ flowchart TD
     Composer -->|POST /api/chat/context| Router
     Router --> PromptBuilder
     Router --> ToolSet
-    Router --> Proxy
-    Proxy --> OpenRouter
-    Proxy --> OpenAI
-    Proxy --> Codex
+    Router -->|createConfiguredTextModel + streamText| Model
+    Model --> OpenRouter
+    Model --> OpenAI
+    Router -->|createCodexChatStream| CodexStream
+    CodexStream --> Codex
     AI -->>|Streamed UI Messages| Router
     Router -->>|pipeUIMessageStream| Composer
 ```
 
-*The flow demonstrates how frontend components package context (selections, references) for the backend, which then resolves model configurations and proxies the request to AI providers.*
-Sources: [apps/backend/src/routes/contextChat.ts:404-486](apps/backend/src/routes/contextChat.ts#L404-L486), [apps/web/components/library/HomeChatComposer.tsx:432-452](apps/web/components/library/HomeChatComposer.tsx#L432-L452)
+*The flow demonstrates how frontend components package context (selections, references) for the backend, which resolves the model configuration and streams directly through the configured provider or Codex chat service.*
+Sources: [apps/backend/src/routes/contextChat.ts:605-632](apps/backend/src/routes/contextChat.ts#L605-L632), [apps/web/components/library/HomeChatComposer.tsx:432-452](apps/web/components/library/HomeChatComposer.tsx#L432-L452)
 
 ## Frontend Components
 

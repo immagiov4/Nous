@@ -32,9 +32,9 @@ The system determines its authentication behavior based on environment variables
 | Mode | Description | Configuration |
 | :--- | :--- | :--- |
 | **Supabase** | Production-standard mode using Supabase JWTs (HS256 or ES256). | `AUTH_MODE=supabase` |
-| **Local Bypass** | Development/Test mode that skips external auth and uses a static local user. | `LOCAL_AUTH_BYPASS=true` |
+| **Local Bypass** | Development/Test mode that skips external auth and uses a static local user. | `LOCAL_AUTH_BYPASS=true` and `LOCAL_DEV_PROFILE=true` |
 
-Sources: [apps/backend/src/auth/currentUser.ts:31-48](apps/backend/src/auth/currentUser.ts#L31-L48), [README.md:45-48](README.md#L45-L48)
+Sources: [apps/backend/src/auth/currentUser.ts:47-61](apps/backend/src/auth/currentUser.ts#L47-L61), [README.md:35-38](README.md#L35-L38)
 
 ### JWT Validation Logic
 The backend validates incoming Bearer tokens from the `Authorization` header. It supports both symmetric (HS256) using a `SUPABASE_JWT_SECRET` and asymmetric (ES256) verification via JWKS (JSON Web Key Sets) fetched from the Supabase management endpoint.

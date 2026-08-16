@@ -142,4 +142,4 @@ Sources: [AGENTS.md:156-162](AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](s
 
 Testing and Quality Gates in Nous are designed to provide immediate feedback to developers while maintaining a strict, non-bypassable local standard for code health and architectural integrity. The reliance on local service probes (Sonar, Supabase) ensures that the development environment closely mirrors production constraints.
 
-Sources: [README.md:104-106](README.md#L104-L106), [AGENTS.md:155-162](AGENTS.md#L155-L162)
+Sources: [AGENTS.md:155-162](AGENTS.md#L155-L162)

@@ -110,7 +110,7 @@ sequenceDiagram
 ```
 
 The sequence diagram illustrates how the system assembles various rule blocks and context before querying the LLM to ensure pedagogical alignment.
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:39-75](apps/backend/src/services/lessonGenerationPrompt.ts#L39-L75), [packages/shared-types/lessonWritingContract.ts:98-112](packages/shared-types/lessonWritingContract.ts#L98-L112)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:39-75](apps/backend/src/services/lessonGenerationPrompt.ts#L39-L75), [packages/shared-types/lessonWritingContract.ts:81-96](packages/shared-types/lessonWritingContract.ts#L81-L96)
 
 ## Visual Contract Specifications
 

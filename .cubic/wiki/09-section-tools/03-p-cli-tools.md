@@ -22,8 +22,8 @@ The following files were used as context for generating this wiki page:
 
 Nous provides a robust suite of Command Line Interface (CLI) tools and diagnostic scripts designed to maintain system health, ensure code quality, and validate environmental configurations. These tools serve as the first line of defense for developers, offering automated checks for dependencies, service availability, and CI/CD workflow integrity.
 
-The primary entry point for health monitoring is the `doctor` script, which performs observational diagnostics across multiple profiles, ranging from local dependency checks to full service probes. These tools are integrated into the project's [Testing and quality gates](#validation-commands) to ensure that every change adheres to the project's technical standards before merging.
-Sources: [README.md:94-96](README.md#L94-L96), [AGENTS.md:124-142](AGENTS.md#L124-L142)
+The primary entry point for health monitoring is the `doctor` script, which performs observational diagnostics across multiple profiles, ranging from local dependency checks to full service probes. These tools are integrated into the project's [Testing and quality gates](02-p-testing-quality.md) to ensure that every change adheres to the project's technical standards before merging.
+Sources: [AGENTS.md:124-142](AGENTS.md#L124-L142)
 
 ## The Doctor Diagnostic Tool
 
@@ -131,6 +131,6 @@ Developers use the following commands to interact with the diagnostic and qualit
 | `bun run fix` | Automatically fix Biome linting, formatting, and import ordering. |
 | `bun run test` | Execute the Vitest suite under the Bun runtime. |
 
-Sources: [AGENTS.md:124-142](AGENTS.md#L124-L142), [README.md:112-115](README.md#L112-L115)
+Sources: [AGENTS.md:124-142](AGENTS.md#L124-L142)
 
 The diagnostic ecosystem ensures that the development environment is stable, services are reachable, and the codebase remains compliant with established architectural and quality standards.

@@ -94,7 +94,7 @@ Nous utilizes specific "Instruction Packs" and writing rules to ensure that gene
 3.  **Self-Sufficiency:** Lessons must work as standalone texts without requiring the user to have the original source open.
 4.  **Formula Relevance:** Mathematical formulas are used only when natural to the subject, avoiding "decorative" equations for qualitative concepts.
 
-Sources: [packages/shared-types/lessonWritingContract.ts:86-117](packages/shared-types/lessonWritingContract.ts#L86-L117), [packages/shared-types/lessonWritingContract.ts:7-12](packages/shared-types/lessonWritingContract.ts#L7-L12)
+Sources: [packages/shared-types/lessonWritingContract.ts:1-9](packages/shared-types/lessonWritingContract.ts#L1-L9), [packages/shared-types/lessonWritingContract.ts:50-64](packages/shared-types/lessonWritingContract.ts#L50-L64)
 
 ### Content Generation Blocks
 The backend orchestrates the construction of prompts by combining user notes, research dossiers, and source contexts.
@@ -112,7 +112,7 @@ sequenceDiagram
     LLM-->>B: JSON Lesson Content
 ```
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:38-120](apps/backend/src/services/lessonGenerationPrompt.ts#L38-L120)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:51-71](apps/backend/src/services/lessonGenerationPrompt.ts#L51-L71)
 
 ## Technical Validation and Quality Gates
 

@@ -94,7 +94,7 @@ Sources: [deploy/nous.sh:11-53](deploy/nous.sh#L11-L53), [deploy/nous.ps1:27-56]
 The deployment status is controlled via standard lifecycle commands:
 *  `setup`: Performs initial configuration, generates keys, and starts all services.
 *  `up`: Starts existing containers without rebuilding.
-*  `down`: Stops and removes all containers.
+*  `down`: Stops and removes the Nous application Compose project. For a self-hosted deployment, the separately named Supabase Compose project remains running.
 *  `redeploy`: Rebuilds images and applies database migrations.
 
 ```mermaid
@@ -114,7 +114,7 @@ sequenceDiagram
     Docker-->>Admin: Services Started
 ```
 
-Sources: [deploy/nous.sh:163-195](deploy/nous.sh#L163-L195), [deploy/nous.ps1:144-180](deploy/nous.ps1#L144-L180)
+Sources: [deploy/nous.sh:91-93](deploy/nous.sh#L91-L93), [deploy/nous.sh:245-246](deploy/nous.sh#L245-L246), [deploy/nous.ps1:77-83](deploy/nous.ps1#L77-L83), [deploy/nous.ps1:242](deploy/nous.ps1#L242)
 
 ### 3. Verification and Health Checks
 After services start, a "smoke test" is executed to verify endpoint availability. This involves checking:
@@ -183,9 +183,9 @@ Sources: [deploy/nous.sh:227-300](deploy/nous.sh#L227-L300), [deploy/nous.ps1:21
 ## Security and Authentication
 
 ### Authorization Flow
-Authentication is strictly enforced at the API layer. The backend validates JWTs issued by the Supabase stack using either `SUPABASE_JWT_SECRET` (HS256) or `SUPABASE_JWKS_URL` (RS256).
+Authentication is strictly enforced at the API layer. The backend validates JWTs issued by the Supabase stack using either `SUPABASE_JWT_SECRET` (HS256) or Supabase JWKS discovery or `SUPABASE_JWKS_URL` (ES256).
 
-Sources: [README.md:43-51](README.md#L43-L51), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:168-208](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L168-L208)
+Sources: [apps/backend/src/auth/currentUser.ts:109-120](apps/backend/src/auth/currentUser.ts#L109-L120), [apps/backend/src/auth/currentUser.ts:268-289](apps/backend/src/auth/currentUser.ts#L268-L289), [README.md:35-39](README.md#L35-L39)
 
 ### Administrative Access
 Initial administrative access is established via the `admin` command, which runs `scripts/bootstrap-admin.ts`. This promotes a specific email address to the `admin` role within Supabase `app_metadata`, allowing access to the administrative dashboard and model configurations.

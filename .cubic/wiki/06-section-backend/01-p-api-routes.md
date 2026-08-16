@@ -117,4 +117,4 @@ Sources: [apps/backend/src/index.ts:238-245](apps/backend/src/index.ts#L238-L245
 
 ## Conclusion
 
-The Backend REST API provides a robust, multi-layered interface for the Nous application. By leveraging Express for routing, Supabase for identity, and a tiered middleware approach for security and performance (via body limits), it efficiently manages the complex data flow between users, their educational content, and AI generation engines. Sources: [apps/backend/src/index.ts:250-280](apps/backend/src/index.ts#L250-L280), [README.md:70-80](README.md#L70-L80)
+The Backend REST API provides a multi-layered interface for the Nous application. Express routes apply authentication and body-limit middleware before delegating to the project, workflow, and provider routers. Sources: [apps/backend/src/index.ts:176-265](apps/backend/src/index.ts#L176-L265)

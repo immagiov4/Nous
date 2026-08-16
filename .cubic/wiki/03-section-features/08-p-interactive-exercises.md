@@ -23,7 +23,7 @@ Interactive Exercises and Quizzes represent the active learning layer of the Nou
 
 The system ensures that these interactive components are self-sufficient, meaning all information required to solve a quiz or complete an exercise is provided within the preceding lesson content or the exercise brief itself. This architecture supports the project's manifesto of being an ADHD-friendly, step-by-step learning environment.
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:133-145](apps/backend/src/services/lessonGenerationPrompt.ts#L133-L145), [apps/web/services/openrouter/exercises/brief.ts:182-195](apps/web/services/openrouter/exercises/brief.ts#L182-L195), [AGENTS.md:104-108](AGENTS.md#L104-L108)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/services/openrouter/exercises/brief.ts:182-195](apps/web/services/openrouter/exercises/brief.ts#L182-L195), [AGENTS.md:104-108](AGENTS.md#L104-L108)
 
 ## Inline Quizzes (Active Pauses)
 
@@ -51,7 +51,7 @@ flowchart TD
 ```
 
 *The diagram shows the sequential requirement where a quiz must follow a markdown block that provides its factual grounding.*
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/backend/src/services/lessonGenerationPrompt.ts:133-140](apps/backend/src/services/lessonGenerationPrompt.ts#L133-L140)
+Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90)
 
 ### Quiz Configuration and Types
 
@@ -136,4 +136,6 @@ Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:758-769
 
 ## Summary
 
-Interactive Exercises and Quizzes are not merely supplementary features in Nous; they are structural requirements for every lesson. By enforcing a direct link between explanatory markdown and active pauses, and by providing a dedicated workspace for labs, the system ensures that students consistently engage in active retrieval and application of the material they have just consumed.
+Interactive exercises and quizzes support active learning when a lesson or learning plan needs them. A lesson may contain zero to three active pauses, each grounded in preceding explanatory content, while application exercises remain standalone learning-plan nodes with their own briefs.
+
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/types.ts:590-598](apps/web/types.ts#L590-L598)
