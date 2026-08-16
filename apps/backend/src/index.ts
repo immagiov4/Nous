@@ -37,6 +37,7 @@ import {
 } from './routes/workflowOutboxAdmin.js';
 import { createWorkflowRouter } from './routes/workflows.js';
 import youtubeRouter from './routes/youtube.js';
+import { sanitizeDiagnosticText } from './utils/sanitizeDiagnosticText.js';
 import { timestampIso } from './utils/time.js';
 import {
   type ArtifactDraftApi,
@@ -63,9 +64,17 @@ import {
   unavailablePdfMappingRepairApi,
 } from './workflows/pdfMappingRepairApi.js';
 import {
+  createCorrelationId,
+  getCorrelationId,
+  runWithCorrelationId,
+} from './workflows/requestObservability.js';
+import {
   unavailableWorkflowRuntimeApi,
   type WorkflowRuntimeApi,
 } from './workflows/runtime/workflowRuntimeApi.js';
+import type { StepFailure } from './workflows/types.js';
+import { toWorkflowErrorDiagnostic } from './workflows/workflowErrorDiagnostics.js';
+import { consoleWorkflowLogger, emitWorkflowLog } from './workflows/workflowObservability.js';
 
 const DEFAULT_FRONTEND_PORT = '5173';
 const DEFAULT_FRONTEND_ORIGINS = [
@@ -79,6 +88,10 @@ const PROJECTS_JSON_BODY_LIMIT = '300mb';
 const STT_JSON_BODY_LIMIT = '20mb';
 const FEEDBACK_JSON_BODY_LIMIT = '2mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
+const REQUEST_FAILURE_LOCAL = 'workflowLifecycleFailure';
+const SAFE_REQUEST_LOG_PATHS = new Set([...QUIET_SUCCESS_GET_PATHS, '/health']);
+const UNMATCHED_REQUEST_ROUTE = 'unmatched';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const isPrivateIpv4Address = (hostname: string): boolean => {
   const octets = hostname.split('.').map(value => Number.parseInt(value, 10));
@@ -117,8 +130,29 @@ const shouldLogRequest = (method: string, path: string, statusCode: number): boo
   return true;
 };
 
-const getRequestLogPath = (req: express.Request): string =>
-  req.originalUrl.split('?')[0] || req.path;
+const getRequestPath = (req: express.Request): string => req.originalUrl.split('?')[0] || req.path;
+
+const getRequestLogPath = (req: express.Request): string => {
+  const requestPath = getRequestPath(req);
+  if (SAFE_REQUEST_LOG_PATHS.has(requestPath)) return requestPath;
+  const routePath: unknown = req.route?.path;
+  if (typeof routePath !== 'string') return UNMATCHED_REQUEST_ROUTE;
+  if (!req.baseUrl) return routePath;
+  return routePath === '/' ? req.baseUrl : `${req.baseUrl}${routePath}`;
+};
+
+const readSafeStackFrames = (error: Error): string | undefined => {
+  const stackFrames = error.stack?.split('\n').slice(1).join('\n').trim();
+  return stackFrames ? sanitizeDiagnosticText(stackFrames, stackFrames.length) : undefined;
+};
+
+const toBackendErrorDiagnostic = (
+  error: Error & { code?: string; status?: number; type?: string }
+) =>
+  toWorkflowErrorDiagnostic(
+    error,
+    error.type === 'entity.parse.failed' ? {} : { trustedMessage: error.message }
+  );
 
 const requireProjectImportChunkContentType: express.RequestHandler = (req, res, next) => {
   if (req.is('application/octet-stream') || req.is('text/plain')) {
@@ -162,6 +196,44 @@ export const createApp = (options: CreateAppOptions = {}) => {
     `http://127.0.0.1:${backendConfig.backendPort}`,
   ]);
 
+  app.use((req, res, next) => {
+    const requestedCorrelationId = req.header('x-request-id')?.trim();
+    const correlationId =
+      requestedCorrelationId && UUID_PATTERN.test(requestedCorrelationId)
+        ? requestedCorrelationId.toLowerCase()
+        : createCorrelationId();
+    res.setHeader('x-request-id', correlationId);
+    res.on('finish', () => {
+      const requestPath = getRequestPath(req);
+      if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
+        const failure = res.locals[REQUEST_FAILURE_LOCAL] as StepFailure | undefined;
+        emitWorkflowLog(consoleWorkflowLogger, {
+          action: res.statusCode >= 400 ? 'failed' : 'completed',
+          correlationId,
+          entity: 'lifecycle',
+          ...(failure ? { failure } : {}),
+          method: req.method,
+          operation: 'http_request',
+          path: getRequestLogPath(req),
+          statusCode: res.statusCode,
+        });
+      }
+    });
+    res.on('close', () => {
+      if (!res.writableFinished) {
+        emitWorkflowLog(consoleWorkflowLogger, {
+          action: 'disconnected',
+          correlationId,
+          entity: 'lifecycle',
+          method: req.method,
+          operation: 'http_request',
+          path: getRequestLogPath(req),
+        });
+      }
+    });
+    runWithCorrelationId(correlationId, next);
+  });
+
   app.use(
     cors({
       origin: (origin, callback) => {
@@ -178,6 +250,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
         callback(new Error('Origine non consentita dalla configurazione CORS.'));
       },
       credentials: true,
+      exposedHeaders: ['x-request-id'],
     })
   );
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
@@ -200,16 +273,6 @@ export const createApp = (options: CreateAppOptions = {}) => {
   app.use('/api/stt', express.json({ limit: STT_JSON_BODY_LIMIT }));
   app.use('/api/feedback', express.json({ limit: FEEDBACK_JSON_BODY_LIMIT }));
   app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
-
-  app.use((req, res, next) => {
-    res.on('finish', () => {
-      const requestPath = getRequestLogPath(req);
-      if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
-        console.log(`[Backend] ${req.method} ${requestPath} -> ${res.statusCode}`);
-      }
-    });
-    next();
-  });
 
   app.use('/api/tts', resolveCurrentUser, ttsRouter);
   app.use('/api/auth', resolveCurrentUserForPasswordSetup, authRouter);
@@ -282,13 +345,21 @@ export const createApp = (options: CreateAppOptions = {}) => {
 
   app.use(
     (
-      err: Error & { status?: number; type?: string },
+      err: Error & { code?: string; status?: number; type?: string },
       _req: express.Request,
       res: express.Response,
       _next: express.NextFunction
     ) => {
       if (err.type === 'entity.too.large' || err.status === 413) {
+        const diagnostic = toBackendErrorDiagnostic(err);
+        res.locals[REQUEST_FAILURE_LOCAL] = {
+          code: 'request_payload_too_large',
+          details: { diagnostic },
+          kind: 'permanent',
+          message: 'Request payload exceeded its configured limit.',
+        } satisfies StepFailure;
         console.warn('[Backend] Request payload too large:', {
+          correlationId: getCorrelationId(),
           status: err.status,
           type: err.type,
         });
@@ -299,7 +370,20 @@ export const createApp = (options: CreateAppOptions = {}) => {
         return;
       }
 
-      console.error('[Backend] Unhandled error:', err);
+      const diagnostic = toBackendErrorDiagnostic(err);
+      const stack = readSafeStackFrames(err);
+      res.locals[REQUEST_FAILURE_LOCAL] = {
+        code: err.code ?? 'backend_unhandled_error',
+        details: { diagnostic },
+        kind: 'operational',
+        message: 'Unhandled backend exception.',
+      } satisfies StepFailure;
+
+      console.error('[Backend] Unhandled error:', {
+        correlationId: getCorrelationId(),
+        diagnostic,
+        ...(stack ? { stack } : {}),
+      });
       res.status(500).json({
         success: false,
         error: 'Errore interno del server.',

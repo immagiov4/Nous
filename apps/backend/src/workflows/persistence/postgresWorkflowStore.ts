@@ -34,6 +34,7 @@ import {
   PostgresWorkflowWakeSource,
   type WorkflowListenClientFactory,
 } from '../postgresWorkflowWakeSource.js';
+import { createCorrelationId } from '../requestObservability.js';
 import { parseStepFailure } from '../retryPolicy.js';
 import type { WorkflowRuntimeStore } from '../runtime/workflowRuntimeWorker.js';
 import { canonicalJson } from '../schemaFingerprint.js';
@@ -61,6 +62,7 @@ interface WorkflowRunRow {
   cancellation_requested: boolean;
   cleanup_status: WorkflowRun['cleanupStatus'];
   completed_at: Date | string | null;
+  correlation_id: string;
   created_at: Date | string;
   definition_hash: string;
   definition_hash_version: number;
@@ -119,6 +121,7 @@ interface WorkflowRunStateRow extends WorkflowRunRow {
 
 export interface CreateWorkflowRunInput {
   config: unknown;
+  correlationId?: string;
   /** User-wide active-work identity; callers namespace it to share exclusion across workflows. */
   dedupeKey?: string;
   definitionHash: string;
@@ -301,6 +304,7 @@ const mapRun = (row: WorkflowRunRow): WorkflowRun => ({
   cleanupStatus: row.cleanup_status,
   ...(row.completed_at === null ? {} : { completedAt: toIsoString(row.completed_at) }),
   createdAt: toIsoString(row.created_at),
+  correlationId: row.correlation_id,
   definitionHash: row.definition_hash,
   definitionHashVersion: row.definition_hash_version,
   id: row.id,
@@ -487,13 +491,13 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
         : null;
       const inserted = await sql<WorkflowRunRow[]>`
         insert into public.workflow_runs (
-          id, user_id, project_id, workflow_id, definition_hash, request_key,
+          id, user_id, project_id, workflow_id, definition_hash, request_key, correlation_id,
           definition_hash_version, dedupe_key, status, input, output, resolved_config,
           step_policies, step_policies_version, next_event_sequence,
           completed_at
         ) values (
           ${input.id}, ${input.userId}, ${input.projectId ?? null}, ${input.workflowId},
-          ${input.definitionHash}, ${input.requestKey}, ${input.definitionHashVersion},
+          ${input.definitionHash}, ${input.requestKey}, ${input.correlationId ?? createCorrelationId()}, ${input.definitionHashVersion},
           ${input.dedupeKey ?? null},
           ${status}, ${sql.json(asPostgresJson(input.input))}, ${storedOutput},
           ${sql.json(asPostgresJson(input.config))},
@@ -529,6 +533,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
     });
     emitWorkflowLog(this.logger, {
       action: result.created ? 'created' : 'deduplicated',
+      correlationId: input.correlationId,
       entity: 'run',
       run: result.run,
     });
@@ -536,6 +541,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
       for (const wait of input.materialization.waits) {
         emitWorkflowLog(this.logger, {
           action: 'created',
+          correlationId: result.run.correlationId,
           entity: 'wait',
           nodeInstanceId: wait.nodeInstanceId,
           runId: result.run.id,

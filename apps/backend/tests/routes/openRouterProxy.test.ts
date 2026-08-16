@@ -33,6 +33,7 @@ vi.mock('../../src/services/codexAppServer.js', async () => {
 const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
 );
+const { CodexAppServerError } = await import('../../src/services/codexAppServer.js');
 const { createApp } = await import('../../src/index.js');
 
 const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
@@ -55,6 +56,7 @@ describe('/api/openrouter proxy', () => {
     fetchMock.mockResolvedValue({
       body: null,
       headers: new Headers({ 'content-type': 'application/json' }),
+      ok: true,
       status: 200,
     });
   });
@@ -84,7 +86,73 @@ describe('/api/openrouter proxy', () => {
     expect(fetchOptions?.body).not.toContain('client/ignored-model');
   });
 
+  test('records provider-specific AI failures for non-successful upstream responses', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ privateProviderResponse: 'must-not-be-logged' }), {
+        headers: { 'content-type': 'application/json' },
+        status: 429,
+      })
+    );
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
+      .send({ messages: [{ role: 'user', content: 'Ciao' }] });
+
+    expect(response.status).toBe(429);
+    const lifecycleFailure = errorLog.mock.calls
+      .flat()
+      .find(value => typeof value === 'string' && value.includes('"operation":"ai_generation"'));
+    expect(lifecycleFailure).toContain('"failureCode":"ai_provider_http_429"');
+    expect(lifecycleFailure).toContain('"provider":"openrouter"');
+    expect(lifecycleFailure).toContain('"statusCode":429');
+    expect(lifecycleFailure).not.toContain('must-not-be-logged');
+    errorLog.mockRestore();
+  });
+
+  test('keeps sanitized Codex exception details without exposing request payloads', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const correlationId = '423e4567-e89b-42d3-a456-426614174003';
+    patchGlobalModelConfig({ aiProvider: 'codex' });
+    codexMocks.runCodexAppServerTurn.mockRejectedValueOnce(
+      new CodexAppServerError('Codex process failed. api_key=private-key', 'process')
+    );
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
+      .set('x-request-id', correlationId)
+      .send({ messages: [{ role: 'user', content: 'PRIVATE_PROMPT_MARKER' }] });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      error: 'Il servizio AI non ha completato la richiesta. Riprova tra poco.',
+      success: false,
+    });
+    const proxyFailure = errorLog.mock.calls.find(
+      ([message]) => message === '[AI Proxy] Request failed.'
+    );
+    expect(proxyFailure?.[1]).toMatchObject({
+      diagnostic: {
+        code: 'process',
+        message: 'Codex process failed. api_key=[REDACTED]',
+        type: 'CodexAppServerError',
+      },
+    });
+    const lifecycleFailure = errorLog.mock.calls
+      .flat()
+      .find(value => typeof value === 'string' && value.includes('"operation":"ai_generation"'));
+    expect(lifecycleFailure).toContain(`"correlationId":"${correlationId}"`);
+    expect(lifecycleFailure).toContain('"failureDiagnostic"');
+    expect(lifecycleFailure).toContain('"message":"Codex process failed. api_key=[REDACTED]"');
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('private-key');
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('PRIVATE_PROMPT_MARKER');
+    errorLog.mockRestore();
+  });
+
   test('rejects missing and unknown model slots instead of defaulting to lesson', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const missingSlotResponse = await request(createApp())
       .post('/api/openrouter/chat/completions')
       .send({ messages: [{ role: 'user', content: 'Ciao' }] });
@@ -96,6 +164,12 @@ describe('/api/openrouter proxy', () => {
     expect(missingSlotResponse.status).toBe(400);
     expect(unknownSlotResponse.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      errorLog.mock.calls
+        .flat()
+        .some(value => typeof value === 'string' && value.includes('"operation":"ai_generation"'))
+    ).toBe(false);
+    errorLog.mockRestore();
   });
 
   test('routes artifact passes through their dedicated model and reasoning slot', async () => {
@@ -171,6 +245,7 @@ describe('/api/openrouter proxy', () => {
     fetchMock.mockResolvedValue({
       body: null,
       headers: new Headers({ 'content-type': 'application/json' }),
+      ok: true,
       status: 200,
     });
 
@@ -353,6 +428,7 @@ describe('/api/openrouter proxy', () => {
       .mockResolvedValueOnce({
         body: null,
         headers: new Headers({ 'content-type': 'application/json' }),
+        ok: true,
         status: 200,
       });
 

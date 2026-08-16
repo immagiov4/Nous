@@ -20,6 +20,7 @@ const completedResult = {
   projectId: 'project-1',
   projectRevision: 7,
 };
+const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 const workflowResponse = (job: Record<string, unknown>, status = 200): Response =>
   new Response(
@@ -68,6 +69,7 @@ describe('courseGenerationClient', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   test('starts, polls, and forwards authoritative progress without rebuilding it', async () => {
@@ -227,8 +229,15 @@ describe('courseGenerationClient', () => {
   });
 
   test('rejects a successful response whose course job violates the client contract', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock
-      .mockResolvedValueOnce(workflowResponse({ id: 'run-malformed', status: 'running' }))
+      .mockResolvedValueOnce(
+        workflowResponse({
+          correlationId: CORRELATION_ID,
+          id: 'run-malformed',
+          status: 'running',
+        })
+      )
       .mockResolvedValueOnce(
         workflowResponse({
           id: 'run-malformed',
@@ -252,6 +261,7 @@ describe('courseGenerationClient', () => {
 
     await rejection;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('retains the course request key when the start response is transient', async () => {
@@ -316,7 +326,8 @@ describe('courseGenerationClient', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       1,
       'http://localhost:3301/api/course-workflows/courses/project-1/active',
-      { cache: 'no-store' }
+      { cache: 'no-store' },
+      { expectedStatuses: [404] }
     );
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
     expect(globalThis.sessionStorage.getItem('nous:course-workflow-request:project-1')).toBeNull();
@@ -470,8 +481,15 @@ describe('courseGenerationClient', () => {
   });
 
   test('rejects a successful response whose PDF repair job violates the client contract', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock
-      .mockResolvedValueOnce(workflowResponse({ id: 'repair-malformed', status: 'running' }))
+      .mockResolvedValueOnce(
+        workflowResponse({
+          correlationId: CORRELATION_ID,
+          id: 'repair-malformed',
+          status: 'running',
+        })
+      )
       .mockResolvedValueOnce(
         workflowResponse({
           id: 'repair-malformed',
@@ -488,6 +506,7 @@ describe('courseGenerationClient', () => {
 
     await rejection;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('retains the PDF repair request key when its start response is transient', async () => {
@@ -522,6 +541,7 @@ describe('courseGenerationClient', () => {
   });
 
   test('clears the PDF repair request key before validating a terminal result', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const queued = {
       id: 'repair-invalid-result',
       projectId: 'project-1',
@@ -533,6 +553,7 @@ describe('courseGenerationClient', () => {
       .mockResolvedValueOnce(
         workflowResponse({
           ...queued,
+          correlationId: CORRELATION_ID,
           result: { projectId: 'project-1', repaired: true },
           stage: 'ready',
           status: 'completed',
@@ -547,6 +568,7 @@ describe('courseGenerationClient', () => {
     expect(
       globalThis.sessionStorage.getItem('nous:pdf-mapping-repair-request:project-1')
     ).toBeNull();
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('clears the PDF repair request key before validating an immediate result', async () => {
@@ -566,9 +588,38 @@ describe('courseGenerationClient', () => {
     ).toBeNull();
   });
 
+  test('records the support code from a terminal PDF repair failure', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const queued = {
+      id: 'repair-failed',
+      projectId: 'project-1',
+      stage: 'mapping',
+      status: 'queued',
+    };
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(workflowResponse(queued, 202))
+      .mockResolvedValueOnce(
+        workflowResponse({
+          ...queued,
+          correlationId: CORRELATION_ID,
+          errorCode: 'pdf_mapping_repair_failed',
+          status: 'failed',
+        })
+      );
+
+    const repair = repairDurablePdfMapping({ projectId: 'project-1' });
+    const rejection = expect(repair).rejects.toThrow('La mappatura del PDF non è riuscita.');
+    await advancePoll();
+
+    await rejection;
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+  });
+
   test('does not expose backend failure details', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       workflowResponse({
+        correlationId: CORRELATION_ID,
         errorCode: 'course_provider_secret_failure',
         id: 'run-failed',
         mode: 'document',
@@ -585,6 +636,8 @@ describe('courseGenerationClient', () => {
         projectId: 'project-1',
       })
     ).rejects.toThrow('La generazione del corso non è riuscita. Riprova.');
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warning.mockRestore();
   });
 
   test('explains when an app update intentionally stops the stored workflow definition', async () => {
@@ -607,8 +660,10 @@ describe('courseGenerationClient', () => {
   });
 
   test('rejects a completed result belonging to another project', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       workflowResponse({
+        correlationId: CORRELATION_ID,
         id: 'run-invalid',
         mode: 'document',
         projectId: 'project-1',
@@ -625,5 +680,7 @@ describe('courseGenerationClient', () => {
         projectId: 'project-1',
       })
     ).rejects.toThrow('La generazione del corso non è riuscita. Riprova.');
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warning.mockRestore();
   });
 });

@@ -11,6 +11,7 @@ const SUPPORTED_DEFINITIONS = [
     workflowId: 'lesson-generation',
   },
 ];
+const CORRELATION_ID = '123e4567-e89b-12d3-a456-426614174000';
 
 const createScriptedSql = (...responses: unknown[][]): { remaining: () => number; sql: Sql } => {
   const transaction = Object.assign(
@@ -30,6 +31,7 @@ const createScriptedSql = (...responses: unknown[][]): { remaining: () => number
 
 const expiredUndo = (attemptNumber: number) => ({
   attempt_count: attemptNumber,
+  correlation_id: CORRELATION_ID,
   fencing_token: '4',
   max_attempts: 3,
   node_instance_id: 'lesson/save',
@@ -121,6 +123,7 @@ describe('workflow undo recovery', () => {
       expect.objectContaining({
         action: 'recovered',
         attemptNumber: 1,
+        correlationId: CORRELATION_ID,
         event: 'workflow.attempt',
         failureCode: 'undo_lease_expired',
         operation: 'undo',

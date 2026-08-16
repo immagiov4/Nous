@@ -13,6 +13,7 @@ import {
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 
 const ASSET_ID = 'a'.repeat(64);
+const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 const SOURCE_RUN_ID = '11111111-1111-4111-8111-111111111111';
 
 const asset: ProjectAssetRef = {
@@ -74,6 +75,7 @@ const workflowRun = (overrides: Record<string, unknown> = {}) =>
   ({
     cancellationRequested: false,
     cleanupStatus: 'not-required',
+    correlationId: CORRELATION_ID,
     createdAt: '2026-08-01T10:00:00.000Z',
     definitionHash: 'hash',
     definitionHashVersion: 1,
@@ -146,7 +148,7 @@ describe('artifact draft API', () => {
   test('copies source asset references from the authoritative project snapshot', async () => {
     const setup = dependencies(project([sourceVisual]));
 
-    await createArtifactDraftApi(setup.input).start(startInput);
+    const result = await createArtifactDraftApi(setup.input).start(startInput);
 
     expect(setup.createRun).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -156,6 +158,7 @@ describe('artifact draft API', () => {
         }),
       })
     );
+    expect(result.job).toMatchObject({ correlationId: CORRELATION_ID, status: 'queued' });
   });
 
   test('resolves an unsaved source from its completed artifact workflow run', async () => {

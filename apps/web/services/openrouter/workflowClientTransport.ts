@@ -1,7 +1,9 @@
 import { TransientRequestError } from '../core/errorMessage.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 
 const WORKFLOW_STATUS_POLL_MS = 1_000;
 const TRANSIENT_WORKFLOW_HTTP_STATUSES = new Set([408, 429]);
+export const WORKFLOW_NOT_FOUND_STATUS = 404;
 
 export const WORKFLOW_DEFINITION_UNAVAILABLE_MESSAGE =
   'L’app è stata aggiornata mentre questa generazione era in corso. Avvia una nuova generazione.';
@@ -100,6 +102,7 @@ export const readWorkflowPollJson = async (
 
 export interface WorkflowSnapshotEnvelope {
   readonly attempt?: number;
+  readonly correlationId?: string;
   readonly createdAt: string;
   readonly errorCode?: string;
   readonly id: string;
@@ -112,6 +115,11 @@ export interface WorkflowSnapshotEnvelope {
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && Boolean(value.trim());
+
+export const logMalformedWorkflowSnapshotCorrelationId = (value: unknown): void => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return;
+  logBackendFailureCorrelationId((value as Record<string, unknown>).correlationId);
+};
 
 export const isWorkflowSnapshotEnvelope = (
   value: unknown
@@ -127,6 +135,7 @@ export const isWorkflowSnapshotEnvelope = (
     isNonEmptyString(snapshot.updatedAt) &&
     (snapshot.attempt === undefined ||
       (Number.isSafeInteger(snapshot.attempt) && Number(snapshot.attempt) > 0)) &&
+    (snapshot.correlationId === undefined || isNonEmptyString(snapshot.correlationId)) &&
     (snapshot.errorCode === undefined || isNonEmptyString(snapshot.errorCode)) &&
     (snapshot.startedAt === undefined || isNonEmptyString(snapshot.startedAt))
   );

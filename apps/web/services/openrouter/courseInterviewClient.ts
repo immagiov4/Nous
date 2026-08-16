@@ -23,6 +23,7 @@ import {
 } from '@shared/courseInterviewContract';
 
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -32,6 +33,7 @@ import {
   pollWorkflow,
   readWorkflowJson,
   readWorkflowPollJson,
+  WORKFLOW_NOT_FOUND_STATUS,
 } from './workflowClientTransport.ts';
 
 const COURSE_INTERVIEW_ERROR = 'L’intervista per il corso non è riuscita. Riprova.';
@@ -132,6 +134,7 @@ interface WorkflowWaitSnapshot {
 
 interface CourseInterviewRunSnapshot {
   readonly cleanupStatus: WorkflowCleanupStatus;
+  readonly correlationId?: string;
   readonly errorCode?: string;
   readonly events: readonly WorkflowEventSnapshot[];
   readonly projectId: string;
@@ -194,61 +197,72 @@ const parseRunState = (
     !isRecord(payload) ||
     payload.success !== true ||
     !isRecord(payload.state) ||
-    !isRecord(payload.state.run) ||
-    !Array.isArray(payload.state.publishedEvents) ||
-    !Array.isArray(payload.state.waits)
+    !isRecord(payload.state.run)
   ) {
     throw new Error(COURSE_INTERVIEW_ERROR);
   }
   const run = payload.state.run;
-  const cleanupStatus = run.cleanupStatus;
-  if (
-    run.id !== expectedRunId ||
-    run.projectId !== expectedProjectId ||
-    run.workflowId !== COURSE_INTERVIEW_WORKFLOW_ID ||
-    typeof run.status !== 'string' ||
-    !isCourseInterviewStatus(run.status) ||
-    (cleanupStatus !== 'completed' &&
-      cleanupStatus !== 'failed' &&
-      cleanupStatus !== 'not-required' &&
-      cleanupStatus !== 'pending' &&
-      cleanupStatus !== 'running')
-  ) {
-    throw new Error(COURSE_INTERVIEW_ERROR);
+  const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
+  try {
+    const cleanupStatus = run.cleanupStatus;
+    if (
+      !Array.isArray(payload.state.publishedEvents) ||
+      !Array.isArray(payload.state.waits) ||
+      run.id !== expectedRunId ||
+      run.projectId !== expectedProjectId ||
+      run.workflowId !== COURSE_INTERVIEW_WORKFLOW_ID ||
+      typeof run.status !== 'string' ||
+      !isCourseInterviewStatus(run.status) ||
+      (cleanupStatus !== 'completed' &&
+        cleanupStatus !== 'failed' &&
+        cleanupStatus !== 'not-required' &&
+        cleanupStatus !== 'pending' &&
+        cleanupStatus !== 'running')
+    ) {
+      throw new Error(COURSE_INTERVIEW_ERROR);
+    }
+    const events: WorkflowEventSnapshot[] = payload.state.publishedEvents.map(value => {
+      const event = readWorkflowEvent(value);
+      if (!event) throw new Error(COURSE_INTERVIEW_ERROR);
+      return event;
+    });
+    const waits: WorkflowWaitSnapshot[] = payload.state.waits.map(value => {
+      const wait = readWorkflowWait(value);
+      if (!wait) throw new Error(COURSE_INTERVIEW_ERROR);
+      return wait;
+    });
+    const errorCode =
+      isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
+    return {
+      cleanupStatus,
+      ...(correlationId ? { correlationId } : {}),
+      ...(errorCode ? { errorCode } : {}),
+      events,
+      projectId: expectedProjectId,
+      runId: expectedRunId,
+      status: run.status,
+      waits,
+    };
+  } catch (error) {
+    logBackendFailureCorrelationId(correlationId);
+    throw error;
   }
-  const events = payload.state.publishedEvents.map(value => {
-    const event = readWorkflowEvent(value);
-    if (!event) throw new Error(COURSE_INTERVIEW_ERROR);
-    return event;
-  });
-  const waits = payload.state.waits.map(value => {
-    const wait = readWorkflowWait(value);
-    if (!wait) throw new Error(COURSE_INTERVIEW_ERROR);
-    return wait;
-  });
-  const errorCode =
-    isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
-  return {
-    cleanupStatus,
-    ...(errorCode ? { errorCode } : {}),
-    events,
-    projectId: expectedProjectId,
-    runId: expectedRunId,
-    status: run.status,
-    waits,
-  };
 };
 
 const fetchRunStateIfPresent = async (
   runId: string,
   projectId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  notFoundIsExpected = false
 ): Promise<CourseInterviewRunSnapshot | null> => {
-  const response = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(runId)}`,
-    { cache: 'no-store', signal }
-  );
-  if (response.status === 404) return null;
+  const url = `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(runId)}`;
+  const request = { cache: 'no-store' as const, signal };
+  const response = notFoundIsExpected
+    ? await fetchWithSupabaseAuth(url, request, {
+        expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS],
+      })
+    : await fetchWithSupabaseAuth(url, request);
+  if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
   assertWorkflowPollResponse(response, COURSE_INTERVIEW_ERROR);
   return parseRunState(
     await readWorkflowPollJson(response, COURSE_INTERVIEW_ERROR),
@@ -367,6 +381,17 @@ const mapCourseInterviewSnapshot = (state: CourseInterviewRunSnapshot): CourseIn
   };
 };
 
+const mapCourseInterviewSnapshotWithDiagnostics = (
+  state: CourseInterviewRunSnapshot
+): CourseInterviewSnapshot => {
+  try {
+    return mapCourseInterviewSnapshot(state);
+  } catch (error) {
+    logBackendFailureCorrelationId(state.correlationId);
+    throw error;
+  }
+};
+
 const waitForActionableSnapshot = async (
   runId: string,
   projectId: string,
@@ -374,7 +399,7 @@ const waitForActionableSnapshot = async (
   missingSnapshot?: CourseInterviewSnapshot
 ): Promise<CourseInterviewSnapshot> => {
   const readState = async (signal?: AbortSignal): Promise<CourseInterviewRunSnapshot | null> => {
-    const state = await fetchRunStateIfPresent(runId, projectId, signal);
+    const state = await fetchRunStateIfPresent(runId, projectId, signal, Boolean(missingSnapshot));
     if (!state && !missingSnapshot) throw new Error(COURSE_INTERVIEW_ERROR);
     return state;
   };
@@ -397,7 +422,7 @@ const waitForActionableSnapshot = async (
     initialState,
     isTerminal: state => state.run === null || !ACTIVE_INTERVIEW_STATUSES.has(state.run.status),
     onState: state => {
-      if (state.run) options.onSnapshot?.(mapCourseInterviewSnapshot(state.run));
+      if (state.run) options.onSnapshot?.(mapCourseInterviewSnapshotWithDiagnostics(state.run));
     },
     readState: async (_state, signal) => ({ run: await readState(signal) }),
     signal: options.signal,
@@ -406,7 +431,10 @@ const waitForActionableSnapshot = async (
     if (missingSnapshot) return missingSnapshot;
     throw new Error(COURSE_INTERVIEW_ERROR);
   }
-  return mapCourseInterviewSnapshot(terminalState.run);
+  if (terminalState.run.status === 'failed' || terminalState.run.status === 'expired') {
+    logBackendFailureCorrelationId(terminalState.run.correlationId);
+  }
+  return mapCourseInterviewSnapshotWithDiagnostics(terminalState.run);
 };
 
 const sendInterviewSignal = async (
@@ -474,9 +502,10 @@ export const getActiveCourseInterview = async (
 ): Promise<CourseInterviewSnapshot | null> => {
   const response = await fetchWithSupabaseAuth(
     `${getBackendUrl()}/api/course-interviews/${encodeURIComponent(projectId)}/active`,
-    { cache: 'no-store', signal: options.signal }
+    { cache: 'no-store', signal: options.signal },
+    { expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS] }
   );
-  if (response.status === 404) return null;
+  if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
   assertWorkflowPollResponse(response, COURSE_INTERVIEW_ERROR);
   const run = await readRunSummary(response, projectId);
   return waitForActionableSnapshot(run.id, projectId, options);
@@ -540,9 +569,10 @@ export const cancelCourseInterview = async (
   ): Promise<{ readonly run: CourseInterviewRunSnapshot | null }> => {
     const stateResponse = await fetchWithSupabaseAuth(
       `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(input.runId)}`,
-      { cache: 'no-store', signal }
+      { cache: 'no-store', signal },
+      { expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS] }
     );
-    if (stateResponse.status === 404) return { run: null };
+    if (stateResponse.status === WORKFLOW_NOT_FOUND_STATUS) return { run: null };
     assertWorkflowPollResponse(stateResponse, COURSE_INTERVIEW_ERROR);
     return {
       run: parseRunState(
@@ -563,5 +593,8 @@ export const cancelCourseInterview = async (
     readState: (_state, signal) => readCancellationState(signal),
     signal: options.signal,
   });
-  if (cancellation.run?.cleanupStatus === 'failed') throw new Error(COURSE_INTERVIEW_ERROR);
+  if (cancellation.run?.cleanupStatus === 'failed') {
+    logBackendFailureCorrelationId(cancellation.run.correlationId);
+    throw new Error(COURSE_INTERVIEW_ERROR);
+  }
 };

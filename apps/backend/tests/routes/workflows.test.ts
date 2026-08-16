@@ -10,6 +10,7 @@ import {
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const WAIT_ID = 'f58eeb9b-7abd-4d0f-a589-e54192284062';
+const CORRELATION_ID = '48eb116c-a283-440b-b875-a528e5e4f5f1';
 
 const createState = () => ({
   publishedEvents: [
@@ -43,6 +44,7 @@ const createState = () => ({
   run: {
     cancellationRequested: false,
     cleanupStatus: 'not-required' as const,
+    correlationId: CORRELATION_ID,
     createdAt: '2026-07-29T10:00:00.000Z',
     definitionHash: 'definition-hash',
     definitionHashVersion: 1,
@@ -124,6 +126,7 @@ describe('/api/workflows', () => {
     expect(response.body.state.run).not.toHaveProperty('output');
     expect(response.body.state.run).not.toHaveProperty('resolvedConfig');
     expect(response.body.state.run).not.toHaveProperty('userId');
+    expect(response.body.state.run.correlationId).toBe(CORRELATION_ID);
     expect(response.body.state).not.toHaveProperty('events');
   });
 

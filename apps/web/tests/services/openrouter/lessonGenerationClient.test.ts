@@ -30,6 +30,7 @@ const completedResult = {
   sectionId: 'lesson-1',
   warnings: [],
 };
+const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 const terminalPhaseMessages = [
   [
@@ -68,7 +69,7 @@ const terminalPhaseMessages = [
   ],
 ] as const;
 
-const response = (job: Record<string, unknown>, status = 200): Response =>
+const response = (job: Record<string, unknown>, status = 200, headers?: HeadersInit): Response =>
   new Response(
     JSON.stringify({
       job: {
@@ -79,7 +80,7 @@ const response = (job: Record<string, unknown>, status = 200): Response =>
       },
       success: status < 400,
     }),
-    { status }
+    { headers, status }
   );
 
 const advancePoll = async (): Promise<void> => {
@@ -144,7 +145,8 @@ describe('generateDurableLesson', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       1,
       'http://localhost:3301/api/lesson-workflows/lessons',
-      expect.objectContaining({ method: 'POST' })
+      expect.objectContaining({ method: 'POST' }),
+      { expectedStatuses: [409] }
     );
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       3,
@@ -231,8 +233,11 @@ describe('generateDurableLesson', () => {
   });
 
   test('rejects a successful response whose running job violates the client contract', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock
-      .mockResolvedValueOnce(response({ id: 'run-malformed', status: 'running' }))
+      .mockResolvedValueOnce(
+        response({ correlationId: CORRELATION_ID, id: 'run-malformed', status: 'running' })
+      )
       .mockResolvedValueOnce(
         response({
           id: 'run-malformed',
@@ -252,6 +257,7 @@ describe('generateDurableLesson', () => {
 
     await rejection;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('retains the lesson request key when a successful start body is malformed', async () => {
@@ -493,11 +499,35 @@ describe('generateDurableLesson', () => {
     const lesson = generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' });
     await expect(lesson).rejects.toBeInstanceOf(LessonGenerationBusyError);
     await expect(lesson).rejects.toMatchObject({ activeSectionId: 'lesson-2' });
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
+      'http://localhost:3301/api/lesson-workflows/lessons',
+      expect.objectContaining({ method: 'POST' }),
+      { expectedStatuses: [409] }
+    );
+  });
+
+  test('records a malformed busy response as a backend failure', async () => {
+    const correlationId = '48eb116c-a283-440b-b875-a528e5e4f5f1';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({ projectId: 'project-1', sectionId: 'lesson-2', status: 'unexpected' }, 409, {
+        'x-request-id': correlationId,
+      })
+    );
+
+    await expect(
+      generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
+    ).rejects.toThrow('La generazione della lezione non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${correlationId}`);
+    warn.mockRestore();
   });
 
   test('rejects a completed result belonging to a different lesson', async () => {
+    const correlationId = '58eb116c-a283-440b-b875-a528e5e4f5f2';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       response({
+        correlationId,
         id: 'run-1',
         projectId: 'project-1',
         result: { ...completedResult, sectionId: 'lesson-2' },
@@ -510,11 +540,15 @@ describe('generateDurableLesson', () => {
     await expect(
       generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
     ).rejects.toThrow('La generazione della lezione non è riuscita');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${correlationId}`);
+    warn.mockRestore();
   });
 
   test('surfaces a terminal workflow failure without exposing backend details', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       response({
+        correlationId: '123e4567-e89b-12d3-a456-426614174000',
         errorCode: 'lesson_provider_failed',
         id: 'run-failed',
         projectId: 'project-1',
@@ -527,6 +561,10 @@ describe('generateDurableLesson', () => {
     await expect(
       generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
     ).rejects.toThrow('La generazione della lezione non è riuscita');
+    expect(warn).toHaveBeenCalledWith(
+      '[Nous][API] Codice assistenza: 123e4567-e89b-12d3-a456-426614174000'
+    );
+    warn.mockRestore();
   });
 
   test.each(
@@ -666,7 +704,8 @@ describe('generateDurableLesson', () => {
     ) as Record<string, unknown>;
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
       'http://localhost:3301/api/lesson-workflows/sublessons',
-      expect.objectContaining({ method: 'POST' })
+      expect.objectContaining({ method: 'POST' }),
+      { expectedStatuses: [409] }
     );
     expect(body).toMatchObject({
       annotationNote: 'Nota locale',

@@ -89,6 +89,7 @@ const toRunStateDto = (state: WorkflowPublicRunState) => ({
     cancellationRequested: state.run.cancellationRequested,
     cleanupStatus: state.run.cleanupStatus,
     ...(state.run.completedAt ? { completedAt: state.run.completedAt } : {}),
+    ...(state.run.correlationId ? { correlationId: state.run.correlationId } : {}),
     createdAt: state.run.createdAt,
     definitionHash: state.run.definitionHash,
     definitionHashVersion: state.run.definitionHashVersion,

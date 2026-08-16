@@ -23,7 +23,9 @@ const JWT_PATTERN = /\beyJ[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]+\b
 const PROVIDER_SECRET_PATTERN = /\b(?:github_pat_|gh[pousr]_|sk-)[a-z0-9_-]{16,}\b/gi;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const CORRELATION_CONTEXT_PATTERN = /(assistenza|correlation|request.?id)/i;
-const CORRELATION_ID_PATTERN = /\b(?:[0-9a-f]{8}-[0-9a-f-]{27,}|[a-z0-9][a-z0-9_-]{7,63})\b/gi;
+const CORRELATION_ID_PATTERN =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/giu;
+const EXACT_CORRELATION_ID_PATTERN = new RegExp(`^(?:${CORRELATION_ID_PATTERN.source})$`, 'iu');
 
 const entries: FeedbackConsoleEntry[] = [];
 let initialized = false;
@@ -75,9 +77,14 @@ const appendEntry = (level: FeedbackConsoleLevel, message: string) => {
 
 const getCorrelationIds = (consoleEntries: FeedbackConsoleEntry[]): string[] | undefined => {
   const ids = new Set<string>();
-  for (const entry of consoleEntries) {
+  for (let entryIndex = consoleEntries.length - 1; entryIndex >= 0; entryIndex -= 1) {
+    const entry = consoleEntries[entryIndex];
+    if (!entry) continue;
     if (!CORRELATION_CONTEXT_PATTERN.test(entry.message)) continue;
-    for (const match of entry.message.match(CORRELATION_ID_PATTERN) || []) {
+    const matches = entry.message.match(CORRELATION_ID_PATTERN) || [];
+    for (let matchIndex = matches.length - 1; matchIndex >= 0; matchIndex -= 1) {
+      const match = matches[matchIndex];
+      if (!match) continue;
       ids.add(match);
       if (ids.size === MAX_CORRELATION_IDS) return [...ids];
     }
@@ -92,6 +99,17 @@ export const getFeedbackDiagnosticsSnapshot = (): FeedbackDiagnosticsSnapshot =>
     correlationIds: getCorrelationIds(consoleEntries),
     pageUrl: sanitizeUrl(globalThis.location.href),
   };
+};
+
+export const clearFeedbackDiagnostics = (): void => {
+  entries.length = 0;
+};
+
+export const logBackendFailureCorrelationId = (value: unknown): void => {
+  if (typeof value !== 'string') return;
+  const correlationId = value.trim();
+  if (!EXACT_CORRELATION_ID_PATTERN.test(correlationId)) return;
+  console.warn(`[Nous][API] Codice assistenza: ${correlationId}`);
 };
 
 export const initializeFeedbackDiagnostics = (): (() => void) => {
@@ -132,7 +150,6 @@ export const initializeFeedbackDiagnostics = (): (() => void) => {
     for (const [level, original] of originalMethods) console[level] = original;
     globalThis.removeEventListener('error', handleWindowError);
     globalThis.removeEventListener('unhandledrejection', handleUnhandledRejection);
-    entries.length = 0;
     initialized = false;
   };
 };

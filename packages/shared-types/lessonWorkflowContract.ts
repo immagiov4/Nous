@@ -38,6 +38,7 @@ export interface LessonWorkflowResult {
 
 export interface LessonWorkflowSnapshot {
   attempt?: number;
+  correlationId?: string;
   createdAt: string;
   errorCode?: string;
   failure?: LessonWorkflowFailure;

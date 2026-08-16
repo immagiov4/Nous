@@ -168,6 +168,7 @@ const makeStore = (): WorkflowRuntimeStore => ({
 
 const outboxClaim: WorkflowOutboxClaim = {
   attemptNumber: 1,
+  correlationId: '123e4567-e89b-42d3-a456-426614174000',
   eventType: 'lesson.project-revision',
   fencingToken: '1',
   id: 'notification-1',

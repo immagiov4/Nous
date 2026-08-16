@@ -59,6 +59,7 @@ export interface WorkflowRunLifecycleState {
   readonly cancellationRequested: boolean;
   readonly cleanupStatus: WorkflowRun['cleanupStatus'];
   readonly completedAt?: string;
+  readonly correlationId?: string;
   readonly createdAt: string;
   readonly definitionHash: string;
   readonly definitionHashVersion: number;
@@ -119,6 +120,7 @@ const createRunLifecycleState = (run: WorkflowRun): WorkflowRunLifecycleState =>
   cancellationRequested: run.cancellationRequested,
   cleanupStatus: run.cleanupStatus,
   ...(run.completedAt ? { completedAt: run.completedAt } : {}),
+  ...(run.correlationId ? { correlationId: run.correlationId } : {}),
   createdAt: run.createdAt,
   definitionHash: run.definitionHash,
   definitionHashVersion: run.definitionHashVersion,

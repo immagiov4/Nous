@@ -215,6 +215,7 @@ export const checkpointWorkflowStep = async (
   for (const wait of checkpoint.waits) {
     emitWorkflowLog(logger, {
       action: 'created',
+      correlationId: input.claim.correlationId,
       entity: 'wait',
       nodeInstanceId: wait.nodeInstanceId,
       runId: input.claim.runId,

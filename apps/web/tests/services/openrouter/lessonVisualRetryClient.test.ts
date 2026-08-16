@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const fetchWithSupabaseAuthMock = vi.hoisted(() => vi.fn());
+const CORRELATION_ID = '48eb116c-a283-440b-b875-a528e5e4f5f1';
 
 vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
   fetchWithSupabaseAuth: fetchWithSupabaseAuthMock,
@@ -30,6 +31,7 @@ const startResponse = (runId: string, status = 'queued', responseStatus = 202): 
 
 const runResponse = ({
   cleanupStatus = 'not-required',
+  correlationId,
   errorCode,
   events = [],
   projectId = 'project-1',
@@ -37,6 +39,7 @@ const runResponse = ({
   status,
 }: {
   cleanupStatus?: string;
+  correlationId?: string;
   errorCode?: string;
   events?: unknown[];
   projectId?: string;
@@ -48,6 +51,7 @@ const runResponse = ({
       publishedEvents: events,
       run: {
         cleanupStatus,
+        ...(correlationId ? { correlationId } : {}),
         ...(errorCode ? { error: { code: errorCode } } : {}),
         id: runId,
         projectId,
@@ -287,6 +291,53 @@ describe('retryDurableLessonVisual', () => {
     ).rejects.toThrow(
       'L’app è stata aggiornata mentre questa generazione era in corso. Avvia una nuova generazione.'
     );
+  });
+
+  test('records the persisted support code for a terminal retry failure', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(startResponse('run-correlated'))
+      .mockResolvedValueOnce(
+        runResponse({
+          correlationId: CORRELATION_ID,
+          runId: 'run-correlated',
+          status: 'failed',
+        })
+      );
+
+    await expect(
+      retryDurableLessonVisual({
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        slotId: 'slot-1',
+      })
+    ).rejects.toThrow('La rigenerazione dell’esempio visivo non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
+  });
+
+  test('records the support code before rejecting malformed retry run metadata', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(startResponse('run-correlated-malformed'))
+      .mockResolvedValueOnce(
+        runResponse({
+          correlationId: CORRELATION_ID,
+          projectId: 'wrong-project',
+          runId: 'run-correlated-malformed',
+          status: 'running',
+        })
+      );
+
+    await expect(
+      retryDurableLessonVisual({
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        slotId: 'slot-1',
+      })
+    ).rejects.toThrow('La rigenerazione dell’esempio visivo non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
   });
 
   test('stops abandoned polling without discarding the reconnect request key', async () => {

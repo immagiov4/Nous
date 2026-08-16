@@ -457,6 +457,7 @@ export interface WorkflowRun {
   readonly cleanupStatus: 'completed' | 'failed' | 'not-required' | 'pending' | 'running';
   readonly completedAt?: string;
   readonly createdAt: string;
+  readonly correlationId?: string;
   readonly definitionHash: string;
   readonly definitionHashVersion: number;
   readonly id: string;
@@ -483,6 +484,7 @@ export interface WorkflowRun {
 }
 
 export interface WorkflowStepClaim {
+  readonly correlationId?: string;
   readonly attemptNumber: number;
   readonly definitionHash: string;
   readonly definitionHashVersion: number;

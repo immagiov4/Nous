@@ -21,6 +21,7 @@ import {
 
 interface UndoCandidateRow {
   attempt_count: number;
+  correlation_id: string;
   definition_hash: string;
   definition_hash_version: number;
   input: unknown;
@@ -48,6 +49,7 @@ interface OwnedUndoRow {
 
 interface ExpiredUndoRow {
   attempt_count: number;
+  correlation_id: string;
   fencing_token: string;
   max_attempts: number;
   node_instance_id: string;
@@ -57,6 +59,7 @@ interface ExpiredUndoRow {
 
 interface RequeuedUndoRunRow {
   cleanup_status: 'pending';
+  correlation_id: string;
   run_id: string;
   run_status: WorkflowRun['status'];
   workflow_id: string;
@@ -64,6 +67,7 @@ interface RequeuedUndoRunRow {
 
 export interface WorkflowUndoClaim {
   readonly attemptNumber: number;
+  readonly correlationId?: string;
   readonly definitionHash: string;
   readonly definitionHashVersion: number;
   readonly fencingToken: string;
@@ -237,10 +241,11 @@ export class PostgresWorkflowUndoStore {
           and exists (
             select 1 from requeued_undo requeued where requeued.run_id = run.id
           )
-        returning run.id, run.status, run.workflow_id
+        returning run.id, run.status, run.workflow_id, run.correlation_id
       )
       select
         id as run_id,
+        correlation_id,
         workflow_id,
         status as run_status,
         'pending'::text as cleanup_status
@@ -251,6 +256,7 @@ export class PostgresWorkflowUndoStore {
       emitWorkflowLog(this.logger, {
         action: 'reconciled',
         cleanupStatus: run.cleanup_status,
+        correlationId: run.correlation_id,
         entity: 'run',
         runId: run.run_id,
         runStatus: run.run_status,
@@ -285,6 +291,7 @@ export class PostgresWorkflowUndoStore {
           undo.max_attempts,
           undo.timeout_ms,
           node.node_definition_id,
+          run.correlation_id,
           run.workflow_id,
           run.definition_hash,
           run.definition_hash_version,
@@ -363,6 +370,7 @@ export class PostgresWorkflowUndoStore {
 
       return {
         attemptNumber: claimed.attempt_count,
+        correlationId: candidate.correlation_id,
         definitionHash: candidate.definition_hash,
         definitionHashVersion: candidate.definition_hash_version,
         fencingToken: claimed.fencing_token,
@@ -617,7 +625,8 @@ export class PostgresWorkflowUndoStore {
           undo.attempt_count,
           undo.max_attempts,
           undo.fencing_token::text,
-          undo.worker_id
+          undo.worker_id,
+          run.correlation_id
         from public.workflow_undo_runs undo
         join public.workflow_runs run on run.id = undo.run_id
         where undo.status = 'running'
@@ -683,6 +692,7 @@ export class PostgresWorkflowUndoStore {
         await markWorkflowCleanupFailed(sql, candidate.run_id);
         return {
           attemptNumber: candidate.attempt_count,
+          correlationId: candidate.correlation_id,
           fencingToken: candidate.fencing_token,
           result: {
             nodeInstanceId: candidate.node_instance_id,
@@ -718,6 +728,7 @@ export class PostgresWorkflowUndoStore {
       await sql`select pg_notify('workflow_undo_ready', ${candidate.run_id})`;
       return {
         attemptNumber: candidate.attempt_count,
+        correlationId: candidate.correlation_id,
         fencingToken: candidate.fencing_token,
         result: {
           nodeInstanceId: candidate.node_instance_id,
@@ -732,6 +743,7 @@ export class PostgresWorkflowUndoStore {
       action: 'recovered',
       claim: {
         attemptNumber: recovered.attemptNumber,
+        correlationId: recovered.correlationId,
         fencingToken: recovered.fencingToken,
         nodeInstanceId: recovered.result.nodeInstanceId,
         runId: recovered.result.runId,

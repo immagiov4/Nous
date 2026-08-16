@@ -11,6 +11,7 @@ export interface ArtifactDraftWorkflowResult {
 
 export interface ArtifactDraftWorkflowSnapshot {
   readonly attempt?: number;
+  readonly correlationId?: string;
   readonly createdAt: string;
   readonly errorCode?: string;
   readonly id: string;

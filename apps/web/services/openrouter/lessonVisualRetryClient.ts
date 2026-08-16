@@ -1,4 +1,5 @@
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -37,6 +38,7 @@ interface RetryOptions {
 
 interface RetryRunState {
   readonly cleanupStatus: string;
+  readonly correlationId?: string;
   readonly errorCode?: string;
   readonly projectId: string;
   readonly publishedEvents: readonly unknown[];
@@ -69,32 +71,39 @@ const readRunState = async (
     !isRecord(payload) ||
     payload.success !== true ||
     !isRecord(payload.state) ||
-    !isRecord(payload.state.run) ||
-    !Array.isArray(payload.state.publishedEvents)
+    !isRecord(payload.state.run)
   ) {
     throw new Error(LESSON_VISUAL_RETRY_ERROR);
   }
   const run = payload.state.run;
-  if (
-    run.id !== expectedRunId ||
-    run.projectId !== expectedProjectId ||
-    run.workflowId !== LESSON_VISUAL_RETRY_WORKFLOW_ID ||
-    typeof run.cleanupStatus !== 'string' ||
-    typeof run.status !== 'string'
-  ) {
-    throw new Error(LESSON_VISUAL_RETRY_ERROR);
+  const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
+  try {
+    if (
+      !Array.isArray(payload.state.publishedEvents) ||
+      run.id !== expectedRunId ||
+      run.projectId !== expectedProjectId ||
+      run.workflowId !== LESSON_VISUAL_RETRY_WORKFLOW_ID ||
+      typeof run.cleanupStatus !== 'string' ||
+      typeof run.status !== 'string'
+    ) {
+      throw new Error(LESSON_VISUAL_RETRY_ERROR);
+    }
+    const errorCode =
+      isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
+    return {
+      cleanupStatus: run.cleanupStatus,
+      ...(correlationId ? { correlationId } : {}),
+      ...(errorCode ? { errorCode } : {}),
+      projectId: expectedProjectId,
+      publishedEvents: payload.state.publishedEvents,
+      runId: expectedRunId,
+      status: run.status,
+      workflowId: LESSON_VISUAL_RETRY_WORKFLOW_ID,
+    };
+  } catch (error) {
+    logBackendFailureCorrelationId(correlationId);
+    throw error;
   }
-  const errorCode =
-    isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
-  return {
-    cleanupStatus: run.cleanupStatus,
-    ...(errorCode ? { errorCode } : {}),
-    projectId: expectedProjectId,
-    publishedEvents: payload.state.publishedEvents,
-    runId: expectedRunId,
-    status: run.status,
-    workflowId: LESSON_VISUAL_RETRY_WORKFLOW_ID,
-  };
 };
 
 const readProjectRevision = (state: RetryRunState): number | null => {
@@ -152,10 +161,14 @@ const waitForCommittedRevision = async (
     signal,
   });
   if (terminalState.status !== 'completed') {
+    logBackendFailureCorrelationId(terminalState.correlationId);
     throw new LessonVisualRetryTerminalError(terminalState.errorCode);
   }
   const revision = readProjectRevision(terminalState);
-  if (revision === null) throw new LessonVisualRetryTerminalError();
+  if (revision === null) {
+    logBackendFailureCorrelationId(terminalState.correlationId);
+    throw new LessonVisualRetryTerminalError();
+  }
   return revision;
 };
 

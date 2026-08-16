@@ -166,6 +166,7 @@ describe('workflow observability', () => {
   test('drops durable notification payloads while preserving delivery correlation', () => {
     const outboxClaim: WorkflowOutboxClaim = {
       attemptNumber: 3,
+      correlationId: '123e4567-e89b-42d3-a456-426614174000',
       eventType: 'lesson.ready',
       fencingToken: '5',
       id: 'notification-1',
@@ -187,6 +188,7 @@ describe('workflow observability', () => {
     expect(event).toEqual({
       action: 'claimed',
       attemptNumber: 3,
+      correlationId: '123e4567-e89b-42d3-a456-426614174000',
       event: 'workflow.notification',
       eventType: 'lesson.ready',
       fencingToken: '5',
@@ -259,5 +261,37 @@ describe('workflow observability', () => {
     expect(output.error).toHaveBeenCalledWith(JSON.stringify(event));
     expect(output.info).not.toHaveBeenCalled();
     expect(output.warn).not.toHaveBeenCalled();
+  });
+
+  test('projects correlated lifecycle failures without private payloads', () => {
+    const event = projectWorkflowLogEvent({
+      action: 'failed',
+      correlationId: '123e4567-e89b-12d3-a456-426614174000',
+      entity: 'lifecycle',
+      failure: {
+        code: 'schema_invalid',
+        details: {
+          diagnostic: { type: 'ZodError' },
+        },
+        kind: 'permanent',
+        message: 'private generated response',
+      },
+      method: 'POST',
+      operation: 'ai_generation',
+      path: '/api/openrouter/chat/completions',
+      provider: 'openrouter',
+      statusCode: 502,
+    });
+
+    expect(event).toMatchObject({
+      action: 'failed',
+      correlationId: '123e4567-e89b-12d3-a456-426614174000',
+      event: 'lifecycle',
+      failureCode: 'schema_invalid',
+      level: 'error',
+      operation: 'ai_generation',
+      provider: 'openrouter',
+    });
+    expect(JSON.stringify(event)).not.toContain('private');
   });
 });

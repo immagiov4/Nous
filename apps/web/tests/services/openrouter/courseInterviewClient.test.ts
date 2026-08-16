@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const fetchWithSupabaseAuthMock = vi.hoisted(() => vi.fn());
+const CORRELATION_ID = '48eb116c-a283-440b-b875-a528e5e4f5f1';
 
 vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
   fetchWithSupabaseAuth: fetchWithSupabaseAuthMock,
@@ -44,6 +45,7 @@ const event = (eventType: string, payload: unknown, sequence: string) => ({
 
 const runStateResponse = ({
   cleanupStatus = 'not-required',
+  correlationId,
   events = [],
   projectId = 'project-1',
   runId = 'interview-1',
@@ -51,6 +53,7 @@ const runStateResponse = ({
   waits = [],
 }: {
   cleanupStatus?: string;
+  correlationId?: string;
   events?: unknown[];
   projectId?: string;
   runId?: string;
@@ -62,6 +65,7 @@ const runStateResponse = ({
       publishedEvents: events,
       run: {
         cleanupStatus,
+        ...(correlationId ? { correlationId } : {}),
         id: runId,
         projectId,
         status,
@@ -201,7 +205,8 @@ describe('courseInterviewClient', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       1,
       'http://localhost:3301/api/course-interviews/project-1/active',
-      { cache: 'no-store', signal: undefined }
+      { cache: 'no-store', signal: undefined },
+      { expectedStatuses: [404] }
     );
   });
 
@@ -331,6 +336,88 @@ describe('courseInterviewClient', () => {
       wait: null,
     });
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3301/api/workflows/runs/interview-1',
+      { cache: 'no-store', signal: undefined },
+      { expectedStatuses: [404] }
+    );
+  });
+
+  test('records the persisted support code for a failed interview snapshot', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runSummaryResponse())
+      .mockResolvedValueOnce(runStateResponse({ correlationId: CORRELATION_ID, status: 'failed' }));
+
+    const snapshot = await startCourseInterview({
+      hasReliableSourceContext: false,
+      mode: 'learn',
+      projectId: 'project-1',
+    });
+
+    expect(snapshot.status).toBe('failed');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
+  });
+
+  test('records the persisted support code for a malformed completed interview', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runSummaryResponse())
+      .mockResolvedValueOnce(
+        runStateResponse({ correlationId: CORRELATION_ID, events: [], status: 'completed' })
+      );
+
+    await expect(
+      startCourseInterview({
+        hasReliableSourceContext: false,
+        mode: 'learn',
+        projectId: 'project-1',
+      })
+    ).rejects.toThrow('L’intervista per il corso non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
+  });
+
+  test('records the support code before rejecting malformed interview event metadata', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(runSummaryResponse()).mockResolvedValueOnce(
+      runStateResponse({
+        correlationId: CORRELATION_ID,
+        events: [event('course-interview-ended', {}, 'invalid-sequence')],
+        status: 'completed',
+      })
+    );
+
+    await expect(
+      startCourseInterview({
+        hasReliableSourceContext: false,
+        mode: 'learn',
+        projectId: 'project-1',
+      })
+    ).rejects.toThrow('L’intervista per il corso non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
+  });
+
+  test('records the support code before rejecting malformed interview run metadata', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runSummaryResponse())
+      .mockResolvedValueOnce(
+        runStateResponse({ correlationId: CORRELATION_ID, status: 'invalid-status' })
+      );
+
+    await expect(
+      startCourseInterview({
+        hasReliableSourceContext: false,
+        mode: 'learn',
+        projectId: 'project-1',
+      })
+    ).rejects.toThrow('L’intervista per il corso non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
   });
 
   test('rejects a generic snapshot that belongs to another project', async () => {
@@ -376,6 +463,32 @@ describe('courseInterviewClient', () => {
       cancelCourseInterview({ projectId: 'project-1', runId: 'interview-1' })
     ).resolves.toBeUndefined();
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(3);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3301/api/workflows/runs/interview-1',
+      { cache: 'no-store', signal: undefined },
+      { expectedStatuses: [404] }
+    );
+  });
+
+  test('records the persisted support code when interview cleanup fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runStateResponse({ status: 'waiting', waits: [userAnswerWait] }))
+      .mockResolvedValueOnce(jsonResponse({ cancellation: { requested: true }, success: true }))
+      .mockResolvedValueOnce(
+        runStateResponse({
+          cleanupStatus: 'failed',
+          correlationId: CORRELATION_ID,
+          status: 'cancelled',
+        })
+      );
+
+    await expect(
+      cancelCourseInterview({ projectId: 'project-1', runId: 'interview-1' })
+    ).rejects.toThrow('L’intervista per il corso non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
   });
 
   test('rejects cancellation when the interview belongs to another project', async () => {

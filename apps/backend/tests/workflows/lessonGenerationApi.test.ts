@@ -27,6 +27,7 @@ const run = (overrides: Record<string, unknown> = {}) =>
   ({
     cancellationRequested: false,
     cleanupStatus: 'not-required',
+    correlationId: '123e4567-e89b-12d3-a456-426614174000',
     createdAt: '2026-07-29T20:00:00.000Z',
     definitionHash: 'hash',
     definitionHashVersion: 1,
@@ -126,7 +127,13 @@ describe('lesson generation workflow API', () => {
     expect(result).toMatchObject({
       busy: false,
       created: true,
-      job: { id: 'run-1', projectId: 'project-1', sectionId: 'lesson-1', status: 'queued' },
+      job: {
+        correlationId: '123e4567-e89b-12d3-a456-426614174000',
+        id: 'run-1',
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        status: 'queued',
+      },
     });
   });
 
@@ -473,7 +480,11 @@ describe('lesson generation workflow API', () => {
       status: 'completed',
     });
     const failed = await failedApi.get({ runId: 'run-1', userId: 'user-1' });
-    expect(failed).toMatchObject({ errorCode: 'lesson_provider_failed', status: 'failed' });
+    expect(failed).toMatchObject({
+      correlationId: '123e4567-e89b-12d3-a456-426614174000',
+      errorCode: 'lesson_provider_failed',
+      status: 'failed',
+    });
     expect(JSON.stringify(failed)).not.toContain('privateTrace');
     expect(JSON.stringify(failed)).not.toContain('Private provider error');
   });

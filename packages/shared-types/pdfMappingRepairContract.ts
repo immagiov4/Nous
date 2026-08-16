@@ -15,6 +15,7 @@ export interface PdfMappingRepairResult {
 }
 
 export interface PdfMappingRepairSnapshot {
+  correlationId?: string;
   createdAt: string;
   errorCode?: string;
   id: string;

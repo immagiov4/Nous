@@ -10,6 +10,7 @@ import type {
 
 import type { Message } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -17,12 +18,14 @@ import {
   clearWorkflowRequestKey,
   isDefinitiveWorkflowStartRejection,
   isWorkflowSnapshotEnvelope,
+  logMalformedWorkflowSnapshotCorrelationId,
   pollWorkflow,
   readWorkflowJson,
   readWorkflowPollJson,
   readWorkflowRequestKey,
   resolveWorkflowFailureMessage,
   retryTransientWorkflowRequest,
+  WORKFLOW_NOT_FOUND_STATUS,
 } from './workflowClientTransport.ts';
 
 const COURSE_GENERATION_ERROR = 'La generazione del corso non è riuscita. Riprova.';
@@ -110,7 +113,9 @@ const readWorkflowJob = <Snapshot>(
   isSnapshot: (value: unknown) => value is Snapshot
 ): Snapshot | null => {
   if (!isRecord(payload) || payload.success !== true) return null;
-  return isSnapshot(payload.job) ? payload.job : null;
+  if (isSnapshot(payload.job)) return payload.job;
+  logMalformedWorkflowSnapshotCorrelationId(payload.job);
+  return null;
 };
 
 const waitForTerminalRun = async (
@@ -154,13 +159,19 @@ const readCompletedResult = (
   projectId: string
 ): CourseWorkflowResult => {
   if (job.status !== 'completed') {
+    logBackendFailureCorrelationId(job.correlationId);
     const fallbackMessage =
       job.errorCode === 'workflow_step_timeout'
         ? COURSE_GENERATION_TIMEOUT_ERROR
         : COURSE_GENERATION_ERROR;
     throw new Error(resolveWorkflowFailureMessage(job.errorCode, fallbackMessage));
   }
-  return parseCompletedResult(job, projectId);
+  try {
+    return parseCompletedResult(job, projectId);
+  } catch (error) {
+    logBackendFailureCorrelationId(job.correlationId);
+    throw error;
+  }
 };
 
 export const generateDurableCourse = async ({
@@ -205,9 +216,10 @@ export const resumeActiveDurableCourse = async ({
   const job = await retryTransientWorkflowRequest(async () => {
     const response = await fetchWithSupabaseAuth(
       `${getBackendUrl()}/api/course-workflows/courses/${encodeURIComponent(projectId)}/active`,
-      { cache: 'no-store' }
+      { cache: 'no-store' },
+      { expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS] }
     );
-    if (response.status === 404) return null;
+    if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
     assertWorkflowPollResponse(response, COURSE_GENERATION_ERROR);
     const activeJob = readWorkflowJob(
       await readWorkflowPollJson(response, COURSE_GENERATION_ERROR),
@@ -299,6 +311,7 @@ export const repairDurablePdfMapping = async ({
     return parsePdfMappingRepairResult(payload.result, projectId);
   }
   const job = isPdfMappingRepairSnapshot(payload.job) ? payload.job : null;
+  if (!job) logMalformedWorkflowSnapshotCorrelationId(payload.job);
   if (job?.projectId !== projectId) {
     throw new Error(PDF_MAPPING_REPAIR_ERROR);
   }
@@ -306,8 +319,13 @@ export const repairDurablePdfMapping = async ({
   const terminalJob = await waitForPdfMappingRepair(job, signal);
   request.clear();
   if (terminalJob.status !== 'completed') {
+    logBackendFailureCorrelationId(terminalJob.correlationId);
     throw new Error(PDF_MAPPING_REPAIR_ERROR);
   }
-  const result = parsePdfMappingRepairResult(terminalJob.result, projectId);
-  return result;
+  try {
+    return parsePdfMappingRepairResult(terminalJob.result, projectId);
+  } catch (error) {
+    logBackendFailureCorrelationId(terminalJob.correlationId);
+    throw error;
+  }
 };

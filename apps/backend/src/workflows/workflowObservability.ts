@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { MaterializedWorkflowEvent } from './materialization.js';
+import { getCorrelationId } from './requestObservability.js';
 import type {
   JsonValue,
   StepFailure,
@@ -103,6 +104,7 @@ interface WorkflowRunLogEvent {
     | 'definition-unavailable'
     | 'reconciled';
   readonly cleanupStatus?: WorkflowRun['cleanupStatus'];
+  readonly correlationId?: string;
   readonly event: 'workflow.run';
   readonly failureCode?: string;
   readonly failureDiagnostic?: WorkflowErrorDiagnostic;
@@ -130,6 +132,7 @@ interface WorkflowAttemptLogEvent {
   readonly attemptNumber: number;
   readonly availableAt?: string;
   readonly cleanupStatus?: WorkflowRun['cleanupStatus'];
+  readonly correlationId?: string;
   readonly event: 'workflow.attempt';
   readonly failureCode?: string;
   readonly failureKind?: StepFailure['kind'];
@@ -147,6 +150,7 @@ interface WorkflowAttemptLogEvent {
 
 interface WorkflowWaitLogEvent {
   readonly action: 'cancelled' | 'created' | 'expired' | 'signal-consumed' | 'signal-replayed';
+  readonly correlationId?: string;
   readonly event: 'workflow.wait';
   readonly failureCode?: string;
   readonly level: WorkflowLogLevel;
@@ -166,6 +170,7 @@ interface WorkflowNotificationLogEvent {
     | 'retry-scheduled';
   readonly actorIdDigest?: string;
   readonly attemptNumber: number;
+  readonly correlationId?: string;
   readonly event: 'workflow.notification';
   readonly eventType: string;
   readonly failureCode?: string;
@@ -198,13 +203,39 @@ interface WorkflowDefinitionLogEvent {
   readonly workflowId: string;
 }
 
+export type LifecycleOperation =
+  | 'http_request'
+  | 'ai_generation'
+  | 'workflow_start'
+  | 'workflow_poll'
+  | 'workflow_cancellation'
+  | 'persistence'
+  | 'navigation';
+
+interface LifecycleLogEvent {
+  readonly action: 'started' | 'completed' | 'failed' | 'cancelled' | 'disconnected';
+  readonly correlationId: string;
+  readonly event: 'lifecycle';
+  readonly failureDiagnostic?: WorkflowErrorDiagnostic;
+  readonly failureCode?: string;
+  readonly level: WorkflowLogLevel;
+  readonly method?: string;
+  readonly operation: LifecycleOperation;
+  readonly path?: string;
+  readonly provider?: string;
+  readonly runId?: string;
+  readonly statusCode?: number;
+  readonly workflowId?: string;
+}
+
 export type WorkflowLogEvent =
   | WorkflowAttemptLogEvent
   | WorkflowDefinitionLogEvent
   | WorkflowNotificationLogEvent
   | WorkflowRunLogEvent
   | WorkflowRuntimeLogEvent
-  | WorkflowWaitLogEvent;
+  | WorkflowWaitLogEvent
+  | LifecycleLogEvent;
 
 export interface WorkflowLogger {
   log(event: WorkflowLogEvent): void;
@@ -212,6 +243,7 @@ export interface WorkflowLogger {
 
 interface WorkflowAttemptLogIdentity {
   readonly attemptNumber: number;
+  readonly correlationId?: string;
   readonly fencingToken: string;
   readonly nodeDefinitionId?: string;
   readonly nodeInstanceId: string;
@@ -222,6 +254,7 @@ interface WorkflowAttemptLogIdentity {
 
 interface WorkflowNotificationLogIdentity {
   readonly attemptNumber: number;
+  readonly correlationId?: string;
   readonly eventType: string;
   readonly fencingToken: string;
   readonly id: string;
@@ -234,6 +267,7 @@ interface WorkflowNotificationLogIdentity {
 type WorkflowRunLogSource =
   | {
       readonly action: 'created' | 'deduplicated';
+      readonly correlationId?: string;
       readonly entity: 'run';
       readonly run: WorkflowRun;
     }
@@ -245,6 +279,7 @@ type WorkflowRunLogSource =
         | 'definition-unavailable'
         | 'reconciled';
       readonly cleanupStatus?: WorkflowRun['cleanupStatus'];
+      readonly correlationId?: string;
       readonly entity: 'run';
       readonly failure?: StepFailure;
       readonly runId: string;
@@ -266,6 +301,7 @@ interface WorkflowAttemptLogSource {
 
 interface WorkflowWaitLogSource {
   readonly action: WorkflowWaitLogEvent['action'];
+  readonly correlationId?: string;
   readonly entity: 'wait';
   readonly failureCode?: string;
   readonly nodeInstanceId: string;
@@ -306,7 +342,8 @@ export type WorkflowLogSource =
   | WorkflowNotificationLogSource
   | WorkflowRunLogSource
   | WorkflowRuntimeLogSource
-  | WorkflowWaitLogSource;
+  | WorkflowWaitLogSource
+  | LifecycleLogSource;
 
 interface WorkflowConsole {
   error(message: string): void;
@@ -395,8 +432,14 @@ const attemptLevel = (
 
 const projectRunLogEvent = (source: WorkflowRunLogSource): WorkflowRunLogEvent => {
   if ('run' in source) {
+    const currentCorrelationId = getCorrelationId() ?? source.correlationId;
+    const correlationId =
+      source.action === 'deduplicated'
+        ? (currentCorrelationId ?? source.run.correlationId)
+        : (source.run.correlationId ?? currentCorrelationId);
     return {
       action: source.action,
+      ...(correlationId ? { correlationId } : {}),
       cleanupStatus: source.run.cleanupStatus,
       event: 'workflow.run',
       level: RUN_LEVEL_BY_ACTION[source.action],
@@ -409,6 +452,9 @@ const projectRunLogEvent = (source: WorkflowRunLogSource): WorkflowRunLogEvent =
     action: source.action,
     ...(source.cleanupStatus ? { cleanupStatus: source.cleanupStatus } : {}),
     event: 'workflow.run',
+    ...((source.correlationId ?? getCorrelationId())
+      ? { correlationId: source.correlationId ?? getCorrelationId() }
+      : {}),
     ...failureFields(source.failure),
     level: RUN_LEVEL_BY_ACTION[source.action],
     runId: source.runId,
@@ -423,6 +469,9 @@ const projectAttemptLogEvent = (source: WorkflowAttemptLogSource): WorkflowAttem
   ...(source.availableAt ? { availableAt: source.availableAt } : {}),
   ...(source.cleanupStatus ? { cleanupStatus: source.cleanupStatus } : {}),
   event: 'workflow.attempt',
+  ...((source.claim.correlationId ?? getCorrelationId())
+    ? { correlationId: source.claim.correlationId ?? getCorrelationId() }
+    : {}),
   ...attemptFailureFields(source.failure),
   fencingToken: source.claim.fencingToken,
   level: attemptLevel(source.action, source.outcome),
@@ -436,8 +485,54 @@ const projectAttemptLogEvent = (source: WorkflowAttemptLogSource): WorkflowAttem
   ...(source.claim.workflowId ? { workflowId: source.claim.workflowId } : {}),
 });
 
+export interface LifecycleLogSource {
+  readonly action: LifecycleLogEvent['action'];
+  readonly correlationId?: string;
+  readonly entity: 'lifecycle';
+  readonly failure?: StepFailure;
+  readonly method?: string;
+  readonly operation: LifecycleOperation;
+  readonly path?: string;
+  readonly provider?: string;
+  readonly runId?: string;
+  readonly statusCode?: number;
+  readonly workflowId?: string;
+}
+
+const LIFECYCLE_LEVEL_BY_ACTION = {
+  cancelled: 'warn',
+  completed: 'info',
+  disconnected: 'warn',
+  failed: 'error',
+  started: 'info',
+} as const satisfies Record<LifecycleLogEvent['action'], WorkflowLogLevel>;
+
+const projectLifecycleLogEvent = (source: LifecycleLogSource): LifecycleLogEvent => {
+  const failureDiagnostic = source.failure
+    ? readWorkflowErrorDiagnostic(source.failure.details?.diagnostic)
+    : undefined;
+  return {
+    action: source.action,
+    correlationId: source.correlationId ?? getCorrelationId() ?? 'unknown',
+    event: 'lifecycle',
+    ...(failureDiagnostic ? { failureDiagnostic } : {}),
+    ...(source.failure?.code ? { failureCode: source.failure.code } : {}),
+    level: LIFECYCLE_LEVEL_BY_ACTION[source.action],
+    ...(source.method ? { method: source.method } : {}),
+    operation: source.operation,
+    ...(source.path ? { path: source.path } : {}),
+    ...(source.provider ? { provider: source.provider } : {}),
+    ...(source.runId ? { runId: source.runId } : {}),
+    ...(source.statusCode === undefined ? {} : { statusCode: source.statusCode }),
+    ...(source.workflowId ? { workflowId: source.workflowId } : {}),
+  };
+};
+
 const projectWaitLogEvent = (source: WorkflowWaitLogSource): WorkflowWaitLogEvent => ({
   action: source.action,
+  ...((source.correlationId ?? getCorrelationId())
+    ? { correlationId: source.correlationId ?? getCorrelationId() }
+    : {}),
   event: 'workflow.wait',
   ...(source.failureCode ? { failureCode: source.failureCode } : {}),
   level: WAIT_LEVEL_BY_ACTION[source.action],
@@ -453,6 +548,9 @@ const projectNotificationLogEvent = (
   action: source.action,
   ...(source.actorId ? { actorIdDigest: digestIdentifier(source.actorId) } : {}),
   attemptNumber: source.claim.attemptNumber,
+  ...((source.claim.correlationId ?? getCorrelationId())
+    ? { correlationId: source.claim.correlationId ?? getCorrelationId() }
+    : {}),
   event: 'workflow.notification',
   eventType: source.claim.eventType,
   ...failureFields(source.failure),
@@ -501,6 +599,8 @@ export const projectWorkflowLogEvent = (source: WorkflowLogSource): WorkflowLogE
       return projectNotificationLogEvent(source);
     case 'runtime':
       return projectRuntimeLogEvent(source);
+    case 'lifecycle':
+      return projectLifecycleLogEvent(source);
   }
 };
 

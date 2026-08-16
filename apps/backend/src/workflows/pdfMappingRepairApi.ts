@@ -99,6 +99,7 @@ const parseRunInput = (run: WorkflowRun) => PdfMappingRepairWorkflowInputSchema.
 const createQueuedSnapshot = (run: WorkflowRun): PdfMappingRepairSnapshot => {
   const input = parseRunInput(run);
   return {
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: run.createdAt,
     id: run.id,
     projectId: input.projectId,
@@ -113,6 +114,7 @@ const createSnapshot = (run: WorkflowRun, state: WorkflowRunState): PdfMappingRe
   const result =
     state.run.status === 'completed' ? PdfMappingRepairResultSchema.parse(run.output) : undefined;
   return {
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: state.run.createdAt,
     ...(state.run.error?.code ? { errorCode: state.run.error.code } : {}),
     id: state.run.id,

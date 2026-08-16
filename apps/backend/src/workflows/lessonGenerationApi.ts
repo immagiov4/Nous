@@ -149,6 +149,7 @@ const createQueuedSnapshot = (
 ): LessonWorkflowSnapshot => {
   const input = parseRunInput(run);
   return {
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: run.createdAt,
     id: run.id,
     projectId: input.projectId,
@@ -170,6 +171,7 @@ const createSnapshot = (run: WorkflowRun, state: WorkflowRunState): LessonWorkfl
 
   return {
     ...mapProgress(state),
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: state.run.createdAt,
     ...(state.run.error?.code ? { errorCode: state.run.error.code } : {}),
     id: run.id,
