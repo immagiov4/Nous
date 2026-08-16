@@ -1,4 +1,4 @@
-import request from 'supertest';
+import { once } from 'node:events';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createApp, isPrivateNetworkFrontendOrigin } from '../src/index.js';
 
@@ -22,15 +22,30 @@ describe('request lifecycle observability', () => {
   test('echoes a safe request correlation ID and records the completed request', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const correlationId = '123e4567-e89b-12d3-a456-426614174000';
+    const server = createApp().listen(0, '127.0.0.1');
 
-    const response = await request(createApp()).get('/health').set('x-request-id', correlationId);
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected the test server to listen on a TCP port.');
+    }
 
-    expect(response.status).toBe(200);
-    expect(response.headers['x-request-id']).toBe(correlationId);
-    expect(info).toHaveBeenCalledWith(
-      expect.stringContaining(`"correlationId":"${correlationId}"`)
-    );
-    expect(info).toHaveBeenCalledWith(expect.stringContaining('"event":"lifecycle"'));
-    expect(info).toHaveBeenCalledWith(expect.stringContaining('"operation":"http_request"'));
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`, {
+        headers: { 'x-request-id': correlationId },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-request-id')).toBe(correlationId);
+      expect(info).toHaveBeenCalledWith(
+        expect.stringContaining(`"correlationId":"${correlationId}"`)
+      );
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('"event":"lifecycle"'));
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('"operation":"http_request"'));
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => (error ? reject(error) : resolve()));
+      });
+    }
   });
 });
