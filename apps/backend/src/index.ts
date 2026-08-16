@@ -89,6 +89,7 @@ const STT_JSON_BODY_LIMIT = '20mb';
 const FEEDBACK_JSON_BODY_LIMIT = '2mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
 const REQUEST_FAILURE_LOCAL = 'workflowLifecycleFailure';
+const SAFE_REQUEST_LOG_PATHS = new Set([...QUIET_SUCCESS_GET_PATHS, '/health']);
 const UNMATCHED_REQUEST_ROUTE = 'unmatched';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
@@ -132,6 +133,8 @@ const shouldLogRequest = (method: string, path: string, statusCode: number): boo
 const getRequestPath = (req: express.Request): string => req.originalUrl.split('?')[0] || req.path;
 
 const getRequestLogPath = (req: express.Request): string => {
+  const requestPath = getRequestPath(req);
+  if (SAFE_REQUEST_LOG_PATHS.has(requestPath)) return requestPath;
   const routePath: unknown = req.route?.path;
   return typeof routePath === 'string' ? routePath : UNMATCHED_REQUEST_ROUTE;
 };
