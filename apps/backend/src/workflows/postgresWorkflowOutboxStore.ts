@@ -12,6 +12,7 @@ import {
 
 interface OutboxClaimRow {
   attempt_count: number;
+  correlation_id: string;
   event_type: string;
   fencing_token: string;
   id: string;
@@ -53,6 +54,7 @@ interface OutboxRetryRow {
 
 export interface WorkflowOutboxClaim {
   attemptNumber: number;
+  correlationId: string;
   eventType: string;
   fencingToken: string;
   id: string;
@@ -117,7 +119,7 @@ export class PostgresWorkflowOutboxStore {
     const claim = await this.sql.begin(async sql => {
       const rows = await sql<OutboxClaimRow[]>`
         with candidate as (
-          select event.id, run.user_id
+          select event.id, run.correlation_id, run.user_id
           from public.workflow_outbox event
           join public.workflow_runs run on run.id = event.run_id
           where (event.status = 'pending' and event.available_at <= clock_timestamp())
@@ -145,12 +147,14 @@ export class PostgresWorkflowOutboxStore {
         returning
           event.id, event.run_id, event.sequence::text, event.event_type,
           event.schema_version, event.payload, event.attempt_count,
-          event.fencing_token::text, event.lease_expires_at, candidate.user_id
+          event.fencing_token::text, event.lease_expires_at,
+          candidate.correlation_id, candidate.user_id
       `;
       const event = rows[0];
       if (!event) return null;
       return {
         attemptNumber: event.attempt_count,
+        correlationId: event.correlation_id,
         eventType: event.event_type,
         fencingToken: event.fencing_token,
         id: event.id,

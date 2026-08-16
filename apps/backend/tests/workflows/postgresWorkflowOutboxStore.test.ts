@@ -14,6 +14,7 @@ const NOW = '2026-08-10T10:00:00.000Z';
 
 const claim: WorkflowOutboxClaim = {
   attemptNumber: 1,
+  correlationId: '123e4567-e89b-42d3-a456-426614174000',
   eventType: 'lesson.ready',
   fencingToken: '1',
   id: '00000000-0000-0000-0000-000000000001',

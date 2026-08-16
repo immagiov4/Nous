@@ -82,6 +82,7 @@ describe('workflow runtime production composition', () => {
     const deliver = createRuntimeProjectRevisionNotificationDelivery(receiveNotification);
     const baseClaim: WorkflowOutboxClaim = {
       attemptNumber: 1,
+      correlationId: '123e4567-e89b-42d3-a456-426614174000',
       eventType: COURSE_PROJECT_REVISION_EVENT,
       fencingToken: '1',
       id: 'notification-1',
@@ -117,6 +118,7 @@ describe('workflow runtime production composition', () => {
     const deliver = createRuntimeProjectRevisionNotificationDelivery(receiveNotification);
     const claim: WorkflowOutboxClaim = {
       attemptNumber: 1,
+      correlationId: '123e4567-e89b-42d3-a456-426614174000',
       eventType: COURSE_PROJECT_REVISION_EVENT,
       fencingToken: '1',
       id: 'notification-invalid',

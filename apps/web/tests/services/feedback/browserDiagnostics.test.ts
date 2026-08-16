@@ -89,6 +89,18 @@ describe('browser feedback diagnostics', () => {
     });
   });
 
+  test('retains the most recent unique backend support codes', () => {
+    const correlationIds = Array.from(
+      { length: 11 },
+      (_, index) => `123e4567-e89b-42d3-a456-${String(index).padStart(12, '0')}`
+    );
+    for (const correlationId of correlationIds) logBackendFailureCorrelationId(correlationId);
+
+    expect(getFeedbackDiagnosticsSnapshot().correlationIds).toEqual(
+      correlationIds.slice(-10).reverse()
+    );
+  });
+
   test('preserves diagnostics across observer teardown until explicitly cleared', () => {
     console.error('[Nous] multi-step failure correlation 123e4567-e89b-12d3-a456-426614174000');
     cleanup();

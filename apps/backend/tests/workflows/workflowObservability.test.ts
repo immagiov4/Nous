@@ -166,6 +166,7 @@ describe('workflow observability', () => {
   test('drops durable notification payloads while preserving delivery correlation', () => {
     const outboxClaim: WorkflowOutboxClaim = {
       attemptNumber: 3,
+      correlationId: '123e4567-e89b-42d3-a456-426614174000',
       eventType: 'lesson.ready',
       fencingToken: '5',
       id: 'notification-1',
@@ -187,6 +188,7 @@ describe('workflow observability', () => {
     expect(event).toEqual({
       action: 'claimed',
       attemptNumber: 3,
+      correlationId: '123e4567-e89b-42d3-a456-426614174000',
       event: 'workflow.notification',
       eventType: 'lesson.ready',
       fencingToken: '5',

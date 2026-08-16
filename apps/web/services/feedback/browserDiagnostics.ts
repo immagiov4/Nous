@@ -77,9 +77,14 @@ const appendEntry = (level: FeedbackConsoleLevel, message: string) => {
 
 const getCorrelationIds = (consoleEntries: FeedbackConsoleEntry[]): string[] | undefined => {
   const ids = new Set<string>();
-  for (const entry of consoleEntries) {
+  for (let entryIndex = consoleEntries.length - 1; entryIndex >= 0; entryIndex -= 1) {
+    const entry = consoleEntries[entryIndex];
+    if (!entry) continue;
     if (!CORRELATION_CONTEXT_PATTERN.test(entry.message)) continue;
-    for (const match of entry.message.match(CORRELATION_ID_PATTERN) || []) {
+    const matches = entry.message.match(CORRELATION_ID_PATTERN) || [];
+    for (let matchIndex = matches.length - 1; matchIndex >= 0; matchIndex -= 1) {
+      const match = matches[matchIndex];
+      if (!match) continue;
       ids.add(match);
       if (ids.size === MAX_CORRELATION_IDS) return [...ids];
     }

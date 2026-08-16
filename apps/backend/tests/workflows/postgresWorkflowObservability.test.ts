@@ -421,6 +421,7 @@ describe('PostgreSQL workflow observability', () => {
       [
         {
           attempt_count: 1,
+          correlation_id: PERSISTED_CORRELATION_ID,
           event_type: 'lesson.ready',
           fencing_token: '1',
           id: 'notification-1',
@@ -460,6 +461,14 @@ describe('PostgreSQL workflow observability', () => {
       'delivered',
       'retry-scheduled',
     ]);
+    expect(logs.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          correlationId: PERSISTED_CORRELATION_ID,
+          event: 'workflow.notification',
+        }),
+      ])
+    );
     expect(JSON.stringify(logs.events)).not.toContain('private');
     expect(database.remaining()).toBe(0);
   });

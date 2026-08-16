@@ -89,6 +89,7 @@ const STT_JSON_BODY_LIMIT = '20mb';
 const FEEDBACK_JSON_BODY_LIMIT = '2mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
 const REQUEST_FAILURE_LOCAL = 'workflowLifecycleFailure';
+const UNMATCHED_REQUEST_ROUTE = 'unmatched';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const isPrivateIpv4Address = (hostname: string): boolean => {
@@ -128,8 +129,12 @@ const shouldLogRequest = (method: string, path: string, statusCode: number): boo
   return true;
 };
 
-const getRequestLogPath = (req: express.Request): string =>
-  req.originalUrl.split('?')[0] || req.path;
+const getRequestPath = (req: express.Request): string => req.originalUrl.split('?')[0] || req.path;
+
+const getRequestLogPath = (req: express.Request): string => {
+  const routePath: unknown = req.route?.path;
+  return typeof routePath === 'string' ? routePath : UNMATCHED_REQUEST_ROUTE;
+};
 
 const readSafeStackFrames = (error: Error): string | undefined => {
   const stackFrames = error.stack?.split('\n').slice(1).join('\n').trim();
@@ -194,7 +199,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
         : createCorrelationId();
     res.setHeader('x-request-id', correlationId);
     res.on('finish', () => {
-      const requestPath = getRequestLogPath(req);
+      const requestPath = getRequestPath(req);
       if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
         const failure = res.locals[REQUEST_FAILURE_LOCAL] as StepFailure | undefined;
         emitWorkflowLog(consoleWorkflowLogger, {
@@ -204,7 +209,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
           ...(failure ? { failure } : {}),
           method: req.method,
           operation: 'http_request',
-          path: requestPath,
+          path: getRequestLogPath(req),
           statusCode: res.statusCode,
         });
       }

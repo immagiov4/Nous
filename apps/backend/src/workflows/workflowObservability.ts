@@ -170,6 +170,7 @@ interface WorkflowNotificationLogEvent {
     | 'retry-scheduled';
   readonly actorIdDigest?: string;
   readonly attemptNumber: number;
+  readonly correlationId?: string;
   readonly event: 'workflow.notification';
   readonly eventType: string;
   readonly failureCode?: string;
@@ -253,6 +254,7 @@ interface WorkflowAttemptLogIdentity {
 
 interface WorkflowNotificationLogIdentity {
   readonly attemptNumber: number;
+  readonly correlationId?: string;
   readonly eventType: string;
   readonly fencingToken: string;
   readonly id: string;
@@ -546,6 +548,9 @@ const projectNotificationLogEvent = (
   action: source.action,
   ...(source.actorId ? { actorIdDigest: digestIdentifier(source.actorId) } : {}),
   attemptNumber: source.claim.attemptNumber,
+  ...((source.claim.correlationId ?? getCorrelationId())
+    ? { correlationId: source.claim.correlationId ?? getCorrelationId() }
+    : {}),
   event: 'workflow.notification',
   eventType: source.claim.eventType,
   ...failureFields(source.failure),
