@@ -132,6 +132,33 @@ export const dedupeUiMessagesById = <T extends UIMessage>(messages: T[]): T[] =>
     .map(item => item.message);
 };
 
+/** Keep the latest streamed snapshot for each authoritative tool invocation. */
+export const reconcileToolMessageSnapshots = <T extends UIMessage>(messages: T[]): T[] => {
+  const latestMessageIndexByToolCallId = new Map<string, number>();
+  messages.forEach((message, messageIndex) => {
+    for (const part of message.parts) {
+      if (isToolUIPart(part)) {
+        latestMessageIndexByToolCallId.set(part.toolCallId, messageIndex);
+      }
+    }
+  });
+
+  return messages.flatMap((message, messageIndex) => {
+    const currentParts = message.parts.filter(
+      part =>
+        !isToolUIPart(part) || latestMessageIndexByToolCallId.get(part.toolCallId) === messageIndex
+    );
+    const hadToolPart = message.parts.some(isToolUIPart);
+    if (hadToolPart && !currentParts.some(isToolUIPart)) {
+      return [];
+    }
+
+    return currentParts.length === message.parts.length
+      ? [message]
+      : [{ ...message, parts: currentParts } as T];
+  });
+};
+
 const isSuccessfulToolOutput = (
   part: UIMessage['parts'][number],
   toolPartType: string

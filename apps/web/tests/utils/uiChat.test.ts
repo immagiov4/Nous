@@ -8,7 +8,65 @@ import {
   getUiMessageText,
   hasOnlySuccessfulToolOutputs,
   hasSuccessfulToolOutput,
+  reconcileToolMessageSnapshots,
 } from '../../utils/uiChat.ts';
+
+test('reconcileToolMessageSnapshots keeps the latest snapshot of one tool invocation', () => {
+  const messages = [
+    {
+      id: 'assistant-search-progress',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-searchLibrary',
+          toolCallId: 'tool-search-1',
+          state: 'input-available',
+          input: { query: 'capitolo 3' },
+        },
+        { type: 'text', text: 'Sto recuperando i contenuti del capitolo 3.' },
+      ],
+    },
+    {
+      id: 'assistant-search-result',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-searchLibrary',
+          toolCallId: 'tool-search-1',
+          state: 'output-available',
+          input: { query: 'capitolo 3' },
+          output: { hits: [] },
+        },
+        {
+          type: 'text',
+          text: 'Sto recuperando i contenuti del capitolo 3. Non ho trovato quel contenuto.',
+        },
+      ],
+    },
+  ] as UIMessage[];
+
+  expect(reconcileToolMessageSnapshots(messages).map(message => message.id)).toEqual([
+    'assistant-search-result',
+  ]);
+});
+
+test('reconcileToolMessageSnapshots preserves distinct tool invocations with equal inputs', () => {
+  const messages = ['tool-search-1', 'tool-search-2'].map((toolCallId, index) => ({
+    id: `assistant-search-${index + 1}`,
+    role: 'assistant' as const,
+    parts: [
+      {
+        type: 'tool-searchLibrary',
+        toolCallId,
+        state: 'output-available',
+        input: { query: 'capitolo 3' },
+        output: { hits: [] },
+      },
+    ],
+  })) as UIMessage[];
+
+  expect(reconcileToolMessageSnapshots(messages)).toHaveLength(2);
+});
 
 test('dedupeUiMessagesById keeps only the latest snapshot for each message id', () => {
   const messages = [
