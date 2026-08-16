@@ -431,7 +431,9 @@ export interface WorkflowRegistration<
   Services = unknown,
 > {
   readonly current: RegisteredWorkflow<Input, Output, Config, Services>;
+  /** First resumable definition retained for callers written before multi-version history. */
   readonly previous: ErasedRegisteredWorkflow | null;
+  readonly previousDefinitions: readonly ErasedRegisteredWorkflow[];
 }
 
 export interface WorkflowRun {

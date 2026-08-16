@@ -14,6 +14,11 @@ import { createCoursePreparationStage } from './courseGenerationPreparation.js';
 import { createCourseResearchServices } from './courseGenerationResearch.js';
 import { createCourseSourceMaterialReader } from './courseGenerationSources.js';
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
+import {
+  createCoursePlanVerificationMaterialLoader,
+  createCoursePlanVerificationStage,
+  createCoursePlanVerifier,
+} from './coursePlanVerification.js';
 import { createCourseSourceFinalizationServices } from './courseSourceFinalization.js';
 import { buildCourseDocumentIndex } from './courseSourceIndex.js';
 
@@ -23,6 +28,28 @@ type CourseWorkflowStore = {
     'persistCourse' | 'undoCourse'
   >;
 };
+
+type CoursePlanStrategyStages = Pick<
+  CourseGenerationWorkflowServices,
+  'draftCoursePlan' | 'refineCoursePlan'
+>;
+
+export const createCoursePlanStrategyStages = ({
+  archive,
+  standard,
+}: {
+  readonly archive: CoursePlanStrategyStages;
+  readonly standard: CoursePlanStrategyStages;
+}): CoursePlanStrategyStages => ({
+  draftCoursePlan: context =>
+    context.input.strategy === 'archive'
+      ? archive.draftCoursePlan(context)
+      : standard.draftCoursePlan(context),
+  refineCoursePlan: context =>
+    context.input.strategy === 'archive'
+      ? archive.refineCoursePlan(context)
+      : standard.refineCoursePlan(context),
+});
 
 export const createProductionCourseGenerationServices = (
   workflowStore: CourseWorkflowStore,
@@ -34,29 +61,43 @@ export const createProductionCourseGenerationServices = (
     loadProjectSources,
     loadProjectWithRevision,
   });
+  const openArchive = createCourseArchiveOpener({
+    loadProjectSourceArchiveEntry: projectStore.loadProjectSourceArchiveEntry.bind(projectStore),
+    loadProjectSourceArchiveEntryRange:
+      projectStore.loadProjectSourceArchiveEntryRange.bind(projectStore),
+    loadProjectSourceArchiveIndex: projectStore.loadProjectSourceArchiveIndex.bind(projectStore),
+    loadProjectWithRevision,
+  });
+  const loadVerificationMaterial = createCoursePlanVerificationMaterialLoader({
+    openArchive,
+    readSourceMaterials,
+  });
+  const verifyRefinedPlan = createCoursePlanVerifier({ loadVerificationMaterial });
   const planning = createCoursePlanningStages({
     now: timestampIso,
     readSourceMaterials,
+    verifyRefinedPlan,
   });
   const archivePlanning = createCourseArchivePlanningStages({
     now: timestampIso,
-    openArchive: createCourseArchiveOpener({
-      loadProjectSourceArchiveEntry: projectStore.loadProjectSourceArchiveEntry.bind(projectStore),
-      loadProjectSourceArchiveEntryRange:
-        projectStore.loadProjectSourceArchiveEntryRange.bind(projectStore),
-      loadProjectSourceArchiveIndex: projectStore.loadProjectSourceArchiveIndex.bind(projectStore),
-      loadProjectWithRevision,
-    }),
+    openArchive,
+    verifyRefinedPlan,
+  });
+  const verifyCoursePlan = createCoursePlanVerificationStage({
+    loadVerificationMaterial,
+  });
+  const strategyPlanning = createCoursePlanStrategyStages({
+    archive: archivePlanning,
+    standard: planning,
   });
   const persistence = workflowStore.courseGenerationPersistence;
 
   return {
-    ...planning,
-    ...archivePlanning,
     buildCoursePersistence: createCoursePersistenceStage({
       loadProjectWithRevision,
       now: timestampIso,
     }),
+    ...strategyPlanning,
     finalizeCourse: createCourseResultFinalizer({ loadProjectWithRevision }),
     ...createCourseSourceFinalizationServices({
       buildDocumentIndex: buildCourseDocumentIndex,
@@ -72,5 +113,6 @@ export const createProductionCourseGenerationServices = (
       loadProjectWithRevision,
     }),
     undoCourse: persistence.undoCourse,
+    verifyCoursePlan,
   };
 };

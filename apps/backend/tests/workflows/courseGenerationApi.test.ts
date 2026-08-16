@@ -81,7 +81,7 @@ const dependencies = (overrides: Record<string, unknown> = {}) => ({
     getRun: vi.fn().mockResolvedValue(run()),
     getRunState: vi
       .fn()
-      .mockResolvedValue(state([{ definitionId: 'draft-source-course', status: 'running' }])),
+      .mockResolvedValue(state([{ definitionId: 'draft-course-plan', status: 'running' }])),
   },
   starter: {
     start: vi.fn().mockResolvedValue({ created: true, run: run({ status: 'queued' }) }),
@@ -126,7 +126,7 @@ describe('course generation workflow API', () => {
         getRun: vi.fn().mockResolvedValue(currentRun),
         getRunState: vi
           .fn()
-          .mockResolvedValue(state([{ definitionId: 'refine-source-course', status: 'running' }])),
+          .mockResolvedValue(state([{ definitionId: 'refine-course-plan', status: 'running' }])),
       },
       starter: { start: vi.fn().mockResolvedValue({ created: false, run: currentRun }) },
     });
@@ -146,7 +146,9 @@ describe('course generation workflow API', () => {
   test('maps durable nodes to the established structured progress stages', async () => {
     const stages = [
       ['prepare-course', 'sources'],
-      ['plan-learn-course', 'structure'],
+      ['draft-course-plan', 'structure'],
+      ['plan-source-set-course', 'structure'],
+      ['verify-course-plan', 'drafting'],
       ['refine-archive-course', 'drafting'],
       ['place-application-exercises', 'quiz'],
       ['persist-course', 'verification'],
@@ -261,7 +263,7 @@ describe('course generation workflow API', () => {
         getRun: vi.fn().mockResolvedValue(activeRun),
         getRunState: vi
           .fn()
-          .mockResolvedValue(state([{ definitionId: 'plan-learn-course', status: 'running' }])),
+          .mockResolvedValue(state([{ definitionId: 'draft-course-plan', status: 'running' }])),
       },
     });
 

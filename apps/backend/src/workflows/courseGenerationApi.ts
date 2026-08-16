@@ -18,13 +18,20 @@ import { WorkflowRuntimeUnavailableError } from './workflowRuntimeApi.js';
 
 const SOURCE_STAGE_NODES = new Set(['prepare-course', 'gather-course-research']);
 const STRUCTURE_STAGE_NODES = new Set([
+  'draft-course-plan',
   'draft-archive-course',
   'draft-source-course',
   'plan-learn-course',
   'plan-source-set-course',
 ]);
-const DRAFTING_STAGE_NODES = new Set(['refine-archive-course', 'refine-source-course']);
+const DRAFTING_STAGE_NODES = new Set([
+  'verify-course-plan',
+  'refine-course-plan',
+  'refine-archive-course',
+  'refine-source-course',
+]);
 const VERIFICATION_STAGE_NODES = new Set([
+  'validate-course-plan',
   'finalize-course-sources',
   'persist-course',
   'publish-course-project-revision',
