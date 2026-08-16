@@ -10,7 +10,7 @@ The following files were used as context for generating this wiki page:
 
 - [scripts/ensure-local-dev-services.ts](../../../scripts/ensure-local-dev-services.ts)
 - [scripts/doctor.ts](../../../scripts/doctor.ts)
-- [scripts/bootstrap-sonar-local.ts](../../../scripts/bootstrap-sonar-local.ts)
+- [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml)
 - [README.md](../../../README.md)
 - [AGENTS.md](../../../AGENTS.md)
 - [biome.json](../../../biome.json)
@@ -89,24 +89,19 @@ The `doctor` script supports multiple profiles to probe different aspects of the
 Sources: [scripts/doctor.ts:152-165](../../../scripts/doctor.ts#L152-L165), [scripts/doctor.ts:245-276](../../../scripts/doctor.ts#L245-L276)
 
 ### Local SonarQube Setup
-For deep code analysis, a local SonarQube instance is used as a merge gate. The `bootstrap-sonar-local.ts` script automates token generation and configuration storage in `sonar.local.properties`.
+For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000` and enables anonymous analysis, so no scanner token or local credential bootstrap is required.
 
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
-    participant Script as bootstrap-sonar-local
     participant Sonar as SonarQube Service
-    Dev->>Script: bun run sonar:bootstrap
-    Script->>Sonar: Validate Admin Credentials
-    Sonar-->>Script: Validated
-    Script->>Sonar: Search/Revoke existing token
-    Script->>Sonar: Generate new 'lumina-reader-local' token
-    Sonar-->>Script: Returns Token
-    Script->>Dev: Save to sonar.local.properties
+    Dev->>Sonar: bun run sonar:up
+    Note over Sonar: Bind 127.0.0.1:9000 and allow anonymous analysis
+    Dev->>Sonar: bun run gate:full
 ```
 
-*Sequence for bootstrapping local SonarQube analysis.*
-Sources: [scripts/bootstrap-sonar-local.ts:119-150](../../../scripts/bootstrap-sonar-local.ts#L119-L150), [AGENTS.md:157-163](../../../AGENTS.md#L157-L163)
+*Tokenless local SonarQube analysis workflow.*
+Sources: [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml), [scripts/run-sonar-scan.ts](../../../scripts/run-sonar-scan.ts), [AGENTS.md:157-163](../../../AGENTS.md#L157-L163)
 
 ## Configuration Management
 

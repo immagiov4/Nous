@@ -33,7 +33,7 @@ The `doctor` utility is a read-only diagnostic tool that reports on environment 
 | Profile | Description |
 | :--- | :--- |
 | `checks` | Default profile. Runs service-free environment checks (Bun, dependencies) and static analysis. |
-| `gate` | Probes the local SonarQube service and token validity. |
+| `gate` | Probes the loopback-only local SonarQube service. |
 | `local` | Probes local Supabase services and checks for migration parity/drift. |
 | `all` | Combines environment checks with both Sonar and Supabase service probes. |
 
@@ -134,8 +134,8 @@ Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-qual
 
 ### SonarQube Integration
 SonarQube acts as a local-only merge gate and is intentionally excluded from GitHub Actions.
-- **Pre-requisite:** Local service must be started (`sonar:up`) and bootstrapped (`sonar:bootstrap`).
-- **Configuration:** Local settings are stored in `sonar.local.properties`.
+- **Pre-requisite:** Local service must be started (`sonar:up`).
+- **Configuration:** Docker binds the local service to `127.0.0.1:9000` and permits anonymous analysis.
 - **Merge Block:** A skipped, failed, or unreachable Sonar scan explicitly blocks the merge process.
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)

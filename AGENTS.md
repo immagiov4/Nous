@@ -143,8 +143,7 @@ analyzable application-code or runtime-behavior change, clean CI and review, and
 request, the merge owner may skip the local scan only after recording that rationale. Diff size or
 file count alone never qualifies; when scope is uncertain, run the full gate. A required Sonar scan
 that is skipped, failed, or unreachable blocks the merge. If the local Sonar service is unavailable,
-the merge owner must start it with `bun run sonar:up`, initialize it with `bun run sonar:bootstrap`
-when the local settings are missing or invalid, and rerun the full gate so coverage completes before
+the merge owner must start it with `bun run sonar:up` and rerun the full gate so coverage completes before
 the Sonar scan. Triage every new Sonar bug, vulnerability, and security hotspot, and fix or
 explicitly resolve each new finding before merging. Use `bun run fix` to auto-fix lint and format
 issues.

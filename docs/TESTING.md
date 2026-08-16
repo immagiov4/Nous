@@ -20,8 +20,9 @@ bun run gate:full
 
 - `doctor` verifies the Bun/CI runtime contract, installed project executables, and versioned
   Fallow baseline, then runs the core service-free quality and test checks independently so one
-  failure does not hide later failures. The `gate` profile checks the existing local Sonar service
-  and token, the `local` profile checks the existing local Supabase services and migration parity,
+  failure does not hide later failures. The `gate` profile checks the existing local Sonar service,
+  while anonymous analysis remains restricted to its loopback-only Docker binding. The `local`
+  profile checks the existing local Supabase services and migration parity,
   and `all` combines every profile. Every profile is read-only: it never starts, restarts,
   configures, or migrates a service.
 - `quality` runs the TypeScript checks, Biome, dependency boundaries, and React Hooks lint.
@@ -85,14 +86,14 @@ existing local lifecycle before rerunning the full gate:
 
 ```bash
 bun run sonar:up
-bun run sonar:bootstrap
 bun run gate:full
 ```
 
-Run `sonar:bootstrap` when `sonar.local.properties` is missing or its token is invalid. Do not
-replace a required full gate with an isolated or skipped Sonar scan, and do not merge while a
-required Sonar result is failed, unreachable, or unverified. Record the successful full-gate
-command and Sonar result in the pull request before merging.
+`sonar:up` creates or reconciles the local service with its loopback-only binding and anonymous
+analysis configuration; no scanner token or local credential bootstrap is required. Do not replace
+a required full gate with an isolated or skipped Sonar scan, and do not merge while a required
+Sonar result is failed, unreachable, or unverified. Record the successful full-gate command and
+Sonar result in the pull request before merging.
 
 Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
 Source coordinates and suggested remediation actions are excluded, so moving a finding within the
@@ -100,9 +101,8 @@ same file does not change its identity. File moves and file or symbol renames ap
 finding plus one new finding; the new identity remains blocking until the refactor is reviewed and
 the baseline is refreshed explicitly.
 
-Before the first local full gate, start and initialize Sonar with `bun run sonar:up` and
-`bun run sonar:bootstrap`. The generated credentials stay in the ignored
-`sonar.local.properties` file.
+Before the first local full gate, start Sonar with `bun run sonar:up`. The service is local-only:
+Docker publishes it exclusively on `127.0.0.1:9000` and permits anonymous analysis only there.
 
 ## Sonar quality ratchet
 

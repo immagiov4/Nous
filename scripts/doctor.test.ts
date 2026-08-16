@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   inspectEnvironment,
+  inspectSonarService,
   parseCiBunVersions,
   parseDoctorArguments,
   parseFallowBaseline,
@@ -149,5 +150,36 @@ describe('inspectEnvironment', () => {
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
     ]);
+  });
+});
+
+describe('inspectSonarService', () => {
+  test('accepts an anonymous local SonarQube service', async () => {
+    const request = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: 'UP' }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+    );
+
+    await expect(inspectSonarService(request)).resolves.toMatchObject({
+      label: 'SonarQube',
+      status: 'PASS',
+    });
+    expect(request).toHaveBeenCalledWith(new URL('http://127.0.0.1:9000/api/system/status'));
+  });
+
+  test('reports a local SonarQube service that is not ready', async () => {
+    const request = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: 'DOWN' }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+    );
+
+    await expect(inspectSonarService(request)).resolves.toMatchObject({
+      label: 'SonarQube',
+      status: 'FAIL',
+    });
   });
 });

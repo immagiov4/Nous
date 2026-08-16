@@ -46,7 +46,6 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "fix": "biome check --write .",
-    "sonar:bootstrap": "bun run scripts/bootstrap-sonar-local.ts",
     "sonar:down": "docker compose -f docker-compose.sonarqube.yml down",
     "sonar:logs": "docker compose -f docker-compose.sonarqube.yml logs -f sonarqube",
     "sonar:scan": "bun run scripts/run-sonar-scan.ts",

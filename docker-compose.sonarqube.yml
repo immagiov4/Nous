@@ -5,9 +5,10 @@ services:
     image: sonarqube:26.7.0.124771-community
     container_name: lumina-sonarqube
     ports:
-      - '9000:9000'
+      - '127.0.0.1:9000:9000'
     environment:
       SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: 'true'
+      SONAR_FORCEAUTHENTICATION: 'false'
     volumes:
       - sonarqube_data:/opt/sonarqube/data
       - sonarqube_logs:/opt/sonarqube/logs
