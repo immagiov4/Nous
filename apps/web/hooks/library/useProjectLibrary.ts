@@ -9,6 +9,7 @@ import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotati
 import {
   createLibraryArchiveBlob,
   getLibraryArchiveExtension,
+  LibraryArchiveError,
   LibraryArchiveRollbackError,
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
@@ -1057,25 +1058,38 @@ export const useProjectLibrary = ({
       const projectIdMap = new Map<string, string>();
       const importedProjectIds: string[] = [];
       try {
-        for (const project of archive.projects) {
-          const originalProjectId = project.id;
-          if (!originalProjectId) {
-            throw new Error('Il backup contiene un corso senza identificatore.');
+        for (const [projectOffset, project] of archive.projects.entries()) {
+          const projectIndex = projectOffset + 1;
+          const projectCount = archive.projects.length;
+          try {
+            const originalProjectId = project.id;
+            if (!originalProjectId) {
+              throw new Error('Il backup contiene un corso senza identificatore.');
+            }
+            const importedProjectId = createProjectId();
+            const projectArchive = projectArchivesById.get(originalProjectId);
+            if (!projectArchive) {
+              throw new Error('Il backup contiene un corso senza archivio.');
+            }
+            importedProjectIds.push(importedProjectId);
+            const imported = await projectRepositoryRef.current.importProjectArchive(
+              projectArchive,
+              importedProjectId
+            );
+            if (imported.snapshot.id !== importedProjectId) {
+              throw new Error('Il server ha restituito un identificatore corso inatteso.');
+            }
+            projectIdMap.set(originalProjectId, importedProjectId);
+          } catch (error) {
+            if (error instanceof LibraryArchiveError) throw error;
+            throw new LibraryArchiveError(
+              `Importazione del corso ${projectIndex} di ${projectCount} non riuscita.`,
+              'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+              'project-import',
+              projectIndex,
+              projectCount
+            );
           }
-          const importedProjectId = createProjectId();
-          importedProjectIds.push(importedProjectId);
-          const projectArchive = projectArchivesById.get(originalProjectId);
-          if (!projectArchive) {
-            throw new Error('Il backup contiene un corso senza archivio.');
-          }
-          const imported = await projectRepositoryRef.current.importProjectArchive(
-            projectArchive,
-            importedProjectId
-          );
-          if (imported.snapshot.id !== importedProjectId) {
-            throw new Error('Il server ha restituito un identificatore corso inatteso.');
-          }
-          projectIdMap.set(originalProjectId, importedProjectId);
         }
         await restoreLibraryArchiveOrganization(
           projectRepositoryRef.current,
@@ -1102,9 +1116,11 @@ export const useProjectLibrary = ({
               refreshError
             );
           }
-          const rollbackError = new ProjectStorageError(
-            'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
-            'persistence-failed'
+          const rollbackError = new LibraryArchiveRollbackError(
+            error instanceof LibraryArchiveError ? error.projectIndex : undefined,
+            error instanceof LibraryArchiveError
+              ? (error.projectCount ?? archive.projects.length)
+              : archive.projects.length
           );
           setProjectSyncState({
             kind: 'import',

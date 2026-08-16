@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
@@ -264,6 +264,49 @@ describeLocalSupabase('Supabase local integration', () => {
       }),
     });
     expect(forbiddenInsertResponse.status).toBe(403);
+  });
+
+  test('keeps import diagnostics searchable after recreating the backend store', async () => {
+    const user = await createUser('import-diagnostic');
+    const accessToken = await login(user.email);
+    const correlationId = randomUUID();
+    const recordResponse = await request(app)
+      .post('/api/projects/import-diagnostics')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        correlationId,
+        code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+        stage: 'project-import',
+        fileBytes: 173_398_950,
+        projectIndex: 2,
+        projectCount: 11,
+      });
+    expect(recordResponse.status).toBe(204);
+
+    const restartedStore = new PostgresProjectStore(LOCAL_DATABASE_URL);
+    try {
+      setProjectStoreForTesting(restartedStore);
+      const lookupResponse = await request(createApp())
+        .get(`/api/projects/import-diagnostics?correlationId=${correlationId}`)
+        .set('Authorization', adminAuthorization);
+
+      expect(lookupResponse.status).toBe(200);
+      expect(lookupResponse.body.diagnostics).toMatchObject([
+        {
+          correlationId,
+          code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+          stage: 'project-import',
+          fileBytes: 173_398_950,
+          projectIndex: 2,
+          projectCount: 11,
+          userId: user.id,
+        },
+      ]);
+    } finally {
+      setProjectStoreForTesting(store);
+      await restartedStore.close();
+      await sql`delete from public.project_import_diagnostics where correlation_id = ${correlationId}`;
+    }
   });
 
   test('persists valid archive entry paths in the source index', async () => {

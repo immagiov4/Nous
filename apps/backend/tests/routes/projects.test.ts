@@ -1437,8 +1437,8 @@ describe('/api/projects', () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const response = await request(createApp()).post('/api/projects/import-diagnostics').send({
       correlationId: '550e8400-e29b-41d4-a716-446655440000',
-      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
-      stage: 'nested-project-read',
+      code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+      stage: 'project-import',
       fileBytes: 173_398_950,
       projectIndex: 1,
       projectCount: 11,
@@ -1447,8 +1447,8 @@ describe('/api/projects', () => {
     expect(response.status).toBe(204);
     expect(warning).toHaveBeenCalledWith('[Projects] Library backup import failed.', {
       correlationId: '550e8400-e29b-41d4-a716-446655440000',
-      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
-      stage: 'nested-project-read',
+      code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+      stage: 'project-import',
       userId: 'local-user',
       fileBytes: 173_398_950,
       limitBytes: undefined,
@@ -1457,12 +1457,12 @@ describe('/api/projects', () => {
     });
     await expect(store.listProjectImportDiagnostics()).resolves.toMatchObject([
       {
-        code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+        code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
         correlationId: '550e8400-e29b-41d4-a716-446655440000',
         fileBytes: 173_398_950,
         projectCount: 11,
         projectIndex: 1,
-        stage: 'nested-project-read',
+        stage: 'project-import',
         userId: 'local-user',
       },
     ]);
