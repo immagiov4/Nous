@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
 import {
   buildCourseSourceDescriptors,
@@ -33,6 +34,8 @@ beforeEach(() => {
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
   clearSupabaseSession();
 });
+
+afterEach(() => setRenderingLocaleOverride(null));
 
 const buildPdfSnapshot = (): ProjectSnapshot => ({
   id: 'pdf-project',
@@ -223,6 +226,7 @@ test('HttpProjectRepository preserves a non-JSON proxy 413 response', async () =
 });
 
 test('HttpProjectRepository preserves structured warnings for an unusable archive', async () => {
+  setRenderingLocaleOverride('it');
   fetchMock.mockResolvedValueOnce(
     new Response(
       JSON.stringify({
@@ -265,6 +269,7 @@ test('HttpProjectRepository preserves structured warnings for an unusable archiv
 });
 
 test('HttpProjectRepository preserves retryable ZIP preparation capacity failures', async () => {
+  setRenderingLocaleOverride('en');
   fetchMock.mockResolvedValueOnce(
     new Response(
       JSON.stringify({
@@ -280,7 +285,7 @@ test('HttpProjectRepository preserves retryable ZIP preparation capacity failure
   await expect(repository.listFolders()).rejects.toMatchObject({
     code: 'source-archive-busy',
     httpStatus: 429,
-    message: 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.',
+    message: 'A ZIP archive is already being prepared. Try again shortly.',
     name: 'ProjectStorageError',
   });
 });
@@ -850,6 +855,7 @@ test('HttpProjectRepository recovers a completed chunked archive save after losi
     .mockResolvedValueOnce(
       new Response('{', { headers: { 'Content-Type': 'application/json' }, status: 200 })
     )
+    .mockRejectedValueOnce(new TypeError('temporary network failure'))
     .mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -869,9 +875,10 @@ test('HttpProjectRepository recovers a completed chunked archive save after losi
 
   expect(saved.snapshot.source).toEqual(storedSnapshot.source);
   expect(saved.meta).toEqual({ id: snapshot.id });
-  expect(fetchMock).toHaveBeenCalledTimes(5);
+  expect(fetchMock).toHaveBeenCalledTimes(6);
   expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
   expect(String(fetchMock.mock.calls[4]?.[0])).not.toContain('/complete');
+  expect(String(fetchMock.mock.calls[5]?.[0])).not.toContain('/complete');
   expect(fetchMock.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false);
 });
 

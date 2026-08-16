@@ -285,6 +285,7 @@ const SOURCE_PREPARATION_TMP_PREFIX = 'nous-source-archive-';
 const PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS = 30;
 const PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT = 200;
 const INVALID_PROJECT_BACKUP_MESSAGE = 'Project backup archive is invalid.';
+const activeSourcePreparationDirectories = new Set<string>();
 
 const cleanupOrphanedSourcePreparationDirectories = async (): Promise<void> => {
   const temporaryRoot = os.tmpdir();
@@ -295,6 +296,7 @@ const cleanupOrphanedSourcePreparationDirectories = async (): Promise<void> => {
       .filter(entry => entry.isDirectory() && entry.name.startsWith(SOURCE_PREPARATION_TMP_PREFIX))
       .map(async entry => {
         const temporaryPath = path.join(temporaryRoot, entry.name);
+        if (activeSourcePreparationDirectories.has(temporaryPath)) return;
         try {
           const stats = await lstat(temporaryPath);
           if (now - stats.mtimeMs > projectImportConfig.receivingUploadTtlMs) {
@@ -952,6 +954,7 @@ export class PostgresProjectStore implements ProjectStore {
               console.warn('[Backend] Failed to remove prepared source archive files.', { error })
           );
         } finally {
+          activeSourcePreparationDirectories.delete(sourceWrite.prepared.temporaryDirectory);
           sourceWrite.prepared.releaseAdmission?.();
         }
       }
@@ -2061,6 +2064,7 @@ export class PostgresProjectStore implements ProjectStore {
       const temporaryDirectory = await mkdtemp(
         path.join(os.tmpdir(), SOURCE_PREPARATION_TMP_PREFIX)
       );
+      activeSourcePreparationDirectories.add(temporaryDirectory);
       const prepared: PreparedProjectSource = {
         archiveEntries: [],
         files: [],
@@ -2128,7 +2132,11 @@ export class PostgresProjectStore implements ProjectStore {
         }
         return prepared;
       } catch (error) {
-        await rm(temporaryDirectory, { force: true, recursive: true }).catch(() => undefined);
+        try {
+          await rm(temporaryDirectory, { force: true, recursive: true }).catch(() => undefined);
+        } finally {
+          activeSourcePreparationDirectories.delete(temporaryDirectory);
+        }
         throw error;
       }
     } catch (error) {

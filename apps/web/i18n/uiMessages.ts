@@ -864,6 +864,10 @@ const ENGLISH_UI_MESSAGES = {
   'Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.':
     'Some sources were not used: {sourceNames}. The course will continue with the others.',
   'Alcune fonti non sono state usate: {sourceNames}.': 'Some sources were not used: {sourceNames}.',
+  'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.':
+    'A ZIP archive is already being prepared. Try again shortly.',
+  'L’archivio non contiene alcun testo utilizzabile.':
+    'The archive does not contain any usable text.',
   '{count} PDF non usati: {reasons}. Esempi: {paths}.':
     '{count} PDFs were not used: {reasons}. Examples: {paths}.',
   '{count} senza testo utile': '{count} without usable text',

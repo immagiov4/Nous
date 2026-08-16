@@ -319,7 +319,7 @@ describe('indexSourceArchive', () => {
     });
   });
 
-  test('stops admitting PDFs after the archive-wide preparation deadline', async () => {
+  test('aborts archive preparation after the archive-wide deadline', async () => {
     let currentTime = 1_000;
     vi.spyOn(Date, 'now').mockImplementation(() => currentTime);
     const archive = await createArchive([
@@ -332,12 +332,11 @@ describe('indexSourceArchive', () => {
       return { pages: [{ text: usableText }], text: usableText };
     });
 
-    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+    await expect(indexSourceArchive(archive, GENEROUS_LIMITS)).rejects.toThrow(
+      'Invalid source archive: preparation deadline exceeded.'
+    );
 
     expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(1);
-    expect(result.entries.find(entry => entry.path === 'docs/b.pdf')).toMatchObject({
-      warningReason: 'timeout',
-    });
   });
 
   test('builds a complete lexicographic tree and preserves every file byte', async () => {
