@@ -105,3 +105,21 @@ test('aborts and releases the previous image before resolving a new project', as
   rendered.unmount();
   expect(secondRelease).toHaveBeenCalledOnce();
 });
+
+test('keeps a visible fallback when a persisted image cannot be retrieved', async () => {
+  vi.mocked(resolveProjectDocumentImage).mockRejectedValue(new Error('asset unavailable'));
+
+  render(
+    <ResolvedPdfImage
+      alt="Schema persistito"
+      className="h-12 rounded-xl"
+      image={durableImage}
+      projectId="project-1"
+    />
+  );
+
+  expect(await screen.findByRole('img', { name: 'Immagine non disponibile' })).toHaveClass(
+    'h-12',
+    'rounded-xl'
+  );
+});

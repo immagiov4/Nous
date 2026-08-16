@@ -398,6 +398,10 @@ describe('durable lesson generation persistence', () => {
       'pdf-new',
       'pdf-other',
     ]);
+    expect(result.documentAssets?.usedImages[0]).toMatchObject({
+      asset: asset(PDF_ASSET_ID),
+      id: 'pdf-new',
+    });
   });
 
   test('rejects source or generated-target changes instead of overwriting them', async () => {

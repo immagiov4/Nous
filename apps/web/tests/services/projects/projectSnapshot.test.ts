@@ -11,6 +11,7 @@ import {
   exportProjectData,
   inferProjectSourceKind,
   normalizeImportedProject,
+  normalizeStoredProject,
 } from '../../../services/projects/projectSnapshot.ts';
 import {
   createProjectSourceFromFile,
@@ -19,6 +20,7 @@ import {
   getProjectSourceFile,
 } from '../../../services/projects/projectSource.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
+import { collectLearningArtifactPayloads } from '../../../utils/learning/artifacts.ts';
 
 test('an explicit project title survives normalization and stays aligned with the learning plan', () => {
   const snapshot = createProjectSnapshot({
@@ -83,6 +85,71 @@ test('normalizes durable PDF image references without converting them to legacy 
       textCurrent: '',
     },
   ]);
+});
+
+test('keeps a selected durable PDF image renderable across export and reload', () => {
+  const image = {
+    asset: {
+      byteSize: 4,
+      hash: 'b'.repeat(64),
+      id: 'a'.repeat(64),
+      mediaType: 'image/png',
+    },
+    id: 'pdf-image-logical-1',
+    sourceOrder: 1,
+    textAfter: 'after',
+    textBefore: 'before',
+  };
+  const snapshot = createProjectSnapshot({
+    documentAssets: {
+      imageCount: 1,
+      kind: 'pdf',
+      parsedAt: '2026-07-29T00:00:00.000Z',
+      usedImages: [image],
+    },
+    id: 'durable-pdf-reload',
+    learningPlan: {
+      applicationExercisePlanningStatus: 'not-run',
+      modules: [
+        {
+          children: [
+            {
+              content: '{{PDF_IMAGE:pdf-image-logical-1}}',
+              description: 'Descrizione',
+              id: 'lesson-1',
+              imageRefs: [{ alt: 'Schema persistito', assetId: image.id }],
+              isCompleted: false,
+              kind: 'lesson',
+              title: 'Lezione',
+              type: 'core',
+            },
+          ],
+          id: 'module-1',
+          title: 'Modulo',
+        },
+      ],
+      summary: 'Sintesi',
+      title: 'Corso',
+    },
+  });
+
+  const wireSnapshot = JSON.parse(JSON.stringify(exportProjectData(snapshot)));
+  const reopened = normalizeStoredProject(wireSnapshot);
+  const [artifact] = collectLearningArtifactPayloads({ snapshot: reopened });
+
+  assert.deepEqual(reopened.documentAssets?.usedImages[0], {
+    ...image,
+    caption: undefined,
+    intrinsicHeight: undefined,
+    intrinsicWidth: undefined,
+    pageNumber: undefined,
+    textCurrent: '',
+  });
+  assert.equal(artifact && 'image' in artifact ? artifact.image.id : undefined, image.id);
+  assert.deepEqual(
+    artifact && 'image' in artifact && 'asset' in artifact.image ? artifact.image.asset : undefined,
+    image.asset
+  );
 });
 
 test('modern archive exports round-trip raw bytes, storage reference, and the complete index', () => {
