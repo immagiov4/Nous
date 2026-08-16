@@ -8,13 +8,13 @@ wiki_page_id: "p-database-schema"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/projects/postgresProjectStore.ts](apps/backend/src/projects/postgresProjectStore.ts)
-- [supabase/migrations/202607190002_project_sources_storage.sql](supabase/migrations/202607190002_project_sources_storage.sql)
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](apps/backend/tests/integration/supabaseLocal.integration.test.ts)
-- [scripts/project-source-storage-artifact.ts](scripts/project-source-storage-artifact.ts)
-- [apps/backend/tests/projects/postgresProjectStore.test.ts](apps/backend/tests/projects/postgresProjectStore.test.ts)
-- [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
+- [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts)
+- [supabase/migrations/202607190002_project_sources_storage.sql](../../../supabase/migrations/202607190002_project_sources_storage.sql)
+- [docs/DEPLOYMENT.md](../../../docs/DEPLOYMENT.md)
+- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts)
+- [scripts/project-source-storage-artifact.ts](../../../scripts/project-source-storage-artifact.ts)
+- [apps/backend/tests/projects/postgresProjectStore.test.ts](../../../apps/backend/tests/projects/postgresProjectStore.test.ts)
+- [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
 </details>
 
 # PostgreSQL Database Schema
@@ -41,7 +41,7 @@ erDiagram
 ```
 
 *Description: The ER diagram shows the central role of the `projects` table and its connection to content snapshots, asset metadata, and the library's hierarchical folder structure.*
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:503-605](apps/backend/src/projects/postgresProjectStore.ts#L503-L605), [supabase/migrations/202607190002_project_sources_storage.sql:104-163](supabase/migrations/202607190002_project_sources_storage.sql#L104-L163)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:503-605](../../../apps/backend/src/projects/postgresProjectStore.ts#L503-L605), [supabase/migrations/202607190002_project_sources_storage.sql:104-163](../../../supabase/migrations/202607190002_project_sources_storage.sql#L104-L163)
 
 ## Project and Content Persistence
 
@@ -49,7 +49,7 @@ The schema separates project metadata from the heavy content snapshots to optimi
 
 ### Projects Table
 Stores high-level metadata such as titles, favorite status, and revision counters used for optimistic concurrency control.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:251-260](apps/backend/src/projects/postgresProjectStore.ts#L251-L260)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:251-260](../../../apps/backend/src/projects/postgresProjectStore.ts#L251-L260)
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -61,7 +61,7 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts:251-260](apps/backen
 
 ### Project Snapshots Table
 Stores the full state of a project, including the learning plan, user profile, and document index.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:587-605](apps/backend/src/projects/postgresProjectStore.ts#L587-L605)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:587-605](../../../apps/backend/src/projects/postgresProjectStore.ts#L587-L605)
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -76,7 +76,7 @@ Nous employs an "immutable object" strategy for project sources. Large files are
 *  **`public.project_sources`**: Tracks the primary source for a project (e.g., the original PDF or ZIP).
 *  **`public.project_source_files`**: Tracks individual files within a multi-source project, ordered by `position`.
 *  **`public.project_source_entries`**: Indexes the contents of an archive source, storing previews and warning reasons (e.g., if a PDF has no usable text).
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:795-883](apps/backend/src/projects/postgresProjectStore.ts#L795-L883)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:795-883](../../../apps/backend/src/projects/postgresProjectStore.ts#L795-L883)
 
 ```mermaid
 flowchart TD
@@ -94,11 +94,11 @@ flowchart TD
 ```
 
 *Description: The link between database metadata and the Supabase Storage bucket based on content-addressed object paths.*
-Sources: [supabase/migrations/202607190002_project_sources_storage.sql:104-194](supabase/migrations/202607190002_project_sources_storage.sql#L104-L194), [apps/backend/src/projects/postgresProjectStore.ts:1094-1110](apps/backend/src/projects/postgresProjectStore.ts#L1094-L1110)
+Sources: [supabase/migrations/202607190002_project_sources_storage.sql:104-194](../../../supabase/migrations/202607190002_project_sources_storage.sql#L104-L194), [apps/backend/src/projects/postgresProjectStore.ts:1094-1110](../../../apps/backend/src/projects/postgresProjectStore.ts#L1094-L1110)
 
 ### Historical Cutover and Current Contract
 The versioned storage-cutover migration used `public.project_source_storage_stage` to verify a one-time transition from embedded source bytes, then removed both staging and legacy tables. Current deployments require the post-cutover schema and apply versioned Supabase migrations directly; the runtime migrator has been retired. The deployment preflight rejects legacy columns, transitional tables, and embedded source snapshots before release.
-Sources: [supabase/migrations/202607190002_project_sources_storage.sql:1-100](supabase/migrations/202607190002_project_sources_storage.sql#L1-L100), [supabase/migrations/202607190002_project_sources_storage.sql:228-285](supabase/migrations/202607190002_project_sources_storage.sql#L228-L285), [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+Sources: [supabase/migrations/202607190002_project_sources_storage.sql:1-100](../../../supabase/migrations/202607190002_project_sources_storage.sql#L1-L100), [supabase/migrations/202607190002_project_sources_storage.sql:228-285](../../../supabase/migrations/202607190002_project_sources_storage.sql#L228-L285), [docs/DEPLOYMENT.md](../../../docs/DEPLOYMENT.md)
 
 ## Library and Organization
 
@@ -107,7 +107,7 @@ The library structure supports nested folders and custom ordering for projects a
 ### Folders and Placements
 *  **`public.library_folders`**: Defines the hierarchy. Folders can have a `parent_folder_id` (null for root).
 *  **`public.library_placements`**: Links projects to folders and defines their position within that folder.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:1145-1165](apps/backend/src/projects/postgresProjectStore.ts#L1145-L1165), [apps/backend/src/projects/postgresProjectStore.ts:1248-1262](apps/backend/src/projects/postgresProjectStore.ts#L1248-L1262)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:1145-1165](../../../apps/backend/src/projects/postgresProjectStore.ts#L1145-L1165), [apps/backend/src/projects/postgresProjectStore.ts:1248-1262](../../../apps/backend/src/projects/postgresProjectStore.ts#L1248-L1262)
 
 ## Workflow and Feedback Systems
 
@@ -115,11 +115,11 @@ The schema includes support for background workflow runtime and user feedback re
 
 ### Workflow Runtime
 The `public.model_config` table (id='global') stores system-wide settings for AI models used in course generation, such as `context_model`, `course_model`, and `lesson_model`.
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:445-475](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L445-L475)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:445-475](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L445-L475)
 
 ### Feedback Reports
 The `public.feedback_reports` table stores user-submitted bugs and feature requests, which can be synchronized with GitHub issues.
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:480-520](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L480-L520)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:480-520](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L480-L520)
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -131,7 +131,7 @@ Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:480-5
 ## Transactional Integrity and Concurrency
 
 The system uses `pg_advisory_xact_lock` and `pg_advisory_lock` to prevent race conditions during complex operations like library sibling reordering and project source uploads.
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:1072-1090](apps/backend/src/projects/postgresProjectStore.ts#L1072-L1090), [apps/backend/src/projects/postgresProjectStore.ts:1336-1348](apps/backend/src/projects/postgresProjectStore.ts#L1336-L1348)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:1072-1090](../../../apps/backend/src/projects/postgresProjectStore.ts#L1072-L1090), [apps/backend/src/projects/postgresProjectStore.ts:1336-1348](../../../apps/backend/src/projects/postgresProjectStore.ts#L1336-L1348)
 
 ```mermaid
 sequenceDiagram
@@ -147,7 +147,7 @@ sequenceDiagram
 ```
 
 *Description: The locking sequence ensures that concurrent uploads to the same content-addressed path do not result in corrupted metadata or orphaned files.*
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:983-1070](apps/backend/src/projects/postgresProjectStore.ts#L983-L1070)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:983-1070](../../../apps/backend/src/projects/postgresProjectStore.ts#L983-L1070)
 
 ## Conclusion
 The PostgreSQL database schema for Nous Reader is a sophisticated multi-tenant design that balances the need for fast library browsing with the storage of complex, high-volume AI-generated educational content. By offloading binary data to immutable object storage and utilizing JSONB for flexible snapshots, the schema provides a scalable foundation for the project's pedagogical features.

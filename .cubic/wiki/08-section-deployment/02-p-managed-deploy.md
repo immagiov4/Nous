@@ -8,13 +8,13 @@ wiki_page_id: "p-managed-deploy"
 
 The following files were used as context for generating this wiki page:
 
-- [deploy/nous.sh](deploy/nous.sh)
-- [deploy/compose.yml](compose.yml)
-- [apps/web/tests/scripts/productionDeployment.test.ts](apps/web/tests/scripts/productionDeployment.test.ts)
-- [README.md](README.md)
-- [scripts/sync-supabase-auth-emails.ts](scripts/sync-supabase-auth-emails.ts)
-- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](apps/backend/tests/integration/supabaseLocal.integration.test.ts)
-- [scripts/project-source-storage-artifact.ts](scripts/project-source-storage-artifact.ts)
+- [deploy/nous.sh](../../../deploy/nous.sh)
+- [deploy/compose.yml](../../../compose.yml)
+- [apps/web/tests/scripts/productionDeployment.test.ts](../../../apps/web/tests/scripts/productionDeployment.test.ts)
+- [README.md](../../../README.md)
+- [scripts/sync-supabase-auth-emails.ts](../../../scripts/sync-supabase-auth-emails.ts)
+- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts)
+- [scripts/project-source-storage-artifact.ts](../../../scripts/project-source-storage-artifact.ts)
 </details>
 
 # Managed Supabase Deployment
@@ -23,7 +23,7 @@ Managed Supabase Deployment refers to the configuration and orchestration of the
 
 This deployment strategy is governed by the `SUPABASE_DEPLOYMENT` environment variable set to `managed`. It requires precise alignment between the application's public URLs and the Supabase project origin to ensure security, particularly regarding Cross-Origin Resource Sharing (CORS) and JSON Web Token (JWT) validation.
 
-Sources: [README.md](README.md), [deploy/nous.sh:78-83](deploy/nous.sh#L78-L83), [apps/web/tests/scripts/productionDeployment.test.ts:35-42](apps/web/tests/scripts/productionDeployment.test.ts#L35-L42)
+Sources: [README.md](../../../README.md), [deploy/nous.sh:78-83](../../../deploy/nous.sh#L78-L83), [apps/web/tests/scripts/productionDeployment.test.ts:35-42](../../../apps/web/tests/scripts/productionDeployment.test.ts#L35-L42)
 
 ## Architecture and Components
 
@@ -55,7 +55,7 @@ flowchart TD
 ```
 
 *Note: The frontend serves the SPA, while authentication tokens are issued directly by Supabase Auth and verified by the Nous Backend.*
-Sources: [compose.yml](compose.yml), [README.md](README.md)
+Sources: [compose.yml](../../../compose.yml), [README.md](../../../README.md)
 
 ## Configuration Requirements
 
@@ -73,7 +73,7 @@ Managed deployments rely on a set of environment variables that define the conne
 | `SUPABASE_SERVICE_ROLE_KEY` | The secret service-role key for administrative tasks. | Backend Only |
 | `SUPABASE_JWT_ISSUER` | The expected `iss` claim in JWTs; must be an absolute URL. | Optional |
 
-Sources: [apps/web/tests/scripts/productionDeployment.test.ts:35-65](apps/web/tests/scripts/productionDeployment.test.ts#L35-L65), [compose.yml:25-30](compose.yml#L25-L30)
+Sources: [apps/web/tests/scripts/productionDeployment.test.ts:35-65](../../../apps/web/tests/scripts/productionDeployment.test.ts#L35-L65), [compose.yml:25-30](../../../compose.yml#L25-L30)
 
 ### Security Constraints
 The deployment configuration enforces strict validation:
@@ -81,7 +81,7 @@ The deployment configuration enforces strict validation:
 2.  **JWT Issuer:** If `SUPABASE_JWT_ISSUER` is set, it must be an absolute URL.
 3.  **CORS:** The `CORS_ALLOWED_ORIGINS` must explicitly list the production origin of the frontend to allow browser-based API calls.
 
-Sources: [apps/web/tests/scripts/productionDeployment.test.ts:50-58](apps/web/tests/scripts/productionDeployment.test.ts#L50-L58), [README.md](README.md)
+Sources: [apps/web/tests/scripts/productionDeployment.test.ts:50-58](../../../apps/web/tests/scripts/productionDeployment.test.ts#L50-L58), [README.md](../../../README.md)
 
 ## Authentication Integration
 
@@ -101,12 +101,12 @@ sequenceDiagram
     SAuth-->>Script: 200 OK (Updated)
 ```
 
-Sources: [apps/web/tests/scripts/productionDeployment.test.ts:219-242](apps/web/tests/scripts/productionDeployment.test.ts#L219-L242), [compose.yml:153-162](compose.yml#L153-L162)
+Sources: [apps/web/tests/scripts/productionDeployment.test.ts:219-242](../../../apps/web/tests/scripts/productionDeployment.test.ts#L219-L242), [compose.yml:153-162](../../../compose.yml#L153-L162)
 
 ### Template Synchronization
 Branded email templates (Invite, Magic Link, Recovery) are managed via the Supabase Management API. The `sync-supabase-auth-emails.ts` script fetches the current hosted configuration and applies patches derived from local HTML templates in `supabase/templates/`.
 
-Sources: [scripts/sync-supabase-auth-emails.ts:40-75](scripts/sync-supabase-auth-emails.ts#L40-L75), [apps/backend/tests/scripts/supabaseAuthTemplates.test.ts:10-25](apps/backend/tests/scripts/supabaseAuthTemplates.test.ts#L10-L25)
+Sources: [scripts/sync-supabase-auth-emails.ts:40-75](../../../scripts/sync-supabase-auth-emails.ts#L40-L75), [apps/backend/tests/scripts/supabaseAuthTemplates.test.ts:10-25](../../../apps/backend/tests/scripts/supabaseAuthTemplates.test.ts#L10-L25)
 
 ## Storage and Artifacts
 
@@ -121,7 +121,7 @@ Project source objects are stored using content-addressing (SHA-256 hashes). A m
 | `databaseDumpSha256` | SHA-256 of the corresponding database dump for consistency. |
 | `objectPath` | Path format: `users/{userId}/projects/{projectId}/{sourceId}/{hash}/original`. |
 
-Sources: [scripts/project-source-storage-artifact.ts:23-40](scripts/project-source-storage-artifact.ts#L23-L40), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:303-310](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L303-L310)
+Sources: [scripts/project-source-storage-artifact.ts:23-40](../../../scripts/project-source-storage-artifact.ts#L23-L40), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:303-310](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L303-L310)
 
 ### Deployment Lifecycle Flow
 The `deploy/nous.sh` script handles the setup and maintenance of the application stack.
@@ -137,7 +137,7 @@ flowchart TD
     Smoke --> Finish([Status: Up])
 ```
 
-Sources: [deploy/nous.sh:150-178](deploy/nous.sh#L150-L178), [apps/web/tests/scripts/productionDeployment.test.ts:162-180](apps/web/tests/scripts/productionDeployment.test.ts#L162-L180)
+Sources: [deploy/nous.sh:150-178](../../../deploy/nous.sh#L150-L178), [apps/web/tests/scripts/productionDeployment.test.ts:162-180](../../../apps/web/tests/scripts/productionDeployment.test.ts#L162-L180)
 
 ## Health Monitoring
 Health checks for managed deployments involve verifying connectivity to the external Supabase services. The smoke test checks:
@@ -145,9 +145,9 @@ Health checks for managed deployments involve verifying connectivity to the exte
 2.  **Backend Health:** Database connectivity and API readiness.
 3.  **Auth Health:** `auth/v1/health` endpoint on the Supabase public URL, requiring the `apikey` and `Authorization` headers (Anon Key).
 
-Sources: [apps/web/tests/scripts/productionDeployment.test.ts:162-205](apps/web/tests/scripts/productionDeployment.test.ts#L162-L205), [compose.yml:185-197](compose.yml#L185-L197)
+Sources: [apps/web/tests/scripts/productionDeployment.test.ts:162-205](../../../apps/web/tests/scripts/productionDeployment.test.ts#L162-L205), [compose.yml:185-197](../../../compose.yml#L185-L197)
 
 ## Summary
 The Managed Supabase Deployment allows Nous Reader to leverage scalable cloud infrastructure while maintaining a lightweight containerized application layer. It emphasizes strict URL validation and role-based access control (RLS) within Supabase to ensure tenant isolation and secure management of document artifacts.
 
-Sources: [README.md](README.md), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:167-200](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L167-L200)
+Sources: [README.md](../../../README.md), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:167-200](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L167-L200)

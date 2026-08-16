@@ -8,11 +8,11 @@ wiki_page_id: "p-telemetry-usage"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/workflows/workflowObservability.ts](apps/backend/src/workflows/workflowObservability.ts)
-- [apps/backend/src/workflows/workflowErrorDiagnostics.ts](apps/backend/src/workflows/workflowErrorDiagnostics.ts)
-- [apps/backend/src/workflows/validation.ts](apps/backend/src/workflows/validation.ts)
-- [scripts/run-real-workflow-provider-tests.ts](scripts/run-real-workflow-provider-tests.ts)
-- [apps/backend/tests/workflows/workflowObservability.test.ts](apps/backend/tests/workflows/workflowObservability.test.ts)
+- [apps/backend/src/workflows/workflowObservability.ts](../../../apps/backend/src/workflows/workflowObservability.ts)
+- [apps/backend/src/workflows/workflowErrorDiagnostics.ts](../../../apps/backend/src/workflows/workflowErrorDiagnostics.ts)
+- [apps/backend/src/workflows/validation.ts](../../../apps/backend/src/workflows/validation.ts)
+- [scripts/run-real-workflow-provider-tests.ts](../../../scripts/run-real-workflow-provider-tests.ts)
+- [apps/backend/tests/workflows/workflowObservability.test.ts](../../../apps/backend/tests/workflows/workflowObservability.test.ts)
 </details>
 
 # Workflow Observability & AI Metering
@@ -20,7 +20,7 @@ The following files were used as context for generating this wiki page:
 Workflow Observability and AI Metering form a critical subsystem within the project designed to track, log, and analyze the execution of complex asynchronous workflows and their associated AI provider consumption. This system ensures that every state transition, external effect, and AI token usage is captured with high fidelity while remaining isolated from the authoritative workflow state to prevent observability failures from impacting runtime stability.
 
 The system is divided into two primary concerns: **Observability**, which handles structured logging and transient event publication for real-time monitoring, and **Metering/Diagnostics**, which focuses on capturing granular AI usage metrics (tokens, models, providers) and detailed error contexts for failure analysis.
-Sources: [apps/backend/src/workflows/workflowObservability.ts](apps/backend/src/workflows/workflowObservability.ts), [scripts/run-real-workflow-provider-tests.ts](scripts/run-real-workflow-provider-tests.ts)
+Sources: [apps/backend/src/workflows/workflowObservability.ts](../../../apps/backend/src/workflows/workflowObservability.ts), [scripts/run-real-workflow-provider-tests.ts](../../../scripts/run-real-workflow-provider-tests.ts)
 
 ## Observability Architecture
 
@@ -47,7 +47,7 @@ flowchart TD
 ```
 
 The system utilizes a `WorkflowLogger` interface, primarily implemented by `ConsoleWorkflowLogger`, which outputs JSON-serialized events at various levels (`info`, `warn`, `error`).
-Sources: [apps/backend/src/workflows/workflowObservability.ts:413-440](apps/backend/src/workflows/workflowObservability.ts#L413-L440), [apps/backend/src/workflows/workflowObservability.ts:457-463](apps/backend/src/workflows/workflowObservability.ts#L457-L463)
+Sources: [apps/backend/src/workflows/workflowObservability.ts:413-440](../../../apps/backend/src/workflows/workflowObservability.ts#L413-L440), [apps/backend/src/workflows/workflowObservability.ts:457-463](../../../apps/backend/src/workflows/workflowObservability.ts#L457-L463)
 
 ### Transient Event System
 Transient events are process-local, lossy notifications delivered after authoritative transactions commit. They allow real-time observers to track progress without being able to modify the durable workflow state.
@@ -58,7 +58,7 @@ Transient events are process-local, lossy notifications delivered after authorit
 | **Isolation** |Paylod nesting is frozen/cloned to prevent observers from mutating data seen by others. |
 | **Process-Local** | Unlike durable events, these do not survive process restarts. |
 
-Sources: [apps/backend/src/workflows/workflowObservability.ts:32-72](apps/backend/src/workflows/workflowObservability.ts#L32-L72), [apps/backend/tests/workflows/workflowObservability.test.ts:70-96](apps/backend/tests/workflows/workflowObservability.test.ts#L70-L96)
+Sources: [apps/backend/src/workflows/workflowObservability.ts:32-72](../../../apps/backend/src/workflows/workflowObservability.ts#L32-L72), [apps/backend/tests/workflows/workflowObservability.test.ts:70-96](../../../apps/backend/tests/workflows/workflowObservability.test.ts#L70-L96)
 
 ## AI Metering and Usage Tracking
 
@@ -77,11 +77,11 @@ The system tracks several token-level metrics for every workflow run:
 | `model` | The specific model string (e.g., `gpt-5.6-luna`). |
 | `provider` | The AI service provider name (e.g., `codex`). |
 
-Sources: [scripts/run-real-workflow-provider-tests.ts:46-56](scripts/run-real-workflow-provider-tests.ts#L46-L56), [scripts/run-real-workflow-provider-tests.ts:285-320](scripts/run-real-workflow-provider-tests.ts#L285-L320)
+Sources: [scripts/run-real-workflow-provider-tests.ts:46-56](../../../scripts/run-real-workflow-provider-tests.ts#L46-L56), [scripts/run-real-workflow-provider-tests.ts:285-320](../../../scripts/run-real-workflow-provider-tests.ts#L285-L320)
 
 ### Diagnostic Context
 When a workflow step involving an AI model fails, the system captures a `WorkflowModelDiagnostic`. This includes the `slot` (e.g., `course`, `lesson`), the `provider`, and the `serviceTier` (e.g., `fast`), providing immediate context for debugging provider-specific issues.
-Sources: [apps/backend/src/workflows/workflowObservability.ts:365-385](apps/backend/src/workflows/workflowObservability.ts#L365-L385), [apps/backend/src/workflows/workflowErrorDiagnostics.ts](apps/backend/src/workflows/workflowErrorDiagnostics.ts)
+Sources: [apps/backend/src/workflows/workflowObservability.ts:365-385](../../../apps/backend/src/workflows/workflowObservability.ts#L365-L385), [apps/backend/src/workflows/workflowErrorDiagnostics.ts](../../../apps/backend/src/workflows/workflowErrorDiagnostics.ts)
 
 ## Workflow Integrity and Validation
 
@@ -101,7 +101,7 @@ sequenceDiagram
 ```
 
 The `validateWorkflowDefinition` function ensures that every node, schema, and event within a workflow follows a strictly defined structure before it can be registered or materialized.
-Sources: [apps/backend/src/workflows/validation.ts:251-285](apps/backend/src/workflows/validation.ts#L251-L285), [apps/backend/src/workflows/validation.ts:287-288](apps/backend/src/workflows/validation.ts#L287-L288)
+Sources: [apps/backend/src/workflows/validation.ts:251-285](../../../apps/backend/src/workflows/validation.ts#L251-L285), [apps/backend/src/workflows/validation.ts:287-288](../../../apps/backend/src/workflows/validation.ts#L287-L288)
 
 ## Diagnostic Tooling: `doctor`
 
@@ -114,8 +114,8 @@ The `doctor` script provides a local diagnostic suite for developers to verify t
 | `local` | Verifies Supabase Auth, Data API, Storage, and Migration drift. |
 | `all` | Runs all available diagnostic profiles. |
 
-Sources: [scripts/doctor.ts:60-70](scripts/doctor.ts#L60-L70), [scripts/doctor.ts:108-130](scripts/doctor.ts#L108-L130)
+Sources: [scripts/doctor.ts:60-70](../../../scripts/doctor.ts#L60-L70), [scripts/doctor.ts:108-130](../../../scripts/doctor.ts#L108-L130)
 
 ## Conclusion
 The Workflow Observability & AI Metering system provides a robust framework for monitoring the project's distributed logic. By strictly separating authoritative execution from best-effort logging, and by capturing granular AI usage data, it allows the platform to scale while maintaining high visibility into both operational performance and provider costs.
-Sources: [apps/backend/src/workflows/workflowObservability.ts](apps/backend/src/workflows/workflowObservability.ts), [scripts/run-real-workflow-provider-tests.ts](scripts/run-real-workflow-provider-tests.ts)
+Sources: [apps/backend/src/workflows/workflowObservability.ts](../../../apps/backend/src/workflows/workflowObservability.ts), [scripts/run-real-workflow-provider-tests.ts](../../../scripts/run-real-workflow-provider-tests.ts)

@@ -8,13 +8,13 @@ wiki_page_id: "p-interactive-exercises"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/services/lessonGenerationModel.ts](apps/backend/src/services/lessonGenerationModel.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](apps/backend/src/services/lessonGenerationPrompt.ts)
-- [apps/web/services/openrouter/exercises/brief.ts](apps/web/services/openrouter/exercises/brief.ts)
-- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
-- [packages/shared-types/lessonWritingContract.ts](packages/shared-types/lessonWritingContract.ts)
-- [apps/web/types.ts](apps/web/types.ts)
-- [apps/web/tests/components/workspace/shell/WorkspaceReaderContent.test.tsx](apps/web/tests/components/workspace/shell/WorkspaceReaderContent.test.tsx)
+- [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
+- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+- [apps/web/services/openrouter/exercises/brief.ts](../../../apps/web/services/openrouter/exercises/brief.ts)
+- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
+- [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
+- [apps/web/types.ts](../../../apps/web/types.ts)
+- [apps/web/tests/components/workspace/shell/WorkspaceReaderContent.test.tsx](../../../apps/web/tests/components/workspace/shell/WorkspaceReaderContent.test.tsx)
 </details>
 
 # Interactive Exercises & Quizzes
@@ -23,7 +23,7 @@ Interactive Exercises and Quizzes represent the active learning layer of the Nou
 
 The system ensures that these interactive components are self-sufficient, meaning all information required to solve a quiz or complete an exercise is provided within the preceding lesson content or the exercise brief itself. This architecture supports the project's manifesto of being an ADHD-friendly, step-by-step learning environment.
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/services/openrouter/exercises/brief.ts:182-195](apps/web/services/openrouter/exercises/brief.ts#L182-L195), [AGENTS.md:104-108](AGENTS.md#L104-L108)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/services/openrouter/exercises/brief.ts:182-195](../../../apps/web/services/openrouter/exercises/brief.ts#L182-L195), [AGENTS.md:104-108](../../../AGENTS.md#L104-L108)
 
 ## Inline Quizzes (Active Pauses)
 
@@ -51,7 +51,7 @@ flowchart TD
 ```
 
 *The diagram shows the sequential requirement where a quiz must follow a markdown block that provides its factual grounding.*
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90)
+Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90)
 
 ### Quiz Configuration and Types
 
@@ -64,7 +64,7 @@ Quizzes must use one of the approved `exerciseType` values, such as `prediction`
 | `correctIndex` | integer | Index (0-3) of the correct option. |
 | `exerciseType` | string | The cognitive task required (e.g., inference, classification). |
 
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/web/types.ts:251-257](apps/web/types.ts#L251-L257)
+Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/web/types.ts:251-257](../../../apps/web/types.ts#L251-L257)
 
 ## Application Exercises (Labs)
 
@@ -88,7 +88,7 @@ sequenceDiagram
 ```
 
 *Sequence of generating the hands-on exercise brief based on focus lessons and student profile.*
-Sources: [apps/web/services/openrouter/exercises/brief.ts:173-205](apps/web/services/openrouter/exercises/brief.ts#L173-L205), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:431-450](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L431-L450)
+Sources: [apps/web/services/openrouter/exercises/brief.ts:173-205](../../../apps/web/services/openrouter/exercises/brief.ts#L173-L205), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:431-450](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L431-L450)
 
 ### Student Interaction and Evaluation
 
@@ -97,7 +97,7 @@ The `ApplicationExerciseViewer` provides a multi-modal interface for exercise co
 2.  **File Attachments:** Support for uploading `.zip` archives, code files, or text documents.
 3.  **AI Feedback:** Students can request feedback, which returns a score (0-100), qualitative labels, strengths, and improvements.
 
-Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:498-580](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L498-L580), [apps/web/types.ts:402-411](apps/web/types.ts#L402-L411)
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:498-580](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L498-L580), [apps/web/types.ts:402-411](../../../apps/web/types.ts#L402-L411)
 
 ## Implementation Details
 
@@ -122,7 +122,7 @@ const hasInvalidQuizPlacement = (draft: LessonContentDraft): boolean => {
 };
 ```
 
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:279-291](apps/backend/src/services/lessonGenerationModel.ts#L279-L291), [apps/web/tests/utils/reader/lessonContentBlocks.test.ts:31-49](apps/web/tests/utils/reader/lessonContentBlocks.test.ts#L31-L49)
+Sources: [apps/backend/src/services/lessonGenerationModel.ts:279-291](../../../apps/backend/src/services/lessonGenerationModel.ts#L279-L291), [apps/web/tests/utils/reader/lessonContentBlocks.test.ts:31-49](../../../apps/web/tests/utils/reader/lessonContentBlocks.test.ts#L31-L49)
 
 ### UI Components
 
@@ -132,10 +132,10 @@ The `WorkspaceReaderContent` component acts as the orchestrator for rendering th
 *  `WorkspaceReaderQuizFooter`: Controls the ability to advance to the next section; completion is blocked until all inline questions are answered.
 *  `ExerciseInternalTextEditor`: Provides the workspace for application exercise output.
 
-Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:758-769](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L758-L769), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:498-508](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L498-L508)
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:758-769](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L758-L769), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:498-508](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L498-L508)
 
 ## Summary
 
 Interactive exercises and quizzes support active learning when a lesson or learning plan needs them. A lesson may contain zero to three active pauses, each grounded in preceding explanatory content, while application exercises remain standalone learning-plan nodes with their own briefs.
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/types.ts:590-598](apps/web/types.ts#L590-L598)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:84-90](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L84-L90), [apps/web/types.ts:590-598](../../../apps/web/types.ts#L590-L598)

@@ -8,18 +8,18 @@ wiki_page_id: "p-workflow-engine"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts](apps/backend/src/workflows/persistence/postgresWorkflowStore.ts)
-- [apps/backend/src/workflows/postgresWorkflowPersistence.ts](apps/backend/src/workflows/postgresWorkflowPersistence.ts)
-- [apps/backend/src/workflows/validation.ts](apps/backend/src/workflows/validation.ts)
-- [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts](apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts)
-- [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts](apps/backend/tests/workflows/postgresWorkflowObservability.test.ts)
+- [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts)
+- [apps/backend/src/workflows/postgresWorkflowPersistence.ts](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts)
+- [apps/backend/src/workflows/validation.ts](../../../apps/backend/src/workflows/validation.ts)
+- [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts)
+- [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts)
 </details>
 
 # Postgres Workflow Engine
 
 The Postgres Workflow Engine is the core orchestration layer responsible for managing complex, long-running processes within the project. It leverages PostgreSQL as a reliable state store, ensuring durability, consistency, and recoverability for workflow executions. The engine handles various node types, including steps, fan-outs, and waits, while providing mechanisms for retries, idempotency, and transactional integrity.
 
-Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts](apps/backend/src/workflows/persistence/postgresWorkflowStore.ts), [apps/backend/src/workflows/validation.ts](apps/backend/src/workflows/validation.ts)
+Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts), [apps/backend/src/workflows/validation.ts](../../../apps/backend/src/workflows/validation.ts)
 
 ## System Architecture
 
@@ -37,7 +37,7 @@ The architecture consists of a central registry of workflow definitions and a ru
 | **PostgresWorkflowWaitStore** | Manages workflows paused while waiting for external signals. |
 | **PostgresWorkflowUndoStore** | Manages the cleanup/rollback of completed steps upon failure. |
 
-Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:407-435](apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L407-L435)
+Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:407-435](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L407-L435)
 
 ### Data Flow for Run Creation
 
@@ -57,7 +57,7 @@ flowchart TD
     Notify --> End[Run Created]
 ```
 
-Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:511-576](apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L511-L576)
+Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:511-576](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L511-L576)
 
 ## Workflow Materialization and Persistence
 
@@ -91,7 +91,7 @@ export const insertMaterializedNode = async (
 };
 ```
 
-Sources: [apps/backend/src/workflows/postgresWorkflowPersistence.ts:31-50](apps/backend/src/workflows/postgresWorkflowPersistence.ts#L31-L50)
+Sources: [apps/backend/src/workflows/postgresWorkflowPersistence.ts:31-50](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L31-L50)
 
 ## Execution Lifecycle and Worker Fencing
 
@@ -118,13 +118,13 @@ sequenceDiagram
     DB-->>Store: Success/Conflict
 ```
 
-Sources: [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:71-110](apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L71-L110), [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:250-290](apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L250-L290)
+Sources: [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:71-110](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L71-L110), [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:250-290](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L250-L290)
 
 ### Transactional Guarantees
 
 The engine heavily utilizes PostgreSQL transactions and advisory locks. `pg_advisory_xact_lock` is used to prevent concurrent run creation for the same `userId` and `requestKey`.
 
-Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:488-498](apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L488-L498)
+Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:488-498](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L488-L498)
 
 ## Workflow Integrity and Validation
 
@@ -140,7 +140,7 @@ Workflow definitions are hashed using SHA-256. This hash is stored with the run 
 | **pre-compatibility-id** | Reconstructs hashes for runs created before compatibility IDs were added. |
 | **pre-external-effect** | Reconstructs hashes for runs created before provider effect tracking. |
 
-Sources: [apps/backend/src/workflows/validation.ts:26-32, 545-562](apps/backend/src/workflows/validation.ts#L26-L32)
+Sources: [apps/backend/src/workflows/validation.ts:26-32, 545-562](../../../apps/backend/src/workflows/validation.ts#L26-L32)
 
 ### Node Kind Validation
 
@@ -153,7 +153,7 @@ The engine validates that every node in a workflow definition belongs to one of 
 - `step`: A single unit of executable work.
 - `waitForSignal`: Pauses execution until an external signal is received.
 
-Sources: [apps/backend/src/workflows/validation.ts:41-50](apps/backend/src/workflows/validation.ts#L41-L50)
+Sources: [apps/backend/src/workflows/validation.ts:41-50](../../../apps/backend/src/workflows/validation.ts#L41-L50)
 
 ## Observability and Logging
 
@@ -166,7 +166,7 @@ The system tracks granular actions for debugging and monitoring:
 - **workflow.attempt**: claimed, completed, retry-scheduled, recovered.
 - **workflow.wait**: created, signal-replayed, expired.
 
-Sources: [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:145-180, 520-550](apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L145-L180)
+Sources: [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:145-180, 520-550](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L145-L180)
 
 ## Summary
 

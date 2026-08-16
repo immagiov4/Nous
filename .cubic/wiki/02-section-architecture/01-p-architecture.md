@@ -8,12 +8,12 @@ wiki_page_id: "p-architecture"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/web/services/projects/projectSnapshot.ts](apps/web/services/projects/projectSnapshot.ts)
-- [apps/backend/src/projects/postgresProjectStore.ts](apps/backend/src/projects/postgresProjectStore.ts)
-- [apps/web/services/projects/courseSources.ts](apps/web/services/projects/courseSources.ts)
-- [apps/backend/src/workflows/courseGenerationPreparation.ts](apps/backend/src/workflows/courseGenerationPreparation.ts)
-- [README.md](README.md)
-- [apps/backend/tests/routes/projects.test.ts](apps/backend/tests/routes/projects.test.ts)
+- [apps/web/services/projects/projectSnapshot.ts](../../../apps/web/services/projects/projectSnapshot.ts)
+- [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts)
+- [apps/web/services/projects/courseSources.ts](../../../apps/web/services/projects/courseSources.ts)
+- [apps/backend/src/workflows/courseGenerationPreparation.ts](../../../apps/backend/src/workflows/courseGenerationPreparation.ts)
+- [README.md](../../../README.md)
+- [apps/backend/tests/routes/projects.test.ts](../../../apps/backend/tests/routes/projects.test.ts)
 </details>
 
 # System Architecture
@@ -22,7 +22,7 @@ The Nous Reader system architecture is designed to transform static documents an
 
 The core of the architecture revolves around **Projects**, which serve as the primary container for source materials, learning plans, and user progress. The system utilizes a specialized snapshotting mechanism to maintain state consistency across different processing stages, ensuring that large source files (like PDFs and ZIP archives) are handled efficiently through immutable object storage and metadata indexing.
 
-Sources: [README.md:1-5](README.md#L1-L5), [apps/web/services/projects/projectSnapshot.ts:1-20](apps/web/services/projects/projectSnapshot.ts#L1-L20)
+Sources: [README.md:1-5](../../../README.md#L1-L5), [apps/web/services/projects/projectSnapshot.ts:1-20](../../../apps/web/services/projects/projectSnapshot.ts#L1-L20)
 
 ## High-Level Component Overview
 
@@ -49,7 +49,7 @@ flowchart TD
 ```
 
 The diagram shows the interaction between the frontend, backend, and external dependencies.
-Sources: [README.md:15-25](README.md#L15-L25), [apps/backend/tests/routes/projects.test.ts:90-120](apps/backend/tests/routes/projects.test.ts#L90-L120)
+Sources: [README.md:15-25](../../../README.md#L15-L25), [apps/backend/tests/routes/projects.test.ts:90-120](../../../apps/backend/tests/routes/projects.test.ts#L90-L120)
 
 ## Data Persistence & Storage Model
 
@@ -65,7 +65,7 @@ The `ProjectSnapshot` is the single source of truth for a project's state. To mi
 | **Source Files** | Object Storage | Original PDF/ZIP binary data |
 | **Document Index** | PostgreSQL (JSONB) | Text chunks, offsets, and mapping data |
 
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:350-400](apps/backend/src/projects/postgresProjectStore.ts#L350-L400), [apps/web/services/projects/projectSnapshot.ts:77-105](apps/web/services/projects/projectSnapshot.ts#L77-L105)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:350-400](../../../apps/backend/src/projects/postgresProjectStore.ts#L350-L400), [apps/web/services/projects/projectSnapshot.ts:77-105](../../../apps/web/services/projects/projectSnapshot.ts#L77-L105)
 
 ### Storage Flow Sequence
 When a user saves a project with a new source file, the system follows a specific transactional flow:
@@ -89,7 +89,7 @@ sequenceDiagram
 ```
 
 This sequence ensures that binary data is stored safely before database records are committed.
-Sources: [apps/backend/src/index.ts:254-265](apps/backend/src/index.ts#L254-L265), [apps/backend/src/routes/projects.ts:740-755](apps/backend/src/routes/projects.ts#L740-L755), [apps/backend/src/projects/postgresProjectStore.ts:415-450](apps/backend/src/projects/postgresProjectStore.ts#L415-L450), [apps/backend/tests/routes/projects.test.ts:240-270](apps/backend/tests/routes/projects.test.ts#L240-L270)
+Sources: [apps/backend/src/index.ts:254-265](../../../apps/backend/src/index.ts#L254-L265), [apps/backend/src/routes/projects.ts:740-755](../../../apps/backend/src/routes/projects.ts#L740-L755), [apps/backend/src/projects/postgresProjectStore.ts:415-450](../../../apps/backend/src/projects/postgresProjectStore.ts#L415-L450), [apps/backend/tests/routes/projects.test.ts:240-270](../../../apps/backend/tests/routes/projects.test.ts#L240-L270)
 
 ## Course Generation Workflow
 
@@ -102,7 +102,7 @@ The system determines a "Strategy" based on the input mode and source type:
 *  **single-source**: Processing one document (PDF/Markdown).
 *  **source-set**: Processing multiple documents.
 
-Sources: [apps/backend/src/workflows/courseGenerationPreparation.ts:85-110](apps/backend/src/workflows/courseGenerationPreparation.ts#L85-L110)
+Sources: [apps/backend/src/workflows/courseGenerationPreparation.ts:85-110](../../../apps/backend/src/workflows/courseGenerationPreparation.ts#L85-L110)
 
 ### Multi-Source Indexing
 For documents, the system builds a `combinedSourceIndex` which flattens multiple files into a unified searchable index of `PdfTextChunk` objects.
@@ -118,7 +118,7 @@ flowchart TD
 ```
 
 The workflow illustrates how disparate source types are unified for AI processing.
-Sources: [apps/web/services/projects/courseSources.ts:335-360](apps/web/services/projects/courseSources.ts#L335-L360), [apps/backend/src/workflows/courseGenerationPreparation.ts:115-130](apps/backend/src/workflows/courseGenerationPreparation.ts#L115-L130)
+Sources: [apps/web/services/projects/courseSources.ts:335-360](../../../apps/web/services/projects/courseSources.ts#L335-L360), [apps/backend/src/workflows/courseGenerationPreparation.ts:115-130](../../../apps/backend/src/workflows/courseGenerationPreparation.ts#L115-L130)
 
 ## Key Data Structures
 
@@ -133,14 +133,14 @@ export type ProjectSource =
   | { kind: 'archive'; file: FileData; index: SourceArchiveIndex; name: string; ref?: ProjectSourceRef };
 ```
 
-Sources: [apps/web/services/projects/projectSnapshot.ts:285-320](apps/web/services/projects/projectSnapshot.ts#L285-L320)
+Sources: [apps/web/services/projects/projectSnapshot.ts:285-320](../../../apps/web/services/projects/projectSnapshot.ts#L285-L320)
 
 ### File Identification
 The system derives a deterministic hash from each source's bytes, then includes a hash of the project ID in the immutable object path. Identical uploads can therefore retain the same source hash while being stored separately in different projects.
 
-Sources: [apps/backend/src/projects/projectSource.ts:70-85](apps/backend/src/projects/projectSource.ts#L70-L85), [apps/backend/src/projects/projectSource.ts:129-136](apps/backend/src/projects/projectSource.ts#L129-L136)
+Sources: [apps/backend/src/projects/projectSource.ts:70-85](../../../apps/backend/src/projects/projectSource.ts#L70-L85), [apps/backend/src/projects/projectSource.ts:129-136](../../../apps/backend/src/projects/projectSource.ts#L129-L136)
 
 ## Conclusion
 The Nous architecture prioritizes data integrity and performance by separating heavy binary assets from light JSON snapshots. This modular design allows the system to scale its storage independently of its processing logic, facilitating complex AI workflows while maintaining a stable, versioned record of the user's learning journey.
 
-Sources: [README.md:40-50](README.md#L40-L50), [apps/web/services/projects/projectSnapshot.ts:150-165](apps/web/services/projects/projectSnapshot.ts#L150-L165)
+Sources: [README.md:40-50](../../../README.md#L40-L50), [apps/web/services/projects/projectSnapshot.ts:150-165](../../../apps/web/services/projects/projectSnapshot.ts#L150-L165)

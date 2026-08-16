@@ -8,12 +8,12 @@ wiki_page_id: "p-admin-ui"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](apps/backend/tests/integration/supabaseLocal.integration.test.ts)
-- [apps/backend/tests/routes/projects.test.ts](apps/backend/tests/routes/projects.test.ts)
-- [scripts/doctor.ts](scripts/doctor.ts)
-- [scripts/feature-map.ts](scripts/feature-map.ts)
-- [AGENTS.md](AGENTS.md)
-- [README.md](README.md)
+- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts)
+- [apps/backend/tests/routes/projects.test.ts](../../../apps/backend/tests/routes/projects.test.ts)
+- [scripts/doctor.ts](../../../scripts/doctor.ts)
+- [scripts/feature-map.ts](../../../scripts/feature-map.ts)
+- [AGENTS.md](../../../AGENTS.md)
+- [README.md](../../../README.md)
 </details>
 
 # Admin Panels & Tools
@@ -40,7 +40,7 @@ flowchart TD
 ```
 
 The `doctor` script is observational and does not modify service state, providing a safe way to verify environment readiness.
-Sources: [scripts/doctor.ts:88-115](scripts/doctor.ts#L88-L115), [AGENTS.md:124-138](AGENTS.md#L124-L138)
+Sources: [scripts/doctor.ts:88-115](../../../scripts/doctor.ts#L88-L115), [AGENTS.md:124-138](../../../AGENTS.md#L124-L138)
 
 ### Diagnostic Profiles
 | Profile | Scope | Intended Use |
@@ -50,7 +50,7 @@ Sources: [scripts/doctor.ts:88-115](scripts/doctor.ts#L88-L115), [AGENTS.md:124-
 | `local` | Supabase Auth, Storage, and Database API health | Local infrastructure debugging |
 | `all` | Combines all available diagnostic stages | Full system health audit |
 
-Sources: [scripts/doctor.ts:47-51](scripts/doctor.ts#L47-L51)
+Sources: [scripts/doctor.ts:47-51](../../../scripts/doctor.ts#L47-L51)
 
 ## User and Feedback Management
 
@@ -63,7 +63,7 @@ The system supports administrative creation and management of users, particularl
 *  **Functionality:** Creates a new user with specified email, password, and role.
 *  **Security:** Requires an Authorization header with a token containing the `admin` role.
 
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:133-149](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L133-L149), [README.md:23-28](README.md#L23-L28)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:133-149](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L133-L149), [README.md:23-28](../../../README.md#L23-L28)
 
 ### Feedback System Flow
 Feedback is persisted in a private storage layer and synchronized with GitHub issues. Administrators can list these reports to monitor user-reported bugs or suggestions.
@@ -84,7 +84,7 @@ sequenceDiagram
 ```
 
 Admin views consolidate metadata like `github_issue_state` (e.g., "closed", "missing") to track the resolution status of user feedback.
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:470-555](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L470-L555)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:470-555](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L470-L555)
 
 ## Model Configuration
 
@@ -97,7 +97,7 @@ Administrators can read and update the following settings via the `GET /api/admi
 *  `lessonModel`: The model generating individual lesson content.
 *  `artifactVisualReviewMaxRounds`: Limits the number of self-correction loops during visual artifact generation.
 
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:446-468](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L446-L468)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:446-468](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L446-L468)
 
 ## Feature Reachability and Mapping
 
@@ -118,7 +118,7 @@ graph TD
 ```
 
 This tool classifies modules based on their reachability from the `production-shell` (index.html), admin routes defined in `App.tsx`, or test suites.
-Sources: [scripts/feature-map.ts:258-305](scripts/feature-map.ts#L258-L305)
+Sources: [scripts/feature-map.ts:258-305](../../../scripts/feature-map.ts#L258-L305)
 
 ## Summary
 Admin Panels and Tools in the Nous ecosystem provide the necessary levers for maintaining system integrity and pedagogical quality. By combining automated diagnostics (`doctor`), detailed module mapping (`feature-map`), and specialized administrative APIs for user and model management, the project ensures a robust environment for both developers and platform maintainers. These tools are strictly governed by role-based access control, ensuring that sensitive configuration and user data remain protected.

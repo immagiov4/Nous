@@ -8,13 +8,13 @@ wiki_page_id: "p-doc-processing"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/services/pdfTextExtractor.ts](apps/backend/src/services/pdfTextExtractor.ts)
-- [apps/backend/src/services/pdfImageExtractor.ts](apps/backend/src/services/pdfImageExtractor.ts)
-- [packages/shared-types/pdfTextIndex.ts](packages/shared-types/pdfTextIndex.ts)
-- [apps/backend/src/services/lessonGenerationSources.ts](apps/backend/src/services/lessonGenerationSources.ts)
-- [apps/web/services/projects/courseSources.ts](apps/web/services/projects/courseSources.ts)
-- [apps/backend/src/projects/postgresProjectStore.ts](apps/backend/src/projects/postgresProjectStore.ts) (Referenced via tests)
-- [apps/backend/src/projects/sourceArchive.ts](apps/backend/src/projects/sourceArchive.ts) (Referenced via tests)
+- [apps/backend/src/services/pdfTextExtractor.ts](../../../apps/backend/src/services/pdfTextExtractor.ts)
+- [apps/backend/src/services/pdfImageExtractor.ts](../../../apps/backend/src/services/pdfImageExtractor.ts)
+- [packages/shared-types/pdfTextIndex.ts](../../../packages/shared-types/pdfTextIndex.ts)
+- [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
+- [apps/web/services/projects/courseSources.ts](../../../apps/web/services/projects/courseSources.ts)
+- [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts) (Referenced via tests)
+- [apps/backend/src/projects/sourceArchive.ts](../../../apps/backend/src/projects/sourceArchive.ts) (Referenced via tests)
 
 </details>
 
@@ -33,7 +33,7 @@ The core of the document processing system is the `extractPdfText` function, whi
 2.  **pdf-parse**: A secondary fallback parser utilized if `pdftotext` is missing from the environment or fails to produce output.
 3.  **Fallback Process**: For memory safety and isolation, `pdf-parse` is often run in a dedicated Node.js sub-process (`pdfTextFallbackProcess.mjs`) with strict memory limits (`--max-old-space-size`).
 
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:326-373](apps/backend/src/services/pdfTextExtractor.ts#L326-L373), [apps/backend/src/services/pdfTextExtractor.ts:149-198](apps/backend/src/services/pdfTextExtractor.ts#L149-L198)
+Sources: [apps/backend/src/services/pdfTextExtractor.ts:326-373](../../../apps/backend/src/services/pdfTextExtractor.ts#L326-L373), [apps/backend/src/services/pdfTextExtractor.ts:149-198](../../../apps/backend/src/services/pdfTextExtractor.ts#L149-L198)
 
 ```mermaid
 flowchart TD
@@ -49,7 +49,7 @@ flowchart TD
 ```
 
 The diagram shows the decision flow between high-fidelity layout preservation and isolated fallback extraction. 
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:375-395](apps/backend/src/services/pdfTextExtractor.ts#L375-L395)
+Sources: [apps/backend/src/services/pdfTextExtractor.ts:375-395](../../../apps/backend/src/services/pdfTextExtractor.ts#L375-L395)
 
 ### Extraction Specifications
 
@@ -60,7 +60,7 @@ Sources: [apps/backend/src/services/pdfTextExtractor.ts:375-395](apps/backend/sr
 | `fallbackTimeoutMs` | 15,000ms (Archive) | Max time for the isolated Node.js fallback process. |
 | `max-old-space-size` | ~272MB (Typical) | Memory limit for the fallback sub-process. |
 
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:114-120](apps/backend/tests/projects/sourceArchive.test.ts#L114-L120), [apps/backend/tests/services/pdfTextExtractor.test.ts:86-90](apps/backend/tests/services/pdfTextExtractor.test.ts#L86-L90)
+Sources: [apps/backend/tests/projects/sourceArchive.test.ts:114-120](../../../apps/backend/tests/projects/sourceArchive.test.ts#L114-L120), [apps/backend/tests/services/pdfTextExtractor.test.ts:86-90](../../../apps/backend/tests/services/pdfTextExtractor.test.ts#L86-L90)
 
 ## Image Extraction & Contextualization
 
@@ -71,7 +71,7 @@ To avoid extracting incidental UI elements (icons, watermarks, or lines), the sy
 *  **Standalone Figures**: Requires a minimum area (e.g., 24,000 intrinsic pixels) or specific side length ratios.
 *  **Inline Images**: Higher area requirements to distinguish between decorative icons and substantive diagrams.
 
-Sources: [apps/backend/src/services/pdfImageExtractor.ts:7-22](apps/backend/src/services/pdfImageExtractor.ts#L7-L22), [apps/backend/src/services/pdfImageExtractor.ts:219-257](apps/backend/src/services/pdfImageExtractor.ts#L219-L257)
+Sources: [apps/backend/src/services/pdfImageExtractor.ts:7-22](../../../apps/backend/src/services/pdfImageExtractor.ts#L7-L22), [apps/backend/src/services/pdfImageExtractor.ts:219-257](../../../apps/backend/src/services/pdfImageExtractor.ts#L219-L257)
 
 ### Spatial Context Reconstruction
 The `buildLocalImageTextContext` function analyzes the `centerY` coordinates of text lines relative to the bounding box of the extracted image.
@@ -79,7 +79,7 @@ The `buildLocalImageTextContext` function analyzes the `centerY` coordinates of 
 *  **textCurrent**: Lines overlapping the vertical span of the image.
 *  **textAfter**: The first 5 lines appearing below the image.
 
-Sources: [apps/backend/src/services/pdfImageExtractor.ts:98-120](apps/backend/src/services/pdfImageExtractor.ts#L98-L120)
+Sources: [apps/backend/src/services/pdfImageExtractor.ts:98-120](../../../apps/backend/src/services/pdfImageExtractor.ts#L98-L120)
 
 ## Content Indexing and Segmentation
 
@@ -91,13 +91,13 @@ Text is not stored as a single block but divided into `PdfTextChunk` objects.
 *  **Heading Inference**: The system detects headings using regex patterns (e.g., `1.1 Concetti`) or visual cues (high ratio of uppercase/title-case characters).
 *  **Overlapping**: Paragraphs are preserved, and chunks may include overlapping context to maintain flow.
 
-Sources: [packages/shared-types/pdfTextIndex.ts:36-65](packages/shared-types/pdfTextIndex.ts#L36-L65), [apps/web/services/projects/courseSources.ts:6-7](apps/web/services/projects/courseSources.ts#L6-L7)
+Sources: [packages/shared-types/pdfTextIndex.ts:36-65](../../../packages/shared-types/pdfTextIndex.ts#L36-L65), [apps/web/services/projects/courseSources.ts:6-7](../../../apps/web/services/projects/courseSources.ts#L6-L7)
 
 ### Page Mapping
 For PDF sources, every chunk is mapped to a physical page range. If exact layout data is missing, the system uses a progress-based estimation:
 `startPage = floor(startOffset / totalChars * pageCount) + 1`
 
-Sources: [packages/shared-types/pdfTextIndex.ts:118-136](packages/shared-types/pdfTextIndex.ts#L118-L136)
+Sources: [packages/shared-types/pdfTextIndex.ts:118-136](../../../packages/shared-types/pdfTextIndex.ts#L118-L136)
 
 ## Source Archive Preparation
 
@@ -120,14 +120,14 @@ sequenceDiagram
 ```
 
 The sequence illustrates the validation and selective extraction of PDF content hidden within source code archives.
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](apps/backend/tests/projects/sourceArchive.test.ts#L96-L150), [apps/backend/tests/projects/sourceArchive.test.ts:373-388](apps/backend/tests/projects/sourceArchive.test.ts#L373-L388)
+Sources: [apps/backend/tests/projects/sourceArchive.test.ts:96-150](../../../apps/backend/tests/projects/sourceArchive.test.ts#L96-L150), [apps/backend/tests/projects/sourceArchive.test.ts:373-388](../../../apps/backend/tests/projects/sourceArchive.test.ts#L373-L388)
 
 ### Safety Constraints
 *  **Path Validation**: Rejects traversal attacks (`../`), absolute paths, or duplicate entries.
 *  **Safety Limits**: Caps PDF processing to the first 16 eligible files or a cumulative 64MB budget per archive to prevent DoS.
 *  **Lexicographic Stability**: Archives are processed and indexed in a stable alphabetical order to ensure deterministic IDs.
 
-Sources: [apps/backend/tests/projects/sourceArchive.test.ts:241-260](apps/backend/tests/projects/sourceArchive.test.ts#L241-L260), [apps/backend/tests/projects/sourceArchive.test.ts:291-305](apps/backend/tests/projects/sourceArchive.test.ts#L291-L305)
+Sources: [apps/backend/tests/projects/sourceArchive.test.ts:241-260](../../../apps/backend/tests/projects/sourceArchive.test.ts#L241-L260), [apps/backend/tests/projects/sourceArchive.test.ts:291-305](../../../apps/backend/tests/projects/sourceArchive.test.ts#L291-L305)
 
 ## Data Structures
 
@@ -146,7 +146,7 @@ interface ExtractedPdfText {
 }
 ```
 
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:89-102](apps/backend/src/services/pdfTextExtractor.ts#L89-L102)
+Sources: [apps/backend/src/services/pdfTextExtractor.ts:89-102](../../../apps/backend/src/services/pdfTextExtractor.ts#L89-L102)
 
 ### PdfTextChunk
 The unit of content used during lesson generation.
@@ -157,7 +157,7 @@ The unit of content used during lesson generation.
 | `headingPath` | `string[]` | Hierarchy of headings leading to this chunk. |
 | `pageStart` | `number` | The physical page where this chunk begins. |
 
-Sources: [packages/shared-types/pdfTextIndex.ts:20-31](packages/shared-types/pdfTextIndex.ts#L20-L31)
+Sources: [packages/shared-types/pdfTextIndex.ts:20-31](../../../packages/shared-types/pdfTextIndex.ts#L20-L31)
 
 ## Conclusion
 The Document Processing system acts as a robust gateway between unstructured user uploads and structured pedagogical data. By combining isolated sub-process extraction for stability, dimension-based filtering for images, and semantic chunking for text, it provides a highly reliable foundation for generating accurate, cited educational content. Significant emphasis is placed on security and resource management, particularly when handling untrusted ZIP archives and complex PDF structures.

@@ -8,13 +8,13 @@ wiki_page_id: "p-multimedia"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/web/hooks/reader/useTtsPlayer.ts](apps/web/hooks/reader/useTtsPlayer.ts)
-- [apps/web/utils/reader/readingText.ts](apps/web/utils/reader/readingText.ts)
-- [packages/shared-types/lessonVisualContracts.ts](packages/shared-types/lessonVisualContracts.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](apps/backend/src/services/lessonGenerationPrompt.ts)
-- [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
-- [apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx](apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx)
-- [apps/backend/tests/workflows/lessonVisualWorkflow.test.ts](apps/backend/tests/workflows/lessonVisualWorkflow.test.ts)
+- [apps/web/hooks/reader/useTtsPlayer.ts](../../../apps/web/hooks/reader/useTtsPlayer.ts)
+- [apps/web/utils/reader/readingText.ts](../../../apps/web/utils/reader/readingText.ts)
+- [packages/shared-types/lessonVisualContracts.ts](../../../packages/shared-types/lessonVisualContracts.ts)
+- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+- [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
+- [apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx](../../../apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx)
+- [apps/backend/tests/workflows/lessonVisualWorkflow.test.ts](../../../apps/backend/tests/workflows/lessonVisualWorkflow.test.ts)
 </details>
 
 # Multimedia: TTS, STT & Generated Visuals
@@ -35,7 +35,7 @@ Before text is sent to the TTS provider, it undergoes rigorous cleaning to remov
 *  **HTML Stripping**: Drops specific tags like `figure`, `picture`, and `figcaption` while preserving content in tags like `mark` or `span`.
 *  **Whitespace Collapsing**: Collapses multiple newlines and tabs into a clean, speech-friendly format.
 
-Sources: `[apps/web/utils/reader/readingText.ts:316-339](apps/web/utils/reader/readingText.ts#L316-L339)`, `[apps/web/hooks/reader/useTtsPlayer.ts:187-236](apps/web/hooks/reader/useTtsPlayer.ts#L187-L236)`
+Sources: `[apps/web/utils/reader/readingText.ts:316-339](../../../apps/web/utils/reader/readingText.ts#L316-L339)`, `[apps/web/hooks/reader/useTtsPlayer.ts:187-236](../../../apps/web/hooks/reader/useTtsPlayer.ts#L187-L236)`
 
 ### Playback Management & Crossfading
 The player splits content into chunks of approximately 580 characters to optimize API calls and memory usage. To prevent audible gaps between these chunks, the system implements a crossfading mechanism.
@@ -54,7 +54,7 @@ flowchart TD
 
 The crossfade duration is set to a precise `0.035` seconds, triggered when the current chunk is nearly finished.
 
-Sources: `[apps/web/hooks/reader/useTtsPlayer.ts:13-17](apps/web/hooks/reader/useTtsPlayer.ts#L13-L17)`, `[apps/web/hooks/reader/useTtsPlayer.ts:1012-1110](apps/web/hooks/reader/useTtsPlayer.ts#L1012-L1110)`
+Sources: `[apps/web/hooks/reader/useTtsPlayer.ts:13-17](../../../apps/web/hooks/reader/useTtsPlayer.ts#L13-L17)`, `[apps/web/hooks/reader/useTtsPlayer.ts:1012-1110](../../../apps/web/hooks/reader/useTtsPlayer.ts#L1012-L1110)`
 
 ## Pedagogical Visuals Generation
 
@@ -73,7 +73,7 @@ The system supports multiple visual formats, each selected based on the pedagogi
 | `mermaid_erd` | Entity-Relationship diagrams. |
 | `mermaid_class` | Class hierarchies and OOP structures. |
 
-Sources: `[packages/shared-types/lessonVisualContracts.ts:145-163](packages/shared-types/lessonVisualContracts.ts#L145-L163)`, `[apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:133-149](apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L133-L149)`
+Sources: `[packages/shared-types/lessonVisualContracts.ts:145-163](../../../packages/shared-types/lessonVisualContracts.ts#L145-L163)`, `[apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:133-149](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L133-L149)`
 
 ### Generation Logic & Prompts
 The generation is governed by strict planning rules defined in `LESSON_VISUAL_PLANNING_RULES`. Key constraints include:
@@ -82,7 +82,7 @@ The generation is governed by strict planning rules defined in `LESSON_VISUAL_PL
 *  **Language**: Visuals must use the same language as the lesson text.
 *  **Anchoring**: Visuals must be anchored to specific headings (`anchorHeading`) within the markdown.
 
-Sources: [packages/shared-types/lessonVisualContracts.ts:153-164](packages/shared-types/lessonVisualContracts.ts#L153-L164)
+Sources: [packages/shared-types/lessonVisualContracts.ts:153-164](../../../packages/shared-types/lessonVisualContracts.ts#L153-L164)
 
 ## Visual Rendering and Sandboxing
 
@@ -105,12 +105,12 @@ sequenceDiagram
 
 The system specifically blocks external network requests (`connect-src 'none'`), form actions, and non-inline scripts.
 
-Sources: `[apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx:165-177](apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx#L165-L177)`, `[packages/shared-types/lessonVisualContracts.ts:258-274](packages/shared-types/lessonVisualContracts.ts#L258-L274)`
+Sources: `[apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx:165-177](../../../apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx#L165-L177)`, `[packages/shared-types/lessonVisualContracts.ts:258-274](../../../packages/shared-types/lessonVisualContracts.ts#L258-L274)`
 
 ### Dark Mode Normalization
 Since generated visuals may contain hardcoded colors, the `GeneratedVisualFrame` component injects a normalization script (`normalizeDarkHtmlTheme`) to adjust light-mode surface colors to dark-mode equivalents when the user preference is set to dark mode.
 
-Sources: `[apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx:135-146](apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx#L135-L146)`
+Sources: `[apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx:135-146](../../../apps/web/tests/components/shared/GeneratedVisualFrame.test.tsx#L135-L146)`
 
 ## Data Structures and Schemas
 
@@ -128,7 +128,7 @@ const LessonDraftBlockSchema = z.union([
 ]);
 ```
 
-Sources: `[apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:168-173](apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L168-L173)`
+Sources: `[apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:168-173](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L168-L173)`
 
 ### Audio Player State
 The frontend maintains a detailed state for the TTS player to track progress and chunk loading status.
@@ -140,7 +140,7 @@ The frontend maintains a detailed state for the TTS player to track progress and
 | `chunks` | `AudioChunk[]` | Array of text segments and their associated blob URLs. |
 | `playbackRate` | `number` | Speed of audio playback. |
 
-Sources: `[apps/web/types.ts:600-608](apps/web/types.ts#L600-L608)`, `[apps/web/hooks/reader/useTtsPlayer.ts:262-273](apps/web/hooks/reader/useTtsPlayer.ts#L262-L273)`
+Sources: `[apps/web/types.ts:600-608](../../../apps/web/types.ts#L600-L608)`, `[apps/web/hooks/reader/useTtsPlayer.ts:262-273](../../../apps/web/hooks/reader/useTtsPlayer.ts#L262-L273)`
 
 ## Summary
 The Multimedia module in Nous provides a robust bridge between static text and interactive learning. By combining a sophisticated TTS player that handles real-time audio chunking and crossfading with a secure, multi-format visual generation engine, the system ensures that content is delivered effectively across different sensory channels. Security is maintained through strict sandboxing of AI-generated code, while pedagogical integrity is enforced through explicit planning rules and language consistency.

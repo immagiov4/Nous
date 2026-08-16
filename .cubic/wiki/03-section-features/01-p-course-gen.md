@@ -8,14 +8,14 @@ wiki_page_id: "p-course-gen"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/workflows/courseGenerationWorkflow.ts](apps/backend/src/workflows/courseGenerationWorkflow.ts)
-- [apps/backend/src/workflows/courseGenerationPlanning.ts](apps/backend/src/workflows/courseGenerationPlanning.ts)
-- [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
-- [apps/backend/src/workflows/courseSourceFinalization.ts](apps/backend/src/workflows/courseSourceFinalization.ts)
-- [apps/backend/src/workflows/courseGenerationPreparation.ts](apps/backend/src/workflows/courseGenerationPreparation.ts)
-- [apps/backend/src/workflows/courseGenerationProduction.ts](apps/backend/src/workflows/courseGenerationProduction.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](apps/backend/src/services/lessonGenerationPrompt.ts)
-- [packages/shared-types/lessonWritingContract.ts](packages/shared-types/lessonWritingContract.ts)
+- [apps/backend/src/workflows/courseGenerationWorkflow.ts](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts)
+- [apps/backend/src/workflows/courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts)
+- [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
+- [apps/backend/src/workflows/courseSourceFinalization.ts](../../../apps/backend/src/workflows/courseSourceFinalization.ts)
+- [apps/backend/src/workflows/courseGenerationPreparation.ts](../../../apps/backend/src/workflows/courseGenerationPreparation.ts)
+- [apps/backend/src/workflows/courseGenerationProduction.ts](../../../apps/backend/src/workflows/courseGenerationProduction.ts)
+- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+- [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
 
 </details>
 
@@ -25,7 +25,7 @@ The **Course Generation Workflow** is a multi-stage durable execution pipeline r
 
 This system is designed to be resilient, utilizing a step-based architecture that supports retries, idempotent commits, and semantic validation of AI-generated plans. It differentiates between various strategies such as `learn` mode (generating a path based on a topic) and `document` mode (generating a path based on specific uploaded PDF or archive sources).
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:69-95](apps/backend/src/workflows/courseGenerationWorkflow.ts#L69-L95), [apps/backend/src/workflows/courseGenerationPreparation.ts:107-124](apps/backend/src/workflows/courseGenerationPreparation.ts#L107-L124)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:69-95](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L69-L95), [apps/backend/src/workflows/courseGenerationPreparation.ts:107-124](../../../apps/backend/src/workflows/courseGenerationPreparation.ts#L107-L124)
 
 ## Workflow Architecture and Lifecycle
 
@@ -51,7 +51,7 @@ flowchart TD
 ```
 
 *This flowchart represents the linear progression of stages within the `course-generation` workflow.*
-Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:333-348](apps/backend/src/workflows/courseGenerationWorkflow.ts#L333-L348)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:333-348](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L333-L348)
 
 ### Workflow States
 The workflow transitions through several defined states, each serving as the input for the subsequent step:
@@ -65,7 +65,7 @@ The workflow transitions through several defined states, each serving as the inp
 | **Refined Plan** | The final plan after correcting structural quality issues. | `CourseRefinedPlanStateSchema` |
 | **Persistence** | Contains fingerprints and IDs for the committed database records. | `CoursePersistenceStateSchema` |
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:251-365](apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L251-L365)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:251-365](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L251-L365)
 
 ## Planning and Quality Verification
 
@@ -95,7 +95,7 @@ sequenceDiagram
 ```
 
 *The planning sequence incorporates an explicit verification and refinement step to ensure pedagogical quality.*
-Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:316-368](apps/backend/src/workflows/courseGenerationPlanning.ts#L316-L368), [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:378-403](apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L378-L403)
+Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:316-368](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L316-L368), [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:378-403](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L378-L403)
 
 ### Quality Dimensions
 The `CoursePlanVerificationSchema` tracks the following specific metrics:
@@ -104,7 +104,7 @@ The `CoursePlanVerificationSchema` tracks the following specific metrics:
 *  **Fragmentation**: Checks if modules are too small or disconnected.
 *  **Prerequisites**: Validates that concepts are introduced in the correct order.
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:285-303](apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L285-L303)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:285-303](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L285-L303)
 
 ## Source Finalization and Mapping
 
@@ -116,7 +116,7 @@ For courses based on documents (`document` mode), the workflow must map generate
 3.  **Repair Phase**: If some lessons fail to map during the "fast" phase, a repair phase targets specifically missing mappings.
 4.  **Fallback**: If LLM mapping fails completely after retries, a deterministic fallback assigns chunks based on proportional distribution across the document.
 
-Sources: [apps/backend/src/workflows/courseSourceFinalization.ts:291-368](apps/backend/src/workflows/courseSourceFinalization.ts#L291-L368)
+Sources: [apps/backend/src/workflows/courseSourceFinalization.ts:291-368](../../../apps/backend/src/workflows/courseSourceFinalization.ts#L291-L368)
 
 ### Mapping Quality Metrics
 The workflow records `mappingQuality` within the `CourseDocumentIndexSchema`, including:
@@ -124,7 +124,7 @@ The workflow records `mappingQuality` within the `CourseDocumentIndexSchema`, in
 *  **gapCount**: The number of significant gaps found in the mapping.
 *  **mappingSource**: Indicates if the mapping is `mapped` (LLM-driven) or `fallback`.
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:213-228](apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L213-L228)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:213-228](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L213-L228)
 
 ## Pedagogical Context and Prompting
 
@@ -136,7 +136,7 @@ The workflow passes strict pedagogical instructions to the lesson generation pha
 *  **Formula Relevance**: Mathematical formulas should only be used when natural to the subject, not for decorative purposes.
 *  **Active Pauses**: Inline quizzes are inserted to encourage inference and micro-synthesis rather than simple paraphrase.
 
-Sources: [packages/shared-types/lessonWritingContract.ts:36-79](packages/shared-types/lessonWritingContract.ts#L36-L79), [apps/backend/src/services/lessonGenerationPrompt.ts:68-103](apps/backend/src/services/lessonGenerationPrompt.ts#L68-L103)
+Sources: [packages/shared-types/lessonWritingContract.ts:36-79](../../../packages/shared-types/lessonWritingContract.ts#L36-L79), [apps/backend/src/services/lessonGenerationPrompt.ts:68-103](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L68-L103)
 
 ## Summary of Key Services
 
@@ -150,4 +150,4 @@ The workflow relies on a set of services defined in `CourseGenerationWorkflowSer
 | `persistCourse` | Atomic database commit of modules, lessons, and exercises. |
 | `undoCourse` | Idempotent cleanup in case of workflow failure during persistence. |
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:70-95](apps/backend/src/workflows/courseGenerationWorkflow.ts#L70-L95), [apps/backend/src/workflows/courseGenerationProduction.ts:58-90](apps/backend/src/workflows/courseGenerationProduction.ts#L58-L90)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:70-95](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L70-L95), [apps/backend/src/workflows/courseGenerationProduction.ts:58-90](../../../apps/backend/src/workflows/courseGenerationProduction.ts#L58-L90)
