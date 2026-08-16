@@ -1036,6 +1036,69 @@ describe('ContextAnswerPanel', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  test('executes a streamed tool invocation only once for the same tool call id', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const loadProjectsById = vi.fn(async () => [crossCourseSnapshot]);
+    const baseProps = buildProps({ id: 'context-duplicate-tool-delivery' });
+    render(
+      <ContextAnswerPanel
+        {...baseProps}
+        libraryAssistantDataSource={{
+          ...baseProps.libraryAssistantDataSource,
+          loadProjectsById,
+          projects: [
+            buildTestProjectMeta({
+              id: 'project-2',
+              lessonCount: 1,
+              title: 'Reti',
+            }),
+          ],
+        }}
+      />
+    );
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: { projectIds: string[] };
+          toolCallId: string;
+          toolName: 'getProjectStructures';
+        };
+      }) => Promise<void>;
+    };
+    const duplicateInvocation = {
+      toolCall: {
+        dynamic: false as const,
+        input: { projectIds: ['project-2'] },
+        toolCallId: 'tool-structure-duplicate',
+        toolName: 'getProjectStructures' as const,
+      },
+    };
+
+    await act(async () => {
+      await Promise.all([
+        chatOptions.onToolCall(duplicateInvocation),
+        chatOptions.onToolCall(duplicateInvocation),
+      ]);
+    });
+
+    expect(loadProjectsById).toHaveBeenCalledTimes(1);
+    expect(addToolOutputMock).toHaveBeenCalledTimes(1);
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: 'getProjectStructures',
+        toolCallId: 'tool-structure-duplicate',
+      })
+    );
+  });
+
   test('shows shared tool activity and opens an exact retrieved note target', async () => {
     const user = userEvent.setup();
     const onOpenLibraryReference = vi.fn();

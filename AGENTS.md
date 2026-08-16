@@ -333,6 +333,8 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
 
+When a Codex GitHub review is requested, treat an eyes reaction as review-in-progress and wait for the completed review before merging. React to every Codex finding with thumbs up or thumbs down, reply with the evidence-based disposition, and do not leave its thread unresolved: resolve it only after the fix is merged or the finding is explicitly rejected with evidence.
+
 ## Performance Awareness
 
 Avoid unnecessary work in hot paths: repeated full re-renders, expensive loops inside frequent events, repeated parsing or formatting, linear searches on large collections, redundant network or database calls, rebuilding UI during scroll or typing.

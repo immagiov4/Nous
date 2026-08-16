@@ -3,76 +3,12 @@ import type { UIMessage } from 'ai';
 import { expect, test } from 'vitest';
 
 import {
-  dedupeRepeatedToolMessages,
   dedupeUiMessagesById,
   getUiMessageRenderableParts,
   getUiMessageText,
   hasOnlySuccessfulToolOutputs,
   hasSuccessfulToolOutput,
 } from '../../utils/uiChat.ts';
-
-test('dedupeRepeatedToolMessages collapses duplicate streamed searches with different ids', () => {
-  const duplicateSearch = (id: string, state: 'input-available' | 'output-available') => ({
-    id,
-    role: 'assistant',
-    parts: [
-      {
-        type: 'tool-searchLibrary',
-        toolCallId: `tool-${id}`,
-        state,
-        input: { query: 'capitolo 3' },
-        ...(state === 'output-available' ? { output: { hits: [] } } : {}),
-      },
-      { type: 'text', text: 'Sto recuperando i contenuti rilevanti.' },
-    ],
-  });
-  const messages = [
-    duplicateSearch('assistant-search-1', 'input-available'),
-    duplicateSearch('assistant-search-2', 'output-available'),
-    {
-      id: 'assistant-answer',
-      role: 'assistant',
-      parts: [{ type: 'text', text: 'Ecco il collegamento.' }],
-    },
-  ] as UIMessage[];
-
-  const deduped = dedupeRepeatedToolMessages(messages);
-
-  expect(deduped.map(message => message.id)).toEqual(['assistant-search-2', 'assistant-answer']);
-});
-
-test('dedupeRepeatedToolMessages preserves searches with different inputs', () => {
-  const messages = [
-    {
-      id: 'assistant-search-1',
-      role: 'assistant',
-      parts: [
-        {
-          type: 'tool-searchLibrary',
-          toolCallId: 'tool-1',
-          state: 'output-available',
-          input: { query: 'modulo 2' },
-          output: { hits: [] },
-        },
-      ],
-    },
-    {
-      id: 'assistant-search-2',
-      role: 'assistant',
-      parts: [
-        {
-          type: 'tool-searchLibrary',
-          toolCallId: 'tool-2',
-          state: 'output-available',
-          input: { query: 'modulo 3' },
-          output: { hits: [] },
-        },
-      ],
-    },
-  ] as UIMessage[];
-
-  expect(dedupeRepeatedToolMessages(messages)).toHaveLength(2);
-});
 
 test('dedupeUiMessagesById keeps only the latest snapshot for each message id', () => {
   const messages = [

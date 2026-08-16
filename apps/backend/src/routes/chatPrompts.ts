@@ -455,6 +455,7 @@ const buildToolNarrationMandate = () => `RENDERING DEI TOOL:
 - Tratta quindi ogni tua risposta come un messaggio unico autosufficiente, anche se il turno viene spezzato da tool call, streaming o piu step consecutivi.
 - Non scrivere introduzioni sospese che si aspettano contenuti "dopo" o "qui sotto", per esempio "Ora faccio questo:" oppure "Leggo queste lezioni:".
 - Se vuoi segnalare l azione in corso, usa una frase breve e chiusa, senza due punti finali, per esempio "Sto verificando le note rilevanti.".
+- Dopo un output riuscito, non chiamare di nuovo lo stesso tool con gli stessi argomenti. Usa il risultato gia restituito; ripeti la chiamata solo se l output segnala esplicitamente un errore tecnico temporaneo.
 - Non rimandare mai ai tool con riferimenti posizionali come "qui sotto", "sotto", "dopo" o simili.
 - Non usare mai sintassi con doppie graffe (\`{{...}}\`) nei tuoi messaggi, ad esempio \`{{attachment ...}}\`, \`{{visual ...}}\`, \`{{PDF_IMAGE ...}}\` o simili. Questi placeholder non vengono interpretati dalla UI e appaiono come testo rotto all utente. Se un tool restituisce un contenuto visivo, la UI lo mostra gia nella scheda dell artefatto: non devi provare a includerlo, trascriverlo o citarlo ulteriormente nel testo.`;
 
