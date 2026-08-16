@@ -103,6 +103,7 @@ const storedRun = {
 
 const stepClaim: WorkflowStepClaim = {
   attemptNumber: 1,
+  correlationId: PERSISTED_CORRELATION_ID,
   definitionHash: 'a'.repeat(64),
   definitionHashVersion: 1,
   fencingToken: '1',
@@ -526,11 +527,12 @@ describe('PostgreSQL workflow observability', () => {
     expect(retryDatabase.remaining()).toBe(0);
   });
 
-  test('logs expired step recovery with the original fenced attempt identity', async () => {
+  test('correlates expired definition failures across attempt and run events', async () => {
     const database = createScriptedSql(
       [
         {
           attempt_count: 1,
+          correlation_id: PERSISTED_CORRELATION_ID,
           definition_hash: stepClaim.definitionHash,
           definition_hash_version: stepClaim.definitionHashVersion,
           fencing_token: stepClaim.fencingToken,
@@ -546,15 +548,14 @@ describe('PostgreSQL workflow observability', () => {
       [{ cancellation_requested: false }],
       [{ '?column?': 1 }],
       [{ '?column?': 1 }],
-      [],
+      [{ '?column?': 1 }],
       []
     );
     const logs = captureLogs(database.isTransactionOpen);
 
     await expect(
       new PostgresWorkflowStepStore(database.sql, logs.logger).recoverNextExpired({
-        random: () => 0,
-        resolveDefinition: () => definition,
+        resolveDefinition: () => null,
         supportedDefinitions: [
           {
             definitionHash: definition.definitionHash,
@@ -565,7 +566,7 @@ describe('PostgreSQL workflow observability', () => {
       })
     ).resolves.toEqual({
       nodeInstanceId: stepClaim.nodeInstanceId,
-      outcome: 'retrying',
+      outcome: 'failed',
       runId: RUN_ID,
     });
 
@@ -573,11 +574,19 @@ describe('PostgreSQL workflow observability', () => {
       expect.objectContaining({
         action: 'recovered',
         attemptNumber: stepClaim.attemptNumber,
+        correlationId: PERSISTED_CORRELATION_ID,
         event: 'workflow.attempt',
-        failureCode: 'worker_lease_expired',
+        failureCode: 'workflow_definition_unavailable',
         fencingToken: stepClaim.fencingToken,
         operation: 'step',
-        outcome: 'retrying',
+        outcome: 'failed',
+      }),
+      expect.objectContaining({
+        action: 'definition-unavailable',
+        correlationId: PERSISTED_CORRELATION_ID,
+        event: 'workflow.run',
+        failureCode: 'workflow_definition_unavailable',
+        runId: RUN_ID,
       }),
     ]);
     expect(JSON.stringify(logs.events)).not.toContain('private');

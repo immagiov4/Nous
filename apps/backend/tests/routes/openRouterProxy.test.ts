@@ -144,6 +144,7 @@ describe('/api/openrouter proxy', () => {
   });
 
   test('rejects missing and unknown model slots instead of defaulting to lesson', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const missingSlotResponse = await request(createApp())
       .post('/api/openrouter/chat/completions')
       .send({ messages: [{ role: 'user', content: 'Ciao' }] });
@@ -155,6 +156,12 @@ describe('/api/openrouter proxy', () => {
     expect(missingSlotResponse.status).toBe(400);
     expect(unknownSlotResponse.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      errorLog.mock.calls
+        .flat()
+        .some(value => typeof value === 'string' && value.includes('"operation":"ai_generation"'))
+    ).toBe(false);
+    errorLog.mockRestore();
   });
 
   test('routes artifact passes through their dedicated model and reasoning slot', async () => {

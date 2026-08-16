@@ -557,11 +557,13 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
     const diagnostic = toWorkflowErrorDiagnostic(error, {
       trustedMessage: readTrustedProxyErrorMessage(error),
     });
-    emitAiGenerationFailure({
-      code: error instanceof CodexAppServerError ? error.code : 'ai_proxy_request_failed',
-      message: error instanceof Error ? error.message : 'AI proxy request failed.',
-      provider: resolvedRequest?.provider,
-    });
+    if (!(error instanceof CodexAccessError || error instanceof InvalidModelSlotError)) {
+      emitAiGenerationFailure({
+        code: error instanceof CodexAppServerError ? error.code : 'ai_proxy_request_failed',
+        message: error instanceof Error ? error.message : 'AI proxy request failed.',
+        provider: resolvedRequest?.provider,
+      });
+    }
     console.error('[AI Proxy] Request failed.', {
       diagnostic,
       headersSent: res.headersSent,

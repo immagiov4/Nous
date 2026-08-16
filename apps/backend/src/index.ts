@@ -72,6 +72,7 @@ import {
   unavailableWorkflowRuntimeApi,
   type WorkflowRuntimeApi,
 } from './workflows/runtime/workflowRuntimeApi.js';
+import type { StepFailure } from './workflows/types.js';
 import { toWorkflowErrorDiagnostic } from './workflows/workflowErrorDiagnostics.js';
 import { consoleWorkflowLogger, emitWorkflowLog } from './workflows/workflowObservability.js';
 
@@ -87,6 +88,7 @@ const PROJECTS_JSON_BODY_LIMIT = '300mb';
 const STT_JSON_BODY_LIMIT = '20mb';
 const FEEDBACK_JSON_BODY_LIMIT = '2mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
+const REQUEST_FAILURE_LOCAL = 'workflowLifecycleFailure';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const isPrivateIpv4Address = (hostname: string): boolean => {
@@ -184,25 +186,6 @@ export const createApp = (options: CreateAppOptions = {}) => {
     `http://127.0.0.1:${backendConfig.backendPort}`,
   ]);
 
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        if (
-          !origin ||
-          allowedOrigins.has(origin) ||
-          backendOrigins.has(origin) ||
-          isPrivateNetworkFrontendOrigin(origin)
-        ) {
-          callback(null, true);
-          return;
-        }
-
-        callback(new Error('Origine non consentita dalla configurazione CORS.'));
-      },
-      credentials: true,
-      exposedHeaders: ['x-request-id'],
-    })
-  );
   app.use((req, res, next) => {
     const requestedCorrelationId = req.header('x-request-id')?.trim();
     const correlationId =
@@ -213,10 +196,12 @@ export const createApp = (options: CreateAppOptions = {}) => {
     res.on('finish', () => {
       const requestPath = getRequestLogPath(req);
       if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
+        const failure = res.locals[REQUEST_FAILURE_LOCAL] as StepFailure | undefined;
         emitWorkflowLog(consoleWorkflowLogger, {
           action: res.statusCode >= 400 ? 'failed' : 'completed',
           correlationId,
           entity: 'lifecycle',
+          ...(failure ? { failure } : {}),
           method: req.method,
           operation: 'http_request',
           path: requestPath,
@@ -238,6 +223,26 @@ export const createApp = (options: CreateAppOptions = {}) => {
     });
     runWithCorrelationId(correlationId, next);
   });
+
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (
+          !origin ||
+          allowedOrigins.has(origin) ||
+          backendOrigins.has(origin) ||
+          isPrivateNetworkFrontendOrigin(origin)
+        ) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error('Origine non consentita dalla configurazione CORS.'));
+      },
+      credentials: true,
+      exposedHeaders: ['x-request-id'],
+    })
+  );
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
   app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
   app.use('/api/projects', resolveCurrentUser);
@@ -349,19 +354,12 @@ export const createApp = (options: CreateAppOptions = {}) => {
 
       const diagnostic = toBackendErrorDiagnostic(err);
       const stack = readSafeStackFrames(err);
-      emitWorkflowLog(consoleWorkflowLogger, {
-        action: 'failed',
-        entity: 'lifecycle',
-        failure: {
-          code: err.code ?? 'backend_unhandled_error',
-          details: { diagnostic },
-          kind: 'operational',
-          message: 'Unhandled backend exception.',
-        },
-        operation: 'http_request',
-        path: getRequestLogPath(_req),
-        statusCode: 500,
-      });
+      res.locals[REQUEST_FAILURE_LOCAL] = {
+        code: err.code ?? 'backend_unhandled_error',
+        details: { diagnostic },
+        kind: 'operational',
+        message: 'Unhandled backend exception.',
+      } satisfies StepFailure;
 
       console.error('[Backend] Unhandled error:', {
         correlationId: getCorrelationId(),

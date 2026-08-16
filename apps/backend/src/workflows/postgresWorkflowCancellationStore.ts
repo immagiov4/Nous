@@ -13,6 +13,7 @@ import {
 interface CancellationRunRow {
   cancellation_requested: boolean;
   cleanup_status: WorkflowRun['cleanupStatus'];
+  correlation_id: string;
   status: WorkflowRun['status'];
 }
 
@@ -49,7 +50,7 @@ const lockOwnedRun = async (
   userId: string
 ): Promise<CancellationRunRow> => {
   const rows = await sql<CancellationRunRow[]>`
-    select status, cleanup_status, cancellation_requested
+    select status, cleanup_status, cancellation_requested, correlation_id
     from public.workflow_runs
     where id = ${runId} and user_id = ${userId}
     for update
@@ -155,7 +156,7 @@ const lockTerminalCandidateRun = async (
   runId: string
 ): Promise<CancellationRunRow | null> => {
   const rows = await sql<CancellationRunRow[]>`
-    select status, cleanup_status, cancellation_requested
+    select status, cleanup_status, cancellation_requested, correlation_id
     from public.workflow_runs
     where id = ${runId}
     for update
@@ -347,6 +348,7 @@ export class PostgresWorkflowCancellationStore {
       }
       return {
         cancelledWaits,
+        correlationId: run.correlation_id,
         result: { cleanupStatus, runId: candidate.id, runStatus },
       };
     });
@@ -354,6 +356,7 @@ export class PostgresWorkflowCancellationStore {
     emitWorkflowLog(this.logger, {
       action: 'reconciled',
       cleanupStatus: reconciliation.result.cleanupStatus,
+      correlationId: reconciliation.correlationId,
       entity: 'run',
       ...(reconciliation.result.runStatus === 'cancelled' ? { failure: CANCELLATION_FAILURE } : {}),
       runId: reconciliation.result.runId,

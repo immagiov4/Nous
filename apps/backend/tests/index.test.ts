@@ -20,6 +20,43 @@ describe('private-network frontend origins', () => {
 describe('request lifecycle observability', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  test('assigns correlation before a CORS rejection reaches error handling', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const correlationId = '323e4567-e89b-42d3-a456-426614174002';
+    const server = createApp().listen(0, '127.0.0.1');
+
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected the test server to listen on a TCP port.');
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`, {
+        headers: {
+          origin: 'https://rejected.example.test',
+          'x-request-id': correlationId,
+        },
+      });
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get('x-request-id')).toBe(correlationId);
+      const lifecycleFailure = errorLog.mock.calls
+        .flat()
+        .find(
+          value =>
+            typeof value === 'string' &&
+            value.includes('"operation":"http_request"') &&
+            value.includes('"action":"failed"')
+        );
+      expect(lifecycleFailure).toContain(`"correlationId":"${correlationId}"`);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   test('echoes a safe request correlation ID and records the completed request', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const correlationId = '123e4567-e89b-12d3-a456-426614174000';
@@ -96,6 +133,17 @@ describe('request lifecycle observability', () => {
           stack: expect.any(String),
         })
       );
+      const lifecycleFailures = errorLog.mock.calls
+        .flat()
+        .filter(
+          value =>
+            typeof value === 'string' &&
+            value.includes('"operation":"http_request"') &&
+            value.includes('"action":"failed"')
+        );
+      expect(lifecycleFailures).toHaveLength(1);
+      expect(lifecycleFailures[0]).toContain('"failureCode":"backend_unhandled_error"');
+      expect(lifecycleFailures[0]).toContain(`"message":"${internalMessage}"`);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close(error => (error ? reject(error) : resolve()));

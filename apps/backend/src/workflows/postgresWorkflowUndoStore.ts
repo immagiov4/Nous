@@ -59,6 +59,7 @@ interface ExpiredUndoRow {
 
 interface RequeuedUndoRunRow {
   cleanup_status: 'pending';
+  correlation_id: string;
   run_id: string;
   run_status: WorkflowRun['status'];
   workflow_id: string;
@@ -240,10 +241,11 @@ export class PostgresWorkflowUndoStore {
           and exists (
             select 1 from requeued_undo requeued where requeued.run_id = run.id
           )
-        returning run.id, run.status, run.workflow_id
+        returning run.id, run.status, run.workflow_id, run.correlation_id
       )
       select
         id as run_id,
+        correlation_id,
         workflow_id,
         status as run_status,
         'pending'::text as cleanup_status
@@ -254,6 +256,7 @@ export class PostgresWorkflowUndoStore {
       emitWorkflowLog(this.logger, {
         action: 'reconciled',
         cleanupStatus: run.cleanup_status,
+        correlationId: run.correlation_id,
         entity: 'run',
         runId: run.run_id,
         runStatus: run.run_status,

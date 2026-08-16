@@ -102,6 +102,7 @@ export type ExpiredStepRecoveryResult = {
 interface ExpiredStepRecoveryLogResult {
   claim: {
     attemptNumber: number;
+    correlationId?: string;
     fencingToken: string;
     nodeDefinitionId: string;
     nodeInstanceId: string;
@@ -217,6 +218,7 @@ export class PostgresWorkflowStepStore {
     });
     emitWorkflowLog(this.logger, {
       action: 'definition-unavailable',
+      correlationId: input.claim.correlationId,
       entity: 'run',
       failure,
       runId: input.claim.runId,
@@ -702,6 +704,7 @@ export class PostgresWorkflowStepStore {
     if (recovery.failure.code === MISSING_WORKFLOW_DEFINITION_FAILURE.code) {
       emitWorkflowLog(this.logger, {
         action: 'definition-unavailable',
+        correlationId: recovery.claim.correlationId,
         entity: 'run',
         failure: recovery.failure,
         runId: recovery.result.runId,

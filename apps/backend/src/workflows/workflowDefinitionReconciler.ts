@@ -38,7 +38,7 @@ export type WorkflowDefinitionRunFailureResult =
   | { readonly status: 'empty' }
   | { readonly status: 'stale' }
   | { readonly status: 'retry' }
-  | { readonly runId: string; readonly status: 'failed' };
+  | { readonly correlationId?: string; readonly runId: string; readonly status: 'failed' };
 
 const boundaryKey = (boundary: WorkflowDefinitionBoundary): string =>
   `${boundary.workflowId}\0${boundary.definitionHash}\0${boundary.definitionHashVersion}`;
@@ -156,6 +156,7 @@ interface RunIdRow {
 }
 
 interface ReconciliationRunRow extends RunIdRow {
+  correlation_id: string;
   status: WorkflowRun['status'];
 }
 
@@ -766,7 +767,7 @@ export class PostgresWorkflowDefinitionReconciliationStore
         for update
       `;
       const runs = await sql<ReconciliationRunRow[]>`
-        select id, status
+        select id, status, correlation_id
         from public.workflow_runs
         where id = ${candidate.id}
           and workflow_id = ${boundary.workflowId}
@@ -810,7 +811,11 @@ export class PostgresWorkflowDefinitionReconciliationStore
         if (!failedCleanup[0]) {
           throw new Error('Unavailable workflow definition cleanup could not be failed.');
         }
-        return { runId: failedCleanup[0].id, status: 'failed' } as const;
+        return {
+          correlationId: run.correlation_id,
+          runId: failedCleanup[0].id,
+          status: 'failed',
+        } as const;
       }
 
       await sql`
@@ -856,11 +861,16 @@ export class PostgresWorkflowDefinitionReconciliationStore
         returning id
       `;
       if (!failed[0]) throw new Error('Unavailable workflow definition run could not be failed.');
-      return { runId: failed[0].id, status: 'failed' } as const;
+      return {
+        correlationId: run.correlation_id,
+        runId: failed[0].id,
+        status: 'failed',
+      } as const;
     });
     if (result.status === 'failed') {
       emitWorkflowLog(this.logger, {
         action: 'definition-unavailable',
+        correlationId: result.correlationId,
         entity: 'run',
         failure: DEFINITION_UNAVAILABLE_FAILURE,
         runId: result.runId,
