@@ -117,7 +117,8 @@ Project-source creation uses the authenticated `/api/projects` write path, whose
 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable
 for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate
-and documented in [Architecture](ARCHITECTURE.md#large-source-archives).
+from the request limit. The source-backed storage and archive-indexing flow is maintained in Cubic's
+[Project Assets & Storage Archives](../.cubic/wiki/04-sec-data/02-p-asset-management.md#archive-indexing).
 
 ### Managed profile
 
