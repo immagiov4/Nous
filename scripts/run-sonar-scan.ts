@@ -10,9 +10,16 @@ const resolveScannerExecutable = () =>
     ? path.resolve('node_modules/.bin/sonar-scanner.exe')
     : path.resolve('node_modules/.bin/sonar-scanner');
 
+export const createAnonymousScannerEnvironment = (environment: NodeJS.ProcessEnv) => {
+  const scannerEnvironment = { ...environment };
+  delete scannerEnvironment.SONAR_TOKEN;
+  return scannerEnvironment;
+};
+
 const runCommand = async (command: string[]) => {
   const processHandle = Bun.spawn(command, {
     cwd: process.cwd(),
+    env: createAnonymousScannerEnvironment(process.env),
     stdin: 'inherit',
     stdout: 'inherit',
     stderr: 'inherit',
@@ -39,4 +46,4 @@ const main = async () => {
   }
 };
 
-await main();
+if (import.meta.main) await main();

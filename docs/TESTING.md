@@ -100,6 +100,8 @@ and Sonar result in the pull request before merging.
 For an existing local volume whose administrator password was changed under the retired workflow,
 `sonar:up` reuses the ignored legacy `sonar.local.properties` administrator settings only for the
 Docker-internal provisioner. The scanner never reads those credentials or the retired token.
+If that legacy pair is stale, the provisioner retries the fresh-volume default automatically. The
+scanner also removes any inherited `SONAR_TOKEN` so the loopback scan remains anonymous.
 
 Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
 Source coordinates and suggested remediation actions are excluded, so moving a finding within the

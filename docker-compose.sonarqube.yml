@@ -26,13 +26,18 @@ services:
       SONAR_PROVISIONING_ADMIN_PASSWORD: ${SONAR_PROVISIONING_ADMIN_PASSWORD:-admin}
     command:
       - |
-        curl --fail --silent --show-error --user "$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}" \
+        SONAR_PROVISIONING_CREDENTIALS="$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}"
+        if ! curl --fail --silent --show-error --user "$$SONAR_PROVISIONING_CREDENTIALS" \
+          http://sonarqube:9000/api/authentication/validate | grep --fixed-strings '"valid":true' > /dev/null; then
+          SONAR_PROVISIONING_CREDENTIALS='admin:admin'
+        fi
+        curl --fail --silent --show-error --user "$$SONAR_PROVISIONING_CREDENTIALS" \
           http://sonarqube:9000/api/system/status | grep --fixed-strings '"status":"UP"' > /dev/null
-        curl --fail --silent --show-error --user "$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}" --request POST \
+        curl --fail --silent --show-error --user "$$SONAR_PROVISIONING_CREDENTIALS" --request POST \
           --data-urlencode 'groupName=Anyone' \
           --data-urlencode 'permission=provisioning' \
           http://sonarqube:9000/api/permissions/add_group
-        curl --fail --silent --show-error --user "$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}" --request POST \
+        curl --fail --silent --show-error --user "$$SONAR_PROVISIONING_CREDENTIALS" --request POST \
           --data-urlencode 'groupName=Anyone' \
           --data-urlencode 'permission=scan' \
           http://sonarqube:9000/api/permissions/add_group
