@@ -199,6 +199,10 @@ interface ProjectSourceArchiveStoredFileRow {
   source_hash: string;
 }
 
+interface ProjectSourceArchiveReadableIndexRow extends ProjectSourceArchiveIndexRow {
+  object_path: string | null;
+}
+
 interface ProjectSourceArchiveEntryMetadata {
   byte_size: number | null;
   content_kind: 'binary' | 'text' | null;
@@ -536,29 +540,7 @@ export class PostgresProjectStore implements ProjectStore {
       where source.user_id = ${userId} and source.project_id = ${id}
       order by entry.path
     `;
-    const source = rows[0];
-    if (source?.source_kind !== 'archive') {
-      return null;
-    }
-    const entries = rows.flatMap(row =>
-      row.path === null || row.kind === null
-        ? []
-        : [
-            {
-              byte_size: row.byte_size,
-              content_kind: row.content_kind,
-              kind: row.kind,
-              path: row.path,
-              preview: row.preview,
-              source_hash: row.source_hash,
-              warning_reason: row.warning_reason,
-            },
-          ]
-    );
-    return this.buildProjectSourceArchiveIndex(entries, {
-      hash: source.archive_source_hash,
-      id: source.archive_source_id,
-    });
+    return this.buildProjectSourceArchiveIndexFromRows(rows);
   }
 
   async loadProjectSourceArchiveEntry(
@@ -603,20 +585,48 @@ export class PostgresProjectStore implements ProjectStore {
     path: string,
     version: ProjectSourceArchiveIndex['version']
   ): Promise<ProjectSourceArchiveStoredFileRow | null> {
-    const rows = await this.sql<ProjectSourceArchiveStoredFileRow[]>`
-      select entry.content_kind, entry.source_hash, entry.byte_size, entry.object_path
-      from public.project_source_entries entry
-      join public.project_sources source
-        on source.user_id = entry.user_id and source.project_id = entry.project_id
-      where entry.user_id = ${userId}
-        and entry.project_id = ${id}
-        and entry.path = ${path}
-        and entry.kind = 'file'
+    const rows = await this.sql<ProjectSourceArchiveReadableIndexRow[]>`
+      select
+        source.source_id as archive_source_id,
+        source.source_hash as archive_source_hash,
+        source.source_kind,
+        entry.path,
+        entry.kind,
+        entry.content_kind,
+        entry.source_hash,
+        entry.byte_size,
+        entry.preview,
+        entry.warning_reason,
+        entry.object_path
+      from public.project_sources source
+      left join public.project_source_entries entry
+        on entry.user_id = source.user_id and entry.project_id = source.project_id
+      where source.user_id = ${userId}
+        and source.project_id = ${id}
         and source.source_id = ${version.sourceId}
         and source.source_hash = ${version.sourceHash}
-      limit 1
+      order by entry.path
     `;
-    return rows[0] ?? null;
+    const currentIndex = this.buildProjectSourceArchiveIndexFromRows(rows);
+    if (currentIndex?.version.representationHash !== version.representationHash) {
+      return null;
+    }
+    const row = rows.find(entry => entry.kind === 'file' && entry.path === path);
+    if (
+      !row ||
+      row.byte_size === null ||
+      row.content_kind === null ||
+      row.object_path === null ||
+      row.source_hash === null
+    ) {
+      return null;
+    }
+    return {
+      byte_size: Number(row.byte_size),
+      content_kind: row.content_kind,
+      object_path: row.object_path,
+      source_hash: row.source_hash,
+    };
   }
 
   async loadProjectCover(userId: string, id: ProjectId): Promise<ProjectCoverFile | null> {
@@ -1537,6 +1547,34 @@ export class PostgresProjectStore implements ProjectStore {
         sourceId: version.id,
       },
     };
+  }
+
+  private buildProjectSourceArchiveIndexFromRows(
+    rows: readonly ProjectSourceArchiveIndexRow[]
+  ): ProjectSourceArchiveIndex | null {
+    const source = rows[0];
+    if (source?.source_kind !== 'archive') {
+      return null;
+    }
+    const entries = rows.flatMap(row =>
+      row.path === null || row.kind === null
+        ? []
+        : [
+            {
+              byte_size: row.byte_size,
+              content_kind: row.content_kind,
+              kind: row.kind,
+              path: row.path,
+              preview: row.preview,
+              source_hash: row.source_hash,
+              warning_reason: row.warning_reason,
+            },
+          ]
+    );
+    return this.buildProjectSourceArchiveIndex(entries, {
+      hash: source.archive_source_hash,
+      id: source.archive_source_id,
+    });
   }
 
   private async canonicalizeDetachedProjectSource(
