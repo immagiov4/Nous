@@ -271,6 +271,7 @@ describe('MarkdownRenderer', () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.ranges).toHaveLength(2);
+    expect(entries[0]?.rangeGroups).toHaveLength(2);
     expect(entries[0]?.ranges.map(range => range.toString())).toEqual(['Prima', 'finale.']);
   });
 
@@ -352,6 +353,57 @@ describe('MarkdownRenderer', () => {
     expect(entries).toEqual([]);
   });
 
+  test('native persisted highlights stay hidden when only truncated saved context remains', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '<p>uno. Beta due.</p>';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 14,
+            exact: 'Beta',
+            prefix: 'Beta uno.',
+            start: 10,
+            suffix: 'due.',
+          },
+        },
+        createdAt: '2026-08-15T10:00:00.000Z',
+        id: 'annotation-native-truncated-context',
+        note: '',
+        updatedAt: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toEqual([]);
+  });
+
+  test('native persisted highlights tolerate omitted legacy context fields', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '<p>Alpha beta.</p>';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 10,
+            exact: 'Alpha beta',
+            prefix: undefined as unknown as string,
+            start: 0,
+            suffix: undefined as unknown as string,
+          },
+        },
+        createdAt: '2026-08-15T10:00:00.000Z',
+        id: 'annotation-native-legacy-context',
+        note: '',
+        updatedAt: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.ranges[0]?.toString()).toBe('Alpha beta');
+  });
+
   test('preserves visible whitespace between raw block and inline elements', () => {
     const article = document.createElement('article');
     article.innerHTML = '<p>Alpha</p> <span>beta</span>';
@@ -371,6 +423,32 @@ describe('MarkdownRenderer', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.selectedText).toBe('Alpha beta');
     expect(entries[0]?.ranges.map(range => range.toString()).join('')).toBe('Alpha beta');
+  });
+
+  test('matches saved context against raw HTML escaped during rendering', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '&lt;span&gt;ctx&lt;/span&gt; Beta';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 20,
+            exact: 'Beta',
+            prefix: 'ctx',
+            start: 16,
+            suffix: '',
+          },
+        },
+        createdAt: '2026-08-15T10:00:00.000Z',
+        id: 'annotation-escaped-html-context',
+        note: '',
+        updatedAt: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.ranges[0]?.toString()).toBe('Beta');
   });
 
   test('keeps long multi-paragraph highlights inside paragraph ranges without side bands', () => {
@@ -583,6 +661,50 @@ describe('MarkdownRenderer', () => {
     resolveFontsReady();
 
     await waitFor(() => expect(getHighlightLine()?.style.width).toBe('86px'));
+  });
+
+  test('remeasures highlight lines when nested content scrolls', async () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    vi.stubGlobal('CSS', { highlights: new Map<string, TestHighlight>() });
+    vi.stubGlobal('Highlight', TestHighlight);
+    let rangeLeft = 40;
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [
+        { bottom: 28, height: 18, left: rangeLeft, right: rangeLeft + 60, top: 10, width: 60 },
+      ],
+    });
+
+    const exact = 'Testo scorrevole.';
+    const { container } = render(
+      <MarkdownRenderer
+        content={exact}
+        sectionAnnotations={[
+          {
+            anchor: {
+              kind: 'selection',
+              selector: { end: exact.length, exact, prefix: '', start: 0, suffix: '' },
+            },
+            createdAt: '2026-08-16T10:00:00.000Z',
+            id: 'annotation-scroll-sync',
+            note: '',
+            updatedAt: '2026-08-16T10:00:00.000Z',
+          },
+        ]}
+      />
+    );
+    const article = container.querySelector('article');
+    const paragraph = container.querySelector('p');
+    const getHighlightLine = () =>
+      container.querySelector<HTMLElement>('.nous-annotation-highlight-line');
+
+    expect(getHighlightLine()?.style.left).toBe('37px');
+    rangeLeft = 16;
+    paragraph?.dispatchEvent(new Event('scroll'));
+
+    expect(article).not.toBeNull();
+    await waitFor(() => expect(getHighlightLine()?.style.left).toBe('13px'));
   });
 
   test('softens annotation edges with minimal horizontal spacing', () => {

@@ -13,6 +13,7 @@ const HIGHLIGHT_IGNORED_SELECTOR = 'pre, .katex, [data-nous-speech="ignore"]';
 const KATEX_SELECTOR = '.katex';
 const KATEX_TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]';
 const BLOCK_SELECTOR = 'p, div, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, pre';
+const HTML_LIKE_TAG_REGEX = /^<\/?[A-Za-z][A-Za-z0-9-]*\b[^>]*>/u;
 
 interface ProjectionCharacter {
   highlightElement?: Element;
@@ -28,6 +29,7 @@ interface DomTextProjection {
 export interface SectionAnnotationHighlightEntry {
   annotationId: string;
   hasAttachedNote: boolean;
+  rangeGroups: Range[][];
   ranges: Range[];
   selectedText: string;
 }
@@ -61,6 +63,13 @@ const appendProjectionCharacter = (
 const appendNormalizedText = (projection: DomTextProjection, node: Text) => {
   for (let offset = 0; offset < node.data.length; offset += 1) {
     const character = node.data[offset];
+    if (character === '<') {
+      const tag = node.data.slice(offset).match(HTML_LIKE_TAG_REGEX)?.[0];
+      if (tag) {
+        offset += tag.length - 1;
+        continue;
+      }
+    }
     if (/\s/u.test(character)) {
       if (projection.text.length > 0 && !projection.text.endsWith(' ')) {
         appendProjectionCharacter(projection, ' ', node, offset);
@@ -197,15 +206,30 @@ const findSelectorRange = (
     : null;
 };
 
-const createHighlightRanges = (
+const createHighlightRangeGroups = (
   projection: DomTextProjection,
   start: number,
   end: number
-): Range[] => {
-  const ranges: Range[] = [];
+): Range[][] => {
+  const rangeGroups: Range[][] = [];
+  let currentGroup: Range[] = [];
   let currentRange: Range | null = null;
   let previousHighlightElement: Element | null = null;
   let previousCharacter: ProjectionCharacter | null = null;
+
+  const pushCurrentRange = () => {
+    if (currentRange) {
+      currentGroup.push(currentRange);
+      currentRange = null;
+    }
+  };
+  const finishCurrentGroup = () => {
+    pushCurrentRange();
+    if (currentGroup.length > 0) {
+      rangeGroups.push(currentGroup);
+      currentGroup = [];
+    }
+  };
 
   const crossesBlockBoundary = (
     previous: ProjectionCharacter,
@@ -217,14 +241,11 @@ const createHighlightRanges = (
   for (let index = start; index < end; index += 1) {
     const character = projection.characters[index];
     if (character?.highlightElement) {
-      if (currentRange) {
-        ranges.push(currentRange);
-        currentRange = null;
-      }
+      pushCurrentRange();
       if (previousHighlightElement !== character.highlightElement) {
         const mathRange = document.createRange();
         mathRange.selectNodeContents(character.highlightElement);
-        ranges.push(mathRange);
+        currentGroup.push(mathRange);
       }
       previousHighlightElement = character.highlightElement;
       previousCharacter = null;
@@ -233,10 +254,7 @@ const createHighlightRanges = (
 
     previousHighlightElement = null;
     if (!character || character.node.parentElement?.closest(HIGHLIGHT_IGNORED_SELECTOR)) {
-      if (currentRange) {
-        ranges.push(currentRange);
-        currentRange = null;
-      }
+      finishCurrentGroup();
       previousCharacter = null;
       continue;
     }
@@ -246,10 +264,7 @@ const createHighlightRanges = (
       (crossesBlockBoundary(previousCharacter, character) ||
         hasIgnoredDomGap(previousCharacter, character))
     ) {
-      if (currentRange) {
-        ranges.push(currentRange);
-      }
-      currentRange = null;
+      finishCurrentGroup();
     }
 
     if (!currentRange) {
@@ -261,11 +276,8 @@ const createHighlightRanges = (
     previousCharacter = character;
   }
 
-  if (currentRange) {
-    ranges.push(currentRange);
-  }
-
-  return ranges;
+  finishCurrentGroup();
+  return rangeGroups;
 };
 
 export const resolveSectionAnnotationHighlightEntries = (
@@ -284,13 +296,19 @@ export const resolveSectionAnnotationHighlightEntries = (
       return [];
     }
 
-    const ranges = createHighlightRanges(projection, projectionRange.start, projectionRange.end);
+    const rangeGroups = createHighlightRangeGroups(
+      projection,
+      projectionRange.start,
+      projectionRange.end
+    );
+    const ranges = rangeGroups.flat();
     return ranges.length > 0
       ? [
           {
             annotationId: annotation.id,
             hasAttachedNote:
               annotation.note.trim().length > 0 || (annotation.artifactRefs?.length || 0) > 0,
+            rangeGroups,
             ranges,
             selectedText: annotation.anchor.selector.exact,
           },

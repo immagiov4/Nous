@@ -138,6 +138,30 @@ test('persisted annotations stay orphaned when boundary context is unavailable',
   expect(materializeSectionAnnotationMarks(content, annotations)).toBe(content);
 });
 
+test('persisted annotations stay orphaned when only truncated saved context remains', () => {
+  const content = 'uno. Beta due.';
+  const annotations = [
+    {
+      anchor: {
+        kind: 'selection' as const,
+        selector: {
+          end: 14,
+          exact: 'Beta',
+          prefix: 'Beta uno.',
+          start: 10,
+          suffix: 'due.',
+        },
+      },
+      createdAt: '2026-08-15T10:00:00.000Z',
+      id: 'annotation-truncated-context',
+      note: '',
+      updatedAt: '2026-08-15T10:00:00.000Z',
+    },
+  ];
+
+  expect(materializeSectionAnnotationMarks(content, annotations)).toBe(content);
+});
+
 test('detached annotations stay orphaned when an ambiguous quote has no matching context', () => {
   const content = 'Beta uno. Beta due.';
   const annotations = [
