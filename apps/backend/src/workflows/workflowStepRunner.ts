@@ -72,6 +72,7 @@ export interface WorkflowStepRunnerStore {
       failure: StepFailure;
     }): Promise<unknown>;
     recordFailure(input: {
+      aiUsage?: readonly WorkflowAiUsageRecord[];
       claim: WorkflowStepClaim;
       definition: ErasedRegisteredWorkflow;
       failure: StepFailure;
@@ -131,23 +132,29 @@ async function finishInterruptedClaim(
   }
 }
 
-const recordFailure = async (
-  store: WorkflowStepRunnerStore,
-  claim: WorkflowStepClaim,
-  definition: ErasedRegisteredWorkflow,
-  failure: StepFailure
-): Promise<WorkflowStepRunnerResult> => {
+const recordFailure = async (input: {
+  aiUsage?: readonly WorkflowAiUsageRecord[];
+  claim: WorkflowStepClaim;
+  definition: ErasedRegisteredWorkflow;
+  failure: StepFailure;
+  store: WorkflowStepRunnerStore;
+}): Promise<WorkflowStepRunnerResult> => {
   try {
-    const result = await store.steps.recordFailure({ claim, definition, failure });
+    const result = await input.store.steps.recordFailure({
+      ...(input.aiUsage?.length ? { aiUsage: input.aiUsage } : {}),
+      claim: input.claim,
+      definition: input.definition,
+      failure: input.failure,
+    });
     return {
-      failure,
+      failure: input.failure,
       status: 'failure-recorded',
       transientEvents: result.status === 'failed' ? result.transientEvents : [],
     };
   } catch (error) {
     if (error instanceof WorkflowLeaseLostError) return { status: 'lease-lost' };
     if (error instanceof WorkflowCancellationRequestedError) {
-      return finishInterruptedClaim(store, claim, 'cancelled');
+      return finishInterruptedClaim(input.store, input.claim, 'cancelled');
     }
     throw error;
   }
@@ -185,12 +192,18 @@ const recordResolutionFailure = (
   resolution: Extract<WorkflowStepResolution, { resolved: false }>
 ): Promise<WorkflowStepRunnerResult> =>
   resolution.registeredDefinition
-    ? recordFailure(store, claim, resolution.registeredDefinition, resolution.failure)
+    ? recordFailure({
+        claim,
+        definition: resolution.registeredDefinition,
+        failure: resolution.failure,
+        store,
+      })
     : recordUnavailableDefinition(store, claim, resolution.failure);
 
 interface WorkflowStepAttemptResult {
   controller: AbortController;
   monitor: WorkflowAttemptMonitor;
+  pendingAiUsage: WorkflowAiUsageRecord[];
   runResult: AbortableOperationResult<unknown>;
   timedOut: boolean;
 }
@@ -285,11 +298,17 @@ const flushPendingAiUsage = async (input: {
   pendingAiUsage: WorkflowAiUsageRecord[];
   store: WorkflowStepRunnerStore;
 }): Promise<void> => {
-  for (const usage of input.pendingAiUsage.splice(0)) {
-    await executeWorkflowCheckpointWithRetry(
-      () => input.store.recordAiUsage(usage),
-      AbortSignal.timeout(input.leaseMs)
-    );
+  let persistedUsageCount = 0;
+  try {
+    for (const usage of input.pendingAiUsage) {
+      await executeWorkflowCheckpointWithRetry(
+        () => input.store.recordAiUsage(usage),
+        AbortSignal.timeout(input.leaseMs)
+      );
+      persistedUsageCount += 1;
+    }
+  } finally {
+    input.pendingAiUsage.splice(0, persistedUsageCount);
   }
 };
 
@@ -333,7 +352,7 @@ const executeStepCallback = async <Services>(input: {
         controller.signal
       );
       if (persistedResult.status !== 'succeeded' || persistedResult.value !== undefined) {
-        return { controller, monitor, runResult: persistedResult, timedOut };
+        return { controller, monitor, pendingAiUsage, runResult: persistedResult, timedOut };
       }
     }
     const runResult = await raceOperationWithAbort(
@@ -407,7 +426,7 @@ const executeStepCallback = async <Services>(input: {
         ),
       controller.signal
     );
-    return { controller, monitor, runResult, timedOut };
+    return { controller, monitor, pendingAiUsage, runResult, timedOut };
   } finally {
     clearTimeout(timeout);
   }
@@ -425,12 +444,13 @@ const finishFailedStepAttempt = async (input: {
     input.attempt.runResult.status === 'failed'
       ? input.attempt.runResult.error
       : input.attempt.controller.signal.reason;
-  return recordFailure(
-    input.store,
-    input.claim,
-    input.definition,
-    input.attempt.timedOut ? timeoutFailure() : toStepFailure(failureCause)
-  );
+  return recordFailure({
+    aiUsage: input.attempt.pendingAiUsage,
+    claim: input.claim,
+    definition: input.definition,
+    failure: input.attempt.timedOut ? timeoutFailure() : toStepFailure(failureCause),
+    store: input.store,
+  });
 };
 
 const checkpointStepOutput = async <Services>(input: {
@@ -483,7 +503,12 @@ const checkpointStepOutput = async <Services>(input: {
       return finishInterruptedClaim(input.store, input.claim, 'cancelled');
     }
     if (error instanceof WorkflowLeaseLostError) return { status: 'lease-lost' };
-    return recordFailure(input.store, input.claim, input.resolved.definition, checkpointFailure());
+    return recordFailure({
+      claim: input.claim,
+      definition: input.resolved.definition,
+      failure: checkpointFailure(),
+      store: input.store,
+    });
   }
 };
 
@@ -524,12 +549,12 @@ export const runWorkflowStepClaim = async <Services>(
   if (!parsedOutput.valid) {
     const interrupted = await stopForInterruption(input.store, input.claim, attempt.monitor);
     if (interrupted) return interrupted;
-    return recordFailure(
-      input.store,
-      input.claim,
-      resolution.value.definition,
-      invalidOutputFailure()
-    );
+    return recordFailure({
+      claim: input.claim,
+      definition: resolution.value.definition,
+      failure: invalidOutputFailure(),
+      store: input.store,
+    });
   }
 
   return checkpointStepOutput({
