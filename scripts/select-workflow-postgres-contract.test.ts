@@ -13,7 +13,7 @@ describe('workflow PostgreSQL contract selection', () => {
     'apps/backend/src/projects/postgresProjectStore.ts',
     'apps/backend/src/services/lessonVisualModelConfig.ts',
     'apps/backend/src/utils/validation.ts',
-    'apps/backend/src/workflows/postgresWorkflowStore.ts',
+    'apps/backend/src/workflows/persistence/postgresWorkflowStore.ts',
     'apps/backend/tests/projects/projectTransaction.integration.test.ts',
     'apps/backend/tests/workflows/workflowProcessCrash.integration.test.ts',
     'apps/web/tests/setup.ts',
