@@ -106,39 +106,44 @@ const areHighlightRectsOnSameLine = (
 
 const mergeAnnotationHighlightLineRects = (
   entries: SectionAnnotationHighlightEntry[]
-): AnnotationHighlightLineRect[] => {
-  const rects = entries
-    .flatMap(entry => entry.ranges)
-    .flatMap(range => Array.from(range.getClientRects()))
-    .filter(rect => rect.width > 0 && rect.height > 0)
-    .sort((first, second) => first.top - second.top || first.left - second.left);
-  const mergedRects: AnnotationHighlightLineRect[] = [];
+): AnnotationHighlightLineRect[] =>
+  entries.flatMap(entry => {
+    const rects = entry.ranges
+      .flatMap(range => Array.from(range.getClientRects()))
+      .filter(rect => rect.width > 0 && rect.height > 0)
+      .sort((first, second) => first.top - second.top || first.left - second.left);
+    const mergedRects: AnnotationHighlightLineRect[] = [];
 
-  for (const rect of rects) {
-    const mergeTarget = mergedRects.find(
-      candidate =>
-        areHighlightRectsOnSameLine(candidate, rect) &&
-        rect.left <= candidate.right + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2 &&
-        rect.right >= candidate.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
-    );
-    if (!mergeTarget) {
-      mergedRects.push({
-        bottom: rect.bottom,
-        left: rect.left,
-        right: rect.right,
-        top: rect.top,
-      });
-      continue;
+    for (const rect of rects) {
+      const mergeTargets = mergedRects.filter(candidate =>
+        areHighlightRectsOnSameLine(candidate, rect)
+      );
+      const mergeTarget = mergeTargets[0];
+      if (!mergeTarget) {
+        mergedRects.push({
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+        });
+        continue;
+      }
+
+      mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
+      mergeTarget.left = Math.min(mergeTarget.left, rect.left);
+      mergeTarget.right = Math.max(mergeTarget.right, rect.right);
+      mergeTarget.top = Math.min(mergeTarget.top, rect.top);
+      for (const bridgedRect of mergeTargets.slice(1)) {
+        mergeTarget.bottom = Math.max(mergeTarget.bottom, bridgedRect.bottom);
+        mergeTarget.left = Math.min(mergeTarget.left, bridgedRect.left);
+        mergeTarget.right = Math.max(mergeTarget.right, bridgedRect.right);
+        mergeTarget.top = Math.min(mergeTarget.top, bridgedRect.top);
+        mergedRects.splice(mergedRects.indexOf(bridgedRect), 1);
+      }
     }
 
-    mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
-    mergeTarget.left = Math.min(mergeTarget.left, rect.left);
-    mergeTarget.right = Math.max(mergeTarget.right, rect.right);
-    mergeTarget.top = Math.min(mergeTarget.top, rect.top);
-  }
-
-  return mergedRects;
-};
+    return mergedRects;
+  });
 const CODE_LANGUAGE_ALIASES: Record<string, string> = {
   'c++': 'cpp',
   cs: 'csharp',
@@ -413,7 +418,7 @@ const MarkdownRenderer = ({
   sectionAnnotations = EMPTY_SECTION_ANNOTATIONS,
 }: MarkdownRendererProps) => {
   const articleRef = useRef<HTMLElement>(null);
-  const annotationHighlightCapsRef = useRef<HTMLDivElement>(null);
+  const annotationHighlightLayerRef = useRef<HTMLDivElement>(null);
   const annotationHighlightEntriesRef = useRef<SectionAnnotationHighlightEntry[]>([]);
   const usesNativeAnnotationHighlights = supportsSectionAnnotationHighlights();
   const syntaxTheme = useMemo(
@@ -449,8 +454,8 @@ const MarkdownRenderer = ({
   const classNameValue = useMemo(() => articleClassName(className), [className]);
   useLayoutEffect(() => {
     const article = articleRef.current;
-    const capsContainer = annotationHighlightCapsRef.current;
-    if (!article || !capsContainer || !content.trim() || !usesNativeAnnotationHighlights) {
+    const highlightLayer = annotationHighlightLayerRef.current;
+    if (!article || !highlightLayer || !content.trim() || !usesNativeAnnotationHighlights) {
       annotationHighlightEntriesRef.current = [];
       return;
     }
@@ -466,36 +471,38 @@ const MarkdownRenderer = ({
     highlightedInlineCodeElements.forEach(codeElement => {
       codeElement.setAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE, 'true');
     });
-    const renderHighlightCaps = () => {
+    const renderHighlightLines = () => {
       const articleRect = article.getBoundingClientRect();
       const fragment = document.createDocumentFragment();
       for (const rect of mergeAnnotationHighlightLineRects(entries)) {
-        const leftCap = document.createElement('span');
-        leftCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-start';
-        leftCap.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-        leftCap.style.top = `${rect.top - articleRect.top}px`;
-        leftCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-        leftCap.style.height = `${rect.bottom - rect.top}px`;
-
-        const rightCap = document.createElement('span');
-        rightCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-end';
-        rightCap.style.left = `${rect.right - articleRect.left}px`;
-        rightCap.style.top = `${rect.top - articleRect.top}px`;
-        rightCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-        rightCap.style.height = `${rect.bottom - rect.top}px`;
-
-        fragment.append(leftCap, rightCap);
+        const lineHighlight = document.createElement('span');
+        lineHighlight.className = 'nous-annotation-highlight-line';
+        lineHighlight.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        lineHighlight.style.top = `${rect.top - articleRect.top}px`;
+        lineHighlight.style.width = `${
+          rect.right - rect.left + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
+        }px`;
+        lineHighlight.style.height = `${rect.bottom - rect.top}px`;
+        lineHighlight.style.maxWidth = 'none';
+        fragment.append(lineHighlight);
       }
-      capsContainer.replaceChildren(fragment);
+      highlightLayer.replaceChildren(fragment);
     };
 
-    renderHighlightCaps();
+    renderHighlightLines();
+    let isHighlightLayerActive = true;
+    void document.fonts?.ready.then(() => {
+      if (isHighlightLayerActive) {
+        renderHighlightLines();
+      }
+    });
     const resizeObserver =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(renderHighlightCaps);
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(renderHighlightLines);
     resizeObserver?.observe(article);
     return () => {
+      isHighlightLayerActive = false;
       resizeObserver?.disconnect();
-      capsContainer.replaceChildren();
+      highlightLayer.replaceChildren();
       highlightedInlineCodeElements.forEach(codeElement => {
         codeElement.removeAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE);
       });
@@ -539,7 +546,7 @@ const MarkdownRenderer = ({
       onContextMenu={onContextMenu}
     >
       <div
-        ref={annotationHighlightCapsRef}
+        ref={annotationHighlightLayerRef}
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 -z-10"
       />
