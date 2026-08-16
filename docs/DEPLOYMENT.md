@@ -539,9 +539,11 @@ where coalesce(snapshot #>> '{source,file,data}', '') <> ''
 
 The expected result is no legacy tables and `embedded_source_snapshots = 0`. Validate a fresh
 import and reload with `bun run test:supabase-local` against an isolated local database before
-deployment. If preflight or fresh-import validation fails, do not continue: restore the previous
-application release and use the paired verified database/Storage backup procedure above for database
-recovery. Do not recreate the retired migrator or delete current object-storage data as a rollback.
+deployment. If preflight or fresh-import validation fails before deployment, keep the current
+release running, correct the data or validation problem, and rerun the checks. Reserve application
+rollback and the paired verified database/Storage backup recovery procedure above for incidents
+where a deployment or another live operation already changed production data. Do not recreate the
+retired migrator or delete current object-storage data as a rollback.
 
 ## Pinned Supabase upgrade and secret rotation
 
