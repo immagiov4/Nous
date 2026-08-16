@@ -13,7 +13,12 @@ import {
   normalizeSourceFileMimeType,
 } from '../../../services/projects/projectSource.ts';
 import { resolveScreenStateForSnapshot } from '../../../services/workspace/controller/snapshotHydration.ts';
-import type { CourseSourceDescriptor, FileData, ProjectSource } from '../../../types.ts';
+import type {
+  CourseSourceDescriptor,
+  FileData,
+  ProjectSource,
+  ProjectSourceWarning,
+} from '../../../types.ts';
 import type { CreateWorkspaceControllerArgs, WorkspaceControllerContext } from './types.ts';
 
 const createSleep = (ms: number) =>
@@ -97,6 +102,35 @@ export const readSourceFileData = async (file: File): Promise<FileData> => {
   };
 };
 
+const UNUSABLE_PDF_SOURCE_MESSAGE = 'Questa fonte non contiene testo PDF utilizzabile.';
+
+export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
+  const descriptorWarnings = (source.sources || [])
+    .filter(descriptor => descriptor.status === 'error')
+    .map(descriptor => ({
+      message: descriptor.errorMessage || 'Questa fonte non è utilizzabile.',
+      name: descriptor.name,
+    }));
+  if (source.kind !== 'archive') {
+    return descriptorWarnings;
+  }
+
+  const archivePdfWarnings = source.index.entries.flatMap(entry =>
+    entry.kind === 'file' &&
+    entry.contentKind === 'binary' &&
+    entry.path.toLowerCase().endsWith('.pdf')
+      ? [
+          {
+            message: UNUSABLE_PDF_SOURCE_MESSAGE,
+            name: entry.path,
+            reason: entry.warningReason || 'no-usable-text',
+          },
+        ]
+      : []
+  );
+  return [...descriptorWarnings, ...archivePdfWarnings];
+};
+
 export const prepareUploadedCourseSource = async (
   context: Pick<WorkspaceControllerContext, 'openRouter'>,
   selectedFiles: readonly File[],
@@ -137,7 +171,7 @@ export const prepareUploadedCourseSource = async (
         name: descriptor.name,
       });
       descriptor.status = 'error';
-      descriptor.errorMessage = 'Questa fonte non contiene testo PDF utilizzabile.';
+      descriptor.errorMessage = UNUSABLE_PDF_SOURCE_MESSAGE;
     }
   }
   onProgress?.(descriptors.length, descriptors.length);

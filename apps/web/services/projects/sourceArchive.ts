@@ -77,6 +77,7 @@ type ArchiveQuery =
   | { operation: 'tree' };
 
 export interface SourceArchiveVersion {
+  representationHash: string;
   sourceHash: string;
   sourceId: string;
 }

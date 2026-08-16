@@ -642,7 +642,7 @@ export const useProjectLibrary = ({
       }
 
       const saved = await persistSnapshot(snapshot, options);
-      return saved?.meta || null;
+      return saved;
     },
     [buildSnapshotFromDomain, currentProjectMeta, persistSnapshot]
   );

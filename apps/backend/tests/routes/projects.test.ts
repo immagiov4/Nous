@@ -13,6 +13,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
+import {
+  SourceArchivePreparationCapacityError,
+  SourceArchivePreparationError,
+  SourceArchiveUnusableError,
+} from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
@@ -165,6 +170,62 @@ describe('/api/projects', () => {
 
     const emptyListResponse = await request(app).get('/api/projects/projects');
     expect(emptyListResponse.body.projects).toEqual([]);
+  });
+
+  test('returns a retryable 429 when ZIP preparation capacity is busy', async () => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(new SourceArchivePreparationCapacityError());
+
+    const response = await request(createApp())
+      .put('/api/projects/projects/busy-project')
+      .send({ snapshot: createSnapshot('busy-project', 'Archivio occupato') });
+
+    expect(response.status).toBe(429);
+    expect(response.body).toEqual({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveBusy,
+      error: 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.',
+      success: false,
+    });
+  });
+
+  test('returns structured PDF details when an archive has no usable text', async () => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(
+      new SourceArchiveUnusableError([
+        { path: 'scans/a.pdf', reason: 'no-usable-text' },
+        { path: 'broken/b.pdf', reason: 'parser-failed' },
+      ])
+    );
+
+    const response = await request(createApp())
+      .put('/api/projects/projects/unusable-project')
+      .send({ snapshot: createSnapshot('unusable-project', 'Archivio inutilizzabile') });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toEqual({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
+      error: 'L’archivio non contiene alcun testo utilizzabile.',
+      sourceWarnings: [
+        { path: 'scans/a.pdf', reason: 'no-usable-text' },
+        { path: 'broken/b.pdf', reason: 'parser-failed' },
+      ],
+      success: false,
+    });
+  });
+
+  test('returns a stable code when archive preparation fails before persistence', async () => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(
+      new SourceArchivePreparationError('preparation deadline exceeded')
+    );
+
+    const response = await request(createApp())
+      .put('/api/projects/projects/invalid-archive-project')
+      .send({ snapshot: createSnapshot('invalid-archive-project', 'Archivio non valido') });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toEqual({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveInvalid,
+      error: 'Invalid source archive: preparation deadline exceeded.',
+      success: false,
+    });
   });
 
   test('rejects an incomplete canonical snapshot before persistence', async () => {
@@ -802,6 +863,7 @@ describe('/api/projects', () => {
     expect(indexResponse.status).toBe(200);
     expect(indexResponse.body.archiveVersion).toEqual(
       expect.objectContaining({
+        representationHash: expect.any(String),
         sourceHash: expect.any(String),
         sourceId: expect.any(String),
       })

@@ -8,6 +8,7 @@ import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspace
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
+import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { NewHomeView } from '../newHome/NewHomeView.tsx';
 
@@ -141,8 +142,8 @@ export const LibraryScreenContainer = ({
       }
       if (result.sourceWarnings?.length) {
         notify(
-          t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
-            sourceNames: result.sourceWarnings.map(warning => warning.name).join(', '),
+          formatSourceWarningSummary(result.sourceWarnings, {
+            continues: !result.errorMessage,
           })
         );
       }

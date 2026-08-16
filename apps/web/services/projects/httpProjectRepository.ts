@@ -5,7 +5,8 @@ import {
   decodeProjectSnapshotWire,
   type ProjectSnapshotWire,
 } from '@shared/projectSnapshotWire';
-
+import { isSourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
+import { translateUiMessage } from '../../i18n/uiMessages.ts';
 import type {
   FileData,
   LibraryFolder,
@@ -14,6 +15,7 @@ import type {
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSnapshot,
+  ProjectSourceWarning,
   ProjectWriteOptions,
   SavedProjectMeta,
   StoredProjectSourceFile,
@@ -50,6 +52,7 @@ interface ApiResponse {
   project?: ProjectSnapshot | null;
   projects?: ProjectSnapshot[] | SavedProjectMeta[];
   source?: FileData | null;
+  sourceWarnings?: unknown;
   sources?: StoredProjectSourceFile[];
   snapshot?: ProjectSnapshot;
   uploadStatus?: 'receiving' | 'finalizing' | 'completed';
@@ -67,7 +70,6 @@ const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_ARCHIVE_SAVE_TIMEOUT_MS = 10 * 60_000;
-const PROJECT_ARCHIVE_DIRECT_MAX_BYTES = 16_000_000;
 const PROJECT_IMPORT_STATUS_POLL_MS = 1_000;
 const HTTP_STATUS_REQUEST_TOO_LARGE = 413;
 const getUtf8Bytes = (value: string): number => new Blob([value]).size;
@@ -125,7 +127,11 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
         ? PROJECT_REQUEST_TOO_LARGE_MESSAGE
         : responseErrorMessage(error.code),
       error.code,
-      { contentType: error.responseContentType, status: error.httpStatus }
+      {
+        contentType: error.responseContentType,
+        sourceWarnings: error.sourceWarnings,
+        status: error.httpStatus,
+      }
     );
   }
   if (error instanceof Error && error.name === 'AbortError') {
@@ -139,7 +145,10 @@ const responseErrorCode = (status: number, apiCode?: string): ProjectStorageErro
   if (status === 404) return 'project-deleted';
   if (apiCode === PROJECT_API_ERROR_CODE.revisionConflict) return 'revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
+  if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveBusy) return 'source-archive-busy';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveChanged) return 'source-archive-changed';
+  if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveInvalid) return 'source-archive-invalid';
+  if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveUnusable) return 'source-archive-unusable';
   if (status === HTTP_STATUS_REQUEST_TOO_LARGE || status === 429) return 'quota-exceeded';
   return 'persistence-failed';
 };
@@ -148,9 +157,38 @@ function responseErrorMessage(code: ProjectStorageError['code']): string {
   if (code === 'project-deleted') return REMOTE_PROJECT_DELETED_MESSAGE;
   if (code === 'revision-conflict') return PROJECT_REVISION_CONFLICT_MESSAGE;
   if (code === 'cover-revision-conflict') return PROJECT_COVER_REVISION_CONFLICT_MESSAGE;
+  if (code === 'source-archive-busy') {
+    return translateUiMessage(
+      'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.'
+    );
+  }
   if (code === 'source-archive-changed') return PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE;
+  if (code === 'source-archive-invalid') {
+    return translateUiMessage('Non è stato possibile preparare l’archivio ZIP.');
+  }
+  if (code === 'source-archive-unusable') {
+    return translateUiMessage('L’archivio non contiene alcun testo utilizzabile.');
+  }
   return PROJECT_SYNC_ERROR_MESSAGE;
 }
+
+const readSourceWarnings = (value: unknown): ProjectSourceWarning[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const warnings = value.flatMap(warning =>
+    isRecord(warning) &&
+    typeof warning.path === 'string' &&
+    isSourceArchivePdfWarningReason(warning.reason)
+      ? [
+          {
+            message: 'Questa fonte non contiene testo PDF utilizzabile.',
+            name: warning.path,
+            reason: warning.reason,
+          },
+        ]
+      : []
+  );
+  return warnings.length > 0 ? warnings : undefined;
+};
 
 const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
   try {
@@ -395,13 +433,10 @@ export class HttpProjectRepository implements ProjectRepository {
         externalArchiveBytesAvailable: Boolean(archiveFile?.size),
       })
     );
-    if (archiveFile && archiveFile.size > PROJECT_ARCHIVE_DIRECT_MAX_BYTES) {
+    if (archiveFile) {
       const importConfig = await this.getProjectImportConfig();
       return this.saveArchiveProjectInChunks(projectPayload, archiveFile, importConfig, options);
     }
-    const body = archiveFile
-      ? this.createArchiveSaveBody(projectPayload, archiveFile, options)
-      : JSON.stringify({ snapshot: projectPayload, ...options });
     const response = await this.request<{
       meta?: SavedProjectMeta;
       snapshot?: ProjectSnapshot;
@@ -409,7 +444,7 @@ export class HttpProjectRepository implements ProjectRepository {
       `/api/projects/projects/${encodeURIComponent(snapshot.id)}`,
       {
         method: 'PUT',
-        body,
+        body: JSON.stringify({ snapshot: projectPayload, ...options }),
       },
       source?.kind === 'archive' ? PROJECT_ARCHIVE_SAVE_TIMEOUT_MS : PROJECT_REQUEST_TIMEOUT_MS
     );
@@ -419,26 +454,6 @@ export class HttpProjectRepository implements ProjectRepository {
         assertValue(response.snapshot, 'La fonte sincronizzata non e stata restituita.')
       ),
     };
-  }
-
-  private createArchiveSaveBody(
-    snapshot: ProjectSnapshotWire,
-    archiveFile: File,
-    options: ProjectWriteOptions
-  ): FormData {
-    if (snapshot.source?.kind !== 'archive') {
-      throw new ProjectStorageError(
-        'Il file archivio richiede una sorgente ZIP.',
-        'persistence-failed'
-      );
-    }
-    const body = new FormData();
-    body.append('snapshot', JSON.stringify(snapshot));
-    if (options.expectedRevision !== undefined) {
-      body.append('expectedRevision', String(options.expectedRevision));
-    }
-    body.append('archive', archiveFile);
-    return body;
   }
 
   private async saveArchiveProjectInChunks(
@@ -470,7 +485,7 @@ export class HttpProjectRepository implements ProjectRepository {
       options.expectedRevision
     );
     try {
-      const response = await this.requestImportUpload<{
+      const response = await this.request<{
         meta?: SavedProjectMeta;
         snapshot?: ProjectSnapshot;
       }>(
@@ -484,7 +499,7 @@ export class HttpProjectRepository implements ProjectRepository {
           }),
           method: 'POST',
         },
-        config.requestTimeoutMs
+        PROJECT_ARCHIVE_SAVE_TIMEOUT_MS
       );
       return {
         meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
@@ -493,8 +508,17 @@ export class HttpProjectRepository implements ProjectRepository {
         ),
       };
     } catch (error) {
-      await this.cancelProjectImportUpload(uploadId, config.requestTimeoutMs);
-      throw error;
+      const status = await this.waitForCompletedProjectImport(
+        uploadId,
+        PROJECT_ARCHIVE_SAVE_TIMEOUT_MS
+      );
+      if (!status?.complete) throw error;
+      return {
+        meta: assertValue(status.meta, 'Il progetto sincronizzato non e stato salvato.'),
+        snapshot: normalizeStoredProject(
+          assertValue(status.snapshot, 'La fonte sincronizzata non e stata restituita.')
+        ),
+      };
     }
   }
 
@@ -772,8 +796,8 @@ export class HttpProjectRepository implements ProjectRepository {
           await this.cancelProjectImportUpload(uploadId, Math.max(1, deadline - Date.now()));
           return undefined;
         }
-      } catch {
-        return undefined;
+      } catch (error) {
+        if (error instanceof ProjectStorageError && error.httpStatus === 404) return undefined;
       }
       await new Promise(resolve => globalThis.setTimeout(resolve, PROJECT_IMPORT_STATUS_POLL_MS));
     }
@@ -838,6 +862,7 @@ export class HttpProjectRepository implements ProjectRepository {
           errorCode,
           {
             contentType: response.headers?.get('content-type') || undefined,
+            sourceWarnings: readSourceWarnings(data.sourceWarnings),
             status: response.status,
           }
         );

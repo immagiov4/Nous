@@ -1,8 +1,30 @@
 import { createHash } from 'node:crypto';
 import { SOURCE_ARCHIVE_PREVIEW_MAX_CHARS } from '@shared/sourceArchivePreview';
 import JSZip from 'jszip';
-import { afterEach, describe, expect, test, vi } from 'vitest';
-import { indexSourceArchive, type SourceArchiveLimits } from '../../src/projects/sourceArchive.js';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+const pdfTextExtractorMocks = vi.hoisted(() => ({
+  extractPdfText: vi.fn(),
+}));
+
+vi.mock('../../src/services/pdfTextExtractor.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/services/pdfTextExtractor.js')>()),
+  extractPdfText: pdfTextExtractorMocks.extractPdfText,
+}));
+
+import {
+  assertSourceArchiveCompressedSize,
+  indexSourceArchive,
+  PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
+  PROJECT_SOURCE_ARCHIVE_PDF_POLICY,
+  type SourceArchiveLimits,
+  SourceArchivePreparationError,
+  withSourceArchivePreparationAdmission,
+} from '../../src/projects/sourceArchive.js';
+import {
+  PdfTextExtractionOutputLimitError,
+  PdfTextExtractionTimeoutError,
+} from '../../src/services/pdfTextExtractor.js';
 
 const textEncoder = new TextEncoder();
 const GENEROUS_LIMITS: SourceArchiveLimits = {
@@ -10,6 +32,16 @@ const GENEROUS_LIMITS: SourceArchiveLimits = {
   maxEntryBytes: 1_000_000,
   maxExpandedBytes: 10_000_000,
 };
+const ARCHIVE_POLICY_BOUNDARY_TEST_TIMEOUT_MS = 30_000;
+
+test('classifies an oversized compressed ZIP as an invalid archive', () => {
+  expect(() =>
+    assertSourceArchiveCompressedSize(PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES + 1)
+  ).toThrow(SourceArchivePreparationError);
+  expect(() =>
+    assertSourceArchiveCompressedSize(PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES)
+  ).not.toThrow();
+});
 
 const createArchive = async (
   entries: Array<
@@ -54,11 +86,299 @@ const replaceAscii = (bytes: Uint8Array, from: string, to: string) => {
   return result;
 };
 
+beforeEach(() => {
+  pdfTextExtractorMocks.extractPdfText.mockReset();
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe('indexSourceArchive', () => {
+  test('indexes usable PDF text by ZIP path and keeps unreadable PDFs isolated', async () => {
+    const validPdfBytes = textEncoder.encode('%PDF-valid');
+    const scannedPdfBytes = textEncoder.encode('%PDF-scanned');
+    const unreadablePdfBytes = textEncoder.encode('%PDF-unreadable');
+    const usablePdfText = 'Contenuto didattico estratto dal PDF. '.repeat(8).trim();
+    const notes = 'Materiale testuale valido';
+    const archive = await createArchive([
+      { content: validPdfBytes, path: 'docs/a-valid.PDF', type: 'file' },
+      { content: scannedPdfBytes, path: 'docs/b-scanned.pdf', type: 'file' },
+      { content: unreadablePdfBytes, path: 'docs/c-unreadable.pdf', type: 'file' },
+      { content: notes, path: 'docs/notes.txt', type: 'file' },
+    ]);
+    pdfTextExtractorMocks.extractPdfText
+      .mockResolvedValueOnce({ pages: [{ text: usablePdfText }], text: usablePdfText })
+      .mockResolvedValueOnce({ pages: [], text: '   ' })
+      .mockRejectedValueOnce(new Error('scanned document'));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    expect(pdfTextExtractorMocks.extractPdfText.mock.calls).toEqual([
+      [
+        `data:application/pdf;base64,${Buffer.from(validPdfBytes).toString('base64')}`,
+        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
+      ],
+      [
+        `data:application/pdf;base64,${Buffer.from(scannedPdfBytes).toString('base64')}`,
+        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
+      ],
+      [
+        `data:application/pdf;base64,${Buffer.from(unreadablePdfBytes).toString('base64')}`,
+        expect.objectContaining({ fallbackTimeoutMs: 15_000, pdftotextTimeoutMs: 15_000 }),
+      ],
+    ]);
+    expect(result.entries.find(entry => entry.path === 'docs/a-valid.PDF')).toMatchObject({
+      byteSize: textEncoder.encode(usablePdfText).byteLength,
+      content: textEncoder.encode(usablePdfText),
+      hash: createHash('sha256').update(usablePdfText).digest('hex'),
+      kind: 'file',
+      path: 'docs/a-valid.PDF',
+      preview: usablePdfText,
+      text: usablePdfText,
+    });
+    const scannedEntry = result.entries.find(entry => entry.path === 'docs/b-scanned.pdf');
+    expect(scannedEntry).toMatchObject({
+      byteSize: scannedPdfBytes.byteLength,
+      content: scannedPdfBytes,
+      hash: createHash('sha256').update(scannedPdfBytes).digest('hex'),
+      kind: 'file',
+      path: 'docs/b-scanned.pdf',
+    });
+    expect(scannedEntry).not.toHaveProperty('preview');
+    expect(scannedEntry).not.toHaveProperty('text');
+    expect(result.entries.find(entry => entry.path === 'docs/c-unreadable.pdf')).toMatchObject({
+      byteSize: unreadablePdfBytes.byteLength,
+      content: unreadablePdfBytes,
+      hash: createHash('sha256').update(unreadablePdfBytes).digest('hex'),
+      kind: 'file',
+      path: 'docs/c-unreadable.pdf',
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/notes.txt')).toMatchObject({
+      kind: 'file',
+      path: 'docs/notes.txt',
+      text: notes,
+    });
+    expect(result.totalExpandedBytes).toBe(
+      textEncoder.encode(usablePdfText).byteLength +
+        scannedPdfBytes.byteLength +
+        textEncoder.encode(notes).byteLength +
+        unreadablePdfBytes.byteLength
+    );
+  });
+
+  test('keeps extracted PDF text within entry and expanded archive limits', async () => {
+    const pdfBytes = textEncoder.encode('%PDF-data');
+    const archive = await createArchive([
+      { content: pdfBytes, path: 'docs/source.pdf', type: 'file' },
+    ]);
+    const extractedText = 'Testo estratto oltre il budget. '.repeat(10).trim();
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+      pages: [{ text: extractedText }],
+      text: extractedText,
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const entryLimited = await indexSourceArchive(archive, {
+      ...GENEROUS_LIMITS,
+      maxEntryBytes: extractedText.length - 1,
+    });
+    const totalLimited = await indexSourceArchive(archive, {
+      ...GENEROUS_LIMITS,
+      maxExpandedBytes: extractedText.length - 1,
+    });
+
+    for (const result of [entryLimited, totalLimited]) {
+      expect(result.entries.find(entry => entry.path === 'docs/source.pdf')).toMatchObject({
+        byteSize: pdfBytes.byteLength,
+        content: pdfBytes,
+        hash: createHash('sha256').update(pdfBytes).digest('hex'),
+        kind: 'file',
+        path: 'docs/source.pdf',
+      });
+      expect(result.totalExpandedBytes).toBe(pdfBytes.byteLength);
+    }
+  });
+
+  test('keeps PDFs with only incidental extracted text as unusable binary entries', async () => {
+    const pdfBytes = textEncoder.encode('%PDF-watermark');
+    const archive = await createArchive([
+      { content: pdfBytes, path: 'scans/watermarked.pdf', type: 'file' },
+    ]);
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+      pages: [{ text: '1' }, { text: 'CONFIDENTIAL' }],
+      text: '1\n\nCONFIDENTIAL',
+    });
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    const entry = result.entries.find(candidate => candidate.path === 'scans/watermarked.pdf');
+    expect(entry).toMatchObject({
+      byteSize: pdfBytes.byteLength,
+      content: pdfBytes,
+      kind: 'file',
+      path: 'scans/watermarked.pdf',
+    });
+    expect(entry).not.toHaveProperty('text');
+    expect(entry).toMatchObject({ warningReason: 'no-usable-text' });
+  });
+
+  test('admits at most 16 PDFs and continues indexing later valid text entries', async () => {
+    const archive = await createArchive([
+      ...Array.from(
+        { length: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEligibleEntries + 1 },
+        (_, index) => ({
+          content: `%PDF-${index}`,
+          path: `docs/${index.toString().padStart(2, '0')}.pdf`,
+          type: 'file' as const,
+        })
+      ),
+      { content: 'Appunti ancora validi', path: 'docs/notes.txt', type: 'file' as const },
+    ]);
+    const usableText = 'Contenuto didattico estratto correttamente. '.repeat(8);
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+      pages: [{ text: usableText }],
+      text: usableText,
+    });
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(16);
+    expect(result.entries.find(entry => entry.path === 'docs/16.pdf')).toMatchObject({
+      kind: 'file',
+      warningReason: 'safety-limit',
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/notes.txt')).toMatchObject({
+      kind: 'file',
+      text: 'Appunti ancora validi',
+    });
+  });
+
+  test('skips oversized PDFs without consuming the eligibility of later PDFs', async () => {
+    const oversizedPdf = new Uint8Array(PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes + 1);
+    const eligiblePdf = textEncoder.encode('%PDF-eligible');
+    const archive = await createArchive([
+      { content: oversizedPdf, path: 'docs/a-oversized.pdf', type: 'file' },
+      { content: eligiblePdf, path: 'docs/b-eligible.pdf', type: 'file' },
+    ]);
+    const usableText = 'Testo utile estratto dal documento ammesso. '.repeat(8);
+    pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+      pages: [{ text: usableText }],
+      text: usableText,
+    });
+
+    const result = await indexSourceArchive(archive, {
+      maxEntries: 10,
+      maxEntryBytes: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes + 1,
+      maxExpandedBytes: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes * 2,
+    });
+
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(1);
+    expect(result.entries.find(entry => entry.path === 'docs/a-oversized.pdf')).toMatchObject({
+      warningReason: 'safety-limit',
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/b-eligible.pdf')).toMatchObject({
+      content: textEncoder.encode(usableText.trim()),
+      text: usableText.trim(),
+    });
+  });
+
+  test(
+    'enforces the cumulative 64 MB PDF admission budget',
+    async () => {
+      const pdfBytes = new Uint8Array(PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes);
+      const archive = await createArchive(
+        Array.from({ length: 5 }, (_, index) => ({
+          content: pdfBytes,
+          path: `docs/${index}.pdf`,
+          type: 'file' as const,
+        }))
+      );
+      const usableText = 'Materiale PDF valido e sufficientemente lungo. '.repeat(8);
+      pdfTextExtractorMocks.extractPdfText.mockResolvedValue({
+        pages: [{ text: usableText }],
+        text: usableText,
+      });
+
+      const result = await indexSourceArchive(archive, {
+        maxEntries: 10,
+        maxEntryBytes: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes,
+        maxExpandedBytes: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes * 5,
+      });
+
+      expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(4);
+      expect(result.entries.find(entry => entry.path === 'docs/4.pdf')).toMatchObject({
+        warningReason: 'safety-limit',
+      });
+    },
+    ARCHIVE_POLICY_BOUNDARY_TEST_TIMEOUT_MS
+  );
+
+  test('bounds each parser stage and reports parser timeouts independently', async () => {
+    const archive = await createArchive([
+      { content: '%PDF-timeout', path: 'docs/timeout.pdf', type: 'file' },
+      { content: 'Fonte valida', path: 'docs/valid.txt', type: 'file' },
+    ]);
+    pdfTextExtractorMocks.extractPdfText.mockRejectedValue(
+      new PdfTextExtractionTimeoutError('pdf-parse')
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledWith(expect.any(String), {
+      fallbackTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
+      maxOutputBytes: GENEROUS_LIMITS.maxEntryBytes,
+      pdftotextTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.pdftotextTimeoutMs,
+      fallbackProcessMaxOldGenerationSizeMb: expect.any(Number),
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/timeout.pdf')).toMatchObject({
+      warningReason: 'timeout',
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/valid.txt')).toMatchObject({
+      text: 'Fonte valida',
+    });
+  });
+
+  test('reports fallback output exhaustion as an independent PDF safety warning', async () => {
+    const archive = await createArchive([
+      { content: '%PDF-expanded', path: 'docs/expanded.pdf', type: 'file' },
+      { content: 'Fonte valida', path: 'docs/valid.txt', type: 'file' },
+    ]);
+    pdfTextExtractorMocks.extractPdfText.mockRejectedValue(new PdfTextExtractionOutputLimitError());
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await indexSourceArchive(archive, GENEROUS_LIMITS);
+
+    expect(result.entries.find(entry => entry.path === 'docs/expanded.pdf')).toMatchObject({
+      warningReason: 'safety-limit',
+    });
+    expect(result.entries.find(entry => entry.path === 'docs/valid.txt')).toMatchObject({
+      text: 'Fonte valida',
+    });
+  });
+
+  test('aborts archive preparation after the archive-wide deadline', async () => {
+    let currentTime = 1_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => currentTime);
+    const archive = await createArchive([
+      { content: '%PDF-first', path: 'docs/a.pdf', type: 'file' },
+      { content: '%PDF-second', path: 'docs/b.pdf', type: 'file' },
+    ]);
+    const usableText = 'Testo didattico valido dal primo PDF. '.repeat(8);
+    pdfTextExtractorMocks.extractPdfText.mockImplementation(async () => {
+      currentTime += PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs;
+      return { pages: [{ text: usableText }], text: usableText };
+    });
+
+    await expect(indexSourceArchive(archive, GENEROUS_LIMITS)).rejects.toThrow(
+      'Invalid source archive: preparation deadline exceeded.'
+    );
+
+    expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledTimes(1);
+  });
+
   test('builds a complete lexicographic tree and preserves every file byte', async () => {
     const sourceLines = Array.from({ length: 26 }, (_, index) => `line ${index + 1}`);
     const sourceText = sourceLines.join('\r\n');
@@ -298,5 +618,28 @@ describe('indexSourceArchive', () => {
       /missing uncompressed size/i
     );
     expect(asyncSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('withSourceArchivePreparationAdmission', () => {
+  test('rejects concurrent preparations before work starts and releases capacity afterward', async () => {
+    let releaseFirst!: () => void;
+    const first = withSourceArchivePreparationAdmission(
+      'user-1',
+      () => new Promise<void>(resolve => (releaseFirst = resolve))
+    );
+    const secondPrepare = vi.fn(async () => undefined);
+
+    await expect(
+      withSourceArchivePreparationAdmission('user-2', secondPrepare)
+    ).rejects.toMatchObject({ name: 'SourceArchivePreparationCapacityError' });
+    expect(secondPrepare).not.toHaveBeenCalled();
+
+    releaseFirst();
+    await first;
+    await expect(
+      withSourceArchivePreparationAdmission('user-2', secondPrepare)
+    ).resolves.toBeUndefined();
+    expect(secondPrepare).toHaveBeenCalledOnce();
   });
 });

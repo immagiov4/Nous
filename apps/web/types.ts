@@ -1,6 +1,7 @@
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import type { ProjectDocumentImageAsset, ProjectLessonVisual } from '@shared/projectAsset';
+import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 import type { YouTubeTranscript } from '@shared/youtubeTranscript';
 import type { LessonInstructionPackId } from './utils/learning/lessonInstructionPacks.ts';
 
@@ -187,12 +188,19 @@ export interface SourceArchiveFileEntry {
   kind: 'file';
   path: string;
   preview?: string;
+  warningReason?: SourceArchivePdfWarningReason;
 }
 
 export type SourceArchiveEntry = SourceArchiveDirectoryEntry | SourceArchiveFileEntry;
 
 export interface SourceArchiveIndex {
   entries: SourceArchiveEntry[];
+}
+
+export interface ProjectSourceWarning {
+  message: string;
+  name: string;
+  reason?: SourceArchivePdfWarningReason;
 }
 
 export interface SourceArchiveSelector {

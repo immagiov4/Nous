@@ -863,6 +863,21 @@ const ENGLISH_UI_MESSAGES = {
   'Fonti della sezione': 'Section sources',
   'Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.':
     'Some sources were not used: {sourceNames}. The course will continue with the others.',
+  'Alcune fonti non sono state usate: {sourceNames}.': 'Some sources were not used: {sourceNames}.',
+  'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.':
+    'A ZIP archive is already being prepared. Try again shortly.',
+  'L’archivio non contiene alcun testo utilizzabile.':
+    'The archive does not contain any usable text.',
+  'Non è stato possibile preparare l’archivio ZIP.': 'The ZIP archive could not be prepared.',
+  '{count} PDF non usati: {reasons}. Esempi: {paths}.':
+    '{count} PDFs were not used: {reasons}. Examples: {paths}.',
+  '{count} senza testo utile': '{count} without usable text',
+  '{count} non leggibili': '{count} unreadable',
+  '{count} oltre i limiti': '{count} over the limits',
+  '{count} scaduti': '{count} timed out',
+  'Altri {count} non mostrati.': '{count} more not shown.',
+  'Altre fonti non usate: {sourceNames}.': 'Other unused sources: {sourceNames}.',
+  'Il corso continua con le fonti valide.': 'The course will continue with valid sources.',
   'Generazione consegna...': 'Generating assignment...',
   'Generazione lezione...': 'Generating lesson...',
   Grassetto: 'Bold',

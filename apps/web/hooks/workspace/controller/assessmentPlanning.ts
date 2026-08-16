@@ -13,6 +13,7 @@ import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -32,9 +33,14 @@ import {
   type HomeChatToolPreferences,
   type LessonNode,
   type ProjectSource,
+  type ProjectSourceWarning,
   type UserProfile,
 } from '../../../types.ts';
-import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
+import {
+  getProjectSourceWarnings,
+  prepareUploadedCourseSource,
+  readSourceFileData,
+} from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -335,7 +341,7 @@ export const createAssessmentPlanningCommands = (
       | 'imported'
       | 'noop'
       | 'planned';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }> {
     const trimmedInput = args.input.trim();
     if (!trimmedInput) {
@@ -351,6 +357,7 @@ export const createAssessmentPlanningCommands = (
       'assessment',
       t(selectedFiles.length > 0 ? 'Preparazione sorgente...' : 'Avvio conversazione...')
     );
+    let sourceWarnings: ProjectSourceWarning[] = [];
 
     try {
       domain.resetDomain();
@@ -361,7 +368,6 @@ export const createAssessmentPlanningCommands = (
       let hasReliableSourceContext = false;
       let mode: 'document' | 'learn' = 'learn';
       let sourceContext: string | undefined;
-      let sourceWarnings: Array<{ message: string; name: string }> = [];
       let preparedSource: ProjectSource | null = null;
 
       if (selectedFiles.length > 0) {
@@ -418,13 +424,6 @@ export const createAssessmentPlanningCommands = (
           throw new Error('Unable to prepare project source');
         }
 
-        sourceWarnings = (nextSource.sources || [])
-          .filter(source => source.status === 'error')
-          .map(source => ({
-            message: source.errorMessage || 'Questa fonte non è utilizzabile.',
-            name: source.name,
-          }));
-
         if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
           state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
           await openRouter.validatePdfTextSource(nextFile);
@@ -445,7 +444,10 @@ export const createAssessmentPlanningCommands = (
             throw new Error('La sorgente archivio non è stata salvata.');
           }
           nextSource = saved.snapshot.source;
+          sourceWarnings = getProjectSourceWarnings(nextSource);
         }
+
+        sourceWarnings = getProjectSourceWarnings(nextSource);
 
         domain.setSource(nextSource);
         preparedSource = nextSource;
@@ -489,6 +491,9 @@ export const createAssessmentPlanningCommands = (
       }
       return { outcome, sourceWarnings };
     } catch (error) {
+      if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
+        sourceWarnings = error.sourceWarnings;
+      }
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('assessment', requestId, errorMessage);
       const draftProjectId = projectLibrary.getCurrentProjectId();
@@ -504,7 +509,7 @@ export const createAssessmentPlanningCommands = (
         }
       }
       resetInterviewClientState();
-      return { outcome: 'failed', errorMessage };
+      return { outcome: 'failed', errorMessage, sourceWarnings };
     }
   }
 
@@ -514,7 +519,7 @@ export const createAssessmentPlanningCommands = (
   ): Promise<{
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }> {
     const trimmedInput = input.trim();
     const projectId = projectLibrary.getCurrentProjectId();

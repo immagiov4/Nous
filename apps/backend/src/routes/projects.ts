@@ -39,7 +39,12 @@ import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js
 import { isNavigationProjectPatch } from '../projects/projectPatch.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
-import { PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES } from '../projects/sourceArchive.js';
+import {
+  PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
+  SourceArchivePreparationCapacityError,
+  SourceArchivePreparationError,
+  SourceArchiveUnusableError,
+} from '../projects/sourceArchive.js';
 import {
   SourceArchiveAccess,
   type SourceArchiveSelector,
@@ -244,6 +249,31 @@ const sendProjectWriteError = (
     res.status(409).json({ code: error.code, error: error.message, success: false });
     return;
   }
+  if (error instanceof SourceArchivePreparationCapacityError) {
+    res.status(429).json({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveBusy,
+      error: error.message,
+      success: false,
+    });
+    return;
+  }
+  if (error instanceof SourceArchiveUnusableError) {
+    res.status(422).json({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
+      error: error.message,
+      sourceWarnings: error.warnings,
+      success: false,
+    });
+    return;
+  }
+  if (error instanceof SourceArchivePreparationError) {
+    res.status(422).json({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveInvalid,
+      error: error.message,
+      success: false,
+    });
+    return;
+  }
   sendErrorResponse(
     res,
     error instanceof ProjectNotFoundError
@@ -340,6 +370,8 @@ class SourceArchiveVersionMismatchError extends Error {
 const requireSourceArchiveVersion = (value: unknown): ProjectSourceArchiveVersion => {
   if (
     !isRecord(value) ||
+    typeof value.representationHash !== 'string' ||
+    !SOURCE_HASH_PATTERN.test(value.representationHash) ||
     typeof value.sourceId !== 'string' ||
     !value.sourceId ||
     typeof value.sourceHash !== 'string' ||
@@ -347,13 +379,20 @@ const requireSourceArchiveVersion = (value: unknown): ProjectSourceArchiveVersio
   ) {
     throw new Error('Versione archivio sorgente mancante o non valida.');
   }
-  return { sourceHash: value.sourceHash, sourceId: value.sourceId };
+  return {
+    representationHash: value.representationHash,
+    sourceHash: value.sourceHash,
+    sourceId: value.sourceId,
+  };
 };
 
 const isSameSourceArchiveVersion = (
   left: ProjectSourceArchiveVersion,
   right: ProjectSourceArchiveVersion
-): boolean => left.sourceId === right.sourceId && left.sourceHash === right.sourceHash;
+): boolean =>
+  left.sourceId === right.sourceId &&
+  left.sourceHash === right.sourceHash &&
+  left.representationHash === right.representationHash;
 
 const getSourceArchiveAccess = async (
   userId: string,
