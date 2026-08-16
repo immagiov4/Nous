@@ -1937,6 +1937,7 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
       name: 'scansioni/allegato.pdf',
+      reason: 'no-usable-text',
     },
   ]);
 });
@@ -2384,10 +2385,12 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
       name: 'scansioni/allegato.pdf',
+      reason: 'no-usable-text',
     },
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
       name: 'corrotti/non-leggibile.PDF',
+      reason: 'no-usable-text',
     },
   ]);
   expect(assessmentText).toContain('docs/dispensa.pdf');
@@ -2446,10 +2449,12 @@ test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () =>
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
       name: 'scansioni/allegato.pdf',
+      reason: 'no-usable-text',
     },
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
       name: 'corrotti/non-leggibile.PDF',
+      reason: 'no-usable-text',
     },
   ]);
   expect(buildAssessmentContext).not.toHaveBeenCalled();

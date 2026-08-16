@@ -39,7 +39,10 @@ import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js
 import { isNavigationProjectPatch } from '../projects/projectPatch.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
-import { PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES } from '../projects/sourceArchive.js';
+import {
+  PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
+  SourceArchivePreparationCapacityError,
+} from '../projects/sourceArchive.js';
 import {
   SourceArchiveAccess,
   type SourceArchiveSelector,
@@ -242,6 +245,10 @@ const sendProjectWriteError = (
 ): void => {
   if (error instanceof ProjectRevisionConflictError) {
     res.status(409).json({ code: error.code, error: error.message, success: false });
+    return;
+  }
+  if (error instanceof SourceArchivePreparationCapacityError) {
+    sendErrorResponse(res, 429, error, fallbackMessage);
     return;
   }
   sendErrorResponse(

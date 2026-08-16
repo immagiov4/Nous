@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
 import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
+import { SourceArchivePreparationCapacityError } from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
@@ -165,6 +166,20 @@ describe('/api/projects', () => {
 
     const emptyListResponse = await request(app).get('/api/projects/projects');
     expect(emptyListResponse.body.projects).toEqual([]);
+  });
+
+  test('returns a retryable 429 when ZIP preparation capacity is busy', async () => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(new SourceArchivePreparationCapacityError());
+
+    const response = await request(createApp())
+      .put('/api/projects/projects/busy-project')
+      .send({ snapshot: createSnapshot('busy-project', 'Archivio occupato') });
+
+    expect(response.status).toBe(429);
+    expect(response.body).toEqual({
+      error: 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.',
+      success: false,
+    });
   });
 
   test('rejects an incomplete canonical snapshot before persistence', async () => {

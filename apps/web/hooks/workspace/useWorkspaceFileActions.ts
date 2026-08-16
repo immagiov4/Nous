@@ -1,13 +1,14 @@
 import type { ChangeEvent } from 'react';
 import { useCallback, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
-import type { SavedProjectMeta } from '../../types.ts';
+import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
+import type { ProjectSourceWarning, SavedProjectMeta } from '../../types.ts';
 
 type UploadMode = 'new-project' | 'reattach-source';
 
 interface FileActionResult {
   errorMessage?: string;
-  sourceWarnings?: Array<{ message: string; name: string }>;
+  sourceWarnings?: ProjectSourceWarning[];
 }
 
 interface UseWorkspaceFileActionsArgs {
@@ -58,11 +59,7 @@ export const useWorkspaceFileActions = ({
           notify(`Errore nel caricamento del file: ${result.errorMessage}`);
         }
         if (result.sourceWarnings?.length) {
-          notify(
-            t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
-              sourceNames: result.sourceWarnings.map(warning => warning.name).join(', '),
-            })
-          );
+          notify(formatSourceWarningSummary(result.sourceWarnings));
         }
       } finally {
         if (event.target) {

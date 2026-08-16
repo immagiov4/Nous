@@ -13,7 +13,12 @@ import {
   normalizeSourceFileMimeType,
 } from '../../../services/projects/projectSource.ts';
 import { resolveScreenStateForSnapshot } from '../../../services/workspace/controller/snapshotHydration.ts';
-import type { CourseSourceDescriptor, FileData, ProjectSource } from '../../../types.ts';
+import type {
+  CourseSourceDescriptor,
+  FileData,
+  ProjectSource,
+  ProjectSourceWarning,
+} from '../../../types.ts';
 import type { CreateWorkspaceControllerArgs, WorkspaceControllerContext } from './types.ts';
 
 const createSleep = (ms: number) =>
@@ -104,9 +109,7 @@ export const hasUsableArchiveText = (source: ProjectSource): boolean =>
   source.kind !== 'archive' ||
   source.index.entries.some(entry => entry.kind === 'file' && entry.contentKind === 'text');
 
-export const getProjectSourceWarnings = (
-  source: ProjectSource
-): Array<{ message: string; name: string }> => {
+export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
   const descriptorWarnings = (source.sources || [])
     .filter(descriptor => descriptor.status === 'error')
     .map(descriptor => ({
@@ -121,7 +124,13 @@ export const getProjectSourceWarnings = (
     entry.kind === 'file' &&
     entry.contentKind === 'binary' &&
     entry.path.toLowerCase().endsWith('.pdf')
-      ? [{ message: UNUSABLE_PDF_SOURCE_MESSAGE, name: entry.path }]
+      ? [
+          {
+            message: UNUSABLE_PDF_SOURCE_MESSAGE,
+            name: entry.path,
+            reason: entry.warningReason || 'no-usable-text',
+          },
+        ]
       : []
   );
   return [...descriptorWarnings, ...archivePdfWarnings];

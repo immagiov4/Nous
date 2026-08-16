@@ -32,6 +32,7 @@ import {
   type HomeChatToolPreferences,
   type LessonNode,
   type ProjectSource,
+  type ProjectSourceWarning,
   type UserProfile,
 } from '../../../types.ts';
 import {
@@ -341,7 +342,7 @@ export const createAssessmentPlanningCommands = (
       | 'imported'
       | 'noop'
       | 'planned';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }> {
     const trimmedInput = args.input.trim();
     if (!trimmedInput) {
@@ -357,7 +358,7 @@ export const createAssessmentPlanningCommands = (
       'assessment',
       t(selectedFiles.length > 0 ? 'Preparazione sorgente...' : 'Avvio conversazione...')
     );
-    let sourceWarnings: Array<{ message: string; name: string }> = [];
+    let sourceWarnings: ProjectSourceWarning[] = [];
 
     try {
       domain.resetDomain();
@@ -519,7 +520,7 @@ export const createAssessmentPlanningCommands = (
   ): Promise<{
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }> {
     const trimmedInput = input.trim();
     const projectId = projectLibrary.getCurrentProjectId();

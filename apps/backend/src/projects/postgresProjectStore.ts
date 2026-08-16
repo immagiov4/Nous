@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   buildOrderedSiblingItems,
@@ -17,6 +20,7 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 import postgres from 'postgres';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
@@ -65,6 +69,7 @@ import {
   PROJECT_SOURCE_ARCHIVE_LIMITS,
   PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
   streamSourceArchive,
+  withSourceArchivePreparationAdmission,
 } from './sourceArchive.js';
 import type {
   LibraryFolder,
@@ -170,6 +175,7 @@ interface ProjectSourceArchiveEntryRow {
   path: string;
   preview: string | null;
   source_hash: string | null;
+  warning_reason: SourceArchivePdfWarningReason | null;
 }
 
 interface ProjectSourceArchiveIndexRow {
@@ -182,6 +188,7 @@ interface ProjectSourceArchiveIndexRow {
   preview: string | null;
   source_hash: string | null;
   source_kind: 'archive' | 'file';
+  warning_reason: SourceArchivePdfWarningReason | null;
 }
 
 interface ProjectSourceArchiveStoredFileRow {
@@ -199,19 +206,22 @@ interface ProjectSourceArchiveEntryMetadata {
   path: string;
   preview: string | null;
   source_hash: string | null;
+  warning_reason: SourceArchivePdfWarningReason | null;
 }
 
+type PreparedProjectSourceObject = {
+  byteSize: number;
+  mimeType: string;
+  path: string;
+} & ({ bytes: Uint8Array; temporaryPath?: never } | { bytes?: never; temporaryPath: string });
+
 interface PreparedProjectSource {
-  archiveBytes?: Uint8Array;
   archiveEntries: ProjectSourceArchiveEntryMetadata[];
   files: Array<{ position: number; ref: ProjectSourceRef }>;
-  objects: Array<{
-    bytes: Uint8Array;
-    mimeType: string;
-    path: string;
-  }>;
+  objects: PreparedProjectSourceObject[];
   primaryRef: ProjectSourceRef;
   sourceKind: 'archive' | 'file';
+  temporaryDirectory?: string;
 }
 
 interface ProjectSourceObjectStorage {
@@ -267,6 +277,7 @@ const SOURCE_UPLOAD_MAX_CONCURRENCY = 4;
 const SOURCE_UPLOAD_MAX_IN_FLIGHT_BYTES = 64_000_000;
 const SOURCE_ENTRY_PATH_SEGMENT = '/entries/';
 const SOURCE_ORIGINAL_PATH_SUFFIX = '/original';
+const SOURCE_PREPARATION_TMP_PREFIX = 'nous-source-archive-';
 const PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS = 30;
 const PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT = 200;
 const INVALID_PROJECT_BACKUP_MESSAGE = 'Project backup archive is invalid.';
@@ -515,7 +526,8 @@ export class PostgresProjectStore implements ProjectStore {
         entry.content_kind,
         entry.source_hash,
         entry.byte_size,
-        entry.preview
+        entry.preview,
+        entry.warning_reason
       from public.project_sources source
       left join public.project_source_entries entry
         on entry.user_id = source.user_id and entry.project_id = source.project_id
@@ -545,6 +557,7 @@ export class PostgresProjectStore implements ProjectStore {
                 kind: row.kind,
                 path: row.path,
                 ...(row.preview === null ? {} : { preview: row.preview }),
+                ...(row.warning_reason ? { warningReason: row.warning_reason } : {}),
               },
         ];
       }),
@@ -812,8 +825,6 @@ export class PostgresProjectStore implements ProjectStore {
         await this.uploadPreparedProjectSource(
           sourceUploadSql,
           this.getSourceStorage(),
-          userId,
-          snapshot.id,
           sourceWrite.prepared,
           uploadedObjectPaths,
           lockedObjectPaths
@@ -921,6 +932,12 @@ export class PostgresProjectStore implements ProjectStore {
         } finally {
           sourceUploadSql.release();
         }
+      }
+      if (sourceWrite?.prepared.temporaryDirectory) {
+        await rm(sourceWrite.prepared.temporaryDirectory, { force: true, recursive: true }).catch(
+          error =>
+            console.warn('[Backend] Failed to remove prepared source archive files.', { error })
+        );
       }
     }
     if (saveError) {
@@ -1411,6 +1428,7 @@ export class PostgresProjectStore implements ProjectStore {
         archiveEntries: [],
         files: files.map(source => ({ position: source.position, ref: source.ref })),
         objects: files.map(source => ({
+          byteSize: source.bytes.byteLength,
           bytes: source.bytes,
           mimeType: source.ref.mimeType,
           path: source.ref.objectPath,
@@ -1484,7 +1502,13 @@ export class PostgresProjectStore implements ProjectStore {
       Omit<
         Pick<
           ProjectSourceArchiveEntryMetadata,
-          'byte_size' | 'content_kind' | 'kind' | 'path' | 'preview' | 'source_hash'
+          | 'byte_size'
+          | 'content_kind'
+          | 'kind'
+          | 'path'
+          | 'preview'
+          | 'source_hash'
+          | 'warning_reason'
         >,
         'byte_size'
       > & { byte_size: number | string | null }
@@ -1502,6 +1526,7 @@ export class PostgresProjectStore implements ProjectStore {
               kind: 'file',
               path: entry.path,
               ...(entry.preview === null ? {} : { preview: entry.preview }),
+              ...(entry.warning_reason ? { warningReason: entry.warning_reason } : {}),
             }
       ),
       version: {
@@ -1591,7 +1616,8 @@ export class PostgresProjectStore implements ProjectStore {
         content_kind,
         source_hash,
         byte_size,
-        preview
+        preview,
+        warning_reason
       from public.project_source_entries
       where user_id = ${userId} and project_id = ${snapshot.id}
       order by path
@@ -1894,6 +1920,7 @@ export class PostgresProjectStore implements ProjectStore {
             source_hash,
             byte_size,
             preview,
+            warning_reason,
             object_path
           )
         select
@@ -1905,6 +1932,7 @@ export class PostgresProjectStore implements ProjectStore {
           entry.source_hash,
           entry.byte_size,
           entry.preview,
+          entry.warning_reason,
           entry.object_path
         from jsonb_to_recordset(
           ${sql.json(toPostgresJson(prepared.archiveEntries))}
@@ -1915,6 +1943,7 @@ export class PostgresProjectStore implements ProjectStore {
           source_hash text,
           byte_size bigint,
           preview text,
+          warning_reason text,
           object_path text
         )
       `;
@@ -1950,6 +1979,7 @@ export class PostgresProjectStore implements ProjectStore {
     const originalPath = buildProjectSourceObjectPath(userId, projectId, ref.id, ref.hash);
     const objects: PreparedProjectSource['objects'] = [
       {
+        byteSize: sourceBytes.byteLength,
         bytes: sourceBytes,
         mimeType: source.mimeType,
         path: originalPath,
@@ -1968,21 +1998,76 @@ export class PostgresProjectStore implements ProjectStore {
       throw new Error('Project source archive exceeds the configured compressed-size limit.');
     }
 
-    return {
-      archiveBytes: sourceBytes,
-      archiveEntries: [],
-      files: [],
-      objects,
-      primaryRef: ref,
-      sourceKind: 'archive',
-    };
+    return withSourceArchivePreparationAdmission(userId, async () => {
+      const temporaryDirectory = await mkdtemp(
+        path.join(os.tmpdir(), SOURCE_PREPARATION_TMP_PREFIX)
+      );
+      const prepared: PreparedProjectSource = {
+        archiveEntries: [],
+        files: [],
+        objects,
+        primaryRef: ref,
+        sourceKind: 'archive',
+        temporaryDirectory,
+      };
+      let fileIndex = 0;
+      try {
+        for await (const entry of streamSourceArchive(sourceBytes, PROJECT_SOURCE_ARCHIVE_LIMITS)) {
+          if (entry.kind === 'directory') {
+            prepared.archiveEntries.push({
+              byte_size: null,
+              content_kind: null,
+              kind: entry.kind,
+              object_path: null,
+              path: entry.path,
+              preview: null,
+              source_hash: null,
+              warning_reason: null,
+            });
+            continue;
+          }
+          const objectPath = buildProjectSourceEntryObjectPath(
+            userId,
+            projectId,
+            prepared.primaryRef.id,
+            prepared.primaryRef.hash,
+            entry.path,
+            entry.hash
+          );
+          const temporaryPath = path.join(
+            temporaryDirectory,
+            fileIndex.toString().padStart(5, '0')
+          );
+          fileIndex += 1;
+          await writeFile(temporaryPath, entry.content);
+          prepared.archiveEntries.push({
+            byte_size: entry.byteSize,
+            content_kind: entry.text === undefined ? 'binary' : 'text',
+            kind: entry.kind,
+            object_path: objectPath,
+            path: entry.path,
+            preview: entry.preview ?? null,
+            source_hash: entry.hash,
+            warning_reason: entry.warningReason ?? null,
+          });
+          prepared.objects.push({
+            byteSize: entry.byteSize,
+            mimeType: entry.text === undefined ? 'application/octet-stream' : 'text/plain',
+            path: objectPath,
+            temporaryPath,
+          });
+        }
+        return prepared;
+      } catch (error) {
+        await rm(temporaryDirectory, { force: true, recursive: true }).catch(() => undefined);
+        throw error;
+      }
+    });
   }
 
   private async uploadPreparedProjectSource(
     sql: postgres.ReservedSql,
     storage: ProjectSourceObjectStorage,
-    userId: string,
-    projectId: string,
     prepared: PreparedProjectSource,
     uploadedObjectPaths: string[],
     lockedObjectPaths: string[]
@@ -2012,11 +2097,18 @@ export class PostgresProjectStore implements ProjectStore {
     };
 
     const scheduleUpload = async (object: PreparedProjectSource['objects'][number]) => {
-      await waitForCapacity(object.bytes.byteLength);
-      inFlightBytes += object.bytes.byteLength;
-      const task = this.uploadSourceObject(storage, object.path, object.bytes, {
-        byteSize: object.bytes.byteLength,
-        hash: createHash('sha256').update(object.bytes).digest('hex'),
+      await waitForCapacity(object.byteSize);
+      inFlightBytes += object.byteSize;
+      let bytes: Uint8Array;
+      try {
+        bytes = object.bytes ?? new Uint8Array(await readFile(object.temporaryPath));
+      } catch (error) {
+        inFlightBytes -= object.byteSize;
+        throw error;
+      }
+      const task = this.uploadSourceObject(storage, object.path, bytes, {
+        byteSize: object.byteSize,
+        hash: createHash('sha256').update(bytes).digest('hex'),
         mimeType: object.mimeType,
       })
         .then(uploaded => {
@@ -2029,57 +2121,34 @@ export class PostgresProjectStore implements ProjectStore {
         })
         .finally(() => {
           inFlight.delete(task);
-          inFlightBytes -= object.bytes.byteLength;
+          inFlightBytes -= object.byteSize;
         });
       inFlight.add(task);
     };
 
     try {
-      for (const object of [...prepared.objects].sort((left, right) =>
+      const orderedObjects = [...prepared.objects].sort((left, right) =>
         left.path.localeCompare(right.path)
-      )) {
-        await scheduleUpload(object);
-      }
-      if (prepared.archiveBytes) {
-        for await (const entry of streamSourceArchive(
-          prepared.archiveBytes,
-          PROJECT_SOURCE_ARCHIVE_LIMITS
-        )) {
-          if (entry.kind === 'directory') {
-            prepared.archiveEntries.push({
-              byte_size: null,
-              content_kind: null,
-              kind: entry.kind,
-              object_path: null,
-              path: entry.path,
-              preview: null,
-              source_hash: null,
-            });
-            continue;
-          }
-          const objectPath = buildProjectSourceEntryObjectPath(
-            userId,
-            projectId,
-            prepared.primaryRef.id,
-            prepared.primaryRef.hash,
-            entry.path,
-            entry.hash
-          );
-          prepared.archiveEntries.push({
-            byte_size: entry.byteSize,
-            content_kind: entry.text === undefined ? 'binary' : 'text',
-            kind: entry.kind,
-            object_path: objectPath,
-            path: entry.path,
-            preview: entry.preview ?? null,
-            source_hash: entry.hash,
-          });
-          await scheduleUpload({
-            bytes: entry.content,
-            mimeType: entry.text === undefined ? 'application/octet-stream' : 'text/plain',
-            path: objectPath,
-          });
+      );
+      if (prepared.sourceKind === 'archive') {
+        const originalObjectIndex = orderedObjects.findIndex(
+          object => object.path === prepared.primaryRef.objectPath
+        );
+        if (originalObjectIndex < 0) {
+          throw new Error('Prepared source archive is missing its original object.');
         }
+        const originalObject = orderedObjects.splice(
+          originalObjectIndex,
+          1
+        )[0] as PreparedProjectSourceObject;
+        await scheduleUpload(originalObject);
+        await Promise.all(inFlight);
+        if (uploadFailure) {
+          throw uploadFailure;
+        }
+      }
+      for (const object of orderedObjects) {
+        await scheduleUpload(object);
       }
     } finally {
       await Promise.all(inFlight);

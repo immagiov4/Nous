@@ -26,7 +26,13 @@ import {
   resolvePlanLesson,
 } from '../../../services/workspace/controller/snapshotHydration.ts';
 import { WORKSPACE_WORKFLOW_IDS } from '../../../services/workspace/workflow.ts';
-import { AppState, type FileData, type LessonNode, type ProjectSource } from '../../../types.ts';
+import {
+  AppState,
+  type FileData,
+  type LessonNode,
+  type ProjectSource,
+  type ProjectSourceWarning,
+} from '../../../types.ts';
 import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
@@ -141,7 +147,7 @@ export const createProjectLifecycleCommands = (
   ): Promise<{
     errorMessage?: string;
     outcome: 'failed' | 'imported' | 'started-assessment' | 'reattached';
-    sourceWarnings?: Array<{ message: string; name: string }>;
+    sourceWarnings?: ProjectSourceWarning[];
   }> {
     const requestId = state.beginWorkflow('attachSource', t('Caricamento...'));
     const selectedFiles = Array.isArray(selectedFilesInput)
@@ -162,7 +168,7 @@ export const createProjectLifecycleCommands = (
       size: selectedFile.size,
       type: selectedFile.type || null,
     });
-    let sourceWarnings: Array<{ message: string; name: string }> = [];
+    let sourceWarnings: ProjectSourceWarning[] = [];
 
     try {
       let nextSource: ProjectSource | null = null;
