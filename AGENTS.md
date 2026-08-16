@@ -169,6 +169,7 @@ Before writing or modifying code, gather enough contextual awareness:
 5. Avoid recreating logic that already exists elsewhere.
 6. Prefer extending existing patterns over inventing a new local style.
 7. Check root-level and module-local documentation relevant to the area. When external API behavior matters, verify the authoritative documentation for the supported version instead of relying on memory.
+8. For a new task or non-trivial change, consult the pertinent `.cubic/wiki` pages first to build a proportional conceptual map of the repository and systems involved. Use it to trace call paths, contracts, analogous mechanisms such as fallback, retry, or persistence, and cross-cutting effects before implementing. Keep the review proportional to the scope: a simple local fix does not require encyclopedic reading or a full audit. Treat Cubic as the authoritative, regenerable architecture/code map; do not duplicate its content here or consult the historical `Lumina-Reader` repository.
 
 Do not start from a blank-slate design unless the existing structure is genuinely broken.
 
