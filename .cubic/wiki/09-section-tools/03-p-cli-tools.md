@@ -35,7 +35,7 @@ The tool supports four execution profiles to target specific layers of the appli
 | Profile | Description |
 | :--- | :--- |
 | `checks` | Default profile. Runs service-free checks like Bun runtime, dependencies, and Fallow debt. |
-| `gate` | Probes the local SonarQube service and quality settings. |
+| `gate` | Probes the loopback-only local SonarQube service. |
 | `local` | Probes Supabase services (Auth, Data API, Storage, Realtime) and migration parity. |
 | `all` | Executes every available check and service probe. |
 

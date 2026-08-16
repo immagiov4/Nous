@@ -46,7 +46,7 @@ Sources: [scripts/doctor.ts:88-115](../../../scripts/doctor.ts#L88-L115), [AGENT
 | Profile | Scope | Intended Use |
 | :--- | :--- | :--- |
 | `checks` | Biome linting, type checks, fallow regression | Default local health report |
-| `gate` | SonarQube availability and token validation | Pre-merge quality gate verification |
+| `gate` | Loopback-only SonarQube availability | Pre-merge quality gate verification |
 | `local` | Supabase Auth, Storage, and Database API health | Local infrastructure debugging |
 | `all` | Combines all available diagnostic stages | Full system health audit |
 

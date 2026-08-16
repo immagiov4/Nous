@@ -110,7 +110,7 @@ The `doctor` script provides a local diagnostic suite for developers to verify t
 | Profile | Checks Performed |
 | :--- | :--- |
 | `checks` | Quality, Semgrep, Fallow regression, and Test suite. |
-| `gate` | Probes local SonarQube service and token validity. |
+| `gate` | Probes the loopback-only local SonarQube service. |
 | `local` | Verifies Supabase Auth, Data API, Storage, and Migration drift. |
 | `all` | Runs all available diagnostic profiles. |
 

@@ -1,11 +1,13 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   inspectEnvironment,
+  inspectSonarService,
   parseCiBunVersions,
   parseDoctorArguments,
   parseFallowBaseline,
   parseMigrationList,
   parsePinnedBunVersion,
+  parseSonarProvisioner,
   resolveLocalSupabaseConfig,
 } from './doctor';
 
@@ -149,5 +151,83 @@ describe('inspectEnvironment', () => {
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
     ]);
+  });
+});
+
+describe('inspectSonarService', () => {
+  test('accepts an anonymous local SonarQube service', async () => {
+    const request = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: 'UP' }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+    );
+
+    await expect(
+      inspectSonarService(request, async () => ({
+        exitCode: 0,
+        stderr: '',
+        stdout: '[{"Service":"sonar-permissions","State":"exited","ExitCode":0}]',
+      }))
+    ).resolves.toContainEqual(expect.objectContaining({ label: 'SonarQube', status: 'PASS' }));
+    expect(request).toHaveBeenCalledWith(new URL('http://127.0.0.1:9000/api/system/status'));
+  });
+
+  test('reports a local SonarQube service that is not ready', async () => {
+    const request = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: 'DOWN' }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+    );
+
+    await expect(inspectSonarService(request)).resolves.toContainEqual(
+      expect.objectContaining({ label: 'SonarQube', status: 'FAIL' })
+    );
+  });
+
+  test('does not pass when anonymous permissions are still provisioning', async () => {
+    const request = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: 'UP' }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+    );
+
+    await expect(
+      inspectSonarService(request, async () => ({
+        exitCode: 0,
+        stderr: '',
+        stdout: '[{"Service":"sonar-permissions","State":"running"}]',
+      }))
+    ).resolves.toContainEqual(
+      expect.objectContaining({
+        detail: expect.stringContaining('not ready'),
+        label: 'SonarQube',
+        status: 'FAIL',
+      })
+    );
+  });
+
+  test('reports an unreachable local SonarQube service', async () => {
+    const request = vi.fn(async () => Promise.reject(new TypeError('Connection refused')));
+
+    await expect(inspectSonarService(request)).resolves.toContainEqual(
+      expect.objectContaining({
+        detail: expect.stringContaining('bun run sonar:up'),
+        label: 'SonarQube',
+        status: 'FAIL',
+      })
+    );
+  });
+});
+
+describe('parseSonarProvisioner', () => {
+  test('returns the anonymous permission provisioner from Docker Compose output', () => {
+    expect(
+      parseSonarProvisioner(
+        '[{"Service":"sonarqube","State":"running"},{"Service":"sonar-permissions","State":"exited","ExitCode":0}]'
+      )
+    ).toMatchObject({ ExitCode: 0, State: 'exited' });
   });
 });
