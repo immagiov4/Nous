@@ -308,6 +308,7 @@ export const repairDurablePdfMapping = async ({
   const terminalJob = await waitForPdfMappingRepair(job, signal);
   request.clear();
   if (terminalJob.status !== 'completed') {
+    logBackendFailureCorrelationId(terminalJob.correlationId);
     throw new Error(PDF_MAPPING_REPAIR_ERROR);
   }
   const result = parsePdfMappingRepairResult(terminalJob.result, projectId);

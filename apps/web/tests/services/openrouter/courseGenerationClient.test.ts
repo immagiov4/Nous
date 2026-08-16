@@ -568,6 +568,33 @@ describe('courseGenerationClient', () => {
     ).toBeNull();
   });
 
+  test('records the support code from a terminal PDF repair failure', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const queued = {
+      id: 'repair-failed',
+      projectId: 'project-1',
+      stage: 'mapping',
+      status: 'queued',
+    };
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(workflowResponse(queued, 202))
+      .mockResolvedValueOnce(
+        workflowResponse({
+          ...queued,
+          correlationId: CORRELATION_ID,
+          errorCode: 'pdf_mapping_repair_failed',
+          status: 'failed',
+        })
+      );
+
+    const repair = repairDurablePdfMapping({ projectId: 'project-1' });
+    const rejection = expect(repair).rejects.toThrow('La mappatura del PDF non è riuscita.');
+    await advancePoll();
+
+    await rejection;
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+  });
+
   test('does not expose backend failure details', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
