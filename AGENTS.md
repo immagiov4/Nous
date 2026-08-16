@@ -331,6 +331,8 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
 
+For every pull request, name every issue it resolves in the pull-request description with GitHub-closing references where appropriate (for example, `Closes #123`). Before reporting the work complete, verify that each resolved issue was actually closed. Do not leave a completed issue open without an explicit reason such as a remaining manual-verification gate.
+
 ## Performance Awareness
 
 Avoid unnecessary work in hot paths: repeated full re-renders, expensive loops inside frequent events, repeated parsing or formatting, linear searches on large collections, redundant network or database calls, rebuilding UI during scroll or typing.
