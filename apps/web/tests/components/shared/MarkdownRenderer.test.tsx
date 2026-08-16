@@ -206,7 +206,7 @@ describe('MarkdownRenderer', () => {
 
   test('native persisted highlights re-anchor a repeated quote only where saved context matches', () => {
     const article = document.createElement('article');
-    article.innerHTML = '<p>Beta due. Beta uno.</p>';
+    article.innerHTML = '<p>Nuovo. Beta uno. Beta due.</p>';
     const entries = resolveSectionAnnotationHighlightEntries(article, [
       {
         anchor: {
@@ -229,7 +229,7 @@ describe('MarkdownRenderer', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.ranges).toHaveLength(1);
     expect(entries[0]?.ranges[0]?.toString()).toBe('Beta');
-    expect(entries[0]?.ranges[0]?.startOffset).toBe(0);
+    expect(entries[0]?.ranges[0]?.startOffset).toBe('Nuovo. Beta uno. '.length);
   });
 
   test('native persisted highlights stay hidden when the remaining duplicate mismatches context', () => {

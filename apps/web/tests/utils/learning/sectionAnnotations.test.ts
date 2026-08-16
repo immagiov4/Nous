@@ -91,8 +91,8 @@ test('persisted annotations prefer saved context when the old offset now contain
   assert.ok(created);
 
   const restoredAnnotations = JSON.parse(JSON.stringify(created.annotations));
-  expect(materializeSectionAnnotationMarks('Beta due. Beta uno.', restoredAnnotations)).toBe(
-    '<mark data-nous-annotation-id="annotation-persisted-second-beta">Beta</mark> due. Beta uno.'
+  expect(materializeSectionAnnotationMarks('Nuovo. Beta uno. Beta due.', restoredAnnotations)).toBe(
+    'Nuovo. Beta uno. <mark data-nous-annotation-id="annotation-persisted-second-beta">Beta</mark> due.'
   );
 });
 
