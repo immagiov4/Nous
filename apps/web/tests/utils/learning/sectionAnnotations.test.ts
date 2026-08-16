@@ -285,6 +285,25 @@ test('materialized annotations preserve inline Markdown as one highlight', () =>
   );
 });
 
+test('materialized annotations retain saved context across typed markdown block boundaries', () => {
+  const firstBlock = 'Contesto precedente che identifica il passaggio.';
+  const secondBlock = 'Bersaglio vicino al confine del secondo blocco.';
+  const fullContent = `${firstBlock}\n\n${secondBlock}`;
+  const created = applySectionAnnotation({
+    annotations: [],
+    content: fullContent,
+    createId: () => 'annotation-block-boundary',
+    selectedText: 'Bersaglio',
+  });
+
+  assert.ok(created);
+  assert.equal(materializeSectionAnnotationMarks(secondBlock, created.annotations), secondBlock);
+  assert.equal(
+    materializeSectionAnnotationMarks(secondBlock, created.annotations, { before: firstBlock }),
+    '<mark data-nous-annotation-id="annotation-block-boundary">Bersaglio</mark> vicino al confine del secondo blocco.'
+  );
+});
+
 test('applySectionAnnotation merges overlapping notes', () => {
   const content = 'Alpha beta gamma delta.';
   const initial = applySectionAnnotation({

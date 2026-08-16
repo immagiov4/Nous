@@ -1,9 +1,11 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
 import { projectKatexAnnotationSource } from '../markdown/codeRanges.ts';
 import {
+  buildSectionAnnotationContextText,
   hasSectionAnnotationSelectorContext,
   isSelectionAnnotation,
   matchesSectionAnnotationSelectorContext,
+  type SectionAnnotationBoundaryContext,
 } from './sectionAnnotationAnchors.ts';
 
 const ANNOTATION_HIGHLIGHT_NAME = 'nous-annotations';
@@ -180,7 +182,8 @@ const hasIgnoredDomGap = (
 
 const findSelectorRange = (
   projection: DomTextProjection,
-  selector: SectionAnnotationTextSelector
+  selector: SectionAnnotationTextSelector,
+  boundaryContext?: SectionAnnotationBoundaryContext
 ): { end: number; start: number } | null => {
   const exact = normalizeWhitespace(selector.exact);
   if (!exact) {
@@ -198,8 +201,14 @@ const findSelectorRange = (
     searchFrom = matchStart + 1;
   }
 
+  const contextualProjection = buildSectionAnnotationContextText(projection.text, boundaryContext);
   const contextualMatches = matches.filter(matchStart =>
-    matchesSectionAnnotationSelectorContext(projection.text, matchStart, exact.length, selector)
+    matchesSectionAnnotationSelectorContext(
+      contextualProjection.text,
+      matchStart + contextualProjection.offset,
+      exact.length,
+      selector
+    )
   );
   const candidates = hasSectionAnnotationSelectorContext(selector) ? contextualMatches : matches;
   return candidates.length === 1
@@ -283,7 +292,8 @@ const createHighlightRangeGroups = (
 
 export const resolveSectionAnnotationHighlightEntries = (
   root: HTMLElement,
-  annotations?: SectionAnnotation[]
+  annotations?: SectionAnnotation[],
+  boundaryContext?: SectionAnnotationBoundaryContext
 ): SectionAnnotationHighlightEntry[] => {
   const selectionAnnotations = (annotations || []).filter(isSelectionAnnotation);
   if (selectionAnnotations.length === 0) {
@@ -292,7 +302,11 @@ export const resolveSectionAnnotationHighlightEntries = (
 
   const projection = buildDomTextProjection(root);
   return selectionAnnotations.flatMap(annotation => {
-    const projectionRange = findSelectorRange(projection, annotation.anchor.selector);
+    const projectionRange = findSelectorRange(
+      projection,
+      annotation.anchor.selector,
+      boundaryContext
+    );
     if (!projectionRange) {
       return [];
     }

@@ -34,9 +34,13 @@ import type {
   StoredLessonVisual,
 } from '../../../types.ts';
 import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
-import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
+import {
+  materializeSectionAnnotationMarks,
+  type SectionAnnotationBoundaryContext,
+} from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import { supportsSectionAnnotationHighlights } from '../../../utils/learning/sectionAnnotationHighlights.ts';
 import { stripTerminalLessonSourcesSection } from '../../../utils/markdown/lessonSources.ts';
+import { buildVisibleProjection } from '../../../utils/markdown/textProjection.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import {
   deriveQuizFromLessonContentBlocks,
@@ -65,6 +69,25 @@ import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 import YouTubeClipCarousel from './YouTubeClipCarousel.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
+
+const buildMarkdownAnnotationBoundaryContexts = (
+  blocks: LessonContentBlock[]
+): Array<SectionAnnotationBoundaryContext | undefined> => {
+  const visibleMarkdownByIndex = blocks.map(block =>
+    block.type === 'markdown' ? buildVisibleProjection(block.markdown).text : ''
+  );
+  return visibleMarkdownByIndex.map((visibleMarkdown, index) =>
+    visibleMarkdown
+      ? {
+          after: visibleMarkdownByIndex
+            .slice(index + 1)
+            .filter(Boolean)
+            .join(' '),
+          before: visibleMarkdownByIndex.slice(0, index).filter(Boolean).join(' '),
+        }
+      : undefined
+  );
+};
 
 function FailedVisualSlot({
   block,
@@ -993,6 +1016,10 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     );
   }, [hasStructuredSourceAttribution, sectionContentBlocks, sourcePageRangeLabel]);
   const hasTypedContent = typedContentBlocks.length > 0;
+  const typedContentAnnotationBoundaryContexts = useMemo(
+    () => buildMarkdownAnnotationBoundaryContexts(typedContentBlocks),
+    [typedContentBlocks]
+  );
   const hasLessonContent = hasTypedContent || Boolean(sectionContent);
   const effectiveQuiz = useMemo(
     () => (hasTypedContent ? deriveQuizFromLessonContentBlocks(typedContentBlocks) : quiz),
@@ -1201,9 +1228,15 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                   {hasTypedContent
                     ? typedContentBlocks.map((block, blockIndex) => {
                         if (block.type === 'markdown') {
+                          const annotationBoundaryContext =
+                            typedContentAnnotationBoundaryContexts[blockIndex];
                           const content = usesNativeAnnotationHighlights
                             ? block.markdown
-                            : materializeSectionAnnotationMarks(block.markdown, sectionAnnotations);
+                            : materializeSectionAnnotationMarks(
+                                block.markdown,
+                                sectionAnnotations,
+                                annotationBoundaryContext
+                              );
                           return (
                             <MarkdownRenderer
                               key={`markdown:${block.markdown}`}
@@ -1214,6 +1247,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                               lessonImageRefsById={activeSectionImageRefsById}
                               onClick={onContentClick}
                               projectId={projectId}
+                              sectionAnnotationBoundaryContext={annotationBoundaryContext}
                               sectionAnnotations={sectionAnnotations}
                               className={`prose-lg leading-7 sm:prose-xl sm:leading-loose prose-p:text-gray-800 dark:prose-p:text-gray-200 prose-headings:font-serif prose-headings:font-normal prose-headings:text-gray-900 dark:prose-headings:text-white prose-strong:font-semibold prose-strong:text-orange-800 dark:prose-strong:text-orange-400 ${isDarkMode ? 'prose-invert' : ''}`}
                             />
