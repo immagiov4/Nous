@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -139,6 +139,7 @@ describe('NewHomeView library interactions', () => {
         loadProjectSource={vi.fn(async () => null)}
         loadProjectsById={vi.fn(async () => [])}
         onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onToggleDarkMode={vi.fn()}
         openingProjectId={null}
@@ -172,6 +173,7 @@ describe('NewHomeView library interactions', () => {
         loadProjectSource={vi.fn(async () => null)}
         loadProjectsById={vi.fn(async () => [])}
         onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onToggleDarkMode={vi.fn()}
         openingProjectId={null}
@@ -217,6 +219,127 @@ describe('NewHomeView library interactions', () => {
 
     expect(onImportProjectFile).toHaveBeenCalledTimes(1);
     expect(onImportProjectFile.mock.calls[0]?.[0].target.files?.[0]).toBe(file);
+  });
+
+  test('keeps the Favorites count reactive and localized for empty, singular, and plural states', () => {
+    const renderView = (projects: SavedProjectMeta[]) => (
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={projects}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    const view = render(renderView([]));
+    const favoritesChip = screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ });
+    expect(favoritesChip).toHaveAttribute('title', '0 corsi');
+
+    view.rerender(renderView([{ ...project, isFavorite: true }]));
+    expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveAttribute(
+      'title',
+      '1 corso'
+    );
+
+    view.rerender(
+      renderView([
+        { ...project, isFavorite: true },
+        { ...project, id: 'project-2', isFavorite: true },
+      ])
+    );
+    expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveAttribute(
+      'title',
+      '2 corsi'
+    );
+  });
+
+  test('repositions an open course menu and restores focus on Escape', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    const trigger = within(container.querySelector('#courses') as HTMLElement).getByRole('button', {
+      name: /Azioni per Corso Mobile|Actions for Corso Mobile/,
+    });
+    let bounds = { top: 100, bottom: 120, left: 700, right: 720 };
+    vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => bounds as DOMRect);
+
+    const visualViewport = new EventTarget() as VisualViewport;
+    Object.assign(visualViewport, {
+      height: 400,
+      offsetLeft: 80,
+      offsetTop: 40,
+      width: 400,
+    });
+    const originalVisualViewport = window.visualViewport;
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: visualViewport,
+    });
+
+    try {
+      await user.click(trigger);
+      const menu = screen.getByRole('button', { name: /^(Apri corso|Open course)$/ })
+        .parentElement as HTMLElement;
+      expect(menu).toHaveStyle({ left: '276px', top: '124px' });
+      const exportButton = screen.getByRole('button', { name: /^(Esporta|Export)$/ });
+      exportButton.focus();
+
+      bounds = { top: 300, bottom: 320, left: 700, right: 720 };
+      window.dispatchEvent(new Event('scroll'));
+      await waitFor(() => expect(menu).toHaveStyle({ top: '84px' }));
+      expect(exportButton).toHaveFocus();
+
+      await user.keyboard('{Escape}');
+      expect(
+        screen.queryByRole('button', { name: /^(Apri corso|Open course)$/ })
+      ).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    } finally {
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: originalVisualViewport,
+      });
+    }
   });
 
   test.each([

@@ -475,6 +475,9 @@ interface FloatingMenuState {
   id: string;
   left: number;
   top: number;
+  trigger: HTMLElement;
+  menuHeight: number;
+  menuWidth: number;
 }
 
 interface InlineRenameTarget {
@@ -485,20 +488,34 @@ interface InlineRenameTarget {
 
 const getFloatingMenuState = (
   id: string,
-  anchor: DOMRect,
+  trigger: HTMLElement,
   menuWidth: number,
   menuHeight: number
-): FloatingMenuState => ({
-  id,
-  left: Math.max(
-    12,
-    Math.min(anchor.right - menuWidth, globalThis.window.innerWidth - menuWidth - 12)
-  ),
-  top:
-    anchor.bottom + menuHeight + 8 <= globalThis.window.innerHeight
-      ? anchor.bottom + 4
-      : Math.max(12, anchor.top - menuHeight - 4),
-});
+): FloatingMenuState => {
+  const anchor = trigger.getBoundingClientRect();
+  const visualViewport = globalThis.window.visualViewport;
+  const viewportLeft = visualViewport?.offsetLeft ?? 0;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportWidth = visualViewport?.width ?? globalThis.window.innerWidth;
+  const viewportHeight = visualViewport?.height ?? globalThis.window.innerHeight;
+  return {
+    id,
+    left: Math.max(
+      viewportLeft + 12,
+      Math.min(anchor.right - menuWidth, viewportLeft + viewportWidth - menuWidth - 12)
+    ),
+    top:
+      anchor.bottom + menuHeight + 8 <= viewportTop + viewportHeight
+        ? anchor.bottom + 4
+        : Math.max(viewportTop + 12, anchor.top - menuHeight - 4),
+    trigger,
+    menuHeight,
+    menuWidth,
+  };
+};
+
+const formatCourseCount = (count: number): string =>
+  count === 1 ? t('1 corso') : t('{courseCount} corsi', { courseCount: count });
 
 const FolderNameDialog = ({
   dialog,
@@ -623,6 +640,7 @@ const CourseList = ({
   const [renameError, setRenameError] = useState('');
   const [openFolderMenu, setOpenFolderMenu] = useState<FloatingMenuState | null>(null);
   const [openCourseMenu, setOpenCourseMenu] = useState<FloatingMenuState | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const renameRequestIdRef = useRef(0);
   const pendingProjectOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -706,6 +724,77 @@ const CourseList = ({
       nameInputRef.current?.select();
     }
   }, [renameTarget]);
+
+  const closeFolderMenu = useCallback(() => {
+    const trigger = openFolderMenu?.trigger;
+    setOpenFolderMenu(null);
+    trigger?.focus();
+  }, [openFolderMenu]);
+
+  const closeCourseMenu = useCallback(() => {
+    const trigger = openCourseMenu?.trigger;
+    setOpenCourseMenu(null);
+    trigger?.focus();
+  }, [openCourseMenu]);
+
+  useEffect(() => {
+    const menu = openFolderMenu || openCourseMenu;
+    const setMenu = openFolderMenu ? setOpenFolderMenu : setOpenCourseMenu;
+    if (!menu) return;
+
+    const updateMenuPosition = () => {
+      if (!menu.trigger.isConnected) {
+        setMenu(null);
+        return;
+      }
+      const nextPosition = getFloatingMenuState(
+        menu.id,
+        menu.trigger,
+        menu.menuWidth,
+        menu.menuHeight
+      );
+      setMenu(current =>
+        current?.id === menu.id
+          ? current.left === nextPosition.left && current.top === nextPosition.top
+            ? current
+            : { ...current, left: nextPosition.left, top: nextPosition.top }
+          : current
+      );
+    };
+
+    updateMenuPosition();
+    globalThis.window.addEventListener('resize', updateMenuPosition);
+    globalThis.window.addEventListener('orientationchange', updateMenuPosition);
+    globalThis.window.addEventListener('scroll', updateMenuPosition, true);
+    globalThis.window.visualViewport?.addEventListener('resize', updateMenuPosition);
+    globalThis.window.visualViewport?.addEventListener('scroll', updateMenuPosition);
+    return () => {
+      globalThis.window.removeEventListener('resize', updateMenuPosition);
+      globalThis.window.removeEventListener('orientationchange', updateMenuPosition);
+      globalThis.window.removeEventListener('scroll', updateMenuPosition, true);
+      globalThis.window.visualViewport?.removeEventListener('resize', updateMenuPosition);
+      globalThis.window.visualViewport?.removeEventListener('scroll', updateMenuPosition);
+    };
+  }, [openCourseMenu, openFolderMenu]);
+
+  const openMenuId = openFolderMenu?.id ?? openCourseMenu?.id;
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, [openMenuId]);
+
+  useEffect(() => {
+    if (!openFolderMenu && !openCourseMenu) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      if (openFolderMenu) closeFolderMenu();
+      else closeCourseMenu();
+    };
+    globalThis.window.addEventListener('keydown', handleKeyDown);
+    return () => globalThis.window.removeEventListener('keydown', handleKeyDown);
+  }, [closeCourseMenu, closeFolderMenu, openCourseMenu, openFolderMenu]);
 
   const renderInlineRenameForm = (kind: InlineRenameTarget['kind']) => (
     <form
@@ -892,19 +981,31 @@ const CourseList = ({
           >
             {[
               { filter: 'all' as const, label: t('Tutti'), icon: null },
-              { filter: 'favorites' as const, label: t('Preferiti'), icon: Heart },
+              {
+                filter: 'favorites' as const,
+                label: t('Preferiti'),
+                countLabel: formatCourseCount(favoriteIds.length),
+                icon: Heart,
+              },
             ].map(option => {
               const Icon = option.icon;
               return (
                 <button
                   key={option.filter}
                   type="button"
+                  aria-label={option.label}
+                  title={'countLabel' in option ? option.countLabel : undefined}
                   aria-pressed={filter === option.filter}
                   onClick={() => selectFilter(option.filter)}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900"
                 >
                   {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
                   {option.label}
+                  {'countLabel' in option ? (
+                    <span className="min-w-[3.6rem] text-left tabular-nums opacity-70">
+                      {option.countLabel}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -991,22 +1092,24 @@ const CourseList = ({
                   </h3>
                 )}
                 <span className="text-xs text-stone-400">
-                  {t('{courseCount} corsi', { courseCount: group.projects.length })}
+                  {formatCourseCount(group.projects.length)}
                 </span>
                 {group.id !== 'root' && group.id !== 'favorites' ? (
                   <div className="ml-auto">
                     <button
                       type="button"
+                      aria-expanded={openFolderMenu?.id === group.id}
                       aria-label={t('Azioni per la cartella {folderName}', {
                         folderName: group.label,
                       })}
                       onClick={event => {
-                        const anchor = event.currentTarget.getBoundingClientRect();
+                        const trigger = event.currentTarget;
                         setOpenFolderMenu(current =>
                           current?.id === group.id
                             ? null
-                            : getFloatingMenuState(group.id, anchor, 176, 92)
+                            : getFloatingMenuState(group.id, trigger, 176, 92)
                         );
+                        setOpenCourseMenu(null);
                       }}
                       className="rounded-full p-2 text-stone-400 hover:bg-stone-100 dark:hover:bg-white/5"
                     >
@@ -1142,17 +1245,19 @@ const CourseList = ({
                         </button>
                         <button
                           type="button"
+                          aria-expanded={openCourseMenu?.id === project.id}
                           aria-label={t('Azioni per {courseTitle}', {
                             courseTitle: project.title,
                           })}
                           onClick={event => {
                             event.stopPropagation();
-                            const anchor = event.currentTarget.getBoundingClientRect();
+                            const trigger = event.currentTarget;
                             setOpenCourseMenu(current =>
                               current?.id === project.id
                                 ? null
-                                : getFloatingMenuState(project.id, anchor, 192, 212)
+                                : getFloatingMenuState(project.id, trigger, 192, 212)
                             );
+                            setOpenFolderMenu(null);
                           }}
                           disabled={isOpening}
                           className="relative z-10 rounded-full p-2 text-stone-600 hover:bg-stone-100 sm:text-stone-400 dark:text-stone-300 dark:hover:bg-white/5 dark:sm:text-stone-400"
@@ -1177,9 +1282,10 @@ const CourseList = ({
                   type="button"
                   aria-label={t('Chiudi azioni cartella')}
                   className="fixed inset-0 z-[70]"
-                  onClick={() => setOpenFolderMenu(null)}
+                  onClick={closeFolderMenu}
                 />
                 <div
+                  ref={menuRef}
                   className="fixed z-[80] w-44 rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#211f1e]"
                   style={{ left: openFolderMenu.left, top: openFolderMenu.top }}
                 >
@@ -1203,7 +1309,7 @@ const CourseList = ({
                       type="button"
                       onClick={() => {
                         void (async () => {
-                          setOpenFolderMenu(null);
+                          closeFolderMenu();
                           if (
                             !onConfirmDeleteFolder ||
                             (await onConfirmDeleteFolder(folderMenuGroup.label))
@@ -1228,9 +1334,10 @@ const CourseList = ({
                   type="button"
                   aria-label={t('Chiudi azioni corso')}
                   className="fixed inset-0 z-[70]"
-                  onClick={() => setOpenCourseMenu(null)}
+                  onClick={closeCourseMenu}
                 />
                 <div
+                  ref={menuRef}
                   className="fixed z-[80] w-48 rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#211f1e]"
                   style={{ left: openCourseMenu.left, top: openCourseMenu.top }}
                 >
@@ -1252,7 +1359,7 @@ const CourseList = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setOpenCourseMenu(null);
+                      closeCourseMenu();
                       onOpenProject(courseMenuProject.id);
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-white/5"
@@ -1286,7 +1393,7 @@ const CourseList = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setOpenCourseMenu(null);
+                        closeCourseMenu();
                         void onDeleteProject(courseMenuProject.id);
                       }}
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
