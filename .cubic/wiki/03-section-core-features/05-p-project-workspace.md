@@ -8,12 +8,12 @@ wiki_page_id: "p-project-workspace"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/projects/postgresProjectStore.ts](apps/backend/src/projects/postgresProjectStore.ts)
-- [apps/backend/src/projects/types.ts](apps/backend/src/projects/types.ts)
-- [apps/web/services/projects/projectSnapshot.ts](apps/web/services/projects/projectSnapshot.ts)
-- [apps/web/hooks/library/useProjectLibrary.ts](apps/web/hooks/library/useProjectLibrary.ts)
-- [apps/backend/tests/routes/projects.test.ts](apps/backend/tests/routes/projects.test.ts)
-- [apps/backend/src/projects/projectImportConfig.ts](apps/backend/src/projects/projectImportConfig.ts)
+- [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts)
+- [apps/backend/src/projects/types.ts](../../../apps/backend/src/projects/types.ts)
+- [apps/web/services/projects/projectSnapshot.ts](../../../apps/web/services/projects/projectSnapshot.ts)
+- [apps/web/hooks/library/useProjectLibrary.ts](../../../apps/web/hooks/library/useProjectLibrary.ts)
+- [apps/backend/tests/routes/projects.test.ts](../../../apps/backend/tests/routes/projects.test.ts)
+- [apps/backend/src/projects/projectImportConfig.ts](../../../apps/backend/src/projects/projectImportConfig.ts)
 
 </details>
 
@@ -34,7 +34,7 @@ The backend utilizes `PostgresProjectStore` to manage relational data and docume
 *  `public.project_sources`: Manages references to external binary storage (e.g., Supabase Storage).
 *  `public.library_folders` & `public.library_placements`: Handle the hierarchical organization of the user's workspace.
 
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:133-145](apps/backend/src/projects/postgresProjectStore.ts#L133-L145), [apps/backend/src/projects/postgresProjectStore.ts:311-344](apps/backend/src/projects/postgresProjectStore.ts#L311-L344)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:133-145](../../../apps/backend/src/projects/postgresProjectStore.ts#L133-L145), [apps/backend/src/projects/postgresProjectStore.ts:311-344](../../../apps/backend/src/projects/postgresProjectStore.ts#L311-L344)
 
 ### Data Flow for Project Updates
 When a user modifies a workspace (e.g., completes a lesson or highlights a section), the client attempts a granular update.
@@ -62,7 +62,7 @@ sequenceDiagram
 
 The system employs a "Revision Conflict" mechanism. If the `expectedRevision` sent by the client does not match the current database revision, the update is rejected with a `409 Conflict`, triggering a rebase or refresh on the client.
 
-Sources: [apps/web/hooks/library/useProjectLibrary.ts:474-550](apps/web/hooks/library/useProjectLibrary.ts#L474-L550), [apps/backend/src/projects/postgresProjectStore.ts:518-548](apps/backend/src/projects/postgresProjectStore.ts#L518-L548)
+Sources: [apps/web/hooks/library/useProjectLibrary.ts:474-550](../../../apps/web/hooks/library/useProjectLibrary.ts#L474-L550), [apps/backend/src/projects/postgresProjectStore.ts:518-548](../../../apps/backend/src/projects/postgresProjectStore.ts#L518-L548)
 
 ## Project Snapshots and Metadata
 
@@ -80,7 +80,7 @@ The `createProjectSnapshot` function ensures that every project follows a standa
 | `documentIndex` | `PdfTextIndex` | Extracted text and chunks for searchable source content. |
 | `revision` | `number` | Incremental counter managed by the server for sync consistency. |
 
-Sources: [apps/web/services/projects/projectSnapshot.ts:145-177](apps/web/services/projects/projectSnapshot.ts#L145-L177), [apps/backend/src/projects/types.ts:114-142](apps/backend/src/projects/types.ts#L114-L142)
+Sources: [apps/web/services/projects/projectSnapshot.ts:145-177](../../../apps/web/services/projects/projectSnapshot.ts#L145-L177), [apps/backend/src/projects/types.ts:114-142](../../../apps/backend/src/projects/types.ts#L114-L142)
 
 ### Metadata Generation
 Metadata (`SavedProjectMeta`) is derived from the snapshot to provide a lightweight overview for the library view without loading the full multi-megabyte snapshot.
@@ -101,7 +101,7 @@ flowchart TD
     Meta --> SKind[Source Kind]
 ```
 
-Sources: [apps/web/services/projects/projectSnapshot.ts:116-143](apps/web/services/projects/projectSnapshot.ts#L116-L143)
+Sources: [apps/web/services/projects/projectSnapshot.ts:116-143](../../../apps/web/services/projects/projectSnapshot.ts#L116-L143)
 
 ## Source and Binary Management
 
@@ -112,7 +112,7 @@ Projects can be backed by physical files. The system separates the JSON snapshot
 2.  **Archive Sources (Codebases)**: The backend indexes zip files, creating entries in `public.project_source_entries` to allow for granular file-level queries within a codebase without re-downloading the entire archive.
 3.  **Durable Object Storage**: The `PostgresProjectStore` interacts with an object storage provider (e.g., Supabase) to host actual file bytes.
 
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:553-615](apps/backend/src/projects/postgresProjectStore.ts#L553-L615), [apps/backend/src/projects/postgresProjectStore.ts:896-940](apps/backend/src/projects/postgresProjectStore.ts#L896-L940)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:553-615](../../../apps/backend/src/projects/postgresProjectStore.ts#L553-L615), [apps/backend/src/projects/postgresProjectStore.ts:896-940](../../../apps/backend/src/projects/postgresProjectStore.ts#L896-L940)
 
 ### Import Configuration
 The system defines strict limits for project imports to maintain stability.
@@ -124,7 +124,7 @@ The system defines strict limits for project imports to maintain stability.
 | `maxChunkCount` | 32 | Maximum number of chunks allowed per file. |
 | `maxSerializedBytes` | 280,000,000 | Total limit for the serialized project JSON. |
 
-Sources: [apps/backend/src/projects/projectImportConfig.ts:5-11](apps/backend/src/projects/projectImportConfig.ts#L5-L11)
+Sources: [apps/backend/src/projects/projectImportConfig.ts:5-11](../../../apps/backend/src/projects/projectImportConfig.ts#L5-L11)
 
 ## Workspace Organization (Folders & Placements)
 
@@ -153,14 +153,14 @@ erDiagram
     }
 ```
 
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:1146-1185](apps/backend/src/projects/postgresProjectStore.ts#L1146-L1185), [apps/web/hooks/library/useProjectLibrary.ts:178-185](apps/web/hooks/library/useProjectLibrary.ts#L178-L185)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:1146-1185](../../../apps/backend/src/projects/postgresProjectStore.ts#L1146-L1185), [apps/web/hooks/library/useProjectLibrary.ts:178-185](../../../apps/web/hooks/library/useProjectLibrary.ts#L178-L185)
 
 ### Key Management Functions
 *  `moveProjects`: Moves a batch of project IDs to a target folder and recalculates their `order_index` using `SIBLING_ORDER_STEP` (1024).
 *  `deleteFolder`: Implements a "soft-reparent" strategy where children of a deleted folder are moved to the deleted folder's parent rather than being deleted.
 *  `ensurePlacement`: Guarantees that every project owned by a user has a corresponding entry in the library organization, placing new projects at the root by default.
 
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:1056-1087](apps/backend/src/projects/postgresProjectStore.ts#L1056-L1087), [apps/backend/src/projects/postgresProjectStore.ts:1107-1144](apps/backend/src/projects/postgresProjectStore.ts#L1107-L1144)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:1056-1087](../../../apps/backend/src/projects/postgresProjectStore.ts#L1056-L1087), [apps/backend/src/projects/postgresProjectStore.ts:1107-1144](../../../apps/backend/src/projects/postgresProjectStore.ts#L1107-L1144)
 
 ## Summary
-Project & Workspace Management provides a robust foundation for the Nous Reader environment. It bridges the gap between complex AI-driven data structures and reliable database persistence through revision-based synchronization, granular patching of large JSON documents, and a flexible hierarchical organization system for both projects and their original source materials. Sources: [apps/backend/src/projects/postgresProjectStore.ts](apps/backend/src/projects/postgresProjectStore.ts), [apps/web/hooks/library/useProjectLibrary.ts](apps/web/hooks/library/useProjectLibrary.ts)
+Project & Workspace Management provides a robust foundation for the Nous Reader environment. It bridges the gap between complex AI-driven data structures and reliable database persistence through revision-based synchronization, granular patching of large JSON documents, and a flexible hierarchical organization system for both projects and their original source materials. Sources: [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts), [apps/web/hooks/library/useProjectLibrary.ts](../../../apps/web/hooks/library/useProjectLibrary.ts)

@@ -8,13 +8,13 @@ wiki_page_id: "p-managed-deploy"
 
 The following files were used as context for generating this wiki page:
 
-- [deploy/supabase.override.yml](deploy/supabase.override.yml)
-- [scripts/serve-production-frontend.ts](scripts/serve-production-frontend.ts)
-- [apps/web/tests/scripts/productionDeployment.test.ts](apps/web/tests/scripts/productionDeployment.test.ts)
-- [scripts/sync-supabase-auth-emails.ts](scripts/sync-supabase-auth-emails.ts)
-- [deploy/nous.sh](deploy/nous.sh)
-- [README.md](README.md)
-- [apps/backend/src/projects/projectSourceStorage.ts](apps/backend/src/projects/projectSourceStorage.ts)
+- [deploy/supabase.override.yml](../../../deploy/supabase.override.yml)
+- [scripts/serve-production-frontend.ts](../../../scripts/serve-production-frontend.ts)
+- [apps/web/tests/scripts/productionDeployment.test.ts](../../../apps/web/tests/scripts/productionDeployment.test.ts)
+- [scripts/sync-supabase-auth-emails.ts](../../../scripts/sync-supabase-auth-emails.ts)
+- [deploy/nous.sh](../../../deploy/nous.sh)
+- [README.md](../../../README.md)
+- [apps/backend/src/projects/projectSourceStorage.ts](../../../apps/backend/src/projects/projectSourceStorage.ts)
 </details>
 
 # Managed Supabase Deployment
@@ -43,7 +43,7 @@ flowchart TD
 ```
 
 *The diagram shows the interaction between the application components and the managed Supabase cloud services.*
-Sources: [README.md:38-46](README.md#L38-L46), [deploy/nous.sh:58-65](deploy/nous.sh#L58-L65)
+Sources: [README.md:38-46](../../../README.md#L38-L46), [deploy/nous.sh:58-65](../../../deploy/nous.sh#L58-L65)
 
 ## Deployment Configuration
 
@@ -54,13 +54,20 @@ Managed deployment is activated by setting the `SUPABASE_DEPLOYMENT` environment
 | Variable | Description | Requirement |
 | :--- | :--- | :--- |
 | `SUPABASE_DEPLOYMENT` | Set to `managed` for cloud hosting. | Must be `managed` |
+| `NOUS_PUBLIC_URL` | Public URL of the frontend. | Absolute URL and included in CORS origins |
+| `NOUS_BACKEND_PUBLIC_URL` | Public URL of the backend. | Absolute URL |
 | `NOUS_SUPABASE_PUBLIC_URL` | The public URL of the Supabase project. | Absolute URL |
 | `SUPABASE_URL` | The internal API URL for the Supabase project. | Matches public origin |
 | `NOUS_SUPABASE_ANON_KEY` | The anonymous/publishable key for client-side auth. | Non-empty string |
 | `SUPABASE_SERVICE_ROLE_KEY` | High-privilege key for backend administrative tasks. | Keep private |
-| `SUPABASE_JWT_ISSUER` | The expected issuer in the JWT. | Absolute URL |
+| `DATABASE_URL` | PostgreSQL connection URL for the backend. | PostgreSQL URL |
+| `CORS_ALLOWED_ORIGINS` | Allowed frontend origins. | Includes `NOUS_PUBLIC_URL` |
+| `OPENROUTER_API_KEY` | Credential for the configured AI provider. | Keep private |
+| `DECODO_SCRAPING_API_KEY` | Credential for managed web scraping. | Keep private |
+| `SUPABASE_JWT_SECRET` or `SUPABASE_JWKS_URL` | JWT verification material. | At least one is required |
+| `SUPABASE_JWT_ISSUER` | Optional JWT issuer override. | Absolute URL when set |
 
-Sources: [apps/web/tests/scripts/productionDeployment.test.ts:33-54](apps/web/tests/scripts/productionDeployment.test.ts#L33-L54), [README.md:41-45](README.md#L41-L45)
+Sources: [apps/web/tests/scripts/productionDeployment.test.ts:33-54](../../../apps/web/tests/scripts/productionDeployment.test.ts#L33-L54), [README.md:41-45](../../../README.md#L41-L45)
 
 ## Authentication and Email Synchronization
 
@@ -85,7 +92,7 @@ sequenceDiagram
 ```
 
 *Sequence of events for synchronizing Auth email templates with the managed Supabase environment.*
-Sources: [scripts/sync-supabase-auth-emails.ts:18-68](scripts/sync-supabase-auth-emails.ts#L18-L68), [README.md:65-69](README.md#L65-L69)
+Sources: [scripts/sync-supabase-auth-emails.ts:18-68](../../../scripts/sync-supabase-auth-emails.ts#L18-L68), [README.md:65-69](../../../README.md#L65-L69)
 
 ## Project Source Storage
 
@@ -96,7 +103,7 @@ Key aspects of managed storage:
 *  **Integrity Verification:** The system enforces SHA-256 hash checks and byte-size validation for all objects downloaded from the managed bucket to prevent corruption.
 *  **Authenticated Access:** All storage requests are signed using the `SUPABASE_SERVICE_ROLE_KEY`.
 
-Sources: [apps/backend/src/projects/projectSourceStorage.ts:25-33, 91-118](apps/backend/src/projects/projectSourceStorage.ts#L25-L33), [scripts/migrate-project-sources-to-storage.ts:474-500](scripts/migrate-project-sources-to-storage.ts#L474-L500)
+Sources: [apps/backend/src/projects/projectSourceStorage.ts:25-33, 91-118](../../../apps/backend/src/projects/projectSourceStorage.ts#L25-L33), [scripts/migrate-project-sources-to-storage.ts:474-500](../../../scripts/migrate-project-sources-to-storage.ts#L474-L500)
 
 ## Health and Connectivity
 
@@ -113,7 +120,7 @@ flowchart TD
 *Connectivity verification flow for managed cloud endpoints.*
 
 The Supabase Auth health check specifically requires passing the `apikey` and `Authorization` headers containing the `NOUS_SUPABASE_ANON_KEY`.
-Sources: [apps/web/tests/scripts/productionDeployment.test.ts:133-149](apps/web/tests/scripts/productionDeployment.test.ts#L133-L149), [deploy/nous.sh:135-139](deploy/nous.sh#L135-L139)
+Sources: [apps/web/tests/scripts/productionDeployment.test.ts:133-149](../../../apps/web/tests/scripts/productionDeployment.test.ts#L133-L149), [deploy/nous.sh:135-139](../../../deploy/nous.sh#L135-L139)
 
 ## Conclusion
 

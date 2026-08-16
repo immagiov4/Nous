@@ -8,11 +8,11 @@ wiki_page_id: "p-workflow-engine"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/workflows/postgresWorkflowStore.ts](apps/backend/src/workflows/postgresWorkflowStore.ts)
-- [apps/backend/src/workflows/postgresWorkflowPersistence.ts](apps/backend/src/workflows/postgresWorkflowPersistence.ts)
-- [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts](apps/backend/tests/workflows/postgresWorkflowObservability.test.ts)
-- [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts](apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts)
-- [apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts](apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts)
+- [apps/backend/src/workflows/postgresWorkflowStore.ts](../../../apps/backend/src/workflows/postgresWorkflowStore.ts)
+- [apps/backend/src/workflows/postgresWorkflowPersistence.ts](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts)
+- [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts)
+- [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts)
+- [apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts)
 </details>
 
 # Postgres Workflow Engine
@@ -42,7 +42,7 @@ graph TD
     Worker -- Heartbeat --> Steps
 ```
 
-Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:250-295](apps/backend/src/workflows/postgresWorkflowStore.ts#L250-L295), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:70-95](apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L70-L95)
+Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:250-295](../../../apps/backend/src/workflows/postgresWorkflowStore.ts#L250-L295), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:70-95](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L70-L95)
 
 ### Key Classes and Roles
 
@@ -54,7 +54,7 @@ Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:250-295](apps/back
 | `PostgresWorkflowOutboxStore` | A durable outbox for reliable event delivery to external systems or SSE clients. |
 | `PostgresWorkflowPersistence` | Utility layer for low-level SQL insertions of materialized nodes and AI usage records. |
 
-Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:250-325](apps/backend/src/workflows/postgresWorkflowStore.ts#L250-L325), [apps/backend/src/workflows/postgresWorkflowPersistence.ts:25-80](apps/backend/src/workflows/postgresWorkflowPersistence.ts#L25-L80)
+Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:250-325](../../../apps/backend/src/workflows/postgresWorkflowStore.ts#L250-L325), [apps/backend/src/workflows/postgresWorkflowPersistence.ts:25-80](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L25-L80)
 
 ## Workflow Lifecycle and Execution
 
@@ -74,7 +74,7 @@ flowchart TD
     Notify --> Wait[Wait for Worker Claim]
 ```
 
-Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:333-380](apps/backend/src/workflows/postgresWorkflowStore.ts#L333-L380), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:70-90](apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L70-L90)
+Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:333-380](../../../apps/backend/src/workflows/postgresWorkflowStore.ts#L333-L380), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:70-90](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L70-L90)
 
 ### Durable Step Execution
 Steps are executed by workers that "claim" them. A claim includes a **fencing token** to ensure that only the current lease holder can commit results. If a lease expires, another worker can reclaim the step, incrementing the fencing token and invalidating the previous worker's attempt.
@@ -83,7 +83,7 @@ Steps are executed by workers that "claim" them. A claim includes a **fencing to
 - **Retries**: Operational failures trigger retries based on policies defined in the workflow configuration.
 - **AI Usage**: Token counts and costs are recorded in `public.workflow_ai_usage` during step attempts.
 
-Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:503-510](apps/backend/src/workflows/postgresWorkflowStore.ts#L503-L510), [apps/backend/src/workflows/postgresWorkflowPersistence.ts:98-115](apps/backend/src/workflows/postgresWorkflowPersistence.ts#L98-L115), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:110-150](apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L110-L150)
+Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:503-510](../../../apps/backend/src/workflows/postgresWorkflowStore.ts#L503-L510), [apps/backend/src/workflows/postgresWorkflowPersistence.ts:98-115](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L98-L115), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:110-150](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L110-L150)
 
 ## Compensation and Undo Logic
 
@@ -110,7 +110,7 @@ sequenceDiagram
     U->>DB: set cleanup_status: completed
 ```
 
-Sources: [apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts:80-140](apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts#L80-L140), [apps/backend/src/workflows/postgresWorkflowStore.ts:316-320](apps/backend/src/workflows/postgresWorkflowStore.ts#L316-L320)
+Sources: [apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts:80-140](../../../apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts#L80-L140), [apps/backend/src/workflows/postgresWorkflowStore.ts:316-320](../../../apps/backend/src/workflows/postgresWorkflowStore.ts#L316-L320)
 
 ## Durable Outbox and Events
 
@@ -120,7 +120,7 @@ The `PostgresWorkflowOutboxStore` ensures that events (like "lesson.ready") are 
 - **Ordering**: Events are assigned a monotonically increasing `sequence` per run.
 - **Dead-lettering**: Permanently failing notifications are moved to a "dead-letter" status to prevent blocking the delivery of subsequent events in the queue.
 
-Sources: [apps/backend/src/workflows/postgresWorkflowPersistence.ts:64-96](apps/backend/src/workflows/postgresWorkflowPersistence.ts#L64-L96), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:440-500](apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L440-L500)
+Sources: [apps/backend/src/workflows/postgresWorkflowPersistence.ts:64-96](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L64-L96), [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts:440-500](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts#L440-L500)
 
 ## Data Schema Summary
 
@@ -135,13 +135,13 @@ The engine relies on a set of core tables in the `public` schema:
 | `workflow_outbox` | Queue for events generated by workflows that require reliable external delivery. |
 | `workflow_ai_usage` | Metrics for AI model calls, including provider, model, tokens, and cost. |
 
-Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:40-100](apps/backend/src/workflows/postgresWorkflowStore.ts#L40-L100), [apps/backend/src/workflows/postgresWorkflowPersistence.ts:30-105](apps/backend/src/workflows/postgresWorkflowPersistence.ts#L30-L105), [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:60-120](apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L60-L120)
+Sources: [apps/backend/src/workflows/postgresWorkflowStore.ts:40-100](../../../apps/backend/src/workflows/postgresWorkflowStore.ts#L40-L100), [apps/backend/src/workflows/postgresWorkflowPersistence.ts:30-105](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L30-L105), [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:60-120](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L60-L120)
 
 ## Observability and Logging
 
 The system uses a `WorkflowLogger` to record significant events. Crucially, logs are emitted **after** transactions commit to ensure that recorded observability data accurately reflects the persisted state. Logged actions include `created`, `claimed`, `checkpoint-replayed`, `retry-scheduled`, and `lease-lost`.
 
-Sources: [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:130-160](apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L130-L160), [apps/backend/src/workflows/postgresWorkflowStore.ts:420-435](apps/backend/src/workflows/postgresWorkflowStore.ts#L420-L435)
+Sources: [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:130-160](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L130-L160), [apps/backend/src/workflows/postgresWorkflowStore.ts:420-435](../../../apps/backend/src/workflows/postgresWorkflowStore.ts#L420-L435)
 
 ### Summary
 The Postgres Workflow Engine provides Lumina-Reader with a resilient backbone for asynchronous operations. By combining strict transactional integrity, lease-based concurrency control, and reverse-order compensation, it allows developers to build complex, reliable subject-learning features that can scale and recover from failures automatically.

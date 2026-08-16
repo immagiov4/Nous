@@ -8,12 +8,12 @@ wiki_page_id: "p-asset-management"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/projects/postgresProjectAssetStore.ts](apps/backend/src/projects/postgresProjectAssetStore.ts)
-- [apps/backend/src/projects/projectAsset.ts](apps/backend/src/projects/projectAsset.ts)
-- [apps/backend/src/projects/sourceArchive.ts](apps/backend/src/projects/sourceArchive.ts)
-- [apps/backend/src/projects/postgresProjectStore.ts](apps/backend/src/projects/postgresProjectStore.ts)
-- [apps/backend/src/projects/projectAssetImport.ts](apps/backend/src/projects/projectAssetImport.ts)
-- [apps/backend/src/projects/projectAssetReconciliation.ts](apps/backend/src/projects/projectAssetReconciliation.ts)
+- [apps/backend/src/projects/postgresProjectAssetStore.ts](../../../apps/backend/src/projects/postgresProjectAssetStore.ts)
+- [apps/backend/src/projects/projectAsset.ts](../../../apps/backend/src/projects/projectAsset.ts)
+- [apps/backend/src/projects/sourceArchive.ts](../../../apps/backend/src/projects/sourceArchive.ts)
+- [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts)
+- [apps/backend/src/projects/projectAssetImport.ts](../../../apps/backend/src/projects/projectAssetImport.ts)
+- [apps/backend/src/projects/projectAssetReconciliation.ts](../../../apps/backend/src/projects/projectAssetReconciliation.ts)
 </details>
 
 # Project Assets & Storage Archives
@@ -33,29 +33,28 @@ Project assets move through a defined state machine to ensure data integrity and
 | **Active** | Asset is currently referenced by at least one active project snapshot. |
 | **Deletion Pending** | Asset is no longer reachable by any project snapshot and is queued for background cleanup. |
 
-Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:31-35](apps/backend/src/projects/postgresProjectAssetStore.ts#L31-L35), [apps/backend/src/projects/projectAsset.ts](apps/backend/src/projects/projectAsset.ts)
+Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:31-35](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L31-L35), [apps/backend/src/projects/projectAsset.ts](../../../apps/backend/src/projects/projectAsset.ts)
 
 ### The Staging Process
 When a workflow node (e.g., an image generator) produces binary data, it calls `stage()`. This function performs the following steps:
 1. **Deduplication**: Checks for an existing asset with the same idempotency key and bytes.
 2. **Metadata Registration**: Commits a "staged" record to the database to ensure the upload is recoverable.
 3. **Storage Upload**: Transmits bytes to the immutable object storage.
-4. **Advisory Locking**: Uses PostgreSQL advisory locks to prevent concurrent uploads of the same logical asset.
+4. **Row Locking and Idempotency**: Inserts metadata with `ON CONFLICT (id) DO NOTHING`, then reads the resolved asset row `FOR UPDATE` before uploading immutable bytes.
 
-Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:50-130](apps/backend/src/projects/postgresProjectAssetStore.ts#L50-L130)
+Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:50-130](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L50-L130)
 
 ```mermaid
 flowchart TD
-    Start[Workflow Generates Bytes] --> Lock[Acquire Advisory Lock]
-    Lock --> DB_Check{Exists in DB?}
-    DB_Check -- Yes --> Return[Return Existing Ref]
-    DB_Check -- No --> DB_Staged[Insert 'staged' Metadata]
-    DB_Staged --> Storage[Upload to Object Storage]
+    Start[Workflow Generates Bytes] --> DB_Staged[Insert staged metadata]
+    DB_Staged --> DB_Check{Existing asset id?}
+    DB_Check -- Yes --> Lock[Lock resolved metadata row]
+    DB_Check -- No --> Lock
+    Lock --> Storage[Upload to Object Storage]
     Storage --> Success[Complete Staging]
-    Success --> Unlock[Release Advisory Lock]
 ```
 
-This diagram illustrates the idempotent staging flow for new project assets. Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:50-130](apps/backend/src/projects/postgresProjectAssetStore.ts#L50-L130)
+This diagram illustrates the idempotent staging flow for new project assets. Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:50-130](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L50-L130)
 
 ## Source Archives & Indexing
 
@@ -68,17 +67,17 @@ The `indexSourceArchive` function processes ZIP buffers and extracts a lexicogra
 - Enforce strict security boundaries (e.g., rejecting directory traversal paths like `../`).
 - Respect size limits for both individual entries and total expanded bytes.
 
-Sources: [apps/backend/src/projects/sourceArchive.ts:108-200](apps/backend/src/projects/sourceArchive.ts#L108-L200)
+Sources: [apps/backend/src/projects/sourceArchive.ts:108-200](../../../apps/backend/src/projects/sourceArchive.ts#L108-L200)
 
 ### Limits for Source Archives
 | Configuration | Default Value | Description |
 | :--- | :--- | :--- |
-| `maxEntries` | 10,000 | Maximum number of files and directories in an archive. |
-| `maxEntryBytes` | 10 MB | Maximum uncompressed size for a single entry. |
-| `maxExpandedBytes` | 100 MB | Maximum cumulative size of all entries. |
-| `maxCompressedBytes` | 50 MB | Maximum size of the uploaded ZIP file. |
+| `maxEntries` | 20,000 | Maximum number of files and directories in an archive. |
+| `maxEntryBytes` | 256,000,000 bytes | Maximum uncompressed size for a single entry. |
+| `maxExpandedBytes` | 1,000,000,000 bytes | Maximum cumulative size of all entries. |
+| `maxCompressedBytes` | 256,000,000 bytes | Maximum size of the uploaded ZIP file. |
 
-Sources: [apps/backend/src/projects/sourceArchive.ts:16-25](apps/backend/src/projects/sourceArchive.ts#L16-L25), [apps/backend/src/projects/postgresProjectStore.ts:121](apps/backend/src/projects/postgresProjectStore.ts#L121)
+Sources: [apps/backend/src/projects/sourceArchive.ts:16-25](../../../apps/backend/src/projects/sourceArchive.ts#L16-L25), [apps/backend/src/projects/postgresProjectStore.ts:121](../../../apps/backend/src/projects/postgresProjectStore.ts#L121)
 
 ## Project Asset Reconciliation
 
@@ -90,7 +89,7 @@ The `reconcileProjectAssets` function compares the asset references in the `prev
 - **Adoption**: When a staged asset is first included in a project snapshot, its state changes to 'active'.
 - **Retirement**: If an asset was active in the previous snapshot but is missing in the new one, it is transitioned to 'deletion-pending' unless it is still reachable via other parts of the project.
 
-Sources: [apps/backend/src/projects/projectAssetReconciliation.ts:25-85](apps/backend/src/projects/projectAssetReconciliation.ts#L25-L85)
+Sources: [apps/backend/src/projects/projectAssetReconciliation.ts:25-85](../../../apps/backend/src/projects/projectAssetReconciliation.ts#L25-L85)
 
 ```mermaid
 sequenceDiagram
@@ -105,7 +104,7 @@ sequenceDiagram
     Recon-->>Store: Count of reconciled assets
 ```
 
-This sequence shows the transactional update of asset states during a project save operation. Sources: [apps/backend/src/projects/projectAssetReconciliation.ts:25-85](apps/backend/src/projects/projectAssetReconciliation.ts#L25-L85)
+This sequence shows the transactional update of asset states during a project save operation. Sources: [apps/backend/src/projects/projectAssetReconciliation.ts:25-85](../../../apps/backend/src/projects/projectAssetReconciliation.ts#L25-L85)
 
 ## Storage Implementation
 
@@ -119,7 +118,7 @@ Object paths are deterministic and follow a strict hierarchy to ensure privacy a
 - **Asset Identity Hash**: A hash derived from the origin (e.g., workflow run ID and node instance).
 - **Content Hash**: SHA-256 of the actual bytes.
 
-Sources: [apps/backend/src/projects/projectAsset.ts:80-110](apps/backend/src/projects/projectAsset.ts#L80-L110), [apps/backend/src/projects/postgresProjectAssetStore.ts:983-990](apps/backend/src/projects/postgresProjectAssetStore.ts#L983-L990)
+Sources: [apps/backend/src/projects/projectAsset.ts:80-110](../../../apps/backend/src/projects/projectAsset.ts#L80-L110), [apps/backend/src/projects/postgresProjectAssetStore.ts:983-990](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L983-L990)
 
 ### Transactional Integrity
 Binary uploads occur outside the main PostgreSQL transaction because object storage does not support distributed transactions. To maintain consistency, the system uses a "Cleanup Intent" pattern:
@@ -127,7 +126,7 @@ Binary uploads occur outside the main PostgreSQL transaction because object stor
 2. If the upload fails or the process crashes, the background cleaner uses this record to remove the partial object.
 3. Upon successful project commitment, the deletion record is removed.
 
-Sources: [apps/backend/src/projects/projectAssetImport.ts:65-85](apps/backend/src/projects/projectAssetImport.ts#L65-L85), [apps/backend/src/projects/postgresProjectAssetStore.ts:580-620](apps/backend/src/projects/postgresProjectAssetStore.ts#L580-L620)
+Sources: [apps/backend/src/projects/projectAssetImport.ts:65-85](../../../apps/backend/src/projects/projectAssetImport.ts#L65-L85), [apps/backend/src/projects/postgresProjectAssetStore.ts:580-620](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L580-L620)
 
 ## Import & Export Mechanism
 
@@ -138,7 +137,7 @@ The `PostgresProjectAssetImporter` handles:
 2. **ID Remapping**: Generating new internal IDs and storage paths for the target user.
 3. **Durable Publication**: Inserting metadata for imported assets and clearing cleanup intents in a single database transaction.
 
-Sources: [apps/backend/src/projects/projectAssetImport.ts:95-155](apps/backend/src/projects/projectAssetImport.ts#L95-L155)
+Sources: [apps/backend/src/projects/projectAssetImport.ts:95-155](../../../apps/backend/src/projects/projectAssetImport.ts#L95-L155)
 
 ## Background Cleanup
 
@@ -148,8 +147,8 @@ Orphaned assets (those in `deletion-pending` state or those whose project has be
 2. **Fencing**: Uses a `fencingToken` (a monotonically increasing counter) to ensure that if a worker's lease expires, a subsequent worker can safely take over without race conditions.
 3. **Execution**: The storage object is deleted first, followed by the database metadata.
 
-Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:200-280](apps/backend/src/projects/postgresProjectAssetStore.ts#L200-L280), [apps/backend/src/projects/postgresProjectAssetStore.ts:400-450](apps/backend/src/projects/postgresProjectAssetStore.ts#L400-L450)
+Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:200-280](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L200-L280), [apps/backend/src/projects/postgresProjectAssetStore.ts:400-450](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L400-L450)
 
 ## Summary
 
-The Project Assets & Storage Archive system provides a resilient layer for handling Lumina-Reader's heavy data requirements. By combining content-addressable storage with PostgreSQL metadata tracking and advisory locking, it achieves high performance through deduplication while maintaining strict user data isolation and transactional consistency.
+The Project Assets & Storage Archive system provides a resilient layer for handling Lumina-Reader's heavy data requirements. By combining content-addressable storage with PostgreSQL metadata tracking, row locking, and idempotent inserts, it achieves high performance through deduplication while maintaining strict user data isolation and transactional consistency.

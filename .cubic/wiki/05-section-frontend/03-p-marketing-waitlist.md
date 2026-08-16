@@ -8,11 +8,11 @@ wiki_page_id: "p-marketing-waitlist"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/web/components/marketing/LandingPage.tsx](apps/web/components/marketing/LandingPage.tsx)
-- [apps/web/components/marketing/WaitlistForm.tsx](apps/web/components/marketing/WaitlistForm.tsx)
-- [apps/web/components/marketing/marketing.css](apps/web/components/marketing/marketing.css)
-- [apps/web/components/newHome/NewHomeView.tsx](apps/web/components/newHome/NewHomeView.tsx)
-- [scripts/feature-map.ts](scripts/feature-map.ts)
+- [apps/web/components/marketing/LandingPage.tsx](../../../apps/web/components/marketing/LandingPage.tsx)
+- [apps/web/components/marketing/WaitlistForm.tsx](../../../apps/web/components/marketing/WaitlistForm.tsx)
+- [apps/web/components/marketing/marketing.css](../../../apps/web/components/marketing/marketing.css)
+- [apps/web/components/newHome/NewHomeView.tsx](../../../apps/web/components/newHome/NewHomeView.tsx)
+- [scripts/feature-map.ts](../../../scripts/feature-map.ts)
 </details>
 
 # Marketing & Waitlist Views
@@ -30,7 +30,7 @@ The `LandingPage` component serves as the primary container for the marketing si
 *  **Responsive Layout:** The view switches between a scroll-linked desktop experience and a manual button-controlled mobile experience when the viewport width is below `52rem`.
 *  **Authentication Integration:** Provides a `loginPanel` slot and manages an accessible HTML `<dialog>` for invite-only access.
 
-Sources: [apps/web/components/marketing/LandingPage.tsx:32-108](apps/web/components/marketing/LandingPage.tsx#L32-L108), [apps/web/components/marketing/marketing.css:662-730](apps/web/components/marketing/marketing.css#L662-L730)
+Sources: [apps/web/components/marketing/LandingPage.tsx:32-108](../../../apps/web/components/marketing/LandingPage.tsx#L32-L108), [apps/web/components/marketing/marketing.css:662-730](../../../apps/web/components/marketing/marketing.css#L662-L730)
 
 ### Navigation and Interaction Flow
 
@@ -53,7 +53,7 @@ flowchart TD
     Toggle -- Yes --> MobNav[Show/Hide Mobile Nav]
 ```
 
-Sources: [apps/web/components/marketing/LandingPage.tsx:123-176](apps/web/components/marketing/LandingPage.tsx#L123-L176), [apps/web/components/marketing/marketing.css:88-100](apps/web/components/marketing/marketing.css#L88-L100)
+Sources: [apps/web/components/marketing/LandingPage.tsx:123-176](../../../apps/web/components/marketing/LandingPage.tsx#L123-L176), [apps/web/components/marketing/marketing.css:88-100](../../../apps/web/components/marketing/marketing.css#L88-L100)
 
 ## Waitlist Management System
 
@@ -65,7 +65,7 @@ The waitlist system is the primary conversion point for new users. It is impleme
 | :--- | :--- | :--- |
 | `onJoinWaitlist` | `(email: string) => Promise<void>` | Optional callback invoked when the form is submitted. |
 
-Sources: [apps/web/components/marketing/WaitlistForm.tsx:5-9](apps/web/components/marketing/WaitlistForm.tsx#L5-L9)
+Sources: [apps/web/components/marketing/WaitlistForm.tsx:5-9](../../../apps/web/components/marketing/WaitlistForm.tsx#L5-L9)
 
 ### Submission Logic
 1.  **Validation:** The form ensures the input is not empty before submission.
@@ -93,7 +93,7 @@ sequenceDiagram
     Form->>Form: Set isSubmitting(false)
 ```
 
-Sources: [apps/web/components/marketing/WaitlistForm.tsx:12-52](apps/web/components/marketing/WaitlistForm.tsx#L12-L52)
+Sources: [apps/web/components/marketing/WaitlistForm.tsx:12-52](../../../apps/web/components/marketing/WaitlistForm.tsx#L12-L52)
 
 ## Product Journey Demos
 
@@ -107,7 +107,7 @@ The "Journey" section uses the `LandingProductDemo` component to visualize the a
 | **Lesson** | `lesson` | Displays the interactive lesson interface. |
 | **Library** | `library` | Shows the organization of materials in the user's library. |
 
-Sources: [apps/web/components/marketing/LandingPage.tsx:28](apps/web/components/marketing/LandingPage.tsx#L28), [apps/web/components/marketing/marketing.css:150-250](apps/web/components/marketing/marketing.css#L150-L250)
+Sources: [apps/web/components/marketing/LandingPage.tsx:28](../../../apps/web/components/marketing/LandingPage.tsx#L28), [apps/web/components/marketing/marketing.css:150-250](../../../apps/web/components/marketing/marketing.css#L150-L250)
 
 ## Aesthetic and Design System
 
@@ -124,7 +124,7 @@ The site uses a combination of serif and sans-serif fonts:
 *  **Serif:** "Playfair Display", "Merriweather" (Used for headings and branding).
 *  **Sans:** "Inter" (Used for body text and navigation).
 
-Sources: [apps/web/components/marketing/marketing.css:20-40](apps/web/components/marketing/marketing.css#L20-L40)
+Sources: [apps/web/components/marketing/marketing.css:20-40](../../../apps/web/components/marketing/marketing.css#L20-L40)
 
 ## Visual Transitions and Animations
 
@@ -134,7 +134,7 @@ The marketing experience is enhanced with CSS-based animations to guide user att
 *  **Interactive Demo Elements:** Keyframes like `marketing-demo-cursor-path` and `marketing-demo-question` simulate user interaction within the demo windows, showing how questions are asked and answered.
 *  **Responsive Adjustments:** The layout heavily utilizes `clamp()` for fluid typography and spacing across different screen sizes.
 
-Sources: [apps/web/components/marketing/marketing.css:168-180](apps/web/components/marketing/marketing.css#L168-L180), [apps/web/components/marketing/marketing.css:502-535](apps/web/components/marketing/marketing.css#L502-L535)
+Sources: [apps/web/components/marketing/marketing.css:168-180](../../../apps/web/components/marketing/marketing.css#L168-L180), [apps/web/components/marketing/marketing.css:502-535](../../../apps/web/components/marketing/marketing.css#L502-L535)
 
 ## Feature Mapping and Entrypoints
 
@@ -143,7 +143,7 @@ The project uses a `feature-map` script to track reachable modules from these pu
 *  **Production Entrypoint:** The main Vite module entrypoint.
 *  **Demo Entrypoints:** Located in `apps/web/remotion`, these are used for generating marketing assets and video demonstrations.
 
-Sources: [scripts/feature-map.ts:168-185](scripts/feature-map.ts#L168-L185), [apps/web/components/newHome/NewHomeView.tsx:82-95](apps/web/components/newHome/NewHomeView.tsx#L82-L95)
+Sources: [scripts/feature-map.ts:168-185](../../../scripts/feature-map.ts#L168-L185), [apps/web/components/newHome/NewHomeView.tsx:82-95](../../../apps/web/components/newHome/NewHomeView.tsx#L82-L95)
 
 ## Conclusion
 

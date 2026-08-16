@@ -8,12 +8,12 @@ wiki_page_id: "p-database-schema"
 
 The following files were used as context for generating this wiki page:
 
-- [supabase/migrations/202607070001_initial_user_backend.sql](supabase/migrations/202607070001_initial_user_backend.sql)
-- [supabase/migrations/20260729113844_create_workflow_runtime.sql](supabase/migrations/20260729113844_create_workflow_runtime.sql)
-- [supabase/migrations/20260801150000_create_workflow_ai_usage.sql](supabase/migrations/20260801150000_create_workflow_ai_usage.sql)
-- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](apps/backend/tests/integration/supabaseLocal.integration.test.ts)
-- [scripts/migrate-project-sources-to-storage.ts](scripts/migrate-project-sources-to-storage.ts)
-- [scripts/project-source-storage-artifact.ts](scripts/project-source-storage-artifact.ts)
+- [supabase/migrations/202607070001_initial_user_backend.sql](../../../supabase/migrations/202607070001_initial_user_backend.sql)
+- [supabase/migrations/20260729113844_create_workflow_runtime.sql](../../../supabase/migrations/20260729113844_create_workflow_runtime.sql)
+- [supabase/migrations/20260801150000_create_workflow_ai_usage.sql](../../../supabase/migrations/20260801150000_create_workflow_ai_usage.sql)
+- [apps/backend/tests/integration/supabaseLocal.integration.test.ts](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts)
+- [scripts/migrate-project-sources-to-storage.ts](../../../scripts/migrate-project-sources-to-storage.ts)
+- [scripts/project-source-storage-artifact.ts](../../../scripts/project-source-storage-artifact.ts)
 </details>
 
 # Supabase PostgreSQL Schema
@@ -54,19 +54,19 @@ erDiagram
     }
 ```
 
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:250-280](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L250-L280), [scripts/migrate-project-sources-to-storage.ts:18-40](scripts/migrate-project-sources-to-storage.ts#L18-L40)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:250-280](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L250-L280), [scripts/migrate-project-sources-to-storage.ts:18-40](../../../scripts/migrate-project-sources-to-storage.ts#L18-L40)
 
 ### Database Tables Summary
 
 | Table | Description | Primary Key |
 | :--- | :--- | :--- |
 | `projects` | Master table for project metadata and user ownership. | `(user_id, id)` |
-| `project_snapshots` | Versioned states of the project, including lesson plans and progress. | `(user_id, id)` |
-| `project_sources` | Metadata for primary source files (PDFs, docs) stored in Supabase Storage. | `(user_id, project_id, source_id)` |
+| `project_snapshots` | The current saved state of a project, including lesson plans and progress. | `(user_id, id)` |
+| `project_sources` | Metadata for a project's source set stored in Supabase Storage. | `(user_id, project_id)` |
 | `project_source_files` | Tracking for individual files within a multi-source project. | `(user_id, project_id, source_id)` |
 | `project_source_entries` | Indexing for archive contents (e.g., zip file directories/files). | `(user_id, project_id, path)` |
 
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:265-275](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L265-L275), [scripts/migrate-project-sources-to-storage.ts:20-35](scripts/migrate-project-sources-to-storage.ts#L20-L35)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:265-275](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L265-L275), [scripts/migrate-project-sources-to-storage.ts:20-35](../../../scripts/migrate-project-sources-to-storage.ts#L20-L35)
 
 ## Storage Migration & Staging
 
@@ -86,15 +86,15 @@ flowchart TD
     G --> H[Final Schema: Storage metadata]
 ```
 
-Sources: [scripts/migrate-project-sources-to-storage.ts:200-240](scripts/migrate-project-sources-to-storage.ts#L200-L240), [scripts/migrate-project-sources-to-storage.ts:740-780](scripts/migrate-project-sources-to-storage.ts#L740-L780)
+Sources: [scripts/migrate-project-sources-to-storage.ts:200-240](../../../scripts/migrate-project-sources-to-storage.ts#L200-L240), [scripts/migrate-project-sources-to-storage.ts:740-780](../../../scripts/migrate-project-sources-to-storage.ts#L740-L780)
 
 ### Integrity Constraints
 The schema enforces strict validation on source objects:
-- **Object Paths**: Encoded as `users/{user_id}/projects/{project_id}/{source_id}/{hash}/original`.
+- **Object Paths**: Encoded as `users/{user_id}/projects/{sha256(project_id)}/{source_id}/{hash}/original`.
 - **Content Addressing**: Every file is verified using a SHA-256 hash to detect collisions or corruption.
 - **Privacy**: The `project-sources` bucket is explicitly checked to ensure it is not public.
 
-Sources: [scripts/project-source-storage-artifact.ts:50-70](scripts/project-source-storage-artifact.ts#L50-L70), [scripts/migrate-project-sources-to-storage.ts:850-870](scripts/migrate-project-sources-to-storage.ts#L850-L870)
+Sources: [scripts/project-source-storage-artifact.ts:50-70](../../../scripts/project-source-storage-artifact.ts#L50-L70), [scripts/migrate-project-sources-to-storage.ts:850-870](../../../scripts/migrate-project-sources-to-storage.ts#L850-L870)
 
 ## Workflow & AI Runtime Tracking
 
@@ -109,14 +109,14 @@ sequenceDiagram
     participant App as Backend Service
     participant DB as PostgreSQL
     participant AI as AI Model Provider
-    App->>DB: Insert workflow_runtime (status: pending)
+    App->>DB: Insert workflow_runs (status: queued)
     App->>AI: Request generation
     AI-->>App: Return content + usage
-    App->>DB: Update workflow_runtime (status: completed)
+    App->>DB: Update workflow_runs and workflow_node_runs
     App->>DB: Log workflow_ai_usage (tokens, model)
 ```
 
-Sources: [supabase/migrations/20260729113844_create_workflow_runtime.sql](supabase/migrations/20260729113844_create_workflow_runtime.sql), [supabase/migrations/20260801150000_create_workflow_ai_usage.sql](supabase/migrations/20260801150000_create_workflow_ai_usage.sql)
+Sources: [supabase/migrations/20260729113844_create_workflow_runtime.sql](../../../supabase/migrations/20260729113844_create_workflow_runtime.sql), [supabase/migrations/20260801150000_create_workflow_ai_usage.sql](../../../supabase/migrations/20260801150000_create_workflow_ai_usage.sql)
 
 ## Security and Tenancy
 
@@ -126,7 +126,7 @@ Data security is managed through PostgreSQL Row Level Security (RLS), ensuring t
 2.  **Access Control**: The backend uses a `service_role` key for administrative tasks (like migrations), while client requests are restricted by user-specific JWT tokens.
 3.  **Auth Integration**: The schema supports Supabase Auth features, including magic links and password setup requirements for invited users.
 
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:175-195](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L175-L195), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:470-500](apps/backend/tests/integration/supabaseLocal.integration.test.ts#L470-L500)
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:175-195](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L175-L195), [apps/backend/tests/integration/supabaseLocal.integration.test.ts:470-500](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L470-L500)
 
 ## Summary
 

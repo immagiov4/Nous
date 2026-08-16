@@ -8,13 +8,13 @@ wiki_page_id: "p-course-gen"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/workflows/courseGenerationWorkflow.ts](apps/backend/src/workflows/courseGenerationWorkflow.ts)
-- [apps/backend/src/workflows/courseGenerationPlanning.ts](apps/backend/src/workflows/courseGenerationPlanning.ts)
-- [apps/backend/src/workflows/courseSourceFinalization.ts](apps/backend/src/workflows/courseSourceFinalization.ts)
-- [apps/backend/src/workflows/courseGenerationPreparation.ts](apps/backend/src/workflows/courseGenerationPreparation.ts)
-- [apps/backend/src/workflows/courseGenerationProduction.ts](apps/backend/src/workflows/courseGenerationProduction.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](apps/backend/src/services/lessonGenerationPrompt.ts)
-- [packages/shared-types/lessonWritingContract.ts](packages/shared-types/lessonWritingContract.ts)
+- [apps/backend/src/workflows/courseGenerationWorkflow.ts](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts)
+- [apps/backend/src/workflows/courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts)
+- [apps/backend/src/workflows/courseSourceFinalization.ts](../../../apps/backend/src/workflows/courseSourceFinalization.ts)
+- [apps/backend/src/workflows/courseGenerationPreparation.ts](../../../apps/backend/src/workflows/courseGenerationPreparation.ts)
+- [apps/backend/src/workflows/courseGenerationProduction.ts](../../../apps/backend/src/workflows/courseGenerationProduction.ts)
+- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+- [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
 
 </details>
 
@@ -24,7 +24,7 @@ The Course Generation Workflow is a complex, durable orchestration system respon
 
 The workflow is built on a modular architecture that supports different learning strategies: `learn` (pure AI-generated based on topic), `single-source` (based on one document), `source-set` (based on multiple documents), and `archive`. It leverages LLMs for drafting and refining plans while enforcing strict structural and pedagogical constraints defined in shared contracts.
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:1-20](apps/backend/src/workflows/courseGenerationWorkflow.ts#L1-L20), [apps/backend/src/workflows/courseGenerationPreparation.ts:114-125](apps/backend/src/workflows/courseGenerationPreparation.ts#L114-L125)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:1-20](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L1-L20), [apps/backend/src/workflows/courseGenerationPreparation.ts:114-125](../../../apps/backend/src/workflows/courseGenerationPreparation.ts#L114-L125)
 
 ## Workflow Architecture and Stages
 
@@ -57,7 +57,7 @@ flowchart TD
     end
 ```
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:297-313](apps/backend/src/workflows/courseGenerationWorkflow.ts#L297-L313)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:297-313](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L297-L313)
 
 ### Stage Descriptions
 
@@ -69,7 +69,7 @@ Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:297-313](apps/b
 | **Source Mapping** | Maps specific modules and lessons to chunks of provided PDF or Markdown documents. | `finalizeCourseSources` |
 | **Persistence** | Commits the generated course to the database within a transaction, supporting atomic undo operations. | `persistCourse` |
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:60-100](apps/backend/src/workflows/courseGenerationWorkflow.ts#L60-L100), [apps/backend/src/workflows/courseSourceFinalization.ts:400-450](apps/backend/src/workflows/courseSourceFinalization.ts#L400-L450)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:60-100](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L60-L100), [apps/backend/src/workflows/courseSourceFinalization.ts:400-450](../../../apps/backend/src/workflows/courseSourceFinalization.ts#L400-L450)
 
 ## Pedagogical Planning and Refinement
 
@@ -78,14 +78,14 @@ Planning is the core intellectual phase of the workflow. It transforms research 
 ### The Refinement Loop
 The workflow does not simply generate a plan; it subjects the draft to a `verifyCoursePlan` stage. If the verification identifies issues (e.g., poor granularity, broken prerequisites, or lack of progression), the `refineCoursePlan` stage is triggered with corrective feedback. Final validation is enforced by `validateRefinedCoursePlan`, which throws a permanent failure if the plan remains structurally unsound.
 
-Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:250-280](apps/backend/src/workflows/courseGenerationPlanning.ts#L250-L280), [apps/backend/src/workflows/courseGenerationWorkflow.ts:178-192](apps/backend/src/workflows/courseGenerationWorkflow.ts#L178-L192)
+Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:250-280](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L250-L280), [apps/backend/src/workflows/courseGenerationWorkflow.ts:178-192](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L178-L192)
 
 ### Plan Structural Constraints
 - **Lesson Range:** For `learn` mode, the plan must contain between 8 and 24 lessons.
 - **Propedeutic Order:** lections must be strictly ordered such that prerequisites are introduced before advanced concepts.
 - **Source Integrity:** The plan can only reference URLs explicitly provided in the research evidence; hallucinated URLs trigger a `course_plan_source_invalid` error.
 
-Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:19-22](apps/backend/src/workflows/courseGenerationPlanning.ts#L19-L22), [apps/backend/src/workflows/courseGenerationPlanning.ts:64-75](apps/backend/src/workflows/courseGenerationPlanning.ts#L64-L75)
+Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:19-22](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L19-L22), [apps/backend/src/workflows/courseGenerationPlanning.ts:64-75](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L64-L75)
 
 ## Source Finalization and Document Indexing
 
@@ -109,7 +109,7 @@ flowchart TD
     Complete --> Apply[Apply Chunks to Lessons]
 ```
 
-Sources: [apps/backend/src/workflows/courseSourceFinalization.ts:460-520](apps/backend/src/workflows/courseSourceFinalization.ts#L460-L520), [apps/backend/src/workflows/courseSourceFinalization.ts:133-150](apps/backend/src/workflows/courseSourceFinalization.ts#L133-L150)
+Sources: [apps/backend/src/workflows/courseSourceFinalization.ts:460-520](../../../apps/backend/src/workflows/courseSourceFinalization.ts#L460-L520), [apps/backend/src/workflows/courseSourceFinalization.ts:133-150](../../../apps/backend/src/workflows/courseSourceFinalization.ts#L133-L150)
 
 ## Content Generation Standards
 
@@ -122,7 +122,7 @@ The actual writing of lessons is governed by a `lessonWritingContract`, which en
 - **KaTeX:** All mathematical formulas must use consistent KaTeX syntax ($...$ for inline, $$...$$ for display).
 - **Visuals:** Images are selected from provided `imageCandidates` and must be anchored to specific headings.
 
-Sources: [packages/shared-types/lessonWritingContract.ts:40-80](packages/shared-types/lessonWritingContract.ts#L40-L80), [apps/backend/src/services/lessonGenerationPrompt.ts:15-30](apps/backend/src/services/lessonGenerationPrompt.ts#L15-L30)
+Sources: [packages/shared-types/lessonWritingContract.ts:40-80](../../../packages/shared-types/lessonWritingContract.ts#L40-L80), [apps/backend/src/services/lessonGenerationPrompt.ts:15-30](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L15-L30)
 
 ## Technical Implementation Details
 
@@ -143,7 +143,7 @@ The workflow uses a specialized `runWorkflowStage` helper. It distinguishes betw
 - **Corrective Failures:** Semantic issues (e.g., invalid JSON) that provide feedback to the LLM for the next attempt.
 - **Permanent Failures:** Fatal errors (e.g., missing project) that stop the workflow entirely.
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:75-95](apps/backend/src/workflows/courseGenerationWorkflow.ts#L75-L95), [apps/backend/src/workflows/retryPolicy.ts:1-20](apps/backend/src/workflows/retryPolicy.ts#L1-L20)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:75-95](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L75-L95), [apps/backend/src/workflows/retryPolicy.ts:1-20](../../../apps/backend/src/workflows/retryPolicy.ts#L1-L20)
 
 ## Summary
 

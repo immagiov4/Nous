@@ -8,13 +8,13 @@ wiki_page_id: "p-local-setup"
 
 The following files were used as context for generating this wiki page:
 
-- [README.md](README.md)
-- [package.json](package.json)
-- [scripts/ensure-local-dev-services.ts](scripts/ensure-local-dev-services.ts)
-- [scripts/doctor.ts](scripts/doctor.ts)
-- [scripts/bootstrap-sonar-local.ts](scripts/bootstrap-sonar-local.ts)
-- [AGENTS.md](AGENTS.md)
-- [biome.json](biome.json)
+- [README.md](../../../README.md)
+- [package.json](../../../package.json)
+- [scripts/ensure-local-dev-services.ts](../../../scripts/ensure-local-dev-services.ts)
+- [scripts/doctor.ts](../../../scripts/doctor.ts)
+- [scripts/bootstrap-sonar-local.ts](../../../scripts/bootstrap-sonar-local.ts)
+- [AGENTS.md](../../../AGENTS.md)
+- [biome.json](../../../biome.json)
 
 </details>
 
@@ -34,12 +34,12 @@ The project uses a unified workspace managed by Bun. All commands should be exec
 3.  **API Keys:** Set required keys such as `OPENROUTER_API_KEY` and local Supabase keys.
 4.  **Start Services:** Execute `bun run dev` to launch the Vite frontend (`:5173`) and Express backend (`:3301`).
 
-Sources: [README.md:14-25](README.md#L14-L25), [scripts/doctor.ts:12-25](scripts/doctor.ts#L12-L25)
+Sources: [README.md:14-25](../../../README.md#L14-L25), [scripts/doctor.ts:12-25](../../../scripts/doctor.ts#L12-L25)
 
 ### Runtime Validation
 The project strictly pins its runtime version. The `doctor` script verifies that the local Bun version matches the one defined in `package.json` and the CI workflow (`.github/workflows/ci.yml`).
 
-Sources: [scripts/doctor.ts:252-276](scripts/doctor.ts#L252-L276), [package.json:208](package.json#L208)
+Sources: [scripts/doctor.ts:252-276](../../../scripts/doctor.ts#L252-L276), [package.json:208](../../../package.json#L208)
 
 ## Service Infrastructure Management
 
@@ -49,10 +49,10 @@ The project automates the lifecycle of Docker-based services. The initialization
 The initialization logic performs the following sequence:
 - **Docker Info:** Verifies the Docker engine is running; on Windows/macOS, it attempts to start Docker Desktop with a 120-second timeout.
 - **Supabase Stack:** Starts the Supabase local stack if it is not already reachable. If the stack is incomplete, it attempts a recovery (stop and restart).
-- **Database Migrations:** Applies local migrations via `supabase migration up --local`.
 - **Project Sources:** Runs `scripts/migrate-project-sources-to-storage.ts` to stage local project data.
+- **Database Migrations:** Applies local migrations via `supabase migration up --local` after source staging.
 
-Sources: [scripts/ensure-local-dev-services.ts:74-135](scripts/ensure-local-dev-services.ts#L74-L135), [README.md:27-31](README.md#L27-L31)
+Sources: [scripts/ensure-local-dev-services.ts:74-135](../../../scripts/ensure-local-dev-services.ts#L74-L135), [README.md:27-31](../../../README.md#L27-L31)
 
 ### Infrastructure Initialization Flow
 The following diagram illustrates the automated startup sequence when running `bun run dev`.
@@ -66,16 +66,16 @@ flowchart TD
     StartDocker --> DockerCheck
     DockerCheck -- Yes --> SupaCheck{Supabase Up?}
     SupaCheck -- No --> SupaStart[bunx supabase start]
-    SupaStart --> Migration[Apply migrations]
-    Migration --> SourceMig[Migrate project sources]
-    SourceMig --> AuthHealth{Auth Health Check}
-    SupaCheck -- Yes --> AuthHealth
+    SupaStart --> SourceMig[Migrate project sources]
+    SupaCheck -- Yes --> SourceMig
+    SourceMig --> Migration[Apply migrations]
+    Migration --> AuthHealth{Auth Health Check}
     AuthHealth -- Pass --> AppStart
     AuthHealth -- Fail --> Exit[Exit with Error]
 ```
 
 A visual representation of the pre-flight checks performed to ensure a functional local backend.
-Sources: [scripts/ensure-local-dev-services.ts:137-160](scripts/ensure-local-dev-services.ts#L137-L160)
+Sources: [scripts/ensure-local-dev-services.ts:137-160](../../../scripts/ensure-local-dev-services.ts#L137-L160)
 
 ## Health Diagnostics and Quality Gates
 
@@ -89,7 +89,7 @@ The `doctor` utility is the primary tool for environment verification. It suppor
 | `local` | Probes local Supabase services (Auth, Data API, Storage, Realtime) and checks for migration drift. |
 | `all` | Combines all the above checks and service probes. |
 
-Sources: [scripts/doctor.ts:47-52](scripts/doctor.ts#L47-L52), [AGENTS.md:121-131](AGENTS.md#L121-L131)
+Sources: [scripts/doctor.ts:47-52](../../../scripts/doctor.ts#L47-L52), [AGENTS.md:121-131](../../../AGENTS.md#L121-L131)
 
 ### Quality Control Commands
 | Command | Purpose |
@@ -99,7 +99,7 @@ Sources: [scripts/doctor.ts:47-52](scripts/doctor.ts#L47-L52), [AGENTS.md:121-13
 | `bun run gate` | Executes the full local quality gate (quality + tests). |
 | `bun run fix` | Auto-fixes Biome lint, formatting, and import ordering issues. |
 
-Sources: [AGENTS.md:132-145](AGENTS.md#L132-L145), [biome.json:34-73](biome.json#L34-L73)
+Sources: [AGENTS.md:132-145](../../../AGENTS.md#L132-L145), [biome.json:34-73](../../../biome.json#L34-L73)
 
 ## Local SonarQube Integration
 
@@ -113,7 +113,7 @@ For local static analysis, the environment includes a bootstrap script for Sonar
   - Persists configurations to `sonar.local.properties`.
 3.  **Validation:** The `doctor --profile gate` command verifies that the service is `UP` and the token is valid.
 
-Sources: [scripts/bootstrap-sonar-local.ts:121-168](scripts/bootstrap-sonar-local.ts#L121-L168), [scripts/doctor.ts:289-325](scripts/doctor.ts#L289-L325)
+Sources: [scripts/bootstrap-sonar-local.ts:121-168](../../../scripts/bootstrap-sonar-local.ts#L121-L168), [scripts/doctor.ts:289-325](../../../scripts/doctor.ts#L289-L325)
 
 ```mermaid
 sequenceDiagram
@@ -130,7 +130,7 @@ sequenceDiagram
 ```
 
 Sequence of token generation and authentication required for local SonarQube analysis.
-Sources: [scripts/bootstrap-sonar-local.ts:170-198](scripts/bootstrap-sonar-local.ts#L170-L198)
+Sources: [scripts/bootstrap-sonar-local.ts:170-198](../../../scripts/bootstrap-sonar-local.ts#L170-L198)
 
 ## Conclusion
 The local environment setup for Lumina-Reader is designed for reliability and consistency. By utilizing Bun and Docker, it provides a predictable sandbox where developers can verify authentication flows, database migrations, and AI-driven lesson generation. The inclusion of the `doctor` utility ensures that environmental discrepancies are identified early, maintaining the project's high standards for code quality and service stability.

@@ -8,12 +8,12 @@ wiki_page_id: "p-doc-processing"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/services/pdfTextExtractor.ts](apps/backend/src/services/pdfTextExtractor.ts)
-- [apps/backend/src/services/pdfImageExtractor.ts](apps/backend/src/services/pdfImageExtractor.ts)
-- [packages/shared-types/pdfTextIndex.ts](packages/shared-types/pdfTextIndex.ts)
-- [packages/shared-types/pdfTextLayout.ts](packages/shared-types/pdfTextLayout.ts)
-- [apps/backend/src/services/lessonGenerationSources.ts](apps/backend/src/services/lessonGenerationSources.ts)
-- [apps/web/services/projects/courseSources.ts](apps/web/services/projects/courseSources.ts)
+- [apps/backend/src/services/pdfTextExtractor.ts](../../../apps/backend/src/services/pdfTextExtractor.ts)
+- [apps/backend/src/services/pdfImageExtractor.ts](../../../apps/backend/src/services/pdfImageExtractor.ts)
+- [packages/shared-types/pdfTextIndex.ts](../../../packages/shared-types/pdfTextIndex.ts)
+- [packages/shared-types/pdfTextLayout.ts](../../../packages/shared-types/pdfTextLayout.ts)
+- [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
+- [apps/web/services/projects/courseSources.ts](../../../apps/web/services/projects/courseSources.ts)
 
 </details>
 
@@ -40,7 +40,7 @@ flowchart TD
 ```
 
 The extraction process includes normalization of line endings and removal of artifacts like page markers (e.g., "-- 1 of 10 --") to ensure clean input for the indexing phase.
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:258-278](apps/backend/src/services/pdfTextExtractor.ts#L258-L278), [apps/backend/src/services/pdfTextExtractor.ts:36-50](apps/backend/src/services/pdfTextExtractor.ts#L36-L50)
+Sources: [apps/backend/src/services/pdfTextExtractor.ts:258-278](../../../apps/backend/src/services/pdfTextExtractor.ts#L258-L278), [apps/backend/src/services/pdfTextExtractor.ts:36-50](../../../apps/backend/src/services/pdfTextExtractor.ts#L36-L50)
 
 ### Parser Comparison
 | Parser | Mode | Strength | Weakness |
@@ -48,7 +48,7 @@ Sources: [apps/backend/src/services/pdfTextExtractor.ts:258-278](apps/backend/sr
 | `pdftotext` | Layout-preserving | Highly faithful to columns/tables | Requires external binary |
 | `pdf-parse` | Fallback | No external dependencies | May flatten complex layouts |
 
-Sources: [apps/backend/src/services/pdfTextExtractor.ts:162-212](apps/backend/src/services/pdfTextExtractor.ts#L162-L212), [apps/backend/src/services/pdfTextExtractor.ts:214-256](apps/backend/src/services/pdfTextExtractor.ts#L214-L256)
+Sources: [apps/backend/src/services/pdfTextExtractor.ts:162-212](../../../apps/backend/src/services/pdfTextExtractor.ts#L162-L212), [apps/backend/src/services/pdfTextExtractor.ts:214-256](../../../apps/backend/src/services/pdfTextExtractor.ts#L214-L256)
 
 ## Document Indexing and Chunking
 
@@ -58,7 +58,7 @@ Extracted text is processed into a `PdfTextIndex`, which segments the document i
 The system uses a heading-based segmentation approach. Chunks are created by splitting text at detected headings or when paragraph blocks exceed target character limits.
 - **Min/Max Constraints:** Chunks are governed by policies defining minimum, target, and maximum character counts.
 - **Overlapping:** Large sections are split with a paragraph-level overlap to maintain semantic continuity between chunks.
-Sources: [packages/shared-types/pdfTextIndex.ts:316-364](packages/shared-types/pdfTextIndex.ts#L316-L364), [packages/shared-types/pdfTextIndex.ts:18-24](packages/shared-types/pdfTextIndex.ts#L18-L24)
+Sources: [packages/shared-types/pdfTextIndex.ts:316-364](../../../packages/shared-types/pdfTextIndex.ts#L316-L364), [packages/shared-types/pdfTextIndex.ts:18-24](../../../packages/shared-types/pdfTextIndex.ts#L18-L24)
 
 ```mermaid
 flowchart TD
@@ -69,14 +69,14 @@ flowchart TD
     Split --> Index[Assign IDs & Page Spans]
 ```
 
-Sources: [packages/shared-types/pdfTextIndex.ts:98-128](packages/shared-types/pdfTextIndex.ts#L98-L128), [packages/shared-types/pdfTextIndex.ts:366-412](packages/shared-types/pdfTextIndex.ts#L366-L412)
+Sources: [packages/shared-types/pdfTextIndex.ts:98-128](../../../packages/shared-types/pdfTextIndex.ts#L98-L128), [packages/shared-types/pdfTextIndex.ts:366-412](../../../packages/shared-types/pdfTextIndex.ts#L366-L412)
 
 ### Heading Identification
 Headings are identified using heuristics such as:
 - **Numbering:** Patterns like `1.1` or `I.`.
 - **Case:** Paragraphs with >70% uppercase characters.
 - **Length:** Candidates must be between 3 and 120 characters and lack terminal punctuation (e.g., `.`, `?`, `!`).
-Sources: [packages/shared-types/pdfTextIndex.ts:51-70](packages/shared-types/pdfTextIndex.ts#L51-L70)
+Sources: [packages/shared-types/pdfTextIndex.ts:51-70](../../../packages/shared-types/pdfTextIndex.ts#L51-L70)
 
 ## Visual Asset Extraction
 
@@ -87,11 +87,11 @@ To prevent processing overhead and ensure relevance, images must meet specific c
 - **Standalone Figures:** Evaluated based on intrinsic area and rendered dimensions (e.g., minimum 10,000 pixels area for rendered standalone images).
 - **Inline Images:** Evaluated with stricter dimension requirements to filter out decorative icons or UI elements.
 - **Quantity:** Limited by `LESSON_PDF_IMAGE_EXTRACTION_LIMIT`.
-Sources: [apps/backend/src/services/pdfImageExtractor.ts:182-230](apps/backend/src/services/pdfImageExtractor.ts#L182-L230), [apps/backend/src/services/lessonGenerationSources.ts:394-406](apps/backend/src/services/lessonGenerationSources.ts#L394-L406)
+Sources: [apps/backend/src/services/pdfImageExtractor.ts:182-230](../../../apps/backend/src/services/pdfImageExtractor.ts#L182-L230), [apps/backend/src/services/lessonGenerationSources.ts:394-406](../../../apps/backend/src/services/lessonGenerationSources.ts#L394-L406)
 
 ### Spatial Context Retrieval
 For every extracted image, the system identifies "text before," "text current," and "text after" by analyzing the Y-coordinates of text lines relative to the image bounding box (`ImageRect`).
-Sources: [apps/backend/src/services/pdfImageExtractor.ts:98-123](apps/backend/src/services/pdfImageExtractor.ts#L98-L123)
+Sources: [apps/backend/src/services/pdfImageExtractor.ts:98-123](../../../apps/backend/src/services/pdfImageExtractor.ts#L98-L123)
 
 ```mermaid
 sequenceDiagram
@@ -108,7 +108,7 @@ sequenceDiagram
     E-->>S: LessonPdfImageAsset[]
 ```
 
-Sources: [apps/backend/src/services/pdfImageExtractor.ts:373-431](apps/backend/src/services/pdfImageExtractor.ts#L373-L431), [apps/backend/src/services/pdfImageExtractor.ts:438-485](apps/backend/src/services/pdfImageExtractor.ts#L438-L485)
+Sources: [apps/backend/src/services/pdfImageExtractor.ts:373-431](../../../apps/backend/src/services/pdfImageExtractor.ts#L373-L431), [apps/backend/src/services/pdfImageExtractor.ts:438-485](../../../apps/backend/src/services/pdfImageExtractor.ts#L438-L485)
 
 ## Course Source Management
 
@@ -122,12 +122,12 @@ Multi-file projects are managed through `CourseSourceDescriptor` objects. This s
 | `text` | Plain text files | None |
 | `archive` | .zip files | Entry listing (directories/files) |
 
-Sources: [apps/web/services/projects/courseSources.ts:28-35](apps/web/services/projects/courseSources.ts#L28-L35), [apps/web/services/projects/courseSources.ts:60-116](apps/web/services/projects/courseSources.ts#L60-L116), [apps/backend/src/services/pdfTextExtractor.ts:122-140](apps/backend/src/services/pdfTextExtractor.ts#L122-L140)
+Sources: [apps/web/services/projects/courseSources.ts:28-35](../../../apps/web/services/projects/courseSources.ts#L28-L35), [apps/web/services/projects/courseSources.ts:60-116](../../../apps/web/services/projects/courseSources.ts#L60-L116), [apps/backend/src/services/pdfTextExtractor.ts:122-140](../../../apps/backend/src/services/pdfTextExtractor.ts#L122-L140)
 
 ### Combined Indexing
 When multiple sources are present in a project, the system builds a `CombinedSourceIndex`. This merges chunks from all sources while prefixing `headingPath` with the source name and ensuring unique `sourceId` references for provenance tracking.
-Sources: [apps/web/services/projects/courseSources.ts:360-384](apps/web/services/projects/courseSources.ts#L360-L384)
+Sources: [apps/web/services/projects/courseSources.ts:360-384](../../../apps/web/services/projects/courseSources.ts#L360-L384)
 
 ## Summary
 The document processing architecture ensures that diverse input formats are normalized into a unified structure. By combining text chunking, outline detection, and contextual image extraction, the system provides a robust foundation for the Professor Nous agent to generate pedagogically sound lessons grounded in the original materials.
-Sources: [apps/backend/src/services/lessonGenerationSources.ts:160-198](apps/backend/src/services/lessonGenerationSources.ts#L160-L198), [apps/web/services/projects/courseSources.ts:386-407](apps/web/services/projects/courseSources.ts#L386-L407)
+Sources: [apps/backend/src/services/lessonGenerationSources.ts:160-198](../../../apps/backend/src/services/lessonGenerationSources.ts#L160-L198), [apps/web/services/projects/courseSources.ts:386-407](../../../apps/web/services/projects/courseSources.ts#L386-L407)

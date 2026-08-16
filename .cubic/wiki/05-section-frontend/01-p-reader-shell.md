@@ -8,12 +8,12 @@ wiki_page_id: "p-reader-shell"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/web/components/workspace/WorkspaceReaderShell.tsx](apps/web/components/workspace/WorkspaceReaderShell.tsx)
-- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
-- [apps/web/components/workspace/shell/types.ts](apps/web/components/workspace/shell/types.ts)
-- [apps/web/components/workspace/ReadingScreenContainer.tsx](apps/web/components/workspace/ReadingScreenContainer.tsx)
-- [apps/web/components/workspace/shell/LessonDocumentSources.tsx](apps/web/components/workspace/shell/LessonDocumentSources.tsx)
-- [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
+- [apps/web/components/workspace/WorkspaceReaderShell.tsx](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx)
+- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
+- [apps/web/components/workspace/shell/types.ts](../../../apps/web/components/workspace/shell/types.ts)
+- [apps/web/components/workspace/ReadingScreenContainer.tsx](../../../apps/web/components/workspace/ReadingScreenContainer.tsx)
+- [apps/web/components/workspace/shell/LessonDocumentSources.tsx](../../../apps/web/components/workspace/shell/LessonDocumentSources.tsx)
+- [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](../../../apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
 
 </details>
 
@@ -23,7 +23,7 @@ The Workspace Reader Shell Interface serves as the primary structural orchestrat
 
 Within the project's architecture, the shell acts as a layout boundary that enforces specific scrolling behaviors and visual consistency across different device types. It ensures that the learning experience remains focused by managing document-level overflow and coordinating the transition between global document scrolling and internal container scrolling.
 
-Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:11-17](apps/web/components/workspace/WorkspaceReaderShell.tsx#L11-L17)`, `[apps/web/components/workspace/ReadingScreenContainer.tsx:90-101](apps/web/components/workspace/ReadingScreenContainer.tsx#L90-L101)`
+Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:11-17](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L11-L17)`, `[apps/web/components/workspace/ReadingScreenContainer.tsx:90-101](../../../apps/web/components/workspace/ReadingScreenContainer.tsx#L90-L101)`
 
 ## Core Architecture
 
@@ -46,7 +46,7 @@ graph TD
 
 The shell utilizes a "Main Column" layout where the `WorkspaceReaderSidebar` is positioned alongside a flexible column containing the header and content. The sidebar's spacing is controlled by the `shouldUseDesktopSidebar` flag, which applies a left margin equal to `READER_SIDEBAR_WIDTH_PX`.
 
-Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:75-104](apps/web/components/workspace/WorkspaceReaderShell.tsx#L75-L104)`, `[apps/web/components/workspace/shell/types.ts:259-267](apps/web/components/workspace/shell/types.ts#L259-L267)`
+Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:75-104](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L75-L104)`, `[apps/web/components/workspace/shell/types.ts:259-267](../../../apps/web/components/workspace/shell/types.ts#L259-L267)`
 
 ## Display Modes and Viewport Management
 
@@ -60,7 +60,7 @@ The shell supports two primary display modes, determined by the `displayMode` pr
 ### Viewport Height and Keyboard Handling
 The shell integrates with `useMobileKeyboardOffset` to dynamically calculate `viewportHeight`. This prevents UI breakage on mobile devices when the virtual keyboard is active, ensuring the reader fits exactly within the visible area.
 
-Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:21-72](apps/web/components/workspace/WorkspaceReaderShell.tsx#L21-L72)`, `[apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx:220-229](apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx#L220-L229)`
+Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:21-72](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L21-L72)`, `[apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx:220-229](../../../apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx#L220-L229)`
 
 ### Scroll Synchronization Logic
 When mounting in application mode, the shell performs a double-reset of scroll positions (immediate and via `requestAnimationFrame`) to prevent legacy viewport positions from leaking into the lesson view.
@@ -81,7 +81,7 @@ sequenceDiagram
     Shell->>Window: scrollTo(0, 0) (second reset)
 ```
 
-Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:43-61](apps/web/components/workspace/WorkspaceReaderShell.tsx#L43-L61)`
+Sources: `[apps/web/components/workspace/WorkspaceReaderShell.tsx:43-61](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L43-L61)`
 
 ## Content and Resource Orchestration
 
@@ -93,7 +93,7 @@ The `WorkspaceReaderContent` component acts as the primary viewing engine for le
 - **Source Attribution:** Utilizes `LessonDocumentSources` to list original materials (PDFs/Archives) used in the lesson.
 - **Artifact Rendering:** Displays generated visuals and user notes in a dedicated "Artefatti" section.
 
-Sources: `[apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:704-850](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L704-L850)`, `[apps/web/components/workspace/shell/LessonDocumentSources.tsx:112-140](apps/web/components/workspace/shell/LessonDocumentSources.tsx#L112-L140)`
+Sources: `[apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:704-850](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L704-L850)`, `[apps/web/components/workspace/shell/LessonDocumentSources.tsx:112-140](../../../apps/web/components/workspace/shell/LessonDocumentSources.tsx#L112-L140)`
 
 ### Document Source Management
 The shell provides specific logic for opening original source files. It handles both local `FileData` and detached files requiring asynchronous loading.
@@ -110,7 +110,7 @@ flowchart TD
     Blob --> Navigate[Set window location with #page=X]
 ```
 
-Sources: `[apps/web/components/workspace/shell/LessonDocumentSources.tsx:42-75](apps/web/components/workspace/shell/LessonDocumentSources.tsx#L42-L75)`
+Sources: `[apps/web/components/workspace/shell/LessonDocumentSources.tsx:42-75](../../../apps/web/components/workspace/shell/LessonDocumentSources.tsx#L42-L75)`
 
 ## Data Structures and Models
 
@@ -127,17 +127,17 @@ Defines the aggregate configuration for the entire interface.
 | `sidebar` | `WorkspaceReaderSidebarModel` | Manages modules, exercises, and mobile sidebar state. |
 | `displayMode` | `'application' \| 'embedded'` | Structural display strategy. |
 
-Sources: `[apps/web/components/workspace/shell/types.ts:259-267](apps/web/components/workspace/shell/types.ts#L259-L267)`
+Sources: `[apps/web/components/workspace/shell/types.ts:259-267](../../../apps/web/components/workspace/shell/types.ts#L259-L267)`
 
 ### WorkspaceReaderTtsModel
 Manages Text-to-Speech integration within the shell.
 - **Fields:** `availableVoices`, `isPlaying`, `currentChunkIndex`, `playbackRate`.
 - **Actions:** `onPlayPause`, `onSeek`, `onVoiceChange`.
 
-Sources: `[apps/web/components/workspace/shell/types.ts:145-163](apps/web/components/workspace/shell/types.ts#L145-L163)`
+Sources: `[apps/web/components/workspace/shell/types.ts:145-163](../../../apps/web/components/workspace/shell/types.ts#L145-L163)`
 
 ## Technical Summary
 
 The Workspace Reader Shell Interface provides a robust, mobile-responsive frame that isolates the complexities of lesson navigation, AI-generated content rendering, and source file management. By enforcing strict viewport height controls and providing dedicated layers for overlays and banners, it creates a stable environment for pedagogical activities. Its separation of concerns between the logic-heavy `ReadingScreenContainer` and the presentation-focused `WorkspaceReaderShell` facilitates maintainability and supports the project's multi-modal display requirements.
 
-Sources: `[apps/web/components/workspace/ReadingScreenContainer.tsx:40-80](apps/web/components/workspace/ReadingScreenContainer.tsx#L40-L80)`, `[apps/web/components/workspace/WorkspaceReaderShell.tsx:75-110](apps/web/components/workspace/WorkspaceReaderShell.tsx#L75-L110)`
+Sources: `[apps/web/components/workspace/ReadingScreenContainer.tsx:40-80](../../../apps/web/components/workspace/ReadingScreenContainer.tsx#L40-L80)`, `[apps/web/components/workspace/WorkspaceReaderShell.tsx:75-110](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L75-L110)`

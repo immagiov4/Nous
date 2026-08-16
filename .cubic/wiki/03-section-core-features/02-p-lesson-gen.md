@@ -8,13 +8,13 @@ wiki_page_id: "p-lesson-gen"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/workflows/lessonGenerationWorkflow.ts](apps/backend/src/workflows/lessonGenerationWorkflow.ts)
-- [apps/backend/src/workflows/lessonGenerationProduction.ts](apps/backend/src/workflows/lessonGenerationProduction.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](apps/backend/src/services/lessonGenerationPrompt.ts)
-- [apps/backend/src/workflows/lessonGenerationStageServices.ts](apps/backend/src/workflows/lessonGenerationStageServices.ts)
-- [apps/backend/src/services/lessonGenerationModel.ts](apps/backend/src/services/lessonGenerationModel.ts)
-- [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts](apps/backend/src/workflows/lessonGenerationWorkflowContract.ts)
-- [packages/shared-types/lessonWritingContract.ts](packages/shared-types/lessonWritingContract.ts)
+- [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts)
+- [apps/backend/src/workflows/lessonGenerationProduction.ts](../../../apps/backend/src/workflows/lessonGenerationProduction.ts)
+- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+- [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
+- [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
+- [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowContract.ts)
+- [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
 
 </details>
 
@@ -24,7 +24,7 @@ The Lesson Generation Pipeline is a complex, multi-stage workflow designed to tr
 
 The pipeline is built using a durable workflow engine that supports retries, idempotency, and state checkpoints. It integrates various services for document staging, YouTube research, pedagogical assessment, and visual rendering to ensure high-quality output tailored to the user's learning profile.
 
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:608-624](apps/backend/src/workflows/lessonGenerationWorkflow.ts#L608-L624), [packages/shared-types/lessonWritingContract.ts:46-77](packages/shared-types/lessonWritingContract.ts#L46-L77)
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:608-624](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L608-L624), [packages/shared-types/lessonWritingContract.ts:46-77](../../../packages/shared-types/lessonWritingContract.ts#L46-L77)
 
 ## Workflow Architecture
 
@@ -61,7 +61,7 @@ flowchart TD
 ```
 
 The workflow includes specialized routing for YouTube research (bypassing if a dossier already exists) and a fan-out mechanism for parallel visual rendering.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:488-510](apps/backend/src/workflows/lessonGenerationWorkflow.ts#L488-L510), [apps/backend/src/workflows/lessonGenerationWorkflow.ts:608-624](apps/backend/src/workflows/lessonGenerationWorkflow.ts#L608-L624)
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:488-510](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L488-L510), [apps/backend/src/workflows/lessonGenerationWorkflow.ts:608-624](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L608-L624)
 
 ## Core Generation Services
 
@@ -69,13 +69,13 @@ The pipeline relies on a set of `LessonGenerationStageServices` that wrap LLM ca
 
 ### Research and Coverage Assessment
 Before writing, the pipeline assesses if the source material is sufficient. If gaps are found, it triggers a research phase.
-*  **assessSourceCoverage**: Uses a model to determine if the source context covers the lesson description. Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts:245-267](apps/backend/src/workflows/lessonGenerationStageServices.ts#L245-L267)
-*  **researchLesson**: Generates a factual dossier by merging original sources, YouTube transcripts, and web research results. Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts:394-423](apps/backend/src/workflows/lessonGenerationStageServices.ts#L394-L423)
+*  **assessSourceCoverage**: Uses a model to determine if the source context covers the lesson description. Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts:245-267](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts#L245-L267)
+*  **researchLesson**: Generates a factual dossier by merging original sources, YouTube transcripts, and web research results. Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts:394-423](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts#L394-L423)
 
 ### Content Drafting and Review
 The drafting phase uses a specialized "Professor Nous" persona guided by strict pedagogical rules.
-*  **draftLesson**: The core LLM turn that produces `contentBlocks` (markdown, quizzes, youtube-clips, generated-visual slots). Sources: [apps/backend/src/services/lessonGenerationModel.ts:316-339](apps/backend/src/services/lessonGenerationModel.ts#L316-L339)
-*  **reviewLesson**: A strict verification step that ensures valid quiz placement and balanced LaTeX environments. Sources: [apps/backend/src/services/lessonGenerationModel.ts:472-488](apps/backend/src/services/lessonGenerationModel.ts#L472-L488)
+*  **draftLesson**: The core LLM turn that produces `contentBlocks` (markdown, quizzes, youtube-clips, generated-visual slots). Sources: [apps/backend/src/services/lessonGenerationModel.ts:316-339](../../../apps/backend/src/services/lessonGenerationModel.ts#L316-L339)
+*  **reviewLesson**: A strict verification step that ensures valid quiz placement and balanced LaTeX environments. Sources: [apps/backend/src/services/lessonGenerationModel.ts:472-488](../../../apps/backend/src/services/lessonGenerationModel.ts#L472-L488)
 
 ### Writing & Pedagogical Rules
 The pipeline enforces a "Lesson Writing Contract" to maintain quality:
@@ -87,7 +87,7 @@ The pipeline enforces a "Lesson Writing Contract" to maintain quality:
 | **Active Pauses** | Up to 3 quizzes per lesson; must require inference or application, not just paraphrase. |
 | **Visuals** | Images/Visuals must be proportional and serve a specific explanation, not just decoration. |
 
-Sources: [packages/shared-types/lessonWritingContract.ts:5-40](packages/shared-types/lessonWritingContract.ts#L5-L40), [apps/backend/src/services/lessonGenerationPrompt.ts:60-90](apps/backend/src/services/lessonGenerationPrompt.ts#L60-L90)
+Sources: [packages/shared-types/lessonWritingContract.ts:5-40](../../../packages/shared-types/lessonWritingContract.ts#L5-L40), [apps/backend/src/services/lessonGenerationPrompt.ts:60-90](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L60-L90)
 
 ## Data Models and Contracts
 
@@ -105,7 +105,7 @@ const LessonDraftBlockSchema = z.union([
 ]);
 ```
 
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:186-191](apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L186-L191)
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:186-191](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L186-L191)
 
 ### Key Data Structures
 | Structure | Purpose |
@@ -115,7 +115,7 @@ Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:186-191]
 | `LessonVisualPlan` | Metadata for a visual aid, including pedagogical goal and factual requirements. |
 | `ProjectRevisionEvent` | Emitted at the end of the pipeline to notify other services of the update. |
 
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:74-91](apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L74-L91), [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts:211-224](apps/backend/src/workflows/lessonGenerationWorkflowContract.ts#L211-L224)
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:74-91](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L74-L91), [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts:211-224](../../../apps/backend/src/workflows/lessonGenerationWorkflowContract.ts#L211-L224)
 
 ## Visual Generation Logic
 
@@ -136,8 +136,8 @@ sequenceDiagram
 ```
 
 Visuals can be `structural_svg`, `mermaid`, or `html`. If a visual requires depiction (e.g., an illustrative image), it is routed to a raster renderer.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:571-594](apps/backend/src/workflows/lessonGenerationWorkflow.ts#L571-L594), [apps/backend/src/services/lessonGenerationNormalization.ts:80-92](apps/backend/src/services/lessonGenerationNormalization.ts#L80-L92)
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:571-594](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L571-L594), [apps/backend/src/services/lessonGenerationNormalization.ts:80-92](../../../apps/backend/src/services/lessonGenerationNormalization.ts#L80-L92)
 
 ## Conclusion
 The Lesson Generation Pipeline represents a sophisticated implementation of AI-driven content creation. By combining structured workflows with rigorous pedagogical constraints and multi-modal research (web, PDF, YouTube), it ensures that generated lessons are not only technically accurate but also educationally effective and cohesive within the broader course structure.
-Sources: [packages/shared-types/lessonWritingContract.ts:79-100](packages/shared-types/lessonWritingContract.ts#L79-L100)
+Sources: [packages/shared-types/lessonWritingContract.ts:79-100](../../../packages/shared-types/lessonWritingContract.ts#L79-L100)

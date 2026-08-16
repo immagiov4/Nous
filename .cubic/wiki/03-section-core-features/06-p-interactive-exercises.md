@@ -8,13 +8,13 @@ wiki_page_id: "p-interactive-exercises"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/backend/src/workflows/courseExercisePlanning.ts](apps/backend/src/workflows/courseExercisePlanning.ts)
-- [apps/backend/src/services/lessonGenerationModel.ts](apps/backend/src/services/lessonGenerationModel.ts)
-- [apps/web/services/openrouter/exercises/brief.ts](apps/web/services/openrouter/exercises/brief.ts)
-- [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
-- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
-- [apps/web/types.ts](apps/web/types.ts)
-- [apps/backend/src/services/lessonGenerationPrompt.ts](apps/backend/src/services/lessonGenerationPrompt.ts)
+- [apps/backend/src/workflows/courseExercisePlanning.ts](../../../apps/backend/src/workflows/courseExercisePlanning.ts)
+- [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
+- [apps/web/services/openrouter/exercises/brief.ts](../../../apps/web/services/openrouter/exercises/brief.ts)
+- [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
+- [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
+- [apps/web/types.ts](../../../apps/web/types.ts)
+- [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
 
 </details>
 
@@ -22,7 +22,7 @@ The following files were used as context for generating this wiki page:
 
 The **Interactive Exercises & Quizzes** system in Lumina-Reader provides pedagogical assessment layers designed to verify practical application, diagnosis, and decision-making skills. The system distinguishes between **Active Pauses** (short, inline quizzes during a lesson) and **Application Exercises** (larger, module-level practical tasks). These elements are strategically placed to ensure the student can transition from passive reading to active knowledge application.
 
-Sources: [apps/backend/src/workflows/courseExercisePlanning.ts:145-155](apps/backend/src/workflows/courseExercisePlanning.ts#L145-L155), [apps/backend/src/services/lessonGenerationPrompt.ts:79-88](apps/backend/src/services/lessonGenerationPrompt.ts#L79-L88)
+Sources: [apps/backend/src/workflows/courseExercisePlanning.ts:145-155](../../../apps/backend/src/workflows/courseExercisePlanning.ts#L145-L155), [apps/backend/src/services/lessonGenerationPrompt.ts:79-88](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L79-L88)
 
 ## System Architecture and Lifecycle
 
@@ -41,7 +41,7 @@ flowchart TD
     Schema --> Outcome[Exercises State]
 ```
 
-Sources: [apps/backend/src/workflows/courseExercisePlanning.ts:28-48](apps/backend/src/workflows/courseExercisePlanning.ts#L28-L48), [apps/backend/src/workflows/courseExercisePlanning.ts:162-175](apps/backend/src/workflows/courseExercisePlanning.ts#L162-L175)
+Sources: [apps/backend/src/workflows/courseExercisePlanning.ts:28-48](../../../apps/backend/src/workflows/courseExercisePlanning.ts#L28-L48), [apps/backend/src/workflows/courseExercisePlanning.ts:162-175](../../../apps/backend/src/workflows/courseExercisePlanning.ts#L162-L175)
 
 ### Application Exercise Structure
 Application exercises are represented as `ApplicationExerciseNode` types, distinct from standard `LessonNode` types. They include metadata for tracking completion, feedback, and student-provided attachments.
@@ -55,7 +55,7 @@ Application exercises are represented as `ApplicationExerciseNode` types, distin
 | `currentFeedback` | `ExerciseFeedback` | AI-generated qualitative feedback and score. |
 | `feedbackStale` | `boolean` | Indicates if the feedback matches the current submission. |
 
-Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:192-225](apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L192-L225), [apps/web/types.ts:489-514](apps/web/types.ts#L489-L514)
+Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:192-225](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L192-L225), [apps/web/types.ts:489-514](../../../apps/web/types.ts#L489-L514)
 
 ## Active Pauses (Inline Quizzes)
 
@@ -77,7 +77,7 @@ sequenceDiagram
     V-->>P: Verified Lesson Content
 ```
 
-Sources: [apps/backend/src/services/lessonGenerationModel.ts:165-177](apps/backend/src/services/lessonGenerationModel.ts#L165-L177), [apps/backend/src/services/lessonGenerationPrompt.ts:89-95](apps/backend/src/services/lessonGenerationPrompt.ts#L89-L95)
+Sources: [apps/backend/src/services/lessonGenerationModel.ts:165-177](../../../apps/backend/src/services/lessonGenerationModel.ts#L165-L177), [apps/backend/src/services/lessonGenerationPrompt.ts:89-95](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L89-L95)
 
 ### Exercise Types for Active Pauses
 | Type | Pedagogical Intent |
@@ -88,7 +88,7 @@ Sources: [apps/backend/src/services/lessonGenerationModel.ts:165-177](apps/backe
 | `diagnosis` | Identifying a problem based on symptoms. |
 | `sequencing` | Determining the correct order of operations. |
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:98-100](apps/backend/src/services/lessonGenerationPrompt.ts#L98-L100), [apps/backend/src/services/lessonGenerationModel.ts:38-42](apps/backend/src/services/lessonGenerationModel.ts#L38-L42)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:98-100](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L98-L100), [apps/backend/src/services/lessonGenerationModel.ts:38-42](../../../apps/backend/src/services/lessonGenerationModel.ts#L38-L42)
 
 ## Laboratory Brief Generation
 
@@ -106,7 +106,7 @@ graph TD
     OpenRouter --> Result[Markdown Brief + Grounding Sources]
 ```
 
-Sources: [apps/web/services/openrouter/exercises/brief.ts:128-150](apps/web/services/openrouter/exercises/brief.ts#L128-L150), [apps/web/services/openrouter/exercises/brief.ts:208-230](apps/web/services/openrouter/exercises/brief.ts#L208-L230)
+Sources: [apps/web/services/openrouter/exercises/brief.ts:128-150](../../../apps/web/services/openrouter/exercises/brief.ts#L128-L150), [apps/web/services/openrouter/exercises/brief.ts:208-230](../../../apps/web/services/openrouter/exercises/brief.ts#L208-L230)
 
 ## User Interface and Evaluation
 
@@ -117,7 +117,7 @@ The `WorkspaceReaderContent` component manages the rendering of both inline quiz
 2. **Feedback Request**: Triggering `onRequestFeedback` sends the internal text and attachments for AI evaluation.
 3. **Feedback Rendering**: The AI returns a `qualitativeLabel`, a `summary`, `strengths`, and `improvements`.
 
-Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:476-500](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L476-L500), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:645-660](apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L645-L660)
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:476-500](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L476-L500), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:645-660](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L645-L660)
 
 ### Code Snippet: Inline Quiz Implementation
 
