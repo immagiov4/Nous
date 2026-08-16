@@ -1,5 +1,6 @@
 // Extracts text from uploaded PDF files through the backend parser flow.
 import { execFile, spawn } from 'node:child_process';
+import { accessSync, constants as fsConstants } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +19,24 @@ const TMP_DIR_PREFIX = 'nous-pdf-text-';
 const PDF_PROCESS_SERIALIZATION_OVERHEAD_BYTES = 1_000_000;
 const PDF_PROCESS_SERIALIZATION_BYTES_PER_OUTPUT_BYTE = 2;
 const PDF_PROCESS_STDERR_MAX_CHARS = 8_192;
+
+const isExecutableFile = (candidate: string): boolean => {
+  try {
+    accessSync(candidate, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const findNodeExecutableOnPath = (): string | undefined => {
+  const executableName = process.platform === 'win32' ? 'node.exe' : 'node';
+  return (process.env.PATH ?? '')
+    .split(path.delimiter)
+    .map(directory => path.resolve(directory, executableName))
+    .find(isExecutableFile);
+};
+
 export const resolvePdfTextFallbackNodeExecutable = (
   configuredExecutable = process.env.PDF_TEXT_FALLBACK_NODE_EXECUTABLE
 ): string => {
@@ -26,8 +45,8 @@ export const resolvePdfTextFallbackNodeExecutable = (
     throw new TypeError('PDF_TEXT_FALLBACK_NODE_EXECUTABLE must be an absolute path.');
   }
 
-  const resolvedExecutable = Bun.which(executable || 'node');
-  if (!resolvedExecutable || !path.isAbsolute(resolvedExecutable)) {
+  const resolvedExecutable = executable || findNodeExecutableOnPath();
+  if (!resolvedExecutable || !isExecutableFile(resolvedExecutable)) {
     throw new TypeError(
       executable
         ? 'PDF_TEXT_FALLBACK_NODE_EXECUTABLE must point to an executable file.'
