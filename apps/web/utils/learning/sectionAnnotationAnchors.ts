@@ -17,14 +17,42 @@ import {
 const SELECTOR_CONTEXT_LENGTH = 48;
 
 interface AnnotationResolutionContext {
+  contextOffset: number;
+  contextText: string;
   projection: VisibleProjection;
   protectedRanges: MarkdownRange[];
 }
 
-const buildAnnotationResolutionContext = (content: string): AnnotationResolutionContext => ({
-  projection: buildVisibleProjection(content),
-  protectedRanges: getMarkdownProtectedRanges(content),
-});
+export interface SectionAnnotationBoundaryContext {
+  after?: string;
+  before?: string;
+}
+
+export const buildSectionAnnotationContextText = (
+  text: string,
+  boundaryContext?: SectionAnnotationBoundaryContext
+): { offset: number; text: string } => {
+  const before = normalizeWhitespace(boundaryContext?.before ?? '');
+  const after = normalizeWhitespace(boundaryContext?.after ?? '');
+  return {
+    offset: before ? before.length + 1 : 0,
+    text: [before, text, after].filter(Boolean).join(' '),
+  };
+};
+
+const buildAnnotationResolutionContext = (
+  content: string,
+  boundaryContext?: SectionAnnotationBoundaryContext
+): AnnotationResolutionContext => {
+  const projection = buildVisibleProjection(content);
+  const contextualProjection = buildSectionAnnotationContextText(projection.text, boundaryContext);
+  return {
+    contextOffset: contextualProjection.offset,
+    contextText: contextualProjection.text,
+    projection,
+    protectedRanges: getMarkdownProtectedRanges(content),
+  };
+};
 
 export const isSelectionAnnotation = (
   annotation: SectionAnnotation
@@ -98,7 +126,12 @@ const buildSegmentsFromProjectionRange = (
   );
 };
 
-const contextMatches = (
+export const hasSectionAnnotationSelectorContext = (
+  selector: SectionAnnotationTextSelector
+): boolean =>
+  Boolean(normalizeWhitespace(selector.prefix ?? '') || normalizeWhitespace(selector.suffix ?? ''));
+
+export const matchesSectionAnnotationSelectorContext = (
   text: string,
   matchStart: number,
   matchLength: number,
@@ -110,10 +143,10 @@ const contextMatches = (
   const after = normalizeWhitespace(
     text.slice(matchStart + matchLength, matchStart + matchLength + SELECTOR_CONTEXT_LENGTH + 16)
   );
-  const prefixMatches =
-    !selector.prefix || before.endsWith(selector.prefix) || selector.prefix.endsWith(before);
-  const suffixMatches =
-    !selector.suffix || after.startsWith(selector.suffix) || selector.suffix.startsWith(after);
+  const prefix = normalizeWhitespace(selector.prefix ?? '');
+  const suffix = normalizeWhitespace(selector.suffix ?? '');
+  const prefixMatches = !prefix || before.endsWith(prefix);
+  const suffixMatches = !suffix || after.startsWith(suffix);
   return prefixMatches && suffixMatches;
 };
 
@@ -130,7 +163,13 @@ const resolveSectionAnnotationSegmentsWithContext = (
   const positionalRange = getProjectionRange(context.projection, selector);
   if (
     positionalRange &&
-    normalizeWhitespace(positionalRange.text) === normalizeWhitespace(selector.exact)
+    normalizeWhitespace(positionalRange.text) === normalizeWhitespace(selector.exact) &&
+    matchesSectionAnnotationSelectorContext(
+      context.contextText,
+      positionalRange.start + context.contextOffset,
+      positionalRange.end - positionalRange.start,
+      selector
+    )
   ) {
     return buildSegmentsFromProjectionRange(
       content,
@@ -147,9 +186,14 @@ const resolveSectionAnnotationSegmentsWithContext = (
 
   const matches = [...context.projection.text.matchAll(new RegExp(exactPattern, 'gu'))];
   const contextualMatches = matches.filter(match =>
-    contextMatches(context.projection.text, match.index ?? 0, match[0].length, selector)
+    matchesSectionAnnotationSelectorContext(
+      context.contextText,
+      (match.index ?? 0) + context.contextOffset,
+      match[0].length,
+      selector
+    )
   );
-  const candidates = contextualMatches.length > 0 ? contextualMatches : matches;
+  const candidates = hasSectionAnnotationSelectorContext(selector) ? contextualMatches : matches;
   if (candidates.length !== 1) {
     return [];
   }
@@ -160,7 +204,8 @@ const resolveSectionAnnotationSegmentsWithContext = (
 
 export const resolveSectionAnnotationSegments = (
   content: string,
-  annotation: SectionAnnotation
+  annotation: SectionAnnotation,
+  boundaryContext?: SectionAnnotationBoundaryContext
 ): MarkdownRange[] => {
   if (!isSelectionAnnotation(annotation)) {
     return [];
@@ -169,7 +214,7 @@ export const resolveSectionAnnotationSegments = (
   return resolveSectionAnnotationSegmentsWithContext(
     content,
     annotation,
-    buildAnnotationResolutionContext(content)
+    buildAnnotationResolutionContext(content, boundaryContext)
   );
 };
 
@@ -181,7 +226,8 @@ export const getSectionAnnotationText = (content: string, annotation: SectionAnn
 
 export const materializeSectionAnnotationMarks = (
   content: string,
-  annotations?: SectionAnnotation[]
+  annotations?: SectionAnnotation[],
+  boundaryContext?: SectionAnnotationBoundaryContext
 ): string => {
   const acceptedRanges: MarkdownRange[] = [];
   const selectionAnnotations = (annotations || []).filter(isSelectionAnnotation);
@@ -189,7 +235,7 @@ export const materializeSectionAnnotationMarks = (
     return content;
   }
 
-  const context = buildAnnotationResolutionContext(content);
+  const context = buildAnnotationResolutionContext(content, boundaryContext);
   const resolvedAnnotations = selectionAnnotations
     .map(annotation => ({
       annotation,
