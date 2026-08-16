@@ -6,6 +6,8 @@ import { LOCAL_SONAR_HOST_URL, LOCAL_SONAR_SYSTEM_STATUS_URL } from './sonar-loc
 const CI_WORKFLOW_PATH = path.resolve('.github/workflows/ci.yml');
 const FALLOW_BASELINE_PATH = path.resolve('.fallow-baselines/regression.json');
 const PACKAGE_MANIFEST_PATH = path.resolve('package.json');
+const SONAR_COMPOSE_PATH = 'docker-compose.sonarqube.yml';
+const SONAR_PERMISSION_PROVISIONER_SERVICE = 'sonar-permissions';
 const WORKSPACE_BIN_PATH = path.resolve('node_modules/.bin');
 const REALTIME_LOCAL_TENANT = 'realtime-dev';
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -365,31 +367,114 @@ const readJsonResponse = async (response: Response): Promise<Record<string, unkn
   }
 };
 
-export const inspectSonarService = async (request = fetch): Promise<DiagnosticResult> => {
+type CapturedCommandResult = {
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+};
+
+type CapturedCommandRunner = (command: string[]) => Promise<CapturedCommandResult>;
+
+type SonarProvisioner = {
+  ExitCode?: number;
+  Service?: string;
+  State?: string;
+  Status?: string;
+};
+
+export const parseSonarProvisioner = (output: string): SonarProvisioner | undefined => {
+  const parsed = JSON.parse(output) as unknown;
+  const services = Array.isArray(parsed) ? parsed : [parsed];
+  return services.find(
+    (service): service is SonarProvisioner =>
+      isRecord(service) && service.Service === SONAR_PERMISSION_PROVISIONER_SERVICE
+  );
+};
+
+const inspectSonarProvisioner = async (
+  runCommand: CapturedCommandRunner
+): Promise<DiagnosticResult> => {
+  const result = await runCommand([
+    'docker',
+    'compose',
+    '-f',
+    SONAR_COMPOSE_PATH,
+    'ps',
+    '--all',
+    '--format',
+    'json',
+    SONAR_PERMISSION_PROVISIONER_SERVICE,
+  ]);
+  if (result.exitCode !== 0) {
+    return {
+      detail: 'Unable to inspect the anonymous analysis provisioner. Run "bun run sonar:up".',
+      label: 'SonarQube permissions',
+      status: 'FAIL',
+    };
+  }
+
+  try {
+    const provisioner = parseSonarProvisioner(result.stdout);
+    const completed = provisioner?.State === 'exited' && provisioner.ExitCode === 0;
+    return completed
+      ? {
+          detail: 'Anonymous Create Projects and Execute Analysis permissions are provisioned.',
+          label: 'SonarQube permissions',
+          status: 'PASS',
+        }
+      : {
+          detail: 'Anonymous analysis permissions are not ready. Run "bun run sonar:up".',
+          label: 'SonarQube permissions',
+          status: 'FAIL',
+        };
+  } catch {
+    return {
+      detail: 'Anonymous analysis permissions could not be verified. Run "bun run sonar:up".',
+      label: 'SonarQube permissions',
+      status: 'FAIL',
+    };
+  }
+};
+
+export const inspectSonarService = async (
+  request = fetch,
+  runCommand = runCapturedCommand
+): Promise<DiagnosticResult[]> => {
   try {
     const systemResponse = await request(LOCAL_SONAR_SYSTEM_STATUS_URL);
     const system = await readJsonResponse(systemResponse);
     if (!systemResponse.ok || system.status !== 'UP') {
       const reportedStatus =
         typeof system.status === 'string' ? system.status : `HTTP ${systemResponse.status}`;
-      return {
-        detail: `Service returned ${reportedStatus}.`,
-        label: 'SonarQube',
-        status: 'FAIL',
-      };
+      return [
+        {
+          detail: `Service returned ${reportedStatus}.`,
+          label: 'SonarQube',
+          status: 'FAIL',
+        },
+      ];
     }
 
-    return {
-      detail: `UP at ${LOCAL_SONAR_HOST_URL}; anonymous analysis is enabled.`,
-      label: 'SonarQube',
-      status: 'PASS',
-    };
+    const provisioner = await inspectSonarProvisioner(runCommand);
+    return [
+      {
+        detail:
+          provisioner.status === 'PASS'
+            ? `UP at ${LOCAL_SONAR_HOST_URL}; anonymous analysis is enabled.`
+            : `UP at ${LOCAL_SONAR_HOST_URL}; anonymous analysis is not ready.`,
+        label: 'SonarQube',
+        status: provisioner.status,
+      },
+      provisioner,
+    ];
   } catch {
-    return {
-      detail: `Not reachable at ${LOCAL_SONAR_HOST_URL}. Start it with "bun run sonar:up".`,
-      label: 'SonarQube',
-      status: 'FAIL',
-    };
+    return [
+      {
+        detail: `Not reachable at ${LOCAL_SONAR_HOST_URL}. Start it with "bun run sonar:up".`,
+        label: 'SonarQube',
+        status: 'FAIL',
+      },
+    ];
   }
 };
 
@@ -516,7 +601,7 @@ const runDiagnosticStage = async ({ label, script }: (typeof DIAGNOSTIC_STAGES)[
 
 const runServiceDiagnostics = async (profile: DoctorProfile): Promise<DiagnosticResult[]> => {
   const results: DiagnosticResult[] = [];
-  if (profileIncludesGate(profile)) results.push(await inspectSonarService());
+  if (profileIncludesGate(profile)) results.push(...(await inspectSonarService()));
   if (profileIncludesLocal(profile)) {
     results.push(...(await inspectSupabaseServices()), await inspectSupabaseMigrations());
   }

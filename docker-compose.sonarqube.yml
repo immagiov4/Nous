@@ -21,15 +21,18 @@ services:
       sonarqube:
         condition: service_started
     entrypoint: ['/bin/sh', '-ec']
+    environment:
+      SONAR_PROVISIONING_ADMIN_LOGIN: ${SONAR_PROVISIONING_ADMIN_LOGIN:-admin}
+      SONAR_PROVISIONING_ADMIN_PASSWORD: ${SONAR_PROVISIONING_ADMIN_PASSWORD:-admin}
     command:
       - |
-        curl --fail --silent --show-error --user admin:admin \
+        curl --fail --silent --show-error --user "$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}" \
           http://sonarqube:9000/api/system/status | grep --fixed-strings '"status":"UP"' > /dev/null
-        curl --fail --silent --show-error --user admin:admin --request POST \
+        curl --fail --silent --show-error --user "$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}" --request POST \
           --data-urlencode 'groupName=Anyone' \
           --data-urlencode 'permission=provisioning' \
           http://sonarqube:9000/api/permissions/add_group
-        curl --fail --silent --show-error --user admin:admin --request POST \
+        curl --fail --silent --show-error --user "$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}" --request POST \
           --data-urlencode 'groupName=Anyone' \
           --data-urlencode 'permission=scan' \
           http://sonarqube:9000/api/permissions/add_group

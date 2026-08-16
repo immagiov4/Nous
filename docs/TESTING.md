@@ -20,8 +20,9 @@ bun run gate:full
 
 - `doctor` verifies the Bun/CI runtime contract, installed project executables, and versioned
   Fallow baseline, then runs the core service-free quality and test checks independently so one
-  failure does not hide later failures. The `gate` profile checks the existing local Sonar service,
-  while anonymous analysis remains restricted to its loopback-only Docker binding. The `local`
+  failure does not hide later failures. The `gate` profile checks the existing local Sonar service
+  and confirms that anonymous-analysis permissions were provisioned, while analysis remains
+  restricted to its loopback-only Docker binding. The `local`
   profile checks the existing local Supabase services and migration parity,
   and `all` combines every profile. Every profile is read-only: it never starts, restarts,
   configures, or migrates a service.
@@ -95,6 +96,10 @@ and `Execute Analysis`, so no scanner token or developer credential bootstrap is
 replace a required full gate with an isolated or skipped Sonar scan, and do not merge while a
 required Sonar result is failed, unreachable, or unverified. Record the successful full-gate command
 and Sonar result in the pull request before merging.
+
+For an existing local volume whose administrator password was changed under the retired workflow,
+`sonar:up` reuses the ignored legacy `sonar.local.properties` administrator settings only for the
+Docker-internal provisioner. The scanner never reads those credentials or the retired token.
 
 Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
 Source coordinates and suggested remediation actions are excluded, so moving a finding within the

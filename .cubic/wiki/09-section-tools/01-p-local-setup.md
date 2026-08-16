@@ -89,7 +89,7 @@ The `doctor` script supports multiple profiles to probe different aspects of the
 Sources: [scripts/doctor.ts:152-165](../../../scripts/doctor.ts#L152-L165), [scripts/doctor.ts:245-276](../../../scripts/doctor.ts#L245-L276)
 
 ### Local SonarQube Setup
-For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required.
+For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required. For a legacy volume with a changed administrator password, `sonar:up` automatically passes the ignored legacy local administrator settings only to that internal provisioner; the scanner never reads them.
 
 ```mermaid
 sequenceDiagram

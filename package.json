@@ -49,7 +49,7 @@
     "sonar:down": "docker compose -f docker-compose.sonarqube.yml down",
     "sonar:logs": "docker compose -f docker-compose.sonarqube.yml logs -f sonarqube",
     "sonar:scan": "bun run scripts/run-sonar-scan.ts",
-    "sonar:up": "docker compose -f docker-compose.sonarqube.yml up -d",
+    "sonar:up": "bun run scripts/run-sonar-up.ts",
     "supabase:migrate": "supabase db push",
     "supabase:templates:diff": "bun run scripts/sync-supabase-auth-emails.ts",
     "supabase:templates:sync": "bun run scripts/sync-supabase-auth-emails.ts --apply",
