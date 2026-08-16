@@ -8,12 +8,12 @@ wiki_page_id: "p-chat-ui"
 
 The following files were used as context for generating this wiki page:
 
-- [apps/web/components/library/HomeChatComposer.tsx](apps/web/components/library/HomeChatComposer.tsx)
-- [apps/backend/src/routes/contextChat.ts](apps/backend/src/routes/contextChat.ts)
-- [apps/backend/src/routes/chatPrompts.ts](apps/backend/src/routes/chatPrompts.ts)
-- [apps/backend/tests/routes/chat.test.ts](apps/backend/tests/routes/chat.test.ts)
-- [apps/backend/src/routes/openRouterProxy.ts](apps/backend/src/routes/openRouterProxy.ts)
-- [apps/web/types.ts](apps/web/types.ts)
+- [apps/web/components/library/HomeChatComposer.tsx](../../../apps/web/components/library/HomeChatComposer.tsx)
+- [apps/backend/src/routes/contextChat.ts](../../../apps/backend/src/routes/contextChat.ts)
+- [apps/backend/src/routes/chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)
+- [apps/backend/tests/routes/chat.test.ts](../../../apps/backend/tests/routes/chat.test.ts)
+- [apps/backend/src/routes/openRouterProxy.ts](../../../apps/backend/src/routes/openRouterProxy.ts)
+- [apps/web/types.ts](../../../apps/web/types.ts)
 </details>
 
 # Chat UI & AI Context Assistant
@@ -63,7 +63,7 @@ flowchart TD
 ```
 
 *The flow demonstrates how frontend components package context (selections, references) for the backend, which resolves the model configuration and streams directly through the configured provider or Codex chat service.*
-Sources: [apps/backend/src/routes/contextChat.ts:605-632](apps/backend/src/routes/contextChat.ts#L605-L632), [apps/web/components/library/HomeChatComposer.tsx:432-452](apps/web/components/library/HomeChatComposer.tsx#L432-L452)
+Sources: [apps/backend/src/routes/contextChat.ts:605-632](../../../apps/backend/src/routes/contextChat.ts#L605-L632), [apps/web/components/library/HomeChatComposer.tsx:432-452](../../../apps/web/components/library/HomeChatComposer.tsx#L432-L452)
 
 ## Frontend Components
 
@@ -76,7 +76,7 @@ Key features include:
 *  **Speech Input:** Integration with `SpeechInputButton` for voice-to-text capabilities.
 *  **Floating Menus:** Intelligent placement logic (`getMenuVerticalPlacement`) to ensure menus stay within the viewport.
 
-Sources: [apps/web/components/library/HomeChatComposer.tsx:41-58](apps/web/components/library/HomeChatComposer.tsx#L41-L58), [apps/web/components/library/HomeChatComposer.tsx:210-238](apps/web/components/library/HomeChatComposer.tsx#L210-L238)
+Sources: [apps/web/components/library/HomeChatComposer.tsx:41-58](../../../apps/web/components/library/HomeChatComposer.tsx#L41-L58), [apps/web/components/library/HomeChatComposer.tsx:210-238](../../../apps/web/components/library/HomeChatComposer.tsx#L210-L238)
 
 ### Context Scopes
 The system defines three distinct scopes for contextual interaction:
@@ -86,7 +86,7 @@ The system defines three distinct scopes for contextual interaction:
 | `lesson` | Provides the entire content of the current lesson as context. |
 | `annotation` | Tied to a specific pre-existing note or highlight. |
 
-Sources: [apps/backend/src/routes/contextChat.ts:43](apps/backend/src/routes/contextChat.ts#L43), [apps/web/types.ts:471](apps/web/types.ts#L471)
+Sources: [apps/backend/src/routes/contextChat.ts:43](../../../apps/backend/src/routes/contextChat.ts#L43), [apps/web/types.ts:471](../../../apps/web/types.ts#L471)
 
 ## Backend Orchestration
 
@@ -111,7 +111,7 @@ export const serializeContextSourceReferencesForPrompt = (
   );
 ```
 
-Sources: [apps/backend/src/routes/chatPrompts.ts:384-398](apps/backend/src/routes/chatPrompts.ts#L384-L398), [apps/backend/src/routes/contextChat.ts:404-450](apps/backend/src/routes/contextChat.ts#L404-L450)
+Sources: [apps/backend/src/routes/chatPrompts.ts:384-398](../../../apps/backend/src/routes/chatPrompts.ts#L384-L398), [apps/backend/src/routes/contextChat.ts:404-450](../../../apps/backend/src/routes/contextChat.ts#L404-L450)
 
 ### AI Toolset
 The assistant uses a "Tool Calling" pattern to perform actions. The `buildContextToolSet` includes:
@@ -120,7 +120,7 @@ The assistant uses a "Tool Calling" pattern to perform actions. The `buildContex
 *  **Library Retrieval:** Tools like `getLessonDetails` and `listLibraryTree` for querying the user's stored knowledge.
 *  **Note Management:** `requestAddToNotes` for proposing new study notes based on AI clarifications.
 
-Sources: [apps/backend/src/routes/contextChat.ts:182-316](apps/backend/src/routes/contextChat.ts#L182-L316), [apps/backend/src/routes/chatPrompts.ts:503-549](apps/backend/src/routes/chatPrompts.ts#L503-L549)
+Sources: [apps/backend/src/routes/contextChat.ts:182-316](../../../apps/backend/src/routes/contextChat.ts#L182-L316), [apps/backend/src/routes/chatPrompts.ts:503-549](../../../apps/backend/src/routes/chatPrompts.ts#L503-L549)
 
 ### AI Proxy and Model Resolution
 The `openRouterProxy` acts as a centralized gatekeeper for all AI requests. It resolves the appropriate model based on the "Model Slot" (e.g., `context`, `research`, `artifact`) and the user's specific provider overrides.
@@ -141,7 +141,7 @@ sequenceDiagram
 ```
 
 *The sequence illustrates how the system abstracts individual model choices from the functional routes.*
-Sources: [apps/backend/src/routes/openRouterProxy.ts:74-124](apps/backend/src/routes/openRouterProxy.ts#L74-L124), [apps/backend/tests/routes/chat.test.ts:373-395](apps/backend/tests/routes/chat.test.ts#L373-L395)
+Sources: [apps/backend/src/routes/openRouterProxy.ts:74-124](../../../apps/backend/src/routes/openRouterProxy.ts#L74-L124), [apps/backend/tests/routes/chat.test.ts:373-395](../../../apps/backend/tests/routes/chat.test.ts#L373-L395)
 
 ## API Reference: `/api/chat/context`
 
@@ -153,7 +153,7 @@ Sources: [apps/backend/src/routes/openRouterProxy.ts:74-124](apps/backend/src/ro
 | `sourceReferences` | `object[]` | Metadata for source files (PDF name, page ranges, chunk IDs). |
 | `toolPreferences` | `object` | Booleans for `webSearch`, `annotate`, and `generateArtifacts`. |
 
-Sources: [apps/backend/src/routes/contextChat.ts:404-440](apps/backend/src/routes/contextChat.ts#L404-L440), [apps/backend/tests/routes/chat.test.ts:245-280](apps/backend/tests/routes/chat.test.ts#L245-L280)
+Sources: [apps/backend/src/routes/contextChat.ts:404-440](../../../apps/backend/src/routes/contextChat.ts#L404-L440), [apps/backend/tests/routes/chat.test.ts:245-280](../../../apps/backend/tests/routes/chat.test.ts#L245-L280)
 
 ## Summary
 The Chat UI & AI Context Assistant is a multi-layered system that leverages the AI-SDK for streaming responses and tool execution. By strictly coupling the UI selection context with backend prompt engineering and a robust proxy layer, it provides a seamless "Professor Nous" experience that remains grounded in the user's specific study materials.

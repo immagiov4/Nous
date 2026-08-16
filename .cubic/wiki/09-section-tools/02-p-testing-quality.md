@@ -8,20 +8,20 @@ wiki_page_id: "p-testing-quality"
 
 The following files were used as context for generating this wiki page:
 
-- [scripts/run-full-quality-gate.ts](scripts/run-full-quality-gate.ts)
-- [scripts/run-full-quality-gate.test.ts](scripts/run-full-quality-gate.test.ts)
-- [scripts/doctor.ts](scripts/doctor.ts)
-- [scripts/doctor.test.ts](scripts/doctor.test.ts)
-- [scripts/select-workflow-postgres-contract.ts](scripts/select-workflow-postgres-contract.ts)
-- [apps/web/tests/scripts/workflowPostgresCi.test.ts](apps/web/tests/scripts/workflowPostgresCi.test.ts)
-- [AGENTS.md](AGENTS.md)
+- [scripts/run-full-quality-gate.ts](../../../scripts/run-full-quality-gate.ts)
+- [scripts/run-full-quality-gate.test.ts](../../../scripts/run-full-quality-gate.test.ts)
+- [scripts/doctor.ts](../../../scripts/doctor.ts)
+- [scripts/doctor.test.ts](../../../scripts/doctor.test.ts)
+- [scripts/select-workflow-postgres-contract.ts](../../../scripts/select-workflow-postgres-contract.ts)
+- [apps/web/tests/scripts/workflowPostgresCi.test.ts](../../../apps/web/tests/scripts/workflowPostgresCi.test.ts)
+- [AGENTS.md](../../../AGENTS.md)
 </details>
 
 # Testing & Quality Gates
 
 The Nous project employs a multi-tiered validation strategy to ensure code reliability, architectural consistency, and deployment readiness. This system includes local health checks, static analysis for dead code and security vulnerabilities, comprehensive test suites using Vitest, and a mandatory local SonarQube quality gate that acts as the final authority before merging.
 
-Sources: [AGENTS.md:143-162](AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](scripts/run-full-quality-gate.ts#L1-L20)
+Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](../../../scripts/run-full-quality-gate.ts#L1-L20)
 
 ## Validation Hierarchy
 
@@ -37,7 +37,7 @@ The `doctor` utility is a read-only diagnostic tool that reports on environment 
 | `local` | Probes local Supabase services and checks for migration parity/drift. |
 | `all` | Combines environment checks with both Sonar and Supabase service probes. |
 
-Sources: [scripts/doctor.ts:98-124](scripts/doctor.ts#L98-L124), [AGENTS.md:144-150](AGENTS.md#L144-L150)
+Sources: [scripts/doctor.ts:98-124](../../../scripts/doctor.ts#L98-L124), [AGENTS.md:144-150](../../../AGENTS.md#L144-L150)
 
 ### The Full Quality Gate
 The `gate:full` command executes a sequence of independent and dependent stages. Independent stages (Quality, Semgrep, Fallow, Test) are run concurrently to minimize duration, while Coverage and Sonar analysis are run sequentially to ensure accurate reporting.
@@ -60,7 +60,7 @@ flowchart TD
 ```
 
 The workflow ensures that even if an earlier stage fails, the process continues through to Sonar analysis to provide a complete diagnostic report.
-Sources: [scripts/run-full-quality-gate.ts:22-60](scripts/run-full-quality-gate.ts#L22-L60), [scripts/run-full-quality-gate.test.ts:39-57](scripts/run-full-quality-gate.test.ts#L39-L57)
+Sources: [scripts/run-full-quality-gate.ts:22-60](../../../scripts/run-full-quality-gate.ts#L22-L60), [scripts/run-full-quality-gate.test.ts:39-57](../../../scripts/run-full-quality-gate.test.ts#L39-L57)
 
 ## Static Analysis & Regressions
 
@@ -70,11 +70,11 @@ The project uses "Fallow" to detect unused files, exports, and dependencies. It 
 - **Metric Categories:** Unused files, unused dependencies, and unused exports.
 - **Enforcement:** The doctor tool warns if the total issues in the baseline are greater than zero.
 
-Sources: [scripts/doctor.ts:6-7](scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](scripts/doctor.ts#L162-L184)
+Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](../../../scripts/doctor.ts#L162-L184)
 
 ### Semgrep & Quality
 Security and architectural constraints are enforced via Semgrep rules. General code quality (TypeScript checks and Biome linting) is grouped under the `quality` script.
-Sources: [scripts/run-full-quality-gate.ts:25-26](scripts/run-full-quality-gate.ts#L25-L26), [AGENTS.md:151](AGENTS.md#L151)
+Sources: [scripts/run-full-quality-gate.ts:25-26](../../../scripts/run-full-quality-gate.ts#L25-L26), [AGENTS.md:151](../../../AGENTS.md#L151)
 
 ## Continuous Integration (CI) Contracts
 
@@ -100,14 +100,14 @@ sequenceDiagram
     end
 ```
 
-Sources: [apps/web/tests/scripts/workflowPostgresCi.test.ts:30-66](apps/web/tests/scripts/workflowPostgresCi.test.ts#L30-L66), [scripts/select-workflow-postgres-contract.ts](scripts/select-workflow-postgres-contract.ts)
+Sources: [apps/web/tests/scripts/workflowPostgresCi.test.ts:30-66](../../../apps/web/tests/scripts/workflowPostgresCi.test.ts#L30-L66), [scripts/select-workflow-postgres-contract.ts](../../../scripts/select-workflow-postgres-contract.ts)
 
 ### Migration Integrity
 The doctor tool verifies that the local migration history matches the state of the database to prevent drift.
 - **Drift Detection:** Compares the list of local migration files against the `remote` (database) records.
 - **Reporting:** Reports specific drifted migrations in the format `local=TIMESTAMP, database=-`.
 
-Sources: [scripts/doctor.ts:285-321](scripts/doctor.ts#L285-L321), [scripts/doctor.test.ts:62-81](scripts/doctor.test.ts#L62-L81)
+Sources: [scripts/doctor.ts:285-321](../../../scripts/doctor.ts#L285-L321), [scripts/doctor.test.ts:62-81](../../../scripts/doctor.test.ts#L62-L81)
 
 ## Implementation Details
 
@@ -130,7 +130,7 @@ const [exitCode, stdout, stderr] = await Promise.all([
 ]);
 ```
 
-Sources: [scripts/run-full-quality-gate.ts:39-53](scripts/run-full-quality-gate.ts#L39-L53)
+Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-quality-gate.ts#L39-L53)
 
 ### SonarQube Integration
 SonarQube acts as a local-only merge gate and is intentionally excluded from GitHub Actions.
@@ -138,8 +138,8 @@ SonarQube acts as a local-only merge gate and is intentionally excluded from Git
 - **Configuration:** Local settings are stored in `sonar.local.properties`.
 - **Merge Block:** A skipped, failed, or unreachable Sonar scan explicitly blocks the merge process.
 
-Sources: [AGENTS.md:156-162](AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](scripts/doctor.ts#L233-L275)
+Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
 Testing and Quality Gates in Nous are designed to provide immediate feedback to developers while maintaining a strict, non-bypassable local standard for code health and architectural integrity. The reliance on local service probes (Sonar, Supabase) ensures that the development environment closely mirrors production constraints.
 
-Sources: [AGENTS.md:155-162](AGENTS.md#L155-L162)
+Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)
