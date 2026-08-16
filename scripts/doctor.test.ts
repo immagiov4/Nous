@@ -187,6 +187,7 @@ describe('inspectSonarService', () => {
     const request = vi.fn(async () => Promise.reject(new TypeError('Connection refused')));
 
     await expect(inspectSonarService(request)).resolves.toMatchObject({
+      detail: expect.stringContaining('bun run sonar:up'),
       label: 'SonarQube',
       status: 'FAIL',
     });

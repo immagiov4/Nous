@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { LOCAL_SONAR_HOST_URL } from './sonar-local.ts';
+import { LOCAL_SONAR_HOST_URL, LOCAL_SONAR_SYSTEM_STATUS_URL } from './sonar-local.ts';
 
 const CI_WORKFLOW_PATH = path.resolve('.github/workflows/ci.yml');
 const FALLOW_BASELINE_PATH = path.resolve('.fallow-baselines/regression.json');
@@ -367,7 +367,7 @@ const readJsonResponse = async (response: Response): Promise<Record<string, unkn
 
 export const inspectSonarService = async (request = fetch): Promise<DiagnosticResult> => {
   try {
-    const systemResponse = await request(new URL('/api/system/status', LOCAL_SONAR_HOST_URL));
+    const systemResponse = await request(LOCAL_SONAR_SYSTEM_STATUS_URL);
     const system = await readJsonResponse(systemResponse);
     if (!systemResponse.ok || system.status !== 'UP') {
       const reportedStatus =
