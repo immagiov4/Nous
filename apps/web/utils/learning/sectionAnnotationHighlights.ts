@@ -1,10 +1,13 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
 import { projectKatexAnnotationSource } from '../markdown/codeRanges.ts';
-import { isSelectionAnnotation } from './sectionAnnotationAnchors.ts';
+import {
+  hasSectionAnnotationSelectorContext,
+  isSelectionAnnotation,
+  matchesSectionAnnotationSelectorContext,
+} from './sectionAnnotationAnchors.ts';
 
 const ANNOTATION_HIGHLIGHT_NAME = 'nous-annotations';
 const NOTE_HIGHLIGHT_NAME = 'nous-annotation-notes';
-const SELECTOR_CONTEXT_LENGTH = 48;
 const PROJECTION_IGNORED_SELECTOR = 'script, style, [data-nous-speech="ignore"]';
 const HIGHLIGHT_IGNORED_SELECTOR = 'pre, .katex, [data-nous-speech="ignore"]';
 const KATEX_SELECTOR = '.katex';
@@ -92,7 +95,7 @@ const appendProjectedMath = (
 
 const isStructuralWhitespace = (node: Text): boolean =>
   !node.data.trim() &&
-  [node.previousSibling, node.nextSibling].some(
+  [node.previousSibling, node.nextSibling].every(
     sibling =>
       sibling?.nodeType === Node.ELEMENT_NODE && (sibling as Element).matches(BLOCK_SELECTOR)
   );
@@ -165,29 +168,6 @@ const hasIgnoredDomGap = (
   return Boolean(gapRange.cloneContents().querySelector(PROJECTION_IGNORED_SELECTOR));
 };
 
-const contextMatches = (
-  text: string,
-  matchStart: number,
-  matchLength: number,
-  selector: SectionAnnotationTextSelector
-): boolean => {
-  const before = normalizeWhitespace(
-    text.slice(Math.max(0, matchStart - SELECTOR_CONTEXT_LENGTH - 16), matchStart)
-  );
-  const after = normalizeWhitespace(
-    text.slice(matchStart + matchLength, matchStart + matchLength + SELECTOR_CONTEXT_LENGTH + 16)
-  );
-  const prefix = normalizeWhitespace(selector.prefix);
-  const suffix = normalizeWhitespace(selector.suffix);
-  return (
-    (!prefix || before.endsWith(prefix) || prefix.endsWith(before)) &&
-    (!suffix || after.startsWith(suffix) || suffix.startsWith(after))
-  );
-};
-
-const hasSelectorContext = (selector: SectionAnnotationTextSelector): boolean =>
-  Boolean(normalizeWhitespace(selector.prefix) || normalizeWhitespace(selector.suffix));
-
 const findSelectorRange = (
   projection: DomTextProjection,
   selector: SectionAnnotationTextSelector
@@ -209,9 +189,9 @@ const findSelectorRange = (
   }
 
   const contextualMatches = matches.filter(matchStart =>
-    contextMatches(projection.text, matchStart, exact.length, selector)
+    matchesSectionAnnotationSelectorContext(projection.text, matchStart, exact.length, selector)
   );
-  const candidates = hasSelectorContext(selector) ? contextualMatches : matches;
+  const candidates = hasSectionAnnotationSelectorContext(selector) ? contextualMatches : matches;
   return candidates.length === 1
     ? { start: candidates[0], end: candidates[0] + exact.length }
     : null;
