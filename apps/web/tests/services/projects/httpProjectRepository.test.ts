@@ -183,6 +183,25 @@ test('HttpProjectRepository only uses the server unavailable message for network
   );
 });
 
+test('HttpProjectRepository loads one encoded source ID without fetching the source set', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      source: { data: 'cGRm', mimeType: 'application/pdf', name: '049.pdf' },
+      success: true,
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(repository.loadProjectSourceById('project 1', 'source/049')).resolves.toMatchObject({
+    name: '049.pdf',
+  });
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    'http://localhost:3301/api/projects/projects/project%201/sources/source%2F049'
+  );
+});
+
 test('HttpProjectRepository preserves a non-JSON proxy 413 response', async () => {
   fetchMock.mockResolvedValueOnce(
     new Response('<html>Request Entity Too Large</html>', {

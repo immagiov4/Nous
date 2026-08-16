@@ -1,5 +1,9 @@
 import { describe, expect, test, vi } from 'vitest';
-import { createGeneratedVisualRetryCoordinator } from '../../app/useReaderShellProps.ts';
+import {
+  createGeneratedVisualRetryCoordinator,
+  loadStoredDocumentSourceFile,
+} from '../../app/useReaderShellProps.ts';
+import { ProjectStorageError } from '../../services/projects/projectRepository.ts';
 import type { LessonGeneratedVisualBlock, LessonNode, LessonVisualRetryPlan } from '../../types.ts';
 
 const buildPlan = (slotId: string): LessonVisualRetryPlan => ({
@@ -185,5 +189,53 @@ describe('generated visual retry coordination', () => {
     await expect(result).resolves.toBe(false);
     expect(receivedSignal?.aborted).toBe(true);
     expect(harness.applyRevision).not.toHaveBeenCalled();
+  });
+});
+
+describe('stored document source loading', () => {
+  test('falls back to the legacy bulk endpoint only when the source endpoint is unavailable', async () => {
+    const loadSources = vi.fn(async () => [
+      {
+        file: { data: 'cGRm', mimeType: 'application/pdf', name: '049.pdf' },
+        ref: {
+          byteSize: 3,
+          hash: 'source-hash',
+          id: 'source-049',
+          mimeType: 'application/pdf',
+          name: '049.pdf',
+          objectPath: 'sources/049.pdf',
+        },
+      },
+    ]);
+
+    await expect(
+      loadStoredDocumentSourceFile({
+        loadPrimarySource: vi.fn(),
+        loadSourceById: vi.fn(async () => {
+          throw new ProjectStorageError('Not found', 'unknown', { status: 404 });
+        }),
+        loadSources,
+        sourceId: 'source-049',
+        usePrimarySource: false,
+      })
+    ).resolves.toMatchObject({ name: '049.pdf' });
+    expect(loadSources).toHaveBeenCalledOnce();
+  });
+
+  test('does not hide failures from the per-source endpoint', async () => {
+    const loadSources = vi.fn();
+
+    await expect(
+      loadStoredDocumentSourceFile({
+        loadPrimarySource: vi.fn(),
+        loadSourceById: vi.fn(async () => {
+          throw new ProjectStorageError('Unavailable', 'unknown', { status: 503 });
+        }),
+        loadSources,
+        sourceId: 'source-049',
+        usePrimarySource: false,
+      })
+    ).rejects.toMatchObject({ httpStatus: 503 });
+    expect(loadSources).not.toHaveBeenCalled();
   });
 });

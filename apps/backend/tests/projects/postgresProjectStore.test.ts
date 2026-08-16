@@ -1116,6 +1116,42 @@ describe('PostgresProjectStore', () => {
     expect(storage.download).toHaveBeenCalledTimes(2);
   });
 
+  test('loads only the requested stored course source', async () => {
+    const sourceBytes = new TextEncoder().encode('selected');
+    const row = {
+      byte_size: sourceBytes.byteLength,
+      mime_type: 'application/pdf',
+      name: '049.pdf',
+      object_path: 'users/user/projects/project/source-049/original',
+      position: 48,
+      source_hash: createHash('sha256').update(sourceBytes).digest('hex'),
+      source_id: 'source-049',
+    };
+    const sqlClient = Object.assign(
+      vi.fn(async () => [row]),
+      {
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const storage = {
+      delete: vi.fn(),
+      download: vi.fn(async () => sourceBytes),
+      upload: vi.fn(),
+    };
+    const store = createPostgresProjectStore(sqlClient, storage);
+
+    const source = await store.loadProjectSourceById('user-1', PROJECT_META.id, 'source-049');
+
+    expect(source).toEqual({
+      data: Buffer.from(sourceBytes).toString('base64'),
+      mimeType: 'application/pdf',
+      name: '049.pdf',
+      sourceId: 'source-049',
+    });
+    expect(sqlClient.mock.calls[0]?.slice(1)).toEqual(['user-1', PROJECT_META.id, 'source-049']);
+    expect(storage.download).toHaveBeenCalledTimes(1);
+  });
+
   test('queues and removes replaced primary and secondary source objects', async () => {
     const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {

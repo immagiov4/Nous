@@ -1,4 +1,6 @@
 import { useChat } from '@ai-sdk/react';
+import type { ContextSourceReference } from '@shared/lessonSourceContext';
+import { sanitizeContextSourceDisplayName } from '@shared/lessonSourceContext';
 import {
   DefaultChatTransport,
   isToolUIPart,
@@ -32,6 +34,7 @@ import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
 import type {
+  FileData,
   LearningArtifactRenderPayload,
   LearningSection,
   StoredLessonVisual,
@@ -65,6 +68,7 @@ import {
 } from '../../shared/SpeechInputButton.tsx';
 import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
+import LessonDocumentSources from './LessonDocumentSources.tsx';
 import type {
   ContextAnswerSize,
   ContextAnswerState,
@@ -223,8 +227,30 @@ interface ContextRequestState {
   sourceKind?: ContextAnswerState['sourceKind'];
   sourceMaterial?: string;
   sourceName?: string;
+  sourceReferences?: ContextSourceReference[];
   toolPreferences: ContextChatToolPreferences;
 }
+
+const serializeContextSourceReferences = (
+  references: ContextAnswerState['documentSourceReferences']
+): ContextSourceReference[] | undefined =>
+  references?.map(({ chunkIds, name, pageEnd, pageStart, sourceId }) => ({
+    chunkIds,
+    name,
+    pageEnd,
+    pageStart,
+    sourceId,
+  }));
+
+const buildLegacySourceName = (
+  references: ContextAnswerState['documentSourceReferences']
+): string | undefined => {
+  if (!references?.length) {
+    return undefined;
+  }
+  const names = references.map(reference => sanitizeContextSourceDisplayName(reference.name));
+  return names.length === 1 ? names[0] : `${names.length} fonti originali: ${names.join(' | ')}`;
+};
 
 const createContextRequestStateStore = (initialState: ContextRequestState) => {
   let currentState = initialState;
@@ -267,6 +293,7 @@ interface ContextAnswerPanelProps {
   readonly isDarkMode: boolean;
   readonly inputValueOverride?: string;
   readonly isMobileViewport: boolean;
+  readonly loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   readonly messagesScrollTopOverride?: number;
   readonly currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   readonly onClose: () => void;
@@ -314,6 +341,7 @@ function ContextAnswerPanelSession({
   isDarkMode,
   inputValueOverride,
   isMobileViewport,
+  loadDocumentSourceFile,
   messagesScrollTopOverride,
   currentLessonArtifactPayloads = [],
   onClose,
@@ -395,6 +423,8 @@ function ContextAnswerPanelSession({
       contextAfter: contextAnswer.contextAfter,
       contextBefore: contextAnswer.contextBefore,
       contextScope: contextAnswer.contextScope,
+      sourceReferences: serializeContextSourceReferences(contextAnswer.documentSourceReferences),
+      sourceName: buildLegacySourceName(contextAnswer.documentSourceReferences),
       lessonContent: contextAnswer.lessonContent,
       lessonDescription: contextAnswer.lessonDescription,
       lessonTitle: contextAnswer.lessonTitle,
@@ -402,7 +432,6 @@ function ContextAnswerPanelSession({
       selectedTextStart: contextAnswer.selectedTextStart,
       sourceKind: contextAnswer.sourceKind,
       sourceMaterial: contextAnswer.sourceMaterial,
-      sourceName: contextAnswer.sourceName,
       toolPreferences,
     }),
     [
@@ -411,6 +440,7 @@ function ContextAnswerPanelSession({
       contextAnswer.contextAfter,
       contextAnswer.contextBefore,
       contextAnswer.contextScope,
+      contextAnswer.documentSourceReferences,
       contextAnswer.lessonContent,
       contextAnswer.lessonDescription,
       contextAnswer.lessonTitle,
@@ -418,7 +448,6 @@ function ContextAnswerPanelSession({
       contextAnswer.selectedTextStart,
       contextAnswer.sourceKind,
       contextAnswer.sourceMaterial,
-      contextAnswer.sourceName,
       toolPreferences,
     ]
   );
@@ -454,6 +483,7 @@ function ContextAnswerPanelSession({
               sourceKind: currentRequestState.sourceKind,
               sourceMaterial: currentRequestState.sourceMaterial,
               sourceName: currentRequestState.sourceName,
+              sourceReferences: currentRequestState.sourceReferences,
               attachedAnnotationNote: currentRequestState.attachedAnnotationNote,
               attachedAnnotationText: currentRequestState.attachedAnnotationText,
               toolPreferences: currentRequestState.toolPreferences,
@@ -1293,6 +1323,11 @@ function ContextAnswerPanelSession({
         <p className="line-clamp-2 text-sm leading-6 text-stone-500 dark:text-stone-400">
           {contextAnswer.selectedText}
         </p>
+        <LessonDocumentSources
+          compact
+          loadSourceFile={loadDocumentSourceFile}
+          sources={contextAnswer.documentSourceReferences || []}
+        />
       </div>
 
       <div className="relative min-h-0 flex-1">

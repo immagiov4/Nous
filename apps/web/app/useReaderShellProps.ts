@@ -12,6 +12,7 @@ import {
 } from '../services/exercises/plan.ts';
 import { getExercisePrerequisiteGaps } from '../services/openrouter/exercises/brief.ts';
 import { retryDurableLessonVisual } from '../services/openrouter/lessonVisualRetryClient.ts';
+import { ProjectStorageError } from '../services/projects/projectRepository.ts';
 import type {
   ExerciseAttachment,
   LessonGeneratedVisualBlock,
@@ -28,6 +29,34 @@ import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
 type WorkspaceReaderActions = ReturnType<typeof useWorkspaceReaderActions>;
+
+export const loadStoredDocumentSourceFile = async ({
+  loadPrimarySource,
+  loadSourceById,
+  loadSources,
+  sourceId,
+  usePrimarySource,
+}: {
+  loadPrimarySource: () => ReturnType<WorkspaceController['loadStoredProjectSource']>;
+  loadSourceById: () => ReturnType<WorkspaceController['loadStoredProjectSourceById']>;
+  loadSources: () => ReturnType<WorkspaceController['loadStoredProjectSources']>;
+  sourceId: string;
+  usePrimarySource: boolean;
+}) => {
+  if (usePrimarySource) {
+    return loadPrimarySource();
+  }
+
+  try {
+    return await loadSourceById();
+  } catch (error) {
+    if (!(error instanceof ProjectStorageError) || error.httpStatus !== 404) {
+      throw error;
+    }
+    const storedSources = await loadSources();
+    return storedSources.find(stored => stored.ref.id === sourceId)?.file || null;
+  }
+};
 
 interface UseReaderShellPropsArgs {
   controller: WorkspaceController;
@@ -278,11 +307,18 @@ export const useReaderShellProps = ({
       if (!projectId) {
         return null;
       }
-      const storedSources = await controller.loadStoredProjectSources(projectId);
+      const reference = activeSectionSourceReferences.find(item => item.sourceId === sourceId);
+      const storedFile = await loadStoredDocumentSourceFile({
+        loadPrimarySource: () => controller.loadStoredProjectSource(projectId),
+        loadSourceById: () => controller.loadStoredProjectSourceById(projectId, sourceId),
+        loadSources: () => controller.loadStoredProjectSources(projectId),
+        sourceId,
+        usePrimarySource: reference?.kind === 'archive' || !controller.source?.sources?.length,
+      });
       if (controller.getCurrentProjectId() !== projectId) {
         return null;
       }
-      return storedSources.find(stored => stored.ref.id === sourceId)?.file || null;
+      return storedFile;
     },
     [activeSectionSourceReferences, controller]
   );
@@ -572,6 +608,7 @@ export const useReaderShellProps = ({
               controller.workflowState.generateExercise.status === 'pending'
             ? 'other-operation'
             : null,
+        loadDocumentSourceFile,
         onAskContextQuestion: readerActions.handleContextQuestion,
         onAttachArtifactToAnnotation: readerActions.handleAttachArtifactToAnnotation,
         onCloseContextAnswer: readerState.readerContext.closeContextAnswer,

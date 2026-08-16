@@ -572,6 +572,19 @@ router.get('/projects/:id/sources', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/projects/:id/sources/:sourceId', async (req: Request, res: Response) => {
+  try {
+    const source = await getProjectStore().loadProjectSourceById(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id),
+      getRouteParam(req.params.sourceId)
+    );
+    res.json({ success: true, source });
+  } catch (error) {
+    sendErrorResponse(res, 500, error, 'Failed to load project source by ID');
+  }
+});
+
 router.get('/projects/:id/source/archive', async (req: Request, res: Response) => {
   try {
     const archiveIndex = await getProjectStore().loadProjectSourceArchiveIndex(

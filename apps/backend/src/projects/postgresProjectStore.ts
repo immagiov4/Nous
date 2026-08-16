@@ -445,6 +445,25 @@ export class PostgresProjectStore implements ProjectStore {
     };
   }
 
+  async loadProjectSourceById(
+    userId: string,
+    id: ProjectId,
+    sourceId: string
+  ): Promise<ProjectSourceFile | null> {
+    const rows = await this.sql<ProjectSourceFileRow[]>`
+      select source_id, source_hash, name, mime_type, byte_size, object_path, position
+      from public.project_source_files
+      where user_id = ${userId} and project_id = ${id} and source_id = ${sourceId}
+      limit 1
+    `;
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return this.downloadProjectSourceFile(row);
+  }
+
   async loadProjectSources(userId: string, id: ProjectId): Promise<StoredProjectSourceFile[]> {
     const rows = await this.sql<ProjectSourceFileRow[]>`
       select source_id, source_hash, name, mime_type, byte_size, object_path, position
@@ -454,17 +473,8 @@ export class PostgresProjectStore implements ProjectStore {
     `;
     return Promise.all(
       rows.map(async row => {
-        const bytes = await this.getSourceStorage().download(row.object_path, {
-          byteSize: Number(row.byte_size),
-          hash: row.source_hash,
-        });
         return {
-          file: {
-            data: Buffer.from(bytes).toString('base64'),
-            mimeType: row.mime_type,
-            name: row.name,
-            sourceId: row.source_id,
-          },
+          file: await this.downloadProjectSourceFile(row),
           ref: {
             byteSize: Number(row.byte_size),
             hash: row.source_hash,
@@ -476,6 +486,19 @@ export class PostgresProjectStore implements ProjectStore {
         };
       })
     );
+  }
+
+  private async downloadProjectSourceFile(row: ProjectSourceFileRow): Promise<ProjectSourceFile> {
+    const bytes = await this.getSourceStorage().download(row.object_path, {
+      byteSize: Number(row.byte_size),
+      hash: row.source_hash,
+    });
+    return {
+      data: Buffer.from(bytes).toString('base64'),
+      mimeType: row.mime_type,
+      name: row.name,
+      sourceId: row.source_id,
+    };
   }
 
   async loadProjectSourceArchiveIndex(

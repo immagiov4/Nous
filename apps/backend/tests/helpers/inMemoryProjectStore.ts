@@ -164,6 +164,17 @@ export class InMemoryProjectStore implements ProjectStore {
     return source ? clone(source) : null;
   }
 
+  async loadProjectSourceById(
+    userId: string,
+    id: ProjectId,
+    sourceId: string
+  ): Promise<ProjectSourceFile | null> {
+    const source = this.getSourceSets(userId)
+      .get(id)
+      ?.find(stored => stored.ref.id === sourceId)?.file;
+    return source ? clone(source) : null;
+  }
+
   async loadProjectSources(userId: string, id: ProjectId): Promise<StoredProjectSourceFile[]> {
     return clone(this.getSourceSets(userId).get(id) || []);
   }

@@ -208,6 +208,11 @@ export interface ProjectStore {
   ) => Promise<ProjectSnapshotWithRevision | null>;
   loadProjectCover: (userId: string, id: ProjectId) => Promise<ProjectCoverFile | null>;
   loadProjectSource: (userId: string, id: ProjectId) => Promise<ProjectSourceFile | null>;
+  loadProjectSourceById: (
+    userId: string,
+    id: ProjectId,
+    sourceId: string
+  ) => Promise<ProjectSourceFile | null>;
   loadProjectSources: (userId: string, id: ProjectId) => Promise<StoredProjectSourceFile[]>;
   loadProjectSourceArchiveEntry: (
     userId: string,

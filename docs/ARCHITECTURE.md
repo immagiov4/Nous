@@ -231,6 +231,10 @@ Interactive chat stays separate because its streaming history and tool-call cont
 - `/api/openrouter/chat/completions` — authenticated proxy for remaining bounded calls.
 - `/api/chat/context` and `/api/chat/library` — Vercel AI SDK protocol endpoints (streaming + tool calls).
 
+Reader context chat sends original document provenance as structured source references (file name,
+stable source ID, page range, and chunk IDs). The combined text is only request context: the UI and
+prompt must never present it as a merged document, and document links resolve to the original file.
+
 ### Durable workflow runtime
 
 Workflow definitions are compositions of typed primitives registered and validated at backend

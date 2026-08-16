@@ -411,18 +411,22 @@ describe('HomeChatPanel', () => {
     expect(messagesContent).toHaveStyle({ transform: 'translateY(-0px)' });
   });
 
-  test('shows a compact count and the stable source list for a multi-file course', () => {
+  test('shows 49 numbered PDFs as distinct sources', () => {
+    const numberedPdfNames = Array.from(
+      { length: 49 },
+      (_, index) => `${String(index + 1).padStart(index === 48 ? 3 : 2, '0')}.pdf`
+    );
     render(
       <HomeChatPanel
         {...buildProps()}
         assessmentMessages={[]}
-        pendingFileNames={['Alpha.md', 'zeta.pdf']}
+        pendingFileNames={numberedPdfNames}
       />
     );
 
-    expect(screen.getByText(/2 (sources selected|fonti selezionate)/i)).toBeInTheDocument();
-    expect(screen.getByText('Alpha.md')).toBeInTheDocument();
-    expect(screen.getByText('zeta.pdf')).toBeInTheDocument();
+    expect(screen.getByText(/49 (sources selected|fonti selezionate)/i)).toBeInTheDocument();
+    expect(screen.getByText('01.pdf')).toBeInTheDocument();
+    expect(screen.getByText('049.pdf')).toBeInTheDocument();
   });
 
   test('renders the course setup surface in the browser language', () => {

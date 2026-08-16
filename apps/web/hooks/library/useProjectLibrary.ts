@@ -1397,6 +1397,11 @@ export const useProjectLibrary = ({
     (projectId: string) => projectRepositoryRef.current.loadProjectSource(projectId),
     []
   );
+  const loadStoredProjectSourceById = useCallback(
+    (projectId: string, sourceId: string) =>
+      projectRepositoryRef.current.loadProjectSourceById(projectId, sourceId),
+    []
+  );
   const loadStoredProjectSources = useCallback(
     (projectId: string) => projectRepositoryRef.current.loadProjectSources(projectId),
     []
@@ -1560,6 +1565,7 @@ export const useProjectLibrary = ({
     loadStoredProjectWithRevision,
     loadStoredProjectCover,
     loadStoredProjectSource,
+    loadStoredProjectSourceById,
     loadStoredProjectSources,
     moveFolder: async (folderId: string, parentFolderId: string | null, targetIndex?: number) => {
       const nextFolder = await projectRepositoryRef.current.moveFolder(

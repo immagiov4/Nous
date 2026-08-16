@@ -24,9 +24,11 @@ const buildSourceViewerUrl = (objectUrl: string, pageStart?: number): string => 
 
 function DocumentSourceLink({
   loadSourceFile,
+  showChunks = true,
   source,
 }: Readonly<{
   loadSourceFile?: (sourceId: string) => Promise<FileData | null>;
+  showChunks?: boolean;
   source: ResolvedLessonSourceReference;
 }>) {
   const [isLoading, setIsLoading] = useState(false);
@@ -117,6 +119,22 @@ function DocumentSourceLink({
           {pageRange ? (
             <p className="mt-0.5 text-xs text-stone-500 dark:text-stone-400">{pageRange}</p>
           ) : null}
+          {showChunks && source.chunkIds.length > 0 ? (
+            <details className="mt-1 text-xs text-stone-500 dark:text-stone-400">
+              <summary className="cursor-pointer select-none">
+                {t('Chunk sorgente ({chunkCount})', { chunkCount: source.chunkIds.length })}
+              </summary>
+              <p className="mt-1 break-all pl-3">
+                {source.chunkIds
+                  .map(chunkId =>
+                    chunkId.startsWith(`${source.sourceId}:`)
+                      ? chunkId.slice(source.sourceId.length + 1)
+                      : chunkId
+                  )
+                  .join(', ')}
+              </p>
+            </details>
+          ) : null}
           {source.archiveSelectors?.length ? (
             <ul
               aria-label={t('Percorsi usati nella lezione')}
@@ -144,14 +162,47 @@ function DocumentSourceLink({
 }
 
 export default function LessonDocumentSources({
+  compact = false,
   loadSourceFile,
   sources,
 }: Readonly<{
+  compact?: boolean;
   loadSourceFile?: (sourceId: string) => Promise<FileData | null>;
   sources: ResolvedLessonSourceReference[];
 }>) {
   if (sources.length === 0) {
     return null;
+  }
+
+  if (compact) {
+    const sourceNames = sources.map(source => source.name).join(', ');
+    return (
+      <details className="mt-2 rounded-xl border border-stone-200/80 px-3 py-2 dark:border-stone-700">
+        <summary
+          className="cursor-pointer select-none text-xs text-stone-600 dark:text-stone-300"
+          title={sourceNames}
+        >
+          <span className="inline-flex max-w-full min-w-0 items-center gap-1 align-bottom">
+            <span className="shrink-0 font-semibold">
+              {sources.length === 1
+                ? t('1 fonte')
+                : t('{sourceCount} fonti', { sourceCount: sources.length })}
+            </span>
+            <span className="shrink-0 text-stone-500 dark:text-stone-400">·</span>
+            <span className="truncate text-stone-500 dark:text-stone-400">{sourceNames}</span>
+          </span>
+        </summary>
+        <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
+          {sources.map(source => (
+            <DocumentSourceLink
+              key={source.sourceId}
+              loadSourceFile={loadSourceFile}
+              source={source}
+            />
+          ))}
+        </ul>
+      </details>
+    );
   }
 
   return (

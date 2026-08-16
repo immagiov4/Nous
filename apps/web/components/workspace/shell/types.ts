@@ -37,6 +37,7 @@ export interface ContextAnswerState {
   contextAfter?: string;
   contextBefore?: string;
   contextScope?: ContextScope;
+  documentSourceReferences?: ResolvedLessonSourceReference[];
   id: string;
   initialQuestion: string;
   lessonContent?: string;
@@ -49,7 +50,6 @@ export interface ContextAnswerState {
   selectedTextStart?: number;
   sourceKind?: ProjectSource['kind'];
   sourceMaterial?: string;
-  sourceName?: string;
 }
 
 export interface ConversationSelectionAnchor {
@@ -267,6 +267,7 @@ export interface WorkspaceReaderOverlaysModel {
   isDarkMode: boolean;
   isMobileViewport: boolean;
   lessonCreationBlockReason: LessonCreationBlockReason | null;
+  loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onAskContextQuestion: (question: string) => void;
   onAttachArtifactToAnnotation: (artifactRef: SectionAnnotationArtifactRef) => void;
