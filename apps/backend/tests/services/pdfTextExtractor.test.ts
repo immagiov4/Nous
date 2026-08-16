@@ -24,7 +24,7 @@ vi.mock('node:child_process', async importOriginal => ({
       end: vi.fn(() =>
         queueMicrotask(() => {
           child.stdout.emit('data', serialize(pdfRuntimeMocks.processResults.shift()));
-          child.emit('exit', 0);
+          child.emit('close', 0);
         })
       ),
     };
