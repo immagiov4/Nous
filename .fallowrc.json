@@ -3,7 +3,7 @@
   "entry": [
     "src/index.{ts,tsx,js,jsx}",
     "src/main.{ts,tsx,js,jsx}",
-    "apps/backend/src/services/pdfTextFallbackWorker.ts"
+    "apps/backend/src/services/pdfTextFallbackProcess.mjs"
   ],
   "rules": {
     "unused-dependencies": "warn"
