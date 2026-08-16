@@ -22,6 +22,10 @@ describe('generation progress observer', () => {
     );
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test('keeps the authoritative timer origin while recovery updates retry state', () => {
     const progress: GenerationProgressSnapshot = {
       operation: 'lesson',
@@ -57,10 +61,6 @@ describe('generation progress observer', () => {
     expect(current.attempt).toBe(2);
     expect(current.retrying).toBe(true);
     expect(current.failure).toEqual({ code: 'provider_unavailable', kind: 'operational' });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   test('summarizes only after a bounded threshold and validates the generated payload', async () => {
