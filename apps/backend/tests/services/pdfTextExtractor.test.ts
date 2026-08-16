@@ -46,6 +46,7 @@ import {
   buildDeterministicPdfOutline,
   extractPdfText,
   PdfTextExtractionOutputLimitError,
+  PdfTextExtractionTimeoutError,
 } from '../../src/services/pdfTextExtractor.js';
 import {
   buildBoundedPdfTextWorkerPayload,
@@ -173,5 +174,68 @@ describe('extractPdfText resource limits', () => {
         command: expectedFallbackNodeExecutable,
       }),
     ]);
+  });
+
+  test('uses fallback text and a native outline when the subprocess returns no pages', async () => {
+    pdfRuntimeMocks.execFileAsync.mockRejectedValue(new Error('pdftotext failed'));
+    pdfRuntimeMocks.processResults.push({
+      outline: [{ dest: [0], title: 'Indice' }],
+      pageCount: 1,
+      text: 'Contenuto didattico dal parser di fallback.',
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await extractPdfText('data:application/pdf;base64,JVBERi0xLjQ=', {
+      fallbackTimeoutMs: 15_000,
+      maxOutputBytes: 1_000,
+      pdftotextTimeoutMs: 15_000,
+    });
+
+    expect(result).toMatchObject({
+      outline: [expect.objectContaining({ page: 1, title: 'Indice' })],
+      outlineOrigin: 'native',
+      pageCount: 1,
+      pages: [{ pageNumber: 1, text: 'Contenuto didattico dal parser di fallback.' }],
+    });
+  });
+
+  test('keeps only valid subprocess pages and derives their deterministic outline', async () => {
+    pdfRuntimeMocks.execFileAsync.mockRejectedValue(new Error('pdftotext failed'));
+    pdfRuntimeMocks.processResults.push({
+      outline: [],
+      pages: [
+        null,
+        {},
+        { pageNumber: '1', text: 'scarto' },
+        { pageNumber: 2, text: '1 Fondamenti' },
+      ],
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await extractPdfText('data:application/pdf;base64,JVBERi0xLjQ=', {
+      fallbackTimeoutMs: 15_000,
+      maxOutputBytes: 1_000,
+      pdftotextTimeoutMs: 15_000,
+    });
+
+    expect(result).toMatchObject({
+      outline: [expect.objectContaining({ page: 2, title: '1 Fondamenti' })],
+      outlineOrigin: 'deterministic',
+      pageCount: 1,
+      pages: [{ pageNumber: 2, text: '1 Fondamenti' }],
+    });
+  });
+
+  test('rejects a non-positive fallback timeout before starting the subprocess', async () => {
+    pdfRuntimeMocks.execFileAsync.mockRejectedValue(new Error('pdftotext failed'));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      extractPdfText('data:application/pdf;base64,JVBERi0xLjQ=', {
+        fallbackTimeoutMs: 0,
+        pdftotextTimeoutMs: 15_000,
+      })
+    ).rejects.toBeInstanceOf(PdfTextExtractionTimeoutError);
+    expect(pdfRuntimeMocks.spawnCalls).toEqual([]);
   });
 });
