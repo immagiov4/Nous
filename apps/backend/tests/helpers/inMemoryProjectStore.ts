@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   buildOrderedSiblingItems,
   collectFolderDescendantIds,
@@ -196,7 +198,8 @@ export class InMemoryProjectStore implements ProjectStore {
     const index = this.getSourceArchiveIndexes(userId).get(id);
     if (
       index?.version.sourceId !== version.sourceId ||
-      index?.version.sourceHash !== version.sourceHash
+      index?.version.sourceHash !== version.sourceHash ||
+      index?.version.representationHash !== version.representationHash
     ) {
       return null;
     }
@@ -261,22 +264,25 @@ export class InMemoryProjectStore implements ProjectStore {
     ) {
       const archive = await indexSourceArchive(bytes, PROJECT_SOURCE_ARCHIVE_LIMITS);
       const entryBytes = new Map<string, Uint8Array>();
+      const entries = archive.entries.map(entry => {
+        if (entry.kind === 'directory') {
+          return { kind: entry.kind, path: entry.path };
+        }
+        entryBytes.set(entry.path, entry.content.slice());
+        return {
+          byteSize: entry.byteSize,
+          contentKind: entry.text === undefined ? ('binary' as const) : ('text' as const),
+          hash: entry.hash,
+          kind: entry.kind,
+          path: entry.path,
+          ...(entry.preview === undefined ? {} : { preview: entry.preview }),
+          ...(entry.warningReason === undefined ? {} : { warningReason: entry.warningReason }),
+        };
+      });
       this.getSourceArchiveIndexes(userId).set(id, {
-        entries: archive.entries.map(entry => {
-          if (entry.kind === 'directory') {
-            return { kind: entry.kind, path: entry.path };
-          }
-          entryBytes.set(entry.path, entry.content.slice());
-          return {
-            byteSize: entry.byteSize,
-            contentKind: entry.text === undefined ? 'binary' : 'text',
-            hash: entry.hash,
-            kind: entry.kind,
-            path: entry.path,
-            ...(entry.preview === undefined ? {} : { preview: entry.preview }),
-          };
-        }),
+        entries,
         version: {
+          representationHash: createHash('sha256').update(JSON.stringify(entries)).digest('hex'),
           sourceHash: ref.hash,
           sourceId: ref.id,
         },

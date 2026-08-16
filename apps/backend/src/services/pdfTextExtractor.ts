@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { Worker } from 'node:worker_threads';
 
@@ -163,7 +164,11 @@ const runPdfTextWorker = (
 ): Promise<PdfTextWorkerResult> =>
   new Promise((resolve, reject) => {
     const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
-    const worker = new Worker(new URL(`./pdfTextFallbackWorker.${extension}`, import.meta.url), {
+    const workerPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      `pdfTextFallbackWorker.${extension}`
+    );
+    const worker = new Worker(pathToFileURL(workerPath), {
       workerData: { bytes: new Uint8Array(pdfBuffer), mode },
     });
     let settled = false;

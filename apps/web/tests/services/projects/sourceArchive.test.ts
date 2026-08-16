@@ -122,6 +122,7 @@ test('SourceArchiveClient executes exact model tool calls through the archive qu
 
   const client = new SourceArchiveClient('https://backend.test');
   const archiveVersion = {
+    representationHash: 'b'.repeat(64),
     sourceHash: 'a'.repeat(64),
     sourceId: 'source-engine',
   };
@@ -180,6 +181,7 @@ test('SourceArchiveClient rejects unsupported operations instead of guessing mod
       client.runToolCall(
         'project-1',
         {
+          representationHash: 'b'.repeat(64),
           sourceHash: 'a'.repeat(64),
           sourceId: 'source-engine',
         },
@@ -200,6 +202,7 @@ test('SourceArchiveClient rejects unsupported operations instead of guessing mod
 test('SourceArchiveClient rejects invalid read cursors before querying the backend', async () => {
   const client = new SourceArchiveClient('https://backend.test');
   const archiveVersion = {
+    representationHash: 'b'.repeat(64),
     sourceHash: 'a'.repeat(64),
     sourceId: 'source-engine',
   };

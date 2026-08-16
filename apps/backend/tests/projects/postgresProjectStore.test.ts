@@ -24,7 +24,10 @@ import {
 } from '../../src/projects/projectRevision.js';
 import { buildProjectSourceObjectPath } from '../../src/projects/projectSource.js';
 import { ProjectSourceStorageError } from '../../src/projects/projectSourceStorage.js';
-import type { SourceArchiveUnusableError } from '../../src/projects/sourceArchive.js';
+import {
+  SourceArchivePreparationCapacityError,
+  type SourceArchiveUnusableError,
+} from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot, SavedProjectMeta } from '../../src/projects/types.js';
 
 const PROJECT_META: SavedProjectMeta = {
@@ -1562,7 +1565,7 @@ describe('PostgresProjectStore', () => {
     expect(sqlClient.begin).not.toHaveBeenCalled();
   });
 
-  test('bounds concurrent archive uploads and starts the metadata transaction only afterwards', async () => {
+  test('holds archive admission through bounded uploads and starts metadata afterwards', async () => {
     const zip = new JSZip();
     for (let index = 0; index < 6; index += 1) {
       zip.file(`src/file-${index}.ts`, `export const value${index} = ${index};`);
@@ -1628,6 +1631,24 @@ describe('PostgresProjectStore', () => {
 
     await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(1));
     expect(sqlClient.begin).not.toHaveBeenCalled();
+    await expect(
+      store.saveProject('user-2', {
+        ...createMultiSourceSnapshot(),
+        id: 'concurrent-archive',
+        sourceKind: 'codebase',
+        source: {
+          file: {
+            data: Buffer.from(archiveBytes).toString('base64'),
+            mimeType: 'application/zip',
+            name: 'concurrent.zip',
+          },
+          index: { entries: [] },
+          kind: 'archive',
+          name: 'concurrent.zip',
+        },
+      })
+    ).rejects.toBeInstanceOf(SourceArchivePreparationCapacityError);
+    expect(storage.upload).toHaveBeenCalledTimes(1);
     for (const resolve of pendingUploads.splice(0)) {
       resolve();
     }
@@ -2098,23 +2119,18 @@ describe('PostgresProjectStore', () => {
     const store = createPostgresProjectStore(sqlClient, storage);
 
     const index = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
+    if (!index) throw new Error('Expected the stored archive index.');
     const loadedEntry = await store.loadProjectSourceArchiveEntry(
       'user-1',
       PROJECT_META.id,
       'src/index.ts',
-      {
-        sourceHash: 'a'.repeat(64),
-        sourceId: 'source-archive',
-      }
+      index.version
     );
     const loadedRange = await store.loadProjectSourceArchiveEntryRange(
       'user-1',
       PROJECT_META.id,
       'src/index.ts',
-      {
-        sourceHash: 'a'.repeat(64),
-        sourceId: 'source-archive',
-      },
+      index.version,
       2,
       9
     );
@@ -2132,6 +2148,7 @@ describe('PostgresProjectStore', () => {
         },
       ],
       version: {
+        representationHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
         sourceHash: 'a'.repeat(64),
         sourceId: 'source-archive',
       },
@@ -2148,6 +2165,46 @@ describe('PostgresProjectStore', () => {
     );
     expect(loadedEntry).toEqual(entryBytes);
     expect(loadedRange).toEqual(entryBytes.slice(2, 9));
+  });
+
+  test('versions the prepared representation independently from the original ZIP hash', async () => {
+    let preparedEntryHash = 'b'.repeat(64);
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) =>
+        strings.join('?').includes('from public.project_sources source')
+          ? Promise.resolve([
+              {
+                archive_source_hash: 'a'.repeat(64),
+                archive_source_id: 'source-archive',
+                byte_size: 12,
+                content_kind: 'text',
+                kind: 'file',
+                path: 'docs/manual.pdf',
+                preview: 'Testo estratto',
+                source_hash: preparedEntryHash,
+                source_kind: 'archive',
+                warning_reason: null,
+              },
+            ])
+          : Promise.resolve([])
+      ),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const first = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
+    preparedEntryHash = 'c'.repeat(64);
+    const second = await store.loadProjectSourceArchiveIndex('user-1', PROJECT_META.id);
+
+    expect(first?.version).toMatchObject({
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    });
+    expect(second?.version).toMatchObject({
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    });
+    expect(first?.version.representationHash).not.toBe(second?.version.representationHash);
   });
 
   test('saves a cover only while the project revision still matches', async () => {

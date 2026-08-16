@@ -357,6 +357,8 @@ class SourceArchiveVersionMismatchError extends Error {
 const requireSourceArchiveVersion = (value: unknown): ProjectSourceArchiveVersion => {
   if (
     !isRecord(value) ||
+    typeof value.representationHash !== 'string' ||
+    !SOURCE_HASH_PATTERN.test(value.representationHash) ||
     typeof value.sourceId !== 'string' ||
     !value.sourceId ||
     typeof value.sourceHash !== 'string' ||
@@ -364,13 +366,20 @@ const requireSourceArchiveVersion = (value: unknown): ProjectSourceArchiveVersio
   ) {
     throw new Error('Versione archivio sorgente mancante o non valida.');
   }
-  return { sourceHash: value.sourceHash, sourceId: value.sourceId };
+  return {
+    representationHash: value.representationHash,
+    sourceHash: value.sourceHash,
+    sourceId: value.sourceId,
+  };
 };
 
 const isSameSourceArchiveVersion = (
   left: ProjectSourceArchiveVersion,
   right: ProjectSourceArchiveVersion
-): boolean => left.sourceId === right.sourceId && left.sourceHash === right.sourceHash;
+): boolean =>
+  left.sourceId === right.sourceId &&
+  left.sourceHash === right.sourceHash &&
+  left.representationHash === right.representationHash;
 
 const getSourceArchiveAccess = async (
   userId: string,
