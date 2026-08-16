@@ -147,6 +147,7 @@ const responseErrorCode = (status: number, apiCode?: string): ProjectStorageErro
   if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveBusy) return 'source-archive-busy';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveChanged) return 'source-archive-changed';
+  if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveInvalid) return 'source-archive-invalid';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveUnusable) return 'source-archive-unusable';
   if (status === HTTP_STATUS_REQUEST_TOO_LARGE || status === 429) return 'quota-exceeded';
   return 'persistence-failed';
@@ -162,6 +163,9 @@ function responseErrorMessage(code: ProjectStorageError['code']): string {
     );
   }
   if (code === 'source-archive-changed') return PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE;
+  if (code === 'source-archive-invalid') {
+    return translateUiMessage('Non è stato possibile preparare l’archivio ZIP.');
+  }
   if (code === 'source-archive-unusable') {
     return translateUiMessage('L’archivio non contiene alcun testo utilizzabile.');
   }

@@ -290,6 +290,28 @@ test('HttpProjectRepository preserves retryable ZIP preparation capacity failure
   });
 });
 
+test('HttpProjectRepository maps archive preparation failures to a stable code', async () => {
+  setRenderingLocaleOverride('it');
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        code: PROJECT_API_ERROR_CODE.sourceArchiveInvalid,
+        error: 'technical backend detail',
+        success: false,
+      }),
+      { headers: { 'Content-Type': 'application/json' }, status: 422 }
+    )
+  );
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(repository.listFolders()).rejects.toMatchObject({
+    code: 'source-archive-invalid',
+    httpStatus: 422,
+    message: 'Non è stato possibile preparare l’archivio ZIP.',
+    name: 'ProjectStorageError',
+  });
+});
+
 test('HttpProjectRepository does not retry a non-JSON proxy 413 during chunk upload', async () => {
   fetchMock
     .mockResolvedValueOnce({

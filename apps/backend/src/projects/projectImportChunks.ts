@@ -359,7 +359,9 @@ const assembleAndImport = async (
 
   if (session.format === 'binary') {
     if (!importBinary) throw new ProjectImportInputError('Formato del backup non valido.');
-    return importBinary(new Uint8Array(await readFile(assembledPath)), session.expectedRevision);
+    const bytes = new Uint8Array(await readFile(assembledPath));
+    await unlink(assembledPath);
+    return importBinary(bytes, session.expectedRevision);
   }
 
   if (!importData) throw new ProjectImportInputError('Formato del backup non valido.');

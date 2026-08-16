@@ -35,6 +35,7 @@ export class ProjectStorageError extends Error {
     | 'revision-conflict'
     | 'source-archive-busy'
     | 'source-archive-changed'
+    | 'source-archive-invalid'
     | 'source-archive-unusable'
     | 'unknown';
   readonly httpStatus?: number;

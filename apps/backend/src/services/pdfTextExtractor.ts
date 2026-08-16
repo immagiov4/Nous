@@ -1,11 +1,11 @@
-// Extracts text from uploaded PDF files through the backend worker flow.
-import { execFile } from 'node:child_process';
+// Extracts text from uploaded PDF files through the backend parser flow.
+import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { Worker } from 'node:worker_threads';
+import { deserialize } from 'node:v8';
 
 import { PDFParse } from 'pdf-parse';
 
@@ -15,6 +15,9 @@ import { normalizeLineEndings } from '../utils/text.js';
 
 const execFileAsync = promisify(execFile);
 const TMP_DIR_PREFIX = 'nous-pdf-text-';
+const PDF_PROCESS_SERIALIZATION_OVERHEAD_BYTES = 1_000_000;
+const PDF_PROCESS_SERIALIZATION_BYTES_PER_OUTPUT_BYTE = 2;
+const PDF_PROCESS_STDERR_MAX_CHARS = 8_192;
 const PDF_TEXT_FALLBACK_WARNING =
   'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
 
@@ -22,7 +25,7 @@ export interface PdfTextExtractionOptions {
   fallbackTimeoutMs?: number;
   maxOutputBytes?: number;
   pdftotextTimeoutMs?: number;
-  workerMaxOldGenerationSizeMb?: number;
+  fallbackProcessMaxOldGenerationSizeMb?: number;
 }
 
 export class PdfTextExtractionTimeoutError extends Error {
@@ -65,7 +68,7 @@ export interface ExtractedPdfText {
   outlineOrigin: 'deterministic' | 'native' | 'none';
 }
 
-interface PdfTextWorkerResult {
+interface PdfTextProcessResult {
   error?: string;
   errorCode?: string;
   outline?: unknown;
@@ -167,37 +170,45 @@ const normalizeNativePdfOutline = (outline: unknown): ExtractedPdfOutlineNode[] 
   return normalize(outline, 1);
 };
 
-const runPdfTextWorker = (
+const runPdfTextFallbackProcess = (
   pdfBuffer: Buffer,
   mode: 'fallback' | 'outline',
   timeoutMs: number,
-  limits: Pick<PdfTextExtractionOptions, 'maxOutputBytes' | 'workerMaxOldGenerationSizeMb'> = {}
-): Promise<PdfTextWorkerResult> =>
+  limits: Pick<
+    PdfTextExtractionOptions,
+    'fallbackProcessMaxOldGenerationSizeMb' | 'maxOutputBytes'
+  > = {}
+): Promise<PdfTextProcessResult> =>
   new Promise((resolve, reject) => {
-    const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
-    const workerPath = path.join(
+    const processPath = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
-      `pdfTextFallbackWorker.${extension}`
+      'pdfTextFallbackProcess.mjs'
     );
-    const worker = new Worker(pathToFileURL(workerPath), {
-      ...(limits.workerMaxOldGenerationSizeMb === undefined
-        ? {}
-        : {
-            resourceLimits: {
-              maxOldGenerationSizeMb: limits.workerMaxOldGenerationSizeMb,
-            },
-          }),
-      workerData: {
-        bytes: new Uint8Array(pdfBuffer),
-        maxOutputBytes: limits.maxOutputBytes,
-        mode,
-      },
+    const processArguments = [
+      ...(limits.fallbackProcessMaxOldGenerationSizeMb === undefined
+        ? []
+        : [`--max-old-space-size=${limits.fallbackProcessMaxOldGenerationSizeMb}`]),
+      processPath,
+      mode,
+      limits.maxOutputBytes?.toString() ?? '',
+    ];
+    const fallbackProcess = spawn('node', processArguments, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
     });
     let settled = false;
+    const stdoutChunks: Buffer[] = [];
+    let stdoutBytes = 0;
+    const maxSerializedBytes =
+      limits.maxOutputBytes === undefined
+        ? undefined
+        : limits.maxOutputBytes * PDF_PROCESS_SERIALIZATION_BYTES_PER_OUTPUT_BYTE +
+          PDF_PROCESS_SERIALIZATION_OVERHEAD_BYTES;
+    let stderr = '';
     const timeout = globalThis.setTimeout(() => {
       if (settled) return;
       settled = true;
-      void worker.terminate();
+      fallbackProcess.kill();
       reject(new PdfTextExtractionTimeoutError('pdf-parse'));
     }, timeoutMs);
 
@@ -205,11 +216,44 @@ const runPdfTextWorker = (
       if (settled) return;
       settled = true;
       globalThis.clearTimeout(timeout);
-      worker.removeAllListeners();
+      fallbackProcess.removeAllListeners();
       callback();
     };
-    worker.once('message', (result: PdfTextWorkerResult) =>
+
+    fallbackProcess.stdout.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      stdoutBytes += chunk.byteLength;
+      if (maxSerializedBytes !== undefined && stdoutBytes > maxSerializedBytes) {
+        settle(() => {
+          fallbackProcess.kill();
+          reject(new PdfTextExtractionOutputLimitError());
+        });
+        return;
+      }
+      stdoutChunks.push(chunk);
+    });
+    fallbackProcess.stderr.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      if (stderr.length < PDF_PROCESS_STDERR_MAX_CHARS) stderr += chunk.toString('utf8');
+    });
+    fallbackProcess.once('error', error => settle(() => reject(error)));
+    fallbackProcess.once('exit', code =>
       settle(() => {
+        if (code !== 0) {
+          reject(
+            /heap out of memory/iu.test(stderr)
+              ? new PdfTextExtractionOutputLimitError()
+              : new Error(`PDF fallback process exited with code ${code}.`)
+          );
+          return;
+        }
+        let result: PdfTextProcessResult;
+        try {
+          result = deserialize(Buffer.concat(stdoutChunks)) as PdfTextProcessResult;
+        } catch {
+          reject(new Error('PDF fallback process returned an invalid response.'));
+          return;
+        }
         if (result.errorCode === 'output-limit') {
           reject(new PdfTextExtractionOutputLimitError());
           return;
@@ -221,18 +265,7 @@ const runPdfTextWorker = (
         resolve(result);
       })
     );
-    worker.once('error', error =>
-      settle(() =>
-        reject(
-          (error as NodeJS.ErrnoException).code === 'ERR_WORKER_OUT_OF_MEMORY'
-            ? new PdfTextExtractionOutputLimitError()
-            : error
-        )
-      )
-    );
-    worker.once('exit', code =>
-      settle(() => reject(new Error(`PDF fallback worker exited with code ${code}.`)))
-    );
+    fallbackProcess.stdin.end(pdfBuffer);
   });
 
 const extractNativePdfOutline = async (
@@ -243,7 +276,7 @@ const extractNativePdfOutline = async (
   if (timeoutMs !== undefined) {
     if (timeoutMs <= 0) return [];
     try {
-      const result = await runPdfTextWorker(pdfBuffer, 'outline', timeoutMs, options);
+      const result = await runPdfTextFallbackProcess(pdfBuffer, 'outline', timeoutMs, options);
       return normalizeNativePdfOutline(result.outline);
     } catch {
       return [];
@@ -315,7 +348,7 @@ const extractWithPdfParse = async (
   const timeoutMs = options.fallbackTimeoutMs;
   if (timeoutMs !== undefined) {
     if (timeoutMs <= 0) throw new PdfTextExtractionTimeoutError('pdf-parse');
-    const result = await runPdfTextWorker(pdfBuffer, 'fallback', timeoutMs, options);
+    const result = await runPdfTextFallbackProcess(pdfBuffer, 'fallback', timeoutMs, options);
     const rawPages = Array.isArray(result.pages) ? result.pages : [];
     const fallbackText = typeof result.text === 'string' ? result.text : '';
     const pages = buildExtractedPages(

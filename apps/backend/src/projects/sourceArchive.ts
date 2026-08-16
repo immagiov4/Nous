@@ -48,6 +48,13 @@ export class SourceArchivePreparationCapacityError extends Error {
   }
 }
 
+export class SourceArchivePreparationError extends Error {
+  constructor(reason: string) {
+    super(`Invalid source archive: ${reason}.`);
+    this.name = 'SourceArchivePreparationError';
+  }
+}
+
 export class SourceArchiveUnusableError extends Error {
   readonly warnings: SourceArchivePdfWarningDetail[];
 
@@ -159,7 +166,7 @@ const JsZipCentralDirectoryParser = createRequire(import.meta.url)(
   'jszip/lib/zipEntries.js'
 ) as JsZipCentralDirectoryConstructor;
 
-const invalidArchive = (reason: string) => new Error(`Invalid source archive: ${reason}.`);
+const invalidArchive = (reason: string) => new SourceArchivePreparationError(reason);
 
 const validateLimits = (limits: SourceArchiveLimits) => {
   for (const [name, value] of Object.entries(limits)) {
@@ -544,7 +551,7 @@ const prepareSourceArchiveFile = async (
           PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes
         ),
         pdftotextTimeoutMs,
-        workerMaxOldGenerationSizeMb: Math.ceil(
+        fallbackProcessMaxOldGenerationSizeMb: Math.ceil(
           (PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes +
             PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes *
               PDF_FALLBACK_TEXT_HEAP_MULTIPLIER) /
