@@ -783,6 +783,7 @@ const DemoNewHomeView = ({
             onUploadSourceClick: () => {},
           }}
           isDarkMode={false}
+          isExportingProject={false}
           isLibraryLoading={false}
           libraryFolders={Object.values(libraryTree.folderById)}
           libraryTree={libraryTree}
@@ -793,7 +794,7 @@ const DemoNewHomeView = ({
           onConfirmDeleteFolder={resolvedTrue}
           onDeleteFolder={resolvedVoid}
           onDeleteProject={() => {}}
-          onExportProject={() => {}}
+          onExportProject={resolvedVoid}
           onOpenProject={() => {}}
           openingProjectId={null}
           onRenameFolder={resolvedVoid}
