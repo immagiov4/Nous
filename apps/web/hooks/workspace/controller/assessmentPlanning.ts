@@ -13,6 +13,7 @@ import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -37,10 +38,8 @@ import {
 } from '../../../types.ts';
 import {
   getProjectSourceWarnings,
-  hasUsableArchiveText,
   prepareUploadedCourseSource,
   readSourceFileData,
-  UNUSABLE_ARCHIVE_SOURCE_MESSAGE,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -446,9 +445,6 @@ export const createAssessmentPlanningCommands = (
           }
           nextSource = saved.snapshot.source;
           sourceWarnings = getProjectSourceWarnings(nextSource);
-          if (!hasUsableArchiveText(nextSource)) {
-            throw new Error(UNUSABLE_ARCHIVE_SOURCE_MESSAGE);
-          }
         }
 
         sourceWarnings = getProjectSourceWarnings(nextSource);
@@ -495,6 +491,9 @@ export const createAssessmentPlanningCommands = (
       }
       return { outcome, sourceWarnings };
     } catch (error) {
+      if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
+        sourceWarnings = error.sourceWarnings;
+      }
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('assessment', requestId, errorMessage);
       const draftProjectId = projectLibrary.getCurrentProjectId();

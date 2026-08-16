@@ -59,7 +59,11 @@ export const useWorkspaceFileActions = ({
           notify(`Errore nel caricamento del file: ${result.errorMessage}`);
         }
         if (result.sourceWarnings?.length) {
-          notify(formatSourceWarningSummary(result.sourceWarnings));
+          notify(
+            formatSourceWarningSummary(result.sourceWarnings, {
+              continues: !result.errorMessage,
+            })
+          );
         }
       } finally {
         if (event.target) {

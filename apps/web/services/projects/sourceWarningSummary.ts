@@ -34,7 +34,10 @@ const formatReasonCount = (reason: SourceArchivePdfWarningReason, count: number)
   }
 };
 
-export const formatSourceWarningSummary = (warnings: readonly ProjectSourceWarning[]): string => {
+export const formatSourceWarningSummary = (
+  warnings: readonly ProjectSourceWarning[],
+  { continues = true }: { continues?: boolean } = {}
+): string => {
   const pdfWarnings = warnings.filter(
     (warning): warning is ProjectSourceWarning & { reason: SourceArchivePdfWarningReason } =>
       warning.reason !== undefined
@@ -71,9 +74,10 @@ export const formatSourceWarningSummary = (warnings: readonly ProjectSourceWarni
         })}`
       : '';
 
+  const continuation = continues ? ` ${t('Il corso continua con le fonti valide.')}` : '';
   return `${t('{count} PDF non usati: {reasons}. Esempi: {paths}.', {
     count: sortedPdfWarnings.length,
     paths,
     reasons,
-  })}${hidden}${other} ${t('Il corso continua con le fonti valide.')}`;
+  })}${hidden}${other}${continuation}`;
 };

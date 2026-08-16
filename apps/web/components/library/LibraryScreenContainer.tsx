@@ -141,7 +141,11 @@ export const LibraryScreenContainer = ({
         notify(result.errorMessage);
       }
       if (result.sourceWarnings?.length) {
-        notify(formatSourceWarningSummary(result.sourceWarnings));
+        notify(
+          formatSourceWarningSummary(result.sourceWarnings, {
+            continues: !result.errorMessage,
+          })
+        );
       }
     },
     [

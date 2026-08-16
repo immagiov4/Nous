@@ -221,6 +221,48 @@ test('HttpProjectRepository preserves a non-JSON proxy 413 response', async () =
   });
 });
 
+test('HttpProjectRepository preserves structured warnings for an unusable archive', async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
+        error: 'L’archivio non contiene alcun testo utilizzabile.',
+        sourceWarnings: [
+          { path: 'scans/a.pdf', reason: 'no-usable-text' },
+          { path: 'broken/b.pdf', reason: 'parser-failed' },
+        ],
+        success: false,
+      }),
+      { headers: { 'Content-Type': 'application/json' }, status: 422 }
+    )
+  );
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'unusable-archive',
+    sourceKind: 'codebase',
+    source: {
+      file: { data: '', mimeType: 'application/zip', name: 'scans.zip' },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'scans.zip',
+    },
+  };
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(
+    repository.saveProject(snapshot, {
+      archiveFile: new File(['PK archive'], 'scans.zip', { type: 'application/zip' }),
+    })
+  ).rejects.toMatchObject({
+    code: 'source-archive-unusable',
+    message: 'L’archivio non contiene alcun testo utilizzabile.',
+    sourceWarnings: [
+      expect.objectContaining({ name: 'scans/a.pdf', reason: 'no-usable-text' }),
+      expect.objectContaining({ name: 'broken/b.pdf', reason: 'parser-failed' }),
+    ],
+  });
+});
+
 test('HttpProjectRepository does not retry a non-JSON proxy 413 during chunk upload', async () => {
   fetchMock
     .mockResolvedValueOnce({

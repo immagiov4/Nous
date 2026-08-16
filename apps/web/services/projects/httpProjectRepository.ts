@@ -5,6 +5,7 @@ import {
   decodeProjectSnapshotWire,
   type ProjectSnapshotWire,
 } from '@shared/projectSnapshotWire';
+import { isSourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 
 import type {
   FileData,
@@ -14,6 +15,7 @@ import type {
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSnapshot,
+  ProjectSourceWarning,
   ProjectWriteOptions,
   SavedProjectMeta,
   StoredProjectSourceFile,
@@ -50,6 +52,7 @@ interface ApiResponse {
   project?: ProjectSnapshot | null;
   projects?: ProjectSnapshot[] | SavedProjectMeta[];
   source?: FileData | null;
+  sourceWarnings?: unknown;
   sources?: StoredProjectSourceFile[];
   snapshot?: ProjectSnapshot;
   uploadStatus?: 'receiving' | 'finalizing' | 'completed';
@@ -125,7 +128,11 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
         ? PROJECT_REQUEST_TOO_LARGE_MESSAGE
         : responseErrorMessage(error.code),
       error.code,
-      { contentType: error.responseContentType, status: error.httpStatus }
+      {
+        contentType: error.responseContentType,
+        sourceWarnings: error.sourceWarnings,
+        status: error.httpStatus,
+      }
     );
   }
   if (error instanceof Error && error.name === 'AbortError') {
@@ -140,6 +147,7 @@ const responseErrorCode = (status: number, apiCode?: string): ProjectStorageErro
   if (apiCode === PROJECT_API_ERROR_CODE.revisionConflict) return 'revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveChanged) return 'source-archive-changed';
+  if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveUnusable) return 'source-archive-unusable';
   if (status === HTTP_STATUS_REQUEST_TOO_LARGE || status === 429) return 'quota-exceeded';
   return 'persistence-failed';
 };
@@ -149,8 +157,29 @@ function responseErrorMessage(code: ProjectStorageError['code']): string {
   if (code === 'revision-conflict') return PROJECT_REVISION_CONFLICT_MESSAGE;
   if (code === 'cover-revision-conflict') return PROJECT_COVER_REVISION_CONFLICT_MESSAGE;
   if (code === 'source-archive-changed') return PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE;
+  if (code === 'source-archive-unusable') {
+    return 'L’archivio non contiene alcun testo utilizzabile.';
+  }
   return PROJECT_SYNC_ERROR_MESSAGE;
 }
+
+const readSourceWarnings = (value: unknown): ProjectSourceWarning[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const warnings = value.flatMap(warning =>
+    isRecord(warning) &&
+    typeof warning.path === 'string' &&
+    isSourceArchivePdfWarningReason(warning.reason)
+      ? [
+          {
+            message: 'Questa fonte non contiene testo PDF utilizzabile.',
+            name: warning.path,
+            reason: warning.reason,
+          },
+        ]
+      : []
+  );
+  return warnings.length > 0 ? warnings : undefined;
+};
 
 const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
   try {
@@ -838,6 +867,7 @@ export class HttpProjectRepository implements ProjectRepository {
           errorCode,
           {
             contentType: response.headers?.get('content-type') || undefined,
+            sourceWarnings: readSourceWarnings(data.sourceWarnings),
             status: response.status,
           }
         );

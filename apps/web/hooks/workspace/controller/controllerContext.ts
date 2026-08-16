@@ -103,11 +103,6 @@ export const readSourceFileData = async (file: File): Promise<FileData> => {
 };
 
 const UNUSABLE_PDF_SOURCE_MESSAGE = 'Questa fonte non contiene testo PDF utilizzabile.';
-export const UNUSABLE_ARCHIVE_SOURCE_MESSAGE = 'L’archivio non contiene alcun testo utilizzabile.';
-
-export const hasUsableArchiveText = (source: ProjectSource): boolean =>
-  source.kind !== 'archive' ||
-  source.index.entries.some(entry => entry.kind === 'file' && entry.contentKind === 'text');
 
 export const getProjectSourceWarnings = (source: ProjectSource): ProjectSourceWarning[] => {
   const descriptorWarnings = (source.sources || [])

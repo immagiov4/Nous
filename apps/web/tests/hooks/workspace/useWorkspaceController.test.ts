@@ -18,6 +18,7 @@ import {
   LessonSourceUnavailableError,
 } from '../../../services/openrouter/lessonGenerationClient.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import { createProjectSnapshot } from '../../../services/projects/projectSnapshot.ts';
 import { createProjectSourceFromFile } from '../../../services/projects/projectSource.ts';
 import {
@@ -1849,6 +1850,44 @@ test('handleSourceUpload reattach preserves the active source and messages when 
   assert.deepEqual(hydrationStates, [false, true]);
 });
 
+test('handleSourceUpload cleans up a new project rejected during archive preparation', async () => {
+  const sourceWarnings = [
+    {
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'scans/manual.pdf',
+      reason: 'no-usable-text' as const,
+    },
+  ];
+  const hydrationStates: boolean[] = [];
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new ProjectStorageError(
+          'L’archivio non contiene alcun testo utilizzabile.',
+          'source-archive-unusable',
+          { sourceWarnings }
+        );
+      },
+      setProjectHydrated: value => hydrationStates.push(value),
+    },
+  });
+
+  const result = await controller.handleSourceUpload(
+    new File(['opaque archive'], 'scans.zip', { type: 'application/zip' }),
+    { mode: 'new-project' }
+  );
+
+  expect(result).toMatchObject({
+    errorMessage: 'L’archivio non contiene alcun testo utilizzabile.',
+    outcome: 'started-assessment',
+    sourceWarnings,
+  });
+  expect(projectLibrary.deletedProjectIds).toHaveLength(1);
+  expect(projectLibrary.adapter.currentProjectId).toBeNull();
+  expect(domain.source).toBeNull();
+  expect(hydrationStates).toEqual([false, true]);
+});
+
 test('handleSourceUpload preserves archive identity when reattaching changed ZIP bytes', async () => {
   const existingSourceId = 'source-existing-archive';
   const existingSource = {
@@ -2400,40 +2439,30 @@ test('startHomeChat assesses extracted ZIP PDFs and reports each unusable PDF en
 });
 
 test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () => {
-  const canonicalEntries = [
+  const sourceWarnings = [
     {
-      byteSize: 128,
-      contentKind: 'binary' as const,
-      kind: 'file' as const,
-      path: 'scansioni/allegato.pdf',
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'scansioni/allegato.pdf',
+      reason: 'no-usable-text' as const,
     },
     {
-      byteSize: 64,
-      contentKind: 'binary' as const,
-      kind: 'file' as const,
-      path: 'corrotti/non-leggibile.PDF',
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'corrotti/non-leggibile.PDF',
+      reason: 'no-usable-text' as const,
     },
   ];
   const buildAssessmentContext = vi.fn();
-  const { controller } = createControllerHarness({
+  const { controller, projectLibrary } = createControllerHarness({
     openRouter: {
       buildAssessmentDocumentContextFromTextSource: buildAssessmentContext,
     },
     projectLibrary: {
-      persistSnapshot: async snapshot => {
-        if (snapshot.source?.kind !== 'archive') {
-          throw new Error('Expected archive source');
-        }
-        return {
-          meta: buildMeta(snapshot.id),
-          snapshot: {
-            ...snapshot,
-            source: {
-              ...snapshot.source,
-              index: { entries: canonicalEntries },
-            },
-          },
-        };
+      persistSnapshot: async () => {
+        throw new ProjectStorageError(
+          'L’archivio non contiene alcun testo utilizzabile.',
+          'source-archive-unusable',
+          { sourceWarnings }
+        );
       },
     },
   });
@@ -2445,19 +2474,10 @@ test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () =>
 
   expect(result.outcome).toBe('failed');
   expect(result.errorMessage).toBe('L’archivio non contiene alcun testo utilizzabile.');
-  expect(result.sourceWarnings).toEqual([
-    {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
-      name: 'scansioni/allegato.pdf',
-      reason: 'no-usable-text',
-    },
-    {
-      message: 'Questa fonte non contiene testo PDF utilizzabile.',
-      name: 'corrotti/non-leggibile.PDF',
-      reason: 'no-usable-text',
-    },
-  ]);
+  expect(result.sourceWarnings).toEqual(sourceWarnings);
   expect(buildAssessmentContext).not.toHaveBeenCalled();
+  expect(projectLibrary.deletedProjectIds).toHaveLength(1);
+  expect(projectLibrary.adapter.currentProjectId).toBeNull();
 });
 
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {

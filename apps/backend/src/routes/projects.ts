@@ -42,6 +42,7 @@ import { getProjectStore } from '../projects/projectStore.js';
 import {
   PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
   SourceArchivePreparationCapacityError,
+  SourceArchiveUnusableError,
 } from '../projects/sourceArchive.js';
 import {
   SourceArchiveAccess,
@@ -249,6 +250,15 @@ const sendProjectWriteError = (
   }
   if (error instanceof SourceArchivePreparationCapacityError) {
     sendErrorResponse(res, 429, error, fallbackMessage);
+    return;
+  }
+  if (error instanceof SourceArchiveUnusableError) {
+    res.status(422).json({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveUnusable,
+      error: error.message,
+      sourceWarnings: error.warnings,
+      success: false,
+    });
     return;
   }
   sendErrorResponse(

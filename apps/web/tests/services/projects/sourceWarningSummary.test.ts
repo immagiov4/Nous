@@ -40,6 +40,16 @@ describe('formatSourceWarningSummary', () => {
     expect(summary).not.toContain('non mostrati');
   });
 
+  test('keeps independent details without claiming continuation after a failed upload', () => {
+    const summary = formatSourceWarningSummary(
+      [{ message: 'quality', name: 'scansione.pdf', reason: 'no-usable-text' }],
+      { continues: false }
+    );
+
+    expect(summary).toContain('1 PDF non usati: 1 senza testo utile. Esempi: scansione.pdf.');
+    expect(summary).not.toContain('continua');
+  });
+
   test('preserves the existing summary for non-archive source warnings', () => {
     expect(
       formatSourceWarningSummary([
