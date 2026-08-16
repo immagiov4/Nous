@@ -64,7 +64,7 @@ const appendNormalizedText = (projection: DomTextProjection, node: Text) => {
   for (let offset = 0; offset < node.data.length; offset += 1) {
     const character = node.data[offset];
     if (character === '<') {
-      const tag = node.data.slice(offset).match(HTML_LIKE_TAG_REGEX)?.[0];
+      const tag = HTML_LIKE_TAG_REGEX.exec(node.data.slice(offset))?.[0];
       if (tag) {
         offset += tag.length - 1;
         continue;
