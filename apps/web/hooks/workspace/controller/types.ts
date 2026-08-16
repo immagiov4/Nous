@@ -140,7 +140,7 @@ export interface WorkspaceProjectLibraryAdapter {
   saveCurrentProject: (
     overrides?: Partial<ProjectSnapshot>,
     options?: { archiveFile?: File; throwOnError?: boolean }
-  ) => Promise<SavedProjectMeta | null>;
+  ) => Promise<ProjectSaveResult | null>;
   patchCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
   patchSectionAnnotations: (
     sectionId: string,

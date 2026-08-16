@@ -146,6 +146,7 @@ const responseErrorCode = (status: number, apiCode?: string): ProjectStorageErro
   if (status === 404) return 'project-deleted';
   if (apiCode === PROJECT_API_ERROR_CODE.revisionConflict) return 'revision-conflict';
   if (apiCode === PROJECT_API_ERROR_CODE.coverRevisionConflict) return 'cover-revision-conflict';
+  if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveBusy) return 'source-archive-busy';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveChanged) return 'source-archive-changed';
   if (apiCode === PROJECT_API_ERROR_CODE.sourceArchiveUnusable) return 'source-archive-unusable';
   if (status === HTTP_STATUS_REQUEST_TOO_LARGE || status === 429) return 'quota-exceeded';
@@ -156,6 +157,9 @@ function responseErrorMessage(code: ProjectStorageError['code']): string {
   if (code === 'project-deleted') return REMOTE_PROJECT_DELETED_MESSAGE;
   if (code === 'revision-conflict') return PROJECT_REVISION_CONFLICT_MESSAGE;
   if (code === 'cover-revision-conflict') return PROJECT_COVER_REVISION_CONFLICT_MESSAGE;
+  if (code === 'source-archive-busy') {
+    return 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.';
+  }
   if (code === 'source-archive-changed') return PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE;
   if (code === 'source-archive-unusable') {
     return 'L’archivio non contiene alcun testo utilizzabile.';
@@ -499,7 +503,7 @@ export class HttpProjectRepository implements ProjectRepository {
       options.expectedRevision
     );
     try {
-      const response = await this.requestImportUpload<{
+      const response = await this.request<{
         meta?: SavedProjectMeta;
         snapshot?: ProjectSnapshot;
       }>(
@@ -513,7 +517,7 @@ export class HttpProjectRepository implements ProjectRepository {
           }),
           method: 'POST',
         },
-        config.requestTimeoutMs
+        PROJECT_ARCHIVE_SAVE_TIMEOUT_MS
       );
       return {
         meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
@@ -522,8 +526,17 @@ export class HttpProjectRepository implements ProjectRepository {
         ),
       };
     } catch (error) {
-      await this.cancelProjectImportUpload(uploadId, config.requestTimeoutMs);
-      throw error;
+      const status = await this.waitForCompletedProjectImport(
+        uploadId,
+        PROJECT_ARCHIVE_SAVE_TIMEOUT_MS
+      );
+      if (!status?.complete) throw error;
+      return {
+        meta: assertValue(status.meta, 'Il progetto sincronizzato non e stato salvato.'),
+        snapshot: normalizeStoredProject(
+          assertValue(status.snapshot, 'La fonte sincronizzata non e stata restituita.')
+        ),
+      };
     }
   }
 

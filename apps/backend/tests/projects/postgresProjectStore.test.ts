@@ -1475,6 +1475,7 @@ describe('PostgresProjectStore', () => {
   test('rejects an all-unusable ZIP before reserving a database session', async () => {
     const zip = new JSZip();
     zip.file('scans/manual.pdf', '%PDF-manual');
+    zip.file('notes/blank.txt', '   \n');
     const archiveBytes = await zip.generateAsync({ type: 'uint8array' });
     const sqlClient = Object.assign(
       vi.fn(async () => []),

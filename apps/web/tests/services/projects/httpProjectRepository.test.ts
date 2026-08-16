@@ -263,6 +263,27 @@ test('HttpProjectRepository preserves structured warnings for an unusable archiv
   });
 });
 
+test('HttpProjectRepository preserves retryable ZIP preparation capacity failures', async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        code: PROJECT_API_ERROR_CODE.sourceArchiveBusy,
+        error: 'technical backend detail',
+        success: false,
+      }),
+      { headers: { 'Content-Type': 'application/json' }, status: 429 }
+    )
+  );
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(repository.listFolders()).rejects.toMatchObject({
+    code: 'source-archive-busy',
+    httpStatus: 429,
+    message: 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.',
+    name: 'ProjectStorageError',
+  });
+});
+
 test('HttpProjectRepository does not retry a non-JSON proxy 413 during chunk upload', async () => {
   fetchMock
     .mockResolvedValueOnce({
@@ -764,6 +785,66 @@ test('HttpProjectRepository preserves the expected revision when saving chunked 
     fetchMock.mock.calls.slice(1, 3).every(call => String(call[0]).includes('expectedRevision=7'))
   ).toBe(true);
   expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
+});
+
+test('HttpProjectRepository recovers a completed chunked archive save after losing its response', async () => {
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'chunked-archive',
+    sourceKind: 'codebase',
+    source: {
+      file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'engine.zip',
+    },
+  };
+  const storedSnapshot = withStoredArchiveReference(snapshot);
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 10_000_000,
+            maxChunkBytes: 10_000_000,
+            maxChunkCount: 4,
+            maxSerializedBytes: 32_000_000,
+            requestTimeoutMs: 10_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce(
+      new Response('{', { headers: { 'Content-Type': 'application/json' }, status: 200 })
+    )
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        complete: true,
+        meta: { id: snapshot.id },
+        snapshot: storedSnapshot,
+        success: true,
+      }),
+    });
+
+  const saved = await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+    archiveFile: new File([new Uint8Array(16_000_001)], 'engine.zip', {
+      type: 'application/zip',
+    }),
+  });
+
+  expect(saved.snapshot.source).toEqual(storedSnapshot.source);
+  expect(saved.meta).toEqual({ id: snapshot.id });
+  expect(fetchMock).toHaveBeenCalledTimes(5);
+  expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
+  expect(String(fetchMock.mock.calls[4]?.[0])).not.toContain('/complete');
+  expect(fetchMock.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false);
 });
 
 test('HttpProjectRepository does not fall back to Base64 JSON for archives', async () => {

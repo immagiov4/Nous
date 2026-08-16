@@ -43,9 +43,12 @@ export const formatSourceWarningSummary = (
       warning.reason !== undefined
   );
   if (pdfWarnings.length === 0) {
-    return t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
-      sourceNames: warnings.map(warning => warning.name).join(', '),
-    });
+    const sourceNames = warnings.map(warning => warning.name).join(', ');
+    return continues
+      ? t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
+          sourceNames,
+        })
+      : t('Alcune fonti non sono state usate: {sourceNames}.', { sourceNames });
   }
 
   const sortedPdfWarnings = [...pdfWarnings].sort(compareNames);

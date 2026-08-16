@@ -469,7 +469,12 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     saveCurrentProject: async (overridesArg, options) => {
       savedOverrides.push(overridesArg);
       saveOptions.push(options);
-      return adapter.currentProjectId ? buildMeta(adapter.currentProjectId) : null;
+      return adapter.currentProjectId
+        ? {
+            meta: buildMeta(adapter.currentProjectId),
+            snapshot: createProjectSnapshot({ id: adapter.currentProjectId, ...overridesArg }),
+          }
+        : null;
     },
     patchCurrentProject: async overridesArg => {
       savedOverrides.push(overridesArg);
@@ -1908,7 +1913,41 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
       objectPath: `users/user/projects/project/${existingSourceId}/${'a'.repeat(64)}/original`,
     },
   };
-  const { controller, projectLibrary } = createControllerHarness({
+  const persistedSnapshot = createProjectSnapshot({
+    id: 'archive-project',
+    source: {
+      ...existingSource,
+      file: {
+        data: '',
+        mimeType: 'application/zip',
+        name: 'new-engine.zip',
+        sourceId: existingSourceId,
+      },
+      index: {
+        entries: [
+          {
+            byteSize: 28,
+            contentKind: 'text',
+            kind: 'file',
+            path: 'src/main.ts',
+            preview: 'export const changed = true;',
+          },
+          {
+            byteSize: 96,
+            contentKind: 'binary',
+            kind: 'file',
+            path: 'scansioni/allegato.pdf',
+          },
+        ],
+      },
+      name: 'new-engine.zip',
+    },
+  });
+  const saveCurrentProject = vi.fn(async () => ({
+    meta: buildMeta('archive-project'),
+    snapshot: persistedSnapshot,
+  }));
+  const { controller } = createControllerHarness({
     domain: {
       source: existingSource,
       domainState: {
@@ -1924,37 +1963,7 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
     },
     projectLibrary: {
       currentProjectId: 'archive-project',
-      loadStoredProject: async () =>
-        createProjectSnapshot({
-          id: 'archive-project',
-          source: {
-            ...existingSource,
-            file: {
-              data: '',
-              mimeType: 'application/zip',
-              name: 'new-engine.zip',
-              sourceId: existingSourceId,
-            },
-            index: {
-              entries: [
-                {
-                  byteSize: 28,
-                  contentKind: 'text',
-                  kind: 'file',
-                  path: 'src/main.ts',
-                  preview: 'export const changed = true;',
-                },
-                {
-                  byteSize: 96,
-                  contentKind: 'binary',
-                  kind: 'file',
-                  path: 'scansioni/allegato.pdf',
-                },
-              ],
-            },
-            name: 'new-engine.zip',
-          },
-        }),
+      saveCurrentProject,
     },
   });
   const archive = new JSZip();
@@ -1969,9 +1978,15 @@ test('handleSourceUpload preserves archive identity when reattaching changed ZIP
   });
 
   assert.equal(result.outcome, 'reattached');
-  assert.equal(projectLibrary.savedOverrides[0]?.source?.kind, 'archive');
-  assert.equal(projectLibrary.savedOverrides[0]?.source?.file.sourceId, existingSourceId);
-  assert.deepEqual(projectLibrary.saveOptions, [{ archiveFile: uploadedFile, throwOnError: true }]);
+  expect(saveCurrentProject).toHaveBeenCalledWith(
+    expect.objectContaining({
+      source: expect.objectContaining({
+        file: expect.objectContaining({ sourceId: existingSourceId }),
+        kind: 'archive',
+      }),
+    }),
+    { archiveFile: uploadedFile, throwOnError: true }
+  );
   assert.deepEqual(result.sourceWarnings, [
     {
       message: 'Questa fonte non contiene testo PDF utilizzabile.',
@@ -2478,6 +2493,37 @@ test('startHomeChat rejects a ZIP when every PDF entry is unusable', async () =>
   expect(buildAssessmentContext).not.toHaveBeenCalled();
   expect(projectLibrary.deletedProjectIds).toHaveLength(1);
   expect(projectLibrary.adapter.currentProjectId).toBeNull();
+});
+
+test('startHomeChat removes a new draft when ZIP preparation capacity is busy', async () => {
+  const buildAssessmentContext = vi.fn();
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    openRouter: {
+      buildAssessmentDocumentContextFromTextSource: buildAssessmentContext,
+    },
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new ProjectStorageError(
+          'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.',
+          'source-archive-busy'
+        );
+      },
+    },
+  });
+
+  const result = await controller.startHomeChat({
+    input: 'Preparami un corso da questo archivio',
+    selectedFile: new File(['opaque archive'], 'materiali.zip', { type: 'application/zip' }),
+  });
+
+  expect(result.outcome).toBe('failed');
+  expect(result.errorMessage).toBe(
+    'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.'
+  );
+  expect(buildAssessmentContext).not.toHaveBeenCalled();
+  expect(projectLibrary.deletedProjectIds).toHaveLength(1);
+  expect(projectLibrary.adapter.currentProjectId).toBeNull();
+  expect(domain.source).toBeNull();
 });
 
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {

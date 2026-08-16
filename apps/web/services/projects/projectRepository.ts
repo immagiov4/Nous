@@ -33,6 +33,7 @@ export class ProjectStorageError extends Error {
     | 'cover-revision-conflict'
     | 'quota-exceeded'
     | 'revision-conflict'
+    | 'source-archive-busy'
     | 'source-archive-changed'
     | 'source-archive-unusable'
     | 'unknown';

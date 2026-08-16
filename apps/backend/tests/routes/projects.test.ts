@@ -180,6 +180,7 @@ describe('/api/projects', () => {
 
     expect(response.status).toBe(429);
     expect(response.body).toEqual({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveBusy,
       error: 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.',
       success: false,
     });
