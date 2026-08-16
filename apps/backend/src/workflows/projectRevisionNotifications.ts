@@ -4,7 +4,7 @@ import * as z from 'zod';
 import type { WorkflowOutboxClaim } from './postgresWorkflowOutboxStore.js';
 import { appendWorkflowOutboxEvents } from './postgresWorkflowPersistence.js';
 import { failPermanently } from './retryPolicy.js';
-import type { WorkflowPublishedEventProjector } from './workflowRuntimeApi.js';
+import type { WorkflowPublishedEventProjector } from './runtime/workflowRuntimeApi.js';
 
 export const PROJECT_REVISION_EVENT_SCHEMA_VERSION = 1;
 export const COURSE_PROJECT_REVISION_EVENT = 'course.project-revision';

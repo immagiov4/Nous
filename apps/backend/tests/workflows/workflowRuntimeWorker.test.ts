@@ -5,8 +5,6 @@ import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
 import { createWorkflowRegistry, step, workflow } from '../../src/workflows/definition.js';
 import type { WorkflowOutboxClaim } from '../../src/workflows/postgresWorkflowOutboxStore.js';
 import { failPermanently } from '../../src/workflows/retryPolicy.js';
-import type { RegisteredWorkflow, WorkflowStepClaim } from '../../src/workflows/types.js';
-import type { WorkflowLogEvent } from '../../src/workflows/workflowObservability.js';
 import {
   createWorkflowRuntimeWorker as createRuntimeWorker,
   type WorkflowRuntimeAssetCleanup,
@@ -16,7 +14,9 @@ import {
   type WorkflowRuntimeWakeSource,
   type WorkflowRuntimeWakeSubscription,
   type WorkflowRuntimeWorkerInput,
-} from '../../src/workflows/workflowRuntimeWorker.js';
+} from '../../src/workflows/runtime/workflowRuntimeWorker.js';
+import type { RegisteredWorkflow, WorkflowStepClaim } from '../../src/workflows/types.js';
+import type { WorkflowLogEvent } from '../../src/workflows/workflowObservability.js';
 import {
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WORKFLOW_LEASE_MS,

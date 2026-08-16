@@ -16,9 +16,9 @@ import {
 import type { ProjectSnapshot } from '../projects/types.js';
 import type { CourseInterviewStarter } from './courseInterviewStart.js';
 import { CourseInterviewWorkflowInputSchema } from './courseInterviewWorkflow.js';
+import { WorkflowRuntimeUnavailableError } from './runtime/workflowRuntimeApi.js';
 import type { JsonValue, WorkflowRun } from './types.js';
 import type { WorkflowPublishedEventState, WorkflowRunState } from './workflowReadModel.js';
-import { WorkflowRuntimeUnavailableError } from './workflowRuntimeApi.js';
 
 type CourseInterviewStartRequest = Parameters<CourseInterviewStarter['start']>[0];
 

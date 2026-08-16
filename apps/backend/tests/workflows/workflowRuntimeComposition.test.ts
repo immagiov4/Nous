@@ -10,18 +10,18 @@ import type { LessonVisualRetryStarter } from '../../src/workflows/lessonVisualR
 import type { WorkflowOutboxClaim } from '../../src/workflows/postgresWorkflowOutboxStore.js';
 import { COURSE_PROJECT_REVISION_EVENT } from '../../src/workflows/projectRevisionNotifications.js';
 import {
+  createProductionRegistry,
+  createRuntimeProjectRevisionNotificationDelivery,
+  createWorkflowRuntimeComposition,
+  type WorkflowRuntimeCompositionStore,
+} from '../../src/workflows/runtime/workflowRuntimeComposition.js';
+import {
   hashPreExternalEffectWorkflowManifest,
   hashPreProviderPostprocessingWorkflowManifest,
 } from '../../src/workflows/validation.js';
 import { WorkflowSignalError } from '../../src/workflows/workflowErrors.js';
 import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflowObservability.js';
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
-import {
-  createProductionRegistry,
-  createRuntimeProjectRevisionNotificationDelivery,
-  createWorkflowRuntimeComposition,
-  type WorkflowRuntimeCompositionStore,
-} from '../../src/workflows/workflowRuntimeComposition.js';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const productionRegistry = createProductionRegistry();

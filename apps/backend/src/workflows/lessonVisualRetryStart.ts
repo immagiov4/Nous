@@ -9,9 +9,9 @@ import {
   type LessonVisualWorkflowInput,
   LessonVisualWorkflowInputSchema,
 } from './lessonVisualWorkflow.js';
+import { WorkflowRuntimeUnavailableError } from './runtime/workflowRuntimeApi.js';
 import type { WorkflowRun } from './types.js';
 import type { WorkflowTransientEventPublisher } from './workflowObservability.js';
-import { WorkflowRuntimeUnavailableError } from './workflowRuntimeApi.js';
 import type { WorkflowRunCreator } from './workflowStart.js';
 import { startWorkflowRun } from './workflowStart.js';
 

@@ -1,58 +1,61 @@
 import postgres, { type Sql, type TransactionSql } from 'postgres';
-import { PostgresProjectAssetStore } from '../projects/postgresProjectAssetStore.js';
-import type { ProjectAssetObjectStorage } from '../projects/projectAsset.js';
-import { PostgresProjectAssetDeletionQueue } from '../projects/projectAssetDeletionQueue.js';
-import { buildSha256HexDigest } from '../utils/hash.js';
-import { PostgresCourseGenerationPersistence } from './courseGenerationPersistence.js';
-import { PostgresLessonGenerationPersistence } from './lessonGenerationPersistence.js';
-import { PostgresLessonVisualPersistence } from './lessonVisualPersistence.js';
-import type { WorkflowStartMaterialization } from './materialization.js';
-import { PostgresProjectRevisionInbox } from './postgresProjectRevisionInbox.js';
-import { PostgresWorkflowCancellationStore } from './postgresWorkflowCancellationStore.js';
+import { PostgresProjectAssetStore } from '../../projects/postgresProjectAssetStore.js';
+import type { ProjectAssetObjectStorage } from '../../projects/projectAsset.js';
+import { PostgresProjectAssetDeletionQueue } from '../../projects/projectAssetDeletionQueue.js';
+import { buildSha256HexDigest } from '../../utils/hash.js';
+import { PostgresCourseGenerationPersistence } from '../courseGenerationPersistence.js';
+import { PostgresLessonGenerationPersistence } from '../lessonGenerationPersistence.js';
+import { PostgresLessonVisualPersistence } from '../lessonVisualPersistence.js';
+import type { WorkflowStartMaterialization } from '../materialization.js';
+import { PostgresProjectRevisionInbox } from '../postgresProjectRevisionInbox.js';
+import { PostgresWorkflowCancellationStore } from '../postgresWorkflowCancellationStore.js';
 import {
   type CheckpointWorkflowStepInput,
   checkpointWorkflowStep,
   type WorkflowCheckpointResult,
-} from './postgresWorkflowCheckpoint.js';
-import { PostgresWorkflowOutboxStore } from './postgresWorkflowOutboxStore.js';
+} from '../postgresWorkflowCheckpoint.js';
+import { PostgresWorkflowOutboxStore } from '../postgresWorkflowOutboxStore.js';
 import {
   asPostgresJson,
   insertMaterializedNode,
   insertOutboxEvents,
   insertWorkflowAiUsage,
   toIsoString,
-} from './postgresWorkflowPersistence.js';
+} from '../postgresWorkflowPersistence.js';
 import {
   createPostgresWorkflowProviderEffectStore,
   type WorkflowProviderEffectStore,
-} from './postgresWorkflowProviderEffectStore.js';
-import { PostgresWorkflowSignalStore } from './postgresWorkflowSignalStore.js';
-import { PostgresWorkflowStepStore } from './postgresWorkflowStepStore.js';
-import { PostgresWorkflowUndoStore } from './postgresWorkflowUndoStore.js';
-import { PostgresWorkflowWaitStore } from './postgresWorkflowWaitStore.js';
+} from '../postgresWorkflowProviderEffectStore.js';
+import { PostgresWorkflowSignalStore } from '../postgresWorkflowSignalStore.js';
+import { PostgresWorkflowStepStore } from '../postgresWorkflowStepStore.js';
+import { PostgresWorkflowUndoStore } from '../postgresWorkflowUndoStore.js';
+import { PostgresWorkflowWaitStore } from '../postgresWorkflowWaitStore.js';
 import {
   PostgresWorkflowWakeSource,
   type WorkflowListenClientFactory,
-} from './postgresWorkflowWakeSource.js';
-import { parseStepFailure } from './retryPolicy.js';
-import { canonicalJson } from './schemaFingerprint.js';
-import type { JsonValue, WorkflowRun, WorkflowStepPolicies } from './types.js';
-import type { WorkflowAiUsageRecord } from './workflowAiMetering.js';
-import { PostgresWorkflowDefinitionReconciliationStore } from './workflowDefinitionReconciler.js';
-import { WorkflowReplicaOutdatedError, WorkflowRunRequestConflictError } from './workflowErrors.js';
+} from '../postgresWorkflowWakeSource.js';
+import { parseStepFailure } from '../retryPolicy.js';
+import type { WorkflowRuntimeStore } from '../runtime/workflowRuntimeWorker.js';
+import { canonicalJson } from '../schemaFingerprint.js';
+import type { JsonValue, WorkflowRun, WorkflowStepPolicies } from '../types.js';
+import type { WorkflowAiUsageRecord } from '../workflowAiMetering.js';
+import { PostgresWorkflowDefinitionReconciliationStore } from '../workflowDefinitionReconciler.js';
+import {
+  WorkflowReplicaOutdatedError,
+  WorkflowRunRequestConflictError,
+} from '../workflowErrors.js';
 import {
   consoleWorkflowLogger,
   emitWorkflowLog,
   type WorkflowLogger,
-} from './workflowObservability.js';
+} from '../workflowObservability.js';
 import {
   createWorkflowRunState,
   type WorkflowDurableEventState,
   type WorkflowNodeRunState,
   type WorkflowRunState,
   type WorkflowSignalWaitState,
-} from './workflowReadModel.js';
-import type { WorkflowRuntimeStore } from './workflowRuntimeWorker.js';
+} from '../workflowReadModel.js';
 
 interface WorkflowRunRow {
   cancellation_requested: boolean;

@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
 
 import { createWorkflowRegistry, emit, step, workflow } from '../../src/workflows/definition.js';
-import type { CreateWorkflowRunInput } from '../../src/workflows/postgresWorkflowStore.js';
+import type { CreateWorkflowRunInput } from '../../src/workflows/persistence/postgresWorkflowStore.js';
 import { startWorkflowRun, type WorkflowRunCreator } from '../../src/workflows/workflowStart.js';
 
 const Config = z.object({

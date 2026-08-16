@@ -1,12 +1,12 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
+import type { WorkflowRuntimeApi } from '../../src/workflows/runtime/workflowRuntimeApi.js';
 import type { JsonValue } from '../../src/workflows/types.js';
 import {
   WorkflowReplicaOutdatedError,
   WorkflowSignalError,
 } from '../../src/workflows/workflowErrors.js';
-import type { WorkflowRuntimeApi } from '../../src/workflows/workflowRuntimeApi.js';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const WAIT_ID = 'f58eeb9b-7abd-4d0f-a589-e54192284062';

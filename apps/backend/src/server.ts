@@ -11,7 +11,7 @@ import { createApp } from './index.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
 import { startFeedbackOutboxWorker, stopFeedbackOutboxWorker } from './services/feedbackService.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
-import { createWorkflowRuntimeComposition } from './workflows/workflowRuntimeComposition.js';
+import { createWorkflowRuntimeComposition } from './workflows/runtime/workflowRuntimeComposition.js';
 
 const workflowRuntime = createWorkflowRuntimeComposition();
 const app = createApp({

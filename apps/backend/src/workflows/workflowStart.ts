@@ -4,7 +4,7 @@ import { mergeWorkflowConfig } from './config.js';
 import type { WorkflowRegistry } from './definition.js';
 import { snapshotImmutableJson } from './jsonSnapshot.js';
 import { materializeWorkflowStart } from './materialization.js';
-import type { CreateWorkflowRunInput } from './postgresWorkflowStore.js';
+import type { CreateWorkflowRunInput } from './persistence/postgresWorkflowStore.js';
 import type { JsonValue, RegisteredWorkflow, WorkflowRun } from './types.js';
 import {
   publishWorkflowTransientEvents,

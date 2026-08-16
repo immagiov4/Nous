@@ -3,12 +3,12 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as z from 'zod';
 
 import { buildSha256HexDigest } from '../../src/utils/hash.js';
+import { PostgresWorkflowStore } from '../../src/workflows/persistence/postgresWorkflowStore.js';
 import { PostgresWorkflowCancellationStore } from '../../src/workflows/postgresWorkflowCancellationStore.js';
 import { checkpointWorkflowStep } from '../../src/workflows/postgresWorkflowCheckpoint.js';
 import { PostgresWorkflowOutboxStore } from '../../src/workflows/postgresWorkflowOutboxStore.js';
 import { PostgresWorkflowSignalStore } from '../../src/workflows/postgresWorkflowSignalStore.js';
 import { PostgresWorkflowStepStore } from '../../src/workflows/postgresWorkflowStepStore.js';
-import { PostgresWorkflowStore } from '../../src/workflows/postgresWorkflowStore.js';
 import {
   PostgresWorkflowUndoStore,
   type WorkflowUndoClaim,
