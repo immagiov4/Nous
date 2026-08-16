@@ -92,7 +92,14 @@ const createArchive = (byteSize = 32): OpenedCourseArchive => {
       readByteRange: async (_path, start, endExclusive) => bytes.slice(start, endExclusive),
       readBytes: async () => bytes,
     }),
-    index: { entries, version: { sourceHash: 'a'.repeat(64), sourceId: 'source-archive' } },
+    index: {
+      entries,
+      version: {
+        representationHash: 'b'.repeat(64),
+        sourceHash: 'a'.repeat(64),
+        sourceId: 'source-archive',
+      },
+    },
   };
 };
 

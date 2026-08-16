@@ -66,11 +66,11 @@ import {
   patchProjectInTransaction,
 } from './projectTransaction.js';
 import {
+  acquireSourceArchivePreparationAdmission,
   PROJECT_SOURCE_ARCHIVE_LIMITS,
   PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
   SourceArchiveUnusableError,
   streamSourceArchive,
-  withSourceArchivePreparationAdmission,
 } from './sourceArchive.js';
 import type {
   LibraryFolder,
@@ -221,6 +221,7 @@ interface PreparedProjectSource {
   files: Array<{ position: number; ref: ProjectSourceRef }>;
   objects: PreparedProjectSourceObject[];
   primaryRef: ProjectSourceRef;
+  releaseAdmission?: () => void;
   sourceKind: 'archive' | 'file';
   temporaryDirectory?: string;
 }
@@ -539,34 +540,25 @@ export class PostgresProjectStore implements ProjectStore {
     if (source?.source_kind !== 'archive') {
       return null;
     }
-
-    return {
-      entries: rows.flatMap(row => {
-        if (row.path === null || row.kind === null) {
-          return [];
-        }
-        return [
-          row.kind === 'directory'
-            ? {
-                kind: row.kind,
-                path: row.path,
-              }
-            : {
-                byteSize: Number(row.byte_size),
-                contentKind: row.content_kind as 'binary' | 'text',
-                hash: row.source_hash as string,
-                kind: row.kind,
-                path: row.path,
-                ...(row.preview === null ? {} : { preview: row.preview }),
-                ...(row.warning_reason ? { warningReason: row.warning_reason } : {}),
-              },
-        ];
-      }),
-      version: {
-        sourceHash: source.archive_source_hash,
-        sourceId: source.archive_source_id,
-      },
-    };
+    const entries = rows.flatMap(row =>
+      row.path === null || row.kind === null
+        ? []
+        : [
+            {
+              byte_size: row.byte_size,
+              content_kind: row.content_kind,
+              kind: row.kind,
+              path: row.path,
+              preview: row.preview,
+              source_hash: row.source_hash,
+              warning_reason: row.warning_reason,
+            },
+          ]
+    );
+    return this.buildProjectSourceArchiveIndex(entries, {
+      hash: source.archive_source_hash,
+      id: source.archive_source_id,
+    });
   }
 
   async loadProjectSourceArchiveEntry(
@@ -935,10 +927,14 @@ export class PostgresProjectStore implements ProjectStore {
         }
       }
       if (sourceWrite?.prepared.temporaryDirectory) {
-        await rm(sourceWrite.prepared.temporaryDirectory, { force: true, recursive: true }).catch(
-          error =>
-            console.warn('[Backend] Failed to remove prepared source archive files.', { error })
-        );
+        try {
+          await rm(sourceWrite.prepared.temporaryDirectory, { force: true, recursive: true }).catch(
+            error =>
+              console.warn('[Backend] Failed to remove prepared source archive files.', { error })
+          );
+        } finally {
+          sourceWrite.prepared.releaseAdmission?.();
+        }
       }
     }
     if (saveError) {
@@ -1516,21 +1512,27 @@ export class PostgresProjectStore implements ProjectStore {
     >,
     version: Pick<ProjectSourceRef, 'hash' | 'id'>
   ): ProjectSourceArchiveIndex {
-    return {
-      entries: entries.map(entry =>
+    const archiveEntries = entries
+      .map(entry =>
         entry.kind === 'directory'
-          ? { kind: 'directory', path: entry.path }
+          ? { kind: 'directory' as const, path: entry.path }
           : {
               byteSize: Number(entry.byte_size),
               contentKind: entry.content_kind as 'binary' | 'text',
               hash: entry.source_hash as string,
-              kind: 'file',
+              kind: 'file' as const,
               path: entry.path,
               ...(entry.preview === null ? {} : { preview: entry.preview }),
               ...(entry.warning_reason ? { warningReason: entry.warning_reason } : {}),
             }
-      ),
+      )
+      .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    return {
+      entries: archiveEntries,
       version: {
+        representationHash: createHash('sha256')
+          .update(JSON.stringify(archiveEntries))
+          .digest('hex'),
         sourceHash: version.hash,
         sourceId: version.id,
       },
@@ -1999,7 +2001,8 @@ export class PostgresProjectStore implements ProjectStore {
       throw new Error('Project source archive exceeds the configured compressed-size limit.');
     }
 
-    return withSourceArchivePreparationAdmission(userId, async () => {
+    const admission = acquireSourceArchivePreparationAdmission(userId);
+    try {
       const temporaryDirectory = await mkdtemp(
         path.join(os.tmpdir(), SOURCE_PREPARATION_TMP_PREFIX)
       );
@@ -2008,6 +2011,7 @@ export class PostgresProjectStore implements ProjectStore {
         files: [],
         objects,
         primaryRef: ref,
+        releaseAdmission: admission.release,
         sourceKind: 'archive',
         temporaryDirectory,
       };
@@ -2070,7 +2074,10 @@ export class PostgresProjectStore implements ProjectStore {
         await rm(temporaryDirectory, { force: true, recursive: true }).catch(() => undefined);
         throw error;
       }
-    });
+    } catch (error) {
+      admission.release();
+      throw error;
+    }
   }
 
   private async uploadPreparedProjectSource(

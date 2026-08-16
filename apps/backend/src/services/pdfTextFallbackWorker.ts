@@ -8,7 +8,9 @@ interface PdfTextWorkerInput {
 }
 
 const input = workerData as PdfTextWorkerInput;
-const parser = new PDFParse({ data: Buffer.from(input.bytes) });
+const parser = new PDFParse({
+  data: Buffer.from(input.bytes.buffer, input.bytes.byteOffset, input.bytes.byteLength),
+});
 
 try {
   if (input.mode === 'outline') {

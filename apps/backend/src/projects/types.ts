@@ -132,6 +132,7 @@ export type ProjectSourceArchiveEntry =
   | ProjectSourceArchiveFileEntry;
 
 export interface ProjectSourceArchiveVersion {
+  representationHash: string;
   sourceHash: string;
   sourceId: string;
 }

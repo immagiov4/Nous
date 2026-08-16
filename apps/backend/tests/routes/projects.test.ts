@@ -844,6 +844,7 @@ describe('/api/projects', () => {
     expect(indexResponse.status).toBe(200);
     expect(indexResponse.body.archiveVersion).toEqual(
       expect.objectContaining({
+        representationHash: expect.any(String),
         sourceHash: expect.any(String),
         sourceId: expect.any(String),
       })

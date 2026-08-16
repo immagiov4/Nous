@@ -52,10 +52,13 @@ export class SourceArchiveUnusableError extends Error {
 
 const activeSourceArchivePreparationUsers = new Set<string>();
 
-export const withSourceArchivePreparationAdmission = async <T>(
-  userId: string,
-  prepare: () => Promise<T>
-): Promise<T> => {
+export interface SourceArchivePreparationAdmission {
+  release: () => void;
+}
+
+export const acquireSourceArchivePreparationAdmission = (
+  userId: string
+): SourceArchivePreparationAdmission => {
   if (
     activeSourceArchivePreparationUsers.size > 0 ||
     activeSourceArchivePreparationUsers.has(userId)
@@ -63,10 +66,25 @@ export const withSourceArchivePreparationAdmission = async <T>(
     throw new SourceArchivePreparationCapacityError();
   }
   activeSourceArchivePreparationUsers.add(userId);
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      activeSourceArchivePreparationUsers.delete(userId);
+    },
+  };
+};
+
+export const withSourceArchivePreparationAdmission = async <T>(
+  userId: string,
+  prepare: () => Promise<T>
+): Promise<T> => {
+  const admission = acquireSourceArchivePreparationAdmission(userId);
   try {
     return await prepare();
   } finally {
-    activeSourceArchivePreparationUsers.delete(userId);
+    admission.release();
   }
 };
 
