@@ -14,6 +14,7 @@ import {
   isProjectLessonVisual,
 } from '../../utils/visuals/storedLessonVisual.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -198,6 +199,7 @@ const generateDurableArtifactDraft = async (input: {
   const terminalJob = await waitForArtifactDraft(job);
   request.clear();
   if (terminalJob.status !== 'completed' || !terminalJob.result) {
+    logBackendFailureCorrelationId(terminalJob.correlationId);
     throw new Error(resolveWorkflowFailureMessage(terminalJob.errorCode, ARTIFACT_DRAFT_ERROR));
   }
   return terminalJob.result.visual;

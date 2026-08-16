@@ -20,6 +20,7 @@ const completedResult = {
   projectId: 'project-1',
   projectRevision: 7,
 };
+const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 const workflowResponse = (job: Record<string, unknown>, status = 200): Response =>
   new Response(
@@ -68,6 +69,7 @@ describe('courseGenerationClient', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   test('starts, polls, and forwards authoritative progress without rebuilding it', async () => {
@@ -567,8 +569,10 @@ describe('courseGenerationClient', () => {
   });
 
   test('does not expose backend failure details', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       workflowResponse({
+        correlationId: CORRELATION_ID,
         errorCode: 'course_provider_secret_failure',
         id: 'run-failed',
         mode: 'document',
@@ -585,6 +589,8 @@ describe('courseGenerationClient', () => {
         projectId: 'project-1',
       })
     ).rejects.toThrow('La generazione del corso non è riuscita. Riprova.');
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warning.mockRestore();
   });
 
   test('explains when an app update intentionally stops the stored workflow definition', async () => {

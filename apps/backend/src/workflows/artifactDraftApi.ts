@@ -122,6 +122,7 @@ const parseRunInput = (run: WorkflowRun) => ArtifactDraftWorkflowInputSchema.par
 const queuedSnapshot = (run: WorkflowRun): ArtifactDraftWorkflowSnapshot => {
   const input = parseRunInput(run);
   return {
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: run.createdAt,
     id: run.id,
     projectId: input.projectId,
@@ -142,6 +143,7 @@ const snapshot = (run: WorkflowRun, state: WorkflowRunState): ArtifactDraftWorkf
       : undefined;
   return {
     ...mapProgress(state),
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: state.run.createdAt,
     ...(state.run.error?.code ? { errorCode: state.run.error.code } : {}),
     id: run.id,

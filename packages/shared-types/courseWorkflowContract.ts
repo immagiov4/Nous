@@ -16,6 +16,7 @@ export interface CourseWorkflowResult {
 
 export interface CourseWorkflowSnapshot {
   attempt?: number;
+  correlationId?: string;
   createdAt: string;
   errorCode?: string;
   id: string;

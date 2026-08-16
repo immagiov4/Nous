@@ -6,6 +6,8 @@ import {
   createCourseGenerationApi,
 } from '../../src/workflows/courseGenerationApi.js';
 
+const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
+
 const project: ProjectSnapshot = {
   createdAt: '2026-07-30T08:00:00.000Z',
   id: 'project-1',
@@ -18,6 +20,7 @@ const run = (overrides: Record<string, unknown> = {}) =>
   ({
     cancellationRequested: false,
     cleanupStatus: 'not-required',
+    correlationId: CORRELATION_ID,
     createdAt: '2026-07-30T08:00:00.000Z',
     definitionHash: 'hash',
     definitionHashVersion: 1,
@@ -115,7 +118,13 @@ describe('course generation workflow API', () => {
     });
     expect(result).toMatchObject({
       created: true,
-      job: { id: 'run-1', mode: 'learn', projectId: 'project-1', status: 'queued' },
+      job: {
+        correlationId: CORRELATION_ID,
+        id: 'run-1',
+        mode: 'learn',
+        projectId: 'project-1',
+        status: 'queued',
+      },
     });
   });
 
@@ -239,7 +248,11 @@ describe('course generation workflow API', () => {
 
     const snapshot = await api.get({ runId: 'run-1', userId: 'user-1' });
 
-    expect(snapshot).toMatchObject({ errorCode: 'course_provider_failed', status: 'failed' });
+    expect(snapshot).toMatchObject({
+      correlationId: CORRELATION_ID,
+      errorCode: 'course_provider_failed',
+      status: 'failed',
+    });
     expect(JSON.stringify(snapshot)).not.toContain('privateTrace');
     expect(JSON.stringify(snapshot)).not.toContain('Private provider error');
   });

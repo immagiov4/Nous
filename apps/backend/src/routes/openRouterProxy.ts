@@ -26,6 +26,7 @@ import {
 } from '../services/codexAppServer.js';
 import { openRouterModelSupportsImages } from '../services/openRouterModelCapabilities.js';
 import { isRecord } from '../utils/validation.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 import { consoleWorkflowLogger, emitWorkflowLog } from '../workflows/workflowObservability.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -74,6 +75,13 @@ type ModelSlot =
   | 'research';
 
 class InvalidModelSlotError extends Error {}
+
+const readTrustedProxyErrorMessage = (error: unknown): string | undefined =>
+  error instanceof CodexAppServerError ||
+  error instanceof CodexAccessError ||
+  error instanceof InvalidModelSlotError
+    ? error.message
+    : undefined;
 
 const readModelSlot = (req: Request): ModelSlot => {
   const slot = req.get('x-nous-model-slot')?.trim();
@@ -546,14 +554,16 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
     }
     pipeAiResponse(upstreamResponse, res);
   } catch (error) {
+    const diagnostic = toWorkflowErrorDiagnostic(error, {
+      trustedMessage: readTrustedProxyErrorMessage(error),
+    });
     emitAiGenerationFailure({
       code: error instanceof CodexAppServerError ? error.code : 'ai_proxy_request_failed',
       message: error instanceof Error ? error.message : 'AI proxy request failed.',
       provider: resolvedRequest?.provider,
     });
     console.error('[AI Proxy] Request failed.', {
-      errorCode: error instanceof CodexAppServerError ? error.code : undefined,
-      errorType: error instanceof Error ? error.name : 'unknown',
+      diagnostic,
       headersSent: res.headersSent,
       model: resolvedRequest?.body.model,
       modelSlot: resolvedRequest?.body.nous_model_slot,

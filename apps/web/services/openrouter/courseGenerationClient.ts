@@ -10,6 +10,7 @@ import type {
 
 import type { Message } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -154,6 +155,7 @@ const readCompletedResult = (
   projectId: string
 ): CourseWorkflowResult => {
   if (job.status !== 'completed') {
+    logBackendFailureCorrelationId(job.correlationId);
     const fallbackMessage =
       job.errorCode === 'workflow_step_timeout'
         ? COURSE_GENERATION_TIMEOUT_ERROR

@@ -33,6 +33,7 @@ vi.mock('../../src/services/codexAppServer.js', async () => {
 const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
 );
+const { CodexAppServerError } = await import('../../src/services/codexAppServer.js');
 const { createApp } = await import('../../src/index.js');
 
 const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
@@ -107,6 +108,38 @@ describe('/api/openrouter proxy', () => {
     expect(lifecycleFailure).toContain('"provider":"openrouter"');
     expect(lifecycleFailure).toContain('"statusCode":429');
     expect(lifecycleFailure).not.toContain('must-not-be-logged');
+    errorLog.mockRestore();
+  });
+
+  test('keeps sanitized Codex exception details without exposing request payloads', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    patchGlobalModelConfig({ aiProvider: 'codex' });
+    codexMocks.runCodexAppServerTurn.mockRejectedValueOnce(
+      new CodexAppServerError('Codex process failed. api_key=private-key', 'process')
+    );
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
+      .send({ messages: [{ role: 'user', content: 'PRIVATE_PROMPT_MARKER' }] });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      error: 'Il servizio AI non ha completato la richiesta. Riprova tra poco.',
+      success: false,
+    });
+    const proxyFailure = errorLog.mock.calls.find(
+      ([message]) => message === '[AI Proxy] Request failed.'
+    );
+    expect(proxyFailure?.[1]).toMatchObject({
+      diagnostic: {
+        code: 'process',
+        message: 'Codex process failed. api_key=[REDACTED]',
+        type: 'CodexAppServerError',
+      },
+    });
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('private-key');
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('PRIVATE_PROMPT_MARKER');
     errorLog.mockRestore();
   });
 

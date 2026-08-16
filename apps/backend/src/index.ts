@@ -225,7 +225,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
       }
     });
     res.on('close', () => {
-      if (!res.writableEnded) {
+      if (!res.writableFinished) {
         emitWorkflowLog(consoleWorkflowLogger, {
           action: 'disconnected',
           correlationId,

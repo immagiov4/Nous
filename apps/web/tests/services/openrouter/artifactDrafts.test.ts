@@ -16,6 +16,7 @@ const { generateLessonArtifactDraft } = await import(
 );
 
 const ASSET_ID = 'a'.repeat(64);
+const CORRELATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 const visual = {
   altText: 'Trama e ordito intrecciati',
   anchorHeading: 'Intreccio',
@@ -62,6 +63,7 @@ describe('generateLessonArtifactDraft', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   test('starts the backend workflow, polls it and preserves the project asset reference', async () => {
@@ -290,10 +292,15 @@ describe('generateLessonArtifactDraft', () => {
   });
 
   test('explains when an app update intentionally stops the stored workflow definition', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       jsonResponse({
         created: true,
-        job: { ...job('failed'), errorCode: 'workflow_definition_unavailable' },
+        job: {
+          ...job('failed'),
+          correlationId: CORRELATION_ID,
+          errorCode: 'workflow_definition_unavailable',
+        },
         success: true,
       })
     );
@@ -309,5 +316,7 @@ describe('generateLessonArtifactDraft', () => {
     ).rejects.toThrow(
       'L’app è stata aggiornata mentre questa generazione era in corso. Avvia una nuova generazione.'
     );
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warning.mockRestore();
   });
 });

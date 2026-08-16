@@ -127,6 +127,7 @@ const parseRunInput = (run: WorkflowRun) => CourseGenerationWorkflowInputSchema.
 const createQueuedSnapshot = (run: WorkflowRun): CourseWorkflowSnapshot => {
   const input = parseRunInput(run);
   return {
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: run.createdAt,
     id: run.id,
     mode: input.mode,
@@ -147,6 +148,7 @@ const createSnapshot = (run: WorkflowRun, state: WorkflowRunState): CourseWorkfl
       : undefined;
   return {
     ...mapProgress(state),
+    ...(run.correlationId ? { correlationId: run.correlationId } : {}),
     createdAt: state.run.createdAt,
     ...(state.run.error?.code ? { errorCode: state.run.error.code } : {}),
     id: run.id,
