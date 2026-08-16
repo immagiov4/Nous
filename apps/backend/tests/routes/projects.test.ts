@@ -15,6 +15,7 @@ import { LibrarySiblingSetChangedError } from '../../src/projects/librarySibling
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import {
   SourceArchivePreparationCapacityError,
+  SourceArchivePreparationError,
   SourceArchiveUnusableError,
 } from '../../src/projects/sourceArchive.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
@@ -206,6 +207,23 @@ describe('/api/projects', () => {
         { path: 'scans/a.pdf', reason: 'no-usable-text' },
         { path: 'broken/b.pdf', reason: 'parser-failed' },
       ],
+      success: false,
+    });
+  });
+
+  test('returns a stable code when archive preparation fails before persistence', async () => {
+    vi.spyOn(store, 'saveProject').mockRejectedValue(
+      new SourceArchivePreparationError('preparation deadline exceeded')
+    );
+
+    const response = await request(createApp())
+      .put('/api/projects/projects/invalid-archive-project')
+      .send({ snapshot: createSnapshot('invalid-archive-project', 'Archivio non valido') });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toEqual({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveInvalid,
+      error: 'Invalid source archive: preparation deadline exceeded.',
       success: false,
     });
   });

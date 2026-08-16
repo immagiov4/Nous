@@ -5,30 +5,14 @@ export class PdfTextWorkerOutputLimitError extends Error {
   }
 }
 
-interface PdfTextWorkerPage {
-  num: number;
-  text: string;
-}
-
-interface BoundedPdfTextWorkerPayload {
-  outline: unknown;
-  pages: Array<{ pageNumber: number; text: string }>;
-  text?: string;
-}
-
 export const buildBoundedPdfTextWorkerPayload = ({
   fallbackText,
   maxOutputBytes,
   outline,
   pages,
-}: {
-  fallbackText: string;
-  maxOutputBytes?: number;
-  outline: unknown;
-  pages: PdfTextWorkerPage[];
-}): BoundedPdfTextWorkerPayload => {
+}) => {
   let outputBytes = 0;
-  const addOutputBytes = (value: string) => {
+  const addOutputBytes = value => {
     outputBytes += Buffer.byteLength(value, 'utf8');
     if (maxOutputBytes !== undefined && outputBytes > maxOutputBytes) {
       throw new PdfTextWorkerOutputLimitError();

@@ -1893,6 +1893,35 @@ test('handleSourceUpload cleans up a new project rejected during archive prepara
   expect(hydrationStates).toEqual([false, true]);
 });
 
+test('handleSourceUpload resets a new project after a definitive archive preparation failure', async () => {
+  const hydrationStates: boolean[] = [];
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    projectLibrary: {
+      persistSnapshot: async () => {
+        throw new ProjectStorageError(
+          'Non è stato possibile preparare l’archivio ZIP.',
+          'source-archive-invalid'
+        );
+      },
+      setProjectHydrated: value => hydrationStates.push(value),
+    },
+  });
+
+  const result = await controller.handleSourceUpload(
+    new File(['opaque archive'], 'slow.zip', { type: 'application/zip' }),
+    { mode: 'new-project' }
+  );
+
+  expect(result).toMatchObject({
+    errorMessage: 'Non è stato possibile preparare l’archivio ZIP.',
+    outcome: 'started-assessment',
+  });
+  expect(projectLibrary.deletedProjectIds).toHaveLength(1);
+  expect(projectLibrary.adapter.currentProjectId).toBeNull();
+  expect(domain.source).toBeNull();
+  expect(hydrationStates).toEqual([false, true]);
+});
+
 test('handleSourceUpload preserves archive identity when reattaching changed ZIP bytes', async () => {
   const existingSourceId = 'source-existing-archive';
   const existingSource = {

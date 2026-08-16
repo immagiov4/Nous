@@ -70,6 +70,7 @@ export const PROJECT_API_ERROR_CODE = {
   sourceArchiveChanged: 'project_source_archive_changed',
   sourceArchiveBusy: 'project_source_archive_busy',
   sourceArchiveUnusable: 'project_source_archive_unusable',
+  sourceArchiveInvalid: 'project_source_archive_invalid',
 } as const;
 
 export const PROJECT_PATCH_REBASE_MODE = {

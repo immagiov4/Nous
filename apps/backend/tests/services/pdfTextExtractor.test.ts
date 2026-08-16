@@ -1,32 +1,41 @@
 import { EventEmitter } from 'node:events';
+import { serialize } from 'node:v8';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const pdfRuntimeMocks = vi.hoisted(() => ({
   execFileAsync: vi.fn(),
-  workerMessages: [] as unknown[],
-  workerOptions: [] as unknown[],
+  processResults: [] as unknown[],
+  spawnCalls: [] as unknown[],
+}));
+
+vi.mock('node:child_process', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  spawn: vi.fn((command: string, args: string[], options: unknown) => {
+    const child = new EventEmitter() as EventEmitter & {
+      kill: ReturnType<typeof vi.fn>;
+      stderr: EventEmitter;
+      stdin: { end: ReturnType<typeof vi.fn> };
+      stdout: EventEmitter;
+    };
+    child.kill = vi.fn();
+    child.stderr = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stdin = {
+      end: vi.fn(() =>
+        queueMicrotask(() => {
+          child.stdout.emit('data', serialize(pdfRuntimeMocks.processResults.shift()));
+          child.emit('exit', 0);
+        })
+      ),
+    };
+    pdfRuntimeMocks.spawnCalls.push({ args, command, options });
+    return child;
+  }),
 }));
 
 vi.mock('node:util', async importOriginal => ({
   ...(await importOriginal<typeof import('node:util')>()),
   promisify: () => pdfRuntimeMocks.execFileAsync,
-}));
-
-vi.mock('node:worker_threads', () => ({
-  Worker: class extends EventEmitter {
-    constructor(_url: URL, options: unknown) {
-      super();
-      pdfRuntimeMocks.workerOptions.push(options);
-      queueMicrotask(() => this.emit('message', pdfRuntimeMocks.workerMessages.shift()));
-    }
-
-    removeAllListeners() {
-      super.removeAllListeners();
-      return this;
-    }
-
-    terminate = vi.fn(async () => 0);
-  },
 }));
 
 import {
@@ -41,8 +50,8 @@ import {
 
 beforeEach(() => {
   pdfRuntimeMocks.execFileAsync.mockReset();
-  pdfRuntimeMocks.workerMessages.length = 0;
-  pdfRuntimeMocks.workerOptions.length = 0;
+  pdfRuntimeMocks.processResults.length = 0;
+  pdfRuntimeMocks.spawnCalls.length = 0;
 });
 
 describe('buildDeterministicPdfOutline', () => {
@@ -111,16 +120,16 @@ describe('buildBoundedPdfTextWorkerPayload', () => {
 });
 
 describe('extractPdfText resource limits', () => {
-  test('bounds pdftotext output and the outline worker from caller options', async () => {
+  test('bounds pdftotext output and the outline subprocess from caller options', async () => {
     const extractedText = 'Contenuto didattico estratto. '.repeat(8);
     pdfRuntimeMocks.execFileAsync.mockResolvedValue({ stdout: extractedText });
-    pdfRuntimeMocks.workerMessages.push({ outline: [] });
+    pdfRuntimeMocks.processResults.push({ outline: [] });
 
     const result = await extractPdfText('data:application/pdf;base64,JVBERi0xLjQ=', {
       fallbackTimeoutMs: 15_000,
       maxOutputBytes: 1_000,
       pdftotextTimeoutMs: 15_000,
-      workerMaxOldGenerationSizeMb: 272,
+      fallbackProcessMaxOldGenerationSizeMb: 272,
     });
 
     expect(result).toMatchObject({ parser: 'pdftotext', text: extractedText.trim() });
@@ -129,17 +138,17 @@ describe('extractPdfText resource limits', () => {
       expect.any(Array),
       expect.objectContaining({ maxBuffer: 1_000, timeout: 15_000 })
     );
-    expect(pdfRuntimeMocks.workerOptions).toEqual([
+    expect(pdfRuntimeMocks.spawnCalls).toEqual([
       expect.objectContaining({
-        resourceLimits: { maxOldGenerationSizeMb: 272 },
-        workerData: expect.objectContaining({ maxOutputBytes: 1_000, mode: 'outline' }),
+        args: expect.arrayContaining(['--max-old-space-size=272', 'outline', '1000']),
+        command: 'node',
       }),
     ]);
   });
 
-  test('maps a bounded fallback worker response to the stable output-limit error', async () => {
+  test('maps a bounded fallback subprocess response to the stable output-limit error', async () => {
     pdfRuntimeMocks.execFileAsync.mockRejectedValue(new Error('pdftotext failed'));
-    pdfRuntimeMocks.workerMessages.push({
+    pdfRuntimeMocks.processResults.push({
       error: 'PDF fallback output exceeds the configured limit.',
       errorCode: 'output-limit',
     });
@@ -150,14 +159,14 @@ describe('extractPdfText resource limits', () => {
         fallbackTimeoutMs: 15_000,
         maxOutputBytes: 32,
         pdftotextTimeoutMs: 15_000,
-        workerMaxOldGenerationSizeMb: 272,
+        fallbackProcessMaxOldGenerationSizeMb: 272,
       })
     ).rejects.toBeInstanceOf(PdfTextExtractionOutputLimitError);
 
-    expect(pdfRuntimeMocks.workerOptions).toEqual([
+    expect(pdfRuntimeMocks.spawnCalls).toEqual([
       expect.objectContaining({
-        resourceLimits: { maxOldGenerationSizeMb: 272 },
-        workerData: expect.objectContaining({ maxOutputBytes: 32, mode: 'fallback' }),
+        args: expect.arrayContaining(['--max-old-space-size=272', 'fallback', '32']),
+        command: 'node',
       }),
     ]);
   });

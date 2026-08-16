@@ -352,7 +352,9 @@ export const createProjectLifecycleCommands = (
       if (
         options?.mode !== 'reattach-source' &&
         error instanceof ProjectStorageError &&
-        (error.code === 'source-archive-unusable' || error.code === 'source-archive-busy')
+        (error.code === 'source-archive-unusable' ||
+          error.code === 'source-archive-busy' ||
+          error.code === 'source-archive-invalid')
       ) {
         const rejectedProjectId = projectLibrary.getCurrentProjectId();
         if (rejectedProjectId) {

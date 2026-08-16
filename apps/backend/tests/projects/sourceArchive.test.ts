@@ -319,7 +319,7 @@ describe('indexSourceArchive', () => {
       fallbackTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
       maxOutputBytes: GENEROUS_LIMITS.maxEntryBytes,
       pdftotextTimeoutMs: PROJECT_SOURCE_ARCHIVE_PDF_POLICY.pdftotextTimeoutMs,
-      workerMaxOldGenerationSizeMb: expect.any(Number),
+      fallbackProcessMaxOldGenerationSizeMb: expect.any(Number),
     });
     expect(result.entries.find(entry => entry.path === 'docs/timeout.pdf')).toMatchObject({
       warningReason: 'timeout',
