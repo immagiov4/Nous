@@ -85,6 +85,16 @@ export interface SaveConversationNoteResult {
   saved: boolean;
 }
 
+export interface ContextLessonMutationTarget {
+  lessonId?: string;
+  projectId?: string;
+}
+
+export interface ContextArtifactMutationResult {
+  error?: string;
+  succeeded: boolean;
+}
+
 export interface ContextAnswerSize {
   width: number;
   height: number;
@@ -281,16 +291,25 @@ export interface WorkspaceReaderOverlaysModel {
   onDetachArtifactFromAnnotation: (artifactId: string) => void;
   onHighlight: () => void;
   onOpenLibraryReference: (reference: LibraryNavigationTarget) => void;
-  onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
+  onSaveConversationNote: (
+    target: ContextLessonMutationTarget,
+    input: SaveConversationNoteInput
+  ) => Promise<SaveConversationNoteResult>;
   onUpdateConversationNote: (
+    target: ContextLessonMutationTarget,
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
   onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
   onSaveArtifactToLesson?: (
+    target: ContextLessonMutationTarget,
     visual: StoredLessonVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
-  ) => Promise<void>;
-  onReplaceArtifactInLesson?: (artifactId: string, visual: StoredLessonVisual) => Promise<void>;
+  ) => Promise<ContextArtifactMutationResult>;
+  onReplaceArtifactInLesson?: (
+    target: ContextLessonMutationTarget,
+    artifactId: string,
+    visual: StoredLessonVisual
+  ) => Promise<ContextArtifactMutationResult>;
 }
 
 export interface WorkspaceReaderShellProps {

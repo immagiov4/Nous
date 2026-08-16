@@ -1,10 +1,11 @@
 import { isToolUIPart, type UIMessage } from 'ai';
-import { BookOpen, FileText, NotebookPen } from 'lucide-react';
+import { BookOpen, ChevronDown, FileText, NotebookPen } from 'lucide-react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { isRecord } from '../../utils/records.ts';
 
 export interface LibraryNavigationTarget {
   annotationId?: string;
+  hasGeneratedContent?: boolean;
   hasNote?: boolean;
   kind: 'annotation' | 'lesson' | 'project';
   lessonId?: string;
@@ -15,6 +16,12 @@ export interface LibraryNavigationTarget {
 
 const readString = (record: Record<string, unknown>, key: string) =>
   typeof record[key] === 'string' ? record[key] : undefined;
+
+const readGeneratedContentAvailability = (record: Record<string, unknown>) => {
+  if (typeof record.hasContent === 'boolean') return record.hasContent;
+  if (typeof record.content === 'string') return Boolean(record.content.trim());
+  return undefined;
+};
 
 const getReferenceKind = (
   isInlineAnnotation: string | boolean | undefined,
@@ -34,11 +41,13 @@ const readSearchReferences = (output: Record<string, unknown>): LibraryNavigatio
         const lessonId = readString(hit, 'lessonId');
         const lessonTitle = readString(hit, 'lessonTitle');
         const annotationId = readString(hit, 'annotationId');
+        const hasGeneratedContent = readGeneratedContentAvailability(hit);
         const isInlineAnnotation = annotationId && readString(hit, 'anchorKind') !== 'lesson';
         const note = readString(hit, 'note');
         return [
           {
             annotationId: isInlineAnnotation ? annotationId : undefined,
+            hasGeneratedContent,
             hasNote: isInlineAnnotation ? Boolean(note?.trim()) : undefined,
             kind: getReferenceKind(isInlineAnnotation, lessonId),
             lessonId,
@@ -60,7 +69,9 @@ const readLessonDetailReferences = (output: Record<string, unknown>): LibraryNav
           const lessonId = readString(lesson, 'id');
           const lessonTitle = readString(lesson, 'title');
           if (!lessonId || !lessonTitle) return [];
+          const hasGeneratedContent = readGeneratedContentAvailability(lesson);
           const lessonReference: LibraryNavigationTarget = {
+            hasGeneratedContent,
             kind: 'lesson',
             lessonId,
             lessonTitle,
@@ -77,6 +88,7 @@ const readLessonDetailReferences = (output: Record<string, unknown>): LibraryNav
                   ? [
                       {
                         annotationId,
+                        hasGeneratedContent,
                         hasNote: Boolean(note?.trim()),
                         kind: 'annotation' as const,
                         lessonId,
@@ -101,7 +113,16 @@ const readArtifactReferences = (output: Record<string, unknown>): LibraryNavigat
         const lessonId = readString(artifact, 'lessonId');
         const lessonTitle = readString(artifact, 'lessonTitle');
         return projectId && projectTitle && lessonId && lessonTitle
-          ? [{ kind: 'lesson', lessonId, lessonTitle, projectId, projectTitle } as const]
+          ? [
+              {
+                hasGeneratedContent: readGeneratedContentAvailability(artifact),
+                kind: 'lesson',
+                lessonId,
+                lessonTitle,
+                projectId,
+                projectTitle,
+              } as const,
+            ]
           : [];
       })
     : [];
@@ -151,6 +172,9 @@ export const getLibraryNavigationTargets = (
 };
 
 const getReferenceLabel = (reference: LibraryNavigationTarget) => {
+  if (reference.hasGeneratedContent === false) {
+    return `${reference.lessonTitle || reference.projectTitle}: ${t('Lezione non ancora generata')}`;
+  }
   if (reference.kind === 'annotation') {
     return t(
       reference.hasNote === false
@@ -178,28 +202,39 @@ const getReferenceIcon = (reference: LibraryNavigationTarget) => {
 };
 
 export default function LibraryToolReferences({
+  isResponseComplete,
   onOpen,
   parts,
 }: {
+  readonly isResponseComplete: boolean;
   readonly onOpen: (reference: LibraryNavigationTarget) => void;
   readonly parts: UIMessage['parts'];
 }) {
+  if (!isResponseComplete) return null;
   const references = getLibraryNavigationTargets(parts);
   if (references.length === 0) return null;
   return (
-    <div className="space-y-2" data-testid="library-tool-references">
-      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
+    <details className="group space-y-2" data-testid="library-tool-references">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-stone-400 outline-none transition-colors hover:text-stone-600 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-orange-500 dark:text-stone-500 dark:hover:text-stone-300 [&::-webkit-details-marker]:hidden">
+        <ChevronDown
+          aria-hidden="true"
+          className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
+        />
         {t('Materiale recuperato')}
-      </p>
-      <div className="flex flex-wrap gap-2">
+      </summary>
+      <div className="flex flex-wrap gap-2 pt-1">
         {references.map(reference => {
           const Icon = getReferenceIcon(reference);
+          const isUnavailable = reference.hasGeneratedContent === false;
           return (
             <button
               key={`${reference.projectId}:${reference.lessonId || ''}:${reference.annotationId || ''}`}
               type="button"
+              disabled={isUnavailable}
               onClick={() => onOpen(reference)}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 transition-colors hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-orange-500/70 dark:hover:text-orange-200"
+              className={`inline-flex max-w-full items-center gap-1.5 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 transition-colors hover:border-orange-300 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-orange-500/70 dark:hover:text-orange-200 ${
+                isUnavailable ? 'dark:disabled:text-zinc-500' : ''
+              }`}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{getReferenceLabel(reference)}</span>
@@ -207,6 +242,6 @@ export default function LibraryToolReferences({
           );
         })}
       </div>
-    </div>
+    </details>
   );
 }

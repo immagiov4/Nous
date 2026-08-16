@@ -378,6 +378,126 @@ describe('executeLibraryAssistantTool', () => {
     });
   });
 
+  test('marks every search hit scoped to a contentless lesson as unavailable', async () => {
+    const contentlessSnapshot = buildSnapshot(
+      'project-1',
+      buildTestLearningPlan([
+        buildTestLesson({
+          id: 'lesson-empty',
+          title: 'Lezione pianificata',
+          description: 'Da completare',
+          content: '',
+          generatedVisuals: [
+            {
+              id: 'visual-empty',
+              title: 'mappa_pianificata',
+              kind: 'svg',
+              code: '<svg viewBox="0 0 680 120"></svg>',
+              createdAt: '2026-04-02T10:00:00.000Z',
+            },
+          ],
+          annotations: [
+            {
+              anchor: {
+                kind: 'selection',
+                selector: {
+                  end: 7,
+                  exact: 'assente',
+                  prefix: '',
+                  start: 0,
+                  suffix: '',
+                },
+              },
+              id: 'annotation-empty',
+              note: 'Promemoria disponibilita differita',
+              createdAt: '2026-04-02T10:00:00.000Z',
+              updatedAt: '2026-04-02T10:00:00.000Z',
+            },
+          ],
+          learningAids: [
+            {
+              id: 'learning-aid-empty',
+              kind: 'definition',
+              title: 'Supporto pianificato',
+              content: 'Disponibilita differita finche la lezione non viene generata.',
+              anchorHeading: 'Lezione pianificata',
+            },
+          ],
+        }),
+      ])
+    );
+    const result = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs,
+        folders,
+        loadProjectsById: vi.fn(async () => [contentlessSnapshot]),
+        projects,
+        tree,
+      },
+      input: { query: 'disponibilita differita' },
+      toolName: 'searchLibrary',
+    });
+
+    expect(result.outputError).toBeUndefined();
+    expect(result.output).toMatchObject({
+      hits: [
+        expect.objectContaining({
+          annotationId: 'annotation-empty',
+          hasContent: false,
+          kind: 'annotation',
+          lessonId: 'lesson-empty',
+        }),
+        expect.objectContaining({
+          hasContent: false,
+          kind: 'learning-aid',
+          learningAidId: 'learning-aid-empty',
+          lessonId: 'lesson-empty',
+        }),
+      ],
+    });
+
+    const lessonResult = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs,
+        folders,
+        loadProjectsById: vi.fn(async () => [contentlessSnapshot]),
+        projects,
+        tree,
+      },
+      input: { query: 'lezione pianificata' },
+      toolName: 'searchLibrary',
+    });
+    expect(lessonResult.output).toMatchObject({
+      hits: [
+        expect.objectContaining({
+          hasContent: false,
+          kind: 'lesson',
+          lessonId: 'lesson-empty',
+        }),
+      ],
+    });
+
+    const artifactResult = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs,
+        folders,
+        loadProjectsById: vi.fn(async () => [contentlessSnapshot]),
+        projects,
+        tree,
+      },
+      input: { projectIds: ['project-1'] },
+      toolName: 'getLearningArtifacts',
+    });
+    expect(artifactResult.output).toMatchObject({
+      artifacts: [
+        expect.objectContaining({
+          hasContent: false,
+          lessonId: 'lesson-empty',
+        }),
+      ],
+    });
+  });
+
   test('rejects project requests outside the allowed scope', async () => {
     const result = await executeLibraryAssistantTool({
       dataSource: {
@@ -483,11 +603,13 @@ describe('executeLibraryAssistantTool', () => {
       artifactCount: 2,
       artifacts: [
         expect.objectContaining({
+          hasContent: true,
           kind: 'generated-visual',
           lessonTitle: 'Union types',
           title: 'mappa union types',
         }),
         expect.objectContaining({
+          hasContent: true,
           kind: 'pdf-image',
           lessonTitle: 'useEffect',
           title: 'Ciclo useEffect',

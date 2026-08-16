@@ -1089,10 +1089,12 @@ const ENGLISH_UI_MESSAGES = {
   'Vuoi salvarlo nelle note della lezione?': 'Do you want to save it to the lesson notes?',
   'Il salvataggio delle note non e disponibile in questo contesto.':
     'Saving notes is unavailable in this context.',
+  'Il corso originale non è più attivo.': 'The original course is no longer active.',
   'La sezione attiva non e disponibile.': 'The active section is unavailable.',
   'La lezione rigenerata non e stata salvata. Riprova.':
     'The regenerated lesson was not saved. Try again.',
-  'Non ho trovato l artefatto da sostituire.': 'I could not find the artifact to replace.',
+  "Non ho trovato l'artefatto da sostituire.": 'I could not find the artifact to replace.',
+  "Non ho trovato l'artefatto da salvare.": 'I could not find the artifact to save.',
   'Non ho trovato la lezione target.': 'I could not find the target lesson.',
   'Non ho trovato la lezione target in questo corso.':
     'I could not find the target lesson in this course.',
@@ -1101,6 +1103,8 @@ const ENGLISH_UI_MESSAGES = {
     'I could not find an existing note attached to this passage to update.',
   'Non sono riuscito a generare un artefatto visuale utile.':
     'I could not generate a useful visual artifact.',
+  "Non sono riuscito a salvare l'artefatto.": 'I could not save the artifact.',
+  "Non sono riuscito a sostituire l'artefatto.": 'I could not replace the artifact.',
   'Non sono riuscito a ritrovare il passaggio da annotare nella lezione corrente.':
     'I could not find the passage to annotate in the current lesson.',
   'Non sono riuscito ad aggiornare la nota esistente.': 'I could not update the existing note.',

@@ -20,6 +20,7 @@ interface UseWorkspaceNavigationArgs {
   currentProjectId: string | null;
   isLibraryLoading: boolean;
   notifyError: (message: string) => void;
+  onCloseContextAnswer: () => void;
   onGoToLibrary: () => Promise<void>;
   onOpenProject: (
     projectId: string,
@@ -69,6 +70,7 @@ export const useWorkspaceNavigation = ({
   currentProjectId,
   isLibraryLoading,
   notifyError,
+  onCloseContextAnswer,
   onGoToLibrary,
   onOpenProject,
   openingProjectId,
@@ -109,8 +111,16 @@ export const useWorkspaceNavigation = ({
     nextLocationHistoryModeRef.current = 'replace';
     setIsFocusMode(false);
     setIsMobileSidebarOpen(false);
+    onCloseContextAnswer();
     void onGoToLibrary();
-  }, [currentProjectId, onGoToLibrary, screenState, setIsFocusMode, setIsMobileSidebarOpen]);
+  }, [
+    currentProjectId,
+    onCloseContextAnswer,
+    onGoToLibrary,
+    screenState,
+    setIsFocusMode,
+    setIsMobileSidebarOpen,
+  ]);
 
   const handleOpenProject = useCallback(
     async (projectId: string, options?: OpenProjectNavigationOptions) => {
@@ -126,7 +136,6 @@ export const useWorkspaceNavigation = ({
       if (options?.source === 'library') {
         nextLocationHistoryModeRef.current = 'push';
       }
-
       const result = await onOpenProject(projectId, {
         activeSectionId: options?.activeSectionId,
       });
@@ -142,6 +151,13 @@ export const useWorkspaceNavigation = ({
       }
 
       if (result.outcome === 'opened') {
+        if (
+          screenState === AppState.READING &&
+          options?.source !== 'library' &&
+          projectId !== currentProjectId
+        ) {
+          onCloseContextAnswer();
+        }
         setIsMobileSidebarOpen(false);
       }
 
@@ -154,6 +170,7 @@ export const useWorkspaceNavigation = ({
       currentProjectId,
       locationProjectId,
       notifyError,
+      onCloseContextAnswer,
       onOpenProject,
       openingProjectId,
       screenState,

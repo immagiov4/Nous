@@ -88,6 +88,14 @@ The system defines three distinct scopes for contextual interaction:
 
 Sources: [apps/backend/src/routes/contextChat.ts:43](../../../apps/backend/src/routes/contextChat.ts#L43), [apps/web/types.ts:471](../../../apps/web/types.ts#L471)
 
+### Contextual Follow-up Panel
+
+The reader keeps contextual follow-ups in a session panel bound to the lesson and course where the conversation started. Retrieved material is appended only after the corresponding assistant response completes and is collapsed by default, so streaming remains readable. Opening a recovered lesson reference may retain the panel for that explicit lesson transition; ordinary lesson changes close it. Project-only references and references to the lesson already visible close the panel when there is no annotation target to reveal, so an enabled open control always produces a visible result.
+
+Artifact tools in a retained conversation continue to query the origin lesson. Successful saves and replacements update that origin snapshot immediately, so later tool calls observe the same artifacts that were persisted without rebinding the conversation to the currently displayed lesson.
+
+Sources: [apps/web/components/workspace/shell/ContextAnswerPanel.tsx](../../../apps/web/components/workspace/shell/ContextAnswerPanel.tsx), [apps/web/components/workspace/ReadingScreenContainer.tsx](../../../apps/web/components/workspace/ReadingScreenContainer.tsx), [apps/web/hooks/reader/useReaderContext.ts](../../../apps/web/hooks/reader/useReaderContext.ts)
+
 ## Backend Orchestration
 
 ### Context Processing

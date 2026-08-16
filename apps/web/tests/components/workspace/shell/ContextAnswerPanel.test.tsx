@@ -21,6 +21,9 @@ const defaultChatTransportInstances: Array<{
 const sendMessageMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
+const lastAssistantMessageIsCompleteWithToolCallsMock = vi.fn<
+  (options: { messages: Array<{ parts: Array<{ type: string }> }> }) => boolean
+>(() => false);
 const generateLessonArtifactDraftMock = vi.fn();
 const useMobileKeyboardOffsetMock = vi.fn();
 const chatTextComposerProps: Array<{
@@ -49,7 +52,7 @@ vi.mock('ai', () => ({
   isTextUIPart: (part: { type?: string }) => part?.type === 'text',
   isToolUIPart: (part: { type?: string }) =>
     typeof part?.type === 'string' && part.type.startsWith('tool-'),
-  lastAssistantMessageIsCompleteWithToolCalls: () => false,
+  lastAssistantMessageIsCompleteWithToolCalls: lastAssistantMessageIsCompleteWithToolCallsMock,
 }));
 
 vi.mock('../../../../components/shared/MarkdownRenderer.tsx', () => ({
@@ -209,6 +212,20 @@ const replacementDraftArtifact = {
   },
 } as const;
 
+const generatedDraftArtifact = {
+  summary: {
+    ...currentLessonArtifact.summary,
+    id: 'project-1:lesson-1:generated-visual:visual-new',
+    title: 'schema nuovo',
+  },
+  visual: {
+    ...currentLessonArtifact.visual,
+    createdAt: '2026-05-01T12:00:00.000Z',
+    id: 'visual-new',
+    title: 'schema_nuovo',
+  },
+} as const;
+
 const buildProps = (contextAnswerOverrides: Partial<ContextAnswerState> = {}) => ({
   contextAnswer: {
     id: 'context-1',
@@ -252,6 +269,8 @@ describe('ContextAnswerPanel', () => {
     sendMessageMock.mockReset();
     addToolOutputMock.mockReset();
     useChatMock.mockReset();
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReset();
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(false);
     generateLessonArtifactDraftMock.mockReset();
     useMobileKeyboardOffsetMock.mockReset();
     useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 0, viewportHeight: 768 });
@@ -703,6 +722,141 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByRole('button', { name: /Apri mappa concettuale/i })).toBeInTheDocument();
   });
 
+  test('keeps current-lesson artifact tools bound to the retained answer origin', async () => {
+    let onToolCall:
+      | ((args: {
+          toolCall: {
+            dynamic: false;
+            input: Record<string, never>;
+            toolCallId: string;
+            toolName: 'getCurrentLessonArtifacts';
+          };
+        }) => Promise<void>)
+      | undefined;
+    useChatMock.mockImplementation(options => {
+      onToolCall = options.onToolCall;
+      return {
+        addToolOutput: addToolOutputMock,
+        error: undefined,
+        messages: [],
+        sendMessage: sendMessageMock,
+        status: 'ready',
+      };
+    });
+    const props = buildProps({ id: 'context-retained-origin-artifacts' });
+    const { rerender } = render(<ContextAnswerPanel {...props} />);
+
+    rerender(
+      <ContextAnswerPanel {...props} currentLessonArtifactPayloads={[otherLessonPdfArtifact]} />
+    );
+    await act(async () => {
+      await onToolCall?.({
+        toolCall: {
+          dynamic: false,
+          input: {},
+          toolCallId: 'tool-origin-artifacts',
+          toolName: 'getCurrentLessonArtifacts',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        output: expect.objectContaining({
+          artifacts: [currentLessonArtifact.summary],
+        }),
+      })
+    );
+  });
+
+  test('includes a newly saved artifact in later origin-lesson tool results', async () => {
+    const user = userEvent.setup();
+    let onToolCall:
+      | ((args: {
+          toolCall: {
+            dynamic: false;
+            input: Record<string, unknown>;
+            toolCallId: string;
+            toolName: 'generateCurrentLessonArtifact' | 'getCurrentLessonArtifacts';
+          };
+        }) => Promise<void>)
+      | undefined;
+    generateLessonArtifactDraftMock.mockResolvedValue({
+      artifactId: generatedDraftArtifact.summary.id,
+      payload: generatedDraftArtifact,
+      visual: generatedDraftArtifact.visual,
+    });
+    useChatMock.mockImplementation(options => {
+      onToolCall = options.onToolCall;
+      return {
+        addToolOutput: addToolOutputMock,
+        error: undefined,
+        messages: [
+          {
+            id: 'assistant-generated-artifact',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool-generateCurrentLessonArtifact',
+                toolCallId: 'tool-generate-artifact',
+                state: 'output-available',
+                input: { prompt: 'Crea uno schema.' },
+                output: {
+                  artifact: generatedDraftArtifact.summary,
+                  artifactId: generatedDraftArtifact.summary.id,
+                  renderedArtifactCount: 1,
+                },
+              },
+            ],
+          },
+        ],
+        sendMessage: sendMessageMock,
+        status: 'ready',
+      };
+    });
+    const onSaveArtifactToLesson = vi.fn(async () => ({ succeeded: true }));
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ id: 'context-saved-origin-artifact' })}
+        onSaveArtifactToLesson={onSaveArtifactToLesson}
+      />
+    );
+
+    await act(async () => {
+      await onToolCall?.({
+        toolCall: {
+          dynamic: false,
+          input: { prompt: 'Crea uno schema.' },
+          toolCallId: 'tool-generate-artifact',
+          toolName: 'generateCurrentLessonArtifact',
+        },
+      });
+    });
+    await user.click(await screen.findByRole('button', { name: /Apri schema nuovo/i }));
+    await user.click(screen.getByRole('button', { name: /Salva artefatto nella lezione/i }));
+
+    addToolOutputMock.mockClear();
+    await act(async () => {
+      await onToolCall?.({
+        toolCall: {
+          dynamic: false,
+          input: {},
+          toolCallId: 'tool-saved-origin-artifacts',
+          toolName: 'getCurrentLessonArtifacts',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: 'tool-saved-origin-artifacts',
+        output: expect.objectContaining({
+          artifacts: [currentLessonArtifact.summary, generatedDraftArtifact.summary],
+        }),
+      })
+    );
+  });
+
   test('renders cross-course artifact attachments returned by the shared library executor', async () => {
     const user = userEvent.setup();
     const onSaveConversationNote = vi.fn(async () => ({
@@ -832,8 +986,47 @@ describe('ContextAnswerPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
 
     expect(onSaveConversationNote).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
       expect.objectContaining({
         generatedVisuals: [crossCourseArtifact.visual],
+      })
+    );
+
+    addToolOutputMock.mockClear();
+    const currentLessonOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: Record<string, never>;
+          toolCallId: string;
+          toolName: 'getCurrentLessonArtifacts';
+        };
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await currentLessonOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {},
+          toolCallId: 'tool-note-saved-origin-artifacts',
+          toolName: 'getCurrentLessonArtifacts',
+        },
+      });
+    });
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: 'tool-note-saved-origin-artifacts',
+        output: expect.objectContaining({
+          artifacts: [
+            currentLessonArtifact.summary,
+            expect.objectContaining({
+              id: 'project-1:lesson-1:generated-visual:visual-foreign',
+              lessonId: 'lesson-1',
+              projectId: 'project-1',
+              title: crossCourseArtifact.summary.title,
+            }),
+          ],
+        }),
       })
     );
   });
@@ -1036,7 +1229,7 @@ describe('ContextAnswerPanel', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  test('shows shared tool activity and opens an exact retrieved note target', async () => {
+  test('reveals retrieved material after the answer and opens an exact note target', async () => {
     const user = userEvent.setup();
     const onOpenLibraryReference = vi.fn();
     useChatMock.mockReturnValue({
@@ -1113,7 +1306,15 @@ describe('ContextAnswerPanel', () => {
     expect(within(activity).getByText('Ricerca web')).toBeInTheDocument();
     expect(within(activity).getByText('Struttura corsi')).toBeInTheDocument();
     expect(activity).toHaveTextContent('→');
-    expect(screen.getByText('Materiale recuperato')).toBeInTheDocument();
+    const retrievedMaterial = screen.getByTestId('library-tool-references');
+    expect(retrievedMaterial).not.toHaveAttribute('open');
+    expect(
+      within(retrievedMaterial).getByText('Materiale recuperato').closest('summary')
+    ).toHaveAccessibleName('Materiale recuperato');
+
+    await user.click(within(retrievedMaterial).getByText('Materiale recuperato'));
+
+    expect(retrievedMaterial).toHaveAttribute('open');
     expect(screen.getByRole('button', { name: 'Apri corso "Reti avanzate"' })).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Apri lezione "BGP" nel corso "Reti avanzate"' })
@@ -1132,6 +1333,422 @@ describe('ContextAnswerPanel', () => {
       projectId: 'project-2',
       projectTitle: 'Reti',
     });
+  });
+
+  test('keeps retrieved material hidden until automatic continuation completes without scrolling', () => {
+    const streamingMessage = {
+      id: 'assistant-streaming-references',
+      role: 'assistant' as const,
+      parts: [
+        {
+          type: 'text',
+          text: 'Sto preparando la risposta.',
+          state: 'streaming',
+        },
+      ] as Array<Record<string, unknown>>,
+    };
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockImplementation(
+      ({ messages }: { messages: Array<{ parts: Array<{ type: string }> }> }) =>
+        !messages.at(-1)?.parts.some(part => part.type === 'step-start')
+    );
+    const chatState = {
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [streamingMessage],
+      sendMessage: sendMessageMock,
+      status: 'streaming' as 'ready' | 'streaming',
+    };
+    useChatMock.mockImplementation(() => chatState);
+
+    const { rerender } = render(<ContextAnswerPanel {...buildProps()} />);
+    const messagesContainer = document.querySelector(
+      '[data-context-answer-target="messages-scroll"]'
+    ) as HTMLDivElement;
+    Object.defineProperty(messagesContainer, 'scrollHeight', { configurable: true, value: 640 });
+    messagesContainer.scrollTop = 72;
+
+    streamingMessage.parts.push({
+      type: 'tool-searchLibrary',
+      toolCallId: 'tool-streaming-library',
+      state: 'output-available',
+      input: { query: 'routing' },
+      output: {
+        hits: [
+          {
+            lessonId: 'lesson-2',
+            lessonTitle: 'Routing',
+            projectId: 'project-2',
+            projectTitle: 'Reti',
+          },
+        ],
+      },
+    });
+    rerender(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.queryByTestId('library-tool-references')).toBeNull();
+    expect(messagesContainer.scrollTop).toBe(72);
+
+    streamingMessage.parts[0].state = 'done';
+    chatState.status = 'ready';
+    rerender(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.queryByTestId('library-tool-references')).toBeNull();
+    expect(messagesContainer.scrollTop).toBe(72);
+
+    streamingMessage.parts.push(
+      { type: 'step-start' },
+      { type: 'text', text: 'Risposta completa.', state: 'done' }
+    );
+    rerender(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.getByTestId('library-tool-references')).toBeInTheDocument();
+    expect(messagesContainer.scrollTop).toBe(72);
+  });
+
+  test('keeps retrieved material hidden while note approval pauses the response', () => {
+    const pausedMessage = {
+      id: 'assistant-paused-references',
+      role: 'assistant' as const,
+      parts: [
+        { type: 'text', text: 'Ho trovato materiale pertinente.', state: 'done' },
+        {
+          type: 'tool-searchLibrary',
+          toolCallId: 'tool-paused-library',
+          state: 'output-available',
+          input: { query: 'routing' },
+          output: {
+            hits: [
+              {
+                hasContent: true,
+                lessonId: 'lesson-2',
+                lessonTitle: 'Routing',
+                projectId: 'project-2',
+                projectTitle: 'Reti',
+              },
+            ],
+          },
+        },
+        {
+          type: 'tool-requestAddToNotes',
+          toolCallId: 'tool-paused-note',
+          state: 'input-available',
+          input: {
+            noteDraft: 'Nota sul routing',
+            rationale: 'Conserva il passaggio utile.',
+            selectedTextDraft: 'Routing',
+          },
+        },
+      ] as Array<Record<string, unknown>>,
+    };
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [pausedMessage],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.getByRole('button', { name: 'Aggiungi alle note' })).toBeInTheDocument();
+    expect(screen.queryByTestId('library-tool-references')).toBeNull();
+  });
+
+  test('keeps retrieved material hidden after a partially streamed response fails', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: new Error('stream failed'),
+      messages: [
+        {
+          id: 'assistant-failed-references',
+          role: 'assistant',
+          parts: [
+            { type: 'text', text: 'Risposta incompleta.', state: 'streaming' },
+            {
+              type: 'tool-searchLibrary',
+              toolCallId: 'tool-failed-library',
+              state: 'output-available',
+              input: { query: 'routing' },
+              output: {
+                hits: [
+                  {
+                    hasContent: true,
+                    lessonId: 'lesson-2',
+                    lessonTitle: 'Routing',
+                    projectId: 'project-2',
+                    projectTitle: 'Reti',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'error',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.getByText('Risposta incompleta.')).toBeInTheDocument();
+    expect(screen.queryByTestId('library-tool-references')).toBeNull();
+  });
+
+  test('keeps retrieved material hidden when a tool-only continuation fails', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: new Error('continuation failed'),
+      messages: [
+        {
+          id: 'assistant-failed-tool-only-references',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-searchLibrary',
+              toolCallId: 'tool-failed-only-library',
+              state: 'output-available',
+              input: { query: 'routing' },
+              output: {
+                hits: [
+                  {
+                    hasContent: true,
+                    lessonId: 'lesson-2',
+                    lessonTitle: 'Routing',
+                    projectId: 'project-2',
+                    projectTitle: 'Reti',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'error',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.getByTestId('chat-tool-activity')).toBeInTheDocument();
+    expect(screen.queryByTestId('library-tool-references')).toBeNull();
+  });
+
+  test('keeps an expanded completed-turn disclosure mounted while a later answer streams', async () => {
+    const user = userEvent.setup();
+    const completedMessage = {
+      id: 'assistant-completed-references',
+      role: 'assistant' as const,
+      parts: [
+        { type: 'text', text: 'Prima risposta completa.', state: 'done' },
+        {
+          type: 'tool-searchLibrary',
+          toolCallId: 'tool-completed-library',
+          state: 'output-available',
+          input: { query: 'routing' },
+          output: {
+            hits: [
+              {
+                hasContent: true,
+                lessonId: 'lesson-2',
+                lessonTitle: 'Routing',
+                projectId: 'project-2',
+                projectTitle: 'Reti',
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const chatState = {
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [completedMessage] as Array<Record<string, unknown>>,
+      sendMessage: sendMessageMock,
+      status: 'ready' as 'ready' | 'streaming',
+    };
+    useChatMock.mockImplementation(() => chatState);
+
+    const { rerender } = render(<ContextAnswerPanel {...buildProps()} />);
+    const completedDisclosure = screen.getByTestId('library-tool-references');
+    await user.click(within(completedDisclosure).getByText('Materiale recuperato'));
+    expect(completedDisclosure).toHaveAttribute('open');
+
+    chatState.messages.push(
+      {
+        id: 'user-follow-up',
+        role: 'user',
+        parts: [{ type: 'text', text: 'Approfondisci.', state: 'done' }],
+      },
+      {
+        id: 'assistant-active-stream',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Seconda risposta in corso.', state: 'streaming' }],
+      }
+    );
+    chatState.status = 'streaming';
+    rerender(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(completedDisclosure).toBeInTheDocument();
+    expect(completedDisclosure).toHaveAttribute('open');
+    expect(screen.getAllByTestId('library-tool-references')).toHaveLength(1);
+  });
+
+  test('marks a recovered lesson without generated content as unavailable', async () => {
+    const user = userEvent.setup();
+    const onOpenLibraryReference = vi.fn();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-unavailable-lesson',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-getLessonDetails',
+              toolCallId: 'tool-unavailable-lesson',
+              state: 'output-available',
+              input: { requests: [{ projectId: 'project-2', lessonIds: ['lesson-2'] }] },
+              output: {
+                lessonsByProject: [
+                  {
+                    projectId: 'project-2',
+                    projectTitle: 'Reti',
+                    lessons: [{ content: '', id: 'lesson-2', title: 'Routing' }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ id: 'context-unavailable-lesson' })}
+        onOpenLibraryReference={onOpenLibraryReference}
+      />
+    );
+
+    await user.click(
+      within(screen.getByTestId('library-tool-references')).getByText('Materiale recuperato')
+    );
+
+    const unavailableLesson = screen.getByRole('button', {
+      name: 'Routing: Lezione non ancora generata',
+    });
+    expect(unavailableLesson).toBeDisabled();
+    await user.click(unavailableLesson);
+    expect(onOpenLibraryReference).not.toHaveBeenCalled();
+  });
+
+  test('marks a recovered annotation on a contentless lesson as unavailable', async () => {
+    const user = userEvent.setup();
+    const onOpenLibraryReference = vi.fn();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-unavailable-annotation',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-searchLibrary',
+              toolCallId: 'tool-unavailable-annotation',
+              state: 'output-available',
+              input: { query: 'nota routing' },
+              output: {
+                hits: [
+                  {
+                    anchorKind: 'selection',
+                    annotationId: 'annotation-2',
+                    hasContent: false,
+                    lessonId: 'lesson-2',
+                    lessonTitle: 'Routing',
+                    note: 'Nota routing',
+                    projectId: 'project-2',
+                    projectTitle: 'Reti',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ id: 'context-unavailable-annotation' })}
+        onOpenLibraryReference={onOpenLibraryReference}
+      />
+    );
+
+    await user.click(
+      within(screen.getByTestId('library-tool-references')).getByText('Materiale recuperato')
+    );
+    const unavailableAnnotation = screen.getByRole('button', {
+      name: 'Routing: Lezione non ancora generata',
+    });
+    expect(unavailableAnnotation).toBeDisabled();
+    await user.click(unavailableAnnotation);
+    expect(onOpenLibraryReference).not.toHaveBeenCalled();
+  });
+
+  test('marks a recovered artifact on a contentless lesson as unavailable', async () => {
+    const user = userEvent.setup();
+    const onOpenLibraryReference = vi.fn();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-unavailable-artifact',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-getLearningArtifacts',
+              toolCallId: 'tool-unavailable-artifact',
+              state: 'output-available',
+              input: { projectIds: ['project-2'] },
+              output: {
+                artifacts: [
+                  {
+                    ...crossCourseArtifact.summary,
+                    hasContent: false,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ id: 'context-unavailable-artifact' })}
+        onOpenLibraryReference={onOpenLibraryReference}
+      />
+    );
+
+    await user.click(
+      within(screen.getByTestId('library-tool-references')).getByText('Materiale recuperato')
+    );
+    const unavailableArtifact = screen.getByRole('button', {
+      name: 'Routing: Lezione non ancora generata',
+    });
+    expect(unavailableArtifact).toBeDisabled();
+    await user.click(unavailableArtifact);
+    expect(onOpenLibraryReference).not.toHaveBeenCalled();
   });
 
   test('opens a note-less inline highlight at its exact passage', async () => {
@@ -1268,49 +1885,60 @@ describe('ContextAnswerPanel', () => {
     actionName,
   }) => {
     const user = userEvent.setup();
-    let rejectReplacement: ((reason?: unknown) => void) | undefined;
-    const pendingReplacement = new Promise<void>((_resolve, reject) => {
-      rejectReplacement = reject;
+    let onToolCall:
+      | ((args: {
+          toolCall: {
+            dynamic: false;
+            input: Record<string, unknown>;
+            toolCallId: string;
+            toolName: 'getCurrentLessonArtifacts';
+          };
+        }) => Promise<void>)
+      | undefined;
+    let resolveReplacement: ((result: { error: string; succeeded: false }) => void) | undefined;
+    const pendingReplacement = new Promise<{ error: string; succeeded: false }>(resolve => {
+      resolveReplacement = resolve;
     });
     const onReplaceArtifactInLesson =
       actionName === 'replace'
         ? vi
             .fn()
             .mockImplementationOnce(() => pendingReplacement)
-            .mockResolvedValue(undefined)
-        : vi.fn().mockResolvedValue(undefined);
-    const consoleErrorSpy =
-      actionName === 'replace' ? vi.spyOn(console, 'error').mockImplementation(() => {}) : null;
+            .mockResolvedValue({ succeeded: true })
+        : vi.fn().mockResolvedValue({ succeeded: true });
     generateLessonArtifactDraftMock.mockResolvedValue({
       artifactId: replacementDraftArtifact.summary.id,
       payload: replacementDraftArtifact,
       visual: replacementDraftArtifact.visual,
     });
-    useChatMock.mockReturnValue({
-      addToolOutput: addToolOutputMock,
-      error: undefined,
-      messages: [
-        {
-          id: 'assistant-artifacts-regeneration',
-          role: 'assistant',
-          parts: [
-            {
-              type: 'tool-getCurrentLessonArtifacts',
-              toolCallId: 'tool-artifacts-regeneration',
-              state: 'output-available',
-              input: {},
-              output: {
-                artifactCount: 1,
-                artifacts: [currentLessonArtifact.summary],
-                renderMode: 'attachments',
-                renderedArtifactCount: 1,
+    useChatMock.mockImplementation(options => {
+      onToolCall = options.onToolCall;
+      return {
+        addToolOutput: addToolOutputMock,
+        error: undefined,
+        messages: [
+          {
+            id: 'assistant-artifacts-regeneration',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool-getCurrentLessonArtifacts',
+                toolCallId: 'tool-artifacts-regeneration',
+                state: 'output-available',
+                input: {},
+                output: {
+                  artifactCount: 1,
+                  artifacts: [currentLessonArtifact.summary],
+                  renderMode: 'attachments',
+                  renderedArtifactCount: 1,
+                },
               },
-            },
-          ],
-        },
-      ],
-      sendMessage: sendMessageMock,
-      status: 'ready',
+            ],
+          },
+        ],
+        sendMessage: sendMessageMock,
+        status: 'ready',
+      };
     });
 
     render(
@@ -1350,12 +1978,13 @@ describe('ContextAnswerPanel', () => {
       ).toBeInTheDocument();
 
       await act(async () => {
-        rejectReplacement?.(new Error('replace failed'));
-        await pendingReplacement.catch(() => undefined);
+        resolveReplacement?.({
+          error: 'Il corso originale non è più attivo.',
+          succeeded: false,
+        });
+        await pendingReplacement;
       });
-      expect(
-        await screen.findByText('Operazione non riuscita. L artefatto non e stato modificato.')
-      ).toBeInTheDocument();
+      expect(await screen.findByText('Il corso originale non è più attivo.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Apri mappa concettuale$/i })).toBeNull();
       expect(
         screen.getByRole('dialog', { name: /mappa concettuale rivista/i })
@@ -1364,18 +1993,45 @@ describe('ContextAnswerPanel', () => {
       await user.click(screen.getByRole('button', { name: actionLabel }));
     }
 
+    const persistedArtifactButtonName =
+      actionName === 'replace' ? /Apri mappa concettuale rivista$/i : /Apri mappa concettuale$/i;
     expect(
-      await screen.findByRole('button', { name: /Apri mappa concettuale$/i })
+      await screen.findByRole('button', { name: persistedArtifactButtonName })
     ).toBeInTheDocument();
     expect(screen.queryByText('Nuova bozza pronta.')).toBeNull();
     if (actionName === 'replace') {
       expect(onReplaceArtifactInLesson).toHaveBeenLastCalledWith(
+        { lessonId: 'lesson-1', projectId: 'project-1' },
         currentLessonArtifact.summary.id,
         replacementDraftArtifact.visual
       );
       expect(onReplaceArtifactInLesson).toHaveBeenCalledTimes(2);
+
+      addToolOutputMock.mockClear();
+      await act(async () => {
+        await onToolCall?.({
+          toolCall: {
+            dynamic: false,
+            input: {},
+            toolCallId: 'tool-replaced-origin-artifacts',
+            toolName: 'getCurrentLessonArtifacts',
+          },
+        });
+      });
+      expect(addToolOutputMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolCallId: 'tool-replaced-origin-artifacts',
+          output: expect.objectContaining({
+            artifacts: [
+              expect.objectContaining({
+                id: currentLessonArtifact.summary.id,
+                title: replacementDraftArtifact.summary.title,
+              }),
+            ],
+          }),
+        })
+      );
     }
-    consoleErrorSpy?.mockRestore();
   });
 
   test('shows fallback buttons after grace period when requestAddToNotes input is invalid', async () => {

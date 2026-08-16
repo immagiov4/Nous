@@ -3,6 +3,7 @@ import type { ContextSourceReference } from '@shared/lessonSourceContext';
 import { sanitizeContextSourceDisplayName } from '@shared/lessonSourceContext';
 import {
   DefaultChatTransport,
+  isTextUIPart,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
@@ -45,6 +46,7 @@ import type {
 } from '../../../types.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
+  buildGeneratedVisualLearningArtifactPayload,
   filterLearningArtifactPayloads,
   summarizeLearningArtifacts,
 } from '../../../utils/learning/artifacts.ts';
@@ -79,7 +81,9 @@ import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import type {
   ContextAnswerSize,
   ContextAnswerState,
+  ContextArtifactMutationResult,
   ContextChatToolPreferences,
+  ContextLessonMutationTarget,
   ConversationSelectionAnchor,
   SaveConversationNoteInput,
   SaveConversationNoteResult,
@@ -101,6 +105,16 @@ interface RequestAddToNotesOutput {
   annotationId?: string;
   error?: string;
 }
+
+const resolveRequestedNoteArtifactIds = (
+  requestedArtifactIds: string[] | undefined,
+  latestGeneratedArtifactId: string | null
+): string[] => {
+  if (requestedArtifactIds?.length) {
+    return requestedArtifactIds;
+  }
+  return latestGeneratedArtifactId ? [latestGeneratedArtifactId] : [];
+};
 
 interface CurrentLessonArtifactsToolInput {
   artifactIds?: string[];
@@ -151,6 +165,25 @@ const hasPendingAddToNotesRequest = (messages: ContextChatMessage[]): boolean =>
         part.state === 'input-available'
     )
   );
+
+const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean =>
+  !hasOnlySuccessfulToolOutputs(messages, 'tool-generateCurrentLessonArtifact') &&
+  lastAssistantMessageIsCompleteWithToolCalls({ messages });
+
+const hasPendingResponsePart = (message: ContextChatMessage): boolean =>
+  message.parts.some(part => {
+    if (isTextUIPart(part)) {
+      return part.state === 'streaming';
+    }
+    if (!isToolUIPart(part)) {
+      return false;
+    }
+    return (
+      part.state !== 'output-available' &&
+      part.state !== 'output-error' &&
+      part.state !== 'output-denied'
+    );
+  });
 
 const readArtifactId = (artifact: unknown): string | null => {
   if (!artifact || typeof artifact !== 'object' || !('id' in artifact)) return null;
@@ -337,21 +370,25 @@ interface ContextAnswerPanelProps {
   readonly onClose: () => void;
   readonly onOpenLibraryReference: (reference: LibraryNavigationTarget) => void;
   readonly onSaveConversationNote: (
+    target: ContextLessonMutationTarget,
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
   readonly onUpdateConversationNote: (
+    target: ContextLessonMutationTarget,
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
   /** Saves a generated visual artifact directly as a lesson-level annotation. */
   readonly onSaveArtifactToLesson?: (
+    target: ContextLessonMutationTarget,
     visual: StoredLessonVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
-  ) => Promise<void>;
+  ) => Promise<ContextArtifactMutationResult>;
   /** Replaces an already saved generated visual while preserving its artifact identity. */
   readonly onReplaceArtifactInLesson?: (
+    target: ContextLessonMutationTarget,
     artifactId: string,
     visual: StoredLessonVisual
-  ) => Promise<void>;
+  ) => Promise<ContextArtifactMutationResult>;
 }
 
 const toolCardClassName =
@@ -363,6 +400,23 @@ const autoSubmittedInitialQuestionIds = new Set<string>();
 const STUCK_TOOL_GRACE_MS = 2_000;
 const STUCK_TOOL_HARD_TIMEOUT_MS = 15_000;
 const REPLACEMENT_DRAFT_TOOL_CALL_PREFIX = 'replacement-draft';
+
+const upsertLearningArtifactPayload = (
+  payloads: LearningArtifactRenderPayload[],
+  payload: LearningArtifactRenderPayload
+) => {
+  const existingIndex = payloads.findIndex(
+    currentPayload => currentPayload.summary.id === payload.summary.id
+  );
+  if (existingIndex < 0) {
+    return [...payloads, payload];
+  }
+
+  const nextPayloads = [...payloads];
+  nextPayloads[existingIndex] = payload;
+  return nextPayloads;
+};
+
 export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps) {
   return <ContextAnswerPanelSession key={props.contextAnswer.id} {...props} />;
 }
@@ -390,7 +444,14 @@ function ContextAnswerPanelSession({
   onSaveArtifactToLesson,
   onReplaceArtifactInLesson,
 }: ContextAnswerPanelProps) {
+  const [originLessonArtifactPayloads, setOriginLessonArtifactPayloads] = useState(
+    () => currentLessonArtifactPayloads
+  );
   const [input, setInput] = useState('');
+  const mutationTarget: ContextLessonMutationTarget = {
+    lessonId: contextAnswer.lessonId,
+    projectId: contextAnswer.projectId,
+  };
   const displayedInput = inputValueOverride ?? input;
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
   const [, setIsChatScrolled] = useState(false);
@@ -544,16 +605,14 @@ function ContextAnswerPanelSession({
     id: contextAnswer.id,
     transport,
     experimental_throttle: 96,
-    sendAutomaticallyWhen: options =>
-      !hasOnlySuccessfulToolOutputs(options.messages, 'tool-generateCurrentLessonArtifact') &&
-      lastAssistantMessageIsCompleteWithToolCalls(options),
+    sendAutomaticallyWhen: ({ messages }) => shouldContinueContextResponse(messages),
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
         return;
       }
       if (toolCall.toolName === 'getCurrentLessonArtifacts') {
         const artifactInput = readCurrentLessonArtifactsToolInput(toolCall.input);
-        const matchingPayloads = filterLearningArtifactPayloads(currentLessonArtifactPayloads, {
+        const matchingPayloads = filterLearningArtifactPayloads(originLessonArtifactPayloads, {
           artifactIds: artifactInput.artifactIds,
           kinds: artifactInput.kinds,
           maxResults: artifactInput.maxResults,
@@ -581,7 +640,7 @@ function ContextAnswerPanelSession({
         const currentState = contextRequestStateStore.read();
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
         const allArtifactPayloads = [
-          ...currentLessonArtifactPayloads,
+          ...originLessonArtifactPayloads,
           ...Object.values(artifactPayloadsByToolCallId).flat(),
         ];
         const sourceArtifactId = artifactInput?.sourceArtifactId;
@@ -734,11 +793,11 @@ function ContextAnswerPanelSession({
 
   const artifactPayloadsById = useMemo(() => {
     const payloads = [
-      ...currentLessonArtifactPayloads,
+      ...originLessonArtifactPayloads,
       ...Object.values(artifactPayloadsByToolCallId).flat(),
     ];
     return new Map(payloads.map(payload => [payload.summary.id, payload]));
-  }, [artifactPayloadsByToolCallId, currentLessonArtifactPayloads]);
+  }, [artifactPayloadsByToolCallId, originLessonArtifactPayloads]);
   const retrievedArtifactIds = useMemo(() => getRetrievedArtifactIds(messages), [messages]);
   const replacementDraftPayloads = useMemo(
     () =>
@@ -828,12 +887,10 @@ function ContextAnswerPanelSession({
     try {
       let lastResult: SaveConversationNoteResult | null = null;
 
-      const noteArtifactIds =
-        inputValue.artifactIds && inputValue.artifactIds.length > 0
-          ? inputValue.artifactIds
-          : latestGeneratedArtifactIdRef.current
-            ? [latestGeneratedArtifactIdRef.current]
-            : [];
+      const noteArtifactIds = resolveRequestedNoteArtifactIds(
+        inputValue.artifactIds,
+        latestGeneratedArtifactIdRef.current
+      );
       const hasUnsavableArtifact = noteArtifactIds.some(artifactId => {
         const payload = artifactPayloadsById.get(artifactId);
         if (!payload) return retrievedArtifactIds.has(artifactId);
@@ -887,9 +944,29 @@ function ContextAnswerPanelSession({
       });
 
       for (const candidate of candidates) {
-        const result = await runMutation(candidate);
+        const result = await runMutation(mutationTarget, candidate);
         lastResult = result;
         if (result.saved) {
+          const originLesson = buildContextDraftLesson(contextAnswer, currentState);
+          const originProjectId = contextAnswer.projectId;
+          const savedVisuals = candidate.generatedVisuals;
+          if (originLesson && originProjectId && savedVisuals?.length) {
+            setOriginLessonArtifactPayloads(currentPayloads =>
+              savedVisuals.reduce(
+                (nextPayloads, visual) =>
+                  upsertLearningArtifactPayload(
+                    nextPayloads,
+                    buildGeneratedVisualLearningArtifactPayload({
+                      lesson: originLesson,
+                      projectId: originProjectId,
+                      projectTitle: contextAnswer.projectTitle || t('Corso'),
+                      visual,
+                    })
+                  ),
+                currentPayloads
+              )
+            );
+          }
           void addToolOutput({
             tool: 'requestAddToNotes',
             toolCallId,
@@ -930,14 +1007,16 @@ function ContextAnswerPanelSession({
     }
   };
 
-  const handleSaveGeneratedArtifact = async ({
-    artifactId,
-  }: ChatArtifactActionRequest): Promise<void> => {
+  const handleSaveGeneratedArtifact = async ({ artifactId }: ChatArtifactActionRequest) => {
     const payload = artifactPayloadsById.get(artifactId);
-    if (!payload || !('visual' in payload)) return;
+    if (!payload || !('visual' in payload)) {
+      return { error: t("Non ho trovato l'artefatto da salvare."), succeeded: false };
+    }
 
     const visual = generatedVisualsByArtifactId[artifactId];
-    if (!visual) return;
+    if (!visual) {
+      return { error: t("Non ho trovato l'artefatto da salvare."), succeeded: false };
+    }
 
     const artifactRef = {
       artifactId,
@@ -945,8 +1024,15 @@ function ContextAnswerPanelSession({
       title: payload.summary.title,
     } as const;
     if (onSaveArtifactToLesson) {
-      await onSaveArtifactToLesson(visual, artifactRef);
+      const result = await onSaveArtifactToLesson(mutationTarget, visual, artifactRef);
+      if (result.succeeded) {
+        setOriginLessonArtifactPayloads(currentPayloads =>
+          upsertLearningArtifactPayload(currentPayloads, { ...payload, visual })
+        );
+      }
+      return result;
     }
+    return { error: t("Non sono riuscito a salvare l'artefatto."), succeeded: false };
   };
 
   const handleRegenerateArtifact = async ({
@@ -1001,14 +1087,37 @@ function ContextAnswerPanelSession({
   const handleReplaceArtifact = async ({
     artifactId,
     replacementOfArtifactId,
-  }: ChatArtifactReplaceRequest): Promise<void> => {
+  }: ChatArtifactReplaceRequest) => {
     const payload = artifactPayloadsById.get(artifactId);
+    const sourcePayload = artifactPayloadsById.get(replacementOfArtifactId);
     const visual = generatedVisualsByArtifactId[artifactId];
-    if (!payload || !('visual' in payload) || !visual || !onReplaceArtifactInLesson) {
-      return;
+    const originLesson = buildContextDraftLesson(contextAnswer, contextRequestStateStore.read());
+    if (
+      !payload ||
+      !('visual' in payload) ||
+      !sourcePayload ||
+      !('visual' in sourcePayload) ||
+      !visual ||
+      !originLesson ||
+      !contextAnswer.projectId ||
+      !onReplaceArtifactInLesson
+    ) {
+      return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
     }
 
-    await onReplaceArtifactInLesson(replacementOfArtifactId, visual);
+    const result = await onReplaceArtifactInLesson(mutationTarget, replacementOfArtifactId, visual);
+    if (!result.succeeded) {
+      return result;
+    }
+    const persistedPayload = buildGeneratedVisualLearningArtifactPayload({
+      lesson: originLesson,
+      projectId: contextAnswer.projectId,
+      projectTitle: contextAnswer.projectTitle || t('Corso'),
+      visual: { ...visual, id: sourcePayload.visual.id },
+    });
+    setOriginLessonArtifactPayloads(currentPayloads =>
+      upsertLearningArtifactPayload(currentPayloads, persistedPayload)
+    );
     setArtifactPayloadsByToolCallId(currentPayloads => {
       const next = { ...currentPayloads };
       for (const [key, payloads] of Object.entries(next)) {
@@ -1027,6 +1136,7 @@ function ContextAnswerPanelSession({
     if (latestGeneratedArtifactIdRef.current === artifactId) {
       latestGeneratedArtifactIdRef.current = replacementOfArtifactId;
     }
+    return result;
   };
 
   const handleDiscardArtifact = ({ artifactId }: ChatArtifactActionRequest) => {
@@ -1193,6 +1303,16 @@ function ContextAnswerPanelSession({
 
     return getUiMessageRenderableParts(message).length > 0;
   });
+  const latestVisibleMessage = visibleMessages.at(-1);
+  const activeResponseMessageId =
+    latestVisibleMessage?.role === 'assistant' &&
+    (status === 'submitted' ||
+      status === 'streaming' ||
+      status === 'error' ||
+      shouldContinueContextResponse(messages) ||
+      hasPendingResponsePart(latestVisibleMessage))
+      ? latestVisibleMessage.id
+      : null;
 
   const renderToolPart = (part: ContextChatMessage['parts'][number], messageId: string) => {
     if (!isToolUIPart(part)) {
@@ -1364,7 +1484,7 @@ function ContextAnswerPanelSession({
       const artifactPayloads =
         artifactPayloadsByToolCallId[part.toolCallId] ||
         (outputArtifactIds.size > 0
-          ? currentLessonArtifactPayloads.filter(artifact =>
+          ? originLessonArtifactPayloads.filter(artifact =>
               outputArtifactIds.has(artifact.summary.id)
             )
           : []);
@@ -1494,7 +1614,11 @@ function ContextAnswerPanelSession({
                       renderToolPart(part.part, `${message.id}-${part.key}`)
                     )
                   )}
-                  <LibraryToolReferences parts={message.parts} onOpen={onOpenLibraryReference} />
+                  <LibraryToolReferences
+                    isResponseComplete={message.id !== activeResponseMessageId}
+                    parts={message.parts}
+                    onOpen={onOpenLibraryReference}
+                  />
                 </div>
               );
             })}

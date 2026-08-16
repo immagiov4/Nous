@@ -89,6 +89,7 @@ const AppContent = () => {
     currentProjectId: controller.currentProjectId,
     isLibraryLoading,
     notifyError: notify,
+    onCloseContextAnswer: readerState.readerContext.closeContextAnswer,
     onGoToLibrary: controller.goToLibrary,
     onOpenProject: controller.openProject,
     openingProjectId,

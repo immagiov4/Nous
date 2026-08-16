@@ -983,7 +983,7 @@ export const useProjectLibrary = ({
             visuals: section.generatedVisuals,
           });
           if (!nextGeneratedVisuals) {
-            throw new Error(t('Non ho trovato l artefatto da sostituire.'));
+            throw new Error(t("Non ho trovato l'artefatto da sostituire."));
           }
 
           return projectRepositoryRef.current.patchProject(

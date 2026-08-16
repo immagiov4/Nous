@@ -39,6 +39,7 @@ interface ReadingScreenContainerProps {
 
 interface LibraryReferenceNavigationDependencies {
   readonly activeSectionId: string | null;
+  readonly cancelContextAnswerLessonRetention: () => void;
   readonly cancelPendingProjectOpen: () => void;
   readonly clearPendingReference: () => void;
   readonly closeContextAnswer: () => void;
@@ -49,6 +50,7 @@ interface LibraryReferenceNavigationDependencies {
   readonly openProject: WorkspaceNavigation['handleOpenProject'];
   readonly openSection: WorkspaceController['openSection'];
   readonly reportFailure: (error?: unknown) => void;
+  readonly retainContextAnswerForLesson: (lessonId: string) => void;
   readonly revealAnnotation: () => void;
 }
 
@@ -60,19 +62,24 @@ const openCrossProjectReference = async (
     dependencies.reportFailure();
     return;
   }
+  if (reference.lessonId) {
+    dependencies.retainContextAnswerForLesson(reference.lessonId);
+  }
   const result = await dependencies.openProject(reference.projectId, {
     activeSectionId: reference.lessonId,
     source: 'library',
   });
   if (result.outcome === 'stale' || result.outcome === 'failed') {
+    dependencies.cancelContextAnswerLessonRetention();
     dependencies.clearPendingReference();
     return;
   }
   if (result.outcome === 'missing') {
+    dependencies.cancelContextAnswerLessonRetention();
     dependencies.reportFailure();
     return;
   }
-  if (dependencies.isCurrentRequest()) {
+  if (!reference.lessonId && dependencies.isCurrentRequest()) {
     dependencies.closeContextAnswer();
   }
 };
@@ -93,19 +100,26 @@ const openCurrentProjectReference = async (
     return;
   }
   if (reference.lessonId === dependencies.activeSectionId) {
+    if (!reference.annotationId) {
+      dependencies.closeContextAnswer();
+      return;
+    }
     if (!dependencies.isCurrentRequest()) return;
-    dependencies.closeContextAnswer();
     dependencies.revealAnnotation();
     return;
   }
 
+  dependencies.retainContextAnswerForLesson(reference.lessonId);
   const openOutcome = await dependencies.openSection(lesson);
   if (openOutcome === 'ignored-busy') {
+    dependencies.cancelContextAnswerLessonRetention();
     dependencies.reportFailure();
     return;
   }
-  if (!dependencies.isCurrentRequest()) return;
-  dependencies.closeContextAnswer();
+  if (!dependencies.isCurrentRequest()) {
+    dependencies.cancelContextAnswerLessonRetention();
+    return;
+  }
   dependencies.revealAnnotation();
 };
 
@@ -121,6 +135,7 @@ export const navigateToLibraryReference = async (
     }
     await openCurrentProjectReference(reference, dependencies);
   } catch (error) {
+    dependencies.cancelContextAnswerLessonRetention();
     dependencies.reportFailure(error);
   }
 };
@@ -205,11 +220,13 @@ export const ReadingScreenContainer = ({
     updateSection,
   } = controller;
   const {
+    cancelContextAnswerLessonRetention,
     closeContextAnswer,
     closeContextMenu,
     contextMenu,
     contextMenuScrollTopRef,
     openContextAnswer,
+    retainContextAnswerForLesson,
   } = readerState.readerContext;
   const { isMobileViewport, setIsMobileSidebarOpen } = readerState.readerChrome;
 
@@ -245,8 +262,10 @@ export const ReadingScreenContainer = ({
       const requestId = libraryReferenceRequestIdRef.current + 1;
       libraryReferenceRequestIdRef.current = requestId;
       pendingAnnotationIdRef.current = reference.annotationId || null;
+      cancelContextAnswerLessonRetention();
       void navigateToLibraryReference(reference, {
         activeSectionId,
+        cancelContextAnswerLessonRetention: () => cancelContextAnswerLessonRetention(requestId),
         cancelPendingProjectOpen: controller.cancelProjectOpen,
         clearPendingReference: () => clearPendingLibraryReference(requestId),
         closeContextAnswer,
@@ -257,20 +276,23 @@ export const ReadingScreenContainer = ({
         openProject: navigation.handleOpenProject,
         openSection,
         reportFailure: error => reportLibraryReferenceFailure(requestId, error),
+        retainContextAnswerForLesson: lessonId => retainContextAnswerForLesson(requestId, lessonId),
         revealAnnotation: () => requestAnimationFrame(() => revealPendingAnnotation(requestId)),
       });
     },
     [
       activeSectionId,
+      cancelContextAnswerLessonRetention,
       clearPendingLibraryReference,
-      currentProjectId,
       closeContextAnswer,
+      currentProjectId,
       controller.cancelProjectOpen,
       controller.workflowState.loadSection.status,
       learningPlan,
       navigation,
       openSection,
       reportLibraryReferenceFailure,
+      retainContextAnswerForLesson,
       revealPendingAnnotation,
     ]
   );

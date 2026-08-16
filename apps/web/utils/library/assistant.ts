@@ -381,6 +381,7 @@ export const searchLibraryContent = ({
       const sectionBody = `${section.title}\n${section.description}\n${section.content || ''}`;
       if (normalizeSearchText(sectionBody).includes(normalizedQuery)) {
         hits.push({
+          hasContent: Boolean(section.content?.trim()),
           kind: 'lesson',
           lessonId: section.id,
           lessonTitle: section.title,
@@ -402,6 +403,7 @@ export const searchLibraryContent = ({
         hits.push({
           annotationId: annotation.annotationId,
           anchorKind: annotation.anchorKind,
+          hasContent: Boolean(section.content?.trim()),
           highlightedText: annotation.highlightedText,
           kind: 'annotation',
           lessonId: section.id,
@@ -420,6 +422,7 @@ export const searchLibraryContent = ({
         }
 
         hits.push({
+          hasContent: Boolean(section.content?.trim()),
           kind: 'learning-aid',
           learningAidId: learningAid.id,
           learningAidKind: learningAid.kind,

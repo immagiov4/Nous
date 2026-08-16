@@ -31,6 +31,11 @@ export interface ChatArtifactReplaceRequest extends ChatArtifactActionRequest {
   replacementOfArtifactId: string;
 }
 
+export interface ChatArtifactActionResult {
+  error?: string;
+  succeeded: boolean;
+}
+
 export type ChatArtifactRegenerationStates = Record<string, 'working' | 'succeeded' | 'failed'>;
 
 export interface ChatArtifactRegenerationLifecycle {
@@ -45,7 +50,9 @@ interface ChatArtifactRendererProps {
   readonly className?: string;
   readonly isDarkMode: boolean;
   /** Called when user clicks "Salva" in the overlay footer. Returns a promise so the button shows saving state correctly. */
-  readonly onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
+  readonly onSaveArtifact?: (
+    request: ChatArtifactActionRequest
+  ) => Promise<ChatArtifactActionResult> | Promise<void>;
   /** Called when user clicks "Rigenera" in the overlay footer. */
   readonly onRegenerateArtifact?: (
     request: ChatArtifactRegenerateRequest
@@ -53,7 +60,9 @@ interface ChatArtifactRendererProps {
   /** Called when user clicks "Scarta" in the overlay footer. */
   readonly onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
   /** Called when user approves a replacement draft. */
-  readonly onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
+  readonly onReplaceArtifact?: (
+    request: ChatArtifactReplaceRequest
+  ) => Promise<ChatArtifactActionResult> | Promise<void> | ChatArtifactActionResult | void;
   /** If true, the artifact grid shows a loading skeleton instead of cards. */
   readonly isLoading?: boolean;
   readonly openArtifactIdOverride?: string | null;
@@ -168,14 +177,19 @@ const ArtifactOverlay = ({
   onClose: () => void;
   onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
   onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<boolean> | boolean;
-  onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
-  onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
+  onReplaceArtifact?: (
+    request: ChatArtifactReplaceRequest
+  ) => Promise<ChatArtifactActionResult | undefined>;
+  onSaveArtifact?: (
+    request: ChatArtifactActionRequest
+  ) => Promise<ChatArtifactActionResult | undefined>;
 }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isRegenerationFormOpen, setIsRegenerationFormOpen] = useState(false);
   const [regenerationInstructions, setRegenerationInstructions] = useState('');
   const [actionFeedback, setActionFeedback] = useState<ArtifactActionFeedback | null>(null);
+  const [actionFailureMessage, setActionFailureMessage] = useState<string | null>(null);
   const replacementOfArtifactId = getArtifactReplacementTargetId(artifact);
   const canRegenerate =
     Boolean(onRegenerateArtifact) && artifact.summary.kind === 'generated-visual';
@@ -200,6 +214,7 @@ const ArtifactOverlay = ({
 
   const handleDiscardArtifact = async () => {
     setActionFeedback(null);
+    setActionFailureMessage(null);
     try {
       await onDiscardArtifact?.({ artifactId: artifact.summary.id });
       setActionFeedback('discarded');
@@ -216,6 +231,7 @@ const ArtifactOverlay = ({
 
     setIsRegenerating(true);
     setActionFeedback(null);
+    setActionFailureMessage(null);
     try {
       const regenerated = await onRegenerateArtifact({
         artifactId: artifact.summary.id,
@@ -237,11 +253,17 @@ const ArtifactOverlay = ({
     }
 
     setActionFeedback(null);
+    setActionFailureMessage(null);
     try {
-      await onReplaceArtifact({
+      const result = await onReplaceArtifact({
         artifactId: artifact.summary.id,
         replacementOfArtifactId,
       });
+      if (result?.succeeded === false) {
+        setActionFailureMessage(result.error || null);
+        setActionFeedback('actionFailed');
+        return;
+      }
       setActionFeedback('replaced');
     } catch (error) {
       console.error('[Nous][Artifact] Replacement failed.', error);
@@ -256,9 +278,18 @@ const ArtifactOverlay = ({
 
     setIsSaving(true);
     setActionFeedback(null);
+    setActionFailureMessage(null);
     try {
-      await onSaveArtifact({ artifactId: artifact.summary.id });
+      const result = await onSaveArtifact({ artifactId: artifact.summary.id });
+      if (result?.succeeded === false) {
+        setActionFailureMessage(result.error || null);
+        setActionFeedback('actionFailed');
+        return;
+      }
       setActionFeedback('saved');
+    } catch (error) {
+      console.error('[Nous][Artifact] Save failed.', error);
+      setActionFeedback('actionFailed');
     } finally {
       setIsSaving(false);
     }
@@ -369,7 +400,11 @@ const ArtifactOverlay = ({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  <span>{ARTIFACT_ACTION_FEEDBACK[visibleActionFeedback]()}</span>
+                  <span>
+                    {hasFailedAction && actionFailureMessage
+                      ? actionFailureMessage
+                      : ARTIFACT_ACTION_FEEDBACK[visibleActionFeedback]()}
+                  </span>
                 </div>
               ) : (
                 <span />
@@ -581,9 +616,15 @@ const ChatArtifactRenderer = ({
     : undefined;
   const handleReplaceFromOverlay = onReplaceArtifact
     ? async (request: ChatArtifactReplaceRequest) => {
-        await onReplaceArtifact(request);
-        clearSucceededRegenerationState(request.replacementOfArtifactId);
+        const result = await onReplaceArtifact(request);
+        if (!result || result.succeeded) {
+          clearSucceededRegenerationState(request.replacementOfArtifactId);
+        }
+        return result ?? undefined;
       }
+    : undefined;
+  const handleSaveFromOverlay = onSaveArtifact
+    ? async (request: ChatArtifactActionRequest) => (await onSaveArtifact(request)) ?? undefined
     : undefined;
   const handleRemoveArtifact = onRemoveArtifact
     ? (artifactId: string) => {
@@ -601,7 +642,7 @@ const ChatArtifactRenderer = ({
       onDiscardArtifact={handleDiscardFromOverlay}
       onRegenerateArtifact={handleRegenerateFromOverlay}
       onReplaceArtifact={handleReplaceFromOverlay}
-      onSaveArtifact={onSaveArtifact}
+      onSaveArtifact={handleSaveFromOverlay}
     />
   ) : null;
 
