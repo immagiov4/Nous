@@ -113,6 +113,7 @@ describe('/api/openrouter proxy', () => {
 
   test('keeps sanitized Codex exception details without exposing request payloads', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const correlationId = '423e4567-e89b-42d3-a456-426614174003';
     patchGlobalModelConfig({ aiProvider: 'codex' });
     codexMocks.runCodexAppServerTurn.mockRejectedValueOnce(
       new CodexAppServerError('Codex process failed. api_key=private-key', 'process')
@@ -121,6 +122,7 @@ describe('/api/openrouter proxy', () => {
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
       .set('X-Nous-Model-Slot', 'lesson')
+      .set('x-request-id', correlationId)
       .send({ messages: [{ role: 'user', content: 'PRIVATE_PROMPT_MARKER' }] });
 
     expect(response.status).toBe(502);
@@ -138,6 +140,12 @@ describe('/api/openrouter proxy', () => {
         type: 'CodexAppServerError',
       },
     });
+    const lifecycleFailure = errorLog.mock.calls
+      .flat()
+      .find(value => typeof value === 'string' && value.includes('"operation":"ai_generation"'));
+    expect(lifecycleFailure).toContain(`"correlationId":"${correlationId}"`);
+    expect(lifecycleFailure).toContain('"failureDiagnostic"');
+    expect(lifecycleFailure).toContain('"message":"Codex process failed. api_key=[REDACTED]"');
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain('private-key');
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain('PRIVATE_PROMPT_MARKER');
     errorLog.mockRestore();
