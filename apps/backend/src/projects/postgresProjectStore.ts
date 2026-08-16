@@ -310,7 +310,11 @@ const cleanupOrphanedSourcePreparationDirectories = async (): Promise<void> => {
 };
 
 setInterval(() => {
-  void cleanupOrphanedSourcePreparationDirectories();
+  void cleanupOrphanedSourcePreparationDirectories().catch(error => {
+    console.warn('[Projects] Failed to clean up orphaned source preparation directories.', {
+      error,
+    });
+  });
 }, projectImportConfig.cleanupIntervalMs).unref();
 
 const compareLockKeysByCodeUnit = (left: string, right: string): number => {

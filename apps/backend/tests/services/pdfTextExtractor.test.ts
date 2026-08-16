@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 import { serialize } from 'node:v8';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -6,11 +7,8 @@ const pdfRuntimeMocks = vi.hoisted(() => ({
   execFileAsync: vi.fn(),
   processResults: [] as unknown[],
   spawnCalls: [] as unknown[],
+  stdinErrors: [] as Error[],
 }));
-const expectedFallbackNodeExecutable =
-  process.platform === 'win32'
-    ? String.raw`C:\Program Files\nodejs\node.exe`
-    : '/usr/local/bin/node';
 
 vi.mock('node:child_process', async importOriginal => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
@@ -18,20 +16,25 @@ vi.mock('node:child_process', async importOriginal => ({
     const child = new EventEmitter() as EventEmitter & {
       kill: ReturnType<typeof vi.fn>;
       stderr: EventEmitter;
-      stdin: { end: ReturnType<typeof vi.fn> };
+      stdin: EventEmitter & { end: ReturnType<typeof vi.fn> };
       stdout: EventEmitter;
     };
     child.kill = vi.fn();
     child.stderr = new EventEmitter();
     child.stdout = new EventEmitter();
-    child.stdin = {
+    child.stdin = Object.assign(new EventEmitter(), {
       end: vi.fn(() =>
         queueMicrotask(() => {
+          const stdinError = pdfRuntimeMocks.stdinErrors.shift();
+          if (stdinError) {
+            child.stdin.emit('error', stdinError);
+            return;
+          }
           child.stdout.emit('data', serialize(pdfRuntimeMocks.processResults.shift()));
           child.emit('close', 0);
         })
       ),
-    };
+    });
     pdfRuntimeMocks.spawnCalls.push({ args, command, options });
     return child;
   }),
@@ -47,6 +50,7 @@ import {
   extractPdfText,
   PdfTextExtractionOutputLimitError,
   PdfTextExtractionTimeoutError,
+  resolvePdfTextFallbackNodeExecutable,
 } from '../../src/services/pdfTextExtractor.js';
 import {
   buildBoundedPdfTextWorkerPayload,
@@ -57,6 +61,7 @@ beforeEach(() => {
   pdfRuntimeMocks.execFileAsync.mockReset();
   pdfRuntimeMocks.processResults.length = 0;
   pdfRuntimeMocks.spawnCalls.length = 0;
+  pdfRuntimeMocks.stdinErrors.length = 0;
 });
 
 describe('buildDeterministicPdfOutline', () => {
@@ -146,7 +151,7 @@ describe('extractPdfText resource limits', () => {
     expect(pdfRuntimeMocks.spawnCalls).toEqual([
       expect.objectContaining({
         args: expect.arrayContaining(['--max-old-space-size=272', 'outline', '1000']),
-        command: expectedFallbackNodeExecutable,
+        command: resolvePdfTextFallbackNodeExecutable(),
       }),
     ]);
   });
@@ -171,7 +176,7 @@ describe('extractPdfText resource limits', () => {
     expect(pdfRuntimeMocks.spawnCalls).toEqual([
       expect.objectContaining({
         args: expect.arrayContaining(['--max-old-space-size=272', 'fallback', '32']),
-        command: expectedFallbackNodeExecutable,
+        command: resolvePdfTextFallbackNodeExecutable(),
       }),
     ]);
   });
@@ -237,5 +242,29 @@ describe('extractPdfText resource limits', () => {
       })
     ).rejects.toBeInstanceOf(PdfTextExtractionTimeoutError);
     expect(pdfRuntimeMocks.spawnCalls).toEqual([]);
+  });
+
+  test('rejects fallback stdin failures without leaving an unhandled stream error', async () => {
+    pdfRuntimeMocks.execFileAsync.mockRejectedValue(new Error('pdftotext failed'));
+    pdfRuntimeMocks.stdinErrors.push(new Error('EPIPE'));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      extractPdfText('data:application/pdf;base64,JVBERi0xLjQ=', {
+        fallbackTimeoutMs: 15_000,
+        pdftotextTimeoutMs: 15_000,
+      })
+    ).rejects.toThrow('EPIPE');
+  });
+});
+
+describe('resolvePdfTextFallbackNodeExecutable', () => {
+  test('accepts only an absolute operator override', () => {
+    const absoluteExecutable = path.join(path.parse(process.execPath).root, 'tools', 'node');
+
+    expect(resolvePdfTextFallbackNodeExecutable(` ${absoluteExecutable} `)).toBe(
+      absoluteExecutable
+    );
+    expect(() => resolvePdfTextFallbackNodeExecutable('node')).toThrow(TypeError);
   });
 });
