@@ -107,10 +107,9 @@ Before the first local full gate, start and initialize Sonar with `bun run sonar
 ## Sonar quality ratchet
 
 Run `bun run gate:full` after each non-trivial completed batch. Triage every new bug,
-vulnerability, and security hotspot before considering the batch complete. When safe unresolved
-code-smell debt remains, each batch should also remove at least 10 findings. Record the reason when
-there are not 10 safe findings in scope; do not force speculative refactors merely to reach the
-number.
+vulnerability, and security hotspot before considering the batch complete. Existing code-smell debt
+may be addressed in an explicitly scoped, safe cleanup batch; there is no fixed per-batch quota and
+unrelated refactors must not be forced merely to reduce the total.
 
 Biome fixes and formatting remain separate, explicit commands:
 

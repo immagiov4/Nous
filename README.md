@@ -5,7 +5,7 @@ Nous Reader turns uploaded documents and researched topics into personalized cou
 ## Start Here
 
 - [AI instructions](AGENTS.md)
-- [Architecture and domain conventions](docs/ARCHITECTURE.md)
+- [Code structure, packages, workspaces, and ownership](.cubic/wiki/index.md)
 - [Production deployment](docs/DEPLOYMENT.md)
 - [Testing and quality gates](docs/TESTING.md)
 - [Product and design manifesto](https://github.com/immagiov4/Lumina-Reader/discussions/33)
@@ -65,10 +65,11 @@ Copy `deploy/.env.production.example` to `.env.production`, choose `SUPABASE_DEP
 
 ## What Lives Where
 
-- Frontend app: `apps/web/`
-- Backend API server: `apps/backend/src/`
-- Tooling scripts: `scripts/`
-- Documentation: `docs/`
+Code-level structure, package responsibilities, workspace boundaries, and dependency ownership are
+maintained in the [Cubic wiki](.cubic/wiki/index.md). Product intent remains in the
+[manifesto](https://github.com/immagiov4/Lumina-Reader/discussions/33); deployment and quality
+procedures remain in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and
+[docs/TESTING.md](docs/TESTING.md).
 
 Authenticated sessions use server storage. Import/export remains available for manual migration and backups.
 
