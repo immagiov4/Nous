@@ -320,6 +320,56 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.moveProjects).toHaveBeenCalledWith([importedProjectId], 'folder-1', 0);
   });
 
+  test('reports the failed course position and rolls back every attempted target', async () => {
+    const archive = await createLibraryArchiveBlob(
+      [buildSnapshot('course-one'), buildSnapshot('course-two')],
+      {
+        folders: [],
+        placements: [
+          {
+            projectId: 'course-one',
+            folderId: null,
+            order: 0,
+            updatedAt: '2026-04-02T10:00:00.000Z',
+          },
+          {
+            projectId: 'course-two',
+            folderId: null,
+            order: 1,
+            updatedAt: '2026-04-02T10:00:00.000Z',
+          },
+        ],
+      }
+    );
+    repositoryMocks.importProjectArchive
+      .mockImplementationOnce(async (_archive: Blob, targetProjectId: string) => ({
+        meta: buildMeta(targetProjectId, '2026-04-02T10:00:00.000Z'),
+        snapshot: buildSnapshot(targetProjectId),
+      }))
+      .mockRejectedValueOnce(new Error('private backend detail'));
+    const file = new File([archive], 'library.nous-library.zip');
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await expect(result.current.importLibraryBackup(file)).rejects.toMatchObject({
+      code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+      message: 'Importazione del corso 2 di 2 non riuscita.',
+      projectCount: 2,
+      projectIndex: 2,
+      stage: 'project-import',
+    });
+
+    expect(repositoryMocks.deleteProject.mock.calls).toEqual([
+      [repositoryMocks.importProjectArchive.mock.calls[1]?.[1]],
+      [repositoryMocks.importProjectArchive.mock.calls[0]?.[1]],
+    ]);
+  });
+
   test('rolls back imported projects when restoring a library backup fails', async () => {
     const timestamp = '2026-04-02T10:00:00.000Z';
     const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
@@ -360,9 +410,13 @@ describe('useProjectLibrary', () => {
     );
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
 
-    await expect(result.current.importLibraryBackup(file)).rejects.toThrow(
-      /alcuni elementi potrebbero essere rimasti/iu
-    );
+    await expect(result.current.importLibraryBackup(file)).rejects.toMatchObject({
+      code: 'LIBRARY_ARCHIVE_ROLLBACK_INCOMPLETE',
+      message:
+        'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
+      projectCount: 1,
+      stage: 'rollback',
+    });
 
     expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2);
   });

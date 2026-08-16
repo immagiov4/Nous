@@ -4,6 +4,13 @@ const DEFAULT_MAX_ZIP_ENTRIES = 1_000;
 const DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS = 512;
 const DEFAULT_INVALID_ARCHIVE_MESSAGE = 'Invalid ZIP archive.';
 
+export class ZipEntryTooLargeError extends Error {
+  constructor(message = DEFAULT_INVALID_ARCHIVE_MESSAGE) {
+    super(message);
+    this.name = 'ZipEntryTooLargeError';
+  }
+}
+
 export interface SafeZipLoadOptions {
   invalidArchiveMessage?: string;
   maxEntries?: number;
@@ -62,6 +69,18 @@ const readDeclaredUncompressedSize = (
   return size;
 };
 
+export const getZipTotalUncompressedBytes = (
+  zip: JSZip,
+  invalidArchiveMessage = DEFAULT_INVALID_ARCHIVE_MESSAGE
+): number => {
+  let totalUncompressedBytes = 0;
+  for (const entry of Object.values(zip.files)) {
+    totalUncompressedBytes += readDeclaredUncompressedSize(entry, invalidArchiveMessage);
+    if (!Number.isSafeInteger(totalUncompressedBytes)) throw new Error(invalidArchiveMessage);
+  }
+  return totalUncompressedBytes;
+};
+
 const updateCrc32 = (crc: number, bytes: Uint8Array): number => {
   let next = crc;
   for (const byte of bytes) {
@@ -81,18 +100,16 @@ export const loadZipSafely = async (
   const maxEntryNameChars = options.maxEntryNameChars ?? DEFAULT_MAX_ZIP_ENTRY_NAME_CHARS;
   const invalidArchiveMessage = options.invalidArchiveMessage ?? DEFAULT_INVALID_ARCHIVE_MESSAGE;
   if (entries.length > maxEntries) throw new Error(invalidArchiveMessage);
-  let totalUncompressedBytes = 0;
   for (const entry of entries) {
     const safePath = getSafeZipEntryPath(entry);
     if (!safePath || safePath.length > maxEntryNameChars) throw new Error(invalidArchiveMessage);
-    totalUncompressedBytes += readDeclaredUncompressedSize(entry, invalidArchiveMessage);
-    if (
-      !Number.isSafeInteger(totalUncompressedBytes) ||
-      (options.maxTotalUncompressedBytes !== undefined &&
-        totalUncompressedBytes > options.maxTotalUncompressedBytes)
-    ) {
-      throw new Error(invalidArchiveMessage);
-    }
+    readDeclaredUncompressedSize(entry, invalidArchiveMessage);
+  }
+  if (
+    options.maxTotalUncompressedBytes !== undefined &&
+    getZipTotalUncompressedBytes(zip, invalidArchiveMessage) > options.maxTotalUncompressedBytes
+  ) {
+    throw new Error(invalidArchiveMessage);
   }
   return zip;
 };
@@ -103,7 +120,7 @@ export const readZipEntryBytesWithinLimit = async (
   invalidArchiveMessage = DEFAULT_INVALID_ARCHIVE_MESSAGE
 ): Promise<Uint8Array> => {
   if (readDeclaredUncompressedSize(entry, invalidArchiveMessage) > maxBytes) {
-    throw new Error(invalidArchiveMessage);
+    throw new ZipEntryTooLargeError(invalidArchiveMessage);
   }
 
   const stream = (entry as ZipEntryWithMetadata).internalStream('uint8array');
@@ -114,13 +131,14 @@ export const readZipEntryBytesWithinLimit = async (
     let crc32 = 0xffffffff;
     let settled = false;
 
-    const rejectInvalidArchive = () => {
+    const rejectEntry = (error: Error) => {
       if (settled) return;
       settled = true;
       stream.pause();
-      reject(new Error(invalidArchiveMessage));
+      reject(error);
     };
 
+    const rejectInvalidArchive = () => rejectEntry(new Error(invalidArchiveMessage));
     stream
       .on('data', chunk => {
         if (settled) return;

@@ -201,16 +201,16 @@ describe('AccountMenu', () => {
     expect((await screen.findByRole('status')).textContent).toContain('2 corsi importati.');
   });
 
-  test('shows the archive cause and reports only sanitized import diagnostics', async () => {
+  test('shows partial import context and reports only sanitized diagnostics', async () => {
     const user = userEvent.setup();
     const onImportLibraryBackup = vi
       .fn()
       .mockRejectedValue(
         new LibraryArchiveError(
-          'Il corso 1 di 11 contiene un archivio non valido o non supportato.',
-          'LIBRARY_ARCHIVE_PROJECT_INVALID',
-          'nested-project-read',
-          1,
+          'Importazione del corso 2 di 11 non riuscita.',
+          'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+          'project-import',
+          2,
           11
         )
       );
@@ -234,15 +234,15 @@ describe('AccountMenu', () => {
     await user.upload(screen.getByLabelText('Seleziona backup completo Nous'), backup);
 
     expect((await screen.findByRole('alert')).textContent).toMatch(
-      /Il corso 1 di 11 contiene un archivio non valido o non supportato\. Codice assistenza:/
+      /Importazione del corso 2 di 11 non riuscita\. Codice assistenza:/
     );
     const diagnosticRequest = fetchMock.mock.calls[1];
     expect(diagnosticRequest?.[0]).toBe('http://localhost:3301/api/projects/import-diagnostics');
     expect(JSON.parse(diagnosticRequest?.[1]?.body as string)).toMatchObject({
-      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
-      stage: 'nested-project-read',
+      code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+      stage: 'project-import',
       fileBytes: backup.size,
-      projectIndex: 1,
+      projectIndex: 2,
       projectCount: 11,
     });
   });

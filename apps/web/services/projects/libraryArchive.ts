@@ -1,8 +1,10 @@
 import { buildOrderedSiblingItems } from '@shared/libraryOrdering';
 import {
+  getZipTotalUncompressedBytes,
   loadZipSafely,
   readZipEntryBytesWithinLimit,
   readZipEntryTextWithinLimit,
+  ZipEntryTooLargeError,
 } from '@shared/zipSafety';
 import JSZip from 'jszip';
 import type { LibraryFolder, LibraryPlacement, ProjectSnapshot } from '../../types.ts';
@@ -19,6 +21,7 @@ const LIBRARY_ARCHIVE_MIME_TYPE = 'application/zip';
 const LIBRARY_ARCHIVE_MAX_ENTRIES = 1_002;
 const LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES = 1_000_000;
 const LIBRARY_ARCHIVE_MAX_PROJECT_BYTES = 256_000_000;
+const LIBRARY_ARCHIVE_MANIFEST_LIMIT_MESSAGE = `Il manifest del backup supera il limite di ${LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES} byte.`;
 const INVALID_LIBRARY_ARCHIVE_MESSAGE =
   "Questo ZIP non contiene un backup completo Nous valido. Importa un file .nous-library.zip esportato dall'app.";
 const LIBRARY_PROJECT_PATH_PATTERN = /^projects\/[^/]+\.nous\.zip$/u;
@@ -26,13 +29,21 @@ const LIBRARY_PROJECT_PATH_PATTERN = /^projects\/[^/]+\.nous\.zip$/u;
 export type LibraryArchiveErrorCode =
   | 'LIBRARY_ARCHIVE_ENTRY_MISSING'
   | 'LIBRARY_ARCHIVE_INVALID'
+  | 'LIBRARY_ARCHIVE_MANIFEST_TOO_LARGE'
+  | 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED'
   | 'LIBRARY_ARCHIVE_PROJECT_INVALID'
   | 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE'
+  | 'LIBRARY_ARCHIVE_ROLLBACK_INCOMPLETE'
   | 'LIBRARY_ARCHIVE_SINGLE_PROJECT'
   | 'LIBRARY_ARCHIVE_VERSION_UNSUPPORTED'
   | 'LIBRARY_ARCHIVE_ZIP_UNREADABLE';
 
-export type LibraryArchiveErrorStage = 'manifest-read' | 'nested-project-read' | 'zip-open';
+export type LibraryArchiveErrorStage =
+  | 'manifest-read'
+  | 'nested-project-read'
+  | 'project-import'
+  | 'rollback'
+  | 'zip-open';
 
 export class LibraryArchiveError extends Error {
   constructor(
@@ -48,10 +59,14 @@ export class LibraryArchiveError extends Error {
   }
 }
 
-export class LibraryArchiveRollbackError extends Error {
-  constructor() {
+export class LibraryArchiveRollbackError extends LibraryArchiveError {
+  constructor(projectIndex?: number, projectCount?: number) {
     super(
-      'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.'
+      'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
+      'LIBRARY_ARCHIVE_ROLLBACK_INCOMPLETE',
+      'rollback',
+      projectIndex,
+      projectCount
     );
     this.name = 'LibraryArchiveRollbackError';
   }
@@ -120,11 +135,21 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
       await readZipEntryTextWithinLimit(
         manifestEntry,
         LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES,
-        `Il manifest del backup supera il limite di ${LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES} byte.`
+        LIBRARY_ARCHIVE_MANIFEST_LIMIT_MESSAGE
       )
     ) as unknown;
   } catch (error) {
     if (error instanceof LibraryArchiveError) throw error;
+    if (error instanceof ZipEntryTooLargeError) {
+      throw new LibraryArchiveError(
+        error.message,
+        'LIBRARY_ARCHIVE_MANIFEST_TOO_LARGE',
+        'manifest-read',
+        undefined,
+        undefined,
+        LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES
+      );
+    }
     throw new LibraryArchiveError(
       'Il manifest library.json non è leggibile.',
       'LIBRARY_ARCHIVE_INVALID',
@@ -356,11 +381,9 @@ export const createLibraryArchiveBlob = async (
 export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData> => {
   let zip: JSZip;
   try {
-    // Nested project archives are stored verbatim; only library.json may expand materially.
     zip = await loadZipSafely(new Uint8Array(await file.arrayBuffer()), {
       invalidArchiveMessage: INVALID_LIBRARY_ARCHIVE_MESSAGE,
       maxEntries: LIBRARY_ARCHIVE_MAX_ENTRIES,
-      maxTotalUncompressedBytes: file.size + LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES,
     });
   } catch {
     throw new LibraryArchiveError(
@@ -370,6 +393,24 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
     );
   }
   const manifest = await readManifest(zip);
+  // Read the bounded manifest first so its specific size error wins; nested archives are stored.
+  let totalUncompressedBytes: number;
+  try {
+    totalUncompressedBytes = getZipTotalUncompressedBytes(zip, INVALID_LIBRARY_ARCHIVE_MESSAGE);
+  } catch {
+    throw new LibraryArchiveError(
+      'Il file selezionato non è un archivio ZIP Nous leggibile.',
+      'LIBRARY_ARCHIVE_ZIP_UNREADABLE',
+      'zip-open'
+    );
+  }
+  if (totalUncompressedBytes > file.size + LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES) {
+    throw new LibraryArchiveError(
+      'Il file selezionato non è un archivio ZIP Nous leggibile.',
+      'LIBRARY_ARCHIVE_ZIP_UNREADABLE',
+      'zip-open'
+    );
+  }
   const projects: LibraryArchiveProjectEntry[] = [];
   const projectArchives: Array<{ archive: Blob; id: string }> = [];
 
@@ -407,7 +448,7 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
       projects.push(project);
       projectArchives.push({ archive: projectArchive, id: project.id });
     } catch (error) {
-      const tooLarge = error instanceof Error && error.message.includes('limite');
+      const tooLarge = error instanceof ZipEntryTooLargeError;
       throw new LibraryArchiveError(
         tooLarge
           ? error.message

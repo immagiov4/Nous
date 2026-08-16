@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { test } from 'vitest';
 import {
   createLibraryArchiveBlob,
+  LibraryArchiveError,
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
 } from '../../../services/projects/libraryArchive.ts';
@@ -313,6 +314,79 @@ test('library backup import rejects a single-course archive', async () => {
   );
 });
 
+test('library backup import identifies a malformed ZIP', async () => {
+  await assert.rejects(
+    () => readLibraryArchive(new Blob([new Uint8Array([0x6e, 0x6f, 0x75, 0x73])])),
+    (error: unknown) => {
+      assert(error instanceof LibraryArchiveError);
+      assert.equal(error.code, 'LIBRARY_ARCHIVE_ZIP_UNREADABLE');
+      assert.equal(error.stage, 'zip-open');
+      return true;
+    }
+  );
+});
+
+test('library backup import identifies a missing manifest', async () => {
+  const zip = new JSZip();
+  zip.file('unrelated.txt', 'not a Nous backup');
+  const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
+
+  await assert.rejects(
+    () => readLibraryArchive(archive),
+    (error: unknown) => {
+      assert(error instanceof LibraryArchiveError);
+      assert.equal(error.code, 'LIBRARY_ARCHIVE_INVALID');
+      assert.equal(error.stage, 'manifest-read');
+      return true;
+    }
+  );
+});
+
+test('library backup import reports the manifest size limit without archive content', async () => {
+  const zip = new JSZip();
+  zip.file('library.json', 'x'.repeat(2_000_000), { compression: 'DEFLATE' });
+  const archive = new Blob([
+    new Uint8Array(await zip.generateAsync({ compression: 'DEFLATE', type: 'uint8array' })),
+  ]);
+
+  await assert.rejects(
+    () => readLibraryArchive(archive),
+    (error: unknown) => {
+      assert(error instanceof LibraryArchiveError);
+      assert.equal(error.code, 'LIBRARY_ARCHIVE_MANIFEST_TOO_LARGE');
+      assert.equal(error.stage, 'manifest-read');
+      assert.equal(error.limitBytes, 1_000_000);
+      return true;
+    }
+  );
+});
+
+test('library backup import does not report a corrupt manifest as oversized', async () => {
+  const manifest = JSON.stringify({
+    archiveVersion: 1,
+    format: 'nous-library-archive',
+    projects: [{ id: 'course', path: 'projects/course.nous.zip', title: 'Corso' }],
+  });
+  const zip = new JSZip();
+  zip.file('library.json', manifest, { compression: 'STORE' });
+  const archiveBytes = Buffer.from(
+    await zip.generateAsync({ compression: 'STORE', type: 'uint8array' })
+  );
+  const manifestOffset = archiveBytes.indexOf(manifest);
+  assert.notEqual(manifestOffset, -1);
+  archiveBytes[manifestOffset] ^= 1;
+
+  await assert.rejects(
+    () => readLibraryArchive(new Blob([archiveBytes])),
+    (error: unknown) => {
+      assert(error instanceof LibraryArchiveError);
+      assert.equal(error.code, 'LIBRARY_ARCHIVE_INVALID');
+      assert.equal(error.stage, 'manifest-read');
+      return true;
+    }
+  );
+});
+
 test('library backup import identifies an unsupported manifest version', async () => {
   const zip = new JSZip();
   zip.file(
@@ -375,6 +449,41 @@ test('library backup import reports the missing nested course position', async (
   const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
 
   await assert.rejects(() => readLibraryArchive(archive), /Nel backup manca il corso 1 di 1\./);
+});
+
+test('library backup import does not report a corrupt nested course as oversized', async () => {
+  const archive = await createLibraryArchiveBlob([buildSnapshot('course', 'Corso')], {
+    folders: [],
+    placements: [
+      {
+        projectId: 'course',
+        folderId: null,
+        order: 0,
+        updatedAt: '2026-07-13T00:00:00.000Z',
+      },
+    ],
+  });
+  const archiveBytes = Buffer.from(await archive.arrayBuffer());
+  const zip = await JSZip.loadAsync(archiveBytes);
+  const nestedEntry = zip.file('projects/001-course.nous.zip');
+  assert(nestedEntry);
+  const nestedBytes = Buffer.from(await nestedEntry.async('uint8array'));
+  const nestedOffset = archiveBytes.indexOf(nestedBytes);
+  assert.notEqual(nestedOffset, -1);
+  archiveBytes[nestedOffset] ^= 1;
+
+  await assert.rejects(
+    () => readLibraryArchive(new Blob([archiveBytes])),
+    (error: unknown) => {
+      assert(error instanceof LibraryArchiveError);
+      assert.equal(error.code, 'LIBRARY_ARCHIVE_PROJECT_INVALID');
+      assert.equal(error.stage, 'nested-project-read');
+      assert.equal(error.projectIndex, 1);
+      assert.equal(error.projectCount, 1);
+      assert.equal(error.limitBytes, undefined);
+      return true;
+    }
+  );
 });
 
 test('library backup rejects aggregate expansion before opening nested project archives', async () => {
