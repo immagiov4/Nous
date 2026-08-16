@@ -369,6 +369,13 @@ describeLocalSupabase('Supabase local integration', () => {
   });
 
   test('persists project source bytes only in private Storage and serves them through the backend', async () => {
+    const projectSourceBuckets = await sql<Array<{ id: string; is_public: boolean }>>`
+      select id, public as is_public
+      from storage.buckets
+      where id = 'project-sources'
+    `;
+    expect(projectSourceBuckets).toEqual([{ id: 'project-sources', is_public: false }]);
+
     const user = await createUser('project-source-storage');
     const accessToken = await login(user.email);
     const projectId = `storage-course-${Date.now()}`;

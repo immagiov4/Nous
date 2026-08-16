@@ -117,7 +117,8 @@ Project-source creation uses the authenticated `/api/projects` write path, whose
 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable
 for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate
-and documented in [Architecture](ARCHITECTURE.md#large-source-archives).
+from the request limit. The source-backed storage and archive-indexing flow is maintained in Cubic's
+[Project Assets & Storage Archives](../.cubic/wiki/04-section-data/02-p-asset-management.md#archive-storage-and-ingestion).
 
 ### Managed profile
 
@@ -503,6 +504,57 @@ database or its `project-sources` bucket.
 Repository mechanism proof on 2026-07-11: a Postgres 17 custom-format dump was parsed, restored into a separate disposable Postgres 17 instance, and its sentinel row was selected. This verifies the documented archive/restore mechanism, not any operator's current production data.
 
 Application rollback checks out the previous release and runs `redeploy`. Database migrations are forward-only; restoring a verified backup is a separate incident operation, never an automatic application rollback.
+
+## Legacy project-source migrator retirement
+
+The one-time project-source migrator is retired. Deployments apply the versioned Supabase migrations
+directly; local startup and Compose no longer stage legacy rows. The historical storage-cutover
+migration remains in the migration history as an audit record, but it is not a runtime compatibility
+path.
+
+Before deploying this change against an existing database, run the following read-only preflight with
+the service role and stop if the `project_sources` schema is not the post-cutover form, either legacy
+staging table still exists, or embedded source bytes remain:
+
+```sql
+select column_name
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'project_sources'
+  and column_name in ('data', 'source_kind')
+order by column_name;
+
+select table_name
+from information_schema.tables
+where table_schema = 'public'
+  and table_name in ('project_sources_legacy', 'project_source_storage_stage');
+
+select count(*) as embedded_source_snapshots
+from public.project_snapshots
+where coalesce(snapshot #>> '{source,file,data}', '') <> ''
+   or coalesce(snapshot #>> '{source,aggregatedText}', '') <> ''
+   or exists (
+     select 1
+     from jsonb_array_elements(
+       case
+         when jsonb_typeof(snapshot #> '{source,sources}') = 'array'
+           then snapshot #> '{source,sources}'
+         else '[]'::jsonb
+       end
+     ) descriptor
+     where coalesce(descriptor #>> '{file,data}', '') <> ''
+   );
+```
+
+The expected result is exactly the `source_kind` column, no legacy tables, and
+`embedded_source_snapshots = 0`. A returned `data` column or a missing `source_kind` column means
+the database still has an unsupported pre-cutover schema. Validate a fresh import and reload with
+`bun run test:supabase-local` against an isolated local database before deployment. If preflight or
+fresh-import validation fails before deployment, keep the current release running, correct the data
+or validation problem, and rerun the checks. Reserve application rollback and the paired verified
+database/Storage backup recovery procedure above for incidents where a deployment or another live
+operation already changed production data. Do not recreate the retired migrator or delete current
+object-storage data as a rollback.
 
 ## Pinned Supabase upgrade and secret rotation
 

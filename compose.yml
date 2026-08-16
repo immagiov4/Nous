@@ -9,7 +9,7 @@ services:
       [
         "sh",
         "-c",
-        "bun run scripts/migrate-project-sources-to-storage.ts && bunx supabase db push --debug --db-url \"$$DATABASE_URL\"",
+        "bunx supabase db push --debug --db-url \"$$DATABASE_URL\"",
       ]
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the deployment env file}

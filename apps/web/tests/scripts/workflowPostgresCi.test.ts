@@ -31,6 +31,16 @@ function requireStep(name: string): WorkflowStep {
 }
 
 describe('workflow PostgreSQL CI contract', () => {
+  test('uses the canonical Supabase contract without the retired source migrator', () => {
+    const canonicalContract = requireStep('Run Canonical Auth/RLS Contract');
+    const workflowCommands = Object.values(workflow.jobs)
+      .flatMap(job => job.steps)
+      .flatMap(step => (step.run ? [step.run] : []));
+
+    expect(canonicalContract.run).toBe('bun run test:supabase-contract');
+    expect(workflowCommands.join('\n')).not.toContain('migrate-project-sources-to-storage');
+  });
+
   test('selects relevant pull request changes from the complete base-to-head diff', () => {
     const checkout = requireStep('Checkout');
     const selector = requireStep('Select Workflow PostgreSQL Contract');

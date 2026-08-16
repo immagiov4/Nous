@@ -9,7 +9,8 @@ wiki_page_id: "p-database-schema"
 The following files were used as context for generating this wiki page:
 
 - [apps/backend/src/projects/postgresProjectStore.ts](apps/backend/src/projects/postgresProjectStore.ts)
-- [scripts/migrate-project-sources-to-storage.ts](scripts/migrate-project-sources-to-storage.ts)
+- [supabase/migrations/202607190002_project_sources_storage.sql](supabase/migrations/202607190002_project_sources_storage.sql)
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [apps/backend/tests/integration/supabaseLocal.integration.test.ts](apps/backend/tests/integration/supabaseLocal.integration.test.ts)
 - [scripts/project-source-storage-artifact.ts](scripts/project-source-storage-artifact.ts)
 - [apps/backend/tests/projects/postgresProjectStore.test.ts](apps/backend/tests/projects/postgresProjectStore.test.ts)
@@ -40,7 +41,7 @@ erDiagram
 ```
 
 *Description: The ER diagram shows the central role of the `projects` table and its connection to content snapshots, asset metadata, and the library's hierarchical folder structure.*
-Sources: [apps/backend/src/projects/postgresProjectStore.ts:503-605](apps/backend/src/projects/postgresProjectStore.ts#L503-L605), [scripts/migrate-project-sources-to-storage.ts:27-51](scripts/migrate-project-sources-to-storage.ts#L27-L51)
+Sources: [apps/backend/src/projects/postgresProjectStore.ts:503-605](apps/backend/src/projects/postgresProjectStore.ts#L503-L605), [supabase/migrations/202607190002_project_sources_storage.sql:104-163](supabase/migrations/202607190002_project_sources_storage.sql#L104-L163)
 
 ## Project and Content Persistence
 
@@ -93,11 +94,11 @@ flowchart TD
 ```
 
 *Description: The link between database metadata and the Supabase Storage bucket based on content-addressed object paths.*
-Sources: [scripts/migrate-project-sources-to-storage.ts:167-175](scripts/migrate-project-sources-to-storage.ts#L167-L175), [apps/backend/src/projects/postgresProjectStore.ts:1097-1110](apps/backend/src/projects/postgresProjectStore.ts#L1097-L1110)
+Sources: [supabase/migrations/202607190002_project_sources_storage.sql:104-194](supabase/migrations/202607190002_project_sources_storage.sql#L104-L194), [apps/backend/src/projects/postgresProjectStore.ts:1094-1110](apps/backend/src/projects/postgresProjectStore.ts#L1094-L1110)
 
-### Staging and Migration
-A specialized table `public.project_source_storage_stage` is used during data migrations to transition legacy embedded Base64 data into external storage.
-Sources: [scripts/migrate-project-sources-to-storage.ts:27-51](scripts/migrate-project-sources-to-storage.ts#L27-L51)
+### Historical Cutover and Current Contract
+The versioned storage-cutover migration used `public.project_source_storage_stage` to verify a one-time transition from embedded source bytes, then removed both staging and legacy tables. Current deployments require the post-cutover schema and apply versioned Supabase migrations directly; the runtime migrator has been retired. The deployment preflight rejects legacy columns, transitional tables, and embedded source snapshots before release.
+Sources: [supabase/migrations/202607190002_project_sources_storage.sql:1-100](supabase/migrations/202607190002_project_sources_storage.sql#L1-L100), [supabase/migrations/202607190002_project_sources_storage.sql:228-285](supabase/migrations/202607190002_project_sources_storage.sql#L228-L285), [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 ## Library and Organization
 
