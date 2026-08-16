@@ -298,13 +298,17 @@ const flushPendingAiUsage = async (input: {
   pendingAiUsage: WorkflowAiUsageRecord[];
   store: WorkflowStepRunnerStore;
 }): Promise<void> => {
-  while (input.pendingAiUsage.length > 0) {
-    const usage = input.pendingAiUsage[0] as WorkflowAiUsageRecord;
-    await executeWorkflowCheckpointWithRetry(
-      () => input.store.recordAiUsage(usage),
-      AbortSignal.timeout(input.leaseMs)
-    );
-    input.pendingAiUsage.shift();
+  let persistedUsageCount = 0;
+  try {
+    for (const usage of input.pendingAiUsage) {
+      await executeWorkflowCheckpointWithRetry(
+        () => input.store.recordAiUsage(usage),
+        AbortSignal.timeout(input.leaseMs)
+      );
+      persistedUsageCount += 1;
+    }
+  } finally {
+    input.pendingAiUsage.splice(0, persistedUsageCount);
   }
 };
 
