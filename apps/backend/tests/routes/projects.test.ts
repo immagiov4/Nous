@@ -687,6 +687,15 @@ describe('/api/projects', () => {
       sourceLoad.body.sources.map((source: { file: { data: string } }) => source.file.data)
     ).toEqual(sourceFiles.map(source => source.file.data));
 
+    const selectedSourceLoad = await request(app).get(
+      '/api/projects/projects/multi-source/sources/source-notes-2'
+    );
+    expect(selectedSourceLoad.status).toBe(200);
+    expect(selectedSourceLoad.body.source).toEqual({
+      ...sourceFiles[1]?.file,
+      sourceId: 'source-notes-2',
+    });
+
     const exported = await request(app).post('/api/projects/projects/multi-source/export');
     expect(
       exported.body.data.source.sources.map(

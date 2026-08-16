@@ -289,6 +289,13 @@ export class HttpProjectRepository implements ProjectRepository {
     return response.source || null;
   }
 
+  async loadProjectSourceById(id: ProjectId, sourceId: string): Promise<FileData | null> {
+    const response = await this.request<{ source?: FileData | null }>(
+      `/api/projects/projects/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`
+    );
+    return response.source || null;
+  }
+
   async loadProjectSources(id: ProjectId): Promise<StoredProjectSourceFile[]> {
     const response = await this.request<{ sources?: StoredProjectSourceFile[] }>(
       `/api/projects/projects/${encodeURIComponent(id)}/sources`

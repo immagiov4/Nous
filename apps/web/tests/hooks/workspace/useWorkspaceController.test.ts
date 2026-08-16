@@ -450,6 +450,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     },
     validateStoredProjectForOpen: projectId => adapter.loadStoredProjectWithRevision(projectId),
     loadStoredProjectSource: async () => null,
+    loadStoredProjectSourceById: async () => null,
     loadStoredProjectSources: async () => [],
     moveFolder: async () => null,
     moveProjects: async () => [],

@@ -51,7 +51,9 @@ export const useWorkspaceController = ({
       projectLibrary.currentProjectId
     ),
     isLibraryLoading: projectLibrary.isLibraryLoading,
+    loadStoredProjectSource: projectLibrary.loadStoredProjectSource,
     loadStoredProjectSources: projectLibrary.loadStoredProjectSources,
+    loadStoredProjectSourceById: projectLibrary.loadStoredProjectSourceById,
     needsSourceFile:
       domain.needsSourceFile ||
       Boolean(

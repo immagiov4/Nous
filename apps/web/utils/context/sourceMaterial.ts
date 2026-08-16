@@ -1,3 +1,5 @@
+import { MAX_CONTEXT_CHAT_FIELD_CHARS } from '@shared/lessonSourceContext';
+import { resolveLessonContextChunks } from '../../services/openrouter/documentIndex/context.ts';
 import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex/index.ts';
 import { getCourseSourceDescriptors } from '../../services/projects/courseSources.ts';
 import type {
@@ -11,10 +13,8 @@ import type {
   SourceArchiveEntry,
   SourceArchiveSelector,
 } from '../../types.ts';
-import { clipText } from '../text.ts';
 
-const MAX_CONTEXT_SOURCE_CHARS = 168_000;
-const MAX_PDF_SOURCE_CHUNKS = 6;
+const CONTEXT_CHUNK_SEPARATOR = '\n\n---\n\n';
 
 interface ResolvedPageSpan {
   endPage: number;
@@ -28,9 +28,6 @@ export interface ResolvedLessonSourceReference extends LessonSourceReference {
   kind: CourseSourceDescriptor['kind'] | 'archive';
   name: string;
 }
-
-const clip = (value: string) =>
-  clipText(value, MAX_CONTEXT_SOURCE_CHARS, '[sorgente troncata nel client]');
 
 const compareArchiveEntries = (left: SourceArchiveEntry, right: SourceArchiveEntry): number => {
   if (left.path !== right.path) {
@@ -61,39 +58,26 @@ const formatChunk = (chunk: PdfTextChunk) => {
   return `CHUNK ${chunk.id}\nHeading path: ${headingPath}\n${chunk.text}`;
 };
 
-const buildPdfSourceMaterial = (
-  documentIndex: PdfTextIndex,
-  activeSection: LessonNode | null
-): string => {
-  const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
-  const orderedSequences = new Set<number>();
+const buildPdfSourceMaterial = (chunks: readonly PdfTextChunk[]): string =>
+  chunks.map(formatChunk).join(CONTEXT_CHUNK_SEPARATOR);
 
-  (activeSection?.primaryChunkIds || [])
-    .map(chunkId => indexById.get(chunkId))
-    .filter((chunk): chunk is PdfTextChunk => Boolean(chunk))
-    .forEach(chunk => {
-      orderedSequences.add(chunk.sequence);
-      if (orderedSequences.size < MAX_PDF_SOURCE_CHUNKS) {
-        orderedSequences.add(Math.max(0, chunk.sequence - 1));
-      }
-      if (orderedSequences.size < MAX_PDF_SOURCE_CHUNKS) {
-        orderedSequences.add(Math.min(documentIndex.chunks.length - 1, chunk.sequence + 1));
-      }
-    });
+const retainCompleteChunksWithinPromptBudget = (
+  chunks: readonly PdfTextChunk[]
+): PdfTextChunk[] => {
+  const retainedChunks: PdfTextChunk[] = [];
+  let retainedChars = 0;
 
-  if (orderedSequences.size === 0) {
-    documentIndex.chunks.slice(0, Math.min(2, documentIndex.chunks.length)).forEach(chunk => {
-      orderedSequences.add(chunk.sequence);
-    });
+  for (const chunk of chunks) {
+    const separatorChars = retainedChunks.length ? CONTEXT_CHUNK_SEPARATOR.length : 0;
+    const nextChars = separatorChars + formatChunk(chunk).length;
+    if (retainedChars + nextChars > MAX_CONTEXT_CHAT_FIELD_CHARS) {
+      break;
+    }
+    retainedChunks.push(chunk);
+    retainedChars += nextChars;
   }
 
-  return Array.from(orderedSequences)
-    .sort((left, right) => left - right)
-    .slice(0, MAX_PDF_SOURCE_CHUNKS)
-    .map(sequence => documentIndex.chunks[sequence])
-    .filter(Boolean)
-    .map(formatChunk)
-    .join('\n\n---\n\n');
+  return retainedChunks;
 };
 
 const formatPageRangeSegment = (startPage: number, endPage: number): string =>
@@ -230,12 +214,62 @@ export const resolveLessonSourceReferences = ({
       ? [
           {
             ...reference,
+            chunkIds: reference.chunkIds || [],
             file: descriptor.file,
             kind: descriptor.kind,
             name: descriptor.name,
           },
         ]
       : [];
+  });
+};
+
+const detachSourceFileData = (
+  references: readonly ResolvedLessonSourceReference[]
+): ResolvedLessonSourceReference[] =>
+  references.map(reference => ({
+    ...reference,
+    file: { ...reference.file, data: '' },
+  }));
+
+const resolveSelectedChunkSourceReferences = ({
+  documentIndex,
+  selectedChunks,
+  source,
+}: {
+  documentIndex: PdfTextIndex;
+  selectedChunks: readonly PdfTextChunk[];
+  source: ProjectSource;
+}): ResolvedLessonSourceReference[] => {
+  const descriptors = getCourseSourceDescriptors(source);
+
+  return descriptors.flatMap(descriptor => {
+    const sourceChunks = selectedChunks.filter(
+      chunk => chunk.sourceId === descriptor.id || (!chunk.sourceId && descriptors.length === 1)
+    );
+    if (sourceChunks.length === 0) {
+      return [];
+    }
+
+    const pageSpans = sourceChunks
+      .map(chunk => resolvePdfChunkPageSpan(documentIndex, chunk, documentIndex.pageCount))
+      .filter((span): span is NonNullable<typeof span> => Boolean(span));
+    const pageStart = pageSpans.length
+      ? Math.min(...pageSpans.map(span => span.startPage))
+      : undefined;
+    const pageEnd = pageSpans.length ? Math.max(...pageSpans.map(span => span.endPage)) : undefined;
+
+    return [
+      {
+        chunkIds: sourceChunks.map(chunk => chunk.id),
+        file: descriptor.file,
+        kind: descriptor.kind,
+        name: descriptor.name,
+        ...(pageEnd === undefined ? {} : { pageEnd }),
+        ...(pageStart === undefined ? {} : { pageStart }),
+        sourceId: descriptor.id,
+      },
+    ];
   });
 };
 
@@ -248,9 +282,9 @@ export const buildContextSourceMaterial = ({
   documentIndex: PdfTextIndex | null;
   source: ProjectSource | null;
 }): {
+  documentSourceReferences?: ResolvedLessonSourceReference[];
   sourceKind?: ProjectSource['kind'];
   sourceMaterial?: string;
-  sourceName?: string;
 } => {
   if (!source) {
     return {};
@@ -258,20 +292,43 @@ export const buildContextSourceMaterial = ({
 
   if (source.kind === 'archive') {
     return {
+      documentSourceReferences: detachSourceFileData(
+        resolveLessonSourceReferences({ activeSection, source })
+      ),
       sourceKind: source.kind,
       sourceMaterial: buildArchiveSourceMaterial(source) || undefined,
-      sourceName: source.name,
     };
   }
 
-  const sourceMaterial =
-    documentIndex && documentIndex.chunks.length > 0
-      ? clip(buildPdfSourceMaterial(documentIndex, activeSection))
-      : undefined;
+  if (!documentIndex?.chunks.length) {
+    return {
+      documentSourceReferences: detachSourceFileData(
+        resolveLessonSourceReferences({ activeSection, source })
+      ),
+      sourceKind: source.kind,
+    };
+  }
+
+  const selectedChunkIds = activeSection?.primaryChunkIds?.length
+    ? activeSection.primaryChunkIds
+    : activeSection?.sourceReferences?.flatMap(reference => reference.chunkIds || []);
+  const selectedChunks = resolveLessonContextChunks(documentIndex, selectedChunkIds);
+  const descriptors = getCourseSourceDescriptors(source);
+  const descriptorIds = new Set(descriptors.map(descriptor => descriptor.id));
+  const attributableChunks = selectedChunks.filter(
+    chunk =>
+      descriptorIds.has(chunk.sourceId || '') || (!chunk.sourceId && descriptors.length === 1)
+  );
+  const retainedChunks = retainCompleteChunksWithinPromptBudget(attributableChunks);
+  const documentSourceReferences = resolveSelectedChunkSourceReferences({
+    documentIndex,
+    selectedChunks: retainedChunks,
+    source,
+  });
 
   return {
+    documentSourceReferences: detachSourceFileData(documentSourceReferences),
     sourceKind: source.kind,
-    sourceMaterial,
-    sourceName: source.file.name,
+    sourceMaterial: retainedChunks.length ? buildPdfSourceMaterial(retainedChunks) : undefined,
   };
 };

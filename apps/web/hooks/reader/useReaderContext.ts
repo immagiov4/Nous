@@ -255,6 +255,7 @@ export const useReaderContext = ({
       contextAfter,
       contextBefore,
       contextScope,
+      documentSourceReferences,
       initialQuestion,
       lessonContent,
       lessonDescription,
@@ -266,7 +267,6 @@ export const useReaderContext = ({
       selectedTextStart,
       sourceKind,
       sourceMaterial,
-      sourceName,
     }: Omit<ContextAnswerState, 'id'>) => {
       closeContextMenu();
       setContextAnswerOwnerSectionId(activeSectionId);
@@ -276,6 +276,7 @@ export const useReaderContext = ({
         contextAfter,
         contextBefore,
         contextScope,
+        documentSourceReferences,
         id: createProjectId(),
         initialQuestion,
         lessonContent,
@@ -288,7 +289,6 @@ export const useReaderContext = ({
         selectedTextStart,
         sourceKind,
         sourceMaterial,
-        sourceName,
       });
     },
     [activeSectionId, closeContextMenu]

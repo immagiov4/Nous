@@ -180,8 +180,10 @@ const ENGLISH_UI_MESSAGES = {
   'Usa tema scuro': 'Use dark theme',
   'Vedi tutti': 'View all',
   'Voglio che tu crei un corso su': 'I want you to create a course about',
+  '1 fonte': '1 source',
   '{courseCount} corsi': '{courseCount} courses',
   '{sourceCount} fonti': '{sourceCount} sources',
+  'Chunk sorgente ({chunkCount})': 'Source chunks ({chunkCount})',
   '{lessonCount} lezioni · {lastOpenedDate}': '{lessonCount} lessons · {lastOpenedDate}',
   '{streakDays} giorni': '{streakDays} days',
   ', prestando particolare attenzione a ciò che ho annotato e sottolineato.':

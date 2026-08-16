@@ -116,6 +116,7 @@ export interface WorkspaceProjectLibraryAdapter {
   loadStoredProjectWithRevision: (projectId: string) => Promise<ProjectSnapshotWithRevision | null>;
   validateStoredProjectForOpen: (projectId: string) => Promise<ProjectSnapshotWithRevision | null>;
   loadStoredProjectSource: (projectId: string) => Promise<FileData | null>;
+  loadStoredProjectSourceById: (projectId: string, sourceId: string) => Promise<FileData | null>;
   loadStoredProjectSources: (projectId: string) => Promise<StoredProjectSourceFile[]>;
   moveFolder: (
     folderId: string,

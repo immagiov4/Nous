@@ -6,6 +6,7 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import type { ContextAnswerState } from '../../../../components/workspace/shell/types.ts';
 
 const defaultChatTransportInstances: Array<{
   prepareSendMessagesRequest?: (args: unknown) => unknown;
@@ -137,13 +138,7 @@ const replacementDraftArtifact = {
   },
 } as const;
 
-const buildProps = (
-  contextAnswerOverrides: Partial<{
-    contextScope: 'annotation' | 'lesson' | 'selection';
-    id: string;
-    selectedText: string;
-  }> = {}
-) => ({
+const buildProps = (contextAnswerOverrides: Partial<ContextAnswerState> = {}) => ({
   contextAnswer: {
     id: 'context-1',
     initialQuestion: 'spiega meglio',
@@ -460,6 +455,74 @@ describe('ContextAnswerPanel', () => {
 
     expect(request.body?.modelOverride).toBeUndefined();
     expect(request.headers).toEqual({ 'X-Existing-Header': 'kept' });
+  });
+
+  test('shows distinct context sources and sends provenance without file contents', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const documentSourceReferences: NonNullable<ContextAnswerState['documentSourceReferences']> = [
+      {
+        chunkIds: ['source-01:chunk-a'],
+        file: {
+          data: 'PDF-DATA-MUST-NOT-BE-SENT',
+          mimeType: 'application/pdf',
+          name: '01.pdf',
+          sourceId: 'source-01',
+        },
+        kind: 'pdf',
+        name: '01.pdf',
+        pageStart: 2,
+        sourceId: 'source-01',
+      },
+      {
+        chunkIds: ['source-049:chunk-final'],
+        file: {
+          data: 'FINAL-PDF-DATA-MUST-NOT-BE-SENT',
+          mimeType: 'application/pdf',
+          name: '049.pdf',
+          sourceId: 'source-049',
+        },
+        kind: 'pdf',
+        name: '049.pdf',
+        pageEnd: 12,
+        pageStart: 11,
+        sourceId: 'source-049',
+      },
+    ];
+
+    render(<ContextAnswerPanel {...buildProps({ documentSourceReferences })} />);
+
+    expect(screen.getByText(/2 (sources|fonti)/i)).toBeInTheDocument();
+    expect(screen.getByTitle('01.pdf, 049.pdf')).toBeInTheDocument();
+
+    const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+      id: 'chat-sources',
+      messages: [{ role: 'user', parts: [{ type: 'text', text: 'cita la fonte finale' }] }],
+    }) as { body?: Record<string, unknown> };
+
+    expect(request.body?.sourceReferences).toEqual([
+      {
+        chunkIds: ['source-01:chunk-a'],
+        name: '01.pdf',
+        pageEnd: undefined,
+        pageStart: 2,
+        sourceId: 'source-01',
+      },
+      {
+        chunkIds: ['source-049:chunk-final'],
+        name: '049.pdf',
+        pageEnd: 12,
+        pageStart: 11,
+        sourceId: 'source-049',
+      },
+    ]);
+    expect(request.body?.sourceName).toBe('2 fonti originali: 01.pdf | 049.pdf');
+    expect(JSON.stringify(request.body)).not.toContain('PDF-DATA-MUST-NOT-BE-SENT');
   });
 
   test('makes request context available synchronously when the chat session initializes', () => {

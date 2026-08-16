@@ -74,6 +74,7 @@ export interface ProjectRepository {
   loadProjectWithRevision: (id: ProjectId) => Promise<ProjectSnapshotWithRevision | null>;
   loadProjectCover: (id: ProjectId) => Promise<FileData | null>;
   loadProjectSource: (id: ProjectId) => Promise<FileData | null>;
+  loadProjectSourceById: (id: ProjectId, sourceId: string) => Promise<FileData | null>;
   loadProjectSources: (id: ProjectId) => Promise<StoredProjectSourceFile[]>;
   loadProjectsById: (ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
   moveFolder: (

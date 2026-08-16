@@ -19,6 +19,7 @@ import type {
   SectionAnnotationArtifactRef,
   StoredLessonVisual,
 } from '../../types.ts';
+import type { ResolvedLessonSourceReference } from '../../utils/context/sourceMaterial.ts';
 import { buildContextSourceMaterial } from '../../utils/context/sourceMaterial.ts';
 import { replaceGeneratedVisualPreservingId } from '../../utils/learning/artifacts.ts';
 import { flattenLessons } from '../../utils/learning/pathNodes.ts';
@@ -64,6 +65,7 @@ interface UseWorkspaceReaderActionsArgs {
     contextAfter?: string;
     contextBefore?: string;
     contextScope?: ContextScope;
+    documentSourceReferences?: ResolvedLessonSourceReference[];
     initialQuestion: string;
     lessonContent?: string;
     lessonDescription?: string;
@@ -75,7 +77,6 @@ interface UseWorkspaceReaderActionsArgs {
     selectedTextStart?: number;
     sourceKind?: ProjectSource['kind'];
     sourceMaterial?: string;
-    sourceName?: string;
   }) => void;
   openExercise: (exercise: ApplicationExerciseNode) => Promise<unknown>;
   openSection: (section: LessonNode) => Promise<unknown>;
@@ -248,6 +249,7 @@ export const useWorkspaceReaderActions = ({
         contextAfter: contextMenu.contextAfter,
         contextBefore: contextMenu.contextBefore,
         contextScope,
+        documentSourceReferences: sourceContext.documentSourceReferences,
         initialQuestion: question,
         attachedAnnotationNote:
           clickedAnnotation?.note || attachedAnnotationMatch?.annotation.note || undefined,
@@ -270,7 +272,6 @@ export const useWorkspaceReaderActions = ({
           contextMenu.type === 'selection' ? contextMenu.selectedTextStart : undefined,
         sourceKind: sourceContext.sourceKind,
         sourceMaterial: sourceContext.sourceMaterial,
-        sourceName: sourceContext.sourceName,
       });
     },
     [

@@ -43,9 +43,10 @@ test('opens the cited page in the original PDF without exposing internal identif
     expect(viewerWindow.location.href).toBe('blob:nous-source#page=11');
   });
   expect(screen.getByText(/Pages 11-12|Pagine 11-12/)).toBeInTheDocument();
+  expect(screen.getByText(/Source chunks \(2\)|Chunk sorgente \(2\)/)).toBeInTheDocument();
+  expect(screen.getByText('chunk-a, chunk-b')).toBeInTheDocument();
   expect(screen.queryByText(/source-049/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Passaggi usati|Passages used/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/merged/i)).toBeNull();
 
   unmount();
   expect(revokeObjectUrl).toHaveBeenCalledWith('blob:nous-source');
