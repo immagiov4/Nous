@@ -168,6 +168,12 @@ const JsZipCentralDirectoryParser = createRequire(import.meta.url)(
 
 const invalidArchive = (reason: string) => new SourceArchivePreparationError(reason);
 
+export const assertSourceArchiveCompressedSize = (byteLength: number): void => {
+  if (byteLength > PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES) {
+    throw invalidArchive('compressed size limit exceeded');
+  }
+};
+
 const validateLimits = (limits: SourceArchiveLimits) => {
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value < 0) {

@@ -13,9 +13,12 @@ vi.mock('../../src/services/pdfTextExtractor.js', async importOriginal => ({
 }));
 
 import {
+  assertSourceArchiveCompressedSize,
   indexSourceArchive,
+  PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES,
   PROJECT_SOURCE_ARCHIVE_PDF_POLICY,
   type SourceArchiveLimits,
+  SourceArchivePreparationError,
   withSourceArchivePreparationAdmission,
 } from '../../src/projects/sourceArchive.js';
 import {
@@ -30,6 +33,15 @@ const GENEROUS_LIMITS: SourceArchiveLimits = {
   maxExpandedBytes: 10_000_000,
 };
 const ARCHIVE_POLICY_BOUNDARY_TEST_TIMEOUT_MS = 30_000;
+
+test('classifies an oversized compressed ZIP as an invalid archive', () => {
+  expect(() =>
+    assertSourceArchiveCompressedSize(PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES + 1)
+  ).toThrow(SourceArchivePreparationError);
+  expect(() =>
+    assertSourceArchiveCompressedSize(PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES)
+  ).not.toThrow();
+});
 
 const createArchive = async (
   entries: Array<
