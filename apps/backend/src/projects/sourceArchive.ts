@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { assessPdfTextQuality } from '@shared/pdfTextQuality';
 import { createSourceArchivePreview } from '@shared/sourceArchivePreview';
+import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 import JSZip from 'jszip';
-import { extractPdfText } from '../services/pdfTextExtractor.js';
+import { extractPdfText, PdfTextExtractionTimeoutError } from '../services/pdfTextExtractor.js';
 import { encodePdfDataUrl } from '../utils/pdfDataUrl.js';
 
 export interface SourceArchiveLimits {
@@ -20,6 +21,42 @@ export const PROJECT_SOURCE_ARCHIVE_LIMITS: SourceArchiveLimits = {
 
 export const PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES = 256_000_000;
 
+export const PROJECT_SOURCE_ARCHIVE_PDF_POLICY = {
+  archivePreparationTimeoutMs: 480_000,
+  fallbackTimeoutMs: 15_000,
+  maxCumulativeBytes: 64_000_000,
+  maxEligibleEntries: 16,
+  maxEntryBytes: 16_000_000,
+  pdftotextTimeoutMs: 15_000,
+} as const;
+
+export class SourceArchivePreparationCapacityError extends Error {
+  constructor() {
+    super('È già in corso la preparazione di un archivio ZIP. Riprova tra poco.');
+    this.name = 'SourceArchivePreparationCapacityError';
+  }
+}
+
+const activeSourceArchivePreparationUsers = new Set<string>();
+
+export const withSourceArchivePreparationAdmission = async <T>(
+  userId: string,
+  prepare: () => Promise<T>
+): Promise<T> => {
+  if (
+    activeSourceArchivePreparationUsers.size > 0 ||
+    activeSourceArchivePreparationUsers.has(userId)
+  ) {
+    throw new SourceArchivePreparationCapacityError();
+  }
+  activeSourceArchivePreparationUsers.add(userId);
+  try {
+    return await prepare();
+  } finally {
+    activeSourceArchivePreparationUsers.delete(userId);
+  }
+};
+
 export interface SourceArchiveDirectoryEntry {
   explicit: boolean;
   kind: 'directory';
@@ -34,6 +71,7 @@ export interface SourceArchiveFileEntry {
   path: string;
   preview?: string;
   text?: string;
+  warningReason?: SourceArchivePdfWarningReason;
 }
 
 export type SourceArchiveEntry = SourceArchiveDirectoryEntry | SourceArchiveFileEntry;
@@ -342,24 +380,98 @@ const compareEntryPaths = (
 
 const isPdfArchivePath = (path: string): boolean => path.toLowerCase().endsWith('.pdf');
 
-const toBinarySourceArchiveFile = (entry: SourceArchiveFileEntry): SourceArchiveFileEntry => ({
+const toBinarySourceArchiveFile = (
+  entry: SourceArchiveFileEntry,
+  warningReason: SourceArchivePdfWarningReason
+): SourceArchiveFileEntry => ({
   byteSize: entry.byteSize,
   content: entry.content,
   hash: entry.hash,
   kind: 'file',
   path: entry.path,
+  warningReason,
 });
+
+interface PdfPreparationBudget {
+  deadlineAt: number;
+  eligibleBytes: number;
+  eligibleEntries: number;
+}
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = globalThis.setTimeout(
+          () => reject(new PdfTextExtractionTimeoutError('pdf-parse')),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) {
+      globalThis.clearTimeout(timeout);
+    }
+  }
+};
+
+const admitPdfEntry = (
+  entry: SourceArchiveFileEntry,
+  budget: PdfPreparationBudget
+): SourceArchivePdfWarningReason | undefined => {
+  if (
+    entry.byteSize > PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEntryBytes ||
+    budget.eligibleEntries >= PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxEligibleEntries ||
+    budget.eligibleBytes + entry.byteSize > PROJECT_SOURCE_ARCHIVE_PDF_POLICY.maxCumulativeBytes
+  ) {
+    return 'safety-limit';
+  }
+  if (Date.now() >= budget.deadlineAt) {
+    return 'timeout';
+  }
+  budget.eligibleEntries += 1;
+  budget.eligibleBytes += entry.byteSize;
+  return undefined;
+};
 
 const prepareSourceArchiveFile = async (
   entry: SourceArchiveFileEntry,
-  maxPreparedBytes: number
+  maxPreparedBytes: number,
+  pdfBudget: PdfPreparationBudget
 ): Promise<SourceArchiveFileEntry> => {
   if (!isPdfArchivePath(entry.path)) {
     return entry;
   }
 
+  const admissionWarning = admitPdfEntry(entry, pdfBudget);
+  if (admissionWarning) {
+    return toBinarySourceArchiveFile(entry, admissionWarning);
+  }
+
   try {
-    const extractedPdf = await extractPdfText(encodePdfDataUrl(entry.content));
+    const remainingArchiveMs = Math.max(1, pdfBudget.deadlineAt - Date.now());
+    const pdfTimeoutMs = Math.min(
+      PROJECT_SOURCE_ARCHIVE_PDF_POLICY.pdftotextTimeoutMs +
+        PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
+      remainingArchiveMs
+    );
+    const pdftotextTimeoutMs = Math.min(
+      PROJECT_SOURCE_ARCHIVE_PDF_POLICY.pdftotextTimeoutMs,
+      Math.ceil(pdfTimeoutMs / 2)
+    );
+    const fallbackTimeoutMs = Math.min(
+      PROJECT_SOURCE_ARCHIVE_PDF_POLICY.fallbackTimeoutMs,
+      pdfTimeoutMs - pdftotextTimeoutMs
+    );
+    const extractedPdf = await withTimeout(
+      extractPdfText(encodePdfDataUrl(entry.content), {
+        fallbackTimeoutMs,
+        pdftotextTimeoutMs,
+      }),
+      pdfTimeoutMs
+    );
     const extractedText = extractedPdf.text.trim();
     if (
       extractedText &&
@@ -374,7 +486,7 @@ const prepareSourceArchiveFile = async (
         console.warn('[Backend] Extracted PDF text exceeds source archive limits.', {
           path: entry.path,
         });
-        return toBinarySourceArchiveFile(entry);
+        return toBinarySourceArchiveFile(entry, 'safety-limit');
       }
       return {
         ...entry,
@@ -390,9 +502,13 @@ const prepareSourceArchiveFile = async (
       error,
       path: entry.path,
     });
+    return toBinarySourceArchiveFile(
+      entry,
+      error instanceof PdfTextExtractionTimeoutError ? 'timeout' : 'parser-failed'
+    );
   }
 
-  return toBinarySourceArchiveFile(entry);
+  return toBinarySourceArchiveFile(entry, 'no-usable-text');
 };
 
 export async function* streamSourceArchive(
@@ -429,6 +545,11 @@ export async function* streamSourceArchive(
   ].sort(compareEntryPaths);
   let actualExpandedBytes = 0;
   let preparedExpandedBytes = 0;
+  const pdfBudget: PdfPreparationBudget = {
+    deadlineAt: Date.now() + PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs,
+    eligibleBytes: 0,
+    eligibleEntries: 0,
+  };
   for (const entry of orderedEntries) {
     if (entry.kind === 'directory') {
       yield entry;
@@ -469,7 +590,8 @@ export async function* streamSourceArchive(
       limits.maxExpandedBytes - preparedExpandedBytes - remainingOriginalBytes;
     const preparedEntry = await prepareSourceArchiveFile(
       sourceEntry,
-      Math.min(limits.maxEntryBytes, remainingPreparedBytes)
+      Math.min(limits.maxEntryBytes, remainingPreparedBytes),
+      pdfBudget
     );
     preparedExpandedBytes += preparedEntry.byteSize;
     yield preparedEntry;

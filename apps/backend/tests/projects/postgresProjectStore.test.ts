@@ -6,7 +6,16 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
 import JSZip from 'jszip';
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+const pdfTextExtractorMocks = vi.hoisted(() => ({
+  extractPdfText: vi.fn(),
+}));
+
+vi.mock('../../src/services/pdfTextExtractor.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/services/pdfTextExtractor.js')>()),
+  extractPdfText: pdfTextExtractorMocks.extractPdfText,
+}));
 
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
 import {
@@ -31,6 +40,10 @@ const PROJECT_META: SavedProjectMeta = {
   hasSourceFile: true,
   coverLabel: '23 lezioni',
 };
+
+beforeEach(() => {
+  pdfTextExtractorMocks.extractPdfText.mockReset();
+});
 
 const createMultiSourceSnapshot = (): ProjectSnapshot => ({
   activeSectionId: null,
@@ -1376,6 +1389,84 @@ describe('PostgresProjectStore', () => {
     );
   });
 
+  test('finishes ZIP PDF preparation before reserving a database session', async () => {
+    const zip = new JSZip();
+    zip.file('docs/manual.pdf', '%PDF-manual');
+    const archiveBytes = await zip.generateAsync({ type: 'uint8array' });
+    const transactionSql = Object.assign(
+      vi.fn((strings: TemplateStringsArray) =>
+        Promise.resolve(
+          strings.join('?').includes('returning meta, revision')
+            ? [{ meta: PROJECT_META, revision: 1 }]
+            : []
+        )
+      ),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sqlClient = Object.assign(
+      vi.fn(async () => []),
+      {
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const storage = {
+      delete: vi.fn(async () => undefined),
+      download: vi.fn(),
+      upload: vi.fn(async () => undefined),
+    };
+    const store = createPostgresProjectStore(sqlClient, storage);
+    const reserve = sqlClient.reserve;
+    if (!reserve) throw new Error('Expected the test SQL client to expose reserve().');
+    sqlClient.reserve = vi.fn(() => reserve());
+    let completeExtraction!: (value: { pages: Array<{ text: string }>; text: string }) => void;
+    pdfTextExtractorMocks.extractPdfText.mockReturnValue(
+      new Promise(resolve => {
+        completeExtraction = resolve;
+      })
+    );
+    const snapshot: ProjectSnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: Buffer.from(archiveBytes).toString('base64'),
+          mimeType: 'application/zip',
+          name: 'manuals.zip',
+        },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'manuals.zip',
+      },
+    };
+
+    const save = store.saveProject('user-1', snapshot);
+    await vi.waitFor(() => expect(pdfTextExtractorMocks.extractPdfText).toHaveBeenCalledOnce());
+    expect(sqlClient.reserve).not.toHaveBeenCalled();
+
+    completeExtraction({ pages: [], text: '' });
+    const saved = await save;
+
+    expect(sqlClient.reserve).toHaveBeenCalledOnce();
+    expect(storage.upload).toHaveBeenCalledTimes(2);
+    expect(saved.snapshot.source?.kind).toBe('archive');
+    expect(
+      saved.snapshot.source?.kind === 'archive' ? saved.snapshot.source.index.entries : []
+    ).toContainEqual(
+      expect.objectContaining({ path: 'docs/manual.pdf', warningReason: 'no-usable-text' })
+    );
+    expect(sqlClient.json).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'docs/manual.pdf',
+          warning_reason: 'no-usable-text',
+        }),
+      ])
+    );
+  });
+
   test('stops archive ingestion when the original object upload fails', async () => {
     const zip = new JSZip();
     zip.file('src/index.ts', 'export const value = 1;');
@@ -1491,7 +1582,12 @@ describe('PostgresProjectStore', () => {
       },
     });
 
-    await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(1));
+    expect(sqlClient.begin).not.toHaveBeenCalled();
+    for (const resolve of pendingUploads.splice(0)) {
+      resolve();
+    }
+    await vi.waitFor(() => expect(storage.upload).toHaveBeenCalledTimes(5));
     expect(sqlClient.begin).not.toHaveBeenCalled();
     for (const resolve of pendingUploads.splice(0)) {
       resolve();

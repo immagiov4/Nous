@@ -22,6 +22,7 @@ import type {
   SavedProjectMeta,
 } from '@shared/projectContract';
 import type { ProjectSnapshotFormatVersion } from '@shared/projectSnapshotWire';
+import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 
 export interface LearningPlanNodeSnapshot {
   id?: string;
@@ -123,6 +124,7 @@ export interface ProjectSourceArchiveFileEntry {
   kind: 'file';
   path: string;
   preview?: string;
+  warningReason?: SourceArchivePdfWarningReason;
 }
 
 export type ProjectSourceArchiveEntry =

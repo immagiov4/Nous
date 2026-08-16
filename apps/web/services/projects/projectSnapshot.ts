@@ -4,6 +4,7 @@ import {
   type ProjectSnapshotWire,
   type ProjectSnapshotWireDecodeOptions,
 } from '@shared/projectSnapshotWire';
+import { isSourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 import { parseYouTubeTranscript } from '@shared/youtubeTranscript';
 import {
   AppState,
@@ -313,7 +314,8 @@ const parseSourceArchiveIndex = (value: unknown): SourceArchiveIndex | null => {
       entry.byteSize < 0 ||
       (entry.contentKind !== 'binary' && entry.contentKind !== 'text') ||
       (entry.hash !== undefined && !isString(entry.hash)) ||
-      (entry.preview !== undefined && !isString(entry.preview))
+      (entry.preview !== undefined && !isString(entry.preview)) ||
+      (entry.warningReason !== undefined && !isSourceArchivePdfWarningReason(entry.warningReason))
     ) {
       return null;
     }
@@ -324,6 +326,9 @@ const parseSourceArchiveIndex = (value: unknown): SourceArchiveIndex | null => {
       kind: 'file' as const,
       path: entry.path,
       ...(isString(entry.preview) ? { preview: entry.preview } : {}),
+      ...(isSourceArchivePdfWarningReason(entry.warningReason)
+        ? { warningReason: entry.warningReason }
+        : {}),
     };
   });
 
