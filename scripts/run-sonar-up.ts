@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const SONAR_COMPOSE_PATH = 'docker-compose.sonarqube.yml';
 const LEGACY_SONAR_SETTINGS_PATH = path.resolve('sonar.local.properties');
+const SONAR_PERMISSION_PROVISIONER_SERVICE = 'sonar-permissions';
 
 type SonarProvisioningCredentials = {
   login: string;
@@ -55,15 +56,40 @@ const readLegacySonarSettings = () =>
     ? readFileSync(LEGACY_SONAR_SETTINGS_PATH, 'utf8')
     : undefined;
 
-const main = async () => {
-  const processHandle = Bun.spawn(['docker', 'compose', '-f', SONAR_COMPOSE_PATH, 'up', '-d'], {
+type SonarCommandRunner = (command: string[], environment: NodeJS.ProcessEnv) => Promise<number>;
+
+const runSonarCommand: SonarCommandRunner = async (command, environment) => {
+  const processHandle = Bun.spawn(command, {
     cwd: process.cwd(),
-    env: resolveSonarProvisioningEnvironment(process.env, readLegacySonarSettings()),
+    env: environment,
     stdin: 'inherit',
     stdout: 'inherit',
     stderr: 'inherit',
   });
-  process.exit(await processHandle.exited);
+  return processHandle.exited;
+};
+
+export const reconcileSonarStack = async (
+  environment: NodeJS.ProcessEnv = process.env,
+  legacySettings = readLegacySonarSettings(),
+  runCommand: SonarCommandRunner = runSonarCommand
+) => {
+  const provisioningEnvironment = resolveSonarProvisioningEnvironment(environment, legacySettings);
+  const composeCommand = ['docker', 'compose', '-f', SONAR_COMPOSE_PATH];
+  const startupExitCode = await runCommand(
+    [...composeCommand, 'up', '-d'],
+    provisioningEnvironment
+  );
+  if (startupExitCode !== 0) return startupExitCode;
+
+  return runCommand(
+    [...composeCommand, 'wait', SONAR_PERMISSION_PROVISIONER_SERVICE],
+    provisioningEnvironment
+  );
+};
+
+const main = async () => {
+  process.exitCode = await reconcileSonarStack();
 };
 
 if (import.meta.main) await main();

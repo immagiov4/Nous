@@ -26,6 +26,9 @@ services:
       SONAR_PROVISIONING_ADMIN_PASSWORD: ${SONAR_PROVISIONING_ADMIN_PASSWORD:-admin}
     command:
       - |
+        until curl --fail --silent --show-error http://sonarqube:9000/api/system/status | grep --fixed-strings '"status":"UP"' > /dev/null; do
+          sleep 1
+        done
         SONAR_PROVISIONING_CREDENTIALS="$${SONAR_PROVISIONING_ADMIN_LOGIN}:$${SONAR_PROVISIONING_ADMIN_PASSWORD}"
         if ! curl --fail --silent --show-error --user "$$SONAR_PROVISIONING_CREDENTIALS" \
           http://sonarqube:9000/api/authentication/validate | grep --fixed-strings '"valid":true' > /dev/null; then
@@ -41,7 +44,6 @@ services:
           --data-urlencode 'groupName=Anyone' \
           --data-urlencode 'permission=scan' \
           http://sonarqube:9000/api/permissions/add_group
-    restart: on-failure
 
 volumes:
   sonarqube_data:
