@@ -44,6 +44,7 @@ import type {
   SectionAnnotation,
   StoredLessonVisual,
 } from '../../types';
+import type { SectionAnnotationBoundaryContext } from '../../utils/learning/sectionAnnotationAnchors.ts';
 import {
   findSectionAnnotationHighlightHit,
   registerSectionAnnotationHighlights,
@@ -68,6 +69,7 @@ export interface MarkdownRendererProps {
   readonly generatedVisualsById?: Record<string, StoredLessonVisual>;
   readonly lessonImageRefsById?: Record<string, LessonImageRef>;
   readonly projectId?: string | null;
+  readonly sectionAnnotationBoundaryContext?: SectionAnnotationBoundaryContext;
   readonly sectionAnnotations?: SectionAnnotation[];
 }
 
@@ -420,6 +422,7 @@ const MarkdownRenderer = ({
   lessonAssetsById = EMPTY_LESSON_ASSETS_BY_ID,
   lessonImageRefsById = EMPTY_LESSON_IMAGE_REFS_BY_ID,
   projectId,
+  sectionAnnotationBoundaryContext,
   sectionAnnotations = EMPTY_SECTION_ANNOTATIONS,
 }: MarkdownRendererProps) => {
   const articleRef = useRef<HTMLElement>(null);
@@ -465,7 +468,11 @@ const MarkdownRenderer = ({
       return;
     }
 
-    const entries = resolveSectionAnnotationHighlightEntries(article, sectionAnnotations);
+    const entries = resolveSectionAnnotationHighlightEntries(
+      article,
+      sectionAnnotations,
+      sectionAnnotationBoundaryContext
+    );
     annotationHighlightEntriesRef.current = entries;
     const unregisterHighlights = registerSectionAnnotationHighlights(entries);
     const resolvedAnnotationIds = new Set(entries.map(entry => entry.annotationId));
@@ -559,7 +566,12 @@ const MarkdownRenderer = ({
         annotationHighlightEntriesRef.current = [];
       }
     };
-  }, [content, sectionAnnotations, usesNativeAnnotationHighlights]);
+  }, [
+    content,
+    sectionAnnotationBoundaryContext,
+    sectionAnnotations,
+    usesNativeAnnotationHighlights,
+  ]);
   const handleClick = useCallback(
     (event: MouseEvent<HTMLElement>) => {
       if (usesNativeAnnotationHighlights) {

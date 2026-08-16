@@ -327,6 +327,48 @@ describe('WorkspaceReaderContent', () => {
     expect(mark?.querySelector('a')).toHaveAttribute('href', 'https://example.com');
   });
 
+  test('restores a typed-block annotation with context from the preceding block', () => {
+    const firstBlock = 'Contesto precedente che identifica il passaggio.';
+    const secondBlock = 'Bersaglio vicino al confine del secondo blocco.';
+    const sectionContent = `${firstBlock}\n\n${secondBlock}`;
+    const selectionStart = sectionContent.indexOf('Bersaglio');
+    const { container } = render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          quiz: [],
+          quizAnswers: [],
+          sectionAnnotations: [
+            {
+              anchor: {
+                kind: 'selection',
+                selector: {
+                  end: selectionStart + 'Bersaglio'.length,
+                  exact: 'Bersaglio',
+                  prefix: firstBlock.slice(-48),
+                  start: selectionStart,
+                  suffix: 'vicino al confine del secondo blocco.',
+                },
+              },
+              createdAt: '2026-08-16T10:00:00.000Z',
+              id: 'annotation-typed-block-boundary',
+              note: '',
+              updatedAt: '2026-08-16T10:00:00.000Z',
+            },
+          ],
+          sectionContent,
+          sectionContentBlocks: [
+            { markdown: firstBlock, type: 'markdown' },
+            { markdown: secondBlock, type: 'markdown' },
+          ],
+        })}
+      />
+    );
+
+    expect(
+      container.querySelector('mark[data-nous-annotation-id="annotation-typed-block-boundary"]')
+    ).toHaveTextContent('Bersaglio');
+  });
+
   test('keeps the desktop reading column centered when contextual learning aids exist', () => {
     render(
       <WorkspaceReaderContent

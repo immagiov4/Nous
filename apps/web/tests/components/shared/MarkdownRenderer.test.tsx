@@ -404,6 +404,49 @@ describe('MarkdownRenderer', () => {
     expect(entries[0]?.ranges[0]?.toString()).toBe('Alpha beta');
   });
 
+  test('restores native highlights with context from an adjacent markdown block', () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    const highlights = new Map<string, TestHighlight>();
+    vi.stubGlobal('CSS', { highlights });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ bottom: 28, height: 18, left: 10, right: 80, top: 10, width: 70 }],
+    });
+    const firstBlock = 'Contesto precedente che identifica il passaggio.';
+    const secondBlock = 'Bersaglio vicino al confine del secondo blocco.';
+
+    render(
+      <MarkdownRenderer
+        content={secondBlock}
+        sectionAnnotationBoundaryContext={{ before: firstBlock }}
+        sectionAnnotations={[
+          {
+            anchor: {
+              kind: 'selection',
+              selector: {
+                end: firstBlock.length + 2 + 'Bersaglio'.length,
+                exact: 'Bersaglio',
+                prefix: firstBlock.slice(-48),
+                start: firstBlock.length + 2,
+                suffix: 'vicino al confine del secondo blocco.',
+              },
+            },
+            createdAt: '2026-08-16T10:00:00.000Z',
+            id: 'annotation-native-block-boundary',
+            note: '',
+            updatedAt: '2026-08-16T10:00:00.000Z',
+          },
+        ]}
+      />
+    );
+
+    expect(
+      Array.from(highlights.get('nous-annotations') || []).map(range => range.toString())
+    ).toEqual(['Bersaglio']);
+  });
+
   test('preserves visible whitespace between raw block and inline elements', () => {
     const article = document.createElement('article');
     article.innerHTML = '<p>Alpha</p> <span>beta</span>';
