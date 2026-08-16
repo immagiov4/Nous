@@ -110,43 +110,45 @@ const areHighlightRectsOnSameLine = (
 const mergeAnnotationHighlightLineRects = (
   entries: SectionAnnotationHighlightEntry[]
 ): AnnotationHighlightLineRect[] =>
-  entries.flatMap(entry => {
-    const rects = entry.ranges
-      .flatMap(range => Array.from(range.getClientRects()))
-      .filter(rect => rect.width > 0 && rect.height > 0)
-      .sort((first, second) => first.top - second.top || first.left - second.left);
-    const mergedRects: AnnotationHighlightLineRect[] = [];
+  entries.flatMap(entry =>
+    entry.rangeGroups.flatMap(rangeGroup => {
+      const rects = rangeGroup
+        .flatMap(range => Array.from(range.getClientRects()))
+        .filter(rect => rect.width > 0 && rect.height > 0)
+        .sort((first, second) => first.top - second.top || first.left - second.left);
+      const mergedRects: AnnotationHighlightLineRect[] = [];
 
-    for (const rect of rects) {
-      const mergeTargets = mergedRects.filter(candidate =>
-        areHighlightRectsOnSameLine(candidate, rect)
-      );
-      const mergeTarget = mergeTargets[0];
-      if (!mergeTarget) {
-        mergedRects.push({
-          bottom: rect.bottom,
-          left: rect.left,
-          right: rect.right,
-          top: rect.top,
-        });
-        continue;
+      for (const rect of rects) {
+        const mergeTargets = mergedRects.filter(candidate =>
+          areHighlightRectsOnSameLine(candidate, rect)
+        );
+        const mergeTarget = mergeTargets[0];
+        if (!mergeTarget) {
+          mergedRects.push({
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+          });
+          continue;
+        }
+
+        mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
+        mergeTarget.left = Math.min(mergeTarget.left, rect.left);
+        mergeTarget.right = Math.max(mergeTarget.right, rect.right);
+        mergeTarget.top = Math.min(mergeTarget.top, rect.top);
+        for (const bridgedRect of mergeTargets.slice(1)) {
+          mergeTarget.bottom = Math.max(mergeTarget.bottom, bridgedRect.bottom);
+          mergeTarget.left = Math.min(mergeTarget.left, bridgedRect.left);
+          mergeTarget.right = Math.max(mergeTarget.right, bridgedRect.right);
+          mergeTarget.top = Math.min(mergeTarget.top, bridgedRect.top);
+          mergedRects.splice(mergedRects.indexOf(bridgedRect), 1);
+        }
       }
 
-      mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
-      mergeTarget.left = Math.min(mergeTarget.left, rect.left);
-      mergeTarget.right = Math.max(mergeTarget.right, rect.right);
-      mergeTarget.top = Math.min(mergeTarget.top, rect.top);
-      for (const bridgedRect of mergeTargets.slice(1)) {
-        mergeTarget.bottom = Math.max(mergeTarget.bottom, bridgedRect.bottom);
-        mergeTarget.left = Math.min(mergeTarget.left, bridgedRect.left);
-        mergeTarget.right = Math.max(mergeTarget.right, bridgedRect.right);
-        mergeTarget.top = Math.min(mergeTarget.top, bridgedRect.top);
-        mergedRects.splice(mergedRects.indexOf(bridgedRect), 1);
-      }
-    }
-
-    return mergedRects;
-  });
+      return mergedRects;
+    })
+  );
 const CODE_LANGUAGE_ALIASES: Record<string, string> = {
   'c++': 'cpp',
   cs: 'csharp',
@@ -514,6 +516,18 @@ const MarkdownRenderer = ({
 
     renderHighlightLines();
     let isHighlightLayerActive = true;
+    let scrollRenderFrame: number | null = null;
+    const scheduleHighlightLineRender = () => {
+      if (scrollRenderFrame !== null) {
+        return;
+      }
+      scrollRenderFrame = requestAnimationFrame(() => {
+        scrollRenderFrame = null;
+        if (isHighlightLayerActive) {
+          renderHighlightLines();
+        }
+      });
+    };
     void document.fonts?.ready.then(() => {
       if (isHighlightLayerActive) {
         renderHighlightLines();
@@ -522,9 +536,14 @@ const MarkdownRenderer = ({
     const resizeObserver =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(renderHighlightLines);
     resizeObserver?.observe(article);
+    article.addEventListener('scroll', scheduleHighlightLineRender, true);
     return () => {
       isHighlightLayerActive = false;
       resizeObserver?.disconnect();
+      article.removeEventListener('scroll', scheduleHighlightLineRender, true);
+      if (scrollRenderFrame !== null) {
+        cancelAnimationFrame(scrollRenderFrame);
+      }
       highlightLayer.replaceChildren();
       highlightedInlineCodeElements.forEach(codeElement => {
         codeElement.removeAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE);
@@ -577,7 +596,7 @@ const MarkdownRenderer = ({
       <div
         ref={annotationHighlightLayerRef}
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10"
+        className="pointer-events-none absolute inset-0 z-10 mix-blend-multiply dark:mix-blend-screen"
       />
       {contentParts.map(part =>
         part.type === 'markdown' ? (

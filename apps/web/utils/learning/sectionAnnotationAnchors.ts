@@ -100,7 +100,8 @@ const buildSegmentsFromProjectionRange = (
 
 export const hasSectionAnnotationSelectorContext = (
   selector: SectionAnnotationTextSelector
-): boolean => Boolean(normalizeWhitespace(selector.prefix) || normalizeWhitespace(selector.suffix));
+): boolean =>
+  Boolean(normalizeWhitespace(selector.prefix ?? '') || normalizeWhitespace(selector.suffix ?? ''));
 
 export const matchesSectionAnnotationSelectorContext = (
   text: string,
@@ -114,12 +115,10 @@ export const matchesSectionAnnotationSelectorContext = (
   const after = normalizeWhitespace(
     text.slice(matchStart + matchLength, matchStart + matchLength + SELECTOR_CONTEXT_LENGTH + 16)
   );
-  const prefix = normalizeWhitespace(selector.prefix);
-  const suffix = normalizeWhitespace(selector.suffix);
-  const prefixMatches =
-    !prefix || (Boolean(before) && (before.endsWith(prefix) || prefix.endsWith(before)));
-  const suffixMatches =
-    !suffix || (Boolean(after) && (after.startsWith(suffix) || suffix.startsWith(after)));
+  const prefix = normalizeWhitespace(selector.prefix ?? '');
+  const suffix = normalizeWhitespace(selector.suffix ?? '');
+  const prefixMatches = !prefix || before.endsWith(prefix);
+  const suffixMatches = !suffix || after.startsWith(suffix);
   return prefixMatches && suffixMatches;
 };
 
