@@ -753,13 +753,15 @@ const CourseList = ({
         menu.menuWidth,
         menu.menuHeight
       );
-      setMenu(current =>
-        current?.id === menu.id
-          ? current.left === nextPosition.left && current.top === nextPosition.top
-            ? current
-            : { ...current, left: nextPosition.left, top: nextPosition.top }
-          : current
-      );
+      setMenu(current => {
+        if (current?.id !== menu.id) {
+          return current;
+        }
+        if (current.left === nextPosition.left && current.top === nextPosition.top) {
+          return current;
+        }
+        return { ...current, left: nextPosition.left, top: nextPosition.top };
+      });
     };
 
     updateMenuPosition();
