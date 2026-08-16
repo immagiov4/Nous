@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PROJECT_API_ERROR_CODE, PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
+import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
@@ -350,13 +351,31 @@ test('HttpProjectRepository reports request timeouts without claiming the backen
 test('HttpProjectRepository gives archive saves enough time to upload and index large sources', async () => {
   vi.useFakeTimers();
   let resolveFetch: ((response: unknown) => void) | undefined;
-  fetchMock.mockImplementationOnce(
-    (_url: string, init: RequestInit) =>
-      new Promise(resolve => {
-        resolveFetch = resolve;
-        expect(init.signal?.aborted).toBe(false);
-      })
-  );
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 20_000_000,
+            maxChunkBytes: 16_000_000,
+            maxChunkCount: 32,
+            maxSerializedBytes: 280_000_000,
+            requestTimeoutMs: 120_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockImplementationOnce(
+      (_url: string, init: RequestInit) =>
+        new Promise(resolve => {
+          resolveFetch = resolve;
+          expect(init.signal?.aborted).toBe(false);
+        })
+    );
   const repository = new HttpProjectRepository('http://localhost:3301');
   const snapshot: ProjectSnapshot = {
     ...buildPdfSnapshot(),
@@ -378,9 +397,10 @@ test('HttpProjectRepository gives archive saves enough time to upload and index 
   });
 
   const savePromise = repository.saveProject(snapshot, { archiveFile });
+  await vi.advanceTimersByTimeAsync(0);
   await vi.advanceTimersByTimeAsync(15_001);
 
-  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+  const requestInit = fetchMock.mock.calls[2]?.[1] as RequestInit | undefined;
   expect(requestInit?.signal?.aborted).toBe(false);
 
   resolveFetch?.({
@@ -641,7 +661,7 @@ test('HttpProjectRepository sends every document source in the atomic project PU
   expect(() => decodeProjectSnapshotWire(savedSnapshot)).not.toThrow();
 });
 
-test('HttpProjectRepository uploads archives as binary multipart without a JSON content type', async () => {
+test('HttpProjectRepository uses the status-backed upload flow for a single-chunk archive', async () => {
   const detachedArchiveSource = {
     file: {
       data: '',
@@ -660,33 +680,38 @@ test('HttpProjectRepository uploads archives as binary multipart without a JSON 
       objectPath: 'users/user/projects/archive/source-archive/archive-hash/original',
     },
   };
-  fetchMock.mockResolvedValueOnce({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      success: true,
-      meta: {
-        id: 'archive-project',
-        title: 'Engine',
-        sourceKind: 'codebase',
-        createdAt: '2026-07-09T10:00:00.000Z',
-        updatedAt: '2026-07-09T10:00:00.000Z',
-        lastOpenedAt: '2026-07-09T10:00:00.000Z',
-        lessonCount: 0,
-        completedCount: 0,
-        exerciseCount: 0,
-        completedExercises: 0,
-        hasSourceFile: true,
-        coverLabel: 'engine.zip',
-      },
-      snapshot: {
-        ...buildPdfSnapshot(),
-        id: 'archive-project',
-        source: detachedArchiveSource,
-        sourceKind: 'codebase',
-      },
-    }),
-  });
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 20_000_000,
+            maxChunkBytes: 16_000_000,
+            maxChunkCount: 32,
+            maxSerializedBytes: 280_000_000,
+            requestTimeoutMs: 120_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        meta: { id: 'archive-project' },
+        snapshot: {
+          ...buildPdfSnapshot(),
+          id: 'archive-project',
+          source: detachedArchiveSource,
+          sourceKind: 'codebase',
+        },
+      }),
+    });
   const repository = new HttpProjectRepository('http://localhost:3301');
   const snapshot: ProjectSnapshot = {
     ...buildPdfSnapshot(),
@@ -709,16 +734,18 @@ test('HttpProjectRepository uploads archives as binary multipart without a JSON 
 
   const saved = await repository.saveProject(snapshot, { archiveFile });
 
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
-  expect(requestInit.body).toBeInstanceOf(FormData);
-  expect(new Headers(requestInit.headers).has('Content-Type')).toBe(false);
-  const saveBody = requestInit.body as FormData;
-  const sentArchive = saveBody.get('archive');
-  expect(sentArchive).toBeInstanceOf(File);
-  expect((sentArchive as File).name).toBe(archiveFile.name);
-  expect(await (sentArchive as File).text()).toBe(await archiveFile.text());
-  expect(JSON.parse(String(saveBody.get('snapshot'))).source).toEqual({
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  const chunkRequest = fetchMock.mock.calls[1];
+  expect(String(chunkRequest?.[0])).toMatch(
+    /\/api\/projects\/import\/chunks\/.+\/0\?chunkCount=1$/u
+  );
+  expect(chunkRequest?.[1]?.body).toBeInstanceOf(Blob);
+  expect(await (chunkRequest?.[1]?.body as Blob).text()).toBe(await archiveFile.text());
+  expect(new Headers(chunkRequest?.[1]?.headers).get('Content-Type')).toBe(
+    'application/octet-stream'
+  );
+  const completionBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+  expect(completionBody.snapshot.source).toEqual({
     file: {
       data: '',
       mimeType: 'application/zip',
@@ -728,6 +755,7 @@ test('HttpProjectRepository uploads archives as binary multipart without a JSON 
     kind: 'archive',
     name: 'engine.zip',
   });
+  expect(completionBody.payloadKind).toBe(PROJECT_IMPORT_BINARY_KIND.sourceArchive);
   expect(saved.snapshot.source).toEqual(detachedArchiveSource);
 });
 
