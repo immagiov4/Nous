@@ -98,7 +98,11 @@ const buildSegmentsFromProjectionRange = (
   );
 };
 
-const contextMatches = (
+export const hasSectionAnnotationSelectorContext = (
+  selector: SectionAnnotationTextSelector
+): boolean => Boolean(normalizeWhitespace(selector.prefix) || normalizeWhitespace(selector.suffix));
+
+export const matchesSectionAnnotationSelectorContext = (
   text: string,
   matchStart: number,
   matchLength: number,
@@ -112,13 +116,18 @@ const contextMatches = (
   );
   const prefix = normalizeWhitespace(selector.prefix);
   const suffix = normalizeWhitespace(selector.suffix);
-  const prefixMatches = !prefix || before.endsWith(prefix) || prefix.endsWith(before);
-  const suffixMatches = !suffix || after.startsWith(suffix) || suffix.startsWith(after);
-  return prefixMatches && suffixMatches;
+  const prefixMatches =
+    Boolean(prefix && before) && (before.endsWith(prefix) || prefix.endsWith(before));
+  const suffixMatches =
+    Boolean(suffix && after) && (after.startsWith(suffix) || suffix.startsWith(after));
+  const availablePrefixMatches = !prefix || !before || prefixMatches;
+  const availableSuffixMatches = !suffix || !after || suffixMatches;
+  return (
+    availablePrefixMatches &&
+    availableSuffixMatches &&
+    (!hasSectionAnnotationSelectorContext(selector) || prefixMatches || suffixMatches)
+  );
 };
-
-const hasSelectorContext = (selector: SectionAnnotationTextSelector): boolean =>
-  Boolean(normalizeWhitespace(selector.prefix) || normalizeWhitespace(selector.suffix));
 
 const resolveSectionAnnotationSegmentsWithContext = (
   content: string,
@@ -134,7 +143,7 @@ const resolveSectionAnnotationSegmentsWithContext = (
   if (
     positionalRange &&
     normalizeWhitespace(positionalRange.text) === normalizeWhitespace(selector.exact) &&
-    contextMatches(
+    matchesSectionAnnotationSelectorContext(
       context.projection.text,
       positionalRange.start,
       positionalRange.end - positionalRange.start,
@@ -156,9 +165,14 @@ const resolveSectionAnnotationSegmentsWithContext = (
 
   const matches = [...context.projection.text.matchAll(new RegExp(exactPattern, 'gu'))];
   const contextualMatches = matches.filter(match =>
-    contextMatches(context.projection.text, match.index ?? 0, match[0].length, selector)
+    matchesSectionAnnotationSelectorContext(
+      context.projection.text,
+      match.index ?? 0,
+      match[0].length,
+      selector
+    )
   );
-  const candidates = hasSelectorContext(selector) ? contextualMatches : matches;
+  const candidates = hasSectionAnnotationSelectorContext(selector) ? contextualMatches : matches;
   if (candidates.length !== 1) {
     return [];
   }

@@ -257,6 +257,52 @@ describe('MarkdownRenderer', () => {
     expect(entries).toEqual([]);
   });
 
+  test('native persisted highlights stay hidden when boundary context is unavailable', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '<p>Beta due.</p>';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 14,
+            exact: 'Beta',
+            prefix: 'Beta uno.',
+            start: 10,
+            suffix: '',
+          },
+        },
+        createdAt: '2026-08-15T10:00:00.000Z',
+        id: 'annotation-native-unavailable-boundary-context',
+        note: '',
+        updatedAt: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toEqual([]);
+  });
+
+  test('preserves visible whitespace between raw block and inline elements', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '<p>Alpha</p> <span>beta</span>';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: { end: 10, exact: 'Alpha beta', prefix: '', start: 0, suffix: '' },
+        },
+        createdAt: '2026-08-15T10:00:00.000Z',
+        id: 'annotation-mixed-html-whitespace',
+        note: '',
+        updatedAt: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.selectedText).toBe('Alpha beta');
+    expect(entries[0]?.ranges.map(range => range.toString()).join('')).toBe('Alpha beta');
+  });
+
   test('keeps long multi-paragraph highlights inside paragraph ranges without side bands', () => {
     class TestHighlight extends Set<AbstractRange> {}
 
