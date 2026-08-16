@@ -133,7 +133,7 @@ const libraryChatTools = {
   }),
   getProjectStructures: tool({
     description:
-      'Recupera struttura delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note, highlight e aiuti didattici. Se `projectIds` e omesso usa tutto lo scope corrente. Usalo per individuare le lezioni prima di leggere contenuto o glossario con getLessonDetails.',
+      'Recupera la struttura ordinata delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note, highlight e aiuti didattici. Se `projectIds` e omesso usa tutto lo scope corrente. Usalo per risolvere riferimenti strutturali o ordinali espressi dall utente, come modulo 3, capitolo 3 o terza lezione, prima di leggere il contenuto con getLessonDetails.',
     inputSchema: jsonSchema<{
       projectIds?: string[];
     }>({

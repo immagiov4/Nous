@@ -8,7 +8,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test('opens the cited page in the original PDF without exposing internal identifiers', async () => {
+test('opens the cited page in the original PDF without exposing internal retrieval details', async () => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:nous-source');
   const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   const viewerWindow = {
@@ -43,8 +43,7 @@ test('opens the cited page in the original PDF without exposing internal identif
     expect(viewerWindow.location.href).toBe('blob:nous-source#page=11');
   });
   expect(screen.getByText(/Pages 11-12|Pagine 11-12/)).toBeInTheDocument();
-  expect(screen.getByText(/Source chunks \(2\)|Chunk sorgente \(2\)/)).toBeInTheDocument();
-  expect(screen.getByText('chunk-a, chunk-b')).toBeInTheDocument();
+  expect(screen.queryByText(/chunk/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/source-049/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Passaggi usati|Passages used/)).not.toBeInTheDocument();
 

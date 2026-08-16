@@ -132,6 +132,44 @@ export const dedupeUiMessagesById = <T extends UIMessage>(messages: T[]): T[] =>
     .map(item => item.message);
 };
 
+const getRepeatedToolMessageSignature = (message: UIMessage): string | null => {
+  if (message.role !== 'assistant') {
+    return null;
+  }
+
+  const toolParts = message.parts.filter(isToolUIPart);
+  if (toolParts.length === 0) {
+    return null;
+  }
+
+  return JSON.stringify({
+    text: getUiMessageText(message),
+    tools: toolParts.map(part => ({
+      input: 'input' in part ? part.input : undefined,
+      type: part.type,
+    })),
+  });
+};
+
+/** Collapse consecutive duplicate tool turns while retaining the latest streamed snapshot. */
+export const dedupeRepeatedToolMessages = <T extends UIMessage>(messages: T[]): T[] => {
+  const deduped: T[] = [];
+  let previousSignature: string | null = null;
+
+  for (const message of messages) {
+    const signature = getRepeatedToolMessageSignature(message);
+    if (signature && signature === previousSignature) {
+      deduped[deduped.length - 1] = message;
+      continue;
+    }
+
+    deduped.push(message);
+    previousSignature = signature;
+  }
+
+  return deduped;
+};
+
 const isSuccessfulToolOutput = (
   part: UIMessage['parts'][number],
   toolPartType: string

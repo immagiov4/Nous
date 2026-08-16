@@ -29,7 +29,6 @@ function WorkspaceReaderOverlays({
   isMobileViewport,
   libraryAssistantDataSource,
   lessonCreationBlockReason,
-  loadDocumentSourceFile,
   currentLessonArtifactPayloads,
   onAskContextQuestion,
   onAttachArtifactToAnnotation,
@@ -74,7 +73,6 @@ function WorkspaceReaderOverlays({
             isDarkMode={isDarkMode}
             inputValueOverride={contextAnswerInputValue}
             isMobileViewport={isMobileViewport}
-            loadDocumentSourceFile={loadDocumentSourceFile}
             libraryAssistantDataSource={libraryAssistantDataSource}
             messagesScrollTopOverride={contextAnswerMessagesScrollTopOverride}
             onClose={onCloseContextAnswer}

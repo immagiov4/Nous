@@ -250,6 +250,8 @@ Do not add compatibility layers unless the project explicitly supports multiple 
 
 Follow the project's localization and language conventions. Centralize strings where the project already does so. Do not mix languages in UI. Technical comments may use the language dominant in the codebase.
 
+Keep implementation terminology out of the product interface. Internal names such as chunks, IDs, storage keys, tool names, provider details, and excessive diagnostic detail belong in logs or developer diagnostics, not in user-facing labels, progress messages, errors, or source attribution. Translate internal structures into the user's domain language, such as document names and page ranges.
+
 ## UI and Interaction Design
 
 UI code should minimize visual noise and avoid redundant feedback:
