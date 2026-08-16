@@ -201,7 +201,8 @@ describe('courseInterviewClient', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       1,
       'http://localhost:3301/api/course-interviews/project-1/active',
-      { cache: 'no-store', signal: undefined }
+      { cache: 'no-store', signal: undefined },
+      { expectedStatuses: [404] }
     );
   });
 

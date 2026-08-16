@@ -32,6 +32,7 @@ import {
   pollWorkflow,
   readWorkflowJson,
   readWorkflowPollJson,
+  WORKFLOW_NOT_FOUND_STATUS,
 } from './workflowClientTransport.ts';
 
 const COURSE_INTERVIEW_ERROR = 'L’intervista per il corso non è riuscita. Riprova.';
@@ -474,9 +475,10 @@ export const getActiveCourseInterview = async (
 ): Promise<CourseInterviewSnapshot | null> => {
   const response = await fetchWithSupabaseAuth(
     `${getBackendUrl()}/api/course-interviews/${encodeURIComponent(projectId)}/active`,
-    { cache: 'no-store', signal: options.signal }
+    { cache: 'no-store', signal: options.signal },
+    { expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS] }
   );
-  if (response.status === 404) return null;
+  if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
   assertWorkflowPollResponse(response, COURSE_INTERVIEW_ERROR);
   const run = await readRunSummary(response, projectId);
   return waitForActionableSnapshot(run.id, projectId, options);

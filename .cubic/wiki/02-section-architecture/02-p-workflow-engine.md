@@ -168,6 +168,10 @@ The system tracks granular actions for debugging and monitoring:
 
 Sources: [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts:145-180, 520-550](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts#L145-L180)
 
+### Correlated Failure Lifecycle
+
+Workflow runs persist the originating request correlation ID and propagate it through run creation or deduplication, worker claims, retries, definition reconciliation, cancellation, undo, and recovery events. Course, lesson, artifact, and PDF mapping repair snapshots may expose that same support code so the browser can record terminal HTTP 200 workflow failures. Expected absence probes such as “no active workflow” do not enter the failure diagnostics buffer. Observability projects only allowlisted identifiers, status, operation, and sanitized failure metadata; prompts, source content, provider payloads, and credentials are excluded. Sources: [apps/backend/src/workflows/workflowObservability.ts](apps/backend/src/workflows/workflowObservability.ts), [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts](apps/backend/src/workflows/persistence/postgresWorkflowStore.ts), [apps/web/services/feedback/browserDiagnostics.ts](apps/web/services/feedback/browserDiagnostics.ts), [apps/web/services/auth/supabaseAuth.ts](apps/web/services/auth/supabaseAuth.ts)
+
 ## Summary
 
 The Postgres Workflow Engine provides a robust foundation for distributed task orchestration by treating PostgreSQL as a reliable state machine. Through the use of fencing tokens, transactional run creation, and strictly validated manifests, it ensures that complex workflows remain consistent and recoverable despite process crashes or concurrent worker activity. Its modular store architecture allows for clear separation of concerns between work execution, signal handling, and failure recovery.

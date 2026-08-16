@@ -467,15 +467,20 @@ const buildAuthenticatedHeaders = (
   ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
 });
 
-const logBackendFailureCorrelation = (response: Response): void => {
-  if (response.ok) return;
+const logBackendFailureCorrelation = (
+  response: Response,
+  expectedStatuses: readonly number[]
+): void => {
+  if (response.ok || expectedStatuses.includes(response.status)) return;
   logBackendFailureCorrelationId(response.headers?.get('x-request-id'));
 };
 
 export const fetchWithSupabaseAuth = async (
   input: RequestInfo | URL,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  diagnostics: { readonly expectedStatuses?: readonly number[] } = {}
 ): Promise<Response> => {
+  const expectedStatuses = diagnostics.expectedStatuses ?? [];
   const session = await getValidSupabaseSession();
   const sendRequest = (requestSession: SupabaseUserSession | null) =>
     fetch(input, {
@@ -485,13 +490,13 @@ export const fetchWithSupabaseAuth = async (
 
   const response = await sendRequest(session);
   if (response.status !== 401) {
-    logBackendFailureCorrelation(response);
+    logBackendFailureCorrelation(response, expectedStatuses);
     return response;
   }
 
   const refreshedSession = await refreshSupabaseSession();
   if (!refreshedSession) {
-    logBackendFailureCorrelation(response);
+    logBackendFailureCorrelation(response, expectedStatuses);
     return response;
   }
 
@@ -499,7 +504,7 @@ export const fetchWithSupabaseAuth = async (
   if (retryResponse.status === 401) {
     clearSupabaseSession();
   }
-  logBackendFailureCorrelation(retryResponse);
+  logBackendFailureCorrelation(retryResponse, expectedStatuses);
   return retryResponse;
 };
 

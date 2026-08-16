@@ -318,7 +318,8 @@ describe('courseGenerationClient', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       1,
       'http://localhost:3301/api/course-workflows/courses/project-1/active',
-      { cache: 'no-store' }
+      { cache: 'no-store' },
+      { expectedStatuses: [404] }
     );
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
     expect(globalThis.sessionStorage.getItem('nous:course-workflow-request:project-1')).toBeNull();

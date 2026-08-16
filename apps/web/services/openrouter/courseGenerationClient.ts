@@ -24,6 +24,7 @@ import {
   readWorkflowRequestKey,
   resolveWorkflowFailureMessage,
   retryTransientWorkflowRequest,
+  WORKFLOW_NOT_FOUND_STATUS,
 } from './workflowClientTransport.ts';
 
 const COURSE_GENERATION_ERROR = 'La generazione del corso non è riuscita. Riprova.';
@@ -207,9 +208,10 @@ export const resumeActiveDurableCourse = async ({
   const job = await retryTransientWorkflowRequest(async () => {
     const response = await fetchWithSupabaseAuth(
       `${getBackendUrl()}/api/course-workflows/courses/${encodeURIComponent(projectId)}/active`,
-      { cache: 'no-store' }
+      { cache: 'no-store' },
+      { expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS] }
     );
-    if (response.status === 404) return null;
+    if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
     assertWorkflowPollResponse(response, COURSE_GENERATION_ERROR);
     const activeJob = readWorkflowJob(
       await readWorkflowPollJson(response, COURSE_GENERATION_ERROR),

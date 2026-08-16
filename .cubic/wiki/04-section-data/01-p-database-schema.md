@@ -114,8 +114,8 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts:1145-1165](../../../
 The schema includes support for background workflow runtime and user feedback reporting.
 
 ### Workflow Runtime
-The `public.model_config` table (id='global') stores system-wide settings for AI models used in course generation, such as `context_model`, `course_model`, and `lesson_model`.
-Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:445-475](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L445-L475)
+The `public.model_config` table (id='global') stores system-wide settings for AI models used in course generation, such as `context_model`, `course_model`, and `lesson_model`. Durable rows in `public.workflow_runs` also store a non-null UUID `correlation_id`, indexed for operational lookup and preserved when a request deduplicates onto an existing run. This joins request lifecycle records to worker, retry, cancellation, undo, and recovery events without storing prompt or source payloads in logs.
+Sources: [apps/backend/tests/integration/supabaseLocal.integration.test.ts:445-475](../../../apps/backend/tests/integration/supabaseLocal.integration.test.ts#L445-L475), [supabase/migrations/20260816120000_add_workflow_correlation_id.sql](../../../supabase/migrations/20260816120000_add_workflow_correlation_id.sql), [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts)
 
 ### Feedback Reports
 The `public.feedback_reports` table stores user-submitted bugs and feature requests, which can be synchronized with GitHub issues.

@@ -29,6 +29,8 @@ The backend application is initialized via the `createApp` function, which confi
 ### Request Flow and Security
 Authentication is enforced at the router level using `resolveCurrentUser`. However, certain utility endpoints remain public to support deployment health checks and environment status monitoring. Sources: [apps/backend/tests/routes/authProtection.test.ts:38-50](../../../apps/backend/tests/routes/authProtection.test.ts#L38-L50)
 
+Every request receives a canonical lowercase UUID correlation ID before CORS and route handling. A valid incoming `x-request-id` is reused, otherwise the backend creates one; the same value is exposed in the response header and attached to content-free lifecycle records for completion, failure, cancellation, and disconnect diagnosis. Backend exception details remain internal, while client-facing error messages stay stable. Sources: [apps/backend/src/index.ts](apps/backend/src/index.ts), [apps/backend/src/workflows/requestObservability.ts](apps/backend/src/workflows/requestObservability.ts), [apps/backend/tests/index.test.ts](apps/backend/tests/index.test.ts)
+
 ```mermaid
 flowchart TD
     Req[Incoming Request] --> CORS[CORS Middleware]

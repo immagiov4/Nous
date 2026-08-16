@@ -190,7 +190,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
     const requestedCorrelationId = req.header('x-request-id')?.trim();
     const correlationId =
       requestedCorrelationId && UUID_PATTERN.test(requestedCorrelationId)
-        ? requestedCorrelationId
+        ? requestedCorrelationId.toLowerCase()
         : createCorrelationId();
     res.setHeader('x-request-id', correlationId);
     res.on('finish', () => {

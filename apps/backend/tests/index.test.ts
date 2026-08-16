@@ -60,6 +60,7 @@ describe('request lifecycle observability', () => {
   test('echoes a safe request correlation ID and records the completed request', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const correlationId = '123e4567-e89b-12d3-a456-426614174000';
+    const requestedCorrelationId = correlationId.toUpperCase();
     const server = createApp().listen(0, '127.0.0.1');
 
     await once(server, 'listening');
@@ -70,7 +71,7 @@ describe('request lifecycle observability', () => {
 
     try {
       const response = await fetch(`http://127.0.0.1:${address.port}/health`, {
-        headers: { 'x-request-id': correlationId },
+        headers: { 'x-request-id': requestedCorrelationId },
       });
 
       expect(response.status).toBe(200);

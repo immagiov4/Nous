@@ -2,6 +2,7 @@ import { TransientRequestError } from '../core/errorMessage.ts';
 
 const WORKFLOW_STATUS_POLL_MS = 1_000;
 const TRANSIENT_WORKFLOW_HTTP_STATUSES = new Set([408, 429]);
+export const WORKFLOW_NOT_FOUND_STATUS = 404;
 
 export const WORKFLOW_DEFINITION_UNAVAILABLE_MESSAGE =
   'L’app è stata aggiornata mentre questa generazione era in corso. Avvia una nuova generazione.';

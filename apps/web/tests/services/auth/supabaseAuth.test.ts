@@ -347,6 +347,23 @@ describe('Supabase auth session storage', () => {
     warn.mockRestore();
   });
 
+  test('does not record a backend correlation code for an expected response status', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValueOnce({
+      headers: new Headers({ 'x-request-id': '123e4567-e89b-12d3-a456-426614174000' }),
+      ok: false,
+      status: 404,
+    });
+
+    await fetchWithSupabaseAuth(
+      'https://backend.test/api/course-workflows/courses/project-1/active',
+      {},
+      { expectedStatuses: [404] }
+    );
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   test('does not retry again when the refreshed token also receives a 401', async () => {
     saveSupabaseSession({
       accessToken: 'access-token-old',
