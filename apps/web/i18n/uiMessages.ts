@@ -21,6 +21,18 @@ const ENGLISH_UI_MESSAGES = {
   [SURFACE_ERROR_MESSAGES.reader]: 'The lesson is unavailable. Reload the page.',
   [SURFACE_ERROR_MESSAGES.visual]: 'This visual is unavailable.',
   'Apri {videoTitle} su YouTube': 'Open {videoTitle} on YouTube',
+  'Apri corso "{projectTitle}"': 'Open course “{projectTitle}”',
+  'Apri lezione "{lessonTitle}" nel corso "{projectTitle}"':
+    'Open lesson “{lessonTitle}” in course “{projectTitle}”',
+  'Apri nota in "{lessonTitle}" nel corso "{projectTitle}"':
+    'Open note in “{lessonTitle}” in course “{projectTitle}”',
+  'Apri evidenziazione in "{lessonTitle}" nel corso "{projectTitle}"':
+    'Open highlight in “{lessonTitle}” in course “{projectTitle}”',
+  'Artefatti lezione': 'Lesson artifacts',
+  'Materiale recuperato': 'Retrieved material',
+  'Non sono riuscito ad aprire il materiale recuperato. Riprova.':
+    'I could not open the retrieved material. Please try again.',
+  'Non sono riuscito a recuperare i dati della libreria.': 'I could not retrieve the library data.',
   automatico: 'automatic',
   'Annulla creazione corso': 'Cancel course creation',
   'Intervista in corso': 'Interview in progress',

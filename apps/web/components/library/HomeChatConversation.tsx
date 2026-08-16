@@ -1,18 +1,7 @@
 import { isToolUIPart, type UIMessage } from 'ai';
-import type { LucideIcon } from 'lucide-react';
-import {
-  BookOpen,
-  Check,
-  FileText,
-  GitFork,
-  Globe,
-  List,
-  Loader2,
-  Search,
-  Sparkles,
-} from 'lucide-react';
+import { Check, FileText, Loader2, Sparkles } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import logoUrl from '@/assets/logo.svg';
 import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -28,6 +17,7 @@ import type {
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
 import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
+import ChatToolActivityStrip from '../shared/ChatToolActivityStrip.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import StreamingMarkdownRenderer from '../shared/StreamingMarkdownRenderer.tsx';
 
@@ -110,9 +100,6 @@ const isVisibleLibraryToolState = (state: LibraryToolPart['state']) =>
   state === 'output-error' ||
   state === 'output-denied';
 
-const isPendingLibraryToolState = (state: LibraryToolPart['state']) =>
-  state === 'input-streaming' || state === 'input-available' || state === 'approval-requested';
-
 const hasVisibleLibraryMessageContent = (message: UIMessage) =>
   getUiMessageRenderableParts(message).some(part => {
     if (part.kind === 'text') return true;
@@ -174,93 +161,6 @@ const getMergedLibraryAssistantText = (messages: UIMessage[]): MergedAssistantTe
   return text ? { isStreaming: textParts.some(part => part.isStreaming), text } : null;
 };
 
-const LIBRARY_TOOL_META: Record<string, { icon: LucideIcon; getLabel: () => string }> = {
-  getLessonDetails: { icon: FileText, getLabel: () => t('Dettagli lezioni') },
-  getLearningArtifacts: { icon: FileText, getLabel: () => t('Artefatti lezioni') },
-  generateLearningArtifact: { icon: Sparkles, getLabel: () => t('Genera artefatto') },
-  getProjectOverviews: { icon: BookOpen, getLabel: () => t('Panoramica corsi') },
-  getProjectStructures: { icon: GitFork, getLabel: () => t('Struttura corsi') },
-  listLibraryTree: { icon: List, getLabel: () => t('Indice libreria') },
-  requestSaveLearningArtifactNote: { icon: FileText, getLabel: () => t('Salva nota') },
-  searchLibrary: { icon: Search, getLabel: () => t('Ricerca contenuti') },
-  searchWeb: { icon: Globe, getLabel: () => t('Ricerca web') },
-  startCourseAssessment: { icon: BookOpen, getLabel: () => t('Avvio nuovo corso') },
-};
-
-const getToolMeta = (part: UIMessage['parts'][number]) => {
-  if (!isToolUIPart(part)) return { icon: Search, label: t('Tool') };
-  let raw = '';
-  if ('toolName' in part && typeof part.toolName === 'string') raw = part.toolName;
-  else if (part.type.startsWith('tool-')) raw = part.type.slice(5);
-  const configuredMeta = LIBRARY_TOOL_META[raw];
-  return configuredMeta
-    ? { icon: configuredMeta.icon, label: configuredMeta.getLabel() }
-    : { icon: Search, label: raw.replaceAll(/([A-Z])/g, ' $1').trim() || t('Tool') };
-};
-
-const getCountHint = (count: number, singular: string, plural: string) => {
-  if (count === 0) return null;
-  return count === 1 ? singular : plural;
-};
-
-const getTruncatedHint = (value: unknown) => {
-  if (typeof value !== 'string' || !value) return null;
-  return value.length > 30 ? `${value.slice(0, 30)}\u2026` : value;
-};
-
-const getProjectCountHint = (input: Record<string, unknown>) => {
-  const ids = input.projectIds;
-  if (!Array.isArray(ids)) return null;
-  return getCountHint(ids.length, t('1 corso'), t('{count} corsi', { count: ids.length }));
-};
-
-const getLessonCountHint = (input: Record<string, unknown>) => {
-  const requests = input.requests;
-  if (!Array.isArray(requests)) return null;
-  const count = requests.reduce((sum, request) => {
-    if (!request || typeof request !== 'object' || !('lessonIds' in request)) return sum;
-    return sum + (Array.isArray(request.lessonIds) ? request.lessonIds.length : 0);
-  }, 0);
-  return getCountHint(count, t('1 lezione'), t('{count} lezioni', { count }));
-};
-
-const getToolArgHint = (part: LibraryToolPart): string | null => {
-  if (part.state === 'input-streaming') return null;
-  const input = (part as { input?: Record<string, unknown> }).input;
-  if (!input) return null;
-  const toolName = 'toolName' in part && typeof part.toolName === 'string' ? part.toolName : '';
-  switch (toolName) {
-    case 'getProjectStructures':
-    case 'getProjectOverviews':
-      return getProjectCountHint(input);
-    case 'getLessonDetails':
-      return getLessonCountHint(input);
-    case 'searchLibrary':
-    case 'searchWeb':
-      return getTruncatedHint(input.query);
-    case 'startCourseAssessment':
-      return getTruncatedHint(input.topic);
-    default:
-      return null;
-  }
-};
-
-const ToolChipFadeIn = ({ children }: { children: ReactNode }) => {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-  return (
-    <span
-      className="inline-flex min-w-0 flex-1 items-center gap-x-1.5"
-      style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.35s ease' }}
-    >
-      {children}
-    </span>
-  );
-};
-
 const NoteRequestResult = ({
   input,
   output,
@@ -318,54 +218,6 @@ const NoteRequestResult = ({
     );
   }
   return null;
-};
-
-const LibraryToolStrip = ({
-  isMobileViewport,
-  messageId,
-  parts,
-}: {
-  readonly isMobileViewport: boolean;
-  readonly messageId: string;
-  readonly parts: UIMessage['parts'];
-}) => {
-  const toolParts = parts
-    .filter(isToolUIPart)
-    .filter(part => isVisibleLibraryToolState(part.state));
-  if (toolParts.length === 0) return null;
-  const maxTools = isMobileViewport ? 2 : 4;
-  const truncated = toolParts.length > maxTools;
-  const visibleTools = toolParts.slice(-maxTools);
-  return (
-    <div className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-hidden py-1.5 text-xs text-gray-600 dark:text-zinc-300">
-      {truncated ? <span className="shrink-0 text-gray-400 dark:text-zinc-500">…</span> : null}
-      {visibleTools.map((part, index) => {
-        const meta = getToolMeta(part);
-        const hint = getToolArgHint(part as LibraryToolPart);
-        const Icon = meta.icon;
-        return (
-          <span
-            key={`${messageId}-${part.toolCallId}`}
-            className="inline-flex min-w-0 max-w-full flex-[0_1_auto] items-center gap-x-1.5"
-          >
-            {index > 0 || truncated ? (
-              <span className="shrink-0 text-gray-300 dark:text-zinc-600">&#8594;</span>
-            ) : null}
-            <ToolChipFadeIn>
-              <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 truncate font-medium">{meta.label}</span>
-              {hint ? (
-                <span className="min-w-0 truncate text-gray-400 dark:text-zinc-500">{hint}</span>
-              ) : null}
-            </ToolChipFadeIn>
-          </span>
-        );
-      })}
-      {toolParts.some(part => isPendingLibraryToolState(part.state)) ? (
-        <span className="ml-0.5 h-2 w-2 animate-pulse rounded-full bg-amber-400 dark:bg-amber-300" />
-      ) : null}
-    </div>
-  );
 };
 
 const LibraryArtifactTools = ({
@@ -548,7 +400,7 @@ const LibraryConversation = ({
         <div key={turn.key} className="!mt-5 flex items-start gap-2.5">
           {assistantAvatar}
           <div className="min-w-0 flex-1 space-y-2.5">
-            <LibraryToolStrip
+            <ChatToolActivityStrip
               isMobileViewport={isMobileViewport}
               messageId={turn.key}
               parts={turn.parts}

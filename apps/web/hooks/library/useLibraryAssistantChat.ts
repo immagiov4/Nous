@@ -33,7 +33,7 @@ import type {
 } from '../../types.ts';
 import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import { buildLibraryScopeSummary } from '../../utils/library/assistant.ts';
-import { hasSuccessfulToolOutput } from '../../utils/uiChat.ts';
+import { hasOnlySuccessfulToolOutputs } from '../../utils/uiChat.ts';
 import {
   getStoredLessonVisualKind,
   isStoredLessonVisualKind,
@@ -303,7 +303,7 @@ export const useLibraryAssistantChat = ({
       transport,
       experimental_throttle: 96,
       sendAutomaticallyWhen: options =>
-        !hasSuccessfulToolOutput(options.messages, 'tool-generateLearningArtifact') &&
+        !hasOnlySuccessfulToolOutputs(options.messages, 'tool-generateLearningArtifact') &&
         lastAssistantMessageIsCompleteWithToolCalls(options),
       onToolCall: async ({ toolCall }) => {
         if (toolCall.dynamic) {

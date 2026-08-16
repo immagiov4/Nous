@@ -41,6 +41,7 @@ import {
   type WebSearchModelConfig,
   type WebSearchToolResult,
 } from './chatPrompts.js';
+import { libraryRetrievalToolNames, libraryRetrievalTools } from './libraryChat.js';
 
 const DEFAULT_CONTEXT_SCOPE: ContextChatScope = 'selection';
 const CONTEXT_CHAT_SCOPES = new Set<ContextChatScope>(['annotation', 'lesson', 'selection']);
@@ -372,11 +373,16 @@ const buildContextToolSet = ({
     sourceReferences,
   }),
   ...contextChatTools,
+  ...libraryRetrievalTools,
 });
 
 const buildContextPrepareStep = () => {
   return () => ({
-    activeTools: [LIBRARY_WEB_SEARCH_TOOL_NAME, ...contextLocalToolNames],
+    activeTools: [
+      LIBRARY_WEB_SEARCH_TOOL_NAME,
+      ...contextLocalToolNames,
+      ...libraryRetrievalToolNames,
+    ],
   });
 };
 
@@ -485,6 +491,8 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       lessonContent,
       lessonDescription,
       lessonTitle,
+      projectId,
+      projectTitle,
       sourceKind,
       sourceMaterial,
       sourceName,
@@ -508,6 +516,8 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       lessonContent: readOptionalString(lessonContent),
       lessonDescription: readOptionalString(lessonDescription),
       lessonTitle: readOptionalString(lessonTitle),
+      projectId: readOptionalString(projectId),
+      projectTitle: readOptionalString(projectTitle),
       sourceKind: readOptionalString(sourceKind),
       sourceMaterial: contextSourceMaterial,
       sourceReferences:

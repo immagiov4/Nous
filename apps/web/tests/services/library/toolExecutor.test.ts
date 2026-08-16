@@ -307,6 +307,7 @@ describe('executeLibraryAssistantTool', () => {
               annotations: [
                 expect.objectContaining({
                   annotationId: 'annotation-1',
+                  anchorKind: 'selection',
                   highlightedText: 'tipi primitivi',
                   note: 'Questo passaggio mi interessa per chiarire le differenze con JavaScript.',
                 }),
@@ -343,6 +344,35 @@ describe('executeLibraryAssistantTool', () => {
           lessonTitle: 'Tipi primitivi',
           projectId: 'project-1',
           title: 'Union discriminata',
+        },
+      ],
+    });
+  });
+
+  test('keeps annotation anchor kinds in library search results', async () => {
+    const result = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs,
+        folders,
+        loadProjectsById,
+        projects,
+        tree,
+      },
+      input: {
+        query: 'differenze con JavaScript',
+      },
+      toolName: 'searchLibrary',
+    });
+
+    expect(result.outputError).toBeUndefined();
+    expect(result.output).toMatchObject({
+      hits: [
+        {
+          anchorKind: 'selection',
+          annotationId: 'annotation-1',
+          kind: 'annotation',
+          lessonId: 'lesson-1',
+          projectId: 'project-1',
         },
       ],
     });

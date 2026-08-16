@@ -63,6 +63,7 @@ const getSectionAnnotations = (section: LessonNode) =>
 
     return {
       annotationId: annotation.id,
+      anchorKind: annotation.anchor?.kind,
       createdAt: annotation.createdAt,
       highlightedText,
       note: annotation.note,
@@ -400,6 +401,7 @@ export const searchLibraryContent = ({
 
         hits.push({
           annotationId: annotation.annotationId,
+          anchorKind: annotation.anchorKind,
           highlightedText: annotation.highlightedText,
           kind: 'annotation',
           lessonId: section.id,

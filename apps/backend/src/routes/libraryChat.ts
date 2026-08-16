@@ -430,6 +430,19 @@ const libraryChatTools = {
   }),
 } as const;
 
+export const libraryRetrievalTools = {
+  getLessonDetails: libraryChatTools.getLessonDetails,
+  getLearningArtifacts: libraryChatTools.getLearningArtifacts,
+  getProjectOverviews: libraryChatTools.getProjectOverviews,
+  getProjectStructures: libraryChatTools.getProjectStructures,
+  listLibraryTree: libraryChatTools.listLibraryTree,
+  searchLibrary: libraryChatTools.searchLibrary,
+} as const;
+
+export const libraryRetrievalToolNames = Object.keys(libraryRetrievalTools) as Array<
+  keyof typeof libraryRetrievalTools
+>;
+
 const createLibrarySearchWebTool = ({
   attachedContextRefs,
   modelConfig,

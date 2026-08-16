@@ -132,19 +132,37 @@ export const dedupeUiMessagesById = <T extends UIMessage>(messages: T[]): T[] =>
     .map(item => item.message);
 };
 
+const isSuccessfulToolOutput = (
+  part: UIMessage['parts'][number],
+  toolPartType: string
+): boolean => {
+  if (!isToolUIPart(part) || part.type !== toolPartType || part.state !== 'output-available') {
+    return false;
+  }
+  const output = part.output;
+  return Boolean(
+    output && typeof output === 'object' && 'artifactId' in output && output.artifactId
+  );
+};
+
 export const hasSuccessfulToolOutput = (messages: UIMessage[], toolPartType: string): boolean => {
+  const lastMessage = messages.at(-1);
+  return lastMessage?.role === 'assistant'
+    ? lastMessage.parts.some(part => isSuccessfulToolOutput(part, toolPartType))
+    : false;
+};
+
+export const hasOnlySuccessfulToolOutputs = (
+  messages: UIMessage[],
+  toolPartType: string
+): boolean => {
   const lastMessage = messages.at(-1);
   if (lastMessage?.role !== 'assistant') {
     return false;
   }
 
-  return lastMessage.parts.some(part => {
-    if (!isToolUIPart(part) || part.type !== toolPartType || part.state !== 'output-available') {
-      return false;
-    }
-    const output = part.output;
-    return Boolean(
-      output && typeof output === 'object' && 'artifactId' in output && output.artifactId
-    );
-  });
+  const toolParts = lastMessage.parts.filter(isToolUIPart);
+  return (
+    toolParts.length > 0 && toolParts.every(part => isSuccessfulToolOutput(part, toolPartType))
+  );
 };

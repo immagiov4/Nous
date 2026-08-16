@@ -37,7 +37,10 @@ const MAX_LIBRARY_SEARCH_RESULTS = 20;
 
 export type LibraryAssistantToolName = (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number];
 
-interface LibraryAssistantDataSource {
+export const isLibraryAssistantToolName = (value: string): value is LibraryAssistantToolName =>
+  (LIBRARY_ASSISTANT_TOOL_NAMES as readonly string[]).includes(value);
+
+export interface LibraryAssistantDataSource {
   attachedContextRefs: LibraryContextRef[];
   folders: LibraryFolder[];
   loadProjectsById: (ids: ProjectId[]) => Promise<ProjectSnapshot[]>;

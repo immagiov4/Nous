@@ -11,12 +11,20 @@ interface OpenProjectResult {
   errorMessage?: string;
 }
 
+interface OpenProjectNavigationOptions {
+  activeSectionId?: string;
+  source?: 'library' | 'route';
+}
+
 interface UseWorkspaceNavigationArgs {
   currentProjectId: string | null;
   isLibraryLoading: boolean;
   notifyError: (message: string) => void;
   onGoToLibrary: () => Promise<void>;
-  onOpenProject: (projectId: string) => Promise<OpenProjectResult>;
+  onOpenProject: (
+    projectId: string,
+    options?: { activeSectionId?: string }
+  ) => Promise<OpenProjectResult>;
   openingProjectId: string | null;
   screenState: AppState;
   setIsFocusMode: (value: boolean) => void;
@@ -105,12 +113,13 @@ export const useWorkspaceNavigation = ({
   }, [currentProjectId, onGoToLibrary, screenState, setIsFocusMode, setIsMobileSidebarOpen]);
 
   const handleOpenProject = useCallback(
-    async (projectId: string, options?: { source?: 'library' | 'route' }) => {
+    async (projectId: string, options?: OpenProjectNavigationOptions) => {
       pushNousDebugTrace('navigation:open-project', {
         currentProjectId,
         locationProjectId,
         openingProjectId,
         projectId,
+        activeSectionId: options?.activeSectionId,
         screenState,
         source: options?.source || 'route',
       });
@@ -118,7 +127,9 @@ export const useWorkspaceNavigation = ({
         nextLocationHistoryModeRef.current = 'push';
       }
 
-      const result = await onOpenProject(projectId);
+      const result = await onOpenProject(projectId, {
+        activeSectionId: options?.activeSectionId,
+      });
       pushNousDebugTrace('navigation:open-project-result', {
         errorMessage: result.errorMessage,
         outcome: result.outcome,
@@ -127,7 +138,7 @@ export const useWorkspaceNavigation = ({
       });
       if (result.outcome === 'missing' && options?.source === 'route') {
         syncProjectLocation(null, 'replace');
-        return;
+        return result;
       }
 
       if (result.outcome === 'opened') {
@@ -137,6 +148,7 @@ export const useWorkspaceNavigation = ({
       if (result.errorMessage) {
         notifyError(result.errorMessage);
       }
+      return result;
     },
     [
       currentProjectId,

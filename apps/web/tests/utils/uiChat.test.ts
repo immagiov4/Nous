@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import type { UIMessage } from 'ai';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 
 import {
   dedupeUiMessagesById,
   getUiMessageRenderableParts,
   getUiMessageText,
+  hasOnlySuccessfulToolOutputs,
   hasSuccessfulToolOutput,
 } from '../../utils/uiChat.ts';
 
@@ -127,5 +128,46 @@ test('hasSuccessfulToolOutput rejects failed and unrelated tool results', () => 
     },
   ] as UIMessage[];
 
-  assert.equal(hasSuccessfulToolOutput(messages, 'tool-generateCurrentLessonArtifact'), false);
+  expect(hasSuccessfulToolOutput(messages, 'tool-generateCurrentLessonArtifact')).toBe(false);
+});
+
+test('hasOnlySuccessfulToolOutputs allows mixed tool results to continue', () => {
+  const generationOnly = [
+    {
+      id: 'assistant-generation',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-generateCurrentLessonArtifact',
+          toolCallId: 'tool-generation',
+          state: 'output-available',
+          input: {},
+          output: { artifactId: 'artifact-1' },
+        },
+      ],
+    },
+  ] as UIMessage[];
+  const mixedTools = [
+    {
+      ...generationOnly[0],
+      id: 'assistant-mixed',
+      parts: [
+        ...generationOnly[0].parts,
+        {
+          type: 'tool-searchLibrary',
+          toolCallId: 'tool-search',
+          state: 'output-available',
+          input: { query: 'routing' },
+          output: { hits: [] },
+        },
+      ],
+    },
+  ] as UIMessage[];
+
+  expect(hasOnlySuccessfulToolOutputs(generationOnly, 'tool-generateCurrentLessonArtifact')).toBe(
+    true
+  );
+  expect(hasOnlySuccessfulToolOutputs(mixedTools, 'tool-generateCurrentLessonArtifact')).toBe(
+    false
+  );
 });

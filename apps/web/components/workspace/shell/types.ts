@@ -4,6 +4,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   RefObject,
 } from 'react';
+import type { LibraryAssistantDataSource } from '../../../services/library/toolExecutor.ts';
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import type {
   ApplicationExerciseNode,
@@ -30,6 +31,7 @@ import type {
 } from '../../../types.ts';
 import type { ResolvedLessonSourceReference } from '../../../utils/context/sourceMaterial.ts';
 import type { SidebarGroup } from '../../../utils/reader/workspaceReader.ts';
+import type { LibraryNavigationTarget } from '../../shared/LibraryToolReferences.tsx';
 
 export interface ContextAnswerState {
   attachedAnnotationNote?: string;
@@ -266,6 +268,7 @@ export interface WorkspaceReaderOverlaysModel {
   isContextLoading: boolean;
   isDarkMode: boolean;
   isMobileViewport: boolean;
+  libraryAssistantDataSource: LibraryAssistantDataSource;
   lessonCreationBlockReason: LessonCreationBlockReason | null;
   loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
@@ -277,6 +280,7 @@ export interface WorkspaceReaderOverlaysModel {
   onDeleteAnnotation: () => void;
   onDetachArtifactFromAnnotation: (artifactId: string) => void;
   onHighlight: () => void;
+  onOpenLibraryReference: (reference: LibraryNavigationTarget) => void;
   onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
   onUpdateConversationNote: (
     input: SaveConversationNoteInput

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { LibraryNavigationTarget } from '../components/shared/LibraryToolReferences.tsx';
 import type { WorkspaceReaderShellProps } from '../components/workspace/shell/types.ts';
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
@@ -10,6 +11,7 @@ import {
   planNeedsApplicationExerciseRepair,
   withUpdatedExerciseDeliverable,
 } from '../services/exercises/plan.ts';
+import type { LibraryAssistantDataSource } from '../services/library/toolExecutor.ts';
 import { getExercisePrerequisiteGaps } from '../services/openrouter/exercises/brief.ts';
 import { retryDurableLessonVisual } from '../services/openrouter/lessonVisualRetryClient.ts';
 import { ProjectStorageError } from '../services/projects/projectRepository.ts';
@@ -63,7 +65,9 @@ interface UseReaderShellPropsArgs {
   handleAttachSourceFile: () => void;
   handleBackToLibrary: () => void;
   handleExportProject: (projectId?: string) => Promise<void>;
+  libraryAssistantDataSource: LibraryAssistantDataSource;
   notify: (message: string, kind?: 'error' | 'success') => void;
+  onOpenLibraryReference: (reference: LibraryNavigationTarget) => void;
   pdfMappingWarning: string | null;
   readerActions: WorkspaceReaderActions;
   readerState: WorkspaceReaderState;
@@ -253,7 +257,9 @@ export const useReaderShellProps = ({
   handleAttachSourceFile,
   handleBackToLibrary,
   handleExportProject,
+  libraryAssistantDataSource,
   notify,
+  onOpenLibraryReference,
   pdfMappingWarning,
   readerActions,
   readerState,
@@ -601,6 +607,7 @@ export const useReaderShellProps = ({
         isContextLoading: controller.isContextBusy,
         isDarkMode: readerState.readerChrome.isDarkMode,
         isMobileViewport: readerState.readerChrome.isMobileViewport,
+        libraryAssistantDataSource,
         lessonCreationBlockReason: controller.isLessonGenerationActive
           ? 'lesson-generation'
           : controller.isGenerationActive ||
@@ -617,6 +624,7 @@ export const useReaderShellProps = ({
         onDeleteAnnotation: readerActions.handleDeleteAnnotation,
         onDetachArtifactFromAnnotation: readerActions.handleDetachArtifactFromAnnotation,
         onHighlight: readerActions.handleHighlight,
+        onOpenLibraryReference,
         onSaveArtifactToLesson: readerActions.handleSaveArtifactToLesson,
         onReplaceArtifactInLesson: readerActions.handleReplaceArtifactInLesson,
         onSaveConversationNote: readerActions.handleSaveConversationNote,
@@ -693,7 +701,9 @@ export const useReaderShellProps = ({
       isActiveSectionLoading,
       isRepairingApplicationExercises,
       isEvaluatingExercise,
+      libraryAssistantDataSource,
       loadingStatus,
+      onOpenLibraryReference,
       loadDocumentSourceFile,
       pdfMappingWarning,
       playerCurrentChunkIsLoading,

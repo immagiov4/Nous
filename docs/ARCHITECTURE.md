@@ -235,6 +235,14 @@ Reader context chat sends original document provenance as structured source refe
 stable source ID, page range, and chunk IDs). The combined text is only request context: the UI and
 prompt must never present it as a merged document, and document links resolve to the original file.
 
+The Reader Ask-AI panel keeps the open lesson as its primary context, but it can also invoke the
+same library retrieval tools as Home Chat for explicit cross-course requests. Those tool calls are
+executed against the authenticated user's current project repository in
+`apps/web/services/library/toolExecutor.ts`; the backend supplies schemas and orchestration but
+does not bypass the frontend scope checks. Both chat surfaces render tool progress through the
+shared `ChatToolActivityStrip`, while contextual results expose course, lesson, and note navigation
+targets separately from the current-lesson answer.
+
 ### Durable workflow runtime
 
 Workflow definitions are compositions of typed primitives registered and validated at backend
