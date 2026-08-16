@@ -1,3 +1,5 @@
+import postgres from 'postgres';
+
 const STORE_CONTRACT_FILES = [
   'apps/backend/tests/workflows/postgresWorkflowRunStore.integration.test.ts',
   'apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts',
@@ -20,6 +22,38 @@ export type WorkflowPostgresCommand = {
 };
 
 type ExecuteCommand = (command: WorkflowPostgresCommand) => Promise<number>;
+type CountConcurrentClients = () => Promise<number>;
+
+const WORKFLOW_POSTGRES_CONTRACT_APPLICATION_NAME = 'nous-workflow-postgres-contract';
+const POSTGRES_JS_APPLICATION_NAME = 'postgres.js';
+const CONCURRENT_DATABASE_CLIENT_ERROR =
+  'Workflow PostgreSQL contract requires an isolated database without other Postgres.js clients.';
+
+async function countConcurrentPostgresJsClients(): Promise<number> {
+  const databaseUrl = process.env.WORKFLOW_INTEGRATION_DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error(
+      'WORKFLOW_INTEGRATION_DATABASE_URL is required for workflow integration tests.'
+    );
+  }
+  const sql = postgres(databaseUrl, {
+    connection: { application_name: WORKFLOW_POSTGRES_CONTRACT_APPLICATION_NAME },
+    max: 1,
+  });
+  try {
+    const rows = await sql<Array<{ count: number }>>`
+      select count(*)::integer as count
+      from pg_stat_activity
+      where datname = current_database()
+        and backend_type = 'client backend'
+        and pid <> pg_backend_pid()
+        and application_name = ${POSTGRES_JS_APPLICATION_NAME}
+    `;
+    return rows[0]?.count ?? 0;
+  } finally {
+    await sql.end();
+  }
+}
 
 export function buildWorkflowPostgresCommands(
   mode: WorkflowPostgresContractMode
@@ -54,8 +88,12 @@ async function executeCommand(command: WorkflowPostgresCommand): Promise<number>
 
 export async function runWorkflowPostgresContract(
   mode: WorkflowPostgresContractMode,
-  execute: ExecuteCommand = executeCommand
+  execute: ExecuteCommand = executeCommand,
+  countConcurrentClients: CountConcurrentClients = countConcurrentPostgresJsClients
 ): Promise<number> {
+  if ((await countConcurrentClients()) > 0) {
+    throw new Error(CONCURRENT_DATABASE_CLIENT_ERROR);
+  }
   for (const command of buildWorkflowPostgresCommands(mode)) {
     const exitCode = await execute(command);
     if (exitCode !== 0) return exitCode;
