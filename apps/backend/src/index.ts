@@ -351,7 +351,15 @@ export const createApp = (options: CreateAppOptions = {}) => {
       _next: express.NextFunction
     ) => {
       if (err.type === 'entity.too.large' || err.status === 413) {
+        const diagnostic = toBackendErrorDiagnostic(err);
+        res.locals[REQUEST_FAILURE_LOCAL] = {
+          code: 'request_payload_too_large',
+          details: { diagnostic },
+          kind: 'permanent',
+          message: 'Request payload exceeded its configured limit.',
+        } satisfies StepFailure;
         console.warn('[Backend] Request payload too large:', {
+          correlationId: getCorrelationId(),
           status: err.status,
           type: err.type,
         });

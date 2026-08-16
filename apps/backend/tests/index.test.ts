@@ -260,4 +260,47 @@ describe('request lifecycle observability', () => {
       });
     }
   });
+
+  test('records sanitized failure metadata for payload-limit rejections', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const privatePayloadMarker = 'private-payload-marker';
+    const oversizedFeedback = `${privatePayloadMarker}${'x'.repeat(3 * 1024 * 1024)}`;
+    const server = createApp().listen(0, '127.0.0.1');
+
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected the test server to listen on a TCP port.');
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/feedback`, {
+        body: JSON.stringify({ description: oversizedFeedback }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+
+      expect(response.status).toBe(413);
+      const lifecycleFailure = errorLog.mock.calls
+        .flat()
+        .find(
+          value =>
+            typeof value === 'string' &&
+            value.includes('"operation":"http_request"') &&
+            value.includes('"action":"failed"')
+        );
+      expect(lifecycleFailure).toContain('"failureCode":"request_payload_too_large"');
+      expect(lifecycleFailure).toContain('"status":413');
+      expect(lifecycleFailure).not.toContain(privatePayloadMarker);
+      expect(warn).toHaveBeenCalledWith(
+        '[Backend] Request payload too large:',
+        expect.objectContaining({ correlationId: expect.any(String), status: 413 })
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => (error ? reject(error) : resolve()));
+      });
+    }
+  });
 });

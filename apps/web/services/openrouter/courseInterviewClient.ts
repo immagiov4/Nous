@@ -219,19 +219,26 @@ const parseRunState = (
   ) {
     throw new Error(COURSE_INTERVIEW_ERROR);
   }
-  const events = payload.state.publishedEvents.map(value => {
-    const event = readWorkflowEvent(value);
-    if (!event) throw new Error(COURSE_INTERVIEW_ERROR);
-    return event;
-  });
-  const waits = payload.state.waits.map(value => {
-    const wait = readWorkflowWait(value);
-    if (!wait) throw new Error(COURSE_INTERVIEW_ERROR);
-    return wait;
-  });
+  const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
+  let events: WorkflowEventSnapshot[];
+  let waits: WorkflowWaitSnapshot[];
+  try {
+    events = payload.state.publishedEvents.map(value => {
+      const event = readWorkflowEvent(value);
+      if (!event) throw new Error(COURSE_INTERVIEW_ERROR);
+      return event;
+    });
+    waits = payload.state.waits.map(value => {
+      const wait = readWorkflowWait(value);
+      if (!wait) throw new Error(COURSE_INTERVIEW_ERROR);
+      return wait;
+    });
+  } catch (error) {
+    logBackendFailureCorrelationId(correlationId);
+    throw error;
+  }
   const errorCode =
     isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
-  const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
   return {
     cleanupStatus,
     ...(correlationId ? { correlationId } : {}),

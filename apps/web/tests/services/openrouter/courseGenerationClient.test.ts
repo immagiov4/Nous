@@ -525,6 +525,7 @@ describe('courseGenerationClient', () => {
   });
 
   test('clears the PDF repair request key before validating a terminal result', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const queued = {
       id: 'repair-invalid-result',
       projectId: 'project-1',
@@ -536,6 +537,7 @@ describe('courseGenerationClient', () => {
       .mockResolvedValueOnce(
         workflowResponse({
           ...queued,
+          correlationId: CORRELATION_ID,
           result: { projectId: 'project-1', repaired: true },
           stage: 'ready',
           status: 'completed',
@@ -550,6 +552,7 @@ describe('courseGenerationClient', () => {
     expect(
       globalThis.sessionStorage.getItem('nous:pdf-mapping-repair-request:project-1')
     ).toBeNull();
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
   });
 
   test('clears the PDF repair request key before validating an immediate result', async () => {

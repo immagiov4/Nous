@@ -318,6 +318,10 @@ export const repairDurablePdfMapping = async ({
     logBackendFailureCorrelationId(terminalJob.correlationId);
     throw new Error(PDF_MAPPING_REPAIR_ERROR);
   }
-  const result = parsePdfMappingRepairResult(terminalJob.result, projectId);
-  return result;
+  try {
+    return parsePdfMappingRepairResult(terminalJob.result, projectId);
+  } catch (error) {
+    logBackendFailureCorrelationId(terminalJob.correlationId);
+    throw error;
+  }
 };
