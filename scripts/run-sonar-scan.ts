@@ -3,8 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { generateReactHooksLintReport, resolveEslintReportPath } from './run-eslint-react-hooks.ts';
-
-const LOCAL_SONAR_HOST_URL = 'http://127.0.0.1:9000';
+import { LOCAL_SONAR_HOST_URL } from './sonar-local.ts';
 
 const resolveScannerExecutable = () =>
   process.platform === 'win32'

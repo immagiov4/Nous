@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { LOCAL_SONAR_HOST_URL } from './sonar-local.ts';
+
 const CI_WORKFLOW_PATH = path.resolve('.github/workflows/ci.yml');
 const FALLOW_BASELINE_PATH = path.resolve('.fallow-baselines/regression.json');
 const PACKAGE_MANIFEST_PATH = path.resolve('package.json');
-const LOCAL_SONAR_HOST_URL = new URL('http://127.0.0.1:9000');
 const WORKSPACE_BIN_PATH = path.resolve('node_modules/.bin');
 const REALTIME_LOCAL_TENANT = 'realtime-dev';
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -379,13 +380,13 @@ export const inspectSonarService = async (request = fetch): Promise<DiagnosticRe
     }
 
     return {
-      detail: `UP at ${LOCAL_SONAR_HOST_URL.origin}; anonymous analysis is enabled.`,
+      detail: `UP at ${LOCAL_SONAR_HOST_URL}; anonymous analysis is enabled.`,
       label: 'SonarQube',
       status: 'PASS',
     };
   } catch {
     return {
-      detail: `Not reachable at ${LOCAL_SONAR_HOST_URL.origin}. Start it with "bun run sonar:up".`,
+      detail: `Not reachable at ${LOCAL_SONAR_HOST_URL}. Start it with "bun run sonar:up".`,
       label: 'SonarQube',
       status: 'FAIL',
     };

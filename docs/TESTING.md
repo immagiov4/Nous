@@ -89,11 +89,12 @@ bun run sonar:up
 bun run gate:full
 ```
 
-`sonar:up` creates or reconciles the local service with its loopback-only binding and anonymous
-analysis configuration; no scanner token or local credential bootstrap is required. Do not replace
-a required full gate with an isolated or skipped Sonar scan, and do not merge while a required
-Sonar result is failed, unreachable, or unverified. Record the successful full-gate command and
-Sonar result in the pull request before merging.
+`sonar:up` creates or reconciles the local service with its loopback-only binding. On a fresh
+volume, its Docker-internal one-shot provisioner grants the `Anyone` pseudo-group `Create Projects`
+and `Execute Analysis`, so no scanner token or developer credential bootstrap is required. Do not
+replace a required full gate with an isolated or skipped Sonar scan, and do not merge while a
+required Sonar result is failed, unreachable, or unverified. Record the successful full-gate command
+and Sonar result in the pull request before merging.
 
 Fallow fingerprints are SHA-256 hashes of the finding category and canonical JSON identity.
 Source coordinates and suggested remediation actions are excluded, so moving a finding within the
@@ -102,7 +103,8 @@ finding plus one new finding; the new identity remains blocking until the refact
 the baseline is refreshed explicitly.
 
 Before the first local full gate, start Sonar with `bun run sonar:up`. The service is local-only:
-Docker publishes it exclusively on `127.0.0.1:9000` and permits anonymous analysis only there.
+Docker publishes it exclusively on `127.0.0.1:9000`; its internal provisioner has no published port
+and permits anonymous analysis only through that loopback-bound service.
 
 ## Sonar quality ratchet
 

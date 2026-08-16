@@ -182,4 +182,13 @@ describe('inspectSonarService', () => {
       status: 'FAIL',
     });
   });
+
+  test('reports an unreachable local SonarQube service', async () => {
+    const request = vi.fn(async () => Promise.reject(new TypeError('Connection refused')));
+
+    await expect(inspectSonarService(request)).resolves.toMatchObject({
+      label: 'SonarQube',
+      status: 'FAIL',
+    });
+  });
 });

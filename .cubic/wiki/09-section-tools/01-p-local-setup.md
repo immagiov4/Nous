@@ -89,19 +89,19 @@ The `doctor` script supports multiple profiles to probe different aspects of the
 Sources: [scripts/doctor.ts:152-165](../../../scripts/doctor.ts#L152-L165), [scripts/doctor.ts:245-276](../../../scripts/doctor.ts#L245-L276)
 
 ### Local SonarQube Setup
-For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000` and enables anonymous analysis, so no scanner token or local credential bootstrap is required.
+For deep code analysis, a local SonarQube instance is used as a merge gate. Docker binds it only to `127.0.0.1:9000`. On a fresh volume, a Docker-internal one-shot provisioner grants the `Anyone` pseudo-group the global `Create Projects` and `Execute Analysis` permissions, so no scanner token or developer credential bootstrap is required.
 
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
     participant Sonar as SonarQube Service
     Dev->>Sonar: bun run sonar:up
-    Note over Sonar: Bind 127.0.0.1:9000 and allow anonymous analysis
+    Note over Sonar: Bind 127.0.0.1:9000 and provision anonymous analysis
     Dev->>Sonar: bun run gate:full
 ```
 
 *Tokenless local SonarQube analysis workflow.*
-Sources: [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml), [scripts/run-sonar-scan.ts](../../../scripts/run-sonar-scan.ts), [AGENTS.md:157-163](../../../AGENTS.md#L157-L163)
+Sources: [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml), [scripts/sonar-local.ts](../../../scripts/sonar-local.ts), [scripts/run-sonar-scan.ts](../../../scripts/run-sonar-scan.ts), [AGENTS.md:157-163](../../../AGENTS.md#L157-L163)
 
 ## Configuration Management
 

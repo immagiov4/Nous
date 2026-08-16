@@ -15,6 +15,26 @@ services:
       - sonarqube_extensions:/opt/sonarqube/extensions
     restart: unless-stopped
 
+  sonar-permissions:
+    image: curlimages/curl:8.21.0
+    depends_on:
+      sonarqube:
+        condition: service_started
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        curl --fail --silent --show-error --user admin:admin \
+          http://sonarqube:9000/api/system/status | grep --fixed-strings '"status":"UP"' > /dev/null
+        curl --fail --silent --show-error --user admin:admin --request POST \
+          --data-urlencode 'groupName=Anyone' \
+          --data-urlencode 'permission=provisioning' \
+          http://sonarqube:9000/api/permissions/add_group
+        curl --fail --silent --show-error --user admin:admin --request POST \
+          --data-urlencode 'groupName=Anyone' \
+          --data-urlencode 'permission=scan' \
+          http://sonarqube:9000/api/permissions/add_group
+    restart: on-failure
+
 volumes:
   sonarqube_data:
   sonarqube_logs:
