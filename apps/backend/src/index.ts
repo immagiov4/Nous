@@ -181,6 +181,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
         callback(new Error('Origine non consentita dalla configurazione CORS.'));
       },
       credentials: true,
+      exposedHeaders: ['x-request-id'],
     })
   );
   app.use((req, res, next) => {
