@@ -1,4 +1,4 @@
-export const SOURCE_ARCHIVE_PDF_WARNING_REASONS = [
+const SOURCE_ARCHIVE_PDF_WARNING_REASONS = [
   'no-usable-text',
   'parser-failed',
   'safety-limit',
