@@ -46,7 +46,11 @@ import {
   ProjectRevisionEventSchema,
 } from './projectRevisionNotifications.js';
 import { failPermanently, retryCorrective } from './retryPolicy.js';
-import type { WorkflowExecutionDefaults, WorkflowStepExecutionIdentity } from './types.js';
+import type {
+  WorkflowExecutionDefaults,
+  WorkflowProviderEffectExecutor,
+  WorkflowStepExecutionIdentity,
+} from './types.js';
 
 type DurableProjectVisual = z.infer<typeof ProjectVisualSchema>;
 
@@ -162,6 +166,11 @@ const EmbeddedImageOutputSchema = z.object({
   nodeInstanceId: z.string().min(1),
 });
 
+const GeneratedImageProviderResultSchema = z.object({
+  data: z.string(),
+  mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+});
+
 const assetIdempotencyKey = (stepKey: string, role: string): string =>
   JSON.stringify(['lesson-visual', stepKey, role]);
 
@@ -180,6 +189,21 @@ const visualServiceInput = (
   sectionTitle: input.sectionTitle,
   signal,
 });
+
+const runDurableImageProvider = async (
+  providerEffect: WorkflowProviderEffectExecutor | undefined,
+  operation: () => Promise<GeneratedLessonVisualImage>
+): Promise<z.infer<typeof GeneratedImageProviderResultSchema>> => {
+  if (!providerEffect) throw new Error('Provider effect persistence is required.');
+  return providerEffect.run({
+    key: 'generate-image',
+    operation: async () => {
+      const image = await operation();
+      return { data: Buffer.from(image.bytes).toString('base64'), mediaType: image.mediaType };
+    },
+    outputSchema: GeneratedImageProviderResultSchema,
+  });
+};
 
 const stageAsset = (input: {
   bytes: Uint8Array;
@@ -255,13 +279,16 @@ export const createLessonVisualWorkflows = <
     Config,
     Services
   >({
+    externalEffect: 'provider-with-postprocessing',
     id: 'render-raster',
     inputSchema: LessonVisualWorkflowInputSchema,
     outputSchema: LessonVisualWorkflowResultSchema,
-    run: async ({ config, execution, idempotencyKey, input, services, signal }) => {
-      const image = await services.generateRaster(visualServiceInput(config, input, signal));
+    run: async ({ config, execution, idempotencyKey, input, providerEffect, services, signal }) => {
+      const image = await runDurableImageProvider(providerEffect, () =>
+        services.generateRaster(visualServiceInput(config, input, signal))
+      );
       const asset = await stageAsset({
-        bytes: image.bytes,
+        bytes: new Uint8Array(Buffer.from(image.data, 'base64')),
         execution,
         mediaType: image.mediaType,
         role: 'image',
@@ -286,6 +313,7 @@ export const createLessonVisualWorkflows = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'generate-artifact',
     inputSchema: LessonVisualWorkflowInputSchema,
     outputSchema: ArtifactReviewStateSchema,
@@ -317,6 +345,7 @@ export const createLessonVisualWorkflows = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'review-artifact',
     inputSchema: ArtifactReviewStateSchema,
     outputSchema: ArtifactReviewDecisionSchema,
@@ -354,16 +383,19 @@ export const createLessonVisualWorkflows = <
     Config,
     Services
   >({
+    externalEffect: 'provider-with-postprocessing',
     id: 'render-embedded-image',
     inputSchema: EmbeddedImageInputSchema,
     outputSchema: EmbeddedImageOutputSchema,
-    run: async ({ config, execution, idempotencyKey, input, services, signal }) => {
-      const image = await services.generateEmbeddedImage({
-        ...visualServiceInput(config, input.input, signal),
-        request: input.request,
-      });
+    run: async ({ config, execution, idempotencyKey, input, providerEffect, services, signal }) => {
+      const image = await runDurableImageProvider(providerEffect, () =>
+        services.generateEmbeddedImage({
+          ...visualServiceInput(config, input.input, signal),
+          request: input.request,
+        })
+      );
       const asset = await stageAsset({
-        bytes: image.bytes,
+        bytes: new Uint8Array(Buffer.from(image.data, 'base64')),
         execution,
         mediaType: image.mediaType,
         role: input.request.id,

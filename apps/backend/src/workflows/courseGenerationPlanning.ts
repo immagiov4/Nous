@@ -1,4 +1,4 @@
-import type * as z from 'zod';
+import * as z from 'zod';
 import { generateCourseObject } from './courseGenerationModel.js';
 import {
   type CourseSourceMaterial,
@@ -12,6 +12,7 @@ import {
   type CoursePlanState,
   CoursePlanStateSchema,
   type CoursePlanVerification,
+  CoursePlanVerificationSchema,
   type CoursePlanVerificationState,
   type CourseRawArchivePlan,
   CourseRawArchivePlanSchema,
@@ -29,6 +30,11 @@ const COURSE_PLAN_SOURCE_MAX_CHARS = 180_000;
 const COURSE_SOURCE_SET_SAMPLE_MAX_CHARS = 8_000;
 const LEARN_COURSE_MIN_LESSONS = 8;
 const LEARN_COURSE_MAX_LESSONS = 24;
+
+const CoursePlanGenerationResultSchema = z.object({
+  rawPlan: CourseRawPlanSchema,
+  state: CourseResearchStateSchema,
+});
 
 type CourseResearchSource = z.infer<typeof CourseResearchSourceSchema>;
 type GenerateCourseObject = typeof generateCourseObject;
@@ -410,29 +416,41 @@ export const createCoursePlanningStages = ({
     return buildCourseDraftPlanState(generated.rawPlan, generated.state, now());
   },
   refineCoursePlan: async context => {
-    const generated = await generatePlan({
-      context,
-      draft: context.input.rawDraftPlan,
-      generateObject,
-      materials:
-        context.input.strategy === 'learn'
-          ? []
-          : await readSourceMaterials(context.input, context.signal),
-      verification: context.input.verification,
+    if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
+    const generated = await context.providerEffect.run({
+      key: 'generate-refined-plan',
+      operation: async () =>
+        generatePlan({
+          context,
+          draft: context.input.rawDraftPlan,
+          generateObject,
+          materials:
+            context.input.strategy === 'learn'
+              ? []
+              : await readSourceMaterials(context.input, context.signal),
+          verification: context.input.verification,
+        }),
+      outputSchema: CoursePlanGenerationResultSchema,
     });
     const generatedAt = now();
     const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
+    const verification = await context.providerEffect.run({
+      key: 'verify-refined-plan',
+      operation: () =>
+        verifyRefinedPlan({
+          models: context.config.models,
+          plan: refinedPlan.plan,
+          rawPlan: generated.rawPlan,
+          retryFeedback: context.retryFeedback,
+          signal: context.signal,
+          state: generated.state,
+        }),
+      outputSchema: CoursePlanVerificationSchema,
+    });
     const refinedVerification = requirePassingRefinedVerification({
       plan: refinedPlan.plan,
       rawPlan: generated.rawPlan,
-      verification: await verifyRefinedPlan({
-        models: context.config.models,
-        plan: refinedPlan.plan,
-        rawPlan: generated.rawPlan,
-        retryFeedback: context.retryFeedback,
-        signal: context.signal,
-        state: generated.state,
-      }),
+      verification,
     });
     return buildCourseRefinedPlanState(
       generated.rawPlan,

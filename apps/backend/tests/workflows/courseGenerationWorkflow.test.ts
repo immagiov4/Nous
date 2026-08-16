@@ -26,7 +26,8 @@ import {
 } from '../../src/workflows/courseGenerationWorkflowContract.js';
 import {
   createWorkflowRegistry,
-  preCompatibilityIdPrevious,
+  preCompatibilityIdAndExternalEffectPrevious,
+  preExternalEffectPrevious,
 } from '../../src/workflows/definition.js';
 import type { EmitDefinition, StepDefinition, WorkflowNode } from '../../src/workflows/types.js';
 import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
@@ -299,7 +300,10 @@ describe('course generation workflow', () => {
     const previous = createPreviousCourseGenerationWorkflow(config);
     const registration = createWorkflowRegistry().register({
       current,
-      previous: [previous, preCompatibilityIdPrevious(previous)],
+      previous: [
+        preExternalEffectPrevious(previous),
+        preCompatibilityIdAndExternalEffectPrevious(previous),
+      ],
     });
     const previousNodeIds = [...indexWorkflowNodes(previous).values()].map(entry => entry.node.id);
 

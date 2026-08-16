@@ -70,6 +70,7 @@ import type {
   DeepReadonly,
   StepExecutionContext,
   StepFailure,
+  WorkflowProviderEffectExecutor,
   WorkflowStepExecutionIdentity,
 } from './types.js';
 import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
@@ -95,6 +96,7 @@ export interface LessonGenerationStageContext<Input> {
   readonly idempotencyKey: string;
   readonly input: Input;
   readonly previousAttemptFailure?: StepFailure;
+  readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly retryFeedback: string;
   readonly signal: AbortSignal;
 }
@@ -260,6 +262,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'plan-sublesson',
     inputSchema: LessonGenerationWorkflowInputSchema,
     outputSchema: SublessonPlanStateSchema,
@@ -283,6 +286,7 @@ export const createLessonGenerationWorkflow = <
   >({
     commit: ({ input, output, services, transaction }) =>
       services.persistSublesson({ input, output, transaction }),
+    externalEffect: 'provider',
     id: 'finalize-sublesson',
     inputSchema: SublessonPlanStateSchema,
     outputSchema: SublessonReadyStateSchema,
@@ -385,6 +389,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'assess-source-coverage',
     inputSchema: LessonContextStateSchema,
     outputSchema: LessonCoverageStateSchema,
@@ -406,6 +411,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider-with-postprocessing',
     id: 'stage-document-sources',
     inputSchema: LessonCoverageStateSchema,
     outputSchema: LessonSourcesStateSchema,
@@ -444,6 +450,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'plan-youtube-research',
     inputSchema: LessonSourcesStateSchema,
     outputSchema: LessonYouTubePlanStateSchema,
@@ -464,6 +471,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'research-specific-youtube',
     inputSchema: LessonYouTubePlanStateSchema,
     outputSchema: LessonYouTubeSearchStateSchema,
@@ -484,6 +492,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'research-fallback-youtube',
     inputSchema: LessonYouTubeSearchStateSchema,
     outputSchema: LessonYouTubeSearchStateSchema,
@@ -568,6 +577,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'research-lesson',
     inputSchema: LessonYouTubeStateSchema,
     outputSchema: LessonResearchStateSchema,
@@ -589,6 +599,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'draft-lesson',
     inputSchema: LessonResearchStateSchema,
     outputSchema: LessonDraftStateSchema,
@@ -610,6 +621,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'review-lesson',
     inputSchema: LessonDraftStateSchema,
     outputSchema: LessonReviewedStateSchema,
@@ -631,6 +643,7 @@ export const createLessonGenerationWorkflow = <
     Config,
     Services
   >({
+    externalEffect: 'provider',
     id: 'generate-learning-aids',
     inputSchema: LessonReviewedStateSchema,
     outputSchema: LessonAidsStateSchema,

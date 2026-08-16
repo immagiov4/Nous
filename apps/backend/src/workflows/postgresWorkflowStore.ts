@@ -22,6 +22,10 @@ import {
   insertWorkflowAiUsage,
   toIsoString,
 } from './postgresWorkflowPersistence.js';
+import {
+  createPostgresWorkflowProviderEffectStore,
+  type WorkflowProviderEffectStore,
+} from './postgresWorkflowProviderEffectStore.js';
 import { PostgresWorkflowSignalStore } from './postgresWorkflowSignalStore.js';
 import { PostgresWorkflowStepStore } from './postgresWorkflowStepStore.js';
 import { PostgresWorkflowUndoStore } from './postgresWorkflowUndoStore.js';
@@ -369,6 +373,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
   readonly projectRevisionInbox: PostgresProjectRevisionInbox;
   readonly projectAssetDeletions: PostgresProjectAssetDeletionQueue;
   readonly projectAssets: PostgresProjectAssetStore;
+  readonly providerEffects: WorkflowProviderEffectStore;
   readonly signals: PostgresWorkflowSignalStore;
   readonly steps: PostgresWorkflowStepStore;
   readonly undo: PostgresWorkflowUndoStore;
@@ -404,6 +409,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
     this.outbox = new PostgresWorkflowOutboxStore(this.sql, this.logger);
     this.projectAssetDeletions = new PostgresProjectAssetDeletionQueue(this.sql);
     this.projectAssets = new PostgresProjectAssetStore(this.sql, projectAssetStorage);
+    this.providerEffects = createPostgresWorkflowProviderEffectStore(this.sql);
     this.lessonGenerationPersistence = new PostgresLessonGenerationPersistence({
       assets: this.projectAssets,
       sql: this.sql,

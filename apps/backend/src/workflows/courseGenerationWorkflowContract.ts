@@ -4,7 +4,12 @@ import * as z from 'zod';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { WorkflowExecutionDefaultsSchema } from './config.js';
 import { GlobalModelConfigSchema } from './modelConfigSchema.js';
-import type { DeepReadonly, StepFailure, WorkflowStepExecutionIdentity } from './types.js';
+import type {
+  DeepReadonly,
+  StepFailure,
+  WorkflowProviderEffectExecutor,
+  WorkflowStepExecutionIdentity,
+} from './types.js';
 
 export const CourseGenerationWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
   models: GlobalModelConfigSchema,
@@ -21,6 +26,7 @@ export interface CourseGenerationStageContext<Input> {
   readonly idempotencyKey: string;
   readonly input: Input;
   readonly previousAttemptFailure?: StepFailure;
+  readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly retryFeedback: string;
   readonly signal: AbortSignal;
 }

@@ -27,8 +27,8 @@ import type {
 } from './types.js';
 import {
   attestRegisteredWorkflow,
-  hashPreCompatibilityIdWorkflowManifest,
-  hashWorkflowManifest,
+  hashRegisteredWorkflowManifest,
+  type RegisteredWorkflowHashMode,
   validateWorkflowDefinition,
 } from './validation.js';
 
@@ -52,6 +52,7 @@ export const step = <
     >['commit']
   >;
   config?: WorkflowConfigOverride<Config>;
+  externalEffect?: StepDefinition['externalEffect'];
   id: string;
   inputSchema: InputSchema;
   maxAttempts?: number;
@@ -403,7 +404,7 @@ type PreviousWorkflowDefinition =
   | ErasedWorkflowDefinition
   | {
       readonly definition: ErasedWorkflowDefinition;
-      readonly hashMode: 'pre-compatibility-id';
+      readonly hashMode: Exclude<RegisteredWorkflowHashMode, 'current'>;
     };
 
 /** Temporary resume bridge for runs persisted before compatibility ids entered the manifest. */
@@ -411,17 +412,32 @@ export const preCompatibilityIdPrevious = (
   definition: ErasedWorkflowDefinition
 ): PreviousWorkflowDefinition => ({ definition, hashMode: 'pre-compatibility-id' });
 
+/** Resume bridge for runs persisted before provider effects entered step manifests. */
+export const preExternalEffectPrevious = (
+  definition: ErasedWorkflowDefinition
+): PreviousWorkflowDefinition => ({ definition, hashMode: 'pre-external-effect' });
+
+/** Resume bridge for runs persisted before compatibility ids and provider effects entered manifests. */
+export const preCompatibilityIdAndExternalEffectPrevious = (
+  definition: ErasedWorkflowDefinition
+): PreviousWorkflowDefinition => ({
+  definition,
+  hashMode: 'pre-compatibility-id-and-external-effect',
+});
+
+/** Resume bridge for runs persisted before provider post-processing had its own boundary. */
+export const preProviderPostprocessingPrevious = (
+  definition: ErasedWorkflowDefinition
+): PreviousWorkflowDefinition => ({ definition, hashMode: 'pre-provider-postprocessing' });
+
 const registerDefinition = (
   definition: ErasedWorkflowDefinition,
-  hashMode: 'current' | 'pre-compatibility-id' = 'current'
+  hashMode: RegisteredWorkflowHashMode = 'current'
 ): ErasedRegisteredWorkflow => {
   validateWorkflowDefinition(definition);
   const snapshot = snapshotDefinition(definition);
   const manifest = freezeConfigValue(validateWorkflowDefinition(snapshot)) as WorkflowManifest;
-  const definitionHash =
-    hashMode === 'pre-compatibility-id'
-      ? hashPreCompatibilityIdWorkflowManifest(manifest)
-      : hashWorkflowManifest(manifest);
+  const definitionHash = hashRegisteredWorkflowManifest(manifest, hashMode);
   return attestRegisteredWorkflow(
     Object.freeze({
       ...snapshot,

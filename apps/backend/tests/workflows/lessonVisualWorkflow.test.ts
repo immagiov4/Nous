@@ -11,6 +11,7 @@ import {
   type LessonVisualWorkflowResult,
   type LessonVisualWorkflowServices,
 } from '../../src/workflows/lessonVisualWorkflow.js';
+import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
 
 const FIRST_ASSET_ID = 'a'.repeat(64);
 const SECOND_ASSET_ID = 'b'.repeat(64);
@@ -98,6 +99,9 @@ const makeServices = (
 });
 
 const execution = (nodeInstanceId: string) => Object.freeze({ nodeInstanceId, runId: RUN_ID });
+const providerEffect: WorkflowProviderEffectExecutor = {
+  run: ({ operation }) => operation(),
+};
 
 const getRenderRoute = (workflowConfig = config) => {
   const route = createLessonVisualWorkflows(workflowConfig).render.root;
@@ -124,7 +128,11 @@ describe('lesson visual workflows', () => {
     const raster = route.cases.raster;
     const { generate, images, imageWorker, review, reviewStep } = getArtifactNodes();
 
-    expect(raster).toMatchObject({ id: 'render-raster', kind: 'step' });
+    expect(raster).toMatchObject({
+      externalEffect: 'provider-with-postprocessing',
+      id: 'render-raster',
+      kind: 'step',
+    });
     expect(generate.id).toBe('generate-artifact');
     expect(review).toMatchObject({
       id: 'review-artifact-until-done',
@@ -137,7 +145,10 @@ describe('lesson visual workflows', () => {
       id: 'materialize-artifact-images',
       kind: 'fanOut',
     });
-    expect(imageWorker.id).toBe('render-embedded-image');
+    expect(imageWorker).toMatchObject({
+      externalEffect: 'provider-with-postprocessing',
+      id: 'render-embedded-image',
+    });
   });
 
   test('raster generation stages bytes before checkpointing the asset reference', async () => {
@@ -157,6 +168,7 @@ describe('lesson visual workflows', () => {
       execution: execution('route-visual-format/raster'),
       idempotencyKey: 'raster-key',
       input: rasterInput,
+      providerEffect,
       retryFeedback: '',
       services,
       signal,
@@ -308,6 +320,7 @@ describe('lesson visual workflows', () => {
         execution: execution(`artifact/images/item:${imageInput.request.id}`),
         idempotencyKey: `image-${index}`,
         input: imageInput,
+        providerEffect,
         retryFeedback: '',
         services,
         signal,

@@ -10,7 +10,11 @@ import {
   workflow,
 } from '../../src/workflows/definition.js';
 import { retryOperational } from '../../src/workflows/retryPolicy.js';
-import type { RegisteredWorkflow, WorkflowStepClaim } from '../../src/workflows/types.js';
+import type {
+  JsonValue,
+  RegisteredWorkflow,
+  WorkflowStepClaim,
+} from '../../src/workflows/types.js';
 import { recordWorkflowAiUsage } from '../../src/workflows/workflowAiMetering.js';
 import { WorkflowCancellationRequestedError } from '../../src/workflows/workflowErrors.js';
 import {
@@ -55,7 +59,9 @@ const makeClaim = (
 
 type WorkflowStepRunnerStoreOverrides = Partial<{
   checkpointStep: WorkflowStepRunnerStore['checkpointStep'];
+  getProviderResult: WorkflowStepRunnerStore['providerEffects']['getResult'];
   heartbeat: WorkflowStepRunnerStore['steps']['heartbeat'];
+  recordProviderResult: WorkflowStepRunnerStore['providerEffects']['recordResult'];
   recordAiUsage: WorkflowStepRunnerStore['recordAiUsage'];
   recordDefinitionUnavailable: WorkflowStepRunnerStore['steps']['recordDefinitionUnavailable'];
   recordFailure: WorkflowStepRunnerStore['steps']['recordFailure'];
@@ -77,6 +83,20 @@ const makeStore = (overrides: WorkflowStepRunnerStoreOverrides = {}): WorkflowSt
       status: 'checkpointed' as const,
       transientEvents: [],
     })),
+  providerEffects: {
+    getResult:
+      overrides.getProviderResult ??
+      vi.fn(
+        async (_input: Parameters<WorkflowStepRunnerStore['providerEffects']['getResult']>[0]) =>
+          undefined
+      ),
+    recordResult:
+      overrides.recordProviderResult ??
+      vi.fn(
+        async (input: Parameters<WorkflowStepRunnerStore['providerEffects']['recordResult']>[0]) =>
+          input.output
+      ),
+  },
   recordAiUsage: overrides.recordAiUsage ?? vi.fn(async () => undefined),
   steps: {
     heartbeat:
@@ -533,6 +553,329 @@ describe('single workflow step runner', () => {
       code: 'workflow_step_timeout',
       kind: 'operational',
     });
+  });
+
+  test('deduplicates a provider result that completes after timeout alongside its retry', async () => {
+    vi.useFakeTimers();
+    const finishProvider: Array<(output: { text: string }) => void> = [];
+    const provider = vi.fn(
+      async () =>
+        new Promise<{ text: string }>(resolve => {
+          finishProvider.push(resolve);
+        })
+    );
+    const work = step({
+      externalEffect: 'provider',
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: provider,
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'provider-result-deduplication',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const canonicalResults = new Map<string, JsonValue>();
+    let confirmFirstResult: (() => void) | undefined;
+    const firstResultRecorded = new Promise<void>(resolve => {
+      confirmFirstResult = resolve;
+    });
+    const recordProviderResult = vi.fn(
+      async (input: Parameters<WorkflowStepRunnerStore['providerEffects']['recordResult']>[0]) => {
+        const canonical = canonicalResults.get(input.idempotencyKey);
+        if (canonical !== undefined) return canonical;
+        canonicalResults.set(input.idempotencyKey, input.output);
+        confirmFirstResult?.();
+        return input.output;
+      }
+    );
+    const checkpointStep = vi.fn(
+      async (_input: Parameters<WorkflowStepRunnerStore['checkpointStep']>[0]) => ({
+        status: 'checkpointed' as const,
+        transientEvents: [],
+      })
+    );
+    const store = makeStore({ checkpointStep, recordProviderResult });
+    const timedClaim = makeClaim(registered, {
+      nodeInstanceId: 'work',
+      stepPolicies: {
+        work: {
+          config: { maxAttempts: 3, timeoutMs: 1_000 },
+          maxAttempts: 3,
+          timeoutMs: 1_000,
+        },
+      },
+      timeoutMs: 1_000,
+    });
+
+    const firstExecution = runWorkflowStepClaim({
+      claim: timedClaim,
+      registry,
+      services: {},
+      store,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(firstExecution).resolves.toMatchObject({ status: 'failure-recorded' });
+
+    const retryExecution = runWorkflowStepClaim({
+      claim: { ...timedClaim, attemptNumber: 2, fencingToken: '2' },
+      registry,
+      services: {},
+      store,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finishProvider).toHaveLength(2);
+    finishProvider[0]?.({ text: 'late-first-result' });
+    await firstResultRecorded;
+    finishProvider[1]?.({ text: 'retry-result' });
+    await expect(retryExecution).resolves.toMatchObject({ status: 'checkpointed' });
+
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(recordProviderResult).toHaveBeenCalledTimes(2);
+    expect(checkpointStep).toHaveBeenCalledOnce();
+    expect(checkpointStep.mock.calls[0]?.[0].output).toEqual({ text: 'late-first-result' });
+  });
+
+  test('checkpoints an authoritative provider result without repeating the provider call', async () => {
+    const provider = vi.fn(async () => ({ text: 'duplicate' }));
+    const work = step({
+      externalEffect: 'provider',
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: provider,
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'provider-result-reuse',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const getProviderResult = vi.fn(async () => ({ text: 'authoritative' }));
+    const store = makeStore({ getProviderResult });
+
+    await expect(
+      runWorkflowStepClaim({
+        claim: makeClaim(registered, { nodeInstanceId: 'work' }),
+        registry,
+        services: {},
+        store,
+      })
+    ).resolves.toMatchObject({ status: 'checkpointed' });
+
+    expect(getProviderResult).toHaveBeenCalledOnce();
+    expect(provider).not.toHaveBeenCalled();
+    expect(store.providerEffects.recordResult).not.toHaveBeenCalled();
+    expect(store.checkpointStep).toHaveBeenCalledWith(
+      expect.objectContaining({ output: { text: 'authoritative' } })
+    );
+  });
+
+  test('reuses a provider result when downstream post-processing fails', async () => {
+    const provider = vi.fn(async () => ({ text: 'paid-result' }));
+    const postprocess = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('asset staging unavailable'))
+      .mockResolvedValueOnce(undefined);
+    const work = step({
+      externalEffect: 'provider-with-postprocessing',
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async ({ providerEffect }) => {
+        if (!providerEffect) throw new Error('Expected provider effect persistence.');
+        const output = await providerEffect.run({
+          key: 'generate',
+          operation: provider,
+          outputSchema: Text,
+        });
+        await postprocess();
+        return output;
+      },
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'provider-result-before-postprocessing',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    let persistedResult: JsonValue | undefined;
+    const getProviderResult = vi.fn(async () => persistedResult);
+    const recordProviderResult = vi.fn(
+      async (input: Parameters<WorkflowStepRunnerStore['providerEffects']['recordResult']>[0]) => {
+        persistedResult ??= input.output;
+        return persistedResult;
+      }
+    );
+    const store = makeStore({ getProviderResult, recordProviderResult });
+    const claim = makeClaim(registered, { nodeInstanceId: 'work' });
+
+    await expect(
+      runWorkflowStepClaim({ claim, registry, services: {}, store })
+    ).resolves.toMatchObject({ status: 'failure-recorded' });
+    await expect(
+      runWorkflowStepClaim({
+        claim: { ...claim, attemptNumber: 2, fencingToken: '2' },
+        registry,
+        services: {},
+        store,
+      })
+    ).resolves.toMatchObject({ status: 'checkpointed' });
+
+    expect(provider).toHaveBeenCalledOnce();
+    expect(recordProviderResult).toHaveBeenCalledOnce();
+    expect(postprocess).toHaveBeenCalledTimes(2);
+    expect(store.checkpointStep).toHaveBeenCalledWith(
+      expect.objectContaining({ output: { text: 'paid-result' } })
+    );
+  });
+
+  test('reuses each provider result independently when a later provider fails', async () => {
+    const generate = vi.fn(async () => ({ text: 'generated' }));
+    const verify = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('verification provider unavailable'))
+      .mockResolvedValueOnce({ text: 'verified' });
+    const work = step({
+      externalEffect: 'provider-with-postprocessing',
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async ({ providerEffect }) => {
+        if (!providerEffect) throw new Error('Expected provider effect persistence.');
+        await providerEffect.run({ key: 'generate', operation: generate, outputSchema: Text });
+        return providerEffect.run({ key: 'verify', operation: verify, outputSchema: Text });
+      },
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'multiple-provider-results',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const persisted = new Map<string, JsonValue>();
+    const getProviderResult = vi.fn(async ({ idempotencyKey }) => persisted.get(idempotencyKey));
+    const recordProviderResult = vi.fn(
+      async (input: Parameters<WorkflowStepRunnerStore['providerEffects']['recordResult']>[0]) => {
+        persisted.set(input.idempotencyKey, input.output);
+        return input.output;
+      }
+    );
+    const store = makeStore({ getProviderResult, recordProviderResult });
+    const claim = makeClaim(registered, { nodeInstanceId: 'work' });
+
+    await expect(
+      runWorkflowStepClaim({ claim, registry, services: {}, store })
+    ).resolves.toMatchObject({ status: 'failure-recorded' });
+    await expect(
+      runWorkflowStepClaim({
+        claim: { ...claim, attemptNumber: 2, fencingToken: '2' },
+        registry,
+        services: {},
+        store,
+      })
+    ).resolves.toMatchObject({ status: 'checkpointed' });
+
+    expect(generate).toHaveBeenCalledOnce();
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect([...persisted.keys()]).toEqual([
+      expect.stringContaining(':provider:generate'),
+      expect.stringContaining(':provider:verify'),
+    ]);
+  });
+
+  test('does not repeat a provider after usage persistence fails', async () => {
+    const provider = vi.fn(async () => {
+      await recordWorkflowAiUsage({
+        inputTokens: 5,
+        model: 'paid-model',
+        outputTokens: 3,
+        provider: 'paid-provider',
+      });
+      return { text: 'paid-result' };
+    });
+    const work = step({
+      externalEffect: 'provider',
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: provider,
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'provider-result-before-usage',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    let persistedResult: JsonValue | undefined;
+    const getProviderResult = vi.fn(async () => persistedResult);
+    const recordProviderResult = vi.fn(
+      async (input: Parameters<WorkflowStepRunnerStore['providerEffects']['recordResult']>[0]) => {
+        persistedResult ??= input.output;
+        throw postgresError('23505');
+      }
+    );
+    const store = makeStore({ getProviderResult, recordProviderResult });
+    const claim = makeClaim(registered, { nodeInstanceId: 'work' });
+
+    await expect(
+      runWorkflowStepClaim({ claim, registry, services: {}, store })
+    ).resolves.toMatchObject({ status: 'failure-recorded' });
+    await expect(
+      runWorkflowStepClaim({
+        claim: { ...claim, attemptNumber: 2, fencingToken: '2' },
+        registry,
+        services: {},
+        store,
+      })
+    ).resolves.toMatchObject({ status: 'checkpointed' });
+
+    expect(provider).toHaveBeenCalledOnce();
+    expect(recordProviderResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aiUsage: [
+          expect.objectContaining({
+            attemptNumber: 1,
+            model: 'paid-model',
+            provider: 'paid-provider',
+          }),
+        ],
+        output: { text: 'paid-result' },
+      })
+    );
+    expect(store.recordAiUsage).toHaveBeenCalledOnce();
   });
 
   test('observes a late run rejection after timeout without recording a second failure', async () => {

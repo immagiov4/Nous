@@ -45,7 +45,9 @@ import {
 } from './courseInterviewWorkflow.js';
 import {
   createWorkflowRegistry,
-  preCompatibilityIdPrevious,
+  preCompatibilityIdAndExternalEffectPrevious,
+  preExternalEffectPrevious,
+  preProviderPostprocessingPrevious,
   type WorkflowRegistry,
 } from './definition.js';
 import {
@@ -177,7 +179,7 @@ export interface CreateWorkflowRuntimeCompositionOptions {
   readonly worker?: WorkflowRuntimeLifecycle;
 }
 
-const createProductionRegistry = (): WorkflowRegistry => {
+export const createProductionRegistry = (): WorkflowRegistry => {
   const registry = createWorkflowRegistry();
   const models = getGlobalModelConfig();
   const visual = resolveLessonVisualModelConfig(models);
@@ -231,27 +233,50 @@ const createProductionRegistry = (): WorkflowRegistry => {
   );
   registry.register({
     current: artifactDraftWorkflow,
-    previous: preCompatibilityIdPrevious(artifactDraftWorkflow),
+    previous: [
+      preProviderPostprocessingPrevious(artifactDraftWorkflow),
+      preExternalEffectPrevious(artifactDraftWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(artifactDraftWorkflow),
+    ],
   });
   registry.register({
     current: retryWorkflow,
-    previous: preCompatibilityIdPrevious(retryWorkflow),
+    previous: [
+      preProviderPostprocessingPrevious(retryWorkflow),
+      preExternalEffectPrevious(retryWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(retryWorkflow),
+    ],
   });
   registry.register({
     current: courseInterviewWorkflow,
-    previous: preCompatibilityIdPrevious(previousCourseInterviewWorkflow),
+    previous: [
+      preExternalEffectPrevious(courseInterviewWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(previousCourseInterviewWorkflow),
+    ],
   });
   registry.register({
     current: courseWorkflow,
-    previous: [previousCourseWorkflow, preCompatibilityIdPrevious(previousCourseWorkflow)],
+    previous: [
+      preProviderPostprocessingPrevious(courseWorkflow),
+      preExternalEffectPrevious(courseWorkflow),
+      preExternalEffectPrevious(previousCourseWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(previousCourseWorkflow),
+    ],
   });
   registry.register({
     current: lessonWorkflow,
-    previous: preCompatibilityIdPrevious(previousLessonWorkflow),
+    previous: [
+      preProviderPostprocessingPrevious(lessonWorkflow),
+      preExternalEffectPrevious(lessonWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(previousLessonWorkflow),
+    ],
   });
   registry.register({
     current: pdfMappingRepairWorkflow,
-    previous: preCompatibilityIdPrevious(previousPdfMappingRepairWorkflow),
+    previous: [
+      preExternalEffectPrevious(pdfMappingRepairWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(previousPdfMappingRepairWorkflow),
+    ],
   });
   return registry;
 };

@@ -8,6 +8,11 @@ import {
 } from '../../src/workflows/courseGenerationPlanning.js';
 import { CoursePlanVerificationStateSchema } from '../../src/workflows/courseGenerationWorkflowContract.js';
 import { WorkflowStepError } from '../../src/workflows/retryPolicy.js';
+import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
+
+const immediateProviderEffect: WorkflowProviderEffectExecutor = {
+  run: async ({ operation, outputSchema }) => outputSchema.parse(await operation()),
+};
 
 const youtubeUrl = 'https://www.youtube.com/watch?v=abc';
 const webUrl = 'https://example.com/distributed-systems';
@@ -249,6 +254,7 @@ describe('course generation planning', () => {
       execution: { nodeInstanceId: 'draft-course-plan', runId: 'run-1' },
       idempotencyKey: 'draft-key',
       input: documentState,
+      providerEffect: immediateProviderEffect,
       retryFeedback: '',
       signal: new AbortController().signal,
     };

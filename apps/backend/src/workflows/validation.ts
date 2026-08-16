@@ -28,7 +28,12 @@ type RuntimeWait = Extract<WorkflowNode, { kind: 'waitForSignal' }>;
 type RuntimeWorkflow = Extract<WorkflowNode, { kind: 'workflow' }>;
 type WorkflowCatalog = Pick<WorkflowDefinition, 'events' | 'signals'>;
 
-type RegisteredWorkflowHashMode = 'current' | 'pre-compatibility-id';
+export type RegisteredWorkflowHashMode =
+  | 'current'
+  | 'pre-compatibility-id'
+  | 'pre-external-effect'
+  | 'pre-compatibility-id-and-external-effect'
+  | 'pre-provider-postprocessing';
 
 const registeredWorkflowSnapshots = new WeakMap<object, RegisteredWorkflowHashMode>();
 
@@ -148,6 +153,13 @@ const assertNodeShape = (rawNode: unknown, path: string): WorkflowNode => {
 
 const validateStep = (node: RuntimeStep, context: NodeValidationContext, path: string): void => {
   assertCallback(node.run, `Step ${node.id} must define a run callback.`);
+  if (
+    node.externalEffect !== undefined &&
+    node.externalEffect !== 'provider' &&
+    node.externalEffect !== 'provider-with-postprocessing'
+  ) {
+    throw new Error(`Step ${node.id} has an unknown external effect.`);
+  }
   if (node.commit !== undefined) {
     assertCallback(node.commit, `Step ${node.id} has an invalid commit callback.`);
   }
@@ -356,7 +368,12 @@ const nodeManifest = (node: WorkflowNode, path: string): unknown => {
   };
   switch (node.kind) {
     case 'step':
-      return { ...common, hasCommit: node.commit !== undefined, hasUndo: node.undo !== undefined };
+      return {
+        ...common,
+        ...(node.externalEffect === undefined ? {} : { externalEffect: node.externalEffect }),
+        hasCommit: node.commit !== undefined,
+        hasUndo: node.undo !== undefined,
+      };
     case 'sequence':
       return {
         ...common,
@@ -498,21 +515,116 @@ export const validateWorkflowDefinition = (
 export const hashWorkflowManifest = (manifest: WorkflowManifest): string =>
   createHash('sha256').update(canonicalJson(manifest)).digest('hex');
 
-const omitCompatibilityIds = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(omitCompatibilityIds);
+const omitManifestField = (value: unknown, field: string): unknown => {
+  if (Array.isArray(value)) return value.map(child => omitManifestField(child, field));
   if (!isRecord(value)) return value;
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([key]) => key !== 'compatibilityId')
-      .map(([key, child]) => [key, omitCompatibilityIds(child)])
+      .filter(([key]) => key !== field)
+      .map(([key, child]) => [key, omitManifestField(child, field)])
   );
 };
 
+const mapStepExternalEffects = (
+  value: unknown,
+  mapEffect: (effect: unknown) => unknown
+): unknown => {
+  if (!isRecord(value)) return value;
+  const node = { ...value };
+  if (node.kind === 'step' && 'externalEffect' in node) {
+    const mappedEffect = mapEffect(node.externalEffect);
+    if (mappedEffect === undefined) delete node.externalEffect;
+    else node.externalEffect = mappedEffect;
+  }
+  switch (node.kind) {
+    case 'sequence':
+      return {
+        ...node,
+        nodes: Array.isArray(node.nodes)
+          ? node.nodes.map(child => mapStepExternalEffects(child, mapEffect))
+          : node.nodes,
+      };
+    case 'fanOut':
+      return { ...node, worker: mapStepExternalEffects(node.worker, mapEffect) };
+    case 'routeBy':
+      return {
+        ...node,
+        cases: isRecord(node.cases)
+          ? Object.fromEntries(
+              Object.entries(node.cases).map(([key, child]) => [
+                key,
+                mapStepExternalEffects(child, mapEffect),
+              ])
+            )
+          : node.cases,
+      };
+    case 'repeat':
+      return { ...node, body: mapStepExternalEffects(node.body, mapEffect) };
+    case 'workflow':
+      return { ...node, root: mapStepExternalEffects(node.root, mapEffect) };
+    default:
+      return node;
+  }
+};
+
+const omitStepExternalEffects = (value: unknown): unknown =>
+  mapStepExternalEffects(value, () => undefined);
+
+const restoreProviderStepBoundary = (value: unknown): unknown =>
+  mapStepExternalEffects(value, effect =>
+    effect === 'provider-with-postprocessing' ? 'provider' : effect
+  );
+
 /** Reconstructs hashes written before compatibility ids became part of workflow manifests. */
-export const hashPreCompatibilityIdWorkflowManifest = (manifest: WorkflowManifest): string =>
+const hashPreCompatibilityIdWorkflowManifest = (manifest: WorkflowManifest): string =>
   createHash('sha256')
-    .update(canonicalJson(omitCompatibilityIds(manifest)))
+    .update(canonicalJson(omitManifestField(manifest, 'compatibilityId')))
     .digest('hex');
+
+/** Reconstructs hashes written before provider effects entered step manifests. */
+export const hashPreExternalEffectWorkflowManifest = (manifest: WorkflowManifest): string =>
+  createHash('sha256')
+    .update(canonicalJson({ ...manifest, root: omitStepExternalEffects(manifest.root) }))
+    .digest('hex');
+
+/** Reconstructs hashes written before compatibility ids and provider effects entered manifests. */
+const hashPreCompatibilityIdAndExternalEffectWorkflowManifest = (
+  manifest: WorkflowManifest
+): string =>
+  createHash('sha256')
+    .update(
+      canonicalJson(
+        omitManifestField(
+          { ...manifest, root: omitStepExternalEffects(manifest.root) },
+          'compatibilityId'
+        )
+      )
+    )
+    .digest('hex');
+
+/** Reconstructs hashes written before provider post-processing had its own ledger boundary. */
+export const hashPreProviderPostprocessingWorkflowManifest = (manifest: WorkflowManifest): string =>
+  createHash('sha256')
+    .update(canonicalJson({ ...manifest, root: restoreProviderStepBoundary(manifest.root) }))
+    .digest('hex');
+
+export const hashRegisteredWorkflowManifest = (
+  manifest: WorkflowManifest,
+  hashMode: RegisteredWorkflowHashMode
+): string => {
+  switch (hashMode) {
+    case 'current':
+      return hashWorkflowManifest(manifest);
+    case 'pre-compatibility-id':
+      return hashPreCompatibilityIdWorkflowManifest(manifest);
+    case 'pre-external-effect':
+      return hashPreExternalEffectWorkflowManifest(manifest);
+    case 'pre-compatibility-id-and-external-effect':
+      return hashPreCompatibilityIdAndExternalEffectWorkflowManifest(manifest);
+    case 'pre-provider-postprocessing':
+      return hashPreProviderPostprocessingWorkflowManifest(manifest);
+  }
+};
 
 export const assertRegisteredWorkflowIntegrity = <Input, Output, Config, Services>(
   definition: RegisteredWorkflow<Input, Output, Config, Services>
@@ -526,10 +638,7 @@ export const assertRegisteredWorkflowIntegrity = <Input, Output, Config, Service
     throw new Error('Workflow definition must be registered before materialization.');
   }
   const currentManifest = validateWorkflowDefinition(definition);
-  const currentHash =
-    hashMode === 'pre-compatibility-id'
-      ? hashPreCompatibilityIdWorkflowManifest(currentManifest)
-      : hashWorkflowManifest(currentManifest);
+  const currentHash = hashRegisteredWorkflowManifest(currentManifest, hashMode);
   if (currentHash !== definition.definitionHash) {
     throw new Error(`Registered workflow definition ${definition.id} changed after registration.`);
   }

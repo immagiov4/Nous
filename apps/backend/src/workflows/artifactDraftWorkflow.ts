@@ -178,6 +178,7 @@ export const createArtifactDraftWorkflow = (executionDefaults: ArtifactDraftWork
     ArtifactDraftWorkflowConfig,
     ArtifactDraftWorkflowServices
   >({
+    externalEffect: 'provider',
     id: 'plan-artifact-draft',
     inputSchema: ArtifactDraftWorkflowInputSchema,
     outputSchema: ArtifactDraftPlanStateSchema,
