@@ -33,6 +33,7 @@ import {
   detachProjectSources,
   prepareProjectSource,
   prepareProjectSourceBytes,
+  preserveStoredProjectSource,
   readEmbeddedProjectSource,
   readEmbeddedProjectSources,
 } from '../../src/projects/projectSource.js';
@@ -327,6 +328,9 @@ export class InMemoryProjectStore implements ProjectStore {
     let snapshot = normalizeProjectSnapshot(clone(data), false, {
       externalArchiveBytesAvailable: Boolean(sourceFile?.bytes.byteLength),
     });
+    if (existing) {
+      snapshot = preserveStoredProjectSource(snapshot, existing.snapshot);
+    }
     const embeddedSources = readEmbeddedProjectSources(snapshot);
     if (embeddedSources.length > 0) {
       snapshot = detachProjectSources(
@@ -345,6 +349,8 @@ export class InMemoryProjectStore implements ProjectStore {
           } satisfies ProjectSourceFile);
         const ref = await this.storeProjectSource(userId, snapshot.id, source, sourceFile?.bytes);
         snapshot = detachProjectSource(snapshot, ref);
+      } else if (snapshot.source != null && !this.getSources(userId).has(snapshot.id)) {
+        throw new Error('Detached project source has no stored metadata.');
       }
     }
 

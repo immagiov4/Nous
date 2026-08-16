@@ -47,6 +47,18 @@ export const readEmbeddedProjectSource = (snapshot: ProjectSnapshot): ProjectSou
   };
 };
 
+export const preserveStoredProjectSource = (
+  snapshot: ProjectSnapshot,
+  storedSnapshot: ProjectSnapshot
+): ProjectSnapshot =>
+  snapshot.source == null && storedSnapshot.source != null
+    ? {
+        ...snapshot,
+        source: storedSnapshot.source,
+        sourceKind: storedSnapshot.sourceKind,
+      }
+    : snapshot;
+
 export const prepareProjectSource = (
   file: ProjectSourceFile,
   sourceId?: string

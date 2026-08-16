@@ -112,7 +112,6 @@ export interface ProjectPatch {
   lastCourseGenerationRunId?: string | null;
   documentAssets?: Record<string, unknown> | null;
   documentIndex?: Record<string, unknown> | null;
-  source?: unknown;
   section?: SectionPatch;
   updatedAt?: string;
 }

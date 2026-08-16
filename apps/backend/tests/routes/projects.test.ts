@@ -85,6 +85,18 @@ const createModuleSnapshot = (id: string, title: string, updatedAt = '2026-04-26
     },
   }) satisfies ProjectSnapshot;
 
+const createPdfSnapshot = (id: string, title: string): ProjectSnapshot => ({
+  ...createSnapshot(id, title),
+  source: {
+    file: {
+      data: Buffer.from('persisted-pdf-source').toString('base64'),
+      mimeType: 'application/pdf',
+      name: 'source.pdf',
+    },
+    kind: 'pdf',
+  },
+});
+
 describe('/api/projects', () => {
   beforeEach(() => {
     previousLocalUserId = process.env.LOCAL_USER_ID;
@@ -1100,6 +1112,85 @@ describe('/api/projects', () => {
       quiz: null,
       visualPlanningDecision: null,
     });
+  });
+
+  test('rejects source changes through the generic project patch route', async () => {
+    const app = createApp();
+    const snapshot = createPdfSnapshot('source-patch-project', 'Corso PDF');
+    const saveResponse = await request(app)
+      .put('/api/projects/projects/source-patch-project')
+      .send({ snapshot });
+
+    const patchResponse = await request(app)
+      .patch('/api/projects/projects/source-patch-project')
+      .send({
+        expectedRevision: saveResponse.body.meta.revision,
+        patch: { source: null, title: 'Titolo aggiornato' },
+      });
+
+    expect(patchResponse.status).toBe(400);
+    const loadResponse = await request(app).get('/api/projects/projects/source-patch-project');
+    expect(loadResponse.body.project.source).toMatchObject({
+      kind: 'pdf',
+      ref: { name: 'source.pdf' },
+    });
+  });
+
+  test('preserves a stored source when a full project update omits it', async () => {
+    const app = createApp();
+    const snapshot = createPdfSnapshot('source-put-project', 'Corso PDF');
+    const saveResponse = await request(app)
+      .put('/api/projects/projects/source-put-project')
+      .send({ snapshot });
+
+    const updateResponse = await request(app)
+      .put('/api/projects/projects/source-put-project')
+      .send({
+        expectedRevision: saveResponse.body.meta.revision,
+        snapshot: {
+          ...snapshot,
+          title: 'Titolo aggiornato',
+          source: null,
+          updatedAt: '2026-04-26T11:00:00.000Z',
+        },
+      });
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateResponse.body.snapshot).toMatchObject({
+      title: 'Titolo aggiornato',
+      source: { kind: 'pdf', ref: { name: 'source.pdf' } },
+    });
+    const sourceResponse = await request(app).get(
+      '/api/projects/projects/source-put-project/source'
+    );
+    expect(sourceResponse.body.source.data).toBe(snapshot.source?.file.data);
+  });
+
+  test('rejects a new detached PDF snapshot without stored source bytes', async () => {
+    const app = createApp();
+    const snapshot = createPdfSnapshot('missing-source-project', 'Corso PDF');
+    const detachedSnapshot = {
+      ...snapshot,
+      source: {
+        ...snapshot.source,
+        file: { ...snapshot.source?.file, data: '' },
+        ref: {
+          byteSize: 20,
+          hash: 'a'.repeat(64),
+          id: 'source-missing',
+          mimeType: 'application/pdf',
+          name: 'source.pdf',
+          objectPath: 'users/local-user/projects/missing/source-missing/original',
+        },
+      },
+    };
+
+    const response = await request(app)
+      .put('/api/projects/projects/missing-source-project')
+      .send({ snapshot: detachedSnapshot });
+
+    expect(response.status).toBe(400);
+    expect(await store.loadProject('local-user', 'missing-source-project')).toBeNull();
   });
 
   test('renames a project without replacing the rest of its learning plan', async () => {
