@@ -6,6 +6,9 @@ export type SiblingItem =
   | { id: string; kind: 'folder'; value: LibraryFolder }
   | { id: string; kind: 'project'; value: LibraryPlacement };
 
+export const buildSiblingItemIdentity = (item: Pick<SiblingItem, 'id' | 'kind'>): string =>
+  JSON.stringify([item.kind, item.id]);
+
 export const buildOrderedSiblingItems = (
   folders: LibraryFolder[],
   placements: LibraryPlacement[],
@@ -33,8 +36,8 @@ export const buildOrderedSiblingItems = (
   });
 
 const resolveInsertionIndex = (
-  originalSiblingItems: Array<{ id: string }>,
-  movingIds: Set<string>,
+  originalSiblingItems: SiblingItem[],
+  movingItemIdentities: Set<string>,
   targetIndex: number | undefined,
   filteredSiblingCount: number
 ): number => {
@@ -44,24 +47,26 @@ const resolveInsertionIndex = (
 
   const boundedTargetIndex = Math.max(
     0,
-    Math.min(filteredSiblingCount + movingIds.size, Math.trunc(targetIndex))
+    Math.min(filteredSiblingCount + movingItemIdentities.size, Math.trunc(targetIndex))
   );
   const removedBeforeTarget = originalSiblingItems
     .slice(0, boundedTargetIndex)
-    .filter(item => movingIds.has(item.id)).length;
+    .filter(item => movingItemIdentities.has(buildSiblingItemIdentity(item))).length;
   return Math.max(0, Math.min(filteredSiblingCount, boundedTargetIndex - removedBeforeTarget));
 };
 
 export const insertMovedSiblingItems = (
   destinationItems: SiblingItem[],
-  movingIds: Set<string>,
   targetIndex: number | undefined,
   movedItems: SiblingItem[]
 ): SiblingItem[] => {
-  const retainedItems = destinationItems.filter(item => !movingIds.has(item.id));
+  const movingItemIdentities = new Set(movedItems.map(buildSiblingItemIdentity));
+  const retainedItems = destinationItems.filter(
+    item => !movingItemIdentities.has(buildSiblingItemIdentity(item))
+  );
   const insertionIndex = resolveInsertionIndex(
     destinationItems,
-    movingIds,
+    movingItemIdentities,
     targetIndex,
     retainedItems.length
   );

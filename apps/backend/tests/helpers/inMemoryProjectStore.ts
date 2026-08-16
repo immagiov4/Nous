@@ -607,7 +607,7 @@ export class InMemoryProjectStore implements ProjectStore {
     );
     this.persistSiblingOrders(
       userId,
-      insertMovedSiblingItems(siblings, new Set([folderId]), targetIndex, [
+      insertMovedSiblingItems(siblings, targetIndex, [
         { id: folderId, kind: 'folder', value: movedFolder },
       ]),
       resolvedParentFolderId,
@@ -626,8 +626,8 @@ export class InMemoryProjectStore implements ProjectStore {
     const placements = this.getPlacements(userId);
     const resolvedFolderId = this.resolveFolderId(userId, folderId);
     const updatedAt = timestampIso();
-    const movingIds = new Set(projectIds);
-    const movedItems: SiblingItem[] = projectIds
+    const uniqueProjectIds = [...new Set(projectIds)];
+    const movedItems: SiblingItem[] = uniqueProjectIds
       .map(projectId => placements.get(projectId))
       .filter((placement): placement is LibraryPlacement => placement !== undefined)
       .map(placement => ({
@@ -642,11 +642,17 @@ export class InMemoryProjectStore implements ProjectStore {
     );
     this.persistSiblingOrders(
       userId,
-      insertMovedSiblingItems(destinationItems, movingIds, targetIndex, movedItems),
+      insertMovedSiblingItems(destinationItems, targetIndex, movedItems),
       resolvedFolderId,
       updatedAt
     );
-    return movedItems.map(item => clone(item.value as LibraryPlacement));
+    const movedPlacementsById = new Map(
+      movedItems.map(item => [item.id, item.value as LibraryPlacement])
+    );
+    return projectIds
+      .map(projectId => movedPlacementsById.get(projectId))
+      .filter((placement): placement is LibraryPlacement => placement !== undefined)
+      .map(clone);
   }
 
   replaceProjectMeta(userId: string, id: ProjectId, meta: SavedProjectMeta): void {

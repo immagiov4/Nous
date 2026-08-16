@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import {
   buildOrderedSiblingItems,
+  buildSiblingItemIdentity,
   collectFolderDescendantIds,
   insertMovedSiblingItems,
   resolveNextFolderOrder,
@@ -21,6 +22,7 @@ import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
 import { resolveAvailableFolderName } from './folderNames.js';
+import { LibrarySiblingSetChangedError } from './librarySiblingOrder.js';
 import {
   PostgresProjectAssetDeletionQueue,
   type ProjectAssetDeletionQueue,
@@ -90,6 +92,9 @@ type PostgresSql = ReturnType<typeof postgres>;
 type PostgresMutationSql = PostgresSql | postgres.TransactionSql;
 type ProjectTransactionSql = postgres.ReservedSql | postgres.TransactionSql;
 type LibraryItem = SiblingItem;
+
+const buildSiblingOrderLockKey = (userId: string, parentFolderId: string | null): string =>
+  JSON.stringify(['library-sibling-order', userId, parentFolderId]);
 
 interface ProjectMetaRow {
   meta: SavedProjectMeta;
@@ -227,6 +232,32 @@ interface FolderRow {
 
 interface PlacementRow {
   placement: LibraryPlacement;
+}
+
+interface SiblingOrderUpdateCounts {
+  folder_count: number | string;
+  missing_folder_count: number | string;
+  missing_project_count: number | string;
+  parent_exists: boolean;
+  project_count: number | string;
+  unexpected_folder_count: number | string;
+  unexpected_project_count: number | string;
+}
+
+interface PersistSiblingOrdersInput {
+  items: LibraryItem[];
+  movedItems: MovedSiblingItem[];
+  parentFolderId: string | null;
+  updatedAt: string;
+  userId: string;
+}
+
+type MovedSiblingItem = Pick<SiblingItem, 'id' | 'kind'> & {
+  sourceParentFolderId: string | null;
+};
+
+interface MovedSiblingParentMismatchCount {
+  mismatch_count: number | string;
 }
 
 const createFolderId = (): string => createEntityId('folder');
@@ -1088,7 +1119,14 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async listFolders(userId: string): Promise<LibraryFolder[]> {
-    const rows = await this.sql<FolderRow[]>`
+    return this.listFoldersWithClient(this.sql, userId);
+  }
+
+  private async listFoldersWithClient(
+    sql: PostgresMutationSql,
+    userId: string
+  ): Promise<LibraryFolder[]> {
+    const rows = await sql<FolderRow[]>`
       select folder
       from public.library_folders
       where user_id = ${userId}
@@ -1115,33 +1153,51 @@ export class PostgresProjectStore implements ProjectStore {
     { name, parentFolderId = null }: { name: string; parentFolderId?: string | null }
   ): Promise<LibraryFolder> {
     const resolvedParentFolderId = await this.resolveFolderId(userId, parentFolderId);
-    const folders = await this.listFolders(userId);
-    const now = timestampIso();
-    const folder: LibraryFolder = {
-      id: createFolderId(),
-      name: resolveAvailableFolderName(name, folders, resolvedParentFolderId),
-      parentFolderId: resolvedParentFolderId,
-      createdAt: now,
-      updatedAt: now,
-      order: resolveNextFolderOrder(folders, resolvedParentFolderId),
-    };
+    return this.sql.begin(async sql => {
+      await this.lockSiblingOrders(sql, userId, [resolvedParentFolderId]);
+      if (
+        resolvedParentFolderId &&
+        !(await this.readFolderWithClient(sql, userId, resolvedParentFolderId))
+      ) {
+        throw new LibrarySiblingSetChangedError();
+      }
+      const folders = await this.listFoldersWithClient(sql, userId);
+      const now = timestampIso();
+      const folder: LibraryFolder = {
+        id: createFolderId(),
+        name: resolveAvailableFolderName(name, folders, resolvedParentFolderId),
+        parentFolderId: resolvedParentFolderId,
+        createdAt: now,
+        updatedAt: now,
+        order: resolveNextFolderOrder(folders, resolvedParentFolderId),
+      };
 
-    await this.writeFolder(userId, folder);
-    return folder;
+      await this.writeFolderWithClient(sql, userId, folder);
+      return folder;
+    });
   }
 
   async deleteFolder(userId: string, folderId: string): Promise<void> {
-    const folder = await this.readFolder(userId, folderId);
-    if (!folder) {
+    const initialFolder = await this.readFolder(userId, folderId);
+    if (!initialFolder) {
       return;
     }
 
-    const reparentFolderId = folder.parentFolderId || null;
-    const touchedAt = timestampIso();
-    const folders = await this.listFolders(userId);
-    const placements = await this.listPlacements(userId);
+    const initialParentFolderId = initialFolder.parentFolderId || null;
 
     await this.sql.begin(async sql => {
+      await this.lockSiblingOrders(sql, userId, [folderId, initialParentFolderId]);
+      const folder = await this.readFolderWithClient(sql, userId, folderId);
+      if (!folder) {
+        return;
+      }
+      const reparentFolderId = folder.parentFolderId || null;
+      if (reparentFolderId !== initialParentFolderId) {
+        throw new LibrarySiblingSetChangedError();
+      }
+      const touchedAt = timestampIso();
+      const folders = await this.listFoldersWithClient(sql, userId);
+      const placements = await this.listPlacementsWithoutRepairWithClient(sql, userId);
       for (const childFolder of folders) {
         if (childFolder.parentFolderId === folderId) {
           await this.writeFolderWithClient(sql, userId, {
@@ -1224,19 +1280,17 @@ export class PostgresProjectStore implements ProjectStore {
     );
     const placements = await this.listPlacements(userId);
     const destinationItems = buildOrderedSiblingItems(folders, placements, resolvedParentFolderId);
-    const reorderedDestinationItems = insertMovedSiblingItems(
-      destinationItems,
-      new Set([folderId]),
-      targetIndex,
-      [{ id: folderId, kind: 'folder', value: movedFolder }]
-    );
+    const reorderedDestinationItems = insertMovedSiblingItems(destinationItems, targetIndex, [
+      { id: folderId, kind: 'folder', value: movedFolder },
+    ]);
 
-    await this.persistSiblingOrders(
+    await this.persistSiblingOrders({
+      items: reorderedDestinationItems,
+      movedItems: [{ id: folderId, kind: 'folder', sourceParentFolderId: folder.parentFolderId }],
+      parentFolderId: resolvedParentFolderId,
       userId,
-      reorderedDestinationItems,
-      resolvedParentFolderId,
-      movedFolder.updatedAt
-    );
+      updatedAt: movedFolder.updatedAt,
+    });
     return movedFolder;
   }
 
@@ -1246,11 +1300,17 @@ export class PostgresProjectStore implements ProjectStore {
     folderId: string | null,
     targetIndex?: number
   ): Promise<LibraryPlacement[]> {
+    const uniqueProjectIds = [...new Set(projectIds)];
     const placements = await this.listPlacements(userId);
     const folders = await this.listFolders(userId);
     const updatedAt = timestampIso();
     const resolvedFolderId = await this.resolveFolderId(userId, folderId);
-    const movingProjectIds = new Set(projectIds);
+    const movingProjectIds = new Set(uniqueProjectIds);
+    const sourceParentFolderIdsByProjectId = new Map(
+      placements
+        .filter(placement => movingProjectIds.has(placement.projectId))
+        .map(placement => [placement.projectId, placement.folderId])
+    );
     const updatedPlacements = placements.map(placement =>
       movingProjectIds.has(placement.projectId)
         ? { ...placement, folderId: resolvedFolderId, updatedAt }
@@ -1261,18 +1321,27 @@ export class PostgresProjectStore implements ProjectStore {
         .filter(placement => movingProjectIds.has(placement.projectId))
         .map(placement => [placement.projectId, placement])
     );
-    const movedItems = projectIds
+    const movedItems = uniqueProjectIds
       .map(projectId => movedPlacementsById.get(projectId))
       .filter((placement): placement is LibraryPlacement => Boolean(placement))
       .map(placement => ({ id: placement.projectId, kind: 'project' as const, value: placement }));
     const reorderedDestinationItems = insertMovedSiblingItems(
       buildOrderedSiblingItems(folders, updatedPlacements, resolvedFolderId),
-      movingProjectIds,
       targetIndex,
       movedItems
     );
 
-    await this.persistSiblingOrders(userId, reorderedDestinationItems, resolvedFolderId, updatedAt);
+    await this.persistSiblingOrders({
+      items: reorderedDestinationItems,
+      movedItems: movedItems.map(item => ({
+        id: item.id,
+        kind: item.kind,
+        sourceParentFolderId: sourceParentFolderIdsByProjectId.get(item.id) ?? null,
+      })),
+      parentFolderId: resolvedFolderId,
+      userId,
+      updatedAt,
+    });
     return projectIds
       .map(projectId => movedPlacementsById.get(projectId))
       .filter((placement): placement is LibraryPlacement => Boolean(placement));
@@ -2295,7 +2364,15 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   private async readFolder(userId: string, folderId: string): Promise<LibraryFolder | null> {
-    const rows = await this.sql<FolderRow[]>`
+    return this.readFolderWithClient(this.sql, userId, folderId);
+  }
+
+  private async readFolderWithClient(
+    sql: PostgresMutationSql,
+    userId: string,
+    folderId: string
+  ): Promise<LibraryFolder | null> {
+    const rows = await sql<FolderRow[]>`
       select folder
       from public.library_folders
       where user_id = ${userId} and id = ${folderId}
@@ -2350,6 +2427,17 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     projectId: ProjectId
   ): Promise<void> {
+    const existingRows = await sql<Array<{ found: number }>>`
+      select 1 as found
+      from public.library_placements
+      where user_id = ${userId} and project_id = ${projectId}
+      limit 1
+    `;
+    if (existingRows[0]) {
+      return;
+    }
+
+    await this.lockSiblingOrders(sql, userId, [null]);
     const placements = await this.listPlacementsWithoutRepairWithClient(sql, userId);
     const existingPlacement = placements.some(placement => placement.projectId === projectId);
     if (existingPlacement) {
@@ -2365,45 +2453,81 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   private async ensureAllProjectPlacements(userId: string): Promise<void> {
-    await this.sql`
-      with placement_state as (
-        select coalesce(max(order_index) filter (where folder_id is null), 0) as max_root_order
-        from public.library_placements
-        where user_id = ${userId}
-      ), missing_placements as (
-        select
-          project.id as project_id,
-          row_number() over (
-            order by project.last_opened_at desc nulls last, project.updated_at desc, project.id
-          ) as missing_position
+    await this.sql.begin(async sql => {
+      const missingProjects = await sql<Array<{ id: string }>>`
+        select project.id
         from public.projects project
         left join public.library_placements placement
           on placement.user_id = project.user_id and placement.project_id = project.id
         where project.user_id = ${userId} and placement.project_id is null
-      ), prepared_placements as (
+        order by project.id
+        for key share of project
+      `;
+      if (missingProjects.length === 0) {
+        return;
+      }
+
+      await this.lockSiblingOrders(sql, userId, [null]);
+      const missingProjectIds = missingProjects.map(project => project.id);
+      await sql`
+        with placement_state as (
+          select coalesce(max(order_index) filter (where folder_id is null), 0) as max_root_order
+          from public.library_placements
+          where user_id = ${userId}
+        ), missing_placements as (
+          select
+            project.id as project_id,
+            row_number() over (
+              order by project.last_opened_at desc nulls last, project.updated_at desc, project.id
+            ) as missing_position
+          from public.projects project
+          left join public.library_placements placement
+            on placement.user_id = project.user_id and placement.project_id = project.id
+          where project.user_id = ${userId}
+            and project.id = any(${missingProjectIds}::text[])
+            and placement.project_id is null
+        ), prepared_placements as (
+          select
+            missing.project_id,
+            (state.max_root_order + missing.missing_position * ${SIBLING_ORDER_STEP})::integer as order_index,
+            clock_timestamp() as updated_at
+          from missing_placements missing
+          cross join placement_state state
+        )
+        insert into public.library_placements
+          (user_id, project_id, placement, folder_id, order_index, updated_at)
         select
-          missing.project_id,
-          (state.max_root_order + missing.missing_position * ${SIBLING_ORDER_STEP})::integer as order_index,
-          clock_timestamp() as updated_at
-        from missing_placements missing
-        cross join placement_state state
-      )
-      insert into public.library_placements
-        (user_id, project_id, placement, folder_id, order_index, updated_at)
-      select
-        ${userId},
-        project_id,
-        jsonb_build_object(
-          'projectId', project_id,
-          'folderId', null,
-          'order', order_index,
-          'updatedAt', updated_at
-        ),
-        null,
-        order_index,
-        updated_at
-      from prepared_placements
-      on conflict (user_id, project_id) do nothing
+          ${userId},
+          project_id,
+          jsonb_build_object(
+            'projectId', project_id,
+            'folderId', null,
+            'order', order_index,
+            'updatedAt', updated_at
+          ),
+          null,
+          order_index,
+          updated_at
+        from prepared_placements
+        on conflict (user_id, project_id) do nothing
+      `;
+    });
+  }
+
+  private async lockSiblingOrders(
+    sql: PostgresMutationSql,
+    userId: string,
+    parentFolderIds: Array<string | null>
+  ): Promise<void> {
+    const lockKeys = [
+      ...new Set(
+        parentFolderIds.map(parentFolderId => buildSiblingOrderLockKey(userId, parentFolderId))
+      ),
+    ].sort();
+    await sql`
+      select pg_advisory_xact_lock(hashtextextended(lock_key, 0))
+      from unnest(${lockKeys}::text[]) as sibling_lock(lock_key)
+      order by lock_key
     `;
   }
 
@@ -2428,54 +2552,231 @@ export class PostgresProjectStore implements ProjectStore {
     return folderId && (await this.readFolder(userId, folderId)) ? folderId : null;
   }
 
-  private async persistSiblingOrders(
-    userId: string,
-    items: LibraryItem[],
-    parentFolderId: string | null,
-    updatedAt: string
-  ): Promise<void> {
+  private async persistSiblingOrders({
+    items,
+    movedItems,
+    parentFolderId,
+    updatedAt,
+    userId,
+  }: PersistSiblingOrdersInput): Promise<void> {
+    const incomingItemIdentities = new Set(
+      movedItems
+        .filter(item => item.sourceParentFolderId !== parentFolderId)
+        .map(buildSiblingItemIdentity)
+    );
+    const siblingOrders = items.map((item, index) => {
+      const order = (index + 1) * SIBLING_ORDER_STEP;
+      return {
+        id: item.id,
+        incoming: incomingItemIdentities.has(buildSiblingItemIdentity(item)),
+        kind: item.kind,
+        value:
+          item.kind === 'folder'
+            ? { ...item.value, order, parentFolderId, updatedAt }
+            : { ...item.value, folderId: parentFolderId, order, updatedAt },
+      };
+    });
+
     await this.sql.begin(async sql => {
-      const folderIds = items.flatMap(item => (item.kind === 'folder' ? [item.id] : []));
-      if (folderIds.length > 0) {
-        await sql`
+      await this.lockSiblingOrders(sql, userId, [
+        parentFolderId,
+        ...movedItems.map(item => item.sourceParentFolderId),
+      ]);
+      // Lock moved rows before destination members so stale parent reads cannot form a row-lock cycle.
+      await this.lockAndValidateMovedSiblingParents(sql, userId, movedItems);
+      const folderIds = siblingOrders.flatMap(item => (item.kind === 'folder' ? [item.id] : []));
+      const projectIds = siblingOrders.flatMap(item => (item.kind === 'project' ? [item.id] : []));
+
+      const counts = await sql<SiblingOrderUpdateCounts[]>`
+        with sibling_orders as (
+          select id, kind, incoming, value
+          from jsonb_to_recordset(${sql.json(toPostgresJson(siblingOrders))})
+            as sibling(id text, kind text, incoming boolean, value jsonb)
+        ), current_folders as materialized (
           select id
           from public.library_folders
-          where user_id = ${userId} and id = any(${folderIds}::text[])
+          where user_id = ${userId}
+            and parent_folder_id is not distinct from ${parentFolderId}
           order by id
           for update
-        `;
-      }
-      const projectIds = items.flatMap(item => (item.kind === 'project' ? [item.id] : []));
-      if (projectIds.length > 0) {
-        await sql`
+        ), current_projects as materialized (
           select project_id
           from public.library_placements
-          where user_id = ${userId} and project_id = any(${projectIds}::text[])
+          where user_id = ${userId}
+            and folder_id is not distinct from ${parentFolderId}
           order by project_id
           for update
-        `;
-      }
-
-      for (const [index, item] of items.entries()) {
-        const nextOrder = (index + 1) * SIBLING_ORDER_STEP;
-
-        if (item.kind === 'folder') {
-          await this.writeFolderWithClient(sql, userId, {
-            ...item.value,
-            order: nextOrder,
-            parentFolderId,
-            updatedAt,
-          });
-          continue;
-        }
-
-        await this.writePlacementWithClient(sql, userId, {
-          ...item.value,
-          folderId: parentFolderId,
-          order: nextOrder,
-          updatedAt,
-        });
+        ), locked_folders as materialized (
+          select folder_row.id
+          from public.library_folders folder_row
+          join sibling_orders sibling on sibling.kind = 'folder' and sibling.id = folder_row.id
+          where folder_row.user_id = ${userId}
+          order by folder_row.id
+          for update of folder_row
+        ), locked_projects as materialized (
+          select placement_row.project_id
+          from public.library_placements placement_row
+          join sibling_orders sibling
+            on sibling.kind = 'project' and sibling.id = placement_row.project_id
+          where placement_row.user_id = ${userId}
+          order by placement_row.project_id
+          for update of placement_row
+        ), updated_folders as (
+          update public.library_folders folder_row
+          set folder = sibling.value,
+              parent_folder_id = ${parentFolderId},
+              order_index = (sibling.value ->> 'order')::integer,
+              updated_at = ${updatedAt}
+          from sibling_orders sibling
+          where folder_row.user_id = ${userId}
+            and sibling.kind = 'folder'
+            and folder_row.id = sibling.id
+            and exists (select 1 from locked_folders where id = folder_row.id)
+          returning folder_row.id
+        ), updated_projects as (
+          update public.library_placements placement_row
+          set placement = sibling.value,
+              folder_id = ${parentFolderId},
+              order_index = (sibling.value ->> 'order')::integer,
+              updated_at = ${updatedAt}
+          from sibling_orders sibling
+          where placement_row.user_id = ${userId}
+            and sibling.kind = 'project'
+            and placement_row.project_id = sibling.id
+            and exists (
+              select 1 from locked_projects where project_id = placement_row.project_id
+            )
+          returning placement_row.project_id
+        )
+        select
+          (
+            ${parentFolderId === null}
+            or exists (
+              select 1
+              from public.library_folders parent_folder
+              where parent_folder.user_id = ${userId} and parent_folder.id = ${parentFolderId}
+            )
+          ) as parent_exists,
+          (
+            select count(*)
+            from sibling_orders sibling
+            where sibling.kind = 'folder'
+              and not sibling.incoming
+              and not exists (
+                select 1 from current_folders where id = sibling.id
+              )
+          ) as missing_folder_count,
+          (
+            select count(*)
+            from sibling_orders sibling
+            where sibling.kind = 'project'
+              and not sibling.incoming
+              and not exists (
+                select 1 from current_projects where project_id = sibling.id
+              )
+          ) as missing_project_count,
+          (
+            select count(*)
+            from current_folders current_folder
+            where not exists (
+              select 1
+              from sibling_orders sibling
+              where sibling.kind = 'folder' and sibling.id = current_folder.id
+            )
+          ) as unexpected_folder_count,
+          (
+            select count(*)
+            from current_projects current_project
+            where not exists (
+              select 1
+              from sibling_orders sibling
+              where sibling.kind = 'project' and sibling.id = current_project.project_id
+            )
+          ) as unexpected_project_count,
+          (select count(*) from updated_folders) as folder_count,
+          (select count(*) from updated_projects) as project_count
+      `;
+      const parentExists = counts[0]?.parent_exists ?? false;
+      const missingFolderCount = Number(counts[0]?.missing_folder_count ?? 0);
+      const missingProjectCount = Number(counts[0]?.missing_project_count ?? 0);
+      const unexpectedFolderCount = Number(counts[0]?.unexpected_folder_count ?? 0);
+      const unexpectedProjectCount = Number(counts[0]?.unexpected_project_count ?? 0);
+      const updatedFolderCount = Number(counts[0]?.folder_count ?? 0);
+      const updatedProjectCount = Number(counts[0]?.project_count ?? 0);
+      if (
+        !parentExists ||
+        missingFolderCount > 0 ||
+        missingProjectCount > 0 ||
+        unexpectedFolderCount > 0 ||
+        unexpectedProjectCount > 0 ||
+        updatedFolderCount !== folderIds.length ||
+        updatedProjectCount !== projectIds.length
+      ) {
+        throw new LibrarySiblingSetChangedError();
       }
     });
+  }
+
+  private async lockAndValidateMovedSiblingParents(
+    sql: PostgresMutationSql,
+    userId: string,
+    movedItems: MovedSiblingItem[]
+  ): Promise<void> {
+    if (movedItems.length === 0) {
+      return;
+    }
+
+    const expectedSources = movedItems.map(item => ({
+      id: item.id,
+      kind: item.kind,
+      source_parent_folder_id: item.sourceParentFolderId,
+    }));
+    const rows = await sql<MovedSiblingParentMismatchCount[]>`
+      with expected_sources as (
+        select id, kind, source_parent_folder_id
+        from jsonb_to_recordset(${sql.json(toPostgresJson(expectedSources))})
+          as expected(id text, kind text, source_parent_folder_id text)
+      ), locked_folders as materialized (
+        select folder_row.id, folder_row.parent_folder_id
+        from public.library_folders folder_row
+        join expected_sources expected
+          on expected.kind = 'folder' and expected.id = folder_row.id
+        where folder_row.user_id = ${userId}
+        order by folder_row.id
+        for update of folder_row
+      ), locked_projects as materialized (
+        select placement_row.project_id, placement_row.folder_id
+        from public.library_placements placement_row
+        join expected_sources expected
+          on expected.kind = 'project' and expected.id = placement_row.project_id
+        where placement_row.user_id = ${userId}
+        order by placement_row.project_id
+        for update of placement_row
+      )
+      select count(*) as mismatch_count
+      from expected_sources expected
+      left join locked_folders folder_row
+        on expected.kind = 'folder' and folder_row.id = expected.id
+      left join locked_projects placement_row
+        on expected.kind = 'project' and placement_row.project_id = expected.id
+      where
+        (
+          expected.kind = 'folder'
+          and (
+            folder_row.id is null
+            or folder_row.parent_folder_id is distinct from expected.source_parent_folder_id
+          )
+        )
+        or (
+          expected.kind = 'project'
+          and (
+            placement_row.project_id is null
+            or placement_row.folder_id is distinct from expected.source_parent_folder_id
+          )
+        )
+    `;
+    if (Number(rows[0]?.mismatch_count ?? 0) > 0) {
+      throw new LibrarySiblingSetChangedError();
+    }
   }
 }

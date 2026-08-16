@@ -164,7 +164,6 @@ describe('PostgresProjectStore', () => {
 
   test('does not recreate a project deleted between patch load and transactional lock', async () => {
     const snapshot = { ...createMultiSourceSnapshot(), source: null };
-    const rootStatements: string[] = [];
     const transactionStatements: string[] = [];
     const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
@@ -176,7 +175,6 @@ describe('PostgresProjectStore', () => {
     const sqlClient = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
-        rootStatements.push(statement);
         if (
           statement.includes('from public.project_snapshots') &&
           statement.includes('join public.projects')
@@ -245,60 +243,111 @@ describe('PostgresProjectStore', () => {
     expect(statements[0]).toContain('id = any');
   });
 
-  test('repairs every missing library placement with one set-based insert', async () => {
-    const statements: string[] = [];
+  test('repairs every missing library placement with a constant-size transaction', async () => {
+    const transactionValues: unknown[][] = [];
+    let transactionCallIndex = 0;
     const sqlClient = Object.assign(
-      vi.fn((strings: TemplateStringsArray) => {
-        statements.push(strings.join('?'));
-        return Promise.resolve([]);
+      vi.fn((_strings: TemplateStringsArray, ...values: unknown[]) => {
+        transactionValues.push(values);
+        const result = transactionCallIndex === 0 ? [{ id: 'project-1' }] : [];
+        transactionCallIndex += 1;
+        return Promise.resolve(result);
       }),
       {
-        begin: vi.fn(),
+        begin: vi.fn(async (operation: (sql: typeof sqlClient) => Promise<unknown>) =>
+          operation(sqlClient)
+        ),
         json: vi.fn((value: unknown) => value),
       }
     );
     const store = createPostgresProjectStore(sqlClient);
 
-    await store.listPlacements('user-1');
+    await expect(store.listPlacements('user-1')).resolves.toEqual([]);
 
-    expect(
-      statements.filter(statement => statement.includes('insert into public.library_placements'))
-    ).toHaveLength(1);
-    expect(statements.some(statement => statement.includes('from public.projects'))).toBe(true);
-    expect(statements.some(statement => statement.includes('select meta, revision'))).toBe(false);
+    expect(sqlClient.begin).toHaveBeenCalledTimes(1);
+    expect(transactionValues).toHaveLength(4);
+    expect(transactionValues[1]?.[0]).toEqual([
+      JSON.stringify(['library-sibling-order', 'user-1', null]),
+    ]);
+    expect(transactionValues[2]).toContainEqual(['project-1']);
   });
 
-  test('persists a complete sibling reorder through one database transaction', async () => {
+  test('deduplicates moves and persists one complete source-to-destination sibling batch', async () => {
     const placements = [
       {
-        folderId: null,
+        folderId: 'folder-a',
         order: 1024,
         projectId: 'project-1',
         updatedAt: '2026-07-07T10:00:00.000Z',
       },
       {
-        folderId: null,
+        folderId: 'folder-b',
         order: 2048,
         projectId: 'project-2',
         updatedAt: '2026-07-07T10:00:00.000Z',
       },
     ];
-    const rootStatements: string[] = [];
-    const transactionStatements: string[] = [];
+    const folders = [
+      {
+        createdAt: '2026-07-07T10:00:00.000Z',
+        id: 'folder-a',
+        name: 'A',
+        order: 1024,
+        parentFolderId: null,
+        updatedAt: '2026-07-07T10:00:00.000Z',
+      },
+      {
+        createdAt: '2026-07-07T10:00:00.000Z',
+        id: 'folder-b',
+        name: 'B',
+        order: 2048,
+        parentFolderId: null,
+        updatedAt: '2026-07-07T10:00:00.000Z',
+      },
+      {
+        createdAt: '2026-07-07T10:00:00.000Z',
+        id: 'project-1',
+        name: 'Same ID as moved project',
+        order: 1536,
+        parentFolderId: 'folder-b',
+        updatedAt: '2026-07-07T10:00:00.000Z',
+      },
+    ];
+    const transactionValues: unknown[][] = [];
+    let transactionCallIndex = 0;
     const transactionSql = Object.assign(
-      vi.fn((strings: TemplateStringsArray) => {
-        transactionStatements.push(strings.join('?'));
-        return Promise.resolve([]);
+      vi.fn((_strings: TemplateStringsArray, ...values: unknown[]) => {
+        transactionValues.push(values);
+        const result =
+          transactionCallIndex === 3
+            ? [
+                {
+                  folder_count: 1,
+                  missing_folder_count: 0,
+                  missing_project_count: 0,
+                  parent_exists: true,
+                  project_count: 2,
+                  unexpected_folder_count: 0,
+                  unexpected_project_count: 0,
+                },
+              ]
+            : [];
+        transactionCallIndex += 1;
+        return Promise.resolve(result);
       }),
       { json: vi.fn((value: unknown) => value) }
     );
+    const rootResults = [
+      placements.map(placement => ({ placement })),
+      folders.map(folder => ({ folder })),
+      [{ folder: folders[1] }],
+    ];
+    let rootCallIndex = 0;
     const sqlClient = Object.assign(
-      vi.fn((strings: TemplateStringsArray) => {
-        const statement = strings.join('?');
-        rootStatements.push(statement);
-        return Promise.resolve(
-          statement.includes('select placement') ? placements.map(placement => ({ placement })) : []
-        );
+      vi.fn(() => {
+        const result = rootResults[rootCallIndex] ?? [];
+        rootCallIndex += 1;
+        return Promise.resolve(result);
       }),
       {
         begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
@@ -309,22 +358,62 @@ describe('PostgresProjectStore', () => {
     );
     const store = createPostgresProjectStore(sqlClient);
 
-    await store.moveProjects('user-1', ['project-2'], null, 0);
+    await expect(
+      store.moveProjects('user-1', ['project-1', 'project-1'], 'folder-b', 0)
+    ).resolves.toHaveLength(2);
 
-    expect(sqlClient.begin).toHaveBeenCalledTimes(1);
-    expect(transactionStatements[0]).toContain('from public.library_placements');
-    expect(transactionStatements[0]).toContain('order by project_id');
-    expect(transactionStatements[0]).toContain('for update');
-    expect(
-      transactionStatements.filter(statement =>
-        statement.includes('insert into public.library_placements')
-      )
-    ).toHaveLength(2);
-    expect(
-      rootStatements.filter(statement =>
-        statement.includes('insert into public.library_placements')
-      )
-    ).toHaveLength(1);
+    expect(sqlClient.begin).toHaveBeenCalledTimes(2);
+    expect(rootCallIndex).toBe(3);
+    expect(transactionValues).toHaveLength(4);
+    expect(transactionValues[1]?.[0]).toEqual([
+      JSON.stringify(['library-sibling-order', 'user-1', 'folder-a']),
+      JSON.stringify(['library-sibling-order', 'user-1', 'folder-b']),
+    ]);
+    expect(transactionValues[2]).toContainEqual([
+      {
+        id: 'project-1',
+        kind: 'project',
+        source_parent_folder_id: 'folder-a',
+      },
+    ]);
+    const siblingPayload = transactionValues[3]?.find(value => Array.isArray(value));
+    expect(siblingPayload).toEqual([
+      {
+        id: 'project-1',
+        incoming: true,
+        kind: 'project',
+        value: {
+          folderId: 'folder-b',
+          order: 1024,
+          projectId: 'project-1',
+          updatedAt: expect.any(String),
+        },
+      },
+      {
+        id: 'project-1',
+        incoming: false,
+        kind: 'folder',
+        value: {
+          createdAt: '2026-07-07T10:00:00.000Z',
+          id: 'project-1',
+          name: 'Same ID as moved project',
+          order: 2048,
+          parentFolderId: 'folder-b',
+          updatedAt: expect.any(String),
+        },
+      },
+      {
+        id: 'project-2',
+        incoming: false,
+        kind: 'project',
+        value: {
+          folderId: 'folder-b',
+          order: 3072,
+          projectId: 'project-2',
+          updatedAt: expect.any(String),
+        },
+      },
+    ]);
   });
 
   test('loads a project snapshot and its revision in one joined query', async () => {

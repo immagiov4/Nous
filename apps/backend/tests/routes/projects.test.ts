@@ -11,6 +11,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createApp } from '../../src/index.js';
+import { LibrarySiblingSetChangedError } from '../../src/projects/librarySiblingOrder.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
@@ -1258,16 +1259,23 @@ describe('/api/projects', () => {
     await request(app)
       .put('/api/projects/projects/project-1')
       .send({ snapshot: createSnapshot('project-1', 'Corso') });
+    await request(app)
+      .put('/api/projects/projects/project-2')
+      .send({ snapshot: createSnapshot('project-2', 'Secondo corso') });
 
     const folderResponse = await request(app).post('/api/projects/folders').send({
       name: 'Studio',
     });
     const folderId = folderResponse.body.folder.id;
 
+    await request(app)
+      .post('/api/projects/placements/move')
+      .send({ projectIds: ['project-2'], folderId, targetIndex: 0 });
+
     const moveResponse = await request(app)
       .post('/api/projects/placements/move')
       .send({
-        projectIds: ['project-1'],
+        projectIds: ['project-1', 'project-1'],
         folderId,
         targetIndex: 0,
       });
@@ -1279,7 +1287,45 @@ describe('/api/projects', () => {
         folderId,
         order: 1024,
       }),
+      expect.objectContaining({
+        projectId: 'project-1',
+        folderId,
+        order: 1024,
+      }),
     ]);
+    const placementsResponse = await request(app).get('/api/projects/placements');
+    expect(
+      placementsResponse.body.placements
+        .filter((placement: { folderId: string | null }) => placement.folderId === folderId)
+        .map((placement: { order: number; projectId: string }) => ({
+          order: placement.order,
+          projectId: placement.projectId,
+        }))
+    ).toEqual([
+      { order: 1024, projectId: 'project-1' },
+      { order: 2048, projectId: 'project-2' },
+    ]);
+  });
+
+  test('reports a stale folder deletion as a conflict', async () => {
+    vi.spyOn(store, 'deleteFolder').mockRejectedValueOnce(new LibrarySiblingSetChangedError());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const response = await request(createApp()).delete('/api/projects/folders/stale-folder');
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual({
+        error: 'La libreria è stata modificata in un’altra sessione. Riprova.',
+        success: false,
+      });
+      expect(warn).toHaveBeenCalledWith(
+        '[Projects] Folder deletion conflicted with a concurrent library update.',
+        { error: expect.any(LibrarySiblingSetChangedError) }
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test('section PATCH uses the fast path with a heavy documentIndex', async () => {

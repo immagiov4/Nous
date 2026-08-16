@@ -19,6 +19,10 @@ import { type Request, type Response, Router } from 'express';
 
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
 import {
+  LIBRARY_SIBLING_CONFLICT_MESSAGE,
+  LibrarySiblingSetChangedError,
+} from '../projects/librarySiblingOrder.js';
+import {
   publishProjectRevision,
   subscribeToProjectRevisionCatchUps,
   subscribeToProjectRevisions,
@@ -1075,6 +1079,13 @@ router.delete('/folders/:id', async (req: Request, res: Response) => {
     await getProjectStore().deleteFolder(getCurrentUser(req).id, getRouteParam(req.params.id));
     res.json({ success: true });
   } catch (error) {
+    if (error instanceof LibrarySiblingSetChangedError) {
+      console.warn('[Projects] Folder deletion conflicted with a concurrent library update.', {
+        error,
+      });
+      res.status(409).json({ error: LIBRARY_SIBLING_CONFLICT_MESSAGE, success: false });
+      return;
+    }
     sendErrorResponse(res, 500, error, 'Failed to delete folder');
   }
 });
