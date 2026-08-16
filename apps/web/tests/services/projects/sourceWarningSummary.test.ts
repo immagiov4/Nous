@@ -60,4 +60,16 @@ describe('formatSourceWarningSummary', () => {
       'Alcune fonti non sono state usate: scansione.pdf, vuoto.pdf. Il corso continua con le altre.'
     );
   });
+
+  test('does not claim continuation for failed non-archive uploads', () => {
+    expect(
+      formatSourceWarningSummary(
+        [
+          { message: 'invalid', name: 'scansione.pdf' },
+          { message: 'empty', name: 'vuoto.pdf' },
+        ],
+        { continues: false }
+      )
+    ).toBe('Alcune fonti non sono state usate: scansione.pdf, vuoto.pdf.');
+  });
 });

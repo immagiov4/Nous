@@ -249,7 +249,11 @@ const sendProjectWriteError = (
     return;
   }
   if (error instanceof SourceArchivePreparationCapacityError) {
-    sendErrorResponse(res, 429, error, fallbackMessage);
+    res.status(429).json({
+      code: PROJECT_API_ERROR_CODE.sourceArchiveBusy,
+      error: error.message,
+      success: false,
+    });
     return;
   }
   if (error instanceof SourceArchiveUnusableError) {

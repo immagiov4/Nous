@@ -863,6 +863,7 @@ const ENGLISH_UI_MESSAGES = {
   'Fonti della sezione': 'Section sources',
   'Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.':
     'Some sources were not used: {sourceNames}. The course will continue with the others.',
+  'Alcune fonti non sono state usate: {sourceNames}.': 'Some sources were not used: {sourceNames}.',
   '{count} PDF non usati: {reasons}. Esempi: {paths}.':
     '{count} PDFs were not used: {reasons}. Examples: {paths}.',
   '{count} senza testo utile': '{count} without usable text',

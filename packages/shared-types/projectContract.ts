@@ -68,6 +68,7 @@ export const PROJECT_API_ERROR_CODE = {
   coverRevisionConflict: 'project_cover_revision_conflict',
   revisionConflict: 'project_revision_conflict',
   sourceArchiveChanged: 'project_source_archive_changed',
+  sourceArchiveBusy: 'project_source_archive_busy',
   sourceArchiveUnusable: 'project_source_archive_unusable',
 } as const;
 

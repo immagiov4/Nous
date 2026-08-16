@@ -2016,6 +2016,7 @@ export class PostgresProjectStore implements ProjectStore {
         temporaryDirectory,
       };
       let fileIndex = 0;
+      let hasUsableText = false;
       try {
         for await (const entry of streamSourceArchive(sourceBytes, PROJECT_SOURCE_ARCHIVE_LIMITS)) {
           if (entry.kind === 'directory') {
@@ -2044,6 +2045,7 @@ export class PostgresProjectStore implements ProjectStore {
             fileIndex.toString().padStart(5, '0')
           );
           fileIndex += 1;
+          hasUsableText ||= Boolean(entry.text?.trim());
           await writeFile(temporaryPath, entry.content);
           prepared.archiveEntries.push({
             byte_size: entry.byteSize,
@@ -2062,7 +2064,7 @@ export class PostgresProjectStore implements ProjectStore {
             temporaryPath,
           });
         }
-        if (!prepared.archiveEntries.some(entry => entry.content_kind === 'text')) {
+        if (!hasUsableText) {
           throw new SourceArchiveUnusableError(
             prepared.archiveEntries.flatMap(entry =>
               entry.warning_reason ? [{ path: entry.path, reason: entry.warning_reason }] : []

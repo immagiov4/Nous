@@ -276,13 +276,10 @@ export const createProjectLifecycleCommands = (
             throw new Error('La sorgente del progetto non è stata salvata.');
           }
           if (nextSource.kind === 'archive') {
-            const persistedProject = await projectLibrary.loadStoredProject(
-              projectLibrary.currentProjectId
-            );
-            if (!persistedProject?.source) {
-              throw new Error('La sorgente del progetto non è stata ricaricata.');
+            if (saved.snapshot.source?.kind !== 'archive') {
+              throw new Error('La sorgente archivio salvata non è valida.');
             }
-            nextSource = persistedProject.source;
+            nextSource = saved.snapshot.source;
             sourceWarnings = getProjectSourceWarnings(nextSource);
             domain.setSource(nextSource);
           }
@@ -355,7 +352,7 @@ export const createProjectLifecycleCommands = (
       if (
         options?.mode !== 'reattach-source' &&
         error instanceof ProjectStorageError &&
-        error.code === 'source-archive-unusable'
+        (error.code === 'source-archive-unusable' || error.code === 'source-archive-busy')
       ) {
         const rejectedProjectId = projectLibrary.getCurrentProjectId();
         if (rejectedProjectId) {
