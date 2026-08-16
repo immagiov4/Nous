@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -36,6 +36,7 @@ import {
   publishImportedProjectAssets,
 } from './projectAssetImport.js';
 import { reconcileProjectAssets } from './projectAssetReconciliation.js';
+import { projectImportConfig } from './projectImportConfig.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
 import { applyProjectPatch, isNavigationProjectPatch } from './projectPatch.js';
 import {
@@ -180,6 +181,7 @@ interface ProjectSourceArchiveEntryRow {
 }
 
 interface ProjectSourceArchiveIndexRow {
+  archive_representation_hash: string | null;
   archive_source_hash: string;
   archive_source_id: string;
   byte_size: number | string | null;
@@ -197,10 +199,6 @@ interface ProjectSourceArchiveStoredFileRow {
   content_kind: 'binary' | 'text';
   object_path: string;
   source_hash: string;
-}
-
-interface ProjectSourceArchiveReadableIndexRow extends ProjectSourceArchiveIndexRow {
-  object_path: string | null;
 }
 
 interface ProjectSourceArchiveEntryMetadata {
@@ -287,6 +285,31 @@ const SOURCE_PREPARATION_TMP_PREFIX = 'nous-source-archive-';
 const PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS = 30;
 const PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT = 200;
 const INVALID_PROJECT_BACKUP_MESSAGE = 'Project backup archive is invalid.';
+
+const cleanupOrphanedSourcePreparationDirectories = async (): Promise<void> => {
+  const temporaryRoot = os.tmpdir();
+  const entries = await readdir(temporaryRoot, { withFileTypes: true });
+  const now = Date.now();
+  await Promise.all(
+    entries
+      .filter(entry => entry.isDirectory() && entry.name.startsWith(SOURCE_PREPARATION_TMP_PREFIX))
+      .map(async entry => {
+        const temporaryPath = path.join(temporaryRoot, entry.name);
+        try {
+          const stats = await lstat(temporaryPath);
+          if (now - stats.mtimeMs > projectImportConfig.receivingUploadTtlMs) {
+            await rm(temporaryPath, { force: true, recursive: true });
+          }
+        } catch {
+          // The directory may disappear between discovery and cleanup.
+        }
+      })
+  );
+};
+
+setInterval(() => {
+  void cleanupOrphanedSourcePreparationDirectories();
+}, projectImportConfig.cleanupIntervalMs).unref();
 
 const compareLockKeysByCodeUnit = (left: string, right: string): number => {
   if (left < right) return -1;
@@ -524,6 +547,7 @@ export class PostgresProjectStore implements ProjectStore {
   ): Promise<ProjectSourceArchiveIndex | null> {
     const rows = await this.sql<ProjectSourceArchiveIndexRow[]>`
       select
+        source.representation_hash as archive_representation_hash,
         source.source_id as archive_source_id,
         source.source_hash as archive_source_hash,
         source.source_kind,
@@ -540,7 +564,19 @@ export class PostgresProjectStore implements ProjectStore {
       where source.user_id = ${userId} and source.project_id = ${id}
       order by entry.path
     `;
-    return this.buildProjectSourceArchiveIndexFromRows(rows);
+    const index = this.buildProjectSourceArchiveIndexFromRows(rows);
+    if (index && rows[0]?.archive_representation_hash === null) {
+      await this.sql`
+        update public.project_sources
+        set representation_hash = ${index.version.representationHash}
+        where user_id = ${userId}
+          and project_id = ${id}
+          and source_id = ${index.version.sourceId}
+          and source_hash = ${index.version.sourceHash}
+          and representation_hash is null
+      `;
+    }
+    return index;
   }
 
   async loadProjectSourceArchiveEntry(
@@ -585,48 +621,21 @@ export class PostgresProjectStore implements ProjectStore {
     path: string,
     version: ProjectSourceArchiveIndex['version']
   ): Promise<ProjectSourceArchiveStoredFileRow | null> {
-    const rows = await this.sql<ProjectSourceArchiveReadableIndexRow[]>`
-      select
-        source.source_id as archive_source_id,
-        source.source_hash as archive_source_hash,
-        source.source_kind,
-        entry.path,
-        entry.kind,
-        entry.content_kind,
-        entry.source_hash,
-        entry.byte_size,
-        entry.preview,
-        entry.warning_reason,
-        entry.object_path
-      from public.project_sources source
-      left join public.project_source_entries entry
-        on entry.user_id = source.user_id and entry.project_id = source.project_id
-      where source.user_id = ${userId}
-        and source.project_id = ${id}
+    const rows = await this.sql<ProjectSourceArchiveStoredFileRow[]>`
+      select entry.content_kind, entry.source_hash, entry.byte_size, entry.object_path
+      from public.project_source_entries entry
+      join public.project_sources source
+        on source.user_id = entry.user_id and source.project_id = entry.project_id
+      where entry.user_id = ${userId}
+        and entry.project_id = ${id}
+        and entry.path = ${path}
+        and entry.kind = 'file'
         and source.source_id = ${version.sourceId}
         and source.source_hash = ${version.sourceHash}
-      order by entry.path
+        and source.representation_hash = ${version.representationHash}
+      limit 1
     `;
-    const currentIndex = this.buildProjectSourceArchiveIndexFromRows(rows);
-    if (currentIndex?.version.representationHash !== version.representationHash) {
-      return null;
-    }
-    const row = rows.find(entry => entry.kind === 'file' && entry.path === path);
-    if (
-      !row ||
-      row.byte_size === null ||
-      row.content_kind === null ||
-      row.object_path === null ||
-      row.source_hash === null
-    ) {
-      return null;
-    }
-    return {
-      byte_size: Number(row.byte_size),
-      content_kind: row.content_kind,
-      object_path: row.object_path,
-      source_hash: row.source_hash,
-    };
+    return rows[0] ?? null;
   }
 
   async loadProjectCover(userId: string, id: ProjectId): Promise<ProjectCoverFile | null> {
@@ -1844,6 +1853,11 @@ export class PostgresProjectStore implements ProjectStore {
       for update
     `;
     const primary = prepared.primaryRef;
+    const representationHash =
+      prepared.sourceKind === 'archive'
+        ? this.buildProjectSourceArchiveIndex(prepared.archiveEntries, primary).version
+            .representationHash
+        : null;
     await sql`
       insert into public.project_sources
         (
@@ -1856,6 +1870,7 @@ export class PostgresProjectStore implements ProjectStore {
           byte_size,
           object_path,
           source_kind,
+          representation_hash,
           updated_at
         )
       values
@@ -1869,6 +1884,7 @@ export class PostgresProjectStore implements ProjectStore {
           ${primary.byteSize},
           ${primary.objectPath},
           ${prepared.sourceKind},
+          ${representationHash},
           now()
         )
       on conflict (user_id, project_id) do update set
@@ -1879,6 +1895,7 @@ export class PostgresProjectStore implements ProjectStore {
         byte_size = excluded.byte_size,
         object_path = excluded.object_path,
         source_kind = excluded.source_kind,
+        representation_hash = excluded.representation_hash,
         updated_at = excluded.updated_at
     `;
     await sql`

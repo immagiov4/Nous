@@ -2065,7 +2065,7 @@ describe('PostgresProjectStore', () => {
   test('loads archive metadata separately and verifies entry bytes through Storage', async () => {
     const entryBytes = new TextEncoder().encode('complete entry');
     const entryHash = createHash('sha256').update(entryBytes).digest('hex');
-    let entryPreview = 'complete entry';
+    let representationIsCurrent = true;
     const sqlClient = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
@@ -2074,6 +2074,7 @@ describe('PostgresProjectStore', () => {
             {
               archive_source_hash: 'a'.repeat(64),
               archive_source_id: 'source-archive',
+              archive_representation_hash: null,
               byte_size: null,
               content_kind: null,
               kind: 'directory',
@@ -2085,17 +2086,35 @@ describe('PostgresProjectStore', () => {
             {
               archive_source_hash: 'a'.repeat(64),
               archive_source_id: 'source-archive',
+              archive_representation_hash: null,
               byte_size: entryBytes.byteLength,
               content_kind: 'text',
               kind: 'file',
               object_path: 'users/user/projects/hash/source/entries/hash',
               path: 'src/index.ts',
-              preview: entryPreview,
+              preview: 'complete entry',
               source_hash: entryHash,
               source_kind: 'archive',
               warning_reason: null,
             },
           ]);
+        }
+        if (
+          statement.includes('from public.project_source_entries entry') &&
+          statement.includes('source.representation_hash =')
+        ) {
+          return Promise.resolve(
+            representationIsCurrent
+              ? [
+                  {
+                    byte_size: entryBytes.byteLength,
+                    content_kind: 'text',
+                    object_path: 'users/user/projects/hash/source/entries/hash',
+                    source_hash: entryHash,
+                  },
+                ]
+              : []
+          );
         }
         return Promise.resolve([]);
       }),
@@ -2157,7 +2176,7 @@ describe('PostgresProjectStore', () => {
     expect(loadedEntry).toEqual(entryBytes);
     expect(loadedRange).toEqual(entryBytes.slice(2, 9));
 
-    entryPreview = 'changed representation';
+    representationIsCurrent = false;
     await expect(
       store.loadProjectSourceArchiveEntry('user-1', PROJECT_META.id, 'src/index.ts', index.version)
     ).resolves.toBeNull();
