@@ -641,8 +641,10 @@ describe('courseGenerationClient', () => {
   });
 
   test('rejects a completed result belonging to another project', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       workflowResponse({
+        correlationId: CORRELATION_ID,
         id: 'run-invalid',
         mode: 'document',
         projectId: 'project-1',
@@ -659,5 +661,7 @@ describe('courseGenerationClient', () => {
         projectId: 'project-1',
       })
     ).rejects.toThrow('La generazione del corso non è riuscita. Riprova.');
+    expect(warning).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warning.mockRestore();
   });
 });

@@ -376,6 +376,17 @@ const mapCourseInterviewSnapshot = (state: CourseInterviewRunSnapshot): CourseIn
   };
 };
 
+const mapCourseInterviewSnapshotWithDiagnostics = (
+  state: CourseInterviewRunSnapshot
+): CourseInterviewSnapshot => {
+  try {
+    return mapCourseInterviewSnapshot(state);
+  } catch (error) {
+    logBackendFailureCorrelationId(state.correlationId);
+    throw error;
+  }
+};
+
 const waitForActionableSnapshot = async (
   runId: string,
   projectId: string,
@@ -406,7 +417,7 @@ const waitForActionableSnapshot = async (
     initialState,
     isTerminal: state => state.run === null || !ACTIVE_INTERVIEW_STATUSES.has(state.run.status),
     onState: state => {
-      if (state.run) options.onSnapshot?.(mapCourseInterviewSnapshot(state.run));
+      if (state.run) options.onSnapshot?.(mapCourseInterviewSnapshotWithDiagnostics(state.run));
     },
     readState: async (_state, signal) => ({ run: await readState(signal) }),
     signal: options.signal,
@@ -418,7 +429,7 @@ const waitForActionableSnapshot = async (
   if (terminalState.run.status === 'failed' || terminalState.run.status === 'expired') {
     logBackendFailureCorrelationId(terminalState.run.correlationId);
   }
-  return mapCourseInterviewSnapshot(terminalState.run);
+  return mapCourseInterviewSnapshotWithDiagnostics(terminalState.run);
 };
 
 const sendInterviewSignal = async (

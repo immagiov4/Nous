@@ -235,6 +235,7 @@ describe('PostgreSQL workflow observability', () => {
       }),
       expect.objectContaining({
         action: 'created',
+        correlationId: PERSISTED_CORRELATION_ID,
         event: 'workflow.wait',
         runId: RUN_ID,
         waitId: 'wait-1',
@@ -415,6 +416,56 @@ describe('PostgreSQL workflow observability', () => {
     expect(JSON.stringify(waitLogs.events)).not.toContain('private-item');
     expect(cancellationDatabase.remaining()).toBe(0);
     expect(waitDatabase.remaining()).toBe(0);
+  });
+
+  test('correlates waits cancelled by terminal reconciliation', async () => {
+    const database = createScriptedSql(
+      [{ id: RUN_ID }],
+      [],
+      [],
+      [
+        {
+          cancellation_requested: true,
+          cleanup_status: 'not-required',
+          correlation_id: PERSISTED_CORRELATION_ID,
+          status: 'waiting',
+        },
+      ],
+      [{ id: RUN_ID }],
+      [],
+      [
+        {
+          node_instance_id: 'root/private-item/approval',
+          signal_type: 'approve',
+          wait_id: 'wait-1',
+        },
+      ],
+      [],
+      [],
+      []
+    );
+    const logs = captureLogs(database.isTransactionOpen);
+
+    await expect(
+      new PostgresWorkflowCancellationStore(database.sql, logs.logger).reconcileNext()
+    ).resolves.toEqual({
+      cleanupStatus: 'not-required',
+      runId: RUN_ID,
+      runStatus: 'cancelled',
+    });
+
+    expect(logs.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'cancelled',
+          correlationId: PERSISTED_CORRELATION_ID,
+          event: 'workflow.wait',
+          waitId: 'wait-1',
+        }),
+      ])
+    );
+    expect(JSON.stringify(logs.events)).not.toContain('private-item');
+    expect(database.remaining()).toBe(0);
   });
 
   test('logs outbox claim, lease loss, delivery, and retry without its payload', async () => {

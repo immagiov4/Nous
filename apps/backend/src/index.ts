@@ -136,7 +136,9 @@ const getRequestLogPath = (req: express.Request): string => {
   const requestPath = getRequestPath(req);
   if (SAFE_REQUEST_LOG_PATHS.has(requestPath)) return requestPath;
   const routePath: unknown = req.route?.path;
-  return typeof routePath === 'string' ? routePath : UNMATCHED_REQUEST_ROUTE;
+  if (typeof routePath !== 'string') return UNMATCHED_REQUEST_ROUTE;
+  if (!req.baseUrl) return routePath;
+  return routePath === '/' ? req.baseUrl : `${req.baseUrl}${routePath}`;
 };
 
 const readSafeStackFrames = (error: Error): string | undefined => {

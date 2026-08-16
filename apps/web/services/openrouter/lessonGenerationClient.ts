@@ -292,7 +292,12 @@ const runDurableLessonRequest = async ({
   const terminalJob = await waitForTerminalRun(job, onProgressStage, onWorkflowSnapshot);
   request.clear();
   if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);
-  return parseCompletedResult(terminalJob, projectId, expectedSectionId ?? terminalJob.sectionId);
+  try {
+    return parseCompletedResult(terminalJob, projectId, expectedSectionId ?? terminalJob.sectionId);
+  } catch (error) {
+    logBackendFailureCorrelationId(terminalJob.correlationId);
+    throw error;
+  }
 };
 
 export const generateDurableLesson = async ({

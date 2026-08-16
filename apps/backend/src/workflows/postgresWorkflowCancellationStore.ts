@@ -365,6 +365,7 @@ export class PostgresWorkflowCancellationStore {
     for (const wait of reconciliation.cancelledWaits) {
       emitWorkflowLog(this.logger, {
         action: 'cancelled',
+        correlationId: reconciliation.correlationId,
         entity: 'wait',
         failureCode: CANCELLATION_FAILURE.code,
         nodeInstanceId: wait.node_instance_id,

@@ -361,6 +361,25 @@ describe('courseInterviewClient', () => {
     warn.mockRestore();
   });
 
+  test('records the persisted support code for a malformed completed interview', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runSummaryResponse())
+      .mockResolvedValueOnce(
+        runStateResponse({ correlationId: CORRELATION_ID, events: [], status: 'completed' })
+      );
+
+    await expect(
+      startCourseInterview({
+        hasReliableSourceContext: false,
+        mode: 'learn',
+        projectId: 'project-1',
+      })
+    ).rejects.toThrow('L’intervista per il corso non è riuscita. Riprova.');
+    expect(warn).toHaveBeenCalledWith(`[Nous][API] Codice assistenza: ${CORRELATION_ID}`);
+    warn.mockRestore();
+  });
+
   test('rejects a generic snapshot that belongs to another project', async () => {
     fetchWithSupabaseAuthMock
       .mockResolvedValueOnce(runSummaryResponse())

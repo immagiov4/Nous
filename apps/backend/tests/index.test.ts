@@ -122,6 +122,40 @@ describe('request lifecycle observability', () => {
     }
   });
 
+  test('records mounted route templates without concrete path parameters', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const privatePathSegment = 'student-private-voice';
+    const server = createApp().listen(0, '127.0.0.1');
+
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected the test server to listen on a TCP port.');
+    }
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/voices/${privatePathSegment}`
+      );
+
+      expect(response.status).toBe(404);
+      const lifecycleFailure = errorLog.mock.calls
+        .flat()
+        .find(
+          value =>
+            typeof value === 'string' &&
+            value.includes('"operation":"http_request"') &&
+            value.includes('"action":"failed"')
+        );
+      expect(lifecycleFailure).toContain('"path":"/api/voices/:id"');
+      expect(lifecycleFailure).not.toContain(privatePathSegment);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   test('keeps safe internal exception details in backend logs and a stable client response', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const internalMessage = 'Database transaction lost.';

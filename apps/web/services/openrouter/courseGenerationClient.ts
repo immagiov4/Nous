@@ -163,7 +163,12 @@ const readCompletedResult = (
         : COURSE_GENERATION_ERROR;
     throw new Error(resolveWorkflowFailureMessage(job.errorCode, fallbackMessage));
   }
-  return parseCompletedResult(job, projectId);
+  try {
+    return parseCompletedResult(job, projectId);
+  } catch (error) {
+    logBackendFailureCorrelationId(job.correlationId);
+    throw error;
+  }
 };
 
 export const generateDurableCourse = async ({

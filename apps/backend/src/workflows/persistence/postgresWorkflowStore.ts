@@ -541,6 +541,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
       for (const wait of input.materialization.waits) {
         emitWorkflowLog(this.logger, {
           action: 'created',
+          correlationId: result.run.correlationId,
           entity: 'wait',
           nodeInstanceId: wait.nodeInstanceId,
           runId: result.run.id,
