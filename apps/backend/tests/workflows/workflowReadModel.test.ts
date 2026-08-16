@@ -11,6 +11,7 @@ import {
 const run: WorkflowRun = {
   cancellationRequested: false,
   cleanupStatus: 'not-required',
+  correlationId: '48eb116c-a283-440b-b875-a528e5e4f5f1',
   createdAt: '2026-07-29T10:00:00.000Z',
   definitionHash: 'a'.repeat(64),
   definitionHashVersion: 1,
@@ -114,6 +115,7 @@ describe('workflow read model', () => {
     ]);
     expect(state.events.map(event => event.sequence)).toEqual(['1', '2']);
     expect(state.waits.map(wait => wait.waitId)).toEqual(['wait-1', 'wait-2']);
+    expect(state.run.correlationId).toBe(run.correlationId);
     expect(state.run).not.toHaveProperty('input');
     expect(state.run).not.toHaveProperty('output');
     expect(state.run).not.toHaveProperty('resolvedConfig');

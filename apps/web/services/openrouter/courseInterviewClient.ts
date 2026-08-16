@@ -23,6 +23,7 @@ import {
 } from '@shared/courseInterviewContract';
 
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -133,6 +134,7 @@ interface WorkflowWaitSnapshot {
 
 interface CourseInterviewRunSnapshot {
   readonly cleanupStatus: WorkflowCleanupStatus;
+  readonly correlationId?: string;
   readonly errorCode?: string;
   readonly events: readonly WorkflowEventSnapshot[];
   readonly projectId: string;
@@ -229,8 +231,10 @@ const parseRunState = (
   });
   const errorCode =
     isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
+  const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
   return {
     cleanupStatus,
+    ...(correlationId ? { correlationId } : {}),
     ...(errorCode ? { errorCode } : {}),
     events,
     projectId: expectedProjectId,
@@ -243,13 +247,17 @@ const parseRunState = (
 const fetchRunStateIfPresent = async (
   runId: string,
   projectId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  notFoundIsExpected = false
 ): Promise<CourseInterviewRunSnapshot | null> => {
-  const response = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(runId)}`,
-    { cache: 'no-store', signal }
-  );
-  if (response.status === 404) return null;
+  const url = `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(runId)}`;
+  const request = { cache: 'no-store' as const, signal };
+  const response = notFoundIsExpected
+    ? await fetchWithSupabaseAuth(url, request, {
+        expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS],
+      })
+    : await fetchWithSupabaseAuth(url, request);
+  if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
   assertWorkflowPollResponse(response, COURSE_INTERVIEW_ERROR);
   return parseRunState(
     await readWorkflowPollJson(response, COURSE_INTERVIEW_ERROR),
@@ -375,7 +383,7 @@ const waitForActionableSnapshot = async (
   missingSnapshot?: CourseInterviewSnapshot
 ): Promise<CourseInterviewSnapshot> => {
   const readState = async (signal?: AbortSignal): Promise<CourseInterviewRunSnapshot | null> => {
-    const state = await fetchRunStateIfPresent(runId, projectId, signal);
+    const state = await fetchRunStateIfPresent(runId, projectId, signal, Boolean(missingSnapshot));
     if (!state && !missingSnapshot) throw new Error(COURSE_INTERVIEW_ERROR);
     return state;
   };
@@ -406,6 +414,9 @@ const waitForActionableSnapshot = async (
   if (!terminalState.run) {
     if (missingSnapshot) return missingSnapshot;
     throw new Error(COURSE_INTERVIEW_ERROR);
+  }
+  if (terminalState.run.status === 'failed' || terminalState.run.status === 'expired') {
+    logBackendFailureCorrelationId(terminalState.run.correlationId);
   }
   return mapCourseInterviewSnapshot(terminalState.run);
 };
@@ -542,9 +553,10 @@ export const cancelCourseInterview = async (
   ): Promise<{ readonly run: CourseInterviewRunSnapshot | null }> => {
     const stateResponse = await fetchWithSupabaseAuth(
       `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(input.runId)}`,
-      { cache: 'no-store', signal }
+      { cache: 'no-store', signal },
+      { expectedStatuses: [WORKFLOW_NOT_FOUND_STATUS] }
     );
-    if (stateResponse.status === 404) return { run: null };
+    if (stateResponse.status === WORKFLOW_NOT_FOUND_STATUS) return { run: null };
     assertWorkflowPollResponse(stateResponse, COURSE_INTERVIEW_ERROR);
     return {
       run: parseRunState(
@@ -565,5 +577,8 @@ export const cancelCourseInterview = async (
     readState: (_state, signal) => readCancellationState(signal),
     signal: options.signal,
   });
-  if (cancellation.run?.cleanupStatus === 'failed') throw new Error(COURSE_INTERVIEW_ERROR);
+  if (cancellation.run?.cleanupStatus === 'failed') {
+    logBackendFailureCorrelationId(cancellation.run.correlationId);
+    throw new Error(COURSE_INTERVIEW_ERROR);
+  }
 };

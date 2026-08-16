@@ -1,4 +1,5 @@
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
@@ -37,6 +38,7 @@ interface RetryOptions {
 
 interface RetryRunState {
   readonly cleanupStatus: string;
+  readonly correlationId?: string;
   readonly errorCode?: string;
   readonly projectId: string;
   readonly publishedEvents: readonly unknown[];
@@ -86,8 +88,10 @@ const readRunState = async (
   }
   const errorCode =
     isRecord(run.error) && typeof run.error.code === 'string' ? run.error.code : undefined;
+  const correlationId = typeof run.correlationId === 'string' ? run.correlationId : undefined;
   return {
     cleanupStatus: run.cleanupStatus,
+    ...(correlationId ? { correlationId } : {}),
     ...(errorCode ? { errorCode } : {}),
     projectId: expectedProjectId,
     publishedEvents: payload.state.publishedEvents,
@@ -152,10 +156,14 @@ const waitForCommittedRevision = async (
     signal,
   });
   if (terminalState.status !== 'completed') {
+    logBackendFailureCorrelationId(terminalState.correlationId);
     throw new LessonVisualRetryTerminalError(terminalState.errorCode);
   }
   const revision = readProjectRevision(terminalState);
-  if (revision === null) throw new LessonVisualRetryTerminalError();
+  if (revision === null) {
+    logBackendFailureCorrelationId(terminalState.correlationId);
+    throw new LessonVisualRetryTerminalError();
+  }
   return revision;
 };
 
