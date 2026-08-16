@@ -354,22 +354,30 @@ const readEntryContent = (
   path: string,
   expectedSize: number,
   maxEntryBytes: number,
-  remainingExpandedBytes: number
+  remainingExpandedBytes: number,
+  deadlineAt: number
 ): Promise<Uint8Array> =>
   new Promise((resolve, reject) => {
     const content = new Uint8Array(expectedSize);
     const stream = loadedEntry.internalStream('uint8array');
     let offset = 0;
     let settled = false;
+    let deadlineTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
     const fail = (error: Error) => {
       if (settled) {
         return;
       }
       settled = true;
+      if (deadlineTimer !== undefined) globalThis.clearTimeout(deadlineTimer);
       stream.pause();
       reject(error);
     };
+
+    deadlineTimer = globalThis.setTimeout(
+      () => fail(invalidArchive('preparation deadline exceeded')),
+      Math.max(1, deadlineAt - Date.now())
+    );
 
     stream
       .on('data', chunk => {
@@ -399,6 +407,7 @@ const readEntryContent = (
           return;
         }
         settled = true;
+        if (deadlineTimer !== undefined) globalThis.clearTimeout(deadlineTimer);
         resolve(content);
       })
       .resume();
@@ -445,6 +454,26 @@ const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T
     if (timeout !== undefined) {
       globalThis.clearTimeout(timeout);
     }
+  }
+};
+
+const withArchivePreparationDeadline = async <T>(
+  promise: Promise<T>,
+  deadlineAt: number
+): Promise<T> => {
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = globalThis.setTimeout(
+          () => reject(invalidArchive('preparation deadline exceeded')),
+          Math.max(1, deadlineAt - Date.now())
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) globalThis.clearTimeout(timeout);
   }
 };
 
@@ -547,12 +576,13 @@ export async function* streamSourceArchive(
   limits: SourceArchiveLimits
 ): AsyncGenerator<SourceArchiveEntry> {
   validateLimits(limits);
+  const deadlineAt = Date.now() + PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs;
   const centralEntries = parseCentralDirectory(archiveBytes);
   const { entriesByPath, totalExpandedBytes: originalTotalExpandedBytes } = inspectCentralDirectory(
     centralEntries,
     limits
   );
-  const loadedArchive = await loadArchive(archiveBytes);
+  const loadedArchive = await withArchivePreparationDeadline(loadArchive(archiveBytes), deadlineAt);
   const loadedEntriesByPath = mapLoadedEntries(loadedArchive, entriesByPath);
   const directories = new Map<string, SourceArchiveDirectoryEntry>();
   const filePaths: string[] = [];
@@ -577,11 +607,12 @@ export async function* streamSourceArchive(
   let actualExpandedBytes = 0;
   let preparedExpandedBytes = 0;
   const pdfBudget: PdfPreparationBudget = {
-    deadlineAt: Date.now() + PROJECT_SOURCE_ARCHIVE_PDF_POLICY.archivePreparationTimeoutMs,
+    deadlineAt,
     eligibleBytes: 0,
     eligibleEntries: 0,
   };
   for (const entry of orderedEntries) {
+    if (Date.now() >= deadlineAt) throw invalidArchive('preparation deadline exceeded');
     if (entry.kind === 'directory') {
       yield entry;
       continue;
@@ -598,7 +629,8 @@ export async function* streamSourceArchive(
       path,
       metadata.uncompressedSize,
       limits.maxEntryBytes,
-      limits.maxExpandedBytes - actualExpandedBytes
+      limits.maxExpandedBytes - actualExpandedBytes,
+      deadlineAt
     );
     actualExpandedBytes += content.byteLength;
 

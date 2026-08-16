@@ -6,7 +6,7 @@ import {
   type ProjectSnapshotWire,
 } from '@shared/projectSnapshotWire';
 import { isSourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
-
+import { translateUiMessage } from '../../i18n/uiMessages.ts';
 import type {
   FileData,
   LibraryFolder,
@@ -157,11 +157,13 @@ function responseErrorMessage(code: ProjectStorageError['code']): string {
   if (code === 'revision-conflict') return PROJECT_REVISION_CONFLICT_MESSAGE;
   if (code === 'cover-revision-conflict') return PROJECT_COVER_REVISION_CONFLICT_MESSAGE;
   if (code === 'source-archive-busy') {
-    return 'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.';
+    return translateUiMessage(
+      'È già in corso la preparazione di un archivio ZIP. Riprova tra poco.'
+    );
   }
   if (code === 'source-archive-changed') return PROJECT_SOURCE_ARCHIVE_CHANGED_MESSAGE;
   if (code === 'source-archive-unusable') {
-    return 'L’archivio non contiene alcun testo utilizzabile.';
+    return translateUiMessage('L’archivio non contiene alcun testo utilizzabile.');
   }
   return PROJECT_SYNC_ERROR_MESSAGE;
 }
@@ -790,8 +792,8 @@ export class HttpProjectRepository implements ProjectRepository {
           await this.cancelProjectImportUpload(uploadId, Math.max(1, deadline - Date.now()));
           return undefined;
         }
-      } catch {
-        return undefined;
+      } catch (error) {
+        if (error instanceof ProjectStorageError && error.httpStatus === 404) return undefined;
       }
       await new Promise(resolve => globalThis.setTimeout(resolve, PROJECT_IMPORT_STATUS_POLL_MS));
     }
