@@ -70,7 +70,6 @@ const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_ARCHIVE_SAVE_TIMEOUT_MS = 10 * 60_000;
-const PROJECT_ARCHIVE_DIRECT_MAX_BYTES = 16_000_000;
 const PROJECT_IMPORT_STATUS_POLL_MS = 1_000;
 const HTTP_STATUS_REQUEST_TOO_LARGE = 413;
 const getUtf8Bytes = (value: string): number => new Blob([value]).size;
@@ -428,13 +427,10 @@ export class HttpProjectRepository implements ProjectRepository {
         externalArchiveBytesAvailable: Boolean(archiveFile?.size),
       })
     );
-    if (archiveFile && archiveFile.size > PROJECT_ARCHIVE_DIRECT_MAX_BYTES) {
+    if (archiveFile) {
       const importConfig = await this.getProjectImportConfig();
       return this.saveArchiveProjectInChunks(projectPayload, archiveFile, importConfig, options);
     }
-    const body = archiveFile
-      ? this.createArchiveSaveBody(projectPayload, archiveFile, options)
-      : JSON.stringify({ snapshot: projectPayload, ...options });
     const response = await this.request<{
       meta?: SavedProjectMeta;
       snapshot?: ProjectSnapshot;
@@ -442,7 +438,7 @@ export class HttpProjectRepository implements ProjectRepository {
       `/api/projects/projects/${encodeURIComponent(snapshot.id)}`,
       {
         method: 'PUT',
-        body,
+        body: JSON.stringify({ snapshot: projectPayload, ...options }),
       },
       source?.kind === 'archive' ? PROJECT_ARCHIVE_SAVE_TIMEOUT_MS : PROJECT_REQUEST_TIMEOUT_MS
     );
@@ -452,26 +448,6 @@ export class HttpProjectRepository implements ProjectRepository {
         assertValue(response.snapshot, 'La fonte sincronizzata non e stata restituita.')
       ),
     };
-  }
-
-  private createArchiveSaveBody(
-    snapshot: ProjectSnapshotWire,
-    archiveFile: File,
-    options: ProjectWriteOptions
-  ): FormData {
-    if (snapshot.source?.kind !== 'archive') {
-      throw new ProjectStorageError(
-        'Il file archivio richiede una sorgente ZIP.',
-        'persistence-failed'
-      );
-    }
-    const body = new FormData();
-    body.append('snapshot', JSON.stringify(snapshot));
-    if (options.expectedRevision !== undefined) {
-      body.append('expectedRevision', String(options.expectedRevision));
-    }
-    body.append('archive', archiveFile);
-    return body;
   }
 
   private async saveArchiveProjectInChunks(
