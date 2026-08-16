@@ -467,26 +467,19 @@ mark {
 }
 
 ::highlight(nous-annotations) {
-  background-color: var(--annotation-highlight-color);
+  background-color: transparent;
   color: #111827;
 }
 
 .prose code[data-nous-annotation-inline-highlight="true"] {
   border-radius: 0;
-  background-color: var(--annotation-highlight-color);
+  background-color: transparent;
 }
 
-.nous-annotation-highlight-cap {
+.nous-annotation-highlight-line {
   position: absolute;
   background-color: var(--annotation-highlight-color);
-}
-
-.nous-annotation-highlight-cap-start {
-  border-radius: 0.14em 0 0 0.14em;
-}
-
-.nous-annotation-highlight-cap-end {
-  border-radius: 0 0.14em 0.14em 0;
+  border-radius: 0.14em;
 }
 
 ::highlight(nous-annotation-notes) {

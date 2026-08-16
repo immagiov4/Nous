@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import MarkdownRenderer from '../../../components/shared/MarkdownRenderer.tsx';
 import { resolveProjectDocumentImage } from '../../../services/projects/projectDocumentImageResolver.ts';
@@ -15,6 +15,7 @@ vi.mock('../../../services/projects/projectDocumentImageResolver.ts', async impo
 }));
 
 const originalRangeGetClientRects = Range.prototype.getClientRects;
+const originalDocumentFontsDescriptor = Object.getOwnPropertyDescriptor(document, 'fonts');
 
 afterEach(() => {
   vi.mocked(resolveProjectDocumentImage).mockReset();
@@ -26,6 +27,11 @@ afterEach(() => {
     });
   } else {
     Reflect.deleteProperty(Range.prototype, 'getClientRects');
+  }
+  if (originalDocumentFontsDescriptor) {
+    Object.defineProperty(document, 'fonts', originalDocumentFontsDescriptor);
+  } else {
+    Reflect.deleteProperty(document, 'fonts');
   }
 });
 
@@ -86,13 +92,15 @@ describe('MarkdownRenderer', () => {
       'data-nous-annotation-inline-highlight',
       'true'
     );
-    const highlightCaps = container.querySelectorAll('.nous-annotation-highlight-cap');
-    expect(highlightCaps).toHaveLength(4);
-    expect(container.querySelectorAll('.nous-annotation-highlight-cap-start')).toHaveLength(2);
-    expect(container.querySelectorAll('.nous-annotation-highlight-cap-end')).toHaveLength(2);
-    expect(Array.from(highlightCaps).every(cap => (cap as HTMLElement).style.width === '3px')).toBe(
-      true
+    const highlightLines = Array.from(
+      container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-line')
     );
+    expect(highlightLines).toHaveLength(2);
+    expect(highlightLines.map(line => line.style.left)).toEqual(['7px', '7px']);
+    expect(highlightLines.map(line => line.style.top)).toEqual(['9px', '32px']);
+    expect(highlightLines.map(line => line.style.width)).toEqual(['76px', '41px']);
+    expect(highlightLines.map(line => line.style.height)).toEqual(['33px', '18px']);
+    expect(highlightLines.every(line => line.style.maxWidth === 'none')).toBe(true);
 
     rerender(
       <MarkdownRenderer
@@ -350,15 +358,11 @@ describe('MarkdownRenderer', () => {
       'Secondo paragrafo lungo.',
       'Terzo paragrafo lungo.',
     ]);
-    const startCaps = Array.from(
-      container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-cap-start')
+    const highlightLines = Array.from(
+      container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-line')
     );
-    const endCaps = Array.from(
-      container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-cap-end')
-    );
-    expect(startCaps).toHaveLength(9);
-    expect(endCaps).toHaveLength(9);
-    expect(startCaps.map(cap => cap.style.left)).toEqual([
+    expect(highlightLines).toHaveLength(9);
+    expect(highlightLines.map(line => line.style.left)).toEqual([
       '17px',
       '-3px',
       '7px',
@@ -369,19 +373,18 @@ describe('MarkdownRenderer', () => {
       '-3px',
       '7px',
     ]);
-    expect(endCaps.map(cap => cap.style.left)).toEqual([
-      '80px',
-      '100px',
-      '70px',
-      '80px',
-      '100px',
-      '70px',
-      '80px',
-      '100px',
-      '70px',
+    expect(highlightLines.map(line => line.style.width)).toEqual([
+      '66px',
+      '106px',
+      '66px',
+      '66px',
+      '106px',
+      '66px',
+      '66px',
+      '106px',
+      '66px',
     ]);
-    expect(startCaps.map(cap => cap.style.height)).toEqual(Array(9).fill('18px'));
-    expect(endCaps.map(cap => cap.style.height)).toEqual(Array(9).fill('18px'));
+    expect(highlightLines.map(line => line.style.height)).toEqual(Array(9).fill('18px'));
   });
 
   test('resolves native highlights around inline KaTeX from the canonical TeX projection', () => {
@@ -415,6 +418,109 @@ describe('MarkdownRenderer', () => {
     expect(entries[0]?.ranges.map(range => range.toString()).join('')).toContain('+X');
     expect(entries[0]?.ranges.map(range => range.toString()).join('')).toContain('+Y');
     expect(entries[0]?.ranges.map(range => range.toString()).join('')).toContain('−Z');
+  });
+
+  test('uses one stable line geometry across normal text and inline math fragments', () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    vi.stubGlobal('CSS', { highlights: new Map<string, TestHighlight>() });
+    vi.stubGlobal('Highlight', TestHighlight);
+    const exact = 'Normale x1 e y2 finale.';
+    const fragmentRects = [
+      { bottom: 28, height: 18, left: 10, right: 50, top: 10, width: 40 },
+      { bottom: 32, height: 15, left: 62, right: 68, top: 17, width: 6 },
+      { bottom: 28, height: 18, left: 74, right: 92, top: 10, width: 18 },
+      { bottom: 23, height: 15, left: 104, right: 110, top: 8, width: 6 },
+      { bottom: 28, height: 18, left: 116, right: 146, top: 10, width: 30 },
+    ];
+    let clientRectCallIndex = 0;
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [fragmentRects[clientRectCallIndex++]].filter(Boolean),
+    });
+
+    const { container } = render(
+      <MarkdownRenderer
+        content={'Normale $x_1$ e $y^2$ finale.'}
+        sectionAnnotations={[
+          {
+            anchor: {
+              kind: 'selection',
+              selector: { end: exact.length, exact, prefix: '', start: 0, suffix: '' },
+            },
+            createdAt: '2026-08-16T10:00:00.000Z',
+            id: 'annotation-line-metrics',
+            note: '',
+            updatedAt: '2026-08-16T10:00:00.000Z',
+          },
+        ]}
+      />
+    );
+
+    const highlightLines = Array.from(
+      container.querySelectorAll<HTMLElement>('.nous-annotation-highlight-line')
+    );
+    expect(highlightLines).toHaveLength(1);
+    expect(highlightLines[0]?.style.left).toBe('7px');
+    expect(highlightLines[0]?.style.top).toBe('8px');
+    expect(highlightLines[0]?.style.width).toBe('142px');
+    expect(highlightLines[0]?.style.height).toBe('24px');
+  });
+
+  test('remeasures highlight lines after document fonts finish loading', async () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    vi.stubGlobal('CSS', { highlights: new Map<string, TestHighlight>() });
+    vi.stubGlobal('Highlight', TestHighlight);
+    let resolveFontsReady = () => {};
+    const fontsReady = new Promise<void>(resolve => {
+      resolveFontsReady = resolve;
+    });
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { ready: fontsReady },
+    });
+    let fontsAreReady = false;
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [
+        {
+          bottom: 28,
+          height: 18,
+          left: 10,
+          right: fontsAreReady ? 90 : 50,
+          top: 10,
+          width: fontsAreReady ? 80 : 40,
+        },
+      ],
+    });
+
+    const exact = 'Testo con font tardivo.';
+    const { container } = render(
+      <MarkdownRenderer
+        content={exact}
+        sectionAnnotations={[
+          {
+            anchor: {
+              kind: 'selection',
+              selector: { end: exact.length, exact, prefix: '', start: 0, suffix: '' },
+            },
+            createdAt: '2026-08-16T10:00:00.000Z',
+            id: 'annotation-font-ready',
+            note: '',
+            updatedAt: '2026-08-16T10:00:00.000Z',
+          },
+        ]}
+      />
+    );
+    const getHighlightLine = () =>
+      container.querySelector<HTMLElement>('.nous-annotation-highlight-line');
+
+    expect(getHighlightLine()?.style.width).toBe('46px');
+    fontsAreReady = true;
+    resolveFontsReady();
+
+    await waitFor(() => expect(getHighlightLine()?.style.width).toBe('86px'));
   });
 
   test('softens annotation edges with minimal horizontal spacing', () => {
