@@ -454,6 +454,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
     this.wake = new PostgresWorkflowWakeSource(createListenClient);
   }
 
+  // fallow-ignore-next-line unused-class-member -- Called through the runtime composition store contract.
   async close(): Promise<void> {
     await this.projectRevisionInbox.stop();
     if (this.ownsConnection) await this.sql.end();
@@ -555,6 +556,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
     return rows[0] ? mapRun(rows[0]) : null;
   }
 
+  // fallow-ignore-next-line unused-class-member -- Called through feature-specific run-reader contracts.
   async getActiveRun(input: {
     projectId: string;
     userId: string;

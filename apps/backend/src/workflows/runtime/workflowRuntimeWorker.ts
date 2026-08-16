@@ -19,7 +19,7 @@ import {
   publishWorkflowTransientEvents,
   WORKFLOW_RUNTIME_LOOP_FAILURE_CODE,
   type WorkflowLogger,
-  type WorkflowRuntimeLoop as WorkflowRuntimeLoopType,
+  type WorkflowRuntimeLoop,
   type WorkflowTransientEventPublisher,
 } from '../workflowObservability.js';
 import { startWorkflowAttemptMonitor } from '../workflowStepAttempt.js';
@@ -31,8 +31,6 @@ import {
   type WorkflowStepRunnerStore,
 } from '../workflowStepRunner.js';
 import { runWorkflowUndoClaim, type WorkflowUndoRunnerStore } from '../workflowUndoRunner.js';
-
-export type WorkflowRuntimeLoop = WorkflowRuntimeLoopType;
 
 export type WorkflowRuntimeWake = 'all' | WorkflowRuntimeLoop;
 
@@ -177,7 +175,7 @@ const assertWorkerInput = (
   assertPositiveInteger(stepConcurrency, 'stepConcurrency');
 };
 
-export class WorkflowRuntimeWorker<Services> {
+class WorkflowRuntimeWorker<Services> {
   private active = false;
   private readonly loopStates = createLoopStates();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
