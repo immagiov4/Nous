@@ -451,6 +451,32 @@ describe('MarkdownRenderer', () => {
     expect(entries[0]?.ranges[0]?.toString()).toBe('Beta');
   });
 
+  test('preserves literal angle-bracket text inside inline code', () => {
+    const article = document.createElement('article');
+    article.innerHTML = '<p><code>&lt;iostream&gt;</code></p>';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 12,
+            exact: '<iostream>',
+            prefix: '',
+            start: 1,
+            suffix: '',
+          },
+        },
+        createdAt: '2026-08-16T00:00:00.000Z',
+        id: 'annotation-inline-code-angle-brackets',
+        note: '',
+        updatedAt: '2026-08-16T00:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.ranges[0]?.toString()).toBe('<iostream>');
+  });
+
   test('keeps long multi-paragraph highlights inside paragraph ranges without side bands', () => {
     class TestHighlight extends Set<AbstractRange> {}
 

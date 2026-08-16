@@ -61,9 +61,10 @@ const appendProjectionCharacter = (
 };
 
 const appendNormalizedText = (projection: DomTextProjection, node: Text) => {
+  const preservesLiteralTags = Boolean(node.parentElement?.closest('code, pre'));
   for (let offset = 0; offset < node.data.length; offset += 1) {
     const character = node.data[offset];
-    if (character === '<') {
+    if (!preservesLiteralTags && character === '<') {
       const tag = HTML_LIKE_TAG_REGEX.exec(node.data.slice(offset))?.[0];
       if (tag) {
         offset += tag.length - 1;
