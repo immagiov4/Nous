@@ -23,7 +23,8 @@ export interface ContextSourceArchiveSearchState {
 }
 
 export interface ContextSourceArchiveSearchCandidate {
-  match: Omit<SourceArchiveSearchMatch, 'lineText'>;
+  match: Omit<SourceArchiveSearchMatch, 'lineText'> & { cursorBytes: number };
+  retryState: ContextSourceArchiveSearchState;
   resumeState: ContextSourceArchiveSearchState;
 }
 
@@ -135,19 +136,26 @@ const findCandidates = ({
   startPosition: SearchPosition;
 }): ContextSourceArchiveSearchCandidate[] => {
   const candidates: ContextSourceArchiveSearchCandidate[] = [];
+  const encoder = new TextEncoder();
+  let byteOffset = state.cursorBytes - encoder.encode(state.carryText).byteLength;
+  let bytePositionOffset = 0;
   let position = startPosition;
   let positionOffset = 0;
   let matchOffset = combinedText.indexOf(query, state.searchOffset);
   while (matchOffset !== -1) {
+    byteOffset += encoder.encode(combinedText.slice(bytePositionOffset, matchOffset)).byteLength;
+    bytePositionOffset = matchOffset;
     position = advancePosition(combinedText, positionOffset, matchOffset, position);
     positionOffset = matchOffset;
     if (matchOffset + query.length > state.carryText.length) {
       candidates.push({
         match: {
           column: position.column,
+          cursorBytes: byteOffset,
           line: position.line,
           path: filePath,
         },
+        retryState: { ...state, searchOffset: matchOffset },
         resumeState: { ...state, searchOffset: matchOffset + 1 },
       });
     }

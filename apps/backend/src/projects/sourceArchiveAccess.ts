@@ -123,7 +123,15 @@ const isValidPath = (path: string): boolean => {
   );
 };
 
-const copyEntry = (entry: SourceArchiveIndexedEntry): SourceArchiveIndexedEntry => ({ ...entry });
+const copyEntry = (entry: SourceArchiveIndexedEntry): SourceArchiveIndexedEntry =>
+  entry.kind === 'directory'
+    ? { kind: entry.kind, path: entry.path }
+    : {
+        byteSize: entry.byteSize,
+        contentKind: entry.contentKind,
+        kind: entry.kind,
+        path: entry.path,
+      };
 
 export class SourceArchiveAccess {
   private readonly childrenByDirectory = new Map<string, SourceArchiveIndexedEntry[]>();

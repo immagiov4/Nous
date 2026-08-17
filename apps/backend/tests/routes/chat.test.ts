@@ -80,9 +80,8 @@ vi.mock('../../src/config/chatConfig.js', async () => {
 });
 
 const { createApp } = await import('../../src/index.js');
-const { MAX_CONTEXT_CHARS, serializeContextSourceReferencesForPrompt } = await import(
-  '../../src/routes/chatPrompts.js'
-);
+const { CHAT_TOOL_STEP_LIMIT, MAX_CONTEXT_CHARS, serializeContextSourceReferencesForPrompt } =
+  await import('../../src/routes/chatPrompts.js');
 const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
 );
@@ -107,6 +106,7 @@ const ARCHIVE_VERSION = {
   sourceHash: 'a'.repeat(64),
   sourceId: 'source-archive',
 };
+const ARCHIVE_CURSOR_SIGNING_SECRET = 'archive-cursor-test-secret';
 
 const createArchiveToolContext = (signal: AbortSignal) => ({
   projectId: 'project-archive',
@@ -131,6 +131,7 @@ test('reports selector context exhaustion distinctly from a tool error', async (
         archiveSelectors: [{ kind: 'file' as const, path: 'large.txt' }],
       },
     },
+    cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
     store: {
       loadProjectSourceArchiveEntry: vi.fn(async () => archiveBytes),
       loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
@@ -149,15 +150,21 @@ test('reports selector context exhaustion distinctly from a tool error', async (
   });
 
   try {
-    const result = await archiveTool.execute?.(
-      { operation: 'resolve-lesson-selectors' },
-      {} as never
-    );
+    const results = [];
+    for (let call = 0; call < CHAT_TOOL_STEP_LIMIT; call += 1) {
+      results.push(
+        await archiveTool.execute?.({ operation: 'resolve-lesson-selectors' }, {} as never)
+      );
+    }
 
-    expect(result).toMatchObject({ status: 'limit-reached' });
-    expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThan(
-      MAX_CONTEXT_CHARS
+    expect(results).toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: 'limit-reached' })])
     );
+    const serializedResultBytes = results.reduce(
+      (total, result) => total + new TextEncoder().encode(JSON.stringify(result)).byteLength,
+      0
+    );
+    expect(serializedResultBytes).toBeLessThanOrEqual(MAX_CONTEXT_CHARS);
     expect(consoleError).not.toHaveBeenCalled();
   } finally {
     consoleError.mockRestore();
@@ -172,6 +179,7 @@ test('advances archive index pagination past an entry that cannot fit', async ()
   ];
   const archiveTool = createContextSourceArchiveTool({
     context: createArchiveToolContext(new AbortController().signal),
+    cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
     store: {
       loadProjectSourceArchiveEntry: vi.fn(),
       loadProjectSourceArchiveEntryRange: vi.fn(),
@@ -182,20 +190,56 @@ test('advances archive index pagination past an entry that cannot fit', async ()
   const firstPage = await archiveTool.execute?.({ operation: 'tree' }, {} as never);
   expect(firstPage).toMatchObject({
     entries: [],
-    nextCursor: 1,
+    nextEntryCursor: 1,
     omittedEntry: true,
     status: 'limit-reached',
   });
 
   await expect(
-    archiveTool.execute?.({ cursor: firstPage.nextCursor, operation: 'tree' }, {} as never)
+    archiveTool.execute?.(
+      { entryCursor: firstPage.nextEntryCursor, operation: 'tree' },
+      {} as never
+    )
   ).resolves.toMatchObject({ entries: [entries[1]], status: 'ok' });
+});
+
+test('lists the archive root without leaking retained entry previews', async () => {
+  const indexedEntry = {
+    byteSize: 4,
+    contentKind: 'text' as const,
+    hash: 'c'.repeat(64),
+    kind: 'file' as const,
+    path: 'readme.md',
+    preview: 'retained preview',
+  };
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(new AbortController().signal),
+    cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
+    store: {
+      loadProjectSourceArchiveEntry: vi.fn(),
+      loadProjectSourceArchiveEntryRange: vi.fn(),
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: [indexedEntry],
+        version: ARCHIVE_VERSION,
+      })),
+    },
+  });
+
+  const result = await archiveTool.execute?.({ operation: 'list-directory' }, {} as never);
+
+  expect(result).toMatchObject({
+    entries: [{ byteSize: 4, contentKind: 'text', kind: 'file', path: 'readme.md' }],
+    path: '',
+    status: 'ok',
+  });
+  expect(result.entries[0]).not.toHaveProperty('hash');
+  expect(result.entries[0]).not.toHaveProperty('preview');
 });
 
 test('pages literal search work and preserves exact locations across files', async () => {
   const files = new Map([
     ['first.txt', new TextEncoder().encode('no match here')],
-    ['second.txt', new TextEncoder().encode('heading\nneedle here')],
+    ['second.txt', new TextEncoder().encode('heading\néneedle here')],
   ]);
   const loadProjectSourceArchiveEntry = vi.fn();
   const loadProjectSourceArchiveEntryRange = vi.fn(
@@ -208,48 +252,92 @@ test('pages literal search work and preserves exact locations across files', asy
       endExclusive: number
     ) => files.get(path)?.slice(start, endExclusive) || null
   );
-  const archiveTool = createContextSourceArchiveTool({
-    context: createArchiveToolContext(new AbortController().signal),
-    store: {
-      loadProjectSourceArchiveEntry,
-      loadProjectSourceArchiveEntryRange,
-      loadProjectSourceArchiveIndex: vi.fn(async () => ({
-        entries: [...files].map(([path, bytes]) => ({
-          byteSize: bytes.byteLength,
-          contentKind: 'text' as const,
-          kind: 'file' as const,
-          path,
-        })),
-        version: ARCHIVE_VERSION,
+  const store = {
+    loadProjectSourceArchiveEntry,
+    loadProjectSourceArchiveEntryRange,
+    loadProjectSourceArchiveIndex: vi.fn(async () => ({
+      entries: [...files].map(([path, bytes]) => ({
+        byteSize: bytes.byteLength,
+        contentKind: 'text' as const,
+        kind: 'file' as const,
+        path,
       })),
-    },
-  });
+      version: ARCHIVE_VERSION,
+    })),
+  };
+  const createArchiveTool = () =>
+    createContextSourceArchiveTool({
+      context: createArchiveToolContext(new AbortController().signal),
+      cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
+      store,
+    });
 
-  const firstPage = await archiveTool.execute?.(
+  const firstPage = await createArchiveTool().execute?.(
     { operation: 'search-text', query: 'needle' },
     {} as never
   );
   expect(firstPage).toMatchObject({ matches: [], status: 'ok' });
-  expect(firstPage.nextCursor).toEqual(expect.any(Number));
+  expect(firstPage.nextSearchCursor).toEqual(expect.any(String));
   expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(1);
 
-  await expect(
-    archiveTool.execute?.(
-      { cursor: firstPage.nextCursor, operation: 'search-text', query: 'needle' },
-      {} as never
-    )
-  ).resolves.toMatchObject({
-    citations: [{ archiveName: 'src.zip', column: 1, line: 2, path: 'second.txt' }],
-    matches: [{ column: 1, line: 2, path: 'second.txt' }],
-    nextCursor: null,
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    await expect(
+      createArchiveTool().execute?.(
+        {
+          operation: 'search-text',
+          query: 'different',
+          searchCursor: firstPage.nextSearchCursor,
+        },
+        {} as never
+      )
+    ).resolves.toMatchObject({
+      message: 'Non è stato possibile consultare l’archivio sorgente.',
+      status: 'error',
+    });
+  } finally {
+    consoleError.mockRestore();
+  }
+  expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(1);
+
+  const matchingPage = await createArchiveTool().execute?.(
+    {
+      operation: 'search-text',
+      query: 'needle',
+      searchCursor: firstPage.nextSearchCursor,
+    },
+    {} as never
+  );
+  expect(matchingPage).toMatchObject({
+    citations: [
+      { archiveName: 'src.zip', column: 2, cursorBytes: 10, line: 2, path: 'second.txt' },
+    ],
+    matches: [{ column: 2, cursorBytes: 10, line: 2, path: 'second.txt' }],
+    nextSearchCursor: null,
     status: 'ok',
   });
-  expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(2);
+
+  await expect(
+    createArchiveTool().execute?.(
+      {
+        cursorBytes: matchingPage.matches[0].cursorBytes,
+        operation: 'read-file',
+        path: 'second.txt',
+      },
+      {} as never
+    )
+  ).resolves.toMatchObject({ page: { text: 'needle here' }, status: 'ok' });
+  expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(3);
   expect(loadProjectSourceArchiveEntry).not.toHaveBeenCalled();
 });
 
 test('finds a literal match spanning bounded search pages', async () => {
-  const linePrefixLength = MAX_CONTEXT_CHARS - 9;
+  const terminalResultBytes = new TextEncoder().encode(
+    JSON.stringify({ status: 'limit-reached' })
+  ).byteLength;
+  const firstSearchPageBytes = MAX_CONTEXT_CHARS - terminalResultBytes * (CHAT_TOOL_STEP_LIMIT - 1);
+  const linePrefixLength =
+    firstSearchPageBytes - new TextEncoder().encode('first\n').byteLength - 3;
   const archiveBytes = new TextEncoder().encode(`first\n${'a'.repeat(linePrefixLength)}needle`);
   const loadProjectSourceArchiveEntryRange = vi.fn(
     async (
@@ -263,6 +351,7 @@ test('finds a literal match spanning bounded search pages', async () => {
   );
   const archiveTool = createContextSourceArchiveTool({
     context: createArchiveToolContext(new AbortController().signal),
+    cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
     store: {
       loadProjectSourceArchiveEntry: vi.fn(),
       loadProjectSourceArchiveEntryRange,
@@ -291,26 +380,91 @@ test('finds a literal match spanning bounded search pages', async () => {
     'large.txt',
     ARCHIVE_VERSION,
     0,
-    MAX_CONTEXT_CHARS
+    firstSearchPageBytes
   );
 
   await expect(
     archiveTool.execute?.(
-      { cursor: firstPage.nextCursor, operation: 'search-text', query: 'needle' },
+      {
+        operation: 'search-text',
+        query: 'needle',
+        searchCursor: firstPage.nextSearchCursor,
+      },
       {} as never
     )
   ).resolves.toMatchObject({
-    matches: [{ column: linePrefixLength + 1, line: 2, path: 'large.txt' }],
-    nextCursor: null,
+    matches: [
+      {
+        column: linePrefixLength + 1,
+        cursorBytes: firstSearchPageBytes - 3,
+        line: 2,
+        path: 'large.txt',
+      },
+    ],
+    nextSearchCursor: null,
     status: 'ok',
   });
   expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(2);
+});
+
+test('resumes before a search match that did not fit the previous result', async () => {
+  const path = `${'p'.repeat(7_000)}-matches.txt`;
+  const archiveBytes = new TextEncoder().encode('aaa');
+  const store = {
+    loadProjectSourceArchiveEntry: vi.fn(),
+    loadProjectSourceArchiveEntryRange: vi.fn(
+      async (_userId, _projectId, _path, _version, start, endExclusive) =>
+        archiveBytes.slice(start, endExclusive)
+    ),
+    loadProjectSourceArchiveIndex: vi.fn(async () => ({
+      entries: [
+        {
+          byteSize: archiveBytes.byteLength,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path,
+        },
+      ],
+      version: ARCHIVE_VERSION,
+    })),
+  };
+  const createArchiveTool = () =>
+    createContextSourceArchiveTool({
+      context: createArchiveToolContext(new AbortController().signal),
+      cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
+      store,
+    });
+
+  const firstResult = await createArchiveTool().execute?.(
+    { operation: 'search-text', query: 'a' },
+    {} as never
+  );
+  expect(firstResult).toMatchObject({
+    matches: [{ cursorBytes: 0, path }],
+    nextSearchCursor: expect.any(String),
+    status: 'ok',
+  });
+
+  await expect(
+    createArchiveTool().execute?.(
+      {
+        operation: 'search-text',
+        query: 'a',
+        searchCursor: firstResult.nextSearchCursor,
+      },
+      {} as never
+    )
+  ).resolves.toMatchObject({
+    matches: [{ cursorBytes: 1, path }],
+    status: 'ok',
+  });
 });
 
 test('fits JSON-escaped archive text into the complete serialized result budget', async () => {
   const archiveBytes = new TextEncoder().encode('"\\\n'.repeat(MAX_CONTEXT_CHARS));
   const archiveTool = createContextSourceArchiveTool({
     context: createArchiveToolContext(new AbortController().signal),
+    cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
     store: {
       loadProjectSourceArchiveEntry: vi.fn(async () => archiveBytes),
       loadProjectSourceArchiveEntryRange: vi.fn(
@@ -342,8 +496,19 @@ test('fits JSON-escaped archive text into the complete serialized result budget'
   });
   expect(result.page.text.length).toBeGreaterThan(0);
   expect(result.page.nextCursorBytes).toBe(result.page.endByteExclusive);
-  expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(
-    MAX_CONTEXT_CHARS
+  const results = [result];
+  for (let call = 1; call < CHAT_TOOL_STEP_LIMIT; call += 1) {
+    results.push(await archiveTool.execute?.({ operation: 'tree' }, {} as never));
+  }
+  expect(
+    results.reduce(
+      (total, toolResult) =>
+        total + new TextEncoder().encode(JSON.stringify(toolResult)).byteLength,
+      0
+    )
+  ).toBeLessThanOrEqual(MAX_CONTEXT_CHARS);
+  expect(results.slice(1)).toEqual(
+    expect.arrayContaining([expect.objectContaining({ status: 'limit-reached' })])
   );
 });
 
@@ -360,6 +525,7 @@ test('paginates large archive indices before building the tool result', async ()
   const createArchiveTool = () =>
     createContextSourceArchiveTool({
       context: createArchiveToolContext(new AbortController().signal),
+      cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
       store: {
         loadProjectSourceArchiveEntry: vi.fn(),
         loadProjectSourceArchiveEntryRange: vi.fn(),
@@ -369,20 +535,20 @@ test('paginates large archive indices before building the tool result', async ()
 
   const result = await createArchiveTool().execute?.({ operation: 'tree' }, {} as never);
 
-  expect(result).toMatchObject({ cursor: 0, operation: 'tree', status: 'ok' });
+  expect(result).toMatchObject({ entryCursor: 0, operation: 'tree', status: 'ok' });
   expect(result.entries.length).toBeGreaterThan(0);
   expect(result.entries.length).toBeLessThan(entries.length);
-  expect(result.nextCursor).toBe(result.entries.length);
+  expect(result.nextEntryCursor).toBe(result.entries.length);
   expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(
     MAX_CONTEXT_CHARS
   );
 
   const continuation = await createArchiveTool().execute?.(
-    { cursor: result.nextCursor, operation: 'tree' },
+    { entryCursor: result.nextEntryCursor, operation: 'tree' },
     {} as never
   );
-  expect(continuation).toMatchObject({ cursor: result.nextCursor, status: 'ok' });
-  expect(continuation.entries[0]).toEqual(entries[result.nextCursor]);
+  expect(continuation).toMatchObject({ entryCursor: result.nextEntryCursor, status: 'ok' });
+  expect(continuation.entries[0]).toEqual(entries[result.nextEntryCursor]);
 });
 
 test('stops retained-archive scanning when the request signal aborts', async () => {
@@ -395,6 +561,7 @@ test('stops retained-archive scanning when the request signal aborts', async () 
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   const archiveTool = createContextSourceArchiveTool({
     context: createArchiveToolContext(controller.signal),
+    cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
     store: {
       loadProjectSourceArchiveEntry: vi.fn(),
       loadProjectSourceArchiveEntryRange,

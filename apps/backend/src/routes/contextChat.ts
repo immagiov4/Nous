@@ -58,6 +58,15 @@ import { libraryRetrievalToolNames, libraryRetrievalTools } from './libraryChat.
 const DEFAULT_CONTEXT_SCOPE: ContextChatScope = 'selection';
 const CONTEXT_CHAT_SCOPES = new Set<ContextChatScope>(['annotation', 'lesson', 'selection']);
 
+const requireContextArchiveCursorSigningSecret = (): string => {
+  const deploymentSecret =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_JWT_SECRET?.trim();
+  if (!deploymentSecret) {
+    throw new Error('Context archive cursor signing requires a deployment secret.');
+  }
+  return `context-source-archive:${deploymentSecret}`;
+};
+
 const runContextWebSearch = async ({
   attachedAnnotationNote,
   attachedAnnotationText,
@@ -399,6 +408,7 @@ const buildContextToolSet = ({
             signal,
             userId,
           },
+          cursorSigningSecret: requireContextArchiveCursorSigningSecret(),
           store: getProjectStore(),
         })
       : undefined;
