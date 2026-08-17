@@ -185,6 +185,13 @@ describe('course archive planning', () => {
   test('refines the durable draft without invoking the draft stage again', async () => {
     const archive = createArchive();
     const generateObject = vi.fn(async () => rawArchivePlan());
+    const requestedKeys: string[] = [];
+    const providerEffect: WorkflowProviderEffectExecutor = {
+      run: async ({ key, operation, outputSchema }) => {
+        requestedKeys.push(key);
+        return outputSchema.parse(await operation());
+      },
+    };
     const stages = createCourseArchivePlanningStages({
       generateObject: generateObject as never,
       openArchive: vi.fn(async () => archive),
@@ -199,9 +206,12 @@ describe('course archive planning', () => {
 
     const result = await stages.refineCoursePlan({
       ...stageContext(researchState),
+      attemptNumber: 2,
       execution: { nodeInstanceId: 'refine-course-plan', runId: 'run-1' },
       idempotencyKey: 'refine-key',
       input: verified,
+      providerEffect,
+      retryFeedback: 'Correggi il piano rifiutato dal primo tentativo.',
     });
     const finalPlan = validateRefinedCoursePlan(result);
 
@@ -215,5 +225,9 @@ describe('course archive planning', () => {
       sourceArchiveSelectors: [{ kind: 'file', path: 'src/index.ts' }],
     });
     expect(generateObject).toHaveBeenCalledTimes(2);
+    expect(requestedKeys).toEqual([
+      'generate-refined-plan:attempt:2',
+      'verify-refined-plan:attempt:2',
+    ]);
   });
 });

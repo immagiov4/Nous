@@ -77,6 +77,8 @@ The planning stage is critical as it involves LLM-driven creation of the course 
 3.  **Refinement**: If the verdict is `refine`, the `refineCoursePlan` service attempts to fix the identified issues.
 4.  **Final Validation**: The `validateRefinedCoursePlan` function ensures no structural quality findings remain before proceeding.
 
+Refinement generation and verification are persisted as a paired provider-effect boundary. The first attempt retains the legacy effect identities for in-flight replay compatibility; each later corrective attempt derives both identities from the same attempt number. A worker replay therefore reuses paid outputs within that attempt, while new corrective feedback reaches fresh provider calls on the next attempt.
+
 ```mermaid
 sequenceDiagram
     participant W as Workflow Engine
@@ -95,7 +97,7 @@ sequenceDiagram
 ```
 
 *The planning sequence incorporates an explicit verification and refinement step to ensure pedagogical quality.*
-Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:316-368](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L316-L368), [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:378-403](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L378-L403)
+Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:396-476](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L396-L476), [apps/backend/src/workflows/courseGenerationArchivePlanning.ts:242-292](../../../apps/backend/src/workflows/courseGenerationArchivePlanning.ts#L242-L292), [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:378-403](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L378-L403)
 
 ### Quality Dimensions
 The `CoursePlanVerificationSchema` tracks the following specific metrics:

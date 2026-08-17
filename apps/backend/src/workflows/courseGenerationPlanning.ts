@@ -36,6 +36,20 @@ const CoursePlanGenerationResultSchema = z.object({
   state: CourseResearchStateSchema,
 });
 
+const COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS = {
+  generation: 'generate-refined-plan',
+  verification: 'verify-refined-plan',
+} as const;
+
+export const getCoursePlanRefinementProviderEffectKeys = (attemptNumber: number) => {
+  // Keep the original first-attempt keys so workflows already in flight can replay stored results.
+  const attemptSuffix = attemptNumber === 1 ? '' : `:attempt:${attemptNumber}`;
+  return {
+    generation: `${COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS.generation}${attemptSuffix}`,
+    verification: `${COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS.verification}${attemptSuffix}`,
+  };
+};
+
 type CourseResearchSource = z.infer<typeof CourseResearchSourceSchema>;
 type GenerateCourseObject = typeof generateCourseObject;
 type ReadSourceMaterials = (
@@ -417,8 +431,9 @@ export const createCoursePlanningStages = ({
   },
   refineCoursePlan: async context => {
     if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
+    const effectKeys = getCoursePlanRefinementProviderEffectKeys(context.attemptNumber);
     const generated = await context.providerEffect.run({
-      key: 'generate-refined-plan',
+      key: effectKeys.generation,
       operation: async () =>
         generatePlan({
           context,
@@ -435,7 +450,7 @@ export const createCoursePlanningStages = ({
     const generatedAt = now();
     const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
     const verification = await context.providerEffect.run({
-      key: 'verify-refined-plan',
+      key: effectKeys.verification,
       operation: () =>
         verifyRefinedPlan({
           models: context.config.models,

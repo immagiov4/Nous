@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import {
+  buildCourseDraftPlanState,
   buildCoursePlanOutput,
   buildCoursePlanState,
   createCoursePlanningStages,
@@ -12,6 +13,22 @@ import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.j
 
 const immediateProviderEffect: WorkflowProviderEffectExecutor = {
   run: async ({ operation, outputSchema }) => outputSchema.parse(await operation()),
+};
+
+const createPersistedProviderEffect = () => {
+  const requestedKeys: string[] = [];
+  const results = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      requestedKeys.push(key);
+      const persisted = results.get(key);
+      if (persisted !== undefined) return outputSchema.parse(persisted);
+      const output = outputSchema.parse(await operation());
+      results.set(key, output);
+      return output;
+    },
+  };
+  return { providerEffect, requestedKeys };
 };
 
 const youtubeUrl = 'https://www.youtube.com/watch?v=abc';
@@ -324,6 +341,76 @@ describe('course generation planning', () => {
       },
       verification: rejectedVerification,
     });
+  });
+
+  test('persists provider effects per corrective refinement attempt', async () => {
+    const rejectedVerification = {
+      ...verification,
+      coverage: { feedback: 'Manca un concetto richiesto.', status: 'needs-refinement' as const },
+      verdict: 'refine' as const,
+    };
+    const correctedRawPlan = {
+      ...rawPlan(),
+      summary: 'Il percorso corretto copre anche il concetto precedentemente mancante.',
+    };
+    const generateObject = vi
+      .fn()
+      .mockResolvedValueOnce(rawPlan())
+      .mockResolvedValueOnce(correctedRawPlan);
+    const verifyRefinedPlan = vi
+      .fn()
+      .mockResolvedValueOnce(rejectedVerification)
+      .mockResolvedValueOnce(verification);
+    const stages = createCoursePlanningStages({
+      generateObject: generateObject as never,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+      verifyRefinedPlan,
+    });
+    const draft = buildCourseDraftPlanState(rawPlan(), researchState, '2026-07-30T09:00:00.000Z');
+    const input = CoursePlanVerificationStateSchema.parse({
+      ...draft,
+      stage: 'plan-verification',
+      verification: rejectedVerification,
+    });
+    const { providerEffect, requestedKeys } = createPersistedProviderEffect();
+    const attemptContext = {
+      config: { models: {} as never } as never,
+      execution: { nodeInstanceId: 'refine-course-plan', runId: 'run-1' },
+      idempotencyKey: 'refine-key',
+      input,
+      providerEffect,
+      signal: new AbortController().signal,
+    };
+
+    const firstFailure = await stages
+      .refineCoursePlan({ ...attemptContext, attemptNumber: 1, retryFeedback: '' })
+      .catch(error => error);
+    expect(firstFailure).toBeInstanceOf(WorkflowStepError);
+
+    await expect(
+      stages.refineCoursePlan({ ...attemptContext, attemptNumber: 1, retryFeedback: '' })
+    ).rejects.toBeInstanceOf(WorkflowStepError);
+    expect(generateObject).toHaveBeenCalledOnce();
+    expect(verifyRefinedPlan).toHaveBeenCalledOnce();
+
+    const corrected = await stages.refineCoursePlan({
+      ...attemptContext,
+      attemptNumber: 2,
+      retryFeedback: (firstFailure as WorkflowStepError).failure.feedback ?? '',
+    });
+
+    expect(corrected.rawRefinedPlan.summary).toBe(correctedRawPlan.summary);
+    expect(corrected.refinedVerification).toEqual(verification);
+    expect(generateObject).toHaveBeenCalledTimes(2);
+    expect(verifyRefinedPlan).toHaveBeenCalledTimes(2);
+    expect(requestedKeys).toEqual([
+      'generate-refined-plan',
+      'verify-refined-plan',
+      'generate-refined-plan',
+      'verify-refined-plan',
+      'generate-refined-plan:attempt:2',
+      'verify-refined-plan:attempt:2',
+    ]);
   });
 
   test('rejects source URLs that were not returned by authoritative research', () => {
