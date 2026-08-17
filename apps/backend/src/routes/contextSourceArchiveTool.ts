@@ -217,7 +217,7 @@ export const createContextSourceArchiveTool = ({
   ): ContextSourceArchiveSearchState | undefined => {
     if (input.cursor === undefined) return undefined;
     const continuation = searchContinuations.get(readEntryCursor(input));
-    if (!continuation || continuation.query !== query) {
+    if (continuation?.query !== query) {
       throw new SourceArchiveAccessError('cursor-invalid');
     }
     searchContinuations.delete(input.cursor);
