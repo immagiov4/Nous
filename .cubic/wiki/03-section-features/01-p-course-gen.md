@@ -77,7 +77,7 @@ The planning stage is critical as it involves LLM-driven creation of the course 
 3.  **Refinement**: If the verdict is `refine`, the `refineCoursePlan` service attempts to fix the identified issues.
 4.  **Final Validation**: The `validateRefinedCoursePlan` function ensures no structural quality findings remain before proceeding.
 
-Refinement generation and verification are persisted as a paired provider-effect boundary. The first attempt retains the legacy effect identities for in-flight replay compatibility; each later corrective attempt derives both identities from the same attempt number. A worker replay therefore reuses paid outputs within that attempt, while new corrective feedback reaches fresh provider calls on the next attempt.
+Refinement generation and verification are persisted as a paired provider-effect boundary. The initial refinement retains the legacy effect identities for in-flight replay compatibility. After a corrective failure, both identities derive from the durable attempt that produced the corrective feedback. Operational retries keep that identity and replay paid outputs, while a later corrective failure supplies a new identity and reaches fresh provider calls.
 
 ```mermaid
 sequenceDiagram

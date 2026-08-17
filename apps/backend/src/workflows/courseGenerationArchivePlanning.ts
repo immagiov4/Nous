@@ -257,7 +257,9 @@ export const createCourseArchivePlanningStages = ({
   },
   refineCoursePlan: async context => {
     if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
-    const effectKeys = getCoursePlanRefinementProviderEffectKeys(context.attemptNumber);
+    const effectKeys = getCoursePlanRefinementProviderEffectKeys(
+      context.retryFeedbackSourceAttemptNumber
+    );
     const generated = await context.providerEffect.run({
       key: effectKeys.generation,
       operation: () => generateArchivePlan({ context, generateObject, openArchive }),

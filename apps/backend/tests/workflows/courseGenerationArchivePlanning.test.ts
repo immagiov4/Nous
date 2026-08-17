@@ -212,6 +212,7 @@ describe('course archive planning', () => {
       input: verified,
       providerEffect,
       retryFeedback: 'Correggi il piano rifiutato dal primo tentativo.',
+      retryFeedbackSourceAttemptNumber: 1,
     });
     const finalPlan = validateRefinedCoursePlan(result);
 
@@ -226,8 +227,8 @@ describe('course archive planning', () => {
     });
     expect(generateObject).toHaveBeenCalledTimes(2);
     expect(requestedKeys).toEqual([
-      'generate-refined-plan:attempt:2',
-      'verify-refined-plan:attempt:2',
+      'generate-refined-plan:correction:1',
+      'verify-refined-plan:correction:1',
     ]);
   });
 });

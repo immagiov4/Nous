@@ -8,7 +8,11 @@ import { createWorkflowRegistry, fanOut, step, workflow } from '../../src/workfl
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
 import { PostgresProjectRevisionInbox } from '../../src/workflows/postgresProjectRevisionInbox.js';
 import { COURSE_PROJECT_REVISION_EVENT } from '../../src/workflows/projectRevisionNotifications.js';
-import { failPermanently, retryCorrective } from '../../src/workflows/retryPolicy.js';
+import {
+  failPermanently,
+  retryCorrective,
+  retryOperational,
+} from '../../src/workflows/retryPolicy.js';
 import {
   WorkflowLeaseLostError,
   WorkflowOutboxLeaseLostError,
@@ -220,6 +224,63 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
     await expect(
       store.providerEffects.recordResult({ ...identity, output: { content: 'late' } })
     ).rejects.toBeInstanceOf(WorkflowLeaseLostError);
+    await sql`delete from public.workflow_runs where id = ${runId}`;
+  });
+
+  test('preserves corrective feedback identity across an operational retry', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = createStore(sql);
+    const definition = registeredStepWorkflow('corrective-feedback-test', 'generate');
+    const runId = randomUUID();
+    const input = { content: 'test' };
+    await store.createRun({
+      config: definition.executionDefaults,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      id: runId,
+      input,
+      materialization: materializeWorkflowStart(definition, input, {
+        resolvedConfig: definition.executionDefaults,
+      }),
+      projectId,
+      requestKey: randomUUID(),
+      userId,
+      workflowId: definition.id,
+    });
+
+    const first = await claimNextStep(store, definition, 'corrective-worker');
+    if (!first) throw new Error('Expected the first workflow claim.');
+    const correctiveFailure = retryCorrective({
+      code: 'candidate_rejected',
+      feedback: 'Correct the rejected candidate.',
+      message: 'The candidate requires correction.',
+    }).failure;
+    await store.steps.recordFailure({ claim: first, definition, failure: correctiveFailure });
+
+    const second = await claimNextStep(store, definition, 'operational-worker');
+    if (!second) throw new Error('Expected the corrective retry claim.');
+    expect(second).toMatchObject({
+      attemptNumber: 2,
+      previousAttemptFailure: correctiveFailure,
+      retryFeedback: correctiveFailure.feedback,
+      retryFeedbackSourceAttemptNumber: 1,
+    });
+    const operationalFailure = retryOperational({
+      code: 'provider_timeout',
+      message: 'The provider timed out.',
+      retryAfterMs: 0,
+    }).failure;
+    await store.steps.recordFailure({ claim: second, definition, failure: operationalFailure });
+
+    const third = await claimNextStep(store, definition, 'recovery-worker');
+    if (!third) throw new Error('Expected the operational retry claim.');
+    expect(third).toMatchObject({
+      attemptNumber: 3,
+      previousAttemptFailure: operationalFailure,
+      retryFeedback: correctiveFailure.feedback,
+      retryFeedbackSourceAttemptNumber: 1,
+    });
+
     await sql`delete from public.workflow_runs where id = ${runId}`;
   });
 

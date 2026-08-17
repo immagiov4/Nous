@@ -343,7 +343,7 @@ describe('course generation planning', () => {
     });
   });
 
-  test('persists provider effects per corrective refinement attempt', async () => {
+  test('persists provider effects per corrective refinement while replaying operational retries', async () => {
     const rejectedVerification = {
       ...verification,
       coverage: { feedback: 'Manca un concetto richiesto.', status: 'needs-refinement' as const },
@@ -397,10 +397,19 @@ describe('course generation planning', () => {
       ...attemptContext,
       attemptNumber: 2,
       retryFeedback: (firstFailure as WorkflowStepError).failure.feedback ?? '',
+      retryFeedbackSourceAttemptNumber: 1,
+    });
+    const operationalReplay = await stages.refineCoursePlan({
+      ...attemptContext,
+      attemptNumber: 3,
+      retryFeedback: (firstFailure as WorkflowStepError).failure.feedback ?? '',
+      retryFeedbackSourceAttemptNumber: 1,
     });
 
     expect(corrected.rawRefinedPlan.summary).toBe(correctedRawPlan.summary);
     expect(corrected.refinedVerification).toEqual(verification);
+    expect(operationalReplay.rawRefinedPlan).toEqual(corrected.rawRefinedPlan);
+    expect(operationalReplay.refinedVerification).toEqual(corrected.refinedVerification);
     expect(generateObject).toHaveBeenCalledTimes(2);
     expect(verifyRefinedPlan).toHaveBeenCalledTimes(2);
     expect(requestedKeys).toEqual([
@@ -408,8 +417,10 @@ describe('course generation planning', () => {
       'verify-refined-plan',
       'generate-refined-plan',
       'verify-refined-plan',
-      'generate-refined-plan:attempt:2',
-      'verify-refined-plan:attempt:2',
+      'generate-refined-plan:correction:1',
+      'verify-refined-plan:correction:1',
+      'generate-refined-plan:correction:1',
+      'verify-refined-plan:correction:1',
     ]);
   });
 

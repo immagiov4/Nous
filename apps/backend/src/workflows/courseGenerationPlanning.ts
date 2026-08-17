@@ -41,12 +41,16 @@ const COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS = {
   verification: 'verify-refined-plan',
 } as const;
 
-export const getCoursePlanRefinementProviderEffectKeys = (attemptNumber: number) => {
-  // Keep the original first-attempt keys so workflows already in flight can replay stored results.
-  const attemptSuffix = attemptNumber === 1 ? '' : `:attempt:${attemptNumber}`;
+export const getCoursePlanRefinementProviderEffectKeys = (
+  retryFeedbackSourceAttemptNumber?: number
+) => {
+  // Keep the original keys until a corrective failure requests a distinct provider result.
+  const correctiveSuffix = retryFeedbackSourceAttemptNumber
+    ? `:correction:${retryFeedbackSourceAttemptNumber}`
+    : '';
   return {
-    generation: `${COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS.generation}${attemptSuffix}`,
-    verification: `${COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS.verification}${attemptSuffix}`,
+    generation: `${COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS.generation}${correctiveSuffix}`,
+    verification: `${COURSE_PLAN_REFINEMENT_PROVIDER_EFFECT_KEYS.verification}${correctiveSuffix}`,
   };
 };
 
@@ -431,7 +435,9 @@ export const createCoursePlanningStages = ({
   },
   refineCoursePlan: async context => {
     if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
-    const effectKeys = getCoursePlanRefinementProviderEffectKeys(context.attemptNumber);
+    const effectKeys = getCoursePlanRefinementProviderEffectKeys(
+      context.retryFeedbackSourceAttemptNumber
+    );
     const generated = await context.providerEffect.run({
       key: effectKeys.generation,
       operation: async () =>

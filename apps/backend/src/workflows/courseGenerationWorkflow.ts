@@ -154,6 +154,9 @@ const withStageInput = <Input, NextInput>(
   input,
   ...(stage.previousAttemptFailure ? { previousAttemptFailure: stage.previousAttemptFailure } : {}),
   retryFeedback: stage.retryFeedback,
+  ...(stage.retryFeedbackSourceAttemptNumber === undefined
+    ? {}
+    : { retryFeedbackSourceAttemptNumber: stage.retryFeedbackSourceAttemptNumber }),
   signal: stage.signal,
 });
 

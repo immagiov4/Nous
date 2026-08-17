@@ -104,6 +104,8 @@ export interface StepExecutionContext<Input, Config, Services> {
   /** Available to provider-with-postprocessing steps for persisting the paid result first. */
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   retryFeedback: string;
+  /** Attempt that produced retryFeedback; stable across later operational retries. */
+  readonly retryFeedbackSourceAttemptNumber?: number;
   services: Services;
   signal: AbortSignal;
 }
@@ -497,6 +499,8 @@ export interface WorkflowStepClaim {
   readonly nodeInstanceId: string;
   readonly previousAttemptFailure?: StepFailure;
   readonly retryFeedback: string;
+  /** Attempt that produced retryFeedback; stable across later operational retries. */
+  readonly retryFeedbackSourceAttemptNumber?: number;
   readonly runId: string;
   readonly stepPolicies: WorkflowStepPolicies;
   readonly stepPoliciesVersion: number;

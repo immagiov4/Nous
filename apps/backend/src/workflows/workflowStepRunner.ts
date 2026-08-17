@@ -383,6 +383,11 @@ const executeStepCallback = async <Services>(input: {
                 ? { previousAttemptFailure: input.claim.previousAttemptFailure }
                 : {}),
               retryFeedback: input.claim.retryFeedback,
+              ...(input.claim.retryFeedbackSourceAttemptNumber === undefined
+                ? {}
+                : {
+                    retryFeedbackSourceAttemptNumber: input.claim.retryFeedbackSourceAttemptNumber,
+                  }),
               ...(input.resolved.step.externalEffect === 'provider-with-postprocessing'
                 ? {
                     providerEffect: createProviderEffectExecutor({

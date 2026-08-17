@@ -42,6 +42,8 @@ interface ClaimCandidateRow {
   node_definition_id: string;
   node_instance_id: string;
   previous_error: unknown;
+  retry_feedback_error: unknown;
+  retry_feedback_source_attempt_number: number | null;
   run_id: string;
   step_policies: WorkflowStepPolicies;
   step_policies_version: number;
@@ -254,6 +256,8 @@ export class PostgresWorkflowStepStore {
           node.timeout_ms,
           node.input,
           node.error as previous_error,
+          corrective_attempt.error as retry_feedback_error,
+          corrective_attempt.attempt_number as retry_feedback_source_attempt_number,
           node.attempt_count,
           run.workflow_id,
           run.correlation_id,
@@ -264,6 +268,15 @@ export class PostgresWorkflowStepStore {
           run.user_id
         from public.workflow_node_runs node
         join public.workflow_runs run on run.id = node.run_id
+        left join lateral (
+          select attempt.attempt_number, attempt.error
+          from public.workflow_node_attempts attempt
+          where attempt.run_id = node.run_id
+            and attempt.node_instance_id = node.node_instance_id
+            and attempt.error ->> 'kind' = 'corrective'
+          order by attempt.attempt_number desc
+          limit 1
+        ) corrective_attempt on true
         where node.status in ('queued', 'retrying')
           and node.available_at <= clock_timestamp()
           and node.attempt_count < node.max_attempts
@@ -335,6 +348,7 @@ export class PostgresWorkflowStepStore {
       `;
 
       const failure = previousFailure(candidate.previous_error);
+      const correctiveFailure = previousFailure(candidate.retry_feedback_error);
       return {
         attemptNumber: node.attempt_count,
         definitionHash: candidate.definition_hash,
@@ -347,7 +361,12 @@ export class PostgresWorkflowStepStore {
         nodeDefinitionId: candidate.node_definition_id,
         nodeInstanceId: candidate.node_instance_id,
         ...(failure ? { previousAttemptFailure: failure } : {}),
-        retryFeedback: retryFeedback(failure),
+        retryFeedback: retryFeedback(correctiveFailure),
+        ...(candidate.retry_feedback_source_attempt_number === null
+          ? {}
+          : {
+              retryFeedbackSourceAttemptNumber: candidate.retry_feedback_source_attempt_number,
+            }),
         correlationId: candidate.correlation_id,
         runId: candidate.run_id,
         stepPolicies: candidate.step_policies,
