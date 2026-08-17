@@ -476,6 +476,46 @@ const readContextArchiveVersion = (
   };
 };
 
+const readContextSourcePage = (value: unknown): number | null | undefined => {
+  if (value === undefined) return undefined;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
+};
+
+const readContextSourceReference = (candidate: unknown): ContextSourceReference | null => {
+  if (!isRecord(candidate) || !Array.isArray(candidate.chunkIds)) {
+    return null;
+  }
+  const name = readOptionalString(candidate.name);
+  const sourceId = readOptionalString(candidate.sourceId);
+  const chunkIds = candidate.chunkIds.map(readOptionalString);
+  const pageStart = readContextSourcePage(candidate.pageStart);
+  const pageEnd = readContextSourcePage(candidate.pageEnd);
+  const archiveSelectors = readContextArchiveSelectors(candidate.archiveSelectors);
+  const archiveVersion = readContextArchiveVersion(candidate.archiveVersion);
+  if (
+    !name ||
+    !sourceId ||
+    chunkIds.some(chunkId => !chunkId) ||
+    archiveSelectors === null ||
+    archiveVersion === null ||
+    pageStart === null ||
+    pageEnd === null ||
+    (archiveVersion !== undefined && archiveVersion.sourceId !== sourceId) ||
+    (pageStart !== undefined && pageEnd !== undefined && pageEnd < pageStart)
+  ) {
+    return null;
+  }
+  return {
+    ...(archiveSelectors === undefined ? {} : { archiveSelectors }),
+    ...(archiveVersion === undefined ? {} : { archiveVersion }),
+    chunkIds: chunkIds as string[],
+    name,
+    ...(pageEnd === undefined ? {} : { pageEnd }),
+    ...(pageStart === undefined ? {} : { pageStart }),
+    sourceId,
+  };
+};
+
 const readContextSourceReferences = (
   value: unknown
 ): ContextSourceReference[] | null | undefined => {
@@ -488,40 +528,9 @@ const readContextSourceReferences = (
 
   const references: ContextSourceReference[] = [];
   for (const candidate of value) {
-    if (!isRecord(candidate) || !Array.isArray(candidate.chunkIds)) {
-      return null;
-    }
-    const name = readOptionalString(candidate.name);
-    const sourceId = readOptionalString(candidate.sourceId);
-    const chunkIds = candidate.chunkIds.map(readOptionalString);
-    const pageStart = candidate.pageStart;
-    const pageEnd = candidate.pageEnd;
-    const archiveSelectors = readContextArchiveSelectors(candidate.archiveSelectors);
-    const archiveVersion = readContextArchiveVersion(candidate.archiveVersion);
-    if (
-      !name ||
-      !sourceId ||
-      chunkIds.some(chunkId => !chunkId) ||
-      archiveSelectors === null ||
-      archiveVersion === null ||
-      (archiveVersion !== undefined && archiveVersion.sourceId !== sourceId) ||
-      (pageStart !== undefined &&
-        (typeof pageStart !== 'number' || !Number.isInteger(pageStart) || pageStart < 1)) ||
-      (pageEnd !== undefined &&
-        (typeof pageEnd !== 'number' || !Number.isInteger(pageEnd) || pageEnd < 1)) ||
-      (typeof pageStart === 'number' && typeof pageEnd === 'number' && pageEnd < pageStart)
-    ) {
-      return null;
-    }
-    references.push({
-      ...(archiveSelectors === undefined ? {} : { archiveSelectors }),
-      ...(archiveVersion === undefined ? {} : { archiveVersion }),
-      chunkIds: chunkIds as string[],
-      name,
-      ...(typeof pageEnd === 'number' ? { pageEnd } : {}),
-      ...(typeof pageStart === 'number' ? { pageStart } : {}),
-      sourceId,
-    });
+    const reference = readContextSourceReference(candidate);
+    if (!reference) return null;
+    references.push(reference);
   }
   return serializeContextSourceReferencesForPrompt(references).length <= MAX_CONTEXT_CHARS
     ? references
