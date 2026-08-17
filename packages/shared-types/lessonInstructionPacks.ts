@@ -45,6 +45,16 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
       'Obiettivo, ordine, collegamenti, pause attive e conclusione formano una lezione didatticamente coerente.',
   },
   {
+    checkId: 'core.active-pauses',
+    instruction:
+      'Per ogni inline-quiz identifica l operazione mentale necessaria per rispondere. Una pausa e invalida se la risposta corretta si puo scegliere copiando, parafrasando o riconoscendo per sovrapposizione lessicale una frase o definizione immediatamente vicina. Deve richiedere almeno discriminazione concettuale, applicazione a un caso nuovo, inferenza, previsione, diagnosi, classificazione, sequenziamento o sintesi; se non esiste una buona domanda, rimuovi la pausa invece di conservarne una tautologica.',
+  },
+  {
+    checkId: 'core.relevance',
+    instruction:
+      'Esempi, analogie, casi storici, dettagli curiosi e digressioni devono portare il concetto o chiarirne una conseguenza reale. Rimuovi dettagli interessanti ma didatticamente decorativi e non inventare ricordi, esperienze personali o autobiografia del docente/IA per rendere il testo piu umano.',
+  },
+  {
     checkId: 'core.integrity',
     instruction:
       'Markdown, formule, codice, visuali, riferimenti e blocchi strutturati applicabili sono validi e leggibili.',
