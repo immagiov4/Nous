@@ -93,9 +93,7 @@ describe('lesson prompt architecture', () => {
 
     const currencyDraft: LessonContentDraft = {
       ...plainDraft,
-      contentBlocks: [
-        { markdown: 'Il prezzo del servizio e $12 al mese.', type: 'markdown' },
-      ],
+      contentBlocks: [{ markdown: 'Il prezzo del servizio e $12 al mese.', type: 'markdown' }],
     };
     expect(buildLessonVerificationPrompt(input, currencyDraft)).not.toContain(
       'Correggi delimitatori o graffe KaTeX'
@@ -118,7 +116,10 @@ describe('lesson prompt architecture', () => {
 
     const visualDraft: LessonContentDraft = {
       ...plainDraft,
-      contentBlocks: [...plainDraft.contentBlocks, { slotId: 'visual-1', type: 'generated-visual' }],
+      contentBlocks: [
+        ...plainDraft.contentBlocks,
+        { slotId: 'visual-1', type: 'generated-visual' },
+      ],
       generatedVisuals: [
         {
           altText: 'Flusso dal dispositivo all azione',
@@ -159,9 +160,7 @@ describe('lesson prompt architecture', () => {
 
     const mathDraft: LessonContentDraft = {
       ...plainDraft,
-      contentBlocks: [
-        { markdown: 'La relazione si esprime come $x + 1 = 2$.', type: 'markdown' },
-      ],
+      contentBlocks: [{ markdown: 'La relazione si esprime come $x + 1 = 2$.', type: 'markdown' }],
     };
     expect(buildLessonVerificationPrompt(input, mathDraft)).toContain(
       'Correggi delimitatori o graffe KaTeX'
