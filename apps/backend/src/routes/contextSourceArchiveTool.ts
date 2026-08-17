@@ -11,6 +11,10 @@ import {
   type SourceArchiveTextPage,
 } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSourceArchiveVersion, ProjectStore } from '../projects/types.js';
+import {
+  type ContextSourceArchiveSearchState,
+  searchContextSourceArchivePage,
+} from './contextSourceArchiveSearch.js';
 
 export const CONTEXT_SOURCE_ARCHIVE_TOOL_NAME = 'retrieveSourceArchive' as const;
 
@@ -59,6 +63,9 @@ class ContextSourceArchiveToolBudgetError extends Error {
   }
 }
 
+const CONTEXT_SOURCE_ARCHIVE_LIMIT_MESSAGE =
+  'Il limite di consultazione dell archivio sorgente e stato raggiunto.';
+
 const versionsMatch = (
   current: ProjectSourceArchiveVersion,
   expected: ProjectSourceArchiveVersion
@@ -75,7 +82,13 @@ const requirePath = (input: ContextSourceArchiveToolInput, allowEmpty = false): 
 };
 
 const requireQuery = (input: ContextSourceArchiveToolInput): string => {
-  if (typeof input.query !== 'string') {
+  if (
+    typeof input.query !== 'string' ||
+    !input.query ||
+    input.query.length > MAX_CONTEXT_CHAT_FIELD_CHARS ||
+    input.query.includes('\n') ||
+    input.query.includes('\r')
+  ) {
     throw new SourceArchiveAccessError('query-invalid');
   }
   return input.query;
@@ -112,6 +125,11 @@ export const createContextSourceArchiveTool = ({
 }) => {
   const encoder = new TextEncoder();
   let remainingResultBytes = MAX_CONTEXT_CHAT_FIELD_CHARS;
+  let nextSearchCursor = 1;
+  const searchContinuations = new Map<
+    number,
+    { query: string; state: ContextSourceArchiveSearchState }
+  >();
 
   const accountPayload = (...values: string[]): void => {
     const payloadBytes = values.reduce(
@@ -170,7 +188,20 @@ export const createContextSourceArchiveTool = ({
         remainingResultBytes
       ) {
         pageEntries.pop();
-        if (pageEntries.length === 0) throw new ContextSourceArchiveToolBudgetError();
+        if (pageEntries.length === 0) {
+          return accountResult({
+            archiveName,
+            citations: [],
+            cursor,
+            entries: [],
+            message: CONTEXT_SOURCE_ARCHIVE_LIMIT_MESSAGE,
+            nextCursor: candidateNextCursor,
+            omittedEntry: true,
+            operation: input.operation,
+            ...(path === undefined ? {} : { path }),
+            status: 'limit-reached' as const,
+          });
+        }
         nextCursor = entryIndex;
         break;
       }
@@ -178,6 +209,89 @@ export const createContextSourceArchiveTool = ({
     }
 
     return accountResult(createResult(nextCursor));
+  };
+
+  const readSearchState = (
+    input: ContextSourceArchiveToolInput,
+    query: string
+  ): ContextSourceArchiveSearchState | undefined => {
+    if (input.cursor === undefined) return undefined;
+    const continuation = searchContinuations.get(readEntryCursor(input));
+    if (!continuation || continuation.query !== query) {
+      throw new SourceArchiveAccessError('cursor-invalid');
+    }
+    searchContinuations.delete(input.cursor);
+    return continuation.state;
+  };
+
+  const storeSearchState = (query: string, state: ContextSourceArchiveSearchState): number => {
+    const cursor = nextSearchCursor;
+    nextSearchCursor += 1;
+    searchContinuations.set(cursor, { query, state });
+    return cursor;
+  };
+
+  const buildSearchResult = async (
+    access: ReturnType<typeof createProjectSourceArchiveAccess>,
+    archiveName: string,
+    input: ContextSourceArchiveToolInput,
+    query: string
+  ) => {
+    const page = await searchContextSourceArchivePage({
+      access,
+      maxPageBytes: remainingResultBytes,
+      query,
+      state: readSearchState(input, query),
+    });
+    const matches: (typeof page.candidates)[number]['match'][] = [];
+    let continuationState = page.nextState;
+    const createResult = (nextCursor: number | null, status: 'no-match' | 'ok') => ({
+      archiveName,
+      citations: matches.map(match =>
+        createCitation(archiveName, match.path, {
+          column: match.column,
+          line: match.line,
+        })
+      ),
+      cursor: input.cursor || 0,
+      matches,
+      nextCursor,
+      operation: input.operation,
+      query,
+      status,
+    });
+
+    for (const candidate of page.candidates) {
+      matches.push(candidate.match);
+      if (
+        encoder.encode(JSON.stringify(createResult(Number.MAX_SAFE_INTEGER, 'ok'))).byteLength >
+        remainingResultBytes
+      ) {
+        matches.pop();
+        continuationState = candidate.resumeState;
+        break;
+      }
+    }
+
+    if (matches.length === 0 && page.candidates.length > 0) {
+      const nextCursor = storeSearchState(query, page.candidates[0].resumeState);
+      return accountResult({
+        archiveName,
+        citations: [],
+        cursor: input.cursor || 0,
+        matches: [],
+        message: CONTEXT_SOURCE_ARCHIVE_LIMIT_MESSAGE,
+        nextCursor,
+        operation: input.operation,
+        query,
+        status: 'limit-reached' as const,
+      });
+    }
+
+    const nextCursor = continuationState ? storeSearchState(query, continuationState) : null;
+    return accountResult(
+      createResult(nextCursor, matches.length || nextCursor ? 'ok' : 'no-match')
+    );
   };
 
   const buildReadResult = (
@@ -297,30 +411,20 @@ export const createContextSourceArchiveTool = ({
         }
         case 'search-text': {
           const query = requireQuery(input);
-          const matches = await access.searchLiteral(query);
-          return accountResult({
-            archiveName,
-            citations: matches.map(match =>
-              createCitation(archiveName, match.path, {
-                column: match.column,
-                line: match.line,
-              })
-            ),
-            matches,
-            operation: input.operation,
-            query,
-            status: matches.length ? ('ok' as const) : ('no-match' as const),
-          });
+          return await buildSearchResult(access, archiveName, input, query);
         }
       }
       const exhaustiveOperation: never = input.operation;
       throw new TypeError(`Unsupported context source archive operation: ${exhaustiveOperation}`);
     } catch (error) {
-      if (error instanceof ContextSourceArchiveToolBudgetError) {
+      if (
+        error instanceof ContextSourceArchiveToolBudgetError ||
+        (error instanceof SourceArchiveAccessError && error.code === 'context-limit-exceeded')
+      ) {
         return {
           archiveName,
           citations: [],
-          message: 'Il limite di consultazione dell archivio sorgente e stato raggiunto.',
+          message: CONTEXT_SOURCE_ARCHIVE_LIMIT_MESSAGE,
           operation: input.operation,
           status: 'limit-reached' as const,
         };
@@ -347,7 +451,7 @@ export const createContextSourceArchiveTool = ({
 
   return tool({
     description:
-      'Consulta esclusivamente l archivio sorgente conservato per la lezione corrente. Consente di risolvere i percorsi registrati della lezione, scorrere l indice ordinato o una cartella, cercare una stringa letterale e leggere una pagina testuale da un percorso esatto. Le pagine di indice usano cursor e le letture usano cursorBytes per continuare. Gli output includono il nome dell archivio e citazioni con percorsi esatti; le ricerche includono riga e colonna.',
+      'Consulta esclusivamente l archivio sorgente conservato per la lezione corrente. Consente di risolvere i percorsi registrati della lezione, scorrere l indice ordinato o una cartella, cercare una stringa letterale e leggere una pagina testuale da un percorso esatto. Le pagine di indice e ricerca usano nextCursor, mentre le letture usano nextCursorBytes per continuare. Continua una ricerca finche nextCursor e null prima di concludere che non esistono corrispondenze. Gli output includono il nome dell archivio e citazioni con percorsi esatti; le ricerche includono riga e colonna.',
     execute,
     inputSchema: jsonSchema<ContextSourceArchiveToolInput>({
       type: 'object',
@@ -357,7 +461,7 @@ export const createContextSourceArchiveTool = ({
           type: 'integer',
           minimum: 0,
           description:
-            'Indice nextCursor restituito da una precedente operazione tree o list-directory.',
+            'nextCursor restituito da una precedente operazione tree, list-directory o search-text.',
         },
         cursorBytes: {
           type: 'integer',
@@ -369,7 +473,7 @@ export const createContextSourceArchiveTool = ({
           enum: ['tree', 'list-directory', 'search-text', 'read-file', 'resolve-lesson-selectors'],
         },
         path: { type: 'string' },
-        query: { type: 'string', minLength: 1 },
+        query: { type: 'string', minLength: 1, maxLength: MAX_CONTEXT_CHAT_FIELD_CHARS },
       },
       required: ['operation'],
     }),

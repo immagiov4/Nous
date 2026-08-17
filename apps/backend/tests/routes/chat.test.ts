@@ -120,23 +120,27 @@ const createArchiveToolContext = (signal: AbortSignal) => ({
   userId: 'archive-owner',
 });
 
-test('reports the retained-archive result limit distinctly from a tool error', async () => {
-  const longPath = `src/${'a'.repeat(20_000)}.txt`;
-  const archiveBytes = new TextEncoder().encode('x');
+test('reports selector context exhaustion distinctly from a tool error', async () => {
+  const archiveBytes = new TextEncoder().encode('x'.repeat(MAX_CONTEXT_CHARS + 1));
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   const archiveTool = createContextSourceArchiveTool({
-    context: createArchiveToolContext(new AbortController().signal),
+    context: {
+      ...createArchiveToolContext(new AbortController().signal),
+      sourceReference: {
+        ...createArchiveToolContext(new AbortController().signal).sourceReference,
+        archiveSelectors: [{ kind: 'file' as const, path: 'large.txt' }],
+      },
+    },
     store: {
       loadProjectSourceArchiveEntry: vi.fn(async () => archiveBytes),
       loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
       loadProjectSourceArchiveIndex: vi.fn(async () => ({
         entries: [
-          { kind: 'directory' as const, path: 'src' },
           {
             byteSize: archiveBytes.byteLength,
             contentKind: 'text' as const,
             kind: 'file' as const,
-            path: longPath,
+            path: 'large.txt',
           },
         ],
         version: ARCHIVE_VERSION,
@@ -146,7 +150,7 @@ test('reports the retained-archive result limit distinctly from a tool error', a
 
   try {
     const result = await archiveTool.execute?.(
-      { operation: 'search-text', query: 'x' },
+      { operation: 'resolve-lesson-selectors' },
       {} as never
     );
 
@@ -158,6 +162,149 @@ test('reports the retained-archive result limit distinctly from a tool error', a
   } finally {
     consoleError.mockRestore();
   }
+});
+
+test('advances archive index pagination past an entry that cannot fit', async () => {
+  const oversizedPath = `${'a'.repeat(MAX_CONTEXT_CHARS)}.txt`;
+  const entries = [
+    { byteSize: 0, contentKind: 'text' as const, kind: 'file' as const, path: oversizedPath },
+    { byteSize: 0, contentKind: 'text' as const, kind: 'file' as const, path: 'z.txt' },
+  ];
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(new AbortController().signal),
+    store: {
+      loadProjectSourceArchiveEntry: vi.fn(),
+      loadProjectSourceArchiveEntryRange: vi.fn(),
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({ entries, version: ARCHIVE_VERSION })),
+    },
+  });
+
+  const firstPage = await archiveTool.execute?.({ operation: 'tree' }, {} as never);
+  expect(firstPage).toMatchObject({
+    entries: [],
+    nextCursor: 1,
+    omittedEntry: true,
+    status: 'limit-reached',
+  });
+
+  await expect(
+    archiveTool.execute?.({ cursor: firstPage.nextCursor, operation: 'tree' }, {} as never)
+  ).resolves.toMatchObject({ entries: [entries[1]], status: 'ok' });
+});
+
+test('pages literal search work and preserves exact locations across files', async () => {
+  const files = new Map([
+    ['first.txt', new TextEncoder().encode('no match here')],
+    ['second.txt', new TextEncoder().encode('heading\nneedle here')],
+  ]);
+  const loadProjectSourceArchiveEntry = vi.fn();
+  const loadProjectSourceArchiveEntryRange = vi.fn(
+    async (
+      _userId: string,
+      _projectId: string,
+      path: string,
+      _version: unknown,
+      start: number,
+      endExclusive: number
+    ) => files.get(path)?.slice(start, endExclusive) || null
+  );
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(new AbortController().signal),
+    store: {
+      loadProjectSourceArchiveEntry,
+      loadProjectSourceArchiveEntryRange,
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: [...files].map(([path, bytes]) => ({
+          byteSize: bytes.byteLength,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path,
+        })),
+        version: ARCHIVE_VERSION,
+      })),
+    },
+  });
+
+  const firstPage = await archiveTool.execute?.(
+    { operation: 'search-text', query: 'needle' },
+    {} as never
+  );
+  expect(firstPage).toMatchObject({ matches: [], status: 'ok' });
+  expect(firstPage.nextCursor).toEqual(expect.any(Number));
+  expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(1);
+
+  await expect(
+    archiveTool.execute?.(
+      { cursor: firstPage.nextCursor, operation: 'search-text', query: 'needle' },
+      {} as never
+    )
+  ).resolves.toMatchObject({
+    citations: [{ archiveName: 'src.zip', column: 1, line: 2, path: 'second.txt' }],
+    matches: [{ column: 1, line: 2, path: 'second.txt' }],
+    nextCursor: null,
+    status: 'ok',
+  });
+  expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(2);
+  expect(loadProjectSourceArchiveEntry).not.toHaveBeenCalled();
+});
+
+test('finds a literal match spanning bounded search pages', async () => {
+  const linePrefixLength = MAX_CONTEXT_CHARS - 9;
+  const archiveBytes = new TextEncoder().encode(`first\n${'a'.repeat(linePrefixLength)}needle`);
+  const loadProjectSourceArchiveEntryRange = vi.fn(
+    async (
+      _userId: string,
+      _projectId: string,
+      _path: string,
+      _version: unknown,
+      start: number,
+      endExclusive: number
+    ) => archiveBytes.slice(start, endExclusive)
+  );
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(new AbortController().signal),
+    store: {
+      loadProjectSourceArchiveEntry: vi.fn(),
+      loadProjectSourceArchiveEntryRange,
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: [
+          {
+            byteSize: archiveBytes.byteLength,
+            contentKind: 'text' as const,
+            kind: 'file' as const,
+            path: 'large.txt',
+          },
+        ],
+        version: ARCHIVE_VERSION,
+      })),
+    },
+  });
+
+  const firstPage = await archiveTool.execute?.(
+    { operation: 'search-text', query: 'needle' },
+    {} as never
+  );
+  expect(firstPage).toMatchObject({ matches: [], status: 'ok' });
+  expect(loadProjectSourceArchiveEntryRange).toHaveBeenLastCalledWith(
+    'archive-owner',
+    'project-archive',
+    'large.txt',
+    ARCHIVE_VERSION,
+    0,
+    MAX_CONTEXT_CHARS
+  );
+
+  await expect(
+    archiveTool.execute?.(
+      { cursor: firstPage.nextCursor, operation: 'search-text', query: 'needle' },
+      {} as never
+    )
+  ).resolves.toMatchObject({
+    matches: [{ column: linePrefixLength + 1, line: 2, path: 'large.txt' }],
+    nextCursor: null,
+    status: 'ok',
+  });
+  expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(2);
 });
 
 test('fits JSON-escaped archive text into the complete serialized result budget', async () => {
@@ -241,7 +388,7 @@ test('paginates large archive indices before building the tool result', async ()
 test('stops retained-archive scanning when the request signal aborts', async () => {
   const controller = new AbortController();
   const archiveBytes = new TextEncoder().encode('no match');
-  const loadProjectSourceArchiveEntry = vi.fn(async () => {
+  const loadProjectSourceArchiveEntryRange = vi.fn(async () => {
     controller.abort();
     return archiveBytes;
   });
@@ -249,8 +396,8 @@ test('stops retained-archive scanning when the request signal aborts', async () 
   const archiveTool = createContextSourceArchiveTool({
     context: createArchiveToolContext(controller.signal),
     store: {
-      loadProjectSourceArchiveEntry,
-      loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
+      loadProjectSourceArchiveEntry: vi.fn(),
+      loadProjectSourceArchiveEntryRange,
       loadProjectSourceArchiveIndex: vi.fn(async () => ({
         entries: ['first.txt', 'second.txt'].map(path => ({
           byteSize: archiveBytes.byteLength,
@@ -270,7 +417,7 @@ test('stops retained-archive scanning when the request signal aborts', async () 
     );
 
     expect(result).toMatchObject({ status: 'error' });
-    expect(loadProjectSourceArchiveEntry).toHaveBeenCalledTimes(1);
+    expect(loadProjectSourceArchiveEntryRange).toHaveBeenCalledTimes(1);
   } finally {
     consoleError.mockRestore();
   }
@@ -785,10 +932,10 @@ describe('POST /api/chat/context', () => {
     const archiveBytes = new TextEncoder().encode('class ClientMap {}');
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     setArchiveProjectStoreForTesting({
-      loadProjectSourceArchiveEntry: vi.fn(async () => {
+      loadProjectSourceArchiveEntry: vi.fn(),
+      loadProjectSourceArchiveEntryRange: vi.fn(async () => {
         throw new Error('s3://private-tenant/object-key');
       }),
-      loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
       loadProjectSourceArchiveIndex: vi.fn(async () => ({
         entries: [
           {
