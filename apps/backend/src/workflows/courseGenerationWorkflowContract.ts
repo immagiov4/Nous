@@ -28,6 +28,7 @@ export interface CourseGenerationStageContext<Input> {
   readonly previousAttemptFailure?: StepFailure;
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly retryFeedback: string;
+  readonly retryFeedbackSourceAttemptNumber?: number;
   readonly signal: AbortSignal;
 }
 

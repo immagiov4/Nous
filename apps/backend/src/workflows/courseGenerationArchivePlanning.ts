@@ -17,6 +17,7 @@ import {
   buildCourseDraftPlanState,
   buildCoursePlanOutput,
   buildCourseRefinedPlanState,
+  getCoursePlanRefinementProviderEffectKeys,
   requirePassingRefinedVerification,
 } from './courseGenerationPlanning.js';
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
@@ -256,15 +257,18 @@ export const createCourseArchivePlanningStages = ({
   },
   refineCoursePlan: async context => {
     if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
+    const effectKeys = getCoursePlanRefinementProviderEffectKeys(
+      context.retryFeedbackSourceAttemptNumber
+    );
     const generated = await context.providerEffect.run({
-      key: 'generate-refined-plan',
+      key: effectKeys.generation,
       operation: () => generateArchivePlan({ context, generateObject, openArchive }),
       outputSchema: CourseArchivePlanGenerationResultSchema,
     });
     const generatedAt = now();
     const refinedPlan = buildCoursePlanOutput(generated.rawPlan, generated.state, generatedAt);
     const verification = await context.providerEffect.run({
-      key: 'verify-refined-plan',
+      key: effectKeys.verification,
       operation: () =>
         verifyRefinedPlan({
           models: context.config.models,

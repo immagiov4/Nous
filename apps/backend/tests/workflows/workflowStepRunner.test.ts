@@ -132,6 +132,7 @@ describe('single workflow step runner', () => {
   test('resolves a nested step, validates boundaries and keeps idempotency stable across retries', async () => {
     const executionIdentities: unknown[] = [];
     const keys: string[] = [];
+    const retryFeedbackSourceAttemptNumbers: Array<number | undefined> = [];
     let checkpointing = false;
     const commit = vi.fn(async (_output: unknown) => undefined);
     const work = step({
@@ -149,6 +150,7 @@ describe('single workflow step runner', () => {
         executionIdentities.push(context.execution);
         expect(Object.isFrozen(context.execution)).toBe(true);
         keys.push(context.idempotencyKey);
+        retryFeedbackSourceAttemptNumbers.push(context.retryFeedbackSourceAttemptNumber);
         expect(context.config).toEqual({ maxAttempts: 3, timeoutMs: 60_000 });
         return { text: context.input.text.toUpperCase() };
       },
@@ -201,7 +203,13 @@ describe('single workflow step runner', () => {
       store,
     });
     await runWorkflowStepClaim({
-      claim: makeClaim(registered, { ...nestedClaim, attemptNumber: 2, fencingToken: '2' }),
+      claim: makeClaim(registered, {
+        ...nestedClaim,
+        attemptNumber: 2,
+        fencingToken: '2',
+        retryFeedback: 'Correct the prior candidate.',
+        retryFeedbackSourceAttemptNumber: 1,
+      }),
       registry,
       services: {},
       store,
@@ -211,6 +219,7 @@ describe('single workflow step runner', () => {
       'workflow:forward:run:36:11111111-1111-4111-8111-111111111111:node:15:root/child/work',
       'workflow:forward:run:36:11111111-1111-4111-8111-111111111111:node:15:root/child/work',
     ]);
+    expect(retryFeedbackSourceAttemptNumbers).toEqual([undefined, 1]);
     expect(executionIdentities).toEqual([
       {
         nodeInstanceId: 'root/child/work',
