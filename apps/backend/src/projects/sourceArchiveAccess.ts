@@ -105,6 +105,7 @@ const compareEntryPaths = (left: SourceArchiveIndexedEntry, right: SourceArchive
   left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 
 export const SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES = 256 * 1024;
+export const SOURCE_ARCHIVE_VERSION_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const UTF8_MAX_TRAILING_BYTES = 3;
 const isUtf8ContinuationByte = (byte: number): boolean => (byte & 0xc0) === 0x80;
 
@@ -189,13 +190,20 @@ export class SourceArchiveAccess {
     return (this.childrenByDirectory.get(path) || []).map(copyEntry);
   }
 
-  async readTextPage(path: string, cursorBytes = 0): Promise<SourceArchiveTextPage> {
+  async readTextPage(
+    path: string,
+    cursorBytes = 0,
+    maxPageBytes = SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES
+  ): Promise<SourceArchiveTextPage> {
     const entry = this.requireEntry(path, 'file');
     if (entry.contentKind === 'binary') {
       throw new SourceArchiveAccessError('binary-file', entry.path);
     }
     if (!Number.isSafeInteger(cursorBytes) || cursorBytes < 0 || cursorBytes > entry.byteSize) {
       throw new SourceArchiveAccessError('cursor-invalid', entry.path);
+    }
+    if (!Number.isSafeInteger(maxPageBytes) || maxPageBytes <= 0) {
+      throw new RangeError('Source archive page limit must be a positive safe integer.');
     }
     if (cursorBytes === entry.byteSize) {
       return {
@@ -208,7 +216,10 @@ export class SourceArchiveAccess {
       };
     }
 
-    const requestedEnd = Math.min(entry.byteSize, cursorBytes + SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES);
+    const requestedEnd = Math.min(
+      entry.byteSize,
+      cursorBytes + Math.min(maxPageBytes, SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES)
+    );
     let bytes: Uint8Array;
     try {
       bytes = await this.readByteRange(entry.path, cursorBytes, requestedEnd);

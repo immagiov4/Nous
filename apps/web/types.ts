@@ -193,8 +193,15 @@ export interface SourceArchiveFileEntry {
 
 export type SourceArchiveEntry = SourceArchiveDirectoryEntry | SourceArchiveFileEntry;
 
+export interface SourceArchiveVersion {
+  representationHash: string;
+  sourceHash: string;
+  sourceId: string;
+}
+
 export interface SourceArchiveIndex {
   entries: SourceArchiveEntry[];
+  version?: SourceArchiveVersion;
 }
 
 export interface ProjectSourceWarning {

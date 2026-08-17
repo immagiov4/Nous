@@ -46,6 +46,7 @@ import {
   SourceArchiveUnusableError,
 } from '../projects/sourceArchive.js';
 import {
+  SOURCE_ARCHIVE_VERSION_HASH_PATTERN,
   SourceArchiveAccess,
   type SourceArchiveSelector,
 } from '../projects/sourceArchiveAccess.js';
@@ -98,7 +99,6 @@ const LIBRARY_IMPORT_DIAGNOSTIC_STAGES = new Set([
 ]);
 const CORRELATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-const SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const COURSE_COVER_JOB_STATUS_ROUTE_ERROR = 'Unable to read course cover regeneration status.';
 const COURSE_COVER_JOB_START_ROUTE_ERROR = 'Unable to start course cover regeneration.';
 const ADMIN_REQUIRED_MESSAGE = 'Solo un amministratore puo eseguire questa operazione.';
@@ -371,11 +371,11 @@ const requireSourceArchiveVersion = (value: unknown): ProjectSourceArchiveVersio
   if (
     !isRecord(value) ||
     typeof value.representationHash !== 'string' ||
-    !SOURCE_HASH_PATTERN.test(value.representationHash) ||
+    !SOURCE_ARCHIVE_VERSION_HASH_PATTERN.test(value.representationHash) ||
     typeof value.sourceId !== 'string' ||
     !value.sourceId ||
     typeof value.sourceHash !== 'string' ||
-    !SOURCE_HASH_PATTERN.test(value.sourceHash)
+    !SOURCE_ARCHIVE_VERSION_HASH_PATTERN.test(value.sourceHash)
   ) {
     throw new Error('Versione archivio sorgente mancante o non valida.');
   }

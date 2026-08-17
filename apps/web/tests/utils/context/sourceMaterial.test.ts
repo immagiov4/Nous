@@ -478,6 +478,11 @@ test('resolveLessonSourceReferences restores the original archive and exact less
           path: 'luanti/src/client.cpp',
         },
       ],
+      version: {
+        representationHash: 'b'.repeat(64),
+        sourceHash: 'a'.repeat(64),
+        sourceId: 'source-archive',
+      },
     },
     kind: 'archive',
     name: 'src.zip',
@@ -510,6 +515,7 @@ test('resolveLessonSourceReferences restores the original archive and exact less
   assert.equal(references[0]?.sourceId, 'source-archive');
   assert.equal(references[0]?.kind, 'archive');
   assert.deepEqual(references[0]?.archiveSelectors, activeSection.sourceArchiveSelectors);
+  assert.deepEqual(references[0]?.archiveVersion, source.index.version);
 });
 
 test('resolveLessonSourceReferences keeps legacy archive provenance without selectors', () => {

@@ -3,6 +3,7 @@
 import {
   type ContextSourceReference,
   MAX_CONTEXT_CHAT_FIELD_CHARS,
+  sanitizeContextSourceArchivePath,
   sanitizeContextSourceDisplayName,
   sanitizeContextSourcePromptToken,
 } from '@shared/lessonSourceContext';
@@ -463,13 +464,23 @@ export const serializeContextSourceReferencesForPrompt = (
   sourceReferences?: readonly ContextSourceReference[]
 ): string =>
   JSON.stringify(
-    (sourceReferences || []).map(({ chunkIds, name, pageEnd, pageStart, sourceId }) => ({
-      chunkIds: chunkIds.map(sanitizeContextSourcePromptToken),
-      name: sanitizeContextSourceDisplayName(name),
-      ...(pageEnd === undefined ? {} : { pageEnd }),
-      ...(pageStart === undefined ? {} : { pageStart }),
-      sourceId: sanitizeContextSourcePromptToken(sourceId),
-    })),
+    (sourceReferences || []).map(
+      ({ archiveSelectors, chunkIds, name, pageEnd, pageStart, sourceId }) => ({
+        ...(archiveSelectors
+          ? {
+              archiveSelectors: archiveSelectors.map(selector => ({
+                kind: selector.kind,
+                path: sanitizeContextSourceArchivePath(selector.path),
+              })),
+            }
+          : {}),
+        chunkIds: chunkIds.map(sanitizeContextSourcePromptToken),
+        name: sanitizeContextSourceDisplayName(name),
+        ...(pageEnd === undefined ? {} : { pageEnd }),
+        ...(pageStart === undefined ? {} : { pageStart }),
+        sourceId: sanitizeContextSourcePromptToken(sourceId),
+      })
+    ),
     null,
     2
   );
@@ -595,6 +606,10 @@ Regole:
 - Il contesto testuale puo aggregare estratti di piu fonti, ma non e un documento unito: non chiamarlo mai file, PDF o fonte "merged".
 - Quando attribuisci informazioni al materiale originale, cita il nome del file distinto e le pagine disponibili; non mostrare mai chunk, ID interni o altri dettagli di indicizzazione e non inventare una fonte canonica aggregata.
 - La lezione aperta resta il contesto locale primario. Usa i tool della libreria solo quando l utente chiede esplicitamente di cercare, ricordare o confrontare materiale di altri corsi, lezioni, note, highlight o artefatti.
+- Quando il contesto corrente proviene da un archivio conservato e la domanda richiede file, simboli o percorsi reali non presenti nel contesto aggregato, usa \`retrieveSourceArchive\`. Se sono presenti archiveSelectors, inizia normalmente con \`resolve-lesson-selectors\`; usa poi ricerca letterale e lettura del percorso esatto solo quanto serve.
+- Un risultato vuoto di \`searchLibrary\` riguarda contenuti generati e metadati della libreria: non dimostra mai che nell archivio sorgente non esistano file o percorsi. Non presentarlo come prova dell assenza dell archivio.
+- Interpreta distintamente gli stati di \`retrieveSourceArchive\`: \`no-match\` significa che la ricerca richiesta e stata eseguita senza corrispondenze; \`unavailable\` significa che l archivio non e disponibile o e cambiato; \`error\` e un errore tecnico del tool. Se il tool non e stato chiamato, non affermare che l archivio e indisponibile o che la ricerca non ha trovato risultati.
+- Per ogni affermazione fondata su un file archivio, cita il nome dell archivio e il percorso esatto restituiti dal tool; per i risultati di ricerca includi anche la riga. Non mostrare sourceId, hash, chiavi storage o altri identificatori interni.
 - Per una richiesta trasversale, usa \`searchLibrary\`, \`getProjectStructures\`, \`getLessonDetails\`, \`getProjectOverviews\`, \`listLibraryTree\` o \`getLearningArtifacts\` prima di affermare fatti sul resto della libreria. Non inventare identificatori e non dedurre collegamenti senza un output reale dei tool.
 - Quando l utente indica una posizione nella struttura, per esempio modulo 3, capitolo 3 o terza lezione, usa prima \`getProjectStructures\` per risolverla nell ordine autorevole del corso e poi \`getLessonDetails\`. Considera modulo, capitolo e lezione come possibili parole dell utente per riferirsi agli elementi visibili del percorso; non trasformare il solo riferimento ordinale in una ricerca testuale letterale.
 - I tool della libreria applicano lo scope dell archivio server dell utente corrente. Non tentare di aggirare errori di scope, non chiedere dati di altri utenti e non esporre identificatori tecnici interni.

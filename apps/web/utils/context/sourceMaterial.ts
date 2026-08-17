@@ -24,6 +24,7 @@ interface ResolvedPageSpan {
 
 export interface ResolvedLessonSourceReference extends LessonSourceReference {
   archiveSelectors?: SourceArchiveSelector[];
+  archiveVersion?: Extract<ProjectSource, { kind: 'archive' }>['index']['version'];
   file: FileData;
   kind: CourseSourceDescriptor['kind'] | 'archive';
   name: string;
@@ -178,9 +179,11 @@ export const resolveLessonSourceReferences = ({
 }): ResolvedLessonSourceReference[] => {
   if (source?.kind === 'archive') {
     const archiveSelectors = activeSection?.sourceArchiveSelectors;
+    const archiveVersion = source.index.version;
     return [
       {
         ...(archiveSelectors?.length ? { archiveSelectors } : {}),
+        ...(archiveVersion ? { archiveVersion } : {}),
         chunkIds: [],
         file: source.file,
         kind: source.kind,

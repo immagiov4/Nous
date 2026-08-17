@@ -85,6 +85,13 @@ const { MAX_CONTEXT_CHARS, serializeContextSourceReferencesForPrompt } = await i
 const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
 );
+const { setProjectStoreForTesting } = await import('../../src/projects/projectStore.js');
+
+const ARCHIVE_VERSION = {
+  representationHash: 'b'.repeat(64),
+  sourceHash: 'a'.repeat(64),
+  sourceId: 'source-archive',
+};
 
 test('serializes contextual provenance as escaped JSON data', () => {
   const sourceReferences = [
@@ -122,11 +129,14 @@ test('preserves ordinary filename characters in bounded contextual provenance', 
   expect(JSON.parse(serialized)[0]?.name).toBe('My Paper & Notes (final).pdf');
 });
 
-const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
+const authenticateProvider = (
+  aiProvider: 'codex' | 'openai' | 'openrouter',
+  userId?: string
+): string => {
   process.env.AUTH_MODE = 'supabase';
   process.env.SUPABASE_JWT_SECRET = 'test-secret';
   process.env.SUPABASE_URL = 'https://example.supabase.co';
-  return createSupabaseTestToken({ aiProvider });
+  return createSupabaseTestToken({ aiProvider, userId });
 };
 
 describe('POST /api/chat/context', () => {
@@ -144,6 +154,7 @@ describe('POST /api/chat/context', () => {
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
     codexAppServerMocks.runCodexAppServerTurn.mockReset();
     codexStreamMocks.createCodexChatStream.mockReset();
+    setProjectStoreForTesting(null);
     resetModelConfigForTesting();
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
 
@@ -272,7 +283,7 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('legacy source.pdf');
   });
 
-  test('omits provenance when an older client sends source text beyond the final budget', async () => {
+  test('retains provenance when aggregate source text exceeds the final prompt budget', async () => {
     const response = await request(createApp())
       .post('/api/chat/context')
       .send({
@@ -290,8 +301,9 @@ describe('POST /api/chat/context', () => {
 
     expect(response.status).toBe(200);
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'METADATI FONTI ORIGINALI DISTINTE (0;'
+      'METADATI FONTI ORIGINALI DISTINTE (1;'
     );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('049.pdf');
   });
 
   test('streams a contextual answer with the selected source information', async () => {
@@ -440,6 +452,246 @@ describe('POST /api/chat/context', () => {
       'NVIDIA forest real-time ray tracing alternatives foliage lighting'
     );
     expect(fetchOptions?.body).toContain('Puntatore');
+  });
+
+  test('round-trips retained archive context into bounded search, read, and citation results', async () => {
+    const archiveText = 'class ClientMap {\n  void render();\n}\n';
+    const archiveBytes = new TextEncoder().encode(archiveText);
+    const loadProjectSourceArchiveIndex = vi.fn(async (userId: string, projectId: string) =>
+      userId === 'archive-owner' && projectId === 'project-archive'
+        ? {
+            entries: [
+              { kind: 'directory' as const, path: 'src' },
+              {
+                byteSize: archiveBytes.byteLength,
+                contentKind: 'text' as const,
+                kind: 'file' as const,
+                path: 'src/client.cpp',
+              },
+            ],
+            version: ARCHIVE_VERSION,
+          }
+        : null
+    );
+    const loadProjectSourceArchiveEntry = vi.fn(
+      async (_userId: string, _projectId: string, path: string) =>
+        path === 'src/client.cpp' ? archiveBytes : null
+    );
+    const loadProjectSourceArchiveEntryRange = vi.fn(
+      async (
+        _userId: string,
+        _projectId: string,
+        path: string,
+        _version: unknown,
+        start: number,
+        endExclusive: number
+      ) => (path === 'src/client.cpp' ? archiveBytes.slice(start, endExclusive) : null)
+    );
+    setProjectStoreForTesting({
+      loadProjectSourceArchiveEntry,
+      loadProjectSourceArchiveEntryRange,
+      loadProjectSourceArchiveIndex,
+    } as never);
+    const token = authenticateProvider('openrouter', 'archive-owner');
+
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Dove viene definita ClientMap?' }],
+        projectId: 'project-archive',
+        selectedText: 'ClientMap',
+        sourceKind: 'archive',
+        sourceMaterial: 'x'.repeat(MAX_CONTEXT_CHARS + 1),
+        sourceReferences: [
+          {
+            archiveSelectors: [{ kind: 'file', path: 'src/client.cpp' }],
+            archiveVersion: ARCHIVE_VERSION,
+            chunkIds: [],
+            name: 'src.zip',
+            sourceId: 'source-archive',
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    const archiveTool = aiMocks.streamText.mock.calls[0][0].tools.retrieveSourceArchive;
+    expect(archiveTool).toBeDefined();
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('src/client.cpp');
+
+    await expect(
+      archiveTool.execute({ operation: 'resolve-lesson-selectors' })
+    ).resolves.toMatchObject({
+      archiveName: 'src.zip',
+      citations: [{ archiveName: 'src.zip', path: 'src/client.cpp' }],
+      operation: 'resolve-lesson-selectors',
+      status: 'ok',
+    });
+    await expect(
+      archiveTool.execute({ operation: 'search-text', query: 'ClientMap' })
+    ).resolves.toMatchObject({
+      archiveName: 'src.zip',
+      citations: [{ archiveName: 'src.zip', column: 7, line: 1, path: 'src/client.cpp' }],
+      matches: [{ column: 7, line: 1, path: 'src/client.cpp' }],
+      operation: 'search-text',
+      status: 'ok',
+    });
+    await expect(
+      archiveTool.execute({ operation: 'read-file', path: 'src/client.cpp' })
+    ).resolves.toMatchObject({
+      archiveName: 'src.zip',
+      citations: [{ archiveName: 'src.zip', path: 'src/client.cpp' }],
+      operation: 'read-file',
+      page: { path: 'src/client.cpp', text: archiveText },
+      status: 'ok',
+    });
+    await expect(
+      archiveTool.execute({ operation: 'search-text', query: 'MissingSymbol' })
+    ).resolves.toMatchObject({
+      archiveName: 'src.zip',
+      citations: [],
+      operation: 'search-text',
+      query: 'MissingSymbol',
+      status: 'no-match',
+    });
+  });
+
+  test('reports a stale retained archive version as unavailable without reading entries', async () => {
+    const loadProjectSourceArchiveEntry = vi.fn();
+    setProjectStoreForTesting({
+      loadProjectSourceArchiveEntry,
+      loadProjectSourceArchiveEntryRange: vi.fn(),
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: [],
+        version: { ...ARCHIVE_VERSION, representationHash: 'c'.repeat(64) },
+      })),
+    } as never);
+    const token = authenticateProvider('openrouter', 'archive-owner');
+
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Cerca ClientMap' }],
+        projectId: 'project-archive',
+        selectedText: 'ClientMap',
+        sourceKind: 'archive',
+        sourceReferences: [
+          {
+            archiveVersion: ARCHIVE_VERSION,
+            chunkIds: [],
+            name: 'src.zip',
+            sourceId: 'source-archive',
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    const archiveTool = aiMocks.streamText.mock.calls[0][0].tools.retrieveSourceArchive;
+    await expect(
+      archiveTool.execute({ operation: 'search-text', query: 'ClientMap' })
+    ).resolves.toMatchObject({
+      archiveName: 'src.zip',
+      operation: 'search-text',
+      status: 'unavailable',
+    });
+    expect(loadProjectSourceArchiveEntry).not.toHaveBeenCalled();
+  });
+
+  test('returns a safe tool-error state without exposing archive storage failures', async () => {
+    const archiveBytes = new TextEncoder().encode('class ClientMap {}');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    setProjectStoreForTesting({
+      loadProjectSourceArchiveEntry: vi.fn(async () => {
+        throw new Error('s3://private-tenant/object-key');
+      }),
+      loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: [
+          {
+            byteSize: archiveBytes.byteLength,
+            contentKind: 'text' as const,
+            kind: 'file' as const,
+            path: 'src/client.cpp',
+          },
+        ],
+        version: ARCHIVE_VERSION,
+      })),
+    } as never);
+    const token = authenticateProvider('openrouter', 'archive-owner');
+
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Cerca ClientMap' }],
+        projectId: 'project-archive',
+        selectedText: 'ClientMap',
+        sourceKind: 'archive',
+        sourceReferences: [
+          {
+            archiveVersion: ARCHIVE_VERSION,
+            chunkIds: [],
+            name: 'src.zip',
+            sourceId: 'source-archive',
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    const archiveTool = aiMocks.streamText.mock.calls[0][0].tools.retrieveSourceArchive;
+    try {
+      const result = await archiveTool.execute({ operation: 'search-text', query: 'ClientMap' });
+
+      expect(result).toMatchObject({
+        archiveName: 'src.zip',
+        operation: 'search-text',
+        status: 'error',
+      });
+      expect(JSON.stringify(result)).not.toContain('private-tenant');
+      expect(JSON.stringify(result)).not.toContain('object-key');
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test('keeps retained archive retrieval scoped to the authenticated tenant', async () => {
+    const loadProjectSourceArchiveEntry = vi.fn();
+    const loadProjectSourceArchiveIndex = vi.fn(async (userId: string) =>
+      userId === 'archive-owner' ? { entries: [], version: ARCHIVE_VERSION } : null
+    );
+    setProjectStoreForTesting({
+      loadProjectSourceArchiveEntry,
+      loadProjectSourceArchiveEntryRange: vi.fn(),
+      loadProjectSourceArchiveIndex,
+    } as never);
+    const token = authenticateProvider('openrouter', 'other-tenant');
+
+    await request(createApp())
+      .post('/api/chat/context')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Cerca ClientMap' }],
+        projectId: 'project-archive',
+        selectedText: 'ClientMap',
+        sourceKind: 'archive',
+        sourceReferences: [
+          {
+            archiveVersion: ARCHIVE_VERSION,
+            chunkIds: [],
+            name: 'src.zip',
+            sourceId: 'source-archive',
+          },
+        ],
+      });
+
+    const archiveTool = aiMocks.streamText.mock.calls[0][0].tools.retrieveSourceArchive;
+    await expect(archiveTool.execute({ operation: 'tree' })).resolves.toMatchObject({
+      status: 'unavailable',
+    });
+    expect(loadProjectSourceArchiveIndex).toHaveBeenCalledWith('other-tenant', 'project-archive');
+    expect(loadProjectSourceArchiveEntry).not.toHaveBeenCalled();
   });
 
   test('uses the backend global context model instead of a UI override', async () => {

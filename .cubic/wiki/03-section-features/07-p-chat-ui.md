@@ -10,6 +10,7 @@ The following files were used as context for generating this wiki page:
 
 - [apps/web/components/library/HomeChatComposer.tsx](../../../apps/web/components/library/HomeChatComposer.tsx)
 - [apps/backend/src/routes/contextChat.ts](../../../apps/backend/src/routes/contextChat.ts)
+- [apps/backend/src/routes/contextSourceArchiveTool.ts](../../../apps/backend/src/routes/contextSourceArchiveTool.ts)
 - [apps/backend/src/routes/chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)
 - [apps/backend/tests/routes/chat.test.ts](../../../apps/backend/tests/routes/chat.test.ts)
 - [apps/backend/src/routes/openRouterProxy.ts](../../../apps/backend/src/routes/openRouterProxy.ts)
@@ -129,6 +130,16 @@ The assistant uses a "Tool Calling" pattern to perform actions. The `buildContex
 *  **Note Management:** `requestAddToNotes` for proposing new study notes based on AI clarifications.
 
 Sources: [apps/backend/src/routes/contextChat.ts:182-316](../../../apps/backend/src/routes/contextChat.ts#L182-L316), [apps/backend/src/routes/chatPrompts.ts:503-549](../../../apps/backend/src/routes/chatPrompts.ts#L503-L549)
+
+### Retained Source Archive Retrieval
+
+For an archive-backed lesson, contextual chat carries the retained source identity, archive representation version, and the lesson's exact archive selectors without sending archive bytes. The backend exposes `retrieveSourceArchive` only when that complete retained-source context is present. Each tool call resolves the authenticated user from the request, reloads the current project's archive index, and requires an exact version match before reusing the existing bounded archive access layer.
+
+The tool can resolve the lesson selectors, return the archive tree, list one exact directory, search textual entries for a literal string, and read a bounded page from one exact indexed path. Successful outputs carry the archive name and exact path citations; literal-search citations also carry line and column. Its result states are intentionally distinct: `no-match` means a completed search or selector resolution found nothing, `unavailable` means the archive is missing or changed, and `error` means retrieval failed technically. A generic `searchLibrary` miss is not evidence that retained archive files are absent.
+
+Archive identity metadata remains available when the aggregate source preview exceeds the contextual prompt budget, allowing the tool to find entries omitted from that preview. Tool results share the existing contextual-chat budget, while tenant/project authorization, archive-version checks, path validation, text-only reads, and exact selectors remain authoritative on the backend.
+
+Sources: [apps/web/utils/context/sourceMaterial.ts](../../../apps/web/utils/context/sourceMaterial.ts), [apps/web/components/workspace/shell/ContextAnswerPanel.tsx](../../../apps/web/components/workspace/shell/ContextAnswerPanel.tsx), [apps/backend/src/routes/contextChat.ts](../../../apps/backend/src/routes/contextChat.ts), [apps/backend/src/routes/contextSourceArchiveTool.ts](../../../apps/backend/src/routes/contextSourceArchiveTool.ts), [apps/backend/src/projects/sourceArchiveAccess.ts](../../../apps/backend/src/projects/sourceArchiveAccess.ts)
 
 ### AI Proxy and Model Resolution
 The `openRouterProxy` acts as a centralized gatekeeper for all AI requests. It resolves the appropriate model based on the "Model Slot" (e.g., `context`, `research`, `artifact`) and the user's specific provider overrides.
