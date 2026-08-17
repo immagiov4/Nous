@@ -4,6 +4,7 @@ export const MAX_LESSON_CONTEXT_CHUNKS = 6;
 export const DEFAULT_LESSON_CONTEXT_CHUNKS = 2;
 export const MAX_CONTEXT_CHAT_FIELD_CHARS = 24_000;
 export const CONTEXT_RETAINED_ARCHIVE_SOURCE_KIND = 'archive';
+export const CONTEXT_SOURCE_ARCHIVE_TOOL_NAME = 'retrieveSourceArchive' as const;
 export const SOURCE_ARCHIVE_VERSION_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 
 export interface ContextSourceArchiveSelector {

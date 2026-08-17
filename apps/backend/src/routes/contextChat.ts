@@ -7,6 +7,7 @@ import type {
 } from '@shared/lessonSourceContext';
 import {
   CONTEXT_RETAINED_ARCHIVE_SOURCE_KIND,
+  CONTEXT_SOURCE_ARCHIVE_TOOL_NAME,
   SOURCE_ARCHIVE_VERSION_HASH_PATTERN,
 } from '@shared/lessonSourceContext';
 import {
@@ -51,10 +52,7 @@ import {
   type WebSearchModelConfig,
   type WebSearchToolResult,
 } from './chatPrompts.js';
-import {
-  CONTEXT_SOURCE_ARCHIVE_TOOL_NAME,
-  createContextSourceArchiveTool,
-} from './contextSourceArchiveTool.js';
+import { createContextSourceArchiveTool } from './contextSourceArchiveTool.js';
 import { libraryRetrievalToolNames, libraryRetrievalTools } from './libraryChat.js';
 
 const DEFAULT_CONTEXT_SCOPE: ContextChatScope = 'selection';

@@ -16,8 +16,6 @@ import {
   searchContextSourceArchivePage,
 } from './contextSourceArchiveSearch.js';
 
-export const CONTEXT_SOURCE_ARCHIVE_TOOL_NAME = 'retrieveSourceArchive' as const;
-
 type ContextSourceArchiveOperation =
   | 'list-directory'
   | 'read-file'
@@ -64,7 +62,7 @@ class ContextSourceArchiveToolBudgetError extends Error {
 }
 
 const CONTEXT_SOURCE_ARCHIVE_LIMIT_MESSAGE =
-  'Il limite di consultazione dell archivio sorgente e stato raggiunto.';
+  'Il limite di consultazione dell’archivio sorgente è stato raggiunto.';
 
 const versionsMatch = (
   current: ProjectSourceArchiveVersion,
@@ -451,7 +449,7 @@ export const createContextSourceArchiveTool = ({
 
   return tool({
     description:
-      'Consulta esclusivamente l archivio sorgente conservato per la lezione corrente. Consente di risolvere i percorsi registrati della lezione, scorrere l indice ordinato o una cartella, cercare una stringa letterale e leggere una pagina testuale da un percorso esatto. Le pagine di indice e ricerca usano nextCursor, mentre le letture usano nextCursorBytes per continuare. Continua una ricerca finche nextCursor e null prima di concludere che non esistono corrispondenze. Gli output includono il nome dell archivio e citazioni con percorsi esatti; le ricerche includono riga e colonna.',
+      'Consulta esclusivamente l’archivio sorgente conservato per la lezione corrente. Consente di risolvere i percorsi registrati della lezione, scorrere l’indice ordinato o una cartella, cercare una stringa letterale e leggere una pagina testuale da un percorso esatto. Le pagine di indice e ricerca usano nextCursor, mentre le letture usano nextCursorBytes per continuare. Continua una ricerca finché nextCursor è null prima di concludere che non esistono corrispondenze. Gli output includono il nome dell’archivio e citazioni con percorsi esatti; le ricerche includono riga e colonna.',
     execute,
     inputSchema: jsonSchema<ContextSourceArchiveToolInput>({
       type: 'object',
