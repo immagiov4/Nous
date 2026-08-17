@@ -5,12 +5,7 @@ import {
   VISUAL_FORMAT_SELECTION_RULE,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks';
-import {
-  FORMULA_RELEVANCE_RULE,
-  LESSON_LOCAL_PROPEDEUTIC_RULES,
-  LESSON_SCOPE_RULES,
-  SYSTEM_INSTRUCTION_TEACHER,
-} from '@shared/lessonWritingContract';
+import { FORMULA_RELEVANCE_RULE, SYSTEM_INSTRUCTION_TEACHER } from '@shared/lessonWritingContract';
 import { generateText, jsonSchema, Output } from 'ai';
 
 import {
@@ -20,7 +15,7 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import { buildLessonGenerationPrompt } from './lessonGenerationPrompt.js';
+import { buildLessonGenerationReferenceContext } from './lessonGenerationPrompt.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 
 interface LessonResponseSchemaContract {
@@ -42,6 +37,8 @@ interface LessonVerificationReportItem {
 type VerifiedLessonContentDraft = LessonContentDraft & {
   verificationReport: LessonVerificationReportItem[];
 };
+
+type LessonVerificationInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -74,38 +71,84 @@ const buildVerificationSchema = (
   },
 });
 
-const buildVerificationPrompt = (
-  input: Omit<LessonGenerationInput, 'config' | 'signal'>,
+const buildApplicableStructuralChecks = (
+  input: LessonVerificationInput,
+  draft: LessonContentDraft
+): string[] => {
+  const markdown = draft.contentBlocks
+    .filter(block => block.type === 'markdown')
+    .map(block => block.markdown)
+    .join('\n');
+  const hasQuiz = draft.contentBlocks.some(block => block.type === 'inline-quiz');
+  const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
+  const hasGeneratedVisual =
+    draft.generatedVisuals.length > 0 ||
+    draft.contentBlocks.some(block => block.type === 'generated-visual');
+  const hasImageRefs = draft.imageRefs.length > 0 || input.imageCandidates.length > 0;
+  const hasMath = /\$|\\\(|\\\[|\\begin\{/u.test(markdown);
+  const hasCode = input.instructionPacks.includes('code') || markdown.includes('```');
+
+  const checks = [
+    'I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici o una sezione fonti terminale.',
+  ];
+
+  if (hasQuiz) {
+    checks.push(
+      `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa deve avere quattro opzioni distinte e non deve poter essere risolta copiando o riconoscendo una definizione locale.`,
+      'Domande e opzioni sono testo normale: rimuovi backticks o code fence che racchiudono l intera stringa, preservando eventuale codice inline interno.'
+    );
+  }
+  if (hasImageRefs) {
+    checks.push(
+      'Ogni imageRef usa un assetId disponibile, ha un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino. Rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara.'
+    );
+  }
+  if (hasGeneratedVisual) {
+    checks.push(
+      `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}`
+    );
+  }
+  if (hasYoutube) {
+    checks.push(
+      'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.'
+    );
+  }
+  if (hasMath) {
+    checks.push(
+      `${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico.`
+    );
+  }
+  if (hasCode) {
+    checks.push(
+      'Codice, pseudocodice, comandi e output devono stare in un solo code block valido; non trasformare prosa o formule in codice.'
+    );
+  }
+
+  return checks;
+};
+
+export const buildLessonVerificationPrompt = (
+  input: LessonVerificationInput,
   draft: LessonContentDraft
 ): string => {
   const checklist = buildLessonVerificationChecklist(input.instructionPacks);
-  const scopeRules = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
-  return String.raw`Sei il verificatore finale di Nous Reader. Correggi SOLO cio che serve nella bozza e conserva tutto il contenuto valido.
+  const structuralChecks = buildApplicableStructuralChecks(input, draft);
+  return String.raw`RIFERIMENTI DELLA LEZIONE:
+${buildLessonGenerationReferenceContext(input)}
 
-CONTRATTO DI GENERAZIONE DA RISPETTARE:
-${buildLessonGenerationPrompt(input)}
+BOZZA DA VERIFICARE:
+${JSON.stringify(draft, null, 2)}
+
+COMPITO DI VERIFICA:
+Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
+Per ogni controllo, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto: non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
 
 CHECKLIST OBBLIGATORIA:
 Compila esattamente una voce verificationReport per ciascun checkId:
 ${checklist.map(item => `- ${item.checkId}: ${item.instruction}`).join('\n')}
 
-CONTROLLI FINALI SPECIFICI:
-- Mantieni la lezione nel focus corrente e applica questi vincoli:
-${scopeRules}
-- Verifica l'ordine propedeutico locale paragrafo per paragrafo:
-${LESSON_LOCAL_PROPEDEUTIC_RULES.map(rule => `- ${rule}`).join('\n')}
-- Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi sono validi e non interrompono quel contesto. La pausa deve avere quattro opzioni distinte e non essere una parafrasi diretta del testo.
-- Domande e opzioni sono testo normale: rimuovi backticks o code fence che racchiudono l'intera stringa, preservando eventuale codice inline interno.
-- I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici o una sezione fonti terminale.
-- Ogni imageRef usa un assetId disponibile, ha un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino. Rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara.
-- Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}
-- Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.
-- ${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati.
-- Ogni ambiente LaTeX aperto con \begin{...} deve chiudersi con il corrispondente \end{...} nello stesso blocco matematico. Se descrivi letteralmente un comando LaTeX, usa codice inline e non delimitatori matematici.
-- Codice, pseudocodice, comandi e output devono stare in un solo code block valido; non trasformare prosa o formule in codice.
-
-BOZZA DA VERIFICARE:
-${JSON.stringify(draft, null, 2)}
+CONTROLLI STRUTTURALI APPLICABILI A QUESTA BOZZA:
+${structuralChecks.map(check => `- ${check}`).join('\n')}
 
 Restituisci soltanto il JSON verificato con verificationReport, senza testo esterno.`;
 };
@@ -116,7 +159,7 @@ export const verifyLessonContentDraft = async (input: {
   responseSchema: LessonResponseSchemaContract;
 }): Promise<LessonContentDraft> => {
   const generationInput = input.generationInput;
-  const prompt = buildVerificationPrompt(generationInput, input.draft);
+  const prompt = buildLessonVerificationPrompt(generationInput, input.draft);
   const checklist = buildLessonVerificationChecklist(generationInput.instructionPacks);
   const checkIds = checklist.map(item => item.checkId);
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
