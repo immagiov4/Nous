@@ -40,6 +40,8 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
 17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.
 18. NON usare intestazioni inglesi o template rigidi. Scegli solo sezioni con titoli naturali nella lingua della lezione. Niente scalette fisse o stampi ricorrenti: la struttura deve nascere dal contenuto.
+- Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.
+- Quando insegni una procedura o un modello complesso a uno studente che il contesto indica come inesperto o in difficolta, privilegia una progressione guidata: mostra prima un esempio svolto o ragionato che esplicita i passaggi, poi varia il caso o chiedi di applicare il principio. Non costringere lo studente a scoprire da solo passaggi che non sono ancora stati insegnati.
 ${NUMBERED_LOCAL_PROPEDEUTIC_RULES}`;
 
 export const SYSTEM_INSTRUCTION_TEACHER = `
