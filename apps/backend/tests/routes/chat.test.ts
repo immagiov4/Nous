@@ -108,6 +108,13 @@ const ARCHIVE_VERSION = {
 };
 const ARCHIVE_CURSOR_SIGNING_SECRET = 'archive-cursor-test-secret';
 
+const firstArchiveSearchPageByteLimit = (): number => {
+  const terminalResultBytes = new TextEncoder().encode(
+    JSON.stringify({ status: 'limit-reached' })
+  ).byteLength;
+  return MAX_CONTEXT_CHARS - terminalResultBytes * (CHAT_TOOL_STEP_LIMIT - 1);
+};
+
 const createArchiveToolContext = (signal: AbortSignal) => ({
   projectId: 'project-archive',
   signal,
@@ -332,12 +339,10 @@ test('pages literal search work and preserves exact locations across files', asy
 });
 
 test('finds a literal match spanning bounded search pages', async () => {
-  const terminalResultBytes = new TextEncoder().encode(
-    JSON.stringify({ status: 'limit-reached' })
-  ).byteLength;
-  const firstSearchPageBytes = MAX_CONTEXT_CHARS - terminalResultBytes * (CHAT_TOOL_STEP_LIMIT - 1);
+  const matchBytesBeforePageEnd = 3;
+  const firstSearchPageBytes = firstArchiveSearchPageByteLimit();
   const linePrefixLength =
-    firstSearchPageBytes - new TextEncoder().encode('first\n').byteLength - 3;
+    firstSearchPageBytes - new TextEncoder().encode('first\n').byteLength - matchBytesBeforePageEnd;
   const archiveBytes = new TextEncoder().encode(`first\n${'a'.repeat(linePrefixLength)}needle`);
   const loadProjectSourceArchiveEntryRange = vi.fn(
     async (
@@ -396,7 +401,7 @@ test('finds a literal match spanning bounded search pages', async () => {
     matches: [
       {
         column: linePrefixLength + 1,
-        cursorBytes: firstSearchPageBytes - 3,
+        cursorBytes: firstSearchPageBytes - matchBytesBeforePageEnd,
         line: 2,
         path: 'large.txt',
       },
@@ -462,12 +467,10 @@ test('keeps a completed search successful when an earlier page matched', async (
 });
 
 test('keeps a maximum-length cross-page query continuation inside the result budget', async () => {
-  const terminalResultBytes = new TextEncoder().encode(
-    JSON.stringify({ status: 'limit-reached' })
-  ).byteLength;
-  const firstSearchPageBytes = MAX_CONTEXT_CHARS - terminalResultBytes * (CHAT_TOOL_STEP_LIMIT - 1);
+  const queryBytesBeforePageEnd = 10;
+  const firstSearchPageBytes = firstArchiveSearchPageByteLimit();
   const query = 'q'.repeat(MAX_CONTEXT_CHARS);
-  const matchCursorBytes = firstSearchPageBytes - 10;
+  const matchCursorBytes = firstSearchPageBytes - queryBytesBeforePageEnd;
   const archiveBytes = new TextEncoder().encode(`${'x'.repeat(matchCursorBytes)}${query}`);
   const store = {
     loadProjectSourceArchiveEntry: vi.fn(),
