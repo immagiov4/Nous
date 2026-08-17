@@ -715,6 +715,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     );
     const system = buildContextSystemPrompt({
       contextScope,
+      hasSourceArchiveTool,
       selectedText,
       ...contextInput,
     });

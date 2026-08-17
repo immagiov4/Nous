@@ -262,7 +262,7 @@ export const createContextSourceArchiveTool = ({
       },
       signingSecret: cursorSigningSecret,
     });
-    if (!state || state.carryText.length >= query.length) {
+    if (!state) {
       throw new SourceArchiveAccessError('cursor-invalid');
     }
     return state;
@@ -286,11 +286,12 @@ export const createContextSourceArchiveTool = ({
     input: ContextSourceArchiveToolInput,
     query: string
   ) => {
+    const searchState = readSearchState(input, query);
     const page = await searchContextSourceArchivePage({
       access,
       maxPageBytes: availableResultBytes(),
       query,
-      state: readSearchState(input, query),
+      state: searchState,
     });
     const matches: (typeof page.candidates)[number]['match'][] = [];
     let continuationState = page.nextState;
@@ -306,8 +307,6 @@ export const createContextSourceArchiveTool = ({
       matches,
       nextSearchCursor,
       operation: input.operation,
-      query,
-      searchCursor: input.searchCursor || null,
       status,
     });
 
@@ -321,6 +320,10 @@ export const createContextSourceArchiveTool = ({
       }
     }
 
+    if (matches.length > 0 && continuationState) {
+      continuationState = { ...continuationState, matchedPreviously: true };
+    }
+
     if (matches.length === 0 && page.candidates.length > 0) {
       const nextSearchCursor = encodeSearchState(query, page.candidates[0].resumeState);
       return accountTerminalResult({
@@ -331,15 +334,16 @@ export const createContextSourceArchiveTool = ({
         nextSearchCursor,
         omittedMatch: true,
         operation: input.operation,
-        query,
-        searchCursor: input.searchCursor || null,
         status: 'limit-reached' as const,
       });
     }
 
     const nextSearchCursor = continuationState ? encodeSearchState(query, continuationState) : null;
     return accountResult(
-      createResult(nextSearchCursor, matches.length || nextSearchCursor ? 'ok' : 'no-match')
+      createResult(
+        nextSearchCursor,
+        matches.length || nextSearchCursor || searchState?.matchedPreviously ? 'ok' : 'no-match'
+      )
     );
   };
 

@@ -24,15 +24,17 @@ const readSearchState = (value: unknown): ContextSourceArchiveSearchState | null
   if (!value || typeof value !== 'object') return null;
   const state = value as Record<string, unknown>;
   if (
+    !isSafeIntegerAtLeast(state.carryByteLength, 0) ||
     !isSafeIntegerAtLeast(state.carryColumn, 1) ||
     !isSafeIntegerAtLeast(state.carryLine, 1) ||
-    typeof state.carryText !== 'string' ||
     !isSafeIntegerAtLeast(state.column, 1) ||
     !isSafeIntegerAtLeast(state.cursorBytes, 0) ||
     !isSafeIntegerAtLeast(state.fileCursor, 0) ||
     !isSafeIntegerAtLeast(state.line, 1) ||
+    typeof state.matchedPreviously !== 'boolean' ||
     typeof state.previousWasCarriageReturn !== 'boolean' ||
-    !isSafeIntegerAtLeast(state.searchOffset, 0)
+    !isSafeIntegerAtLeast(state.searchOffset, 0) ||
+    state.carryByteLength > state.cursorBytes
   ) {
     return null;
   }

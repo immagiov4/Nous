@@ -10,14 +10,18 @@ interface SearchPosition {
   previousWasCarriageReturn: boolean;
 }
 
+const HIGH_SURROGATE_PATTERN = /[\uD800-\uDBFF]/u;
+const LOW_SURROGATE_PATTERN = /[\uDC00-\uDFFF]/u;
+
 export interface ContextSourceArchiveSearchState {
+  carryByteLength: number;
   carryColumn: number;
   carryLine: number;
-  carryText: string;
   column: number;
   cursorBytes: number;
   fileCursor: number;
   line: number;
+  matchedPreviously: boolean;
   previousWasCarriageReturn: boolean;
   searchOffset: number;
 }
@@ -34,13 +38,14 @@ export interface ContextSourceArchiveSearchPage {
 }
 
 const INITIAL_SEARCH_STATE: ContextSourceArchiveSearchState = {
+  carryByteLength: 0,
   carryColumn: 1,
   carryLine: 1,
-  carryText: '',
   column: 1,
   cursorBytes: 0,
   fileCursor: 0,
   line: 1,
+  matchedPreviously: false,
   previousWasCarriageReturn: false,
   searchOffset: 0,
 };
@@ -78,9 +83,13 @@ const getTextFiles = (access: SourceArchiveAccess): SourceArchiveIndexedFile[] =
       entry.kind === 'file' && entry.contentKind === 'text'
   );
 
-const nextFileState = (fileCursor: number): ContextSourceArchiveSearchState => ({
+const nextFileState = (
+  fileCursor: number,
+  matchedPreviously: boolean
+): ContextSourceArchiveSearchState => ({
   ...INITIAL_SEARCH_STATE,
   fileCursor,
+  matchedPreviously,
 });
 
 const buildNextPageState = ({
@@ -90,6 +99,7 @@ const buildNextPageState = ({
   nextCursorBytes,
   query,
   startPosition,
+  matchedPreviously,
   textFileCount,
 }: {
   combinedText: string;
@@ -98,25 +108,34 @@ const buildNextPageState = ({
   nextCursorBytes: number | null;
   query: string;
   startPosition: SearchPosition;
+  matchedPreviously: boolean;
   textFileCount: number;
 }): ContextSourceArchiveSearchState | null => {
   if (nextCursorBytes === null) {
-    return fileCursor + 1 < textFileCount ? nextFileState(fileCursor + 1) : null;
+    return fileCursor + 1 < textFileCount ? nextFileState(fileCursor + 1, matchedPreviously) : null;
   }
 
   const lastLineBreak = Math.max(combinedText.lastIndexOf('\n'), combinedText.lastIndexOf('\r'));
   const currentLineStart = lastLineBreak + 1;
   const carryLength = Math.min(query.length - 1, combinedText.length - currentLineStart);
-  const carryStart = combinedText.length - carryLength;
+  let carryStart = combinedText.length - carryLength;
+  if (
+    carryStart > currentLineStart &&
+    LOW_SURROGATE_PATTERN.test(combinedText[carryStart] || '') &&
+    HIGH_SURROGATE_PATTERN.test(combinedText[carryStart - 1] || '')
+  ) {
+    carryStart -= 1;
+  }
   const carryPosition = advancePosition(combinedText, 0, carryStart, startPosition);
   return {
+    carryByteLength: new TextEncoder().encode(combinedText.slice(carryStart)).byteLength,
     carryColumn: carryPosition.column,
     carryLine: carryPosition.line,
-    carryText: combinedText.slice(carryStart),
     column: endPosition.column,
     cursorBytes: nextCursorBytes,
     fileCursor,
     line: endPosition.line,
+    matchedPreviously,
     previousWasCarriageReturn: endPosition.previousWasCarriageReturn,
     searchOffset: 0,
   };
@@ -128,7 +147,9 @@ const findCandidates = ({
   query,
   state,
   startPosition,
+  carryText,
 }: {
+  carryText: string;
   combinedText: string;
   filePath: string;
   query: string;
@@ -137,7 +158,7 @@ const findCandidates = ({
 }): ContextSourceArchiveSearchCandidate[] => {
   const candidates: ContextSourceArchiveSearchCandidate[] = [];
   const encoder = new TextEncoder();
-  let byteOffset = state.cursorBytes - encoder.encode(state.carryText).byteLength;
+  let byteOffset = state.cursorBytes - state.carryByteLength;
   let bytePositionOffset = 0;
   let position = startPosition;
   let positionOffset = 0;
@@ -147,7 +168,7 @@ const findCandidates = ({
     bytePositionOffset = matchOffset;
     position = advancePosition(combinedText, positionOffset, matchOffset, position);
     positionOffset = matchOffset;
-    if (matchOffset + query.length > state.carryText.length) {
+    if (matchOffset + query.length > carryText.length) {
       candidates.push({
         match: {
           column: position.column,
@@ -156,7 +177,7 @@ const findCandidates = ({
           path: filePath,
         },
         retryState: { ...state, searchOffset: matchOffset },
-        resumeState: { ...state, searchOffset: matchOffset + 1 },
+        resumeState: { ...state, matchedPreviously: true, searchOffset: matchOffset + 1 },
       });
     }
     matchOffset = combinedText.indexOf(query, matchOffset + 1);
@@ -181,14 +202,22 @@ export const searchContextSourceArchivePage = async ({
     currentState.fileCursor < textFiles.length &&
     textFiles[currentState.fileCursor]?.byteSize === 0
   ) {
-    currentState = nextFileState(currentState.fileCursor + 1);
+    currentState = nextFileState(currentState.fileCursor + 1, currentState.matchedPreviously);
   }
   const file = textFiles[currentState.fileCursor];
   if (!file) return { candidates: [], nextState: null };
 
+  const carryPage = currentState.carryByteLength
+    ? await access.readTextPage(
+        file.path,
+        currentState.cursorBytes - currentState.carryByteLength,
+        currentState.carryByteLength
+      )
+    : null;
+  const carryText = carryPage?.text || '';
   const page = await access.readTextPage(file.path, currentState.cursorBytes, maxPageBytes);
-  const combinedText = currentState.carryText + page.text;
-  const startPosition = currentState.carryText
+  const combinedText = carryText + page.text;
+  const startPosition = carryText
     ? {
         column: currentState.carryColumn,
         line: currentState.carryLine,
@@ -204,6 +233,7 @@ export const searchContextSourceArchivePage = async ({
   return {
     candidates: findCandidates({
       combinedText,
+      carryText,
       filePath: file.path,
       query,
       state: currentState,
@@ -216,6 +246,7 @@ export const searchContextSourceArchivePage = async ({
       nextCursorBytes: page.nextCursorBytes,
       query,
       startPosition,
+      matchedPreviously: currentState.matchedPreviously,
       textFileCount: textFiles.length,
     }),
   };
