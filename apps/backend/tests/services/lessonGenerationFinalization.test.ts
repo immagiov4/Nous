@@ -123,13 +123,17 @@ test('durable verification accepts a reviewer-added bridge before a correct new 
   };
   const verify = vi.fn().mockResolvedValue(revisedDraft);
 
-  await expect(
-    reviewLessonContentDraftStrict({
-      draft,
-      generationInput: generationInput(),
-      verify,
-    })
-  ).resolves.toEqual(revisedDraft);
+  const result = await reviewLessonContentDraftStrict({
+    draft,
+    generationInput: generationInput(),
+    verify,
+  });
+  const firstBlock = result.contentBlocks[0];
+
+  expect(firstBlock).toMatchObject({ type: 'markdown' });
+  if (firstBlock?.type !== 'markdown') throw new Error('Expected a revised markdown block.');
+  expect(firstBlock.markdown).not.toBe(draft.contentBlocks[0]?.markdown);
+  expect(result.contentBlocks[1]).toEqual(draft.contentBlocks[1]);
   expect(verify).toHaveBeenCalledWith(
     expect.objectContaining({
       draft,
