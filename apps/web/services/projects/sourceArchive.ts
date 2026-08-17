@@ -1,4 +1,4 @@
-import type { SourceArchiveSelector } from '../../types.ts';
+import type { SourceArchiveSelector, SourceArchiveVersion } from '../../types.ts';
 
 export {
   ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
@@ -75,12 +75,6 @@ type ArchiveQuery =
   | { operation: 'resolve-selectors'; selectors: SourceArchiveSelector[] }
   | { operation: 'search-text'; query: string }
   | { operation: 'tree' };
-
-export interface SourceArchiveVersion {
-  representationHash: string;
-  sourceHash: string;
-  sourceId: string;
-}
 
 interface ArchiveQueryResponse {
   error?: string;

@@ -1,7 +1,9 @@
+import { CONTEXT_SOURCE_ARCHIVE_TOOL_NAME } from '@shared/lessonSourceContext';
 import { isToolUIPart, type UIMessage } from 'ai';
 import type { LucideIcon } from 'lucide-react';
 import {
   BookOpen,
+  FileSearch,
   FileText,
   GitFork,
   Globe,
@@ -34,6 +36,10 @@ const TOOL_META: Record<string, { icon: LucideIcon; getLabel: () => string }> = 
   listLibraryTree: { icon: List, getLabel: () => t('Indice libreria') },
   requestAddToNotes: { icon: StickyNote, getLabel: () => t('Salva nota') },
   requestSaveLearningArtifactNote: { icon: FileText, getLabel: () => t('Salva nota') },
+  [CONTEXT_SOURCE_ARCHIVE_TOOL_NAME]: {
+    icon: FileSearch,
+    getLabel: () => t('Consulta sorgente'),
+  },
   searchLibrary: { icon: Search, getLabel: () => t('Ricerca contenuti') },
   searchWeb: { icon: Globe, getLabel: () => t('Ricerca web') },
   startCourseAssessment: { icon: BookOpen, getLabel: () => t('Avvio nuovo corso') },

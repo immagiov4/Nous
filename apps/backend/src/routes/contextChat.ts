@@ -1,6 +1,15 @@
 // Handles context-aware chat requests for the backend API.
 
-import type { ContextSourceReference } from '@shared/lessonSourceContext';
+import type {
+  ContextSourceArchiveSelector,
+  ContextSourceArchiveVersion,
+  ContextSourceReference,
+} from '@shared/lessonSourceContext';
+import {
+  CONTEXT_RETAINED_ARCHIVE_SOURCE_KIND,
+  CONTEXT_SOURCE_ARCHIVE_TOOL_NAME,
+  SOURCE_ARCHIVE_VERSION_HASH_PATTERN,
+} from '@shared/lessonSourceContext';
 import {
   convertToModelMessages,
   generateId,
@@ -18,6 +27,7 @@ import {
   resolveAiProviderForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
+import { getProjectStore } from '../projects/projectStore.js';
 import { createConfiguredTextModel } from '../services/aiSdkTextModel.js';
 import {
   assertCodexRequestAccess,
@@ -42,10 +52,20 @@ import {
   type WebSearchModelConfig,
   type WebSearchToolResult,
 } from './chatPrompts.js';
+import { createContextSourceArchiveTool } from './contextSourceArchiveTool.js';
 import { libraryRetrievalToolNames, libraryRetrievalTools } from './libraryChat.js';
 
 const DEFAULT_CONTEXT_SCOPE: ContextChatScope = 'selection';
 const CONTEXT_CHAT_SCOPES = new Set<ContextChatScope>(['annotation', 'lesson', 'selection']);
+
+const requireContextArchiveCursorSigningSecret = (): string => {
+  const deploymentSecret =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_JWT_SECRET?.trim();
+  if (!deploymentSecret) {
+    throw new Error('Context archive cursor signing requires a deployment secret.');
+  }
+  return `context-source-archive:${deploymentSecret}`;
+};
 
 const runContextWebSearch = async ({
   attachedAnnotationNote,
@@ -348,9 +368,12 @@ const buildContextToolSet = ({
   contextBefore,
   lessonTitle,
   modelConfig,
+  projectId,
   selectedText,
+  signal,
   sourceKind,
   sourceReferences,
+  userId,
 }: {
   attachedAnnotationNote?: string;
   attachedAnnotationText?: string;
@@ -358,33 +381,147 @@ const buildContextToolSet = ({
   contextBefore?: string;
   lessonTitle?: string;
   modelConfig: WebSearchModelConfig;
+  projectId?: string;
   selectedText: string;
+  signal: AbortSignal;
   sourceKind?: string;
   sourceReferences?: ContextSourceReference[];
-}) => ({
-  [LIBRARY_WEB_SEARCH_TOOL_NAME]: createContextSearchWebTool({
-    attachedAnnotationNote,
-    attachedAnnotationText,
-    contextAfter,
-    contextBefore,
-    lessonTitle,
-    modelConfig,
-    selectedText,
-    sourceKind,
-    sourceReferences,
-  }),
-  ...contextChatTools,
-  ...libraryRetrievalTools,
-});
+  userId: string;
+}) => {
+  const archiveReference =
+    sourceKind === CONTEXT_RETAINED_ARCHIVE_SOURCE_KIND && projectId
+      ? sourceReferences?.find(
+          reference =>
+            reference.archiveVersion?.sourceId === reference.sourceId &&
+            reference.archiveVersion.sourceId.length > 0
+        )
+      : undefined;
+  const archiveTool =
+    archiveReference?.archiveVersion && projectId
+      ? createContextSourceArchiveTool({
+          context: {
+            projectId,
+            sourceReference: {
+              ...archiveReference,
+              archiveVersion: archiveReference.archiveVersion,
+            },
+            signal,
+            userId,
+          },
+          cursorSigningSecret: requireContextArchiveCursorSigningSecret(),
+          store: getProjectStore(),
+        })
+      : undefined;
 
-const buildContextPrepareStep = () => {
+  return {
+    [LIBRARY_WEB_SEARCH_TOOL_NAME]: createContextSearchWebTool({
+      attachedAnnotationNote,
+      attachedAnnotationText,
+      contextAfter,
+      contextBefore,
+      lessonTitle,
+      modelConfig,
+      selectedText,
+      sourceKind,
+      sourceReferences,
+    }),
+    ...contextChatTools,
+    ...(archiveTool ? { [CONTEXT_SOURCE_ARCHIVE_TOOL_NAME]: archiveTool } : {}),
+    ...libraryRetrievalTools,
+  };
+};
+
+const buildContextPrepareStep = (hasSourceArchiveTool: boolean) => {
   return () => ({
     activeTools: [
       LIBRARY_WEB_SEARCH_TOOL_NAME,
       ...contextLocalToolNames,
+      ...(hasSourceArchiveTool ? [CONTEXT_SOURCE_ARCHIVE_TOOL_NAME] : []),
       ...libraryRetrievalToolNames,
     ],
   });
+};
+
+const readContextArchiveSelectors = (
+  value: unknown
+): ContextSourceArchiveSelector[] | null | undefined => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return null;
+  const selectors: ContextSourceArchiveSelector[] = [];
+  for (const candidate of value) {
+    if (
+      !isRecord(candidate) ||
+      (candidate.kind !== 'directory' && candidate.kind !== 'file') ||
+      typeof candidate.path !== 'string' ||
+      !candidate.path
+    ) {
+      return null;
+    }
+    selectors.push({ kind: candidate.kind, path: candidate.path });
+  }
+  return selectors;
+};
+
+const readContextArchiveVersion = (
+  value: unknown
+): ContextSourceArchiveVersion | null | undefined => {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    typeof value.representationHash !== 'string' ||
+    !SOURCE_ARCHIVE_VERSION_HASH_PATTERN.test(value.representationHash) ||
+    typeof value.sourceHash !== 'string' ||
+    !SOURCE_ARCHIVE_VERSION_HASH_PATTERN.test(value.sourceHash) ||
+    typeof value.sourceId !== 'string' ||
+    !value.sourceId
+  ) {
+    return null;
+  }
+  return {
+    representationHash: value.representationHash,
+    sourceHash: value.sourceHash,
+    sourceId: value.sourceId,
+  };
+};
+
+const readContextSourcePage = (value: unknown): number | null | undefined => {
+  if (value === undefined) return undefined;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : null;
+};
+
+const readContextSourceReference = (candidate: unknown): ContextSourceReference | null => {
+  if (!isRecord(candidate) || !Array.isArray(candidate.chunkIds)) {
+    return null;
+  }
+  const name = readOptionalString(candidate.name);
+  const sourceId = readOptionalString(candidate.sourceId);
+  const chunkIds = candidate.chunkIds.map(readOptionalString);
+  const pageStart = readContextSourcePage(candidate.pageStart);
+  const pageEnd = readContextSourcePage(candidate.pageEnd);
+  const archiveSelectors = readContextArchiveSelectors(candidate.archiveSelectors);
+  const archiveVersion = readContextArchiveVersion(candidate.archiveVersion);
+  if (
+    !name ||
+    !sourceId ||
+    chunkIds.some(chunkId => !chunkId) ||
+    archiveSelectors === null ||
+    archiveVersion === null ||
+    pageStart === null ||
+    pageEnd === null ||
+    (archiveVersion !== undefined && archiveVersion.sourceId !== sourceId) ||
+    (pageStart !== undefined && pageEnd !== undefined && pageEnd < pageStart)
+  ) {
+    return null;
+  }
+  return {
+    ...(archiveSelectors === undefined ? {} : { archiveSelectors }),
+    ...(archiveVersion === undefined ? {} : { archiveVersion }),
+    chunkIds: chunkIds as string[],
+    name,
+    ...(pageEnd === undefined ? {} : { pageEnd }),
+    ...(pageStart === undefined ? {} : { pageStart }),
+    sourceId,
+  };
 };
 
 const readContextSourceReferences = (
@@ -399,33 +536,9 @@ const readContextSourceReferences = (
 
   const references: ContextSourceReference[] = [];
   for (const candidate of value) {
-    if (!isRecord(candidate) || !Array.isArray(candidate.chunkIds)) {
-      return null;
-    }
-    const name = readOptionalString(candidate.name);
-    const sourceId = readOptionalString(candidate.sourceId);
-    const chunkIds = candidate.chunkIds.map(readOptionalString);
-    const pageStart = candidate.pageStart;
-    const pageEnd = candidate.pageEnd;
-    if (
-      !name ||
-      !sourceId ||
-      chunkIds.some(chunkId => !chunkId) ||
-      (pageStart !== undefined &&
-        (typeof pageStart !== 'number' || !Number.isInteger(pageStart) || pageStart < 1)) ||
-      (pageEnd !== undefined &&
-        (typeof pageEnd !== 'number' || !Number.isInteger(pageEnd) || pageEnd < 1)) ||
-      (typeof pageStart === 'number' && typeof pageEnd === 'number' && pageEnd < pageStart)
-    ) {
-      return null;
-    }
-    references.push({
-      chunkIds: chunkIds as string[],
-      name,
-      ...(typeof pageEnd === 'number' ? { pageEnd } : {}),
-      ...(typeof pageStart === 'number' ? { pageStart } : {}),
-      sourceId,
-    });
+    const reference = readContextSourceReference(candidate);
+    if (!reference) return null;
+    references.push(reference);
   }
   return serializeContextSourceReferencesForPrompt(references).length <= MAX_CONTEXT_CHARS
     ? references
@@ -521,10 +634,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       projectTitle: readOptionalString(projectTitle),
       sourceKind: readOptionalString(sourceKind),
       sourceMaterial: contextSourceMaterial,
-      sourceReferences:
-        contextSourceMaterial && contextSourceMaterial.length > MAX_CONTEXT_CHARS
-          ? undefined
-          : (contextSourceReferences ?? undefined),
+      sourceReferences: contextSourceReferences ?? undefined,
       toolPreferences: readContextToolPreferences(toolPreferences),
     };
 
@@ -568,6 +678,11 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       return;
     }
 
+    const contextAbortController = new AbortController();
+    res.once('close', () => {
+      if (!res.writableFinished) contextAbortController.abort();
+    });
+
     const currentUser = getCurrentUser(req);
     const modelConfig = await getResolvedModelConfigForProvider(
       currentUser.aiProvider,
@@ -589,8 +704,11 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const contextTools = buildContextToolSet({
       modelConfig: researchModelConfig,
       selectedText: contextSubject,
+      signal: contextAbortController.signal,
+      userId: currentUser.id,
       ...contextInput,
     });
+    const hasSourceArchiveTool = CONTEXT_SOURCE_ARCHIVE_TOOL_NAME in contextTools;
 
     const modelMessages = await convertToModelMessages(
       messages.map(({ id: _id, ...message }) => message),
@@ -598,6 +716,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     );
     const system = buildContextSystemPrompt({
       contextScope,
+      hasSourceArchiveTool,
       selectedText,
       ...contextInput,
     });
@@ -622,13 +741,14 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const configuredModel = createConfiguredTextModel(modelConfig, 'context');
 
     const result = streamText({
+      abortSignal: contextAbortController.signal,
       model: configuredModel.model,
       system,
       messages: modelMessages,
       providerOptions: configuredModel.providerOptions,
       tools: contextTools,
       stopWhen: stepCountIs(CHAT_TOOL_STEP_LIMIT),
-      prepareStep: buildContextPrepareStep(),
+      prepareStep: buildContextPrepareStep(hasSourceArchiveTool),
     });
 
     pipeUIMessageStreamToResponse({

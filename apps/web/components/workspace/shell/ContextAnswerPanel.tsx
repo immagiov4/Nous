@@ -305,13 +305,17 @@ interface ContextRequestState {
 const serializeContextSourceReferences = (
   references: ContextAnswerState['documentSourceReferences']
 ): ContextSourceReference[] | undefined =>
-  references?.map(({ chunkIds, name, pageEnd, pageStart, sourceId }) => ({
-    chunkIds,
-    name,
-    pageEnd,
-    pageStart,
-    sourceId,
-  }));
+  references?.map(
+    ({ archiveSelectors, archiveVersion, chunkIds, name, pageEnd, pageStart, sourceId }) => ({
+      ...(archiveSelectors ? { archiveSelectors } : {}),
+      ...(archiveVersion ? { archiveVersion } : {}),
+      chunkIds,
+      name,
+      pageEnd,
+      pageStart,
+      sourceId,
+    })
+  );
 
 const buildLegacySourceName = (
   references: ContextAnswerState['documentSourceReferences']

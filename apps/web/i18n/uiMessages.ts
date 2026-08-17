@@ -1037,6 +1037,7 @@ const ENGLISH_UI_MESSAGES = {
   'Chiudi selettore contesto': 'Close context selector',
   'Consulta la tua libreria': 'Explore your library',
   'Consulta libreria': 'Explore library',
+  'Consulta sorgente': 'Explore source',
   'Contesto libreria': 'Library context',
   'Cosa vorresti imparare?': 'What would you like to learn?',
   'Crea mappe, grafici e diagrammi per visualizzare i concetti insieme alle risposte.':

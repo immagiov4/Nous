@@ -632,6 +632,63 @@ describe('ContextAnswerPanel', () => {
     expect(JSON.stringify(request.body)).not.toContain('PDF-DATA-MUST-NOT-BE-SENT');
   });
 
+  test('sends retained archive identity, version, and lesson selectors without archive bytes', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const archiveVersion = {
+      representationHash: 'b'.repeat(64),
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    };
+
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          documentSourceReferences: [
+            {
+              archiveSelectors: [{ kind: 'file', path: 'src/client.cpp' }],
+              archiveVersion,
+              chunkIds: [],
+              file: {
+                data: 'ARCHIVE-BYTES-MUST-NOT-BE-SENT',
+                mimeType: 'application/zip',
+                name: 'src.zip',
+                sourceId: 'source-archive',
+              },
+              kind: 'archive',
+              name: 'src.zip',
+              sourceId: 'source-archive',
+            },
+          ],
+          sourceKind: 'archive',
+        })}
+      />
+    );
+
+    const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+      id: 'chat-archive',
+      messages: [{ role: 'user', parts: [{ type: 'text', text: 'trova ClientMap' }] }],
+    }) as { body?: Record<string, unknown> };
+
+    expect(request.body?.sourceReferences).toEqual([
+      {
+        archiveSelectors: [{ kind: 'file', path: 'src/client.cpp' }],
+        archiveVersion,
+        chunkIds: [],
+        name: 'src.zip',
+        pageEnd: undefined,
+        pageStart: undefined,
+        sourceId: 'source-archive',
+      },
+    ]);
+    expect(JSON.stringify(request.body)).not.toContain('ARCHIVE-BYTES-MUST-NOT-BE-SENT');
+  });
+
   test('makes request context available synchronously when the chat session initializes', () => {
     let preparedBody: Record<string, unknown> | undefined;
     useChatMock.mockImplementation(
@@ -1283,6 +1340,13 @@ describe('ContextAnswerPanel', () => {
               },
             },
             {
+              type: 'tool-retrieveSourceArchive',
+              toolCallId: 'tool-archive',
+              state: 'output-available',
+              input: { operation: 'read-file', path: 'src/client.cpp' },
+              output: { status: 'ok' },
+            },
+            {
               type: 'text',
               text: 'Lezione corrente e materiale recuperato restano distinti.',
               state: 'done',
@@ -1305,6 +1369,7 @@ describe('ContextAnswerPanel', () => {
     expect(within(activity).getByText('Ricerca contenuti')).toBeInTheDocument();
     expect(within(activity).getByText('Ricerca web')).toBeInTheDocument();
     expect(within(activity).getByText('Struttura corsi')).toBeInTheDocument();
+    expect(within(activity).getByText('Consulta sorgente')).toBeInTheDocument();
     expect(activity).toHaveTextContent('→');
     const retrievedMaterial = screen.getByTestId('library-tool-references');
     expect(retrievedMaterial).not.toHaveAttribute('open');
