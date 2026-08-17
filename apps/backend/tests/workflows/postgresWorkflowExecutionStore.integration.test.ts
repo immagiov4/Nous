@@ -271,6 +271,11 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       retryAfterMs: 0,
     }).failure;
     await store.steps.recordFailure({ claim: second, definition, failure: operationalFailure });
+    await sql`
+      update public.workflow_node_runs
+      set available_at = clock_timestamp()
+      where run_id = ${runId} and node_instance_id = ${second.nodeInstanceId}
+    `;
 
     const third = await claimNextStep(store, definition, 'recovery-worker');
     if (!third) throw new Error('Expected the operational retry claim.');
