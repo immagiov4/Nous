@@ -22,41 +22,42 @@ export const ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE: ReadonlyArray<{
   {
     type: 'concept-check',
     instruction:
-      'Controllo concettuale: scegli l affermazione che coglie meglio una distinzione appena spiegata.',
+      'Controllo concettuale: discrimina tra affermazioni plausibili usando il significato del concetto. Non chiedere mai di riconoscere un termine o una definizione appena dichiarati quasi con le stesse parole.',
   },
   {
     type: 'application-card',
     instruction:
-      'Applicazione lampo: applica un concetto a un mini-caso nuovo, concreto e risolvibile in pochi secondi.',
+      'Applicazione lampo: applica un concetto a un mini-caso nuovo, concreto e risolvibile in pochi secondi. Cambia i dettagli superficiali rispetto agli esempi gia spiegati, mantenendo la stessa struttura concettuale.',
   },
   {
     type: 'prediction',
     instruction:
-      'Previsione: prevedi la conseguenza piu probabile se cambia una condizione, un passaggio o un vincolo.',
+      'Previsione: prevedi la conseguenza piu probabile se cambia una condizione, un passaggio o un vincolo. La risposta deve richiedere di usare il modello causale appena costruito, non di ripetere una frase del testo.',
   },
   {
     type: 'error-diagnosis',
     instruction:
-      'Diagnosi errore: individua l errore, l assunzione falsa o la correzione migliore in un ragionamento breve.',
+      'Diagnosi errore: individua l errore, l assunzione falsa o la correzione migliore in un ragionamento breve e plausibile. L errore deve mettere alla prova una distinzione reale, non essere un distrattore palesemente assurdo.',
   },
   {
     type: 'classification',
     instruction:
-      'Classificazione: assegna un esempio, un caso o un fenomeno alla categoria piu adatta.',
+      'Classificazione: assegna un esempio nuovo, un caso o un fenomeno alla categoria piu adatta usando i criteri spiegati. Non riutilizzare come domanda lo stesso esempio gia etichettato nel testo.',
   },
   {
     type: 'compare-contrast',
     instruction:
-      'Confronto: scegli la differenza, somiglianza o implicazione che separa correttamente due concetti.',
+      'Confronto: scegli la differenza, somiglianza o implicazione che separa correttamente due concetti. Richiedi di ricostruire la distinzione, non di individuare quale opzione copia meglio una frase vicina.',
   },
   {
     type: 'sequence',
-    instruction: 'Sequenza: scegli l ordine corretto di passaggi, cause, condizioni o priorita.',
+    instruction:
+      'Sequenza: scegli l ordine corretto di passaggi, cause, condizioni o priorita quando l ordine porta informazione. Evita sequenze che possono essere risolte soltanto copiando l elenco immediatamente precedente.',
   },
   {
     type: 'micro-synthesis',
     instruction:
-      'Micro-sintesi: scegli la sintesi, etichetta o connessione piu fedele tra due idee appena viste.',
+      'Micro-sintesi: integra almeno due idee appena costruite e scegli la sintesi, etichetta o connessione piu fedele. Non trasformarla nel richiamo letterale di una singola definizione.',
   },
 ];
 
