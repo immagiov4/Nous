@@ -7,6 +7,8 @@ import { jsonSchema, tool } from 'ai';
 import {
   createProjectSourceArchiveAccess,
   SourceArchiveAccessError,
+  type SourceArchiveIndexedEntry,
+  type SourceArchiveTextPage,
 } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSourceArchiveVersion, ProjectStore } from '../projects/types.js';
 
@@ -20,6 +22,7 @@ type ContextSourceArchiveOperation =
   | 'tree';
 
 interface ContextSourceArchiveToolInput {
+  cursor?: number;
   cursorBytes?: number;
   operation: ContextSourceArchiveOperation;
   path?: string;
@@ -86,6 +89,14 @@ const readCursor = (input: ContextSourceArchiveToolInput): number => {
   return input.cursorBytes;
 };
 
+const readEntryCursor = (input: ContextSourceArchiveToolInput): number => {
+  if (input.cursor === undefined) return 0;
+  if (!Number.isSafeInteger(input.cursor) || input.cursor < 0) {
+    throw new SourceArchiveAccessError('cursor-invalid');
+  }
+  return input.cursor;
+};
+
 const createCitation = (
   archiveName: string,
   path: string,
@@ -118,6 +129,104 @@ export const createContextSourceArchiveTool = ({
     return result;
   };
 
+  const buildEntryPage = ({
+    archiveName,
+    citations,
+    entries,
+    input,
+    path,
+  }: {
+    archiveName: string;
+    citations: ReturnType<typeof createCitation>[];
+    entries: Iterable<SourceArchiveIndexedEntry>;
+    input: ContextSourceArchiveToolInput;
+    path?: string;
+  }) => {
+    const cursor = readEntryCursor(input);
+    const pageEntries: SourceArchiveIndexedEntry[] = [];
+    let entryIndex = 0;
+    let nextCursor: number | null = null;
+
+    const createResult = (candidateNextCursor: number | null) => ({
+      archiveName,
+      citations,
+      cursor,
+      entries: pageEntries,
+      nextCursor: candidateNextCursor,
+      operation: input.operation,
+      ...(path === undefined ? {} : { path }),
+      status: 'ok' as const,
+    });
+
+    for (const entry of entries) {
+      if (entryIndex < cursor) {
+        entryIndex += 1;
+        continue;
+      }
+      pageEntries.push(entry);
+      const candidateNextCursor = entryIndex + 1;
+      if (
+        encoder.encode(JSON.stringify(createResult(candidateNextCursor))).byteLength >
+        remainingResultBytes
+      ) {
+        pageEntries.pop();
+        if (pageEntries.length === 0) throw new ContextSourceArchiveToolBudgetError();
+        nextCursor = entryIndex;
+        break;
+      }
+      entryIndex = candidateNextCursor;
+    }
+
+    return accountResult(createResult(nextCursor));
+  };
+
+  const buildReadResult = (
+    archiveName: string,
+    input: ContextSourceArchiveToolInput,
+    page: SourceArchiveTextPage
+  ) => {
+    const createResult = (text: string) => {
+      const textBytes = encoder.encode(text).byteLength;
+      const endByteExclusive = page.cursorBytes + textBytes;
+      return {
+        archiveName,
+        citations: [createCitation(archiveName, page.path)],
+        operation: input.operation,
+        page: {
+          ...page,
+          endByteExclusive,
+          nextCursorBytes: endByteExclusive === page.totalBytes ? null : endByteExclusive,
+          text,
+        },
+        status: 'ok' as const,
+      };
+    };
+
+    const completeResult = createResult(page.text);
+    if (encoder.encode(JSON.stringify(completeResult)).byteLength <= remainingResultBytes) {
+      return accountResult(completeResult);
+    }
+
+    const codePoints = Array.from(page.text);
+    let lowerBound = 0;
+    let upperBound = codePoints.length;
+    let fittedResult: ReturnType<typeof createResult> | undefined;
+    while (lowerBound <= upperBound) {
+      const candidateLength = Math.floor((lowerBound + upperBound) / 2);
+      const candidate = createResult(codePoints.slice(0, candidateLength).join(''));
+      if (encoder.encode(JSON.stringify(candidate)).byteLength <= remainingResultBytes) {
+        fittedResult = candidate;
+        lowerBound = candidateLength + 1;
+      } else {
+        upperBound = candidateLength - 1;
+      }
+    }
+    if (!fittedResult || (page.text && !fittedResult.page.text)) {
+      throw new ContextSourceArchiveToolBudgetError();
+    }
+    return accountResult(fittedResult);
+  };
+
   const openArchive = async () => {
     if (remainingResultBytes <= 0) {
       throw new ContextSourceArchiveToolBudgetError();
@@ -143,57 +252,28 @@ export const createContextSourceArchiveTool = ({
       const access = await openArchive();
       switch (input.operation) {
         case 'tree': {
-          const entries = access.getTree();
-          return accountResult({
+          return buildEntryPage({
             archiveName,
             citations: [],
-            entries,
-            operation: input.operation,
-            status: 'ok' as const,
+            entries: access.iterateEntries(),
+            input,
           });
         }
         case 'list-directory': {
           const path = requirePath(input, true);
-          const entries = access.listDirectory(path);
-          return accountResult({
+          return buildEntryPage({
             archiveName,
             citations: path ? [createCitation(archiveName, path)] : [],
-            entries,
-            operation: input.operation,
+            entries: access.iterateDirectory(path),
+            input,
             path,
-            status: 'ok' as const,
           });
         }
         case 'read-file': {
           const path = requirePath(input);
           const cursorBytes = readCursor(input);
-          const maximumPageNumber = Number.MAX_SAFE_INTEGER;
-          const resultOverheadBytes = encoder.encode(
-            JSON.stringify({
-              archiveName,
-              citations: [createCitation(archiveName, path)],
-              operation: input.operation,
-              page: {
-                cursorBytes: maximumPageNumber,
-                endByteExclusive: maximumPageNumber,
-                nextCursorBytes: maximumPageNumber,
-                path,
-                text: '',
-                totalBytes: maximumPageNumber,
-              },
-              status: 'ok',
-            })
-          ).byteLength;
-          const maximumPageBytes = remainingResultBytes - resultOverheadBytes;
-          if (maximumPageBytes <= 0) throw new ContextSourceArchiveToolBudgetError();
-          const page = await access.readTextPage(path, cursorBytes, maximumPageBytes);
-          return accountResult({
-            archiveName,
-            citations: [createCitation(archiveName, page.path)],
-            operation: input.operation,
-            page,
-            status: 'ok' as const,
-          });
+          const page = await access.readTextPage(path, cursorBytes, remainingResultBytes);
+          return buildReadResult(archiveName, input, page);
         }
         case 'resolve-lesson-selectors': {
           const selectors = context.sourceReference.archiveSelectors || [];
@@ -233,7 +313,18 @@ export const createContextSourceArchiveTool = ({
           });
         }
       }
+      const exhaustiveOperation: never = input.operation;
+      throw new TypeError(`Unsupported context source archive operation: ${exhaustiveOperation}`);
     } catch (error) {
+      if (error instanceof ContextSourceArchiveToolBudgetError) {
+        return {
+          archiveName,
+          citations: [],
+          message: 'Il limite di consultazione dell archivio sorgente e stato raggiunto.',
+          operation: input.operation,
+          status: 'limit-reached' as const,
+        };
+      }
       if (error instanceof ContextSourceArchiveUnavailableError) {
         return {
           archiveName,
@@ -256,13 +347,23 @@ export const createContextSourceArchiveTool = ({
 
   return tool({
     description:
-      'Consulta esclusivamente l archivio sorgente conservato per la lezione corrente. Consente di risolvere i percorsi registrati della lezione, vedere l albero, elencare una cartella, cercare una stringa letterale e leggere una pagina testuale da un percorso esatto. Gli output includono il nome dell archivio e citazioni con percorsi esatti; le ricerche includono riga e colonna.',
+      'Consulta esclusivamente l archivio sorgente conservato per la lezione corrente. Consente di risolvere i percorsi registrati della lezione, scorrere l indice ordinato o una cartella, cercare una stringa letterale e leggere una pagina testuale da un percorso esatto. Le pagine di indice usano cursor e le letture usano cursorBytes per continuare. Gli output includono il nome dell archivio e citazioni con percorsi esatti; le ricerche includono riga e colonna.',
     execute,
     inputSchema: jsonSchema<ContextSourceArchiveToolInput>({
       type: 'object',
       additionalProperties: false,
       properties: {
-        cursorBytes: { type: 'integer', minimum: 0 },
+        cursor: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            'Indice nextCursor restituito da una precedente operazione tree o list-directory.',
+        },
+        cursorBytes: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Offset nextCursorBytes restituito da una precedente operazione read-file.',
+        },
         operation: {
           type: 'string',
           enum: ['tree', 'list-directory', 'search-text', 'read-file', 'resolve-lesson-selectors'],

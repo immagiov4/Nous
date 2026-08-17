@@ -126,6 +126,19 @@ describe('SourceArchiveAccess', () => {
       { kind: 'directory', path: 'src' },
     ]);
     expect(access.listDirectory('src').map(entry => entry.path)).toEqual(['src/a.ts', 'src/z.ts']);
+    expect([...access.iterateEntries()].map(entry => entry.path)).toEqual([
+      'assets',
+      'assets/logo.bin',
+      'empty',
+      'readme.md',
+      'src',
+      'src/a.ts',
+      'src/z.ts',
+    ]);
+    expect([...access.iterateDirectory('src')].map(entry => entry.path)).toEqual([
+      'src/a.ts',
+      'src/z.ts',
+    ]);
   });
 
   test('reads exact UTF-8 pages through the injected range reader', async () => {

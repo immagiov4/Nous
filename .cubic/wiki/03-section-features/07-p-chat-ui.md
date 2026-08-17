@@ -108,13 +108,23 @@ export const serializeContextSourceReferencesForPrompt = (
   sourceReferences?: readonly ContextSourceReference[]
 ): string =>
   JSON.stringify(
-    (sourceReferences || []).map(({ chunkIds, name, pageEnd, pageStart, sourceId }) => ({
-      chunkIds: chunkIds.map(sanitizeContextSourcePromptToken),
-      name: sanitizeContextSourceDisplayName(name),
-      ...(pageEnd === undefined ? {} : { pageEnd }),
-      ...(pageStart === undefined ? {} : { pageStart }),
-      sourceId: sanitizeContextSourcePromptToken(sourceId),
-    })),
+    (sourceReferences || []).map(
+      ({ archiveSelectors, chunkIds, name, pageEnd, pageStart, sourceId }) => ({
+        ...(archiveSelectors
+          ? {
+              archiveSelectors: archiveSelectors.map(selector => ({
+                kind: selector.kind,
+                path: sanitizeContextSourceArchivePath(selector.path),
+              })),
+            }
+          : {}),
+        chunkIds: chunkIds.map(sanitizeContextSourcePromptToken),
+        name: sanitizeContextSourceDisplayName(name),
+        ...(pageEnd === undefined ? {} : { pageEnd }),
+        ...(pageStart === undefined ? {} : { pageStart }),
+        sourceId: sanitizeContextSourcePromptToken(sourceId),
+      })
+    ),
     null,
     2
   );
@@ -135,9 +145,9 @@ Sources: [apps/backend/src/routes/contextChat.ts:182-316](../../../apps/backend/
 
 For an archive-backed lesson, contextual chat carries the retained source identity, archive representation version, and the lesson's exact archive selectors without sending archive bytes. The backend exposes `retrieveSourceArchive` only when that complete retained-source context is present. Each tool call resolves the authenticated user from the request, reloads the current project's archive index, and requires an exact version match before reusing the existing bounded archive access layer.
 
-The tool can resolve the lesson selectors, return the archive tree, list one exact directory, search textual entries for a literal string, and read a bounded page from one exact indexed path. Successful outputs carry the archive name and exact path citations; literal-search citations also carry line and column. Its result states are intentionally distinct: `no-match` means a completed search or selector resolution found nothing, `unavailable` means the archive is missing or changed, and `error` means retrieval failed technically. A generic `searchLibrary` miss is not evidence that retained archive files are absent.
+The tool can resolve the lesson selectors, page through the ordered archive index or one exact directory, search textual entries for a literal string, and read a bounded page from one exact indexed path. Index and directory pages return a continuation cursor, while exact reads return a byte cursor; JSON-escaped text is shortened at a valid UTF-8 boundary when needed to keep the complete serialized result bounded. Successful outputs carry the archive name and exact path citations; literal-search citations also carry line and column. Its result states are intentionally distinct: `no-match` means a completed search or selector resolution found nothing, `unavailable` means the archive is missing or changed, `limit-reached` means the contextual retrieval budget is exhausted, and `error` means retrieval failed technically. A generic `searchLibrary` miss is not evidence that retained archive files are absent.
 
-Archive identity metadata remains available when the aggregate source preview exceeds the contextual prompt budget, allowing the tool to find entries omitted from that preview. Complete serialized tool results share the existing contextual-chat budget, and an interrupted HTTP response cancels pending archive reads. Tenant/project authorization, archive-version checks, path validation, text-only reads, and exact selectors remain authoritative on the backend.
+Archive identity metadata remains available when the aggregate source preview exceeds the contextual prompt budget, allowing the tool to find entries omitted from that preview. Complete serialized tool results share the existing contextual-chat budget, and an interrupted HTTP response cancels pending archive reads. The system prompt classifies every returned archive field and file body as untrusted source data rather than instructions. Tenant/project authorization, archive-version checks, path validation, text-only reads, and exact selectors remain authoritative on the backend. The shared activity strip presents this operation as the localized “Consulta sorgente” action instead of exposing its internal tool name.
 
 Sources: [apps/web/utils/context/sourceMaterial.ts](../../../apps/web/utils/context/sourceMaterial.ts), [apps/web/components/workspace/shell/ContextAnswerPanel.tsx](../../../apps/web/components/workspace/shell/ContextAnswerPanel.tsx), [apps/backend/src/routes/contextChat.ts](../../../apps/backend/src/routes/contextChat.ts), [apps/backend/src/routes/contextSourceArchiveTool.ts](../../../apps/backend/src/routes/contextSourceArchiveTool.ts), [apps/backend/src/projects/sourceArchiveAccess.ts](../../../apps/backend/src/projects/sourceArchiveAccess.ts)
 

@@ -1340,6 +1340,13 @@ describe('ContextAnswerPanel', () => {
               },
             },
             {
+              type: 'tool-retrieveSourceArchive',
+              toolCallId: 'tool-archive',
+              state: 'output-available',
+              input: { operation: 'read-file', path: 'src/client.cpp' },
+              output: { status: 'ok' },
+            },
+            {
               type: 'text',
               text: 'Lezione corrente e materiale recuperato restano distinti.',
               state: 'done',
@@ -1362,6 +1369,7 @@ describe('ContextAnswerPanel', () => {
     expect(within(activity).getByText('Ricerca contenuti')).toBeInTheDocument();
     expect(within(activity).getByText('Ricerca web')).toBeInTheDocument();
     expect(within(activity).getByText('Struttura corsi')).toBeInTheDocument();
+    expect(within(activity).getByText('Consulta sorgente')).toBeInTheDocument();
     expect(activity).toHaveTextContent('→');
     const retrievedMaterial = screen.getByTestId('library-tool-references');
     expect(retrievedMaterial).not.toHaveAttribute('open');

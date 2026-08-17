@@ -5,7 +5,10 @@ import type {
   ContextSourceArchiveVersion,
   ContextSourceReference,
 } from '@shared/lessonSourceContext';
-import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
+import {
+  CONTEXT_RETAINED_ARCHIVE_SOURCE_KIND,
+  SOURCE_ARCHIVE_VERSION_HASH_PATTERN,
+} from '@shared/lessonSourceContext';
 import {
   convertToModelMessages,
   generateId,
@@ -379,7 +382,7 @@ const buildContextToolSet = ({
   userId: string;
 }) => {
   const archiveReference =
-    sourceKind === 'archive' && projectId
+    sourceKind === CONTEXT_RETAINED_ARCHIVE_SOURCE_KIND && projectId
       ? sourceReferences?.find(
           reference =>
             reference.archiveVersion?.sourceId === reference.sourceId &&

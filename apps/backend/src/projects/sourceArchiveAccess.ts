@@ -182,11 +182,23 @@ export class SourceArchiveAccess {
     return this.buildTree('');
   }
 
-  listDirectory(path = ''): SourceArchiveIndexedEntry[] {
+  *iterateEntries(): IterableIterator<SourceArchiveIndexedEntry> {
+    for (const entry of this.entries) {
+      yield copyEntry(entry);
+    }
+  }
+
+  *iterateDirectory(path = ''): IterableIterator<SourceArchiveIndexedEntry> {
     if (path) {
       this.requireEntry(path, 'directory');
     }
-    return (this.childrenByDirectory.get(path) || []).map(copyEntry);
+    for (const entry of this.childrenByDirectory.get(path) || []) {
+      yield copyEntry(entry);
+    }
+  }
+
+  listDirectory(path = ''): SourceArchiveIndexedEntry[] {
+    return [...this.iterateDirectory(path)];
   }
 
   async readTextPage(

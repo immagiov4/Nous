@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
+import type { ProjectStore } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 
 const aiMocks = vi.hoisted(() => ({
@@ -90,6 +91,17 @@ const { createContextSourceArchiveTool } = await import(
   '../../src/routes/contextSourceArchiveTool.js'
 );
 
+type ArchiveTestStore = Pick<
+  ProjectStore,
+  | 'loadProjectSourceArchiveEntry'
+  | 'loadProjectSourceArchiveEntryRange'
+  | 'loadProjectSourceArchiveIndex'
+>;
+
+const setArchiveProjectStoreForTesting = (store: ArchiveTestStore): void => {
+  setProjectStoreForTesting(store as ProjectStore);
+};
+
 const ARCHIVE_VERSION = {
   representationHash: 'b'.repeat(64),
   sourceHash: 'a'.repeat(64),
@@ -108,7 +120,7 @@ const createArchiveToolContext = (signal: AbortSignal) => ({
   userId: 'archive-owner',
 });
 
-test('bounds the complete serialized retained-archive tool result', async () => {
+test('reports the retained-archive result limit distinctly from a tool error', async () => {
   const longPath = `src/${'a'.repeat(20_000)}.txt`;
   const archiveBytes = new TextEncoder().encode('x');
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -119,6 +131,7 @@ test('bounds the complete serialized retained-archive tool result', async () => 
       loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
       loadProjectSourceArchiveIndex: vi.fn(async () => ({
         entries: [
+          { kind: 'directory' as const, path: 'src' },
           {
             byteSize: archiveBytes.byteLength,
             contentKind: 'text' as const,
@@ -137,13 +150,92 @@ test('bounds the complete serialized retained-archive tool result', async () => 
       {} as never
     );
 
-    expect(result).toMatchObject({ status: 'error' });
+    expect(result).toMatchObject({ status: 'limit-reached' });
     expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThan(
       MAX_CONTEXT_CHARS
     );
+    expect(consoleError).not.toHaveBeenCalled();
   } finally {
     consoleError.mockRestore();
   }
+});
+
+test('fits JSON-escaped archive text into the complete serialized result budget', async () => {
+  const archiveBytes = new TextEncoder().encode('"\\\n'.repeat(MAX_CONTEXT_CHARS));
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(new AbortController().signal),
+    store: {
+      loadProjectSourceArchiveEntry: vi.fn(async () => archiveBytes),
+      loadProjectSourceArchiveEntryRange: vi.fn(
+        async (_userId, _projectId, _path, _version, start, endExclusive) =>
+          archiveBytes.slice(start, endExclusive)
+      ),
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: [
+          {
+            byteSize: archiveBytes.byteLength,
+            contentKind: 'text' as const,
+            kind: 'file' as const,
+            path: 'escaped.txt',
+          },
+        ],
+        version: ARCHIVE_VERSION,
+      })),
+    },
+  });
+
+  const result = await archiveTool.execute?.(
+    { operation: 'read-file', path: 'escaped.txt' },
+    {} as never
+  );
+
+  expect(result).toMatchObject({
+    page: { cursorBytes: 0, path: 'escaped.txt' },
+    status: 'ok',
+  });
+  expect(result.page.text.length).toBeGreaterThan(0);
+  expect(result.page.nextCursorBytes).toBe(result.page.endByteExclusive);
+  expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(
+    MAX_CONTEXT_CHARS
+  );
+});
+
+test('paginates large archive indices before building the tool result', async () => {
+  const entries = [
+    { kind: 'directory' as const, path: 'src' },
+    ...Array.from({ length: 1_000 }, (_, index) => ({
+      byteSize: 0,
+      contentKind: 'text' as const,
+      kind: 'file' as const,
+      path: `src/${index.toString().padStart(4, '0')}-${'entry'.repeat(8)}.ts`,
+    })),
+  ];
+  const createArchiveTool = () =>
+    createContextSourceArchiveTool({
+      context: createArchiveToolContext(new AbortController().signal),
+      store: {
+        loadProjectSourceArchiveEntry: vi.fn(),
+        loadProjectSourceArchiveEntryRange: vi.fn(),
+        loadProjectSourceArchiveIndex: vi.fn(async () => ({ entries, version: ARCHIVE_VERSION })),
+      },
+    });
+
+  const result = await createArchiveTool().execute?.({ operation: 'tree' }, {} as never);
+
+  expect(result).toMatchObject({ cursor: 0, operation: 'tree', status: 'ok' });
+  expect(result.entries.length).toBeGreaterThan(0);
+  expect(result.entries.length).toBeLessThan(entries.length);
+  expect(result.nextCursor).toBe(result.entries.length);
+  expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(
+    MAX_CONTEXT_CHARS
+  );
+
+  const continuation = await createArchiveTool().execute?.(
+    { cursor: result.nextCursor, operation: 'tree' },
+    {} as never
+  );
+  expect(continuation).toMatchObject({ cursor: result.nextCursor, status: 'ok' });
+  expect(continuation.entries[0]).toEqual(entries[result.nextCursor]);
 });
 
 test('stops retained-archive scanning when the request signal aborts', async () => {
@@ -578,11 +670,11 @@ describe('POST /api/chat/context', () => {
         endExclusive: number
       ) => (path === 'src/client.cpp' ? archiveBytes.slice(start, endExclusive) : null)
     );
-    setProjectStoreForTesting({
+    setArchiveProjectStoreForTesting({
       loadProjectSourceArchiveEntry,
       loadProjectSourceArchiveEntryRange,
       loadProjectSourceArchiveIndex,
-    } as never);
+    });
     const token = authenticateProvider('openrouter', 'archive-owner');
 
     const response = await request(createApp())
@@ -649,14 +741,14 @@ describe('POST /api/chat/context', () => {
 
   test('reports a stale retained archive version as unavailable without reading entries', async () => {
     const loadProjectSourceArchiveEntry = vi.fn();
-    setProjectStoreForTesting({
+    setArchiveProjectStoreForTesting({
       loadProjectSourceArchiveEntry,
       loadProjectSourceArchiveEntryRange: vi.fn(),
       loadProjectSourceArchiveIndex: vi.fn(async () => ({
         entries: [],
         version: { ...ARCHIVE_VERSION, representationHash: 'c'.repeat(64) },
       })),
-    } as never);
+    });
     const token = authenticateProvider('openrouter', 'archive-owner');
 
     const response = await request(createApp())
@@ -692,7 +784,7 @@ describe('POST /api/chat/context', () => {
   test('returns a safe tool-error state without exposing archive storage failures', async () => {
     const archiveBytes = new TextEncoder().encode('class ClientMap {}');
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    setProjectStoreForTesting({
+    setArchiveProjectStoreForTesting({
       loadProjectSourceArchiveEntry: vi.fn(async () => {
         throw new Error('s3://private-tenant/object-key');
       }),
@@ -708,7 +800,7 @@ describe('POST /api/chat/context', () => {
         ],
         version: ARCHIVE_VERSION,
       })),
-    } as never);
+    });
     const token = authenticateProvider('openrouter', 'archive-owner');
 
     const response = await request(createApp())
@@ -752,11 +844,11 @@ describe('POST /api/chat/context', () => {
     const loadProjectSourceArchiveIndex = vi.fn(async (userId: string) =>
       userId === 'archive-owner' ? { entries: [], version: ARCHIVE_VERSION } : null
     );
-    setProjectStoreForTesting({
+    setArchiveProjectStoreForTesting({
       loadProjectSourceArchiveEntry,
       loadProjectSourceArchiveEntryRange: vi.fn(),
       loadProjectSourceArchiveIndex,
-    } as never);
+    });
     const token = authenticateProvider('openrouter', 'other-tenant');
 
     await request(createApp())
@@ -1009,6 +1101,7 @@ describe('POST /api/chat/library', () => {
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
     codexAppServerMocks.runCodexAppServerTurn.mockReset();
     codexStreamMocks.createCodexChatStream.mockReset();
+    setProjectStoreForTesting(null);
     resetModelConfigForTesting();
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
 
