@@ -83,8 +83,8 @@ Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:38-99](../../../ap
 ## Technical Implementation Details
 
 ### Writing Contract and Pedagogy
-The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. The system prompt explicitly forbids ASCII art or meta-discourse (e.g., "In this section, we will see...").
-Sources: [packages/shared-types/lessonWritingContract.ts:4-20](../../../packages/shared-types/lessonWritingContract.ts#L4-L20), [apps/backend/src/services/lessonGenerationPrompt.ts:65-75](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L65-L75)
+The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. When a new concept, question, technique, or abstraction appears, the writer must also make its motivation from the preceding reasoning explicit: state the learner-facing question, problem, limit, or need it addresses, or move the concept after that rationale. The reviewer applies the same rule and corrects or requests a bridge when the transition is only implicit, even if the new content is factually correct. The system prompt explicitly forbids ASCII art or meta-discourse (e.g., "In this section, we will see...").
+Sources: [packages/shared-types/lessonWritingContract.ts:4-21](../../../packages/shared-types/lessonWritingContract.ts#L4-L21), [apps/backend/src/services/lessonGenerationPrompt.ts:65-75](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L65-L75)
 
 ### Visual Rendering Fan-Out
 The rendering of visuals is handled as a `fanOut` operation, allowing multiple visual plans to be processed in parallel.

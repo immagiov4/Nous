@@ -32,8 +32,8 @@ The "Professor Nous" persona is governed by four primary pillars:
 1.  **Discursive Style:** Prefers paragraphs over bullet points for the main body to maintain a narrative flow.
 2.  **Self-Sufficiency:** The lesson must work without the student having the original source open.
 3.  **Interactivity:** Strategic placement of "Active Pauses" (inline quizzes) and interactive visuals.
-4.  **Propedeutic Order:** Concepts are introduced in a strictly logical sequence where each step only requires previously explained information.
-Sources: [packages/shared-types/lessonWritingContract.ts:60-90](../../../packages/shared-types/lessonWritingContract.ts#L60-L90), [apps/backend/src/services/lessonGenerationPrompt.ts:63-70](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L63-L70)
+4.  **Propedeutic Order:** Concepts are introduced in a strictly logical sequence where each step only requires previously explained information. Each newly introduced concept, question, technique, or abstraction makes explicit why it follows from the preceding reasoning; the reviewer treats an implicit transition as a correction target rather than accepting factual correctness alone.
+Sources: [packages/shared-types/lessonWritingContract.ts:45-76](../../../packages/shared-types/lessonWritingContract.ts#L45-L76), [apps/backend/src/services/lessonGenerationPrompt.ts:63-70](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L63-L70)
 
 ### Prompt Composition Flow
 The final prompt sent to the model is dynamically assembled from several modules:

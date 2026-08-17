@@ -97,6 +97,46 @@ test('durable verification can repair an invalid initial quiz placement', async 
   expect(verify).toHaveBeenCalledOnce();
 });
 
+test('durable verification accepts a reviewer-added bridge before a correct new concept', async () => {
+  const draft: LessonContentDraft = {
+    contentBlocks: [
+      {
+        markdown:
+          '## Velocita istantanea\n\nConosciamo gia la velocita media su un intervallo. La derivata descrive la velocita istantanea.',
+        type: 'markdown',
+      },
+      { markdown: '## Conclusione\n\nUsiamo questa idea per studiare il moto.', type: 'markdown' },
+    ],
+    generatedVisuals: [],
+    imageRefs: [],
+  };
+  const revisedDraft: LessonContentDraft = {
+    ...draft,
+    contentBlocks: [
+      {
+        markdown:
+          '## Velocita istantanea\n\nConosciamo gia la velocita media su un intervallo, ma non basta quando vogliamo sapere che cosa accade in un istante preciso. Per rispondere a questa domanda introduciamo la derivata: descrive la velocita istantanea.',
+        type: 'markdown',
+      },
+      { markdown: '## Conclusione\n\nUsiamo questa idea per studiare il moto.', type: 'markdown' },
+    ],
+  };
+  const verify = vi.fn().mockResolvedValue(revisedDraft);
+
+  await expect(
+    reviewLessonContentDraftStrict({
+      draft,
+      generationInput: generationInput(),
+      verify,
+    })
+  ).resolves.toEqual(revisedDraft);
+  expect(verify).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draft,
+    })
+  );
+});
+
 test('durable verification rejects an invalid reviewed quiz instead of approving the lesson', async () => {
   const draft = sourceFreeDraft();
   const invalidReviewedDraft: LessonContentDraft = {
