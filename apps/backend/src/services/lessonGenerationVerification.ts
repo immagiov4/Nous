@@ -5,7 +5,12 @@ import {
   VISUAL_FORMAT_SELECTION_RULE,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks';
-import { FORMULA_RELEVANCE_RULE, SYSTEM_INSTRUCTION_TEACHER } from '@shared/lessonWritingContract';
+import {
+  FORMULA_RELEVANCE_RULE,
+  LESSON_ASCII_VISUAL_RULE,
+  LESSON_SCOPE_RULES,
+  SYSTEM_INSTRUCTION_TEACHER,
+} from '@shared/lessonWritingContract';
 import { generateText, jsonSchema, Output } from 'ai';
 
 import {
@@ -40,6 +45,15 @@ type VerifiedLessonContentDraft = LessonContentDraft & {
 
 type LessonVerificationInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
 
+const MARKDOWN_STRUCTURE_CHECK =
+  'I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici o una sezione fonti terminale.';
+const IMAGE_REFERENCE_CHECK =
+  'Ogni imageRef usa un assetId disponibile, ha un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino. Rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara.';
+const YOUTUBE_STRUCTURE_CHECK =
+  'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
+const CODE_STRUCTURE_CHECK =
+  'Codice, pseudocodice, comandi e output devono stare in un solo code block valido; non trasformare prosa o formule in codice.';
+
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
   checkIds: string[]
@@ -71,26 +85,91 @@ const buildVerificationSchema = (
   },
 });
 
-const buildApplicableStructuralChecks = (
-  input: LessonVerificationInput,
-  draft: LessonContentDraft
-): string[] => {
+const countLeadingRun = (value: string, character: '`' | '~'): number => {
+  let count = 0;
+  while (value[count] === character) count += 1;
+  return count;
+};
+
+const isEscaped = (value: string, index: number): boolean => {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+};
+
+const hasInlineDollarMath = (value: string): boolean => {
+  let openingIndex: number | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== '$' || isEscaped(value, index)) continue;
+    if (value[index - 1] === '$' || value[index + 1] === '$') continue;
+
+    if (openingIndex === null) {
+      const next = value[index + 1];
+      if (next && next.trim() !== '') openingIndex = index;
+      continue;
+    }
+
+    const previous = value[index - 1];
+    if (previous && previous.trim() !== '') return true;
+
+    const next = value[index + 1];
+    openingIndex = next && next.trim() !== '' ? index : null;
+  }
+  return false;
+};
+
+const inspectMarkdownSyntax = (markdown: string): { hasCode: boolean; hasMath: boolean } => {
+  let activeFence: { character: '`' | '~'; length: number } | null = null;
+  let hasCode = false;
+  let hasMath = false;
+
+  for (const line of markdown.split('\n')) {
+    const trimmed = line.trimStart();
+    const first = trimmed[0];
+    if (first === '`' || first === '~') {
+      const length = countLeadingRun(trimmed, first);
+      if (length >= 3) {
+        if (!activeFence) {
+          activeFence = { character: first, length };
+          hasCode = true;
+        } else if (activeFence.character === first && length >= activeFence.length) {
+          activeFence = null;
+        }
+        continue;
+      }
+    }
+
+    if (activeFence) continue;
+    if (
+      line.includes('\\(') ||
+      line.includes('\\[') ||
+      line.includes('\\begin{') ||
+      line.includes('$$') ||
+      hasInlineDollarMath(line)
+    ) {
+      hasMath = true;
+    }
+  }
+
+  return { hasCode, hasMath };
+};
+
+const buildApplicableStructuralChecks = (draft: LessonContentDraft): string[] => {
   const markdown = draft.contentBlocks
     .filter(block => block.type === 'markdown')
     .map(block => block.markdown)
     .join('\n');
+  const syntax = inspectMarkdownSyntax(markdown);
   const hasQuiz = draft.contentBlocks.some(block => block.type === 'inline-quiz');
   const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
   const hasGeneratedVisual =
     draft.generatedVisuals.length > 0 ||
     draft.contentBlocks.some(block => block.type === 'generated-visual');
-  const hasImageRefs = draft.imageRefs.length > 0 || input.imageCandidates.length > 0;
-  const hasMath = /\$|\\\(|\\\[|\\begin\{/u.test(markdown);
-  const hasCode = input.instructionPacks.includes('code') || markdown.includes('```');
+  const hasImageRefs = draft.imageRefs.length > 0;
 
-  const checks = [
-    'I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici o una sezione fonti terminale.',
-  ];
+  const checks = [MARKDOWN_STRUCTURE_CHECK, LESSON_ASCII_VISUAL_RULE];
 
   if (hasQuiz) {
     checks.push(
@@ -98,31 +177,19 @@ const buildApplicableStructuralChecks = (
       'Domande e opzioni sono testo normale: rimuovi backticks o code fence che racchiudono l intera stringa, preservando eventuale codice inline interno.'
     );
   }
-  if (hasImageRefs) {
-    checks.push(
-      'Ogni imageRef usa un assetId disponibile, ha un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino. Rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara.'
-    );
-  }
+  if (hasImageRefs) checks.push(IMAGE_REFERENCE_CHECK);
   if (hasGeneratedVisual) {
     checks.push(
       `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}`
     );
   }
-  if (hasYoutube) {
-    checks.push(
-      'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.'
-    );
-  }
-  if (hasMath) {
+  if (hasYoutube) checks.push(YOUTUBE_STRUCTURE_CHECK);
+  if (syntax.hasMath) {
     checks.push(
       `${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico.`
     );
   }
-  if (hasCode) {
-    checks.push(
-      'Codice, pseudocodice, comandi e output devono stare in un solo code block valido; non trasformare prosa o formule in codice.'
-    );
-  }
+  if (syntax.hasCode) checks.push(CODE_STRUCTURE_CHECK);
 
   return checks;
 };
@@ -132,16 +199,19 @@ export const buildLessonVerificationPrompt = (
   draft: LessonContentDraft
 ): string => {
   const checklist = buildLessonVerificationChecklist(input.instructionPacks);
-  const structuralChecks = buildApplicableStructuralChecks(input, draft);
-  return String.raw`RIFERIMENTI DELLA LEZIONE:
+  const structuralChecks = buildApplicableStructuralChecks(draft);
+  return `RIFERIMENTI DELLA LEZIONE:
 ${buildLessonGenerationReferenceContext(input)}
 
 BOZZA DA VERIFICARE:
-${JSON.stringify(draft, null, 2)}
+${JSON.stringify(draft)}
 
 COMPITO DI VERIFICA:
 Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
 Per ogni controllo, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto: non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
+
+VINCOLI DI FOCUS SEMPRE OBBLIGATORI:
+${LESSON_SCOPE_RULES.map(rule => `- ${rule}`).join('\n')}
 
 CHECKLIST OBBLIGATORIA:
 Compila esattamente una voce verificationReport per ciascun checkId:
