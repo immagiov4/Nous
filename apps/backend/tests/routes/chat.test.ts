@@ -466,6 +466,59 @@ test('keeps a completed search successful when an earlier page matched', async (
   });
 });
 
+test('resumes literal search from an absolute byte position after result budget shrinks', async () => {
+  const firstMatchCursorBytes = 20_000;
+  const bytesBetweenMatches = 5_000;
+  const query = 'needle';
+  const secondMatchCursorBytes = firstMatchCursorBytes + query.length + bytesBetweenMatches;
+  const archiveBytes = new TextEncoder().encode(
+    `${'x'.repeat(firstMatchCursorBytes)}${query}${'x'.repeat(bytesBetweenMatches)}${query}`
+  );
+  const path = `${'p'.repeat(2_000)}.txt`;
+  const store = {
+    loadProjectSourceArchiveEntry: vi.fn(),
+    loadProjectSourceArchiveEntryRange: vi.fn(
+      async (_userId, _projectId, _path, _version, start, endExclusive) =>
+        archiveBytes.slice(start, endExclusive)
+    ),
+    loadProjectSourceArchiveIndex: vi.fn(async () => ({
+      entries: [
+        {
+          byteSize: archiveBytes.byteLength,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path,
+        },
+      ],
+      version: ARCHIVE_VERSION,
+    })),
+  };
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(new AbortController().signal),
+    cursorSigningSecret: ARCHIVE_CURSOR_SIGNING_SECRET,
+    store,
+  });
+
+  const firstPage = await archiveTool.execute?.({ operation: 'search-text', query }, {} as never);
+  expect(firstPage).toMatchObject({
+    matches: [{ cursorBytes: firstMatchCursorBytes, path }],
+    nextSearchCursor: expect.any(String),
+    status: 'ok',
+  });
+
+  await expect(
+    archiveTool.execute?.(
+      { operation: 'search-text', query, searchCursor: firstPage.nextSearchCursor },
+      {} as never
+    )
+  ).resolves.toMatchObject({
+    matches: [
+      { column: secondMatchCursorBytes + 1, cursorBytes: secondMatchCursorBytes, line: 1, path },
+    ],
+    status: 'ok',
+  });
+});
+
 test('keeps a maximum-length cross-page query continuation inside the result budget', async () => {
   const queryBytesBeforePageEnd = 10;
   const firstSearchPageBytes = firstArchiveSearchPageByteLimit();

@@ -92,6 +92,29 @@ const nextFileState = (
   matchedPreviously,
 });
 
+const absoluteSearchState = ({
+  cursorBytes,
+  matchedPreviously,
+  searchPosition,
+  state,
+}: {
+  cursorBytes: number;
+  matchedPreviously: boolean;
+  searchPosition: SearchPosition;
+  state: ContextSourceArchiveSearchState;
+}): ContextSourceArchiveSearchState => ({
+  carryByteLength: 0,
+  carryColumn: searchPosition.column,
+  carryLine: searchPosition.line,
+  column: searchPosition.column,
+  cursorBytes,
+  fileCursor: state.fileCursor,
+  line: searchPosition.line,
+  matchedPreviously,
+  previousWasCarriageReturn: searchPosition.previousWasCarriageReturn,
+  searchOffset: 0,
+});
+
 const buildNextPageState = ({
   combinedText,
   endPosition,
@@ -169,6 +192,12 @@ const findCandidates = ({
     position = advancePosition(combinedText, positionOffset, matchOffset, position);
     positionOffset = matchOffset;
     if (matchOffset + query.length > carryText.length) {
+      const nextSearchOffset =
+        HIGH_SURROGATE_PATTERN.test(combinedText[matchOffset] || '') &&
+        LOW_SURROGATE_PATTERN.test(combinedText[matchOffset + 1] || '')
+          ? matchOffset + 2
+          : matchOffset + 1;
+      const resumePosition = advancePosition(combinedText, matchOffset, nextSearchOffset, position);
       candidates.push({
         match: {
           column: position.column,
@@ -176,8 +205,20 @@ const findCandidates = ({
           line: position.line,
           path: filePath,
         },
-        retryState: { ...state, searchOffset: matchOffset },
-        resumeState: { ...state, matchedPreviously: true, searchOffset: matchOffset + 1 },
+        retryState: absoluteSearchState({
+          cursorBytes: byteOffset,
+          matchedPreviously: state.matchedPreviously,
+          searchPosition: position,
+          state,
+        }),
+        resumeState: absoluteSearchState({
+          cursorBytes:
+            byteOffset +
+            encoder.encode(combinedText.slice(matchOffset, nextSearchOffset)).byteLength,
+          matchedPreviously: true,
+          searchPosition: resumePosition,
+          state,
+        }),
       });
     }
     matchOffset = combinedText.indexOf(query, matchOffset + 1);

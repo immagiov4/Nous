@@ -678,6 +678,11 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       return;
     }
 
+    const contextAbortController = new AbortController();
+    res.once('close', () => {
+      if (!res.writableFinished) contextAbortController.abort();
+    });
+
     const currentUser = getCurrentUser(req);
     const modelConfig = await getResolvedModelConfigForProvider(
       currentUser.aiProvider,
@@ -696,10 +701,6 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         ? `Intera lezione: ${contextInput.lessonTitle}`
         : 'Intera lezione corrente');
 
-    const contextAbortController = new AbortController();
-    res.once('close', () => {
-      if (!res.writableFinished) contextAbortController.abort();
-    });
     const contextTools = buildContextToolSet({
       modelConfig: researchModelConfig,
       selectedText: contextSubject,
