@@ -27,7 +27,7 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   {
     checkId: 'core.progression',
     instruction:
-      'La progressione locale non richiede concetti non ancora introdotti e non lascia anticipazioni sospese.',
+      'La progressione locale non richiede concetti non ancora introdotti e non lascia anticipazioni sospese. Ogni nuovo concetto, domanda, tecnica o astrazione ha un ponte conciso che chiarisce perche segue dal ragionamento precedente, anche se il contenuto e fattualmente corretto; non aggiungere ponti rituali quando il nesso e gia esplicito.',
   },
   {
     checkId: 'core.clarity',

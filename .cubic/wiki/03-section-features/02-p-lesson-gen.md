@@ -83,7 +83,7 @@ Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:38-99](../../../ap
 ## Technical Implementation Details
 
 ### Writing Contract and Pedagogy
-The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. The system prompt explicitly forbids ASCII art or meta-discourse (e.g., "In this section, we will see...").
+The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. When a new concept, question, technique, or abstraction follows the prior reasoning, drafting and review require a concise conceptual bridge that explains why it belongs there; a missing bridge must be corrected even when the content is factually correct, while already explicit links must not receive ritual boilerplate. The system prompt explicitly forbids ASCII art or meta-discourse (e.g., "In this section, we will see...").
 Sources: [packages/shared-types/lessonWritingContract.ts:4-20](../../../packages/shared-types/lessonWritingContract.ts#L4-L20), [apps/backend/src/services/lessonGenerationPrompt.ts:65-75](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L65-L75)
 
 ### Visual Rendering Fan-Out
