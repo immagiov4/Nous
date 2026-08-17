@@ -86,12 +86,103 @@ const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
 );
 const { setProjectStoreForTesting } = await import('../../src/projects/projectStore.js');
+const { createContextSourceArchiveTool } = await import(
+  '../../src/routes/contextSourceArchiveTool.js'
+);
 
 const ARCHIVE_VERSION = {
   representationHash: 'b'.repeat(64),
   sourceHash: 'a'.repeat(64),
   sourceId: 'source-archive',
 };
+
+const createArchiveToolContext = (signal: AbortSignal) => ({
+  projectId: 'project-archive',
+  signal,
+  sourceReference: {
+    archiveVersion: ARCHIVE_VERSION,
+    chunkIds: [],
+    name: 'src.zip',
+    sourceId: ARCHIVE_VERSION.sourceId,
+  },
+  userId: 'archive-owner',
+});
+
+test('bounds the complete serialized retained-archive tool result', async () => {
+  const longPath = `src/${'a'.repeat(20_000)}.txt`;
+  const archiveBytes = new TextEncoder().encode('x');
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(new AbortController().signal),
+    store: {
+      loadProjectSourceArchiveEntry: vi.fn(async () => archiveBytes),
+      loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: [
+          {
+            byteSize: archiveBytes.byteLength,
+            contentKind: 'text' as const,
+            kind: 'file' as const,
+            path: longPath,
+          },
+        ],
+        version: ARCHIVE_VERSION,
+      })),
+    },
+  });
+
+  try {
+    const result = await archiveTool.execute?.(
+      { operation: 'search-text', query: 'x' },
+      {} as never
+    );
+
+    expect(result).toMatchObject({ status: 'error' });
+    expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThan(
+      MAX_CONTEXT_CHARS
+    );
+  } finally {
+    consoleError.mockRestore();
+  }
+});
+
+test('stops retained-archive scanning when the request signal aborts', async () => {
+  const controller = new AbortController();
+  const archiveBytes = new TextEncoder().encode('no match');
+  const loadProjectSourceArchiveEntry = vi.fn(async () => {
+    controller.abort();
+    return archiveBytes;
+  });
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const archiveTool = createContextSourceArchiveTool({
+    context: createArchiveToolContext(controller.signal),
+    store: {
+      loadProjectSourceArchiveEntry,
+      loadProjectSourceArchiveEntryRange: vi.fn(async () => archiveBytes),
+      loadProjectSourceArchiveIndex: vi.fn(async () => ({
+        entries: ['first.txt', 'second.txt'].map(path => ({
+          byteSize: archiveBytes.byteLength,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path,
+        })),
+        version: ARCHIVE_VERSION,
+      })),
+    },
+  });
+
+  try {
+    const result = await archiveTool.execute?.(
+      { operation: 'search-text', query: 'missing' },
+      {} as never
+    );
+
+    expect(result).toMatchObject({ status: 'error' });
+    expect(loadProjectSourceArchiveEntry).toHaveBeenCalledTimes(1);
+  } finally {
+    consoleError.mockRestore();
+  }
+});
 
 test('serializes contextual provenance as escaped JSON data', () => {
   const sourceReferences = [

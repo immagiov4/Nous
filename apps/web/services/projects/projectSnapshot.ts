@@ -1,3 +1,4 @@
+import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
 import {
   decodeProjectSnapshotWire,
   encodeProjectSnapshotWire,
@@ -21,6 +22,7 @@ import {
   type ProjectSourceRef,
   type SavedProjectMeta,
   type SourceArchiveIndex,
+  type SourceArchiveVersion,
   type SourceOutlineNode,
   type SyllabusItem,
   type UserProfile,
@@ -336,7 +338,34 @@ const parseSourceArchiveIndex = (value: unknown): SourceArchiveIndex | null => {
     return null;
   }
 
-  return { entries: entries as SourceArchiveIndex['entries'] };
+  const version = parseSourceArchiveVersion(value.version);
+  if (value.version !== undefined && !version) {
+    return null;
+  }
+
+  return {
+    entries: entries as SourceArchiveIndex['entries'],
+    ...(version ? { version } : {}),
+  };
+};
+
+const parseSourceArchiveVersion = (value: unknown): SourceArchiveVersion | null => {
+  if (
+    !isRecord(value) ||
+    !isString(value.representationHash) ||
+    !SOURCE_ARCHIVE_VERSION_HASH_PATTERN.test(value.representationHash) ||
+    !isString(value.sourceHash) ||
+    !SOURCE_ARCHIVE_VERSION_HASH_PATTERN.test(value.sourceHash) ||
+    !isString(value.sourceId) ||
+    !value.sourceId
+  ) {
+    return null;
+  }
+  return {
+    representationHash: value.representationHash,
+    sourceHash: value.sourceHash,
+    sourceId: value.sourceId,
+  };
 };
 
 const parseProjectSource = (value: unknown): ProjectSource | null => {

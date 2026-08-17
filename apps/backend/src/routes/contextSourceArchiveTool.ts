@@ -28,6 +28,7 @@ interface ContextSourceArchiveToolInput {
 
 interface ContextSourceArchiveToolContext {
   projectId: string;
+  signal: AbortSignal;
   sourceReference: ContextSourceReference & {
     archiveVersion: ProjectSourceArchiveVersion;
   };
@@ -112,6 +113,11 @@ export const createContextSourceArchiveTool = ({
     remainingResultBytes -= payloadBytes;
   };
 
+  const accountResult = <TResult>(result: TResult): TResult => {
+    accountPayload(JSON.stringify(result));
+    return result;
+  };
+
   const openArchive = async () => {
     if (remainingResultBytes <= 0) {
       throw new ContextSourceArchiveToolBudgetError();
@@ -124,7 +130,7 @@ export const createContextSourceArchiveTool = ({
       index,
       maxContextBytes: remainingResultBytes,
       projectId: context.projectId,
-      signal: new AbortController().signal,
+      signal: context.signal,
       sourceUnavailableError: () => new ContextSourceArchiveUnavailableError(),
       store,
       userId: context.userId,
@@ -138,69 +144,81 @@ export const createContextSourceArchiveTool = ({
       switch (input.operation) {
         case 'tree': {
           const entries = access.getTree();
-          accountPayload(JSON.stringify(entries));
-          return {
+          return accountResult({
             archiveName,
             citations: [],
             entries,
             operation: input.operation,
             status: 'ok' as const,
-          };
+          });
         }
         case 'list-directory': {
           const path = requirePath(input, true);
           const entries = access.listDirectory(path);
-          accountPayload(path, JSON.stringify(entries));
-          return {
+          return accountResult({
             archiveName,
             citations: path ? [createCitation(archiveName, path)] : [],
             entries,
             operation: input.operation,
             path,
             status: 'ok' as const,
-          };
+          });
         }
         case 'read-file': {
-          const page = await access.readTextPage(
-            requirePath(input),
-            readCursor(input),
-            remainingResultBytes
-          );
-          accountPayload(page.text);
-          return {
+          const path = requirePath(input);
+          const cursorBytes = readCursor(input);
+          const maximumPageNumber = Number.MAX_SAFE_INTEGER;
+          const resultOverheadBytes = encoder.encode(
+            JSON.stringify({
+              archiveName,
+              citations: [createCitation(archiveName, path)],
+              operation: input.operation,
+              page: {
+                cursorBytes: maximumPageNumber,
+                endByteExclusive: maximumPageNumber,
+                nextCursorBytes: maximumPageNumber,
+                path,
+                text: '',
+                totalBytes: maximumPageNumber,
+              },
+              status: 'ok',
+            })
+          ).byteLength;
+          const maximumPageBytes = remainingResultBytes - resultOverheadBytes;
+          if (maximumPageBytes <= 0) throw new ContextSourceArchiveToolBudgetError();
+          const page = await access.readTextPage(path, cursorBytes, maximumPageBytes);
+          return accountResult({
             archiveName,
             citations: [createCitation(archiveName, page.path)],
             operation: input.operation,
             page,
             status: 'ok' as const,
-          };
+          });
         }
         case 'resolve-lesson-selectors': {
           const selectors = context.sourceReference.archiveSelectors || [];
           if (selectors.length === 0) {
-            return {
+            return accountResult({
               archiveName,
               citations: [],
               files: [],
               operation: input.operation,
               status: 'no-match' as const,
-            };
+            });
           }
           const files = await access.resolveSelectors(selectors);
-          accountPayload(...files.flatMap(file => [file.path, file.text]));
-          return {
+          return accountResult({
             archiveName,
             citations: files.map(file => createCitation(archiveName, file.path)),
             files,
             operation: input.operation,
             status: files.length ? ('ok' as const) : ('no-match' as const),
-          };
+          });
         }
         case 'search-text': {
           const query = requireQuery(input);
           const matches = await access.searchLiteral(query);
-          accountPayload(...matches.flatMap(match => [match.path, match.lineText]));
-          return {
+          return accountResult({
             archiveName,
             citations: matches.map(match =>
               createCitation(archiveName, match.path, {
@@ -212,7 +230,7 @@ export const createContextSourceArchiveTool = ({
             operation: input.operation,
             query,
             status: matches.length ? ('ok' as const) : ('no-match' as const),
-          };
+          });
         }
       }
     } catch (error) {

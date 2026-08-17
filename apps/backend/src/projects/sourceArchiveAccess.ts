@@ -105,7 +105,6 @@ const compareEntryPaths = (left: SourceArchiveIndexedEntry, right: SourceArchive
   left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 
 export const SOURCE_ARCHIVE_READ_PAGE_MAX_BYTES = 256 * 1024;
-export const SOURCE_ARCHIVE_VERSION_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const UTF8_MAX_TRAILING_BYTES = 3;
 const isUtf8ContinuationByte = (byte: number): boolean => (byte & 0xc0) === 0x80;
 

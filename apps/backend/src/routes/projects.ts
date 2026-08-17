@@ -2,6 +2,7 @@
 
 import { Readable } from 'node:stream';
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
+import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
 import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
 import {
   PROJECT_API_ERROR_CODE,
@@ -46,7 +47,6 @@ import {
   SourceArchiveUnusableError,
 } from '../projects/sourceArchive.js';
 import {
-  SOURCE_ARCHIVE_VERSION_HASH_PATTERN,
   SourceArchiveAccess,
   type SourceArchiveSelector,
 } from '../projects/sourceArchiveAccess.js';

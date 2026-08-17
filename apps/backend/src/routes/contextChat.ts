@@ -5,6 +5,7 @@ import type {
   ContextSourceArchiveVersion,
   ContextSourceReference,
 } from '@shared/lessonSourceContext';
+import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
 import {
   convertToModelMessages,
   generateId,
@@ -23,7 +24,6 @@ import {
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
 import { getProjectStore } from '../projects/projectStore.js';
-import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '../projects/sourceArchiveAccess.js';
 import { createConfiguredTextModel } from '../services/aiSdkTextModel.js';
 import {
   assertCodexRequestAccess,
@@ -360,6 +360,7 @@ const buildContextToolSet = ({
   modelConfig,
   projectId,
   selectedText,
+  signal,
   sourceKind,
   sourceReferences,
   userId,
@@ -372,6 +373,7 @@ const buildContextToolSet = ({
   modelConfig: WebSearchModelConfig;
   projectId?: string;
   selectedText: string;
+  signal: AbortSignal;
   sourceKind?: string;
   sourceReferences?: ContextSourceReference[];
   userId: string;
@@ -393,6 +395,7 @@ const buildContextToolSet = ({
               ...archiveReference,
               archiveVersion: archiveReference.archiveVersion,
             },
+            signal,
             userId,
           },
           store: getProjectStore(),
@@ -673,9 +676,14 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         ? `Intera lezione: ${contextInput.lessonTitle}`
         : 'Intera lezione corrente');
 
+    const contextAbortController = new AbortController();
+    res.once('close', () => {
+      if (!res.writableFinished) contextAbortController.abort();
+    });
     const contextTools = buildContextToolSet({
       modelConfig: researchModelConfig,
       selectedText: contextSubject,
+      signal: contextAbortController.signal,
       userId: currentUser.id,
       ...contextInput,
     });
@@ -711,6 +719,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const configuredModel = createConfiguredTextModel(modelConfig, 'context');
 
     const result = streamText({
+      abortSignal: contextAbortController.signal,
       model: configuredModel.model,
       system,
       messages: modelMessages,

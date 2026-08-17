@@ -152,6 +152,11 @@ test('keeps a selected durable PDF image renderable across export and reload', (
 });
 
 test('modern archive exports round-trip raw bytes, storage reference, and the complete index', () => {
+  const archiveVersion = {
+    representationHash: 'b'.repeat(64),
+    sourceHash: 'a'.repeat(64),
+    sourceId: 'archive-source',
+  };
   const snapshot = createProjectSnapshot({
     id: 'archive-project',
     source: {
@@ -187,6 +192,7 @@ test('modern archive exports round-trip raw bytes, storage reference, and the co
             warningReason: 'timeout',
           },
         ],
+        version: archiveVersion,
       },
       kind: 'archive',
       name: 'engine.zip',
@@ -202,8 +208,13 @@ test('modern archive exports round-trip raw bytes, storage reference, and the co
   });
 
   const imported = normalizeImportedProject(exportProjectData(snapshot));
+  const reopened = normalizeStoredProject(exportProjectData(snapshot));
 
   assert.deepEqual(imported.source, snapshot.source);
+  assert.deepEqual(
+    reopened.source?.kind === 'archive' && reopened.source.index.version,
+    archiveVersion
+  );
   assert.equal(inferProjectSourceKind(imported, true), 'codebase');
   assert.equal(getProjectSourceFile(imported.source)?.data, snapshot.source?.file.data);
 });
