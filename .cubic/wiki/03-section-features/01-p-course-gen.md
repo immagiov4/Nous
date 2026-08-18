@@ -138,10 +138,12 @@ The final verification pass reuses the same reference context and the generated 
 
 ### Writing Rule Highlights
 *  **Propedeutic Order**: Concepts must be explained using only previously introduced terms or definitions within the same local block; the verifier reuses the complete local propedeutic rule family rather than a hand-copied subset.
+*  **Language and Density**: Clear lexicon, immediate explanation of technical terminology, acronym expansion, avoidance of unnecessary foreignisms, content-preserving simplification and a discursive register are one shared rule family. Explicit student style notes override these defaults within structural constraints.
+*  **Relevance and Style**: Analogy limits, concrete-example preference, repetition control, non-decorative engagement and metadiscourse avoidance are verified from the same canonical family used by the writer.
 *  **Self-Sufficiency**: Lessons must work as standalone texts without requiring the student to have the source document open.
-*  **Source Integrity**: Primary-source conventions take precedence over merely alternative research conventions, and meaningful structured comparisons remain structurally legible.
+*  **Source Integrity**: Primary-source conventions take precedence over merely alternative research conventions; meaningful tables, matrices, captions, legends and structured comparisons remain structurally legible.
 *  **Formula Relevance**: Mathematical formulas should only be used when natural to the subject; KaTeX delimiters, braces and active LaTeX environments must remain balanced.
-*  **Active Pauses**: Inline quizzes should require discrimination, application, inference or synthesis rather than simple paraphrase.
+*  **Active Pauses**: Placement, reasoning demand, option quality and text formatting are shared contracts reused by generation and verification rather than parallel prompt prose.
 *  **Visual Selection**: Original source images are preferred when they are clear and pedagogically equivalent; generated visuals and YouTube clips remain subject to their dedicated planning contracts.
 
 ### Focused lesson verification
@@ -150,7 +152,7 @@ The verifier requires one `verificationReport` entry with non-empty evidence for
 
 Image-reference verification is enabled when an image reference already exists or original image candidates are available. YouTube verification is enabled when a clip exists or a timestamped transcript is available. These source-driven checks let the verifier repair a relevant omission without authorizing media that the task cannot support. After the model returns, structural requirements are recomputed against the corrected draft so newly introduced source-dependent media cannot bypass its own validation.
 
-Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
+Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
 
 ## Summary of Key Services
 
