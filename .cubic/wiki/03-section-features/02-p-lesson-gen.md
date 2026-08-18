@@ -11,10 +11,13 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts)
 - [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
 - [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
+- [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts)
+- [apps/backend/src/services/lessonGenerationCorrection.ts](../../../apps/backend/src/services/lessonGenerationCorrection.ts)
 - [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
 - [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
 - [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
 - [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts)
+- [apps/web/components/shared/GenerationProgress.tsx](../../../apps/web/components/shared/GenerationProgress.tsx)
 </details>
 
 # Lesson Generation Pipeline
@@ -22,7 +25,7 @@ The following files were used as context for generating this wiki page:
 The **Lesson Generation Pipeline** is a complex, multi-stage workflow designed to transform raw source materials, research data, and pedagogical requirements into structured, high-quality educational content. Orchestrated by the `lesson-generation` workflow, it integrates Large Language Models (LLMs), research tools, and visual rendering engines to produce autonomous lessons enriched with markdown, active pauses (quizzes), YouTube clips, and generated visuals.
 
 The pipeline ensures pedagogical rigor by adhering to strict propedeutic rules, continuity constraints, and informational density requirements. It supports both the generation of new core lessons and "deep-dive" sublessons based on specific user focus areas.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:639-655](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L639-L655), [packages/shared-types/lessonWritingContract.ts:47-75](../../../packages/shared-types/lessonWritingContract.ts#L47-L75)
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
 
 ## Pipeline Architecture
 
@@ -49,42 +52,58 @@ flowchart TD
     Review --> Aids[Generate Aids]
     Aids --> Visuals[Render Visuals]
     Visuals --> Normalize[Normalize Structure]
-    Normalize --> Persist[Persist & Publish]
-    Persist --> End
+    Normalize --> Persist[Persist Lesson]
+    Persist --> Publish[Publish Project Revision]
+    Publish --> End
 ```
 
 This diagram illustrates the high-level progression from initial request to the final publication of a lesson revision.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:607-655](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L607-L655)
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts)
 
 ### 1. Preparation and Sublesson Planning
 The pipeline begins by determining if the request is for an existing lesson or a new sublesson. Sublessons are planned using a dedicated stage that creates metadata and source associations before feeding back into the main generation path.
-*  **Key Function:** `planSublesson` defines the deep-dive context.
-*  **Key Function:** `prepareLesson` loads the project snapshot and determines if a previous generation exists.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:153-228](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L153-L228), [apps/backend/src/workflows/lessonGenerationStageServices.ts:139-215](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts#L139-L215)
+* **Key Function:** `planSublesson` defines the deep-dive context.
+* **Key Function:** `prepareLesson` loads the project snapshot and determines if a previous generation exists.
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
 
 ### 2. Research and Source Staging
 The system assesses the primary source material for coverage gaps. If the lesson is a "prerequisite" type, it identifies missing topics that require external research.
-*  **YouTube Research:** A branching path that plans specific and fallback queries to find timestamped transcripts.
-*  **Research Dossier:** The `generateResearchSummary` service creates a dense factual dossier, including controversies and recent developments, which serves as the "source of truth" for the LLM during drafting.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:258-360](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L258-L360), [apps/backend/src/services/lessonGenerationModel.ts:311-336](../../../apps/backend/src/services/lessonGenerationModel.ts#L311-L336)
+* **YouTube Research:** A branching path that plans specific and fallback queries to find timestamped transcripts.
+* **Research Dossier:** The `generateResearchSummary` service creates a dense factual dossier, including controversies and recent developments, which serves as factual support for drafting.
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
 
 ### 3. Content Drafting and Review
-The `draftLesson` stage uses the `Professor Nous` system prompt to generate the lesson body. This process is governed by a complex writing contract.
+The `draftLesson` stage uses the `Professor Nous` system prompt to generate the lesson body. The writer and focused verifier share canonical pedagogical contracts without sending the complete generation prompt through verification a second time.
 
 | Rule Category | Description |
 | :--- | :--- |
 | **Continuity** | Prevents repetition of concepts from `previousLessonTitles`. |
+| **Propedeutic order** | Requires prerequisites and first concept exposures to be understandable before later abstractions, contrasts or negations depend on them. |
 | **Formatting** | Enforces standard Markdown and KaTeX for mathematical formulas. |
 | **Active Pauses** | Injects 0-3 inline quizzes that require higher-order thinking (classification, sequence, etc.). |
 | **Visual Planning** | Identifies specific points where a `generated-visual` or `youtube-clips` block improves understanding. |
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:38-99](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L38-L99), [packages/shared-types/lessonWritingContract.ts:21-45](../../../packages/shared-types/lessonWritingContract.ts#L21-L45)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts)
+
+### Corrective Retry Lifecycle
+
+Model-backed lesson stages distinguish **corrective** failures from **operational** failures. Coverage assessment, research, drafting and final lesson review all consume durable `retryFeedback` when a known output-contract or deterministic validation problem caused the previous attempt to be rejected. The feedback is injected into the next request so the model repairs the identified defect instead of receiving the same prompt again.
+
+Examples of corrective failures include malformed structured output, incomplete YouTube candidate classification, an incomplete verifier report, an unauthorized structural feature introduced during verification, invalid inline-quiz placement and unbalanced LaTeX environments. Each uses a stable developer-authored failure code and safe corrective instruction. The workflow persists that structured failure on the attempt and supplies its feedback to the next claim.
+
+Provider/network failures remain operational. Their diagnostics stay bounded and sanitized rather than persisting arbitrary provider exception text. This gives support tooling a concrete reason for deterministic model-contract retries without weakening the error-redaction boundary.
+
+Recoverable retries are also neutral in the learner-facing generation UI: while the workflow is automatically retrying, the progress surface reports another attempt in progress rather than presenting a temporary internal rejection as a user-visible failure. Terminal workflow failure remains handled by the normal error surface.
+
+Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts), [apps/backend/src/workflows/retryPolicy.ts](../../../apps/backend/src/workflows/retryPolicy.ts), [apps/backend/src/workflows/postgresWorkflowStepStore.ts](../../../apps/backend/src/workflows/postgresWorkflowStepStore.ts), [apps/web/components/shared/GenerationProgress.tsx](../../../apps/web/components/shared/GenerationProgress.tsx)
 
 ## Technical Implementation Details
 
 ### Writing Contract and Pedagogy
-The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. When a new concept, question, technique, or abstraction follows the prior reasoning, drafting and review require a concise conceptual bridge that explains why it belongs there; a missing bridge must be corrected even when the content is factually correct, while already explicit links must not receive ritual boilerplate. The system prompt explicitly forbids ASCII art or meta-discourse (e.g., "In this section, we will see...").
-Sources: [packages/shared-types/lessonWritingContract.ts:4-20](../../../packages/shared-types/lessonWritingContract.ts#L4-L20), [apps/backend/src/services/lessonGenerationPrompt.ts:65-75](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L65-L75)
+The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. When a new concept, question, technique, or abstraction follows the prior reasoning, drafting and review require a concise conceptual bridge that explains why it belongs there; a missing bridge must be corrected even when the content is factually correct, while already explicit links must not receive ritual boilerplate.
+
+The first-exposure contract is stricter than a later positive definition: a concept cannot first appear as an unexplained metaphor, negative heading or contrastive label and only be defined afterward. Its first meaningful heading/lead/label exposure must establish enough positive meaning for the reader to understand what is being discussed. The system also forbids ASCII pseudo-visuals and unnecessary metadiscourse.
+Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
 
 ### Visual Rendering Fan-Out
 The rendering of visuals is handled as a `fanOut` operation, allowing multiple visual plans to be processed in parallel.
@@ -102,23 +121,23 @@ sequenceDiagram
     FO-->>W: visualResults[]
 ```
 
-This sequence ensures that a failure in one visual does not terminate the entire lesson generation; failed visuals are flagged for retry in the normalized structure.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:503-524](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L503-L524), [apps/backend/src/services/lessonGenerationNormalization.ts:98-124](../../../apps/backend/src/services/lessonGenerationNormalization.ts#L98-L124)
+This sequence ensures that a failure in one visual does not terminate the entire lesson generation; failed visuals are flagged for retry in the normalized structure. Visual planning/render review already uses the same corrective-retry pattern for deterministic model-output defects.
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonVisualWorkflow.ts](../../../apps/backend/src/workflows/lessonVisualWorkflow.ts), [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts)
 
 ### Normalization and Sanitization
 The `normalizeLessonStructure` function performs critical cleanup:
-1.  **Markdown Sanitization:** Replaces internal `assetId` strings with user-friendly labels (e.g., "Figure 1") and removes unauthorized embedded image tags.
-2.  **Quiz Validation:** Ensures quizzes are placed after explanatory markdown and do not exceed the `MAX_LESSON_QUIZ_QUESTIONS` limit.
-3.  **Visual Mapping:** Associates successfully rendered visuals with their respective `slotId` in the content blocks.
-Sources: [apps/backend/src/services/lessonGenerationNormalization.ts:34-47](../../../apps/backend/src/services/lessonGenerationNormalization.ts#L34-L47), [apps/backend/src/services/lessonGenerationNormalization.ts:145-188](../../../apps/backend/src/services/lessonGenerationNormalization.ts#L145-L188)
+1. **Markdown Sanitization:** Replaces internal `assetId` strings with user-friendly labels (e.g., "Figure 1") and removes unauthorized embedded image tags.
+2. **Quiz Validation:** Ensures quizzes are placed after explanatory markdown and do not exceed the `MAX_LESSON_QUIZ_QUESTIONS` limit.
+3. **Visual Mapping:** Associates successfully rendered visuals with their respective `slotId` in the content blocks.
+Sources: [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts)
 
 ### Workflow Schemas
 The pipeline relies on Zod schemas to ensure contract safety between stages.
-*  **`LessonContentDraftSchema`**: Validates the structure of the LLM output, including `contentBlocks` and `generatedVisuals`.
-*  **`LessonResearchDossierSchema`**: Ensures the research dossier contains factual summaries and YouTube candidate decisions.
-*  **`LessonResultBlockSchema`**: A union type that defines valid output blocks (Markdown, Quiz, Clips, or Visuals).
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:167-171](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L167-L171), [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:200-206](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L200-L206)
+* **`LessonContentDraftSchema`**: Validates the structure of the LLM output, including `contentBlocks` and `generatedVisuals`.
+* **`LessonResearchDossierSchema`**: Ensures the research dossier contains factual summaries and YouTube candidate decisions.
+* **`LessonResultBlockSchema`**: A union type that defines valid output blocks (Markdown, Quiz, Clips, or Visuals).
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
 
 ## Conclusion
-The Lesson Generation Pipeline represents a sophisticated orchestration of AI services and deterministic post-processing. By separating research, drafting, and visual rendering into distinct, schema-validated stages, the system maintains high pedagogical standards while providing a resilient and extensible framework for automated education.
-Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:639-655](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L639-L655), [apps/backend/src/services/lessonGenerationNormalization.ts:218-228](../../../apps/backend/src/services/lessonGenerationNormalization.ts#L218-L228)
+The Lesson Generation Pipeline separates research, drafting, verification, optional aids, rendering, normalization and persistence into durable schema-validated stages. Known model-contract failures carry explicit corrective feedback into the next attempt, while transient operational failures retain the workflow engine's safe retry and diagnostic behavior. This keeps the pipeline resilient without turning deterministic validation failures into blind repeated model calls.
+Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
