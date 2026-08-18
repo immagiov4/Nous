@@ -45,11 +45,12 @@ This block contains reference data but not the writer contract. Keeping the two 
 `buildLessonGenerationPrompt()` combines the reference context with the detailed writing contract. The writer contract includes:
 
 - `LESSON_SHARED_WRITING_RULES` and local propedeutic rules;
+- shared heading, source-precedence and KaTeX rules;
 - source and scope rules;
 - optional specialist instruction packs;
 - active-pause requirements;
 - image, video and generated-visual rules;
-- Markdown, code and KaTeX formatting constraints.
+- Markdown and code formatting constraints.
 
 Student generation notes have high priority for style, density, pacing and similar preferences, but cannot override structural output, focus, safety or syntax constraints.
 
@@ -57,9 +58,9 @@ Student generation notes have high priority for style, density, pacing and simil
 
 `buildLessonVerificationPrompt()` does **not** embed the complete writer prompt. It receives the reusable lesson context, the generated draft, the mandatory semantic checklist and a focused structural contract.
 
-Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material or continues beyond the current lesson focus. The verifier also retains product-wide invariants such as positive first definitions, self-sufficiency, valid code and math formatting, and the prohibition on ASCII pseudo-visuals.
+Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material or continues beyond the current lesson focus. Source-backed correctness also preserves primary-source conventions over merely different dossier conventions. The verifier retains product-wide invariants such as positive first definitions, heading discipline, self-sufficiency, valid code and math formatting, and the prohibition on ASCII pseudo-visuals.
 
-Feature-specific media checks are activated from concrete draft state or from source assets whose omission itself must be reviewed. In particular, `image-reference` runs when the draft contains `imageRefs` or when selectable original image candidates exist. The same source-image priority rule is also applied inside `generated-visual`, so an available source-specific diagram or screenshot is not silently replaced by an equivalent generated visual.
+Feature-specific media checks are activated from concrete draft state or from source assets whose omission itself must be reviewed. In particular, `image-reference` runs when the draft contains `imageRefs` or when selectable original image candidates exist. Source-image selection remains proportional: equivalent figures are deduplicated rather than all being forced into the lesson. The same priority rule is also applied inside `generated-visual`, so an available source-specific diagram or screenshot is not silently replaced by an equivalent generated visual.
 
 ```mermaid
 flowchart TD
@@ -86,10 +87,13 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | `LESSON_SCOPE_RULES` | Prevents scope drift, premature future-lesson detail and unnecessary continuation. |
 | `buildLessonContinuityRule()` | Prevents fabricated backward continuity and invented prior-course coverage. |
 | `LESSON_POSITIVE_DEFINITION_RULE` | Requires a new concept to be defined positively before contrastive framing. |
+| `LESSON_HEADING_STRUCTURE_RULE` | Prevents repeated lesson titles, filler headings and near-duplicate sections. |
 | `LESSON_SELF_SUFFICIENCY_RULE` | Keeps the lesson understandable without reopening the original source. |
+| `LESSON_SOURCE_PRECEDENCE_RULE` | Keeps source-specific conventions authoritative over merely alternative dossier conventions. |
 | `FORMULA_RELEVANCE_RULE` | Keeps mathematical notation meaningful rather than decorative. |
+| `LESSON_KATEX_FORMATTING_RULE` | Defines KaTeX delimiters and requires literal LaTeX commands to be rendered as inline code. |
 | `LESSON_ASCII_VISUAL_RULE` | Prevents text/ASCII pseudo-visuals when dedicated renderers should be used. |
-| `YOUTUBE_CLIP_PEDAGOGY_RULES` | Determines when motion/video materially improves the lesson. |
+| `YOUTUBE_CLIP_PEDAGOGY_RULES` | Determines when motion/video materially improves the lesson and removes duplicate or equivalent clips. |
 
 Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verification checks only for lessons that materially need them, such as mathematics, code, technical sources or visual learning.
 
@@ -97,7 +101,7 @@ Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verific
 
 Lesson generation remains schema-driven. `LESSON_JOB_RESPONSE_SCHEMA` requires structured `contentBlocks`, `generatedVisuals` and `imageRefs`; the verifier extends that schema temporarily with a `verificationReport` entry for **every required semantic and structural check ID**.
 
-Each report item requires `checkId`, `status`, `evidence` and `action`. The schema requires exactly the combined number of checks, and code rejects a report if any required ID is missing. This makes structural checks such as `math-structure` or `generated-visual` observable instead of leaving them as unreported prose instructions.
+Each report item requires `checkId`, `status`, non-empty `evidence` and `action`. The schema requires exactly the combined number of checks, and runtime validation also rejects whitespace-only evidence, duplicate/missing IDs or any required ID omission. This makes structural checks such as `math-structure` or `generated-visual` observable instead of leaving them as unreported prose instructions.
 
 The verification report is removed before the lesson draft continues through the pipeline.
 
@@ -107,21 +111,21 @@ The verifier is designed to make a small model inspect the actual artifact inste
 
 The base structural contract always includes:
 
-- Markdown structure, including the location-independent prohibition on structured source lists and bibliographies;
+- Markdown structure, including heading discipline and the location-independent prohibition on structured source lists and bibliographies;
 - positive definition order;
 - lesson self-sufficiency;
 - the ASCII pseudo-visual prohibition;
 - code structure;
-- math/KaTeX structure and formula relevance.
+- math/KaTeX structure and formula relevance, including inline-code disambiguation for literal LaTeX commands.
 
 Code and math checks are deliberately unconditional because their most important failure mode can be malformed or missing syntax that cannot be reliably feature-gated without semantic guessing. When the corresponding content does not exist, the verifier returns `not-applicable`.
 
 Other structural checks are activated only when their review can affect the lesson:
 
-- quiz checks when `inline-quiz` blocks exist;
-- `image-reference` when `imageRefs` exist or original image candidates are available, allowing both reference validation and detection of an omitted useful source image;
+- quiz checks when `inline-quiz` blocks exist; `exerciseType` must match the actual mental operation using the shared exercise catalog, and distractors must remain plausible;
+- `image-reference` when `imageRefs` exist or original image candidates are available, allowing reference validation, proportional selection and detection of an omitted useful source image;
 - generated-visual checks when visual plans/blocks exist; these include the full visual-planning contract and re-apply original-image priority;
-- YouTube checks when clip blocks exist.
+- YouTube checks when clip blocks exist, including interval validity, pedagogical self-sufficiency and duplicate/equivalent-clip removal.
 
 The verifier must not add an optional feature type that was outside the check set computed for the pass. After verification returns, the service recomputes the structural requirements against the returned draft and rejects it if a new quiz, image reference, generated visual or YouTube block would require a check that was never run. Original image candidates are accounted for before the pass, so adding a justified `imageRef` remains covered by `image-reference`.
 
