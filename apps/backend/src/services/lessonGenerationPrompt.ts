@@ -5,6 +5,7 @@ import {
 import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
+  buildLessonContinuityRule,
   buildUserGenerationNotesBlock,
   LESSON_SCOPE_RULES,
   LESSON_SHARED_WRITING_RULES,
@@ -50,9 +51,7 @@ ${input.imageCandidates.length ? `IMMAGINI ORIGINALI SELEZIONABILI TRAMITE ASSET
 export const buildLessonGenerationPrompt = (input: LessonPromptInput): string => {
   const isFirstLesson = input.previousLessonTitles.length === 0;
   const previousContext = input.previousLessonTitles.join(', ') || 'Inizio percorso';
-  const continuityRule = isFirstLesson
-    ? "PRIMA LEZIONE: non citare lezioni precedenti, capitoli gia visti, 'come abbiamo accennato', 'come vedremo' o altre formule di continuita retroattiva."
-    : 'Se fai riferimenti al percorso, usa soltanto i titoli delle lezioni completate forniti e non inventare contenuti gia trattati.';
+  const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = isFirstLesson
     ? ''
     : `Le lezioni precedenti (${previousContext}) hanno gia coperto le loro basi. Parti direttamente dall'argomento specifico della lezione e non riesporre introduzioni generiche soltanto per creare continuita.`;
