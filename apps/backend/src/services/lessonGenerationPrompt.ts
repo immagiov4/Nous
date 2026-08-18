@@ -8,7 +8,6 @@ import {
   ORIGINAL_IMAGE_USAGE_RULES,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
-import { LESSON_FIRST_EXPOSURE_RULE } from '@shared/lessonPedagogyContracts';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
   buildLessonContinuityRule,
@@ -16,6 +15,7 @@ import {
   buildUserGenerationNotesBlock,
   LESSON_CODE_FORMATTING_RULE,
   LESSON_COVERAGE_DEPTH_RULE,
+  LESSON_FIRST_EXPOSURE_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
   LESSON_LIST_STRUCTURE_RULE,
