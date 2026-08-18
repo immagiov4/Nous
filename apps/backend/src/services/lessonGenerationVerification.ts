@@ -1,6 +1,7 @@
 import {
   ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
   ACTIVE_PAUSE_OPTIONS_RULE,
+  ACTIVE_PAUSE_PLACEMENT_RULE,
   ACTIVE_PAUSE_TEXT_FORMAT_RULE,
   MAX_LESSON_QUIZ_QUESTIONS,
   ORIGINAL_IMAGE_PRIORITY_RULE,
@@ -14,7 +15,6 @@ import {
   FORMULA_RELEVANCE_RULE,
   LESSON_ASCII_VISUAL_RULE,
   LESSON_CODE_FORMATTING_RULE,
-  LESSON_ENGAGEMENT_RELEVANCE_RULE,
   LESSON_GUIDED_NOVICE_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
@@ -235,7 +235,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni inline-quiz presente o aggiunta deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. ${ACTIVE_PAUSE_PLACEMENT_RULE} ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
@@ -290,7 +290,7 @@ const buildLessonVerificationPrompt = (
     if (item.checkId === 'core.relevance') {
       return {
         ...item,
-        instruction: `${RELEVANCE_STYLE_VERIFICATION_RULES} ${LESSON_ENGAGEMENT_RELEVANCE_RULE}`,
+        instruction: RELEVANCE_STYLE_VERIFICATION_RULES,
       };
     }
     return item;
