@@ -14,12 +14,14 @@ import {
   buildLessonNoRepetitionRule,
   buildUserGenerationNotesBlock,
   LESSON_CODE_FORMATTING_RULE,
+  LESSON_COVERAGE_DEPTH_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
   LESSON_LIST_STRUCTURE_RULE,
   LESSON_MAIN_PROSE_RULE,
   LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE,
   LESSON_METADISCOURSE_RULE,
+  LESSON_PRIMARY_SOURCE_INTEGRATION_RULE,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SHARED_WRITING_RULES,
@@ -59,23 +61,23 @@ export const buildLessonGenerationPrompt = (input: LessonPromptInput): string =>
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
   const scopeRules = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
-  const sourceModeRule = input.sourceContext
-    ? LESSON_SOURCE_PRECEDENCE_RULE
-    : LESSON_RESEARCH_TRANSFORMATION_RULE;
+  const sourceModeRules = input.sourceContext
+    ? [LESSON_PRIMARY_SOURCE_INTEGRATION_RULE, LESSON_SOURCE_PRECEDENCE_RULE]
+    : [LESSON_RESEARCH_TRANSFORMATION_RULE];
 
-  return `Genera una LEZIONE COMPLETA, AUTONOMA E APPROFONDITA.
+  return `Genera la lezione richiesta.
 
 ${buildLessonGenerationReferenceContext(input)}
 
 CONTRATTO DI SCRITTURA:
 ${buildLessonInstructionPackBlock(input.instructionPacks, 'writing')}
-1. Scrivi una lezione esaustiva in Markdown ricco. Mantieni una buona densita informativa senza riempitivo o ripetizioni decorative; se le note chiedono un ritmo piu lento o ridondanza didattica, rispettale.
+1. ${LESSON_COVERAGE_DEPTH_RULE} Scrivi in Markdown ricco con buona densita informativa e senza riempitivo; se le note chiedono un ritmo piu lento o ridondanza didattica, rispettale.
 2. Incorpora e spiega i contenuti in modo discorsivo ma tecnico, con esempi concreti, formule e codice solo quando aiutano davvero.
 3. ${LESSON_HEADING_STRUCTURE_RULE}
 4. ${LESSON_METADISCOURSE_RULE} ${LESSON_MAIN_PROSE_RULE}
 - ${LESSON_LIST_STRUCTURE_RULE}
 ${LESSON_SHARED_WRITING_RULES}
-- ${sourceModeRule}
+${sourceModeRules.map(rule => `- ${rule}`).join('\n')}
 - ${continuityRule}
 ${noRepetitionRule ? `- ${noRepetitionRule}\n` : ''}- Vincoli di focus:
 ${scopeRules}
