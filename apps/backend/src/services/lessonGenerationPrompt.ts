@@ -1,8 +1,10 @@
 import {
   ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
   ACTIVE_PAUSE_OPTIONS_RULE,
+  ACTIVE_PAUSE_PLACEMENT_RULE,
+  ACTIVE_PAUSE_REASONING_RULE,
   ACTIVE_PAUSE_TEXT_FORMAT_RULE,
-  MAX_GENERATED_VISUALS_PER_LESSON,
+  MAX_LESSON_QUIZ_QUESTIONS,
   ORIGINAL_IMAGE_USAGE_RULES,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
@@ -83,9 +85,9 @@ ${scopeRules}
 ${buildImageRules(input.imageCandidates.length > 0)}
 
 PAUSE ATTIVE:
-- contentBlocks puo contenere da zero a tre pause attive. Usa il numero minimo necessario; non aggiungere una pausa per raggiungere un numero prefissato.
-- Ogni pausa e un blocco inline-quiz autosufficiente collocato dopo un blocco markdown che contiene tutte le informazioni necessarie. Tra quel markdown e la pausa possono esserci visuali generati o clip YouTube pertinenti; una pausa consuma il contesto esplicativo, quindi non inserire due inline-quiz consecutive. Non raggrupparle in fondo e non usare marker o un array quiz separato.
-- Ogni pausa richiede applicazione, confronto, inferenza, diagnosi, classificazione, sequenziamento, micro-sintesi o previsione. Se la risposta e una parafrasi del testo locale, trasformala in un caso nuovo oppure rimuovila.
+- contentBlocks puo contenere da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Usa il numero minimo necessario; non aggiungere una pausa per raggiungere un numero prefissato.
+- ${ACTIVE_PAUSE_PLACEMENT_RULE}
+- ${ACTIVE_PAUSE_REASONING_RULE}
 - ${ACTIVE_PAUSE_OPTIONS_RULE}
 - ${ACTIVE_PAUSE_TEXT_FORMAT_RULE}
 - exerciseType deve appartenere a questo catalogo e descrivere davvero l'operazione mentale richiesta dalla domanda:
@@ -96,7 +98,7 @@ VIDEO:
 ${YOUTUBE_CLIP_PEDAGOGY_RULES}
 
 VISUALI GENERATI:
-- Decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} punti in cui un visuale migliora davvero la comprensione. Ogni blocco generated-visual deve avere esattamente un piano generatedVisuals con lo stesso slotId e viceversa.
+- Ogni blocco generated-visual deve avere esattamente un piano generatedVisuals con lo stesso slotId e viceversa.
 - Ogni piano descrive obiettivo pedagogico, requisiti fattuali, direzione visuale e formato. Non generare qui il codice: verra prodotto dal renderer configurato.
 ${LESSON_VISUAL_PLANNING_RULES}
 
