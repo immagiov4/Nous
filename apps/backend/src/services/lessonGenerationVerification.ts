@@ -10,6 +10,7 @@ import {
   buildLessonContinuityRule,
   FORMULA_RELEVANCE_RULE,
   LESSON_ASCII_VISUAL_RULE,
+  LESSON_POSITIVE_DEFINITION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SELF_SUFFICIENCY_RULE,
   SYSTEM_INSTRUCTION_TEACHER,
@@ -56,6 +57,7 @@ export type LessonVerificationStructuralCheckId =
   | 'image-reference'
   | 'markdown-structure'
   | 'math-structure'
+  | 'positive-definition'
   | 'quiz-quality'
   | 'quiz-text'
   | 'self-sufficiency'
@@ -68,7 +70,8 @@ const IMAGE_REFERENCE_CHECK =
 const YOUTUBE_STRUCTURE_CHECK =
   'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
 const CODE_STRUCTURE_CHECK =
-  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido; correggi anche frammenti tecnici rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice.';
+  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido; correggi anche frammenti tecnici rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice. Se non contiene materiale tecnico di questo tipo, segna il controllo come non-applicable.';
+const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} Se la bozza contiene matematica, correggi delimitatori o graffe KaTeX non bilanciati, inclusi delimitatori $, \\(, \\), \\[, \\] lasciati orfani. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico. Se non contiene matematica, segna il controllo come not-applicable.`;
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -101,132 +104,9 @@ const buildVerificationSchema = (
   },
 });
 
-const countLeadingRun = (value: string, character: '`' | '~'): number => {
-  let count = 0;
-  while (value[count] === character) count += 1;
-  return count;
-};
-
-const isEscaped = (value: string, index: number): boolean => {
-  let backslashes = 0;
-  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
-    backslashes += 1;
-  }
-  return backslashes % 2 === 1;
-};
-
-const isAsciiDigit = (value: string | undefined): boolean =>
-  value !== undefined && value >= '0' && value <= '9';
-
-const isAsciiLetter = (value: string | undefined): boolean =>
-  value !== undefined && ((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z'));
-
-const hasLaterSingleDollar = (value: string, startIndex: number): boolean => {
-  for (let index = startIndex + 1; index < value.length; index += 1) {
-    if (value[index] !== '$' || isEscaped(value, index)) continue;
-    if (value[index - 1] === '$' || value[index + 1] === '$') continue;
-    return true;
-  }
-  return false;
-};
-
-const isLikelyCurrencyAmount = (value: string, dollarIndex: number): boolean => {
-  if (!isAsciiDigit(value[dollarIndex + 1]) || hasLaterSingleDollar(value, dollarIndex))
-    return false;
-
-  let cursor = dollarIndex + 1;
-  while (isAsciiDigit(value[cursor])) cursor += 1;
-  if ((value[cursor] === '.' || value[cursor] === ',') && isAsciiDigit(value[cursor + 1])) {
-    cursor += 1;
-    while (isAsciiDigit(value[cursor])) cursor += 1;
-  }
-
-  const immediatelyAfterNumber = value[cursor];
-  if (immediatelyAfterNumber === undefined) return true;
-  if (isAsciiLetter(immediatelyAfterNumber)) return false;
-  if ('.;,!?'.includes(immediatelyAfterNumber)) return true;
-  if (immediatelyAfterNumber.trim() !== '') return false;
-
-  while (value[cursor]?.trim() === '') cursor += 1;
-  const nextNonSpace = value[cursor];
-  return (
-    nextNonSpace === undefined || isAsciiLetter(nextNonSpace) || '.;,!?'.includes(nextNonSpace)
-  );
-};
-
-const hasInlineDollarMath = (value: string): boolean => {
-  let openingIndex: number | null = null;
-  for (let index = 0; index < value.length; index += 1) {
-    if (value[index] !== '$' || isEscaped(value, index)) continue;
-    if (value[index - 1] === '$' || value[index + 1] === '$') continue;
-
-    if (openingIndex === null) {
-      const next = value[index + 1];
-      if (!next || next.trim() === '') continue;
-      if (isLikelyCurrencyAmount(value, index)) continue;
-      openingIndex = index;
-      continue;
-    }
-
-    const previous = value[index - 1];
-    if (previous && previous.trim() !== '') return true;
-
-    const next = value[index + 1];
-    openingIndex = next && next.trim() !== '' ? index : null;
-  }
-
-  return openingIndex !== null;
-};
-
-const markdownHasMathSyntax = (markdown: string): boolean => {
-  let activeFence: { character: '`' | '~'; length: number } | null = null;
-
-  for (const line of markdown.split('\n')) {
-    const trimmed = line.trimStart();
-    const first = trimmed[0];
-    if (first === '`' || first === '~') {
-      const length = countLeadingRun(trimmed, first);
-      if (length >= 3) {
-        if (!activeFence) {
-          activeFence = { character: first, length };
-        } else if (activeFence.character === first && length >= activeFence.length) {
-          activeFence = null;
-        }
-        continue;
-      }
-    }
-
-    if (activeFence) continue;
-    if (
-      line.includes('\\(') ||
-      line.includes('\\)') ||
-      line.includes('\\[') ||
-      line.includes('\\]') ||
-      line.includes('\\begin{') ||
-      line.includes('\\end{') ||
-      line.includes('$$') ||
-      hasInlineDollarMath(line)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-const collectMathCheckText = (draft: LessonContentDraft): string =>
-  draft.contentBlocks
-    .flatMap(block => {
-      if (block.type === 'markdown') return [block.markdown];
-      if (block.type === 'inline-quiz') return [block.quiz.question, ...block.quiz.options];
-      return [];
-    })
-    .join('\n');
-
 export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
-  const mathCheckText = collectMathCheckText(draft);
   const hasQuiz = draft.contentBlocks.some(block => block.type === 'inline-quiz');
   const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
   const hasGeneratedVisual =
@@ -236,30 +116,45 @@ export const buildApplicableLessonVerificationCheckIds = (
 
   const checkIds: LessonVerificationStructuralCheckId[] = [
     'markdown-structure',
+    'positive-definition',
     'self-sufficiency',
     'ascii-visual',
     'code-structure',
+    'math-structure',
   ];
 
   if (hasQuiz) checkIds.push('quiz-quality', 'quiz-text');
   if (hasImageRefs) checkIds.push('image-reference');
   if (hasGeneratedVisual) checkIds.push('generated-visual');
   if (hasYoutube) checkIds.push('youtube-structure');
-  if (markdownHasMathSyntax(mathCheckText)) checkIds.push('math-structure');
 
   return checkIds;
+};
+
+export const buildRequiredLessonVerificationCheckIds = (
+  input: Pick<LessonGenerationInput, 'instructionPacks'>,
+  draft: LessonContentDraft
+): string[] => {
+  const semanticIds = buildLessonVerificationChecklist(input.instructionPacks).map(
+    item => item.checkId
+  );
+  return [...semanticIds, ...buildApplicableLessonVerificationCheckIds(draft)];
 };
 
 const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCheckId): string => {
   switch (checkId) {
     case 'markdown-structure':
       return MARKDOWN_STRUCTURE_CHECK;
+    case 'positive-definition':
+      return LESSON_POSITIVE_DEFINITION_RULE;
     case 'self-sufficiency':
       return LESSON_SELF_SUFFICIENCY_RULE;
     case 'ascii-visual':
       return LESSON_ASCII_VISUAL_RULE;
     case 'code-structure':
       return CODE_STRUCTURE_CHECK;
+    case 'math-structure':
+      return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
       return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa deve avere quattro opzioni distinte e non deve poter essere risolta copiando o riconoscendo una definizione locale.`;
     case 'quiz-text':
@@ -270,8 +165,6 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
       return `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${GENERATED_VISUAL_RELEVANCE_RULE} ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}`;
     case 'youtube-structure':
       return `${YOUTUBE_STRUCTURE_CHECK}\n${YOUTUBE_CLIP_PEDAGOGY_RULES}`;
-    case 'math-structure':
-      return `${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati, inclusi delimitatori $, \\(, \\), \\[, \\] lasciati orfani. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico.`;
   }
 };
 
@@ -281,7 +174,6 @@ const buildLessonVerificationPrompt = (
 ): string => {
   const checklist = buildLessonVerificationChecklist(input.instructionPacks);
   const structuralCheckIds = buildApplicableLessonVerificationCheckIds(draft);
-  const structuralChecks = structuralCheckIds.map(buildStructuralCheckInstruction);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   return `RIFERIMENTI DELLA LEZIONE:
 ${buildLessonGenerationReferenceContext(input)}
@@ -291,18 +183,20 @@ ${JSON.stringify(draft)}
 
 COMPITO DI VERIFICA:
 Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
-Per ogni controllo, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto: non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
+Per ogni checkId elencato sotto, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto. Non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
+Compila esattamente una voce verificationReport per ciascun checkId, inclusi i controlli strutturali. Usa not-applicable solo quando l'istruzione lo consente e il contenuto corrispondente non esiste nella bozza.
 
 VINCOLI DI CONTINUITA E FOCUS SEMPRE OBBLIGATORI:
 - ${continuityRule}
 ${LESSON_SCOPE_RULES.map(rule => `- ${rule}`).join('\n')}
 
-CHECKLIST OBBLIGATORIA:
-Compila esattamente una voce verificationReport per ciascun checkId:
+CHECKLIST SEMANTICA OBBLIGATORIA:
 ${checklist.map(item => `- ${item.checkId}: ${item.instruction}`).join('\n')}
 
-CONTROLLI STRUTTURALI APPLICABILI A QUESTA BOZZA:
-${structuralChecks.map(check => `- ${check}`).join('\n')}
+CONTROLLI STRUTTURALI OBBLIGATORI:
+${structuralCheckIds
+  .map(checkId => `- ${checkId}: ${buildStructuralCheckInstruction(checkId)}`)
+  .join('\n')}
 
 Restituisci soltanto il JSON verificato con verificationReport, senza testo esterno.`;
 };
@@ -314,8 +208,7 @@ export const verifyLessonContentDraft = async (input: {
 }): Promise<LessonContentDraft> => {
   const generationInput = input.generationInput;
   const prompt = buildLessonVerificationPrompt(generationInput, input.draft);
-  const checklist = buildLessonVerificationChecklist(generationInput.instructionPacks);
-  const checkIds = checklist.map(item => item.checkId);
+  const checkIds = buildRequiredLessonVerificationCheckIds(generationInput, input.draft);
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
   let verified: VerifiedLessonContentDraft;
   if (resolveAiProviderForSlot(generationInput.config, 'lesson') === 'codex') {
