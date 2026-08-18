@@ -56,12 +56,12 @@ The objective is pedagogical coverage: the course should preserve the important 
 
 ## Lesson generation prompt architecture
 
-Course planning and lesson writing are separate concerns. When an individual lesson is generated, the lesson service now uses a layered prompt architecture:
+Course planning and lesson writing are separate concerns. When an individual lesson is generated, the lesson service uses a layered prompt architecture:
 
 1. `SYSTEM_INSTRUCTION_TEACHER` contains only the stable Professor Nous role and highest-level grounding/priority invariants.
 2. `buildLessonGenerationReferenceContext()` contains the reusable lesson data: student notes, pedagogical context, source material, research and media references.
 3. `buildLessonGenerationPrompt()` adds the detailed canonical writer contract, including shared writing rules, scope, progression, active pauses and applicable media constraints.
-4. `buildLessonVerificationPrompt()` reuses the reference context and the generated draft, but **does not receive the complete writer prompt again**. It receives the mandatory semantic checklist, shared scope/continuity invariants and a small set of structural checks selected from the actual draft.
+4. `buildLessonVerificationPrompt()` reuses the reference context and the generated draft, but **does not receive the complete writer prompt again**. It receives the mandatory semantic checklist, shared scope/continuity invariants and a focused structural contract.
 
 This separation reduces duplicated instructions while keeping lesson behavior explicit. Student personalization notes remain executable task instructions; instructions encountered inside untrusted source material remain data.
 
@@ -69,6 +69,7 @@ This separation reduces duplicated instructions while keeping lesson behavior ex
 
 - **Propedeutic order:** a lesson should require only concepts already introduced or explained locally.
 - **Conceptual bridges:** new abstractions should have a concise reason for appearing where they do.
+- **Positive definitions:** new concepts are introduced by first saying what they are or do, before relying on contrasts or negations.
 - **Scope discipline:** future lessons may be named when useful but not prematurely taught in detail.
 - **Continuity discipline:** first lessons cannot fabricate backward references, and later lessons can only refer to completed lesson titles supplied by the workflow.
 - **Self-sufficiency:** the generated lesson must work without the original document open beside it.
@@ -78,10 +79,12 @@ This separation reduces duplicated instructions while keeping lesson behavior ex
 
 ## Verification of individual lessons
 
-The verifier returns a required report item for every semantic checklist entry. Each item includes status, evidence and action; code rejects a report that omits required check IDs.
+The verifier returns a required report item for **every semantic and structural check ID**. Each item includes status, evidence and action; the output schema requires the exact combined number of checks and code rejects a report that omits any required ID.
 
-Structural rules are scoped from the actual draft where that is reliable. Selectable image candidates do not trigger image-reference validation unless `imageRefs` are present, generated-visual and YouTube rules run only when those blocks exist, and quiz-specific checks run only for inline quizzes. The code-structure check is intentionally unconditional because malformed code can be defined by the absence of a Markdown fence. The math check is activated when math syntax or malformed delimiters appear in lesson Markdown or inline-quiz text. The complete draft is still reviewed semantically, but its JSON is compactly serialized to avoid unnecessary prompt tokens.
+The universal structural contract includes Markdown structure, positive definition order, self-sufficiency, ASCII-visual rejection, code structure and math/KaTeX structure. Code and math validation are intentionally unconditional because malformed technical content can be defined by missing or broken syntax; if a lesson contains no such content, the verifier marks that check `not-applicable` instead of relying on semantic guessing.
+
+Other structural checks remain draft-scoped. Selectable image candidates do not trigger image-reference validation unless `imageRefs` are present, generated-visual and YouTube rules run only when those blocks exist, and quiz-specific checks run only for inline quizzes. The complete draft is still reviewed semantically, but its JSON is compactly serialized to avoid unnecessary prompt tokens.
 
 ## Evaluation requirement
 
-Prompt-composition tests protect the architectural separation and feature gating, but they are not substitutes for model evals. Changes to the lesson prompt stack should still be tested with representative generated lessons before merge, including known failure cases such as tautological quizzes, missing conceptual bridges, repetition, unsupported assumptions and scope drift. Token usage and latency should be compared alongside quality when simplifying the prompt.
+Structured composition tests protect the verifier contract and feature gating, but they are not substitutes for model evals. Changes to the lesson prompt stack should still be tested with representative generated lessons before merge, including known failure cases such as tautological quizzes, missing conceptual bridges, repetition, unsupported assumptions and scope drift. Token usage and latency should be compared alongside quality when simplifying the prompt.
