@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import type { LessonContentDraft } from '../../src/services/lessonGenerationTypes.js';
-import { buildApplicableLessonVerificationCheckIds } from '../../src/services/lessonGenerationVerification.js';
+import {
+  buildApplicableLessonVerificationCheckIds,
+  buildRequiredLessonVerificationCheckIds,
+} from '../../src/services/lessonGenerationVerification.js';
 
 const plainDraft: LessonContentDraft = {
   contentBlocks: [
@@ -16,14 +19,27 @@ const plainDraft: LessonContentDraft = {
 
 const BASE_CHECKS = [
   'markdown-structure',
+  'positive-definition',
   'self-sufficiency',
   'ascii-visual',
   'code-structure',
+  'math-structure',
 ] as const;
 
 describe('lesson verification prompt architecture', () => {
   test('keeps universal verifier invariants independent from optional draft features', () => {
     expect(buildApplicableLessonVerificationCheckIds(plainDraft)).toEqual(BASE_CHECKS);
+  });
+
+  test('requires report entries for semantic and structural checks', () => {
+    const requiredIds = buildRequiredLessonVerificationCheckIds(
+      { instructionPacks: [] },
+      plainDraft
+    );
+
+    expect(requiredIds).toContain('core.progression');
+    for (const checkId of BASE_CHECKS) expect(requiredIds).toContain(checkId);
+    expect(new Set(requiredIds).size).toBe(requiredIds.length);
   });
 
   test('enables feature-scoped checks from structured draft features', () => {
@@ -108,75 +124,6 @@ describe('lesson verification prompt architecture', () => {
       ...BASE_CHECKS,
       'quiz-quality',
       'quiz-text',
-    ]);
-  });
-
-  test('detects valid and malformed math while ignoring a plain currency amount', () => {
-    const validMathDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [{ markdown: 'La relazione e $x + 1 = 2$.', type: 'markdown' }],
-    };
-    expect(buildApplicableLessonVerificationCheckIds(validMathDraft)).toEqual([
-      ...BASE_CHECKS,
-      'math-structure',
-    ]);
-
-    const unmatchedOpeningDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [{ markdown: 'La variabile $x rappresenta lo stato.', type: 'markdown' }],
-    };
-    expect(buildApplicableLessonVerificationCheckIds(unmatchedOpeningDraft)).toEqual([
-      ...BASE_CHECKS,
-      'math-structure',
-    ]);
-
-    const numericLeadingDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [{ markdown: 'La retta $2x + 1 = 0', type: 'markdown' }],
-    };
-    expect(buildApplicableLessonVerificationCheckIds(numericLeadingDraft)).toEqual([
-      ...BASE_CHECKS,
-      'math-structure',
-    ]);
-
-    const orphanedClosingDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [{ markdown: 'La variabile x \\) rappresenta lo stato.', type: 'markdown' }],
-    };
-    expect(buildApplicableLessonVerificationCheckIds(orphanedClosingDraft)).toEqual([
-      ...BASE_CHECKS,
-      'math-structure',
-    ]);
-
-    const currencyDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [{ markdown: 'Il prezzo del servizio e $12 al mese.', type: 'markdown' }],
-    };
-    expect(buildApplicableLessonVerificationCheckIds(currencyDraft)).toEqual(BASE_CHECKS);
-  });
-
-  test('includes inline-quiz text in math detection', () => {
-    const quizMathDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [
-        ...plainDraft.contentBlocks,
-        {
-          quiz: {
-            correctIndex: 0,
-            exerciseType: 'concept-check',
-            options: ['La variabile $x resta aperta', 'B', 'C', 'D'],
-            question: 'Quale opzione contiene una formula valida?',
-          },
-          type: 'inline-quiz',
-        },
-      ],
-    };
-
-    expect(buildApplicableLessonVerificationCheckIds(quizMathDraft)).toEqual([
-      ...BASE_CHECKS,
-      'quiz-quality',
-      'quiz-text',
-      'math-structure',
     ]);
   });
 });
