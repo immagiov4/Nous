@@ -43,7 +43,7 @@ This block contains reference data but not the writer contract. Keeping the two 
 
 ### 3. Canonical writer contract
 
-`buildLessonGenerationPrompt()` combines the reference context with the detailed writing contract. The writer contract includes shared rules for progression, clarity, attribution, source precedence, research-to-lesson transformation, repetition, analogies, Markdown structure, active pauses and media behavior.
+`buildLessonGenerationPrompt()` combines the reference context with the detailed writing contract. The writer contract includes shared rules for substantive lesson coverage, progression, clarity, attribution, source integration and precedence, research-to-lesson transformation, repetition, analogies, Markdown structure, active pauses and media behavior.
 
 Student generation notes have high priority for style, density, pacing and similar preferences, but cannot override structural output, focus, safety or syntax constraints. That precedence is itself centralized in `LESSON_STUDENT_STYLE_OVERRIDE_RULE` so generation and verification do not maintain parallel interpretations of personalization.
 
@@ -51,7 +51,7 @@ Student generation notes have high priority for style, density, pacing and simil
 
 `buildLessonVerificationPrompt()` does **not** embed the complete writer prompt. It receives the reusable lesson context, the generated draft, the mandatory semantic checklist and a focused structural contract.
 
-The verifier reuses complete rule families when partial copies would create drift. `core.progression` receives the full canonical `LESSON_LOCAL_PROPEDEUTIC_RULES` family plus guided-novice handling, so prerequisite order, conceptual bridges, local notation explanations, controlled anticipation and difficulty-sensitive density move together. `core.clarity` receives the full `LESSON_LANGUAGE_CLARITY_RULES` family, including clear lexicon, technical-term explanation, acronym expansion, unnecessary-foreignism avoidance, content-preserving simplification and discursive register. `core.relevance` receives the full `LESSON_RELEVANCE_STYLE_RULES` family, including analogy limits, concrete-example preference, repetition control, non-decorative engagement and metadiscourse avoidance. Both style families reuse the same student-style precedence rule. `core.structure` adds technical-source structure and structured-comparison preservation only when reference material exists and research-to-lesson transformation only for research-only lessons. `core.correctness` applies named attribution whenever reference material is available and adds primary-source precedence only when a primary source exists.
+The verifier reuses complete rule families when partial copies would create drift. `core.coverage` requires substantive coverage of the title, description and pedagogical context rather than accepting an accurate outline; for source-backed lessons it also requires the primary source's distinctive relevant content to be integrated instead of replaced by a generic dossier-based explanation. `core.progression` receives the full canonical `LESSON_LOCAL_PROPEDEUTIC_RULES` family plus guided-novice handling, so prerequisite order, conceptual bridges, local notation explanations, controlled anticipation and difficulty-sensitive density move together. `core.clarity` receives the full `LESSON_LANGUAGE_CLARITY_RULES` family, including clear lexicon, technical-term explanation, acronym expansion, unnecessary-foreignism avoidance, content-preserving simplification and discursive register. `core.relevance` receives the full `LESSON_RELEVANCE_STYLE_RULES` family, including analogy limits, concrete-example preference, repetition control, non-decorative engagement and metadiscourse avoidance. Both style families reuse the same student-style precedence rule. `core.structure` adds technical-source structure and structured-comparison preservation only when reference material exists and research-to-lesson transformation only for research-only lessons. `core.correctness` applies named attribution whenever reference material is available and adds primary-source convention precedence only when a primary source exists.
 
 Media checks are activated either from concrete draft state, from source assets whose omission itself must be reviewed, or from explicit task requirements that the writer may have missed. `image-reference` runs when the draft contains `imageRefs` or selectable original image candidates exist and reuses the same original-image usage contract as the writer. `quiz-quality` and `generated-visual` remain available even when the draft omits those features so the verifier can restore an explicitly required active pause or generated visual; otherwise they return `not-applicable`. YouTube verification also activates when a timestamped YouTube transcript is available, allowing the verifier to decide whether an omitted motion-dependent demonstration should become a minimal clip.
 
@@ -75,6 +75,7 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 
 | Rule constant | Responsibility |
 | :--- | :--- |
+| `LESSON_COVERAGE_DEPTH_RULE` | Requires substantive coverage of the lesson's title, description and pedagogical context without turning future lessons into current scope. |
 | `LESSON_SHARED_WRITING_RULES` | General lesson prose behavior assembled from canonical sub-rules. |
 | `LESSON_LANGUAGE_CLARITY_RULES` | Canonical clear-language, terminology, acronym, foreignism, simplification and register family. |
 | `LESSON_RELEVANCE_STYLE_RULES` | Canonical analogy, example, repetition, engagement and metadiscourse family. |
@@ -86,11 +87,12 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | `LESSON_MAIN_PROSE_RULE` / `LESSON_LIST_STRUCTURE_RULE` | Keeps the lesson prose-led while using real Markdown lists where sibling structure warrants them. |
 | `LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE` / `LESSON_STRUCTURED_SOURCE_COMPARISON_RULE` | Preserve meaningful tables, matrices, captions, legends and structured comparisons. |
 | `LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE` | Keeps structured quiz/media/source artifacts out of Markdown blocks. |
-| `LESSON_CODE_FORMATTING_RULE` | Keeps code, pseudocode, commands and output inside valid fenced blocks. |
+| `LESSON_CODE_FORMATTING_RULE` | Uses fenced blocks for standalone or multiline technical examples while allowing short identifiers, API names, commands and fragments as inline code inside prose. |
 | `LESSON_POSITIVE_DEFINITION_RULE` | Requires a new concept to be defined positively before contrastive framing. |
 | `LESSON_HEADING_STRUCTURE_RULE` | Prevents repeated lesson titles, filler headings, near-duplicates and rigid foreign-language templates. |
 | `LESSON_SELF_SUFFICIENCY_RULE` | Keeps the lesson understandable without reopening the original source. |
 | `LESSON_NAMED_SOURCE_ATTRIBUTION_RULE` | Replaces opaque source references with a source/author name when known, or direct prose when no reliable name exists. |
+| `LESSON_PRIMARY_SOURCE_INTEGRATION_RULE` | Requires source-backed lessons to teach the primary source's distinctive relevant arguments, definitions, examples or technical passages rather than substituting generic dossier content. |
 | `LESSON_SOURCE_PRECEDENCE_RULE` | Keeps source-specific conventions authoritative over merely alternative dossier conventions. |
 | `LESSON_RESEARCH_TRANSFORMATION_RULE` | Converts research-only input into lesson prose instead of a point-by-point research report. |
 | `FORMULA_RELEVANCE_RULE` / `LESSON_KATEX_FORMATTING_RULE` | Keep mathematical notation meaningful, delimiters/braces valid and active LaTeX environments paired. |
@@ -99,7 +101,7 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 
 `packages/shared-types/lessonGenerationPolicy.ts` owns the active-pause placement, reasoning, option and text-format contracts plus the canonical `ORIGINAL_IMAGE_USAGE_RULES`. Generation and verification therefore reuse the same pause/media invariants instead of maintaining parallel prompt prose.
 
-Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verification checks only for lessons that materially need them, such as mathematics, code, technical sources or visual learning. The universal active-pause semantic check reuses the canonical reasoning rule from `lessonGenerationPolicy.ts`.
+Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verification checks only for lessons that materially need them, such as mathematics, code, technical sources or visual learning. The universal active-pause semantic check reuses the canonical reasoning rule from `lessonGenerationPolicy.ts`, and `core.coverage` reuses the canonical lesson-depth contract.
 
 ## Structured output schemas
 
@@ -108,6 +110,8 @@ Lesson generation remains schema-driven. `LESSON_JOB_RESPONSE_SCHEMA` requires s
 Each report item requires `checkId`, `status`, non-empty `evidence` and `action`. Verification status values have one canonical definition, the schema requires exactly the combined number of checks, and runtime validation also rejects whitespace-only evidence, duplicate/missing IDs or any required ID omission. The verification report is removed before the lesson draft continues through the pipeline.
 
 ## Verification behavior
+
+The semantic contract always includes explicit coverage/depth evaluation in addition to instructions, progression, clarity, correctness, structure, active-pause quality, relevance and integrity. Coverage is judged against the lesson reference context, not against content already present in the draft, so a short but accurate outline cannot pass merely because its individual claims are correct. Source-backed coverage additionally checks that distinctive relevant primary-source material survived generation.
 
 The base structural contract always includes Markdown/heading/prose/list structure, positive definition order, lesson self-sufficiency, the ASCII pseudo-visual prohibition, code structure, math/KaTeX structure, active-pause quality and generated-visual restoration/planning. Code and math checks are deliberately unconditional because malformed content can be defined by missing syntax; when the corresponding content does not exist, the verifier returns `not-applicable`. Quiz and generated-visual checks also remain available so an explicit student/task requirement can be restored even if the writer omitted the feature; when neither the draft nor the task requires the feature, they return `not-applicable`.
 
