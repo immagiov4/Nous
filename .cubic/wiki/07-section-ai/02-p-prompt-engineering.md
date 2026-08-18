@@ -9,11 +9,14 @@ wiki_page_id: "p-prompt-engineering"
 The following files were used as context for this page:
 
 - [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
+- [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts)
 - [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts)
 - [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts)
 - [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
 - [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
+- [apps/backend/src/services/lessonGenerationCorrection.ts](../../../apps/backend/src/services/lessonGenerationCorrection.ts)
 - [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
+- [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
 - [packages/shared-types/lessonVisualContracts.ts](../../../packages/shared-types/lessonVisualContracts.ts)
 - [AGENTS.md](../../../AGENTS.md)
 </details>
@@ -47,6 +50,8 @@ This block contains reference data but not the writer contract. Keeping the two 
 
 Student generation notes have high priority for style, density, pacing and similar preferences, but cannot override structural output, focus, safety or syntax constraints. That precedence is itself centralized in `LESSON_STUDENT_STYLE_OVERRIDE_RULE` so generation and verification do not maintain parallel interpretations of personalization.
 
+`LESSON_FIRST_EXPOSURE_RULE` additionally protects the first meaningful encounter with a concept. A heading, lead sentence, label or metaphor used as the concept's name must make its positive meaning understandable before the lesson frames that concept through negation, contrast or limitation. This is stricter than merely requiring a positive definition somewhere later in the same section.
+
 ### 4. Focused verifier contract
 
 `buildLessonVerificationPrompt()` does **not** embed the complete writer prompt. It receives the reusable lesson context, the generated draft, the mandatory semantic checklist and a focused structural contract.
@@ -71,7 +76,7 @@ flowchart TD
 
 ## Shared writing contracts
 
-The main shared constants live in `packages/shared-types/lessonWritingContract.ts`:
+The main shared constants live in `packages/shared-types/lessonWritingContract.ts`, with cross-cutting first-exposure pedagogy in `lessonPedagogyContracts.ts`:
 
 | Rule constant | Responsibility |
 | :--- | :--- |
@@ -88,6 +93,7 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | `LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE` / `LESSON_STRUCTURED_SOURCE_COMPARISON_RULE` | Preserve meaningful tables, matrices, captions, legends and structured comparisons. |
 | `LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE` | Keeps structured quiz/media/source artifacts out of Markdown blocks. |
 | `LESSON_CODE_FORMATTING_RULE` | Uses fenced blocks for standalone or multiline technical examples while allowing short identifiers, API names, commands and fragments as inline code inside prose. |
+| `LESSON_FIRST_EXPOSURE_RULE` | Requires the first meaningful exposure to a concept, including headings and metaphorical labels, to establish positive meaning before negation or contrast. |
 | `LESSON_POSITIVE_DEFINITION_RULE` | Requires a new concept to be defined positively before contrastive framing. |
 | `LESSON_HEADING_STRUCTURE_RULE` | Prevents repeated lesson titles, filler headings, near-duplicates and rigid foreign-language templates. |
 | `LESSON_SELF_SUFFICIENCY_RULE` | Keeps the lesson understandable without reopening the original source. |
@@ -113,7 +119,7 @@ Each report item requires `checkId`, `status`, non-empty `evidence` and `action`
 
 The semantic contract always includes explicit coverage/depth evaluation in addition to instructions, progression, clarity, correctness, structure, active-pause quality, relevance and integrity. Coverage is judged against the lesson reference context, not against content already present in the draft, so a short but accurate outline cannot pass merely because its individual claims are correct. Source-backed coverage additionally checks that distinctive relevant primary-source material survived generation.
 
-The base structural contract always includes Markdown/heading/prose/list structure, positive definition order, lesson self-sufficiency, the ASCII pseudo-visual prohibition, code structure, math/KaTeX structure, active-pause quality and generated-visual restoration/planning. Code and math checks are deliberately unconditional because malformed content can be defined by missing syntax; when the corresponding content does not exist, the verifier returns `not-applicable`. Quiz and generated-visual checks also remain available so an explicit student/task requirement can be restored even if the writer omitted the feature; when neither the draft nor the task requires the feature, they return `not-applicable`.
+The base structural contract always includes Markdown/heading/prose/list structure, first-exposure and positive-definition order, lesson self-sufficiency, the ASCII pseudo-visual prohibition, code structure, math/KaTeX structure, active-pause quality and generated-visual restoration/planning. Code and math checks are deliberately unconditional because malformed content can be defined by missing syntax; when the corresponding content does not exist, the verifier returns `not-applicable`. Quiz and generated-visual checks also remain available so an explicit student/task requirement can be restored even if the writer omitted the feature; when neither the draft nor the task requires the feature, they return `not-applicable`.
 
 Other structural checks are activated only when their review can affect the lesson:
 
@@ -124,8 +130,16 @@ After verification returns, the service recomputes structural requirements again
 
 The complete draft is still supplied to the verifier because semantic review requires the full lesson, but it is serialized compactly rather than pretty-printed to avoid unnecessary input tokens.
 
+## Corrective retries and observability
+
+Lesson model stages distinguish a correctable model-contract failure from a provider or infrastructure failure. Coverage, research, drafting and verification receive durable `retryFeedback` when a previous attempt failed for a known deterministic reason. Structured-output failures and deterministic post-validation failures are converted into `corrective` workflow failures with a stable internal code and developer-authored feedback; the next attempt injects that feedback into the relevant model prompt instead of blindly repeating the same request.
+
+The same rule applies to verifier post-checks such as incomplete `verificationReport` evidence, unauthorized structural features, invalid inline-quiz placement and unbalanced LaTeX environments. These failures retain a safe, specific reason in durable workflow state and can therefore be diagnosed from persisted attempts. Unknown exceptions and provider failures remain operational and use bounded sanitized diagnostics: arbitrary raw provider/model error text is not persisted merely to improve observability, because it may contain sensitive request data.
+
+This separation means retries should either repair a concrete known defect or recover from a genuinely transient operational fault. A deterministic validation rejection must not silently become a blind operational rerun of identical model input.
+
 ## Why the layering matters
 
 The previous verifier received the complete generation prompt plus another checklist and another structural rule block. That duplicated multiple semantic requirements and made simple checks compete with unrelated generation instructions. The focused architecture keeps critical rules explicit while reducing prompt surface and maintenance duplication.
 
-Changes to this architecture should be evaluated against representative lesson failures and real generation behavior. Unit tests lock down structured check composition and optional-feature authorization; model-quality, token and latency comparisons still require generation/evaluation runs with the configured production-like models before merge.
+Changes to this architecture should be evaluated against representative lesson failures and real generation behavior. Unit tests lock down structured check composition, optional-feature authorization and corrective feedback propagation; model-quality, token and latency comparisons still require generation/evaluation runs with the configured production-like models before merge.
