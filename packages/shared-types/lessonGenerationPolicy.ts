@@ -62,7 +62,10 @@ export const ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE: ReadonlyArray<{
 ];
 
 export const ACTIVE_PAUSE_OPTIONS_RULE =
-  'Ogni pausa ha quattro opzioni testualmente distinte e distrattori plausibili rispetto al concetto verificato: le alternative errate devono rappresentare confusioni realistiche, non risposte palesemente assurde. Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence.';
+  'Ogni pausa ha quattro opzioni testualmente distinte e distrattori plausibili rispetto al concetto verificato: le alternative errate devono rappresentare confusioni realistiche, non risposte palesemente assurde.';
+
+export const ACTIVE_PAUSE_TEXT_FORMAT_RULE =
+  'Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence; preserva soltanto eventuale codice inline interno.';
 
 export const ORIGINAL_IMAGE_PRIORITY_RULE =
   "Quando nei riferimenti e disponibile un'immagine originale chiara, pertinente e specifica della fonte — per esempio una schermata, un oggetto, un caso o un diagramma complesso proprio del documento — preferiscila a una visuale generata equivalente. Genera una sostituzione solo quando l'originale non copre la stessa esigenza pedagogica o non e sufficientemente leggibile.";
