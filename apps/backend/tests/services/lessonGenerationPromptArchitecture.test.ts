@@ -125,5 +125,13 @@ describe('lesson verification prompt architecture', () => {
       'quiz-quality',
       'quiz-text',
     ]);
+
+    const requiredQuizIds = buildRequiredLessonVerificationCheckIds(
+      { instructionPacks: [] },
+      quizDraft
+    );
+    expect(requiredQuizIds).toContain('quiz-quality');
+    expect(requiredQuizIds).toContain('quiz-text');
+    expect(new Set(requiredQuizIds).size).toBe(requiredQuizIds.length);
   });
 });
