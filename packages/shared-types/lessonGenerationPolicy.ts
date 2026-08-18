@@ -73,6 +73,9 @@ export const LESSON_VISUAL_TYPES = [
 
 export type LessonVisualType = (typeof LESSON_VISUAL_TYPES)[number];
 
+export const GENERATED_VISUAL_RELEVANCE_RULE =
+  'Non generare visuali decorative. Ogni visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non limitarsi a riassumerlo o parafrasarlo; usa soltanto il numero minimo di visuali necessario.';
+
 export const INTERACTIVE_VISUAL_VALUE_RULE =
   'Tratta interactive_html come un formato costoso: usalo solo quando l’utente deve esplorare, modificare o confrontare stati e questa interazione produce una comprensione importante che testo, video o una o due immagini statiche non possono offrire altrettanto bene. Non usarlo per dimostrazioni cosmetiche, controlli banali o esempi statici travestiti da interattivi; se l’interazione non è essenziale, scegli il formato più semplice.';
 
