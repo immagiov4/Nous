@@ -62,8 +62,8 @@ Course planning and lesson writing are separate concerns. When an individual les
 
 1. `SYSTEM_INSTRUCTION_TEACHER` contains only the stable Professor Nous role and highest-level grounding/priority invariants.
 2. `buildLessonGenerationReferenceContext()` contains the reusable lesson data: student notes, pedagogical context, source material, research and media references.
-3. `buildLessonGenerationPrompt()` adds the detailed canonical writer contract, including shared writing rules, scope, progression, active pauses and applicable media constraints.
-4. `buildLessonVerificationPrompt()` reuses the reference context and the generated draft, but **does not receive the complete writer prompt again**. It receives the mandatory semantic checklist, shared scope/continuity invariants and a focused structural contract.
+3. `buildLessonGenerationPrompt()` adds the detailed canonical writer contract, including shared writing rules, scope, progression, source precedence, active pauses and applicable media constraints.
+4. `buildLessonVerificationPrompt()` reuses the reference context and the generated draft, but **does not receive the complete writer prompt again**. It receives the mandatory semantic checklist, shared continuity/focus/source invariants and a focused structural contract.
 
 This separation reduces duplicated instructions while keeping lesson behavior explicit. Student personalization notes remain executable task instructions; instructions encountered inside untrusted source material remain data.
 
@@ -72,20 +72,22 @@ This separation reduces duplicated instructions while keeping lesson behavior ex
 - **Propedeutic order:** a lesson should require only concepts already introduced or explained locally.
 - **Conceptual bridges:** new abstractions should have a concise reason for appearing where they do.
 - **Positive definitions:** new concepts are introduced by first saying what they are or do, before relying on contrasts or negations.
+- **Heading discipline:** the lesson title is not repeated inside Markdown and headings cannot be filler or near-duplicates.
 - **Scope discipline:** future lessons may be named when useful but not prematurely taught in detail.
 - **Continuity discipline:** first lessons cannot fabricate backward references, and later lessons can only refer to completed lesson titles supplied by the workflow.
+- **Source precedence:** for source-backed courses, a merely alternative dossier convention cannot silently replace a valid convention specific to the primary material.
 - **Self-sufficiency:** the generated lesson must work without the original document open beside it.
-- **Formula relevance:** mathematical notation is used only when it adds real precision.
-- **Active pauses:** questions should require discrimination, application, inference or synthesis rather than copying a nearby definition.
+- **Formula relevance and syntax:** mathematical notation is used only when it adds real precision; literal LaTeX commands are rendered as inline code so they are not mistaken for active environments.
+- **Active pauses:** questions should require discrimination, application, inference or synthesis rather than copying a nearby definition, and `exerciseType` must describe the operation actually required.
 - **Visual integrity:** ASCII pseudo-visuals are rejected in favor of dedicated visual renderers.
 
 ## Verification of individual lessons
 
-The verifier returns a required report item for **every semantic and structural check ID**. Each item includes status, evidence and action; the output schema requires the exact combined number of checks and code rejects a report that omits any required ID.
+The verifier returns a required report item for **every semantic and structural check ID**. Each item includes status, non-empty evidence and action; the output schema requires the exact combined number of checks and runtime validation rejects missing/duplicate IDs or whitespace-only evidence.
 
-The universal structural contract includes Markdown structure, positive definition order, self-sufficiency, ASCII-visual rejection, code structure and math/KaTeX structure. Code and math validation are intentionally unconditional because malformed technical content can be defined by missing or broken syntax; if a lesson contains no such content, the verifier marks that check `not-applicable` instead of relying on semantic guessing.
+The universal structural contract includes Markdown/heading structure, positive definition order, self-sufficiency, ASCII-visual rejection, code structure and math/KaTeX structure. Code and math validation are intentionally unconditional because malformed technical content can be defined by missing or broken syntax; if a lesson contains no such content, the verifier marks that check `not-applicable` instead of relying on semantic guessing.
 
-Other structural checks remain scoped to concrete media state and available source assets. `image-reference` runs when the draft already contains `imageRefs` **or** original image candidates are available, so the verifier can catch both invalid references and omission of a clearly useful source image. Generated-visual and YouTube rules run only when those blocks exist, and quiz-specific checks run only for inline quizzes. A generated-visual check also re-applies source-image priority so an equivalent paid rendering cannot silently replace a better original asset.
+Other structural checks remain scoped to concrete media state and available source assets. `image-reference` runs when the draft already contains `imageRefs` **or** original image candidates are available, so the verifier can catch invalid references and omission of a clearly useful source image. Source-image selection remains proportional when multiple equivalent candidates exist. Generated-visual and YouTube rules run only when those blocks exist; generated visuals re-apply the full visual planning contract and source-image priority, while YouTube verification removes duplicate/equivalent intervals. Quiz-specific checks run only for inline quizzes and verify both the quality of the operation and consistency of `exerciseType`.
 
 The verifier is not allowed to introduce a new optional feature type that was outside the structural contract computed for the verification pass. After the model returns, the service recomputes applicable structural IDs and rejects the result if a newly introduced quiz, image reference, generated visual or YouTube block would require a check that was not run.
 
