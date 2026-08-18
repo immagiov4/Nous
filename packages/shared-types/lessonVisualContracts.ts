@@ -1,4 +1,5 @@
 import {
+  GENERATED_VISUAL_RELEVANCE_RULE,
   INTERACTIVE_VISUAL_VALUE_RULE,
   MAX_GENERATED_VISUALS_PER_LESSON,
   MAX_VISUAL_LESSON_CHARS,
@@ -150,18 +151,18 @@ L'immagine deve essere autonoma, accurata e immediatamente leggibile. Nessuna in
 CONTESTO FATTUALE DELLA LEZIONE
 ${input.lessonMarkdown.slice(0, 3_000)}`;
 
-export const LESSON_VISUAL_PLANNING_RULES = `- ${INTERACTIVE_VISUAL_VALUE_RULE}
+export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE}
+- ${INTERACTIVE_VISUAL_VALUE_RULE}
 - ${VISUAL_FORMAT_SELECTION_RULE}
 - Per la generazione automatica pianifica normalmente zero o un artefatto, due solo se rispondono a domande pedagogiche diverse e complementari, tre solo se sono tutti indispensabili. Mai produrre varianti estetiche dello stesso contenuto.
 - La varieta dei formati non e mai un obiettivo. Due o tre immagini raster sono corrette quando sono la soluzione pedagogica migliore.
 - Non simulare immagini con ASCII art, testo monospace, celle, coordinate, box geometrici o SVG. Se l'aspetto concreto conta, usa illustrative_image.
-- Non generare visuali decorative. Ogni visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non limitarsi a riassumerlo o parafrasarlo.
 - Ogni piano deve restare nella sezione locale in cui e collocato: non anticipare concetti di sezioni successive e non fondere argomenti lontani.
 - La visuale deve essere comprensibile in pochi secondi usando termini naturali gia introdotti nel testo vicino. Vietati gergo inventato, etichette esoteriche, formule nominali ambigue e controlli dal risultato non osservabile.
 - Se la lezione presenta un insieme di elementi equivalenti, la visuale deve rappresentarli tutti. Usa single_complex soltanto quando un elemento e oggettivamente piu complesso e giustifica l'eccezione in reason.
 - Niente narrazione, takeaway, riepiloghi o box conclusivi dentro la visuale. Il testo visibile deve servire a leggere entita, stati, relazioni o controlli.
 - Scala il layout al numero di elementi: con molti elementi usa griglie o colonne compatte, minimizza le entita grafiche e abbrevia le etichette invece di comprimere il contenuto.
-- Restituisci da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} piani e usa soltanto il numero minimo necessario.`;
+- Restituisci da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} piani.`;
 
 export const LESSON_VISUAL_PLANNER_SYSTEM_PROMPT = `SYSTEM:
 Sei un pianificatore pedagogico di esempi visivi per Nous Reader.
