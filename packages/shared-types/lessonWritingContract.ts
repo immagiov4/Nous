@@ -24,6 +24,11 @@ export const LESSON_SCOPE_RULES = [
   'Se la lezione ha gia esaurito il suo focus, chiudi con naturalezza: non allungarla per forza.',
 ] as const;
 
+export const buildLessonContinuityRule = (previousLessonTitles: readonly string[]): string =>
+  previousLessonTitles.length === 0
+    ? "PRIMA LEZIONE: non citare lezioni precedenti, capitoli gia visti, 'come abbiamo accennato', 'come vedremo' o altre formule di continuita retroattiva."
+    : 'Se fai riferimenti al percorso, usa soltanto i titoli delle lezioni completate forniti e non inventare contenuti gia trattati.';
+
 export const LESSON_ASCII_VISUAL_RULE =
   'Non simulare esempi visivi con ASCII art, righe di caratteri ripetuti, lettere usate come pixel, blocchi monospace o tabelle di simboli: gli esempi visivi vengono prodotti dai renderer dedicati.';
 
