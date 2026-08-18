@@ -59,7 +59,7 @@ Student generation notes have high priority for style, density, pacing and simil
 
 Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material or continues beyond the current lesson focus. The verifier also retains product-wide invariants such as positive first definitions, self-sufficiency, valid code and math formatting, and the prohibition on ASCII pseudo-visuals.
 
-Feature-specific media checks are activated from draft-owned evidence rather than merely from available capabilities. Selectable image candidates do not trigger `image-reference` validation unless the draft actually contains `imageRefs`; however, whenever the draft requests a generated visual, the `generated-visual` check also evaluates `ORIGINAL_IMAGE_PRIORITY_RULE` against the original-image candidates in the shared reference context so an available source asset is not silently replaced by an equivalent generated visual.
+Feature-specific media checks are activated from concrete draft state or from source assets whose omission itself must be reviewed. In particular, `image-reference` runs when the draft contains `imageRefs` or when selectable original image candidates exist. The same source-image priority rule is also applied inside `generated-visual`, so an available source-specific diagram or screenshot is not silently replaced by an equivalent generated visual.
 
 ```mermaid
 flowchart TD
@@ -107,7 +107,7 @@ The verifier is designed to make a small model inspect the actual artifact inste
 
 The base structural contract always includes:
 
-- Markdown structure;
+- Markdown structure, including the location-independent prohibition on structured source lists and bibliographies;
 - positive definition order;
 - lesson self-sufficiency;
 - the ASCII pseudo-visual prohibition;
@@ -116,12 +116,14 @@ The base structural contract always includes:
 
 Code and math checks are deliberately unconditional because their most important failure mode can be malformed or missing syntax that cannot be reliably feature-gated without semantic guessing. When the corresponding content does not exist, the verifier returns `not-applicable`.
 
-Other structural checks remain draft-scoped:
+Other structural checks are activated only when their review can affect the lesson:
 
-- quiz checks only when `inline-quiz` blocks exist;
-- `image-reference` checks only when `imageRefs` exist;
-- generated-visual checks only when visual plans/blocks exist, and those checks also enforce source-image priority even if `imageRefs` is empty;
-- YouTube checks only when clip blocks exist.
+- quiz checks when `inline-quiz` blocks exist;
+- `image-reference` when `imageRefs` exist or original image candidates are available, allowing both reference validation and detection of an omitted useful source image;
+- generated-visual checks when visual plans/blocks exist; these include the full visual-planning contract and re-apply original-image priority;
+- YouTube checks when clip blocks exist.
+
+The verifier must not add an optional feature type that was outside the check set computed for the pass. After verification returns, the service recomputes the structural requirements against the returned draft and rejects it if a new quiz, image reference, generated visual or YouTube block would require a check that was never run. Original image candidates are accounted for before the pass, so adding a justified `imageRef` remains covered by `image-reference`.
 
 The complete draft is still supplied to the verifier because semantic review requires the full lesson, but it is serialized compactly rather than pretty-printed to avoid unnecessary input tokens.
 
