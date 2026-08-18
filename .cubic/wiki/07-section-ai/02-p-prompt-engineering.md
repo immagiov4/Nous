@@ -59,7 +59,7 @@ Student generation notes have high priority for style, density, pacing and simil
 
 Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material or continues beyond the current lesson focus. The verifier also retains product-wide invariants such as positive first definitions, self-sufficiency, valid code and math formatting, and the prohibition on ASCII pseudo-visuals.
 
-Feature-specific media checks are activated from draft-owned evidence rather than merely from available capabilities: for example selectable image candidates do not trigger `imageRef` validation unless the draft actually contains image references.
+Feature-specific media checks are activated from draft-owned evidence rather than merely from available capabilities. Selectable image candidates do not trigger `image-reference` validation unless the draft actually contains `imageRefs`; however, whenever the draft requests a generated visual, the `generated-visual` check also evaluates `ORIGINAL_IMAGE_PRIORITY_RULE` against the original-image candidates in the shared reference context so an available source asset is not silently replaced by an equivalent generated visual.
 
 ```mermaid
 flowchart TD
@@ -119,8 +119,8 @@ Code and math checks are deliberately unconditional because their most important
 Other structural checks remain draft-scoped:
 
 - quiz checks only when `inline-quiz` blocks exist;
-- original-image checks only when `imageRefs` exist;
-- generated-visual checks only when visual plans/blocks exist;
+- `image-reference` checks only when `imageRefs` exist;
+- generated-visual checks only when visual plans/blocks exist, and those checks also enforce source-image priority even if `imageRefs` is empty;
 - YouTube checks only when clip blocks exist.
 
 The complete draft is still supplied to the verifier because semantic review requires the full lesson, but it is serialized compactly rather than pretty-printed to avoid unnecessary input tokens.
