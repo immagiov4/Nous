@@ -111,7 +111,7 @@ describe('lesson verification prompt architecture', () => {
     ]);
   });
 
-  test('treats valid and malformed math delimiters as math but not a lone currency amount', () => {
+  test('detects valid and malformed math while ignoring a plain currency amount', () => {
     const validMathDraft: LessonContentDraft = {
       ...plainDraft,
       contentBlocks: [{ markdown: 'La relazione e $x + 1 = 2$.', type: 'markdown' }],
@@ -121,11 +121,29 @@ describe('lesson verification prompt architecture', () => {
       'math-structure',
     ]);
 
-    const malformedMathDraft: LessonContentDraft = {
+    const unmatchedOpeningDraft: LessonContentDraft = {
       ...plainDraft,
       contentBlocks: [{ markdown: 'La variabile $x rappresenta lo stato.', type: 'markdown' }],
     };
-    expect(buildApplicableLessonVerificationCheckIds(malformedMathDraft)).toEqual([
+    expect(buildApplicableLessonVerificationCheckIds(unmatchedOpeningDraft)).toEqual([
+      ...BASE_CHECKS,
+      'math-structure',
+    ]);
+
+    const numericLeadingDraft: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [{ markdown: 'La retta $2x + 1 = 0', type: 'markdown' }],
+    };
+    expect(buildApplicableLessonVerificationCheckIds(numericLeadingDraft)).toEqual([
+      ...BASE_CHECKS,
+      'math-structure',
+    ]);
+
+    const orphanedClosingDraft: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [{ markdown: 'La variabile x \\) rappresenta lo stato.', type: 'markdown' }],
+    };
+    expect(buildApplicableLessonVerificationCheckIds(orphanedClosingDraft)).toEqual([
       ...BASE_CHECKS,
       'math-structure',
     ]);
@@ -135,5 +153,30 @@ describe('lesson verification prompt architecture', () => {
       contentBlocks: [{ markdown: 'Il prezzo del servizio e $12 al mese.', type: 'markdown' }],
     };
     expect(buildApplicableLessonVerificationCheckIds(currencyDraft)).toEqual(BASE_CHECKS);
+  });
+
+  test('includes inline-quiz text in math detection', () => {
+    const quizMathDraft: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [
+        ...plainDraft.contentBlocks,
+        {
+          quiz: {
+            correctIndex: 0,
+            exerciseType: 'concept-check',
+            options: ['La variabile $x resta aperta', 'B', 'C', 'D'],
+            question: 'Quale opzione contiene una formula valida?',
+          },
+          type: 'inline-quiz',
+        },
+      ],
+    };
+
+    expect(buildApplicableLessonVerificationCheckIds(quizMathDraft)).toEqual([
+      ...BASE_CHECKS,
+      'quiz-quality',
+      'quiz-text',
+      'math-structure',
+    ]);
   });
 });
