@@ -6,6 +6,12 @@ export const LESSON_KATEX_FORMATTING_RULE = String.raw`Per le formule usa sintas
 export const LESSON_SELF_SUFFICIENCY_RULE =
   'La lezione deve funzionare senza il materiale originale aperto: integra nel testo tutto cio che serve per capire il passaggio corrente e rimuovi rimandi opachi a pagine, sezioni, figure o posizioni della fonte che richiederebbero di riaprirla.';
 
+export const LESSON_NAMED_SOURCE_ATTRIBUTION_RULE =
+  'Se attribuisci esplicitamente un idea a una fonte, usa il nome della fonte o dell autore quando e disponibile nei riferimenti; evita formule opache come "il documento afferma", "la fonte dice" o "nel testo si legge". Se non hai un nome affidabile, esponi direttamente il contenuto senza inventare un attribuzione.';
+
+export const LESSON_ACRONYM_EXPANSION_RULE =
+  'Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.';
+
 export const LESSON_POSITIVE_DEFINITION_RULE =
   'Quando introduci un concetto nuovo, definiscilo prima in positivo: chiarisci che cosa e o che cosa fa. Usa contrasti, negazioni e formule come "non e soltanto" solo dopo che il significato di base e gia comprensibile.';
 
@@ -41,6 +47,11 @@ export const buildLessonContinuityRule = (previousLessonTitles: readonly string[
     ? "PRIMA LEZIONE: non citare lezioni precedenti, capitoli gia visti, 'come abbiamo accennato', 'come vedremo' o altre formule di continuita retroattiva."
     : 'Se fai riferimenti al percorso, usa soltanto i titoli delle lezioni completate forniti e non inventare contenuti gia trattati.';
 
+export const buildLessonNoRepetitionRule = (previousLessonTitles: readonly string[]): string =>
+  previousLessonTitles.length === 0
+    ? ''
+    : `Le lezioni precedenti (${previousLessonTitles.join(', ')}) hanno gia coperto le loro basi. Parti direttamente dall'argomento specifico della lezione e non riesporre introduzioni generiche o fondamenti gia acquisiti soltanto per creare continuita.`;
+
 export const LESSON_ASCII_VISUAL_RULE =
   'Non simulare esempi visivi con ASCII art, righe di caratteri ripetuti, lettere usate come pixel, blocchi monospace o tabelle di simboli: gli esempi visivi vengono prodotti dai renderer dedicati.';
 
@@ -50,7 +61,7 @@ const NUMBERED_LOCAL_PROPEDEUTIC_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.map(
 
 export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.
 8. Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.
-9. Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.
+9. ${LESSON_ACRONYM_EXPANSION_RULE}
 10. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
 11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
 12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
@@ -62,6 +73,7 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 18. NON usare intestazioni inglesi o template rigidi. Scegli solo sezioni con titoli naturali nella lingua della lezione. Niente scalette fisse o stampi ricorrenti: la struttura deve nascere dal contenuto.
 - ${LESSON_POSITIVE_DEFINITION_RULE}
 - ${LESSON_SELF_SUFFICIENCY_RULE}
+- ${LESSON_NAMED_SOURCE_ATTRIBUTION_RULE}
 - ${LESSON_ASCII_VISUAL_RULE}
 - Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.
 - Quando insegni una procedura o un modello complesso a uno studente che il contesto indica come inesperto o in difficolta, privilegia una progressione guidata: mostra prima un esempio svolto o ragionato che esplicita i passaggi, poi varia il caso o chiedi di applicare il principio. Non costringere lo studente a scoprire da solo passaggi che non sono ancora stati insegnati.
