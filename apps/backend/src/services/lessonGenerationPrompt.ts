@@ -13,6 +13,7 @@ import {
   buildUserGenerationNotesBlock,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
+  LESSON_LIST_STRUCTURE_RULE,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SHARED_WRITING_RULES,
@@ -77,7 +78,7 @@ ${buildLessonInstructionPackBlock(input.instructionPacks, 'writing')}
 4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione con semplici parafrasi e non inserire mini-riassunti immediati.
 5. Evita metadiscorso ed enfasi ridondante. Il corpo principale deve essere prosa; usa liste Markdown vere soltanto per elementi fratelli, tassonomie, passaggi o confronti che ne beneficiano.
 6. Tratta tabelle, matrici, didascalie, legende e label testuali dei grafici come contenuto tecnico, non come rumore.
-- Quando elenchi due o piu elementi fratelli, usa una lista Markdown vera. Non creare pseudo-liste come paragrafi consecutivi "Etichetta: ..." senza bullet: se non e una lista, fondi il contenuto in paragrafi completi.
+- ${LESSON_LIST_STRUCTURE_RULE}
 ${LESSON_SHARED_WRITING_RULES}
 ${sourceModeRules}
 - ${continuityRule}
