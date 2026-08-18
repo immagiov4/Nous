@@ -1,3 +1,5 @@
+import { LESSON_LOCAL_PROPEDEUTIC_RULES } from './lessonWritingContract';
+
 export const LESSON_INSTRUCTION_PACK_IDS = [
   'mathematics',
   'code',
@@ -18,6 +20,8 @@ export interface LessonVerificationChecklistItem {
   instruction: string;
 }
 
+const TECHNICAL_NOTATION_ADJACENCY_RULE = LESSON_LOCAL_PROPEDEUTIC_RULES[2];
+
 const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklistItem[] = [
   {
     checkId: 'core.instructions',
@@ -26,8 +30,7 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   },
   {
     checkId: 'core.progression',
-    instruction:
-      'La progressione locale non richiede concetti non ancora introdotti e non lascia anticipazioni sospese. Ogni nuovo concetto, domanda, tecnica o astrazione ha un ponte conciso che chiarisce perche segue dal ragionamento precedente, anche se il contenuto e fattualmente corretto; non aggiungere ponti rituali quando il nesso e gia esplicito.',
+    instruction: `La progressione locale non richiede concetti non ancora introdotti e non lascia anticipazioni sospese. Ogni nuovo concetto, domanda, tecnica o astrazione ha un ponte conciso che chiarisce perche segue dal ragionamento precedente, anche se il contenuto e fattualmente corretto; non aggiungere ponti rituali quando il nesso e gia esplicito. ${TECHNICAL_NOTATION_ADJACENCY_RULE}`,
   },
   {
     checkId: 'core.clarity',
