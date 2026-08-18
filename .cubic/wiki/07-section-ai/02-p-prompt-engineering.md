@@ -57,7 +57,7 @@ Student generation notes have high priority for style, density, pacing and simil
 
 `buildLessonVerificationPrompt()` does **not** embed the complete writer prompt. It receives the reusable lesson context, the generated draft, the mandatory verification checklist and only the structural checks relevant to features actually present in that draft.
 
-Scope rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons or continues beyond the current lesson focus. The verifier also retains product-wide invariants such as the prohibition on ASCII pseudo-visuals.
+Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material or continues beyond the current lesson focus. The verifier also retains product-wide invariants such as self-sufficiency, valid code fencing and the prohibition on ASCII pseudo-visuals.
 
 Feature-specific checks are activated from draft-owned evidence rather than merely from available capabilities: for example selectable image candidates do not trigger `imageRef` validation unless the draft actually contains image references.
 
@@ -84,6 +84,8 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | `LESSON_SHARED_WRITING_RULES` | Lexicon, repetition, examples, analogies, source handling and lesson prose behavior. |
 | `LESSON_LOCAL_PROPEDEUTIC_RULES` | Local prerequisite order and conceptual bridges. |
 | `LESSON_SCOPE_RULES` | Prevents scope drift, premature future-lesson detail and unnecessary continuation. |
+| `buildLessonContinuityRule()` | Prevents fabricated backward continuity and invented prior-course coverage. |
+| `LESSON_SELF_SUFFICIENCY_RULE` | Keeps the lesson understandable without reopening the original source. |
 | `FORMULA_RELEVANCE_RULE` | Keeps mathematical notation meaningful rather than decorative. |
 | `LESSON_ASCII_VISUAL_RULE` | Prevents text/ASCII pseudo-visuals when dedicated renderers should be used. |
 | `YOUTUBE_CLIP_PEDAGOGY_RULES` | Determines when motion/video materially improves the lesson. |
@@ -106,7 +108,8 @@ Structural checks are scoped to the draft where possible:
 - original-image checks only when `imageRefs` exist;
 - generated-visual checks only when visual plans/blocks exist;
 - YouTube checks only when clip blocks exist;
-- code and math checks only when their Markdown syntax is present.
+- the code-structure check is always present because malformed code may be defined by a missing Markdown fence;
+- the math check is enabled when math syntax or malformed math delimiters are detected in lesson Markdown or inline-quiz text.
 
 The complete draft is still supplied to the verifier because semantic review requires the full lesson, but it is serialized compactly rather than pretty-printed to avoid unnecessary input tokens.
 
