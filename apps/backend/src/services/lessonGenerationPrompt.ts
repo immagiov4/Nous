@@ -42,6 +42,13 @@ const buildImageRules = (hasCandidates: boolean): string =>
     ? `\n${ORIGINAL_IMAGE_USAGE_RULES.map(rule => `- ${rule}`).join('\n')}`
     : '\n- Per questa lezione imageRefs deve essere un array vuoto.';
 
+const buildRetryCorrectionBlock = (feedback: string | undefined): string => {
+  const correction = feedback?.trim();
+  return correction
+    ? `\nCORREZIONE OBBLIGATORIA DAL TENTATIVO PRECEDENTE:\n${correction}\n`
+    : '';
+};
+
 export const buildLessonGenerationReferenceContext = (input: LessonPromptInput): string => {
   const previousContext = input.previousLessonTitles.join(', ') || 'Inizio percorso';
   return `RIFERIMENTI DEL TASK:
@@ -68,7 +75,7 @@ export const buildLessonGenerationPrompt = (input: LessonPromptInput): string =>
   return `Genera la lezione richiesta.
 
 ${buildLessonGenerationReferenceContext(input)}
-
+${buildRetryCorrectionBlock(input.retryFeedback)}
 CONTRATTO DI SCRITTURA:
 ${buildLessonInstructionPackBlock(input.instructionPacks, 'writing')}
 1. ${LESSON_COVERAGE_DEPTH_RULE} Scrivi in Markdown ricco con buona densita informativa e senza riempitivo; se le note chiedono un ritmo piu lento o ridondanza didattica, rispettale.
