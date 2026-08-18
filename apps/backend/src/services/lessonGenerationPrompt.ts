@@ -3,7 +3,7 @@ import {
   ACTIVE_PAUSE_OPTIONS_RULE,
   ACTIVE_PAUSE_TEXT_FORMAT_RULE,
   MAX_GENERATED_VISUALS_PER_LESSON,
-  ORIGINAL_IMAGE_PRIORITY_RULE,
+  ORIGINAL_IMAGE_USAGE_RULES,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
@@ -11,9 +11,12 @@ import {
   buildLessonContinuityRule,
   buildLessonNoRepetitionRule,
   buildUserGenerationNotesBlock,
+  LESSON_CODE_FORMATTING_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
   LESSON_LIST_STRUCTURE_RULE,
+  LESSON_MAIN_PROSE_RULE,
+  LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SHARED_WRITING_RULES,
@@ -31,14 +34,7 @@ const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
 
 const buildImageRules = (hasCandidates: boolean): string =>
   hasCandidates
-    ? `
-- Ogni immagine deve servire una spiegazione vicina: non usarla come decorazione o intermezzo visivo.
-- Puoi referenziare SOLO gli assetId forniti. Se nessuna immagine e chiaramente pertinente, restituisci imageRefs vuoto.
-- Se usi un'immagine, anchorHeading deve corrispondere ESATTAMENTE a un heading presente in un blocco markdown, senza i simboli #.
-- Usa solo immagini con una caption visiva chiara e autosufficiente. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper o frammenti.
-- ${ORIGINAL_IMAGE_PRIORITY_RULE}
-- Non usare il contesto testuale per indovinare una figura poco chiara. Caption e testo vicino servono soltanto a disambiguare una figura gia riconoscibile.
-- Il paragrafo vicino deve dire che cosa guardare nell'immagine e perche e utile. Non citare mai un assetId tecnico nel markdown.`
+    ? `\n${ORIGINAL_IMAGE_USAGE_RULES.map(rule => `- ${rule}`).join('\n')}`
     : '\n- Per questa lezione imageRefs deve essere un array vuoto.';
 
 export const buildLessonGenerationReferenceContext = (input: LessonPromptInput): string => {
@@ -60,11 +56,9 @@ export const buildLessonGenerationPrompt = (input: LessonPromptInput): string =>
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
   const scopeRules = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
-  const sourceModeRules = input.sourceContext
-    ? `- ${LESSON_SOURCE_PRECEDENCE_RULE}
-- Integra il materiale sorgente nella spiegazione senza rimandi opachi a pagine, sezioni o posizioni del documento.`
-    : `- ${LESSON_RESEARCH_TRANSFORMATION_RULE}
-- Non fingere che lo studente abbia un documento aperto e non aggiungere bibliografie o sezioni delle fonti nel corpo.`;
+  const sourceModeRule = input.sourceContext
+    ? LESSON_SOURCE_PRECEDENCE_RULE
+    : LESSON_RESEARCH_TRANSFORMATION_RULE;
 
   return `Genera una LEZIONE COMPLETA, AUTONOMA E APPROFONDITA.
 
@@ -75,18 +69,16 @@ ${buildLessonInstructionPackBlock(input.instructionPacks, 'writing')}
 1. Scrivi una lezione esaustiva in Markdown ricco. Mantieni una buona densita informativa senza riempitivo o ripetizioni decorative; se le note chiedono un ritmo piu lento o ridondanza didattica, rispettale.
 2. Incorpora e spiega i contenuti in modo discorsivo ma tecnico, con esempi concreti, formule e codice solo quando aiutano davvero.
 3. ${LESSON_HEADING_STRUCTURE_RULE}
-4. Evita metadiscorso ed enfasi ridondante. Il corpo principale deve essere prosa.
+4. Evita metadiscorso ed enfasi ridondante. ${LESSON_MAIN_PROSE_RULE}
 5. Tratta tabelle, matrici, didascalie, legende e label testuali dei grafici come contenuto tecnico, non come rumore.
 - ${LESSON_LIST_STRUCTURE_RULE}
 ${LESSON_SHARED_WRITING_RULES}
-${sourceModeRules}
+- ${sourceModeRule}
 - ${continuityRule}
 ${noRepetitionRule ? `- ${noRepetitionRule}\n` : ''}- Vincoli di focus:
 ${scopeRules}
-- Non colmare lacune con supposizioni: usa soltanto contenuti sostenuti dal materiale o dal dossier.
-- Non inserire fonti strutturate, bibliografie, assetId, marker o commenti di implementazione nei blocchi markdown.
-- Per i blocchi di codice usa Markdown standard. La riga di apertura contiene soltanto il fence e, se serve, il nome del linguaggio. Non lasciare etichette di linguaggio nude fuori dal blocco.
-- Non inserire markdown image syntax o tag img nei blocchi markdown: le immagini originali stanno esclusivamente in imageRefs.
+- ${LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE}
+- ${LESSON_CODE_FORMATTING_RULE}
 - ${LESSON_KATEX_FORMATTING_RULE}
 ${buildImageRules(input.imageCandidates.length > 0)}
 
@@ -100,7 +92,6 @@ PAUSE ATTIVE:
 ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 
 VIDEO:
-- Se una fonte contiene un transcript YouTube timestampato e movimento o dimostrazione aiutano davvero, inserisci un blocco youtube-clips nel punto editoriale esatto.
 - Ogni clip usa esclusivamente sourceIndex e timestamp presenti nelle fonti e ha un titolo breve, concreto e specifico del momento mostrato.
 ${YOUTUBE_CLIP_PEDAGOGY_RULES}
 
