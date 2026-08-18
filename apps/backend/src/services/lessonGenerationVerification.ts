@@ -9,10 +9,13 @@ import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
   buildLessonContinuityRule,
+  buildLessonNoRepetitionRule,
   FORMULA_RELEVANCE_RULE,
+  LESSON_ACRONYM_EXPANSION_RULE,
   LESSON_ASCII_VISUAL_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
+  LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SELF_SUFFICIENCY_RULE,
@@ -218,13 +221,21 @@ const buildLessonVerificationPrompt = (
   input: LessonVerificationInput,
   draft: LessonContentDraft
 ): string => {
-  const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item =>
-    input.sourceContext && item.checkId === 'core.correctness'
-      ? { ...item, instruction: `${item.instruction} ${LESSON_SOURCE_PRECEDENCE_RULE}` }
-      : item
-  );
+  const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
+    if (item.checkId === 'core.clarity') {
+      return { ...item, instruction: `${item.instruction} ${LESSON_ACRONYM_EXPANSION_RULE}` };
+    }
+    if (input.sourceContext && item.checkId === 'core.correctness') {
+      return {
+        ...item,
+        instruction: `${item.instruction} ${LESSON_SOURCE_PRECEDENCE_RULE} ${LESSON_NAMED_SOURCE_ATTRIBUTION_RULE}`,
+      };
+    }
+    return item;
+  });
   const structuralCheckIds = buildRequiredLessonVerificationStructuralCheckIds(input, draft);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
+  const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
   return `RIFERIMENTI DELLA LEZIONE:
 ${buildLessonGenerationReferenceContext(input)}
 
@@ -239,7 +250,7 @@ Non introdurre pause, imageRefs, visuali generati o clip YouTube di un tipo il c
 
 VINCOLI DI CONTINUITA E FOCUS SEMPRE OBBLIGATORI:
 - ${continuityRule}
-${LESSON_SCOPE_RULES.map(rule => `- ${rule}`).join('\n')}
+${noRepetitionRule ? `- ${noRepetitionRule}\n` : ''}${LESSON_SCOPE_RULES.map(rule => `- ${rule}`).join('\n')}
 
 CHECKLIST SEMANTICA OBBLIGATORIA:
 ${checklist.map(item => `- ${item.checkId}: ${item.instruction}`).join('\n')}
