@@ -9,11 +9,44 @@ export const LESSON_SELF_SUFFICIENCY_RULE =
 export const LESSON_NAMED_SOURCE_ATTRIBUTION_RULE =
   'Se attribuisci esplicitamente un idea a una fonte, usa il nome della fonte o dell autore quando e disponibile nei riferimenti; evita formule opache come "il documento afferma", "la fonte dice" o "nel testo si legge". Se non hai un nome affidabile, esponi direttamente il contenuto senza inventare un attribuzione.';
 
+export const LESSON_CLEAR_LEXICON_RULE =
+  'Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.';
+
+export const LESSON_TECHNICAL_TERM_CLARITY_RULE =
+  'Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.';
+
 export const LESSON_ACRONYM_EXPANSION_RULE =
   'Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.';
 
+export const LESSON_FOREIGNISM_RULE =
+  'Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.';
+
+export const LESSON_CONTENT_PRESERVING_SIMPLIFICATION_RULE =
+  'Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.';
+
+export const LESSON_DISCURSIVE_REGISTER_RULE =
+  'Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.';
+
+export const LESSON_LANGUAGE_CLARITY_RULES = [
+  LESSON_CLEAR_LEXICON_RULE,
+  LESSON_TECHNICAL_TERM_CLARITY_RULE,
+  LESSON_ACRONYM_EXPANSION_RULE,
+  LESSON_FOREIGNISM_RULE,
+  LESSON_CONTENT_PRESERVING_SIMPLIFICATION_RULE,
+  LESSON_DISCURSIVE_REGISTER_RULE,
+] as const;
+
 export const LESSON_ANALOGY_USAGE_RULE =
   "Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo; se puoi spiegare bene in modo diretto, non usare alcuna analogia.";
+
+export const LESSON_CONCRETE_EXAMPLE_PREFERENCE_RULE =
+  'Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate.';
+
+export const LESSON_RECURRING_STYLE_PHRASE_RULE =
+  'Evita formule stilistiche ricorrenti come "l analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.';
+
+export const LESSON_ENGAGEMENT_RELEVANCE_RULE =
+  'Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.';
 
 export const LESSON_LOCAL_REPETITION_RULE =
   'Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato: ogni paragrafo deve avanzare.';
@@ -104,26 +137,24 @@ export const buildLessonNoRepetitionRule = (previousLessonTitles: readonly strin
 export const LESSON_ASCII_VISUAL_RULE =
   'Non simulare esempi visivi con ASCII art, righe di caratteri ripetuti, lettere usate come pixel, blocchi monospace o tabelle di simboli: gli esempi visivi vengono prodotti dai renderer dedicati.';
 
+const NUMBERED_LANGUAGE_CLARITY_RULES = LESSON_LANGUAGE_CLARITY_RULES.map(
+  (rule, index) => `${index + 7}. ${rule}`
+).join('\n');
 const NUMBERED_LOCAL_PROPEDEUTIC_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.map(
   (rule, index) => `${index + 18}. ${rule}`
 ).join('\n');
 
-export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.
-8. Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.
-9. ${LESSON_ACRONYM_EXPANSION_RULE}
-10. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
-11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
-12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
+export const LESSON_SHARED_WRITING_RULES = `${NUMBERED_LANGUAGE_CLARITY_RULES}
 13. ${LESSON_ANALOGY_USAGE_RULE}
-14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. ${FORMULA_RELEVANCE_RULE} ${LESSON_STRUCTURED_SOURCE_COMPARISON_RULE}
-15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
+14. ${LESSON_CONCRETE_EXAMPLE_PREFERENCE_RULE} ${FORMULA_RELEVANCE_RULE} ${LESSON_STRUCTURED_SOURCE_COMPARISON_RULE}
+15. ${LESSON_RECURRING_STYLE_PHRASE_RULE}
 16. ${LESSON_LOCAL_REPETITION_RULE}
 17. ${LESSON_SINGLE_CORE_BUILD_RULE}
 - ${LESSON_POSITIVE_DEFINITION_RULE}
 - ${LESSON_SELF_SUFFICIENCY_RULE}
 - ${LESSON_NAMED_SOURCE_ATTRIBUTION_RULE}
 - ${LESSON_ASCII_VISUAL_RULE}
-- Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.
+- ${LESSON_ENGAGEMENT_RELEVANCE_RULE}
 - ${LESSON_GUIDED_NOVICE_RULE}
 ${NUMBERED_LOCAL_PROPEDEUTIC_RULES}`;
 
