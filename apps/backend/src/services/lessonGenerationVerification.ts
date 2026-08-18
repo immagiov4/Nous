@@ -8,6 +8,7 @@ import {
   ORIGINAL_IMAGE_USAGE_RULES,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks';
+import { LESSON_FIRST_EXPOSURE_RULE } from '@shared/lessonPedagogyContracts';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
   buildLessonContinuityRule,
@@ -46,6 +47,10 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
+import {
+  isLessonStructuredOutputError,
+  retryLessonGenerationCorrection,
+} from './lessonGenerationCorrection.js';
 import { buildLessonGenerationReferenceContext } from './lessonGenerationPrompt.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 
@@ -123,6 +128,7 @@ const LOCAL_PROPEDEUTIC_VERIFICATION_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.join
 const LANGUAGE_CLARITY_VERIFICATION_RULES = `${LESSON_STUDENT_STYLE_OVERRIDE_RULE} ${LESSON_LANGUAGE_CLARITY_RULES.join(' ')}`;
 const RELEVANCE_STYLE_VERIFICATION_RULES = `${LESSON_STUDENT_STYLE_OVERRIDE_RULE} ${LESSON_RELEVANCE_STYLE_RULES.join(' ')}`;
 const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_MAIN_PROSE_RULE} ${LESSON_LIST_STRUCTURE_RULE} ${LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE}`;
+const POSITIVE_DEFINITION_CHECK = `${LESSON_FIRST_EXPOSURE_RULE} ${LESSON_POSITIVE_DEFINITION_RULE}`;
 const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_USAGE_RULES.join(' ')} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
 const YOUTUBE_STRUCTURE_CHECK = `Se nei riferimenti esiste un transcript YouTube timestampato ma la bozza non contiene clip, applica le regole pedagogiche sottostanti anche alla decisione di omissione: aggiungi soltanto il minimo intervallo utile quando una clip e davvero necessaria; altrimenti segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni clip presente o aggiunta usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.`;
 const CODE_STRUCTURE_CHECK = `${LESSON_CODE_FORMATTING_RULE} Se la bozza non contiene codice, pseudocodice, comandi o output, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
@@ -226,7 +232,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'markdown-structure':
       return MARKDOWN_STRUCTURE_CHECK;
     case 'positive-definition':
-      return LESSON_POSITIVE_DEFINITION_RULE;
+      return POSITIVE_DEFINITION_CHECK;
     case 'self-sufficiency':
       return LESSON_SELF_SUFFICIENCY_RULE;
     case 'ascii-visual':
@@ -305,11 +311,14 @@ const buildLessonVerificationPrompt = (
   const structuralCheckIds = buildRequiredLessonVerificationStructuralCheckIds(input, draft);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
+  const retryCorrection = input.retryFeedback?.trim()
+    ? `\nCORREZIONE OBBLIGATORIA DAL TENTATIVO PRECEDENTE:\n${input.retryFeedback.trim()}\n`
+    : '';
   return `${buildLessonGenerationReferenceContext(input)}
 
 BOZZA DA VERIFICARE:
 ${JSON.stringify(draft)}
-
+${retryCorrection}
 COMPITO DI VERIFICA:
 Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
 Per ogni checkId elencato sotto, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto. Non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
@@ -342,40 +351,56 @@ export const verifyLessonContentDraft = async (input: {
   const checkIds = buildRequiredLessonVerificationCheckIds(generationInput, input.draft);
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
   let verified: VerifiedLessonContentDraft;
-  if (resolveAiProviderForSlot(generationInput.config, 'lesson') === 'codex') {
-    const modelConfig = resolveTextModelConfig(generationInput.config, 'lesson');
-    const response = await runCodexAppServerTurn({
-      allowWebSearch: false,
-      developerInstructions: `${SYSTEM_INSTRUCTION_TEACHER}\nVerify and minimally correct the supplied lesson draft. Return every required checklist item. Do not use tools or access local files.`,
-      input: [{ text: prompt, type: 'text' }],
-      model: modelConfig.model,
-      outputSchema: schema.schema,
-      reasoningEffort: modelConfig.reasoningEffort,
-      serviceTier: resolveCodexServiceTierForSlot(generationInput.config, 'lesson'),
-      signal: generationInput.signal,
+  try {
+    if (resolveAiProviderForSlot(generationInput.config, 'lesson') === 'codex') {
+      const modelConfig = resolveTextModelConfig(generationInput.config, 'lesson');
+      const response = await runCodexAppServerTurn({
+        allowWebSearch: false,
+        developerInstructions: `${SYSTEM_INSTRUCTION_TEACHER}\nVerify and minimally correct the supplied lesson draft. Return every required checklist item. Do not use tools or access local files.`,
+        input: [{ text: prompt, type: 'text' }],
+        model: modelConfig.model,
+        outputSchema: schema.schema,
+        reasoningEffort: modelConfig.reasoningEffort,
+        serviceTier: resolveCodexServiceTierForSlot(generationInput.config, 'lesson'),
+        signal: generationInput.signal,
+      });
+      verified = JSON.parse(response) as VerifiedLessonContentDraft;
+    } else {
+      const configured = createConfiguredTextModel(generationInput.config, 'lesson');
+      const { output } = await generateText({
+        abortSignal: generationInput.signal,
+        maxRetries: 0,
+        model: configured.model,
+        output: Output.object({
+          name: schema.name,
+          schema: jsonSchema<VerifiedLessonContentDraft>(
+            schema.schema as unknown as Parameters<typeof jsonSchema>[0]
+          ),
+        }),
+        prompt,
+        providerOptions: configured.providerOptions,
+        system: SYSTEM_INSTRUCTION_TEACHER,
+      });
+      verified = output;
+    }
+  } catch (error) {
+    generationInput.signal.throwIfAborted();
+    if (!isLessonStructuredOutputError(error)) throw error;
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_review_output_invalid',
+      feedback:
+        'Return valid JSON matching the lesson verification schema exactly. Preserve the lesson draft fields and include every required verificationReport entry with a valid checkId, status, non-empty evidence, and action.',
+      message: 'The lesson verifier returned invalid structured output.',
     });
-    verified = JSON.parse(response) as VerifiedLessonContentDraft;
-  } else {
-    const configured = createConfiguredTextModel(generationInput.config, 'lesson');
-    const { output } = await generateText({
-      abortSignal: generationInput.signal,
-      maxRetries: 0,
-      model: configured.model,
-      output: Output.object({
-        name: schema.name,
-        schema: jsonSchema<VerifiedLessonContentDraft>(
-          schema.schema as unknown as Parameters<typeof jsonSchema>[0]
-        ),
-      }),
-      prompt,
-      providerOptions: configured.providerOptions,
-      system: SYSTEM_INSTRUCTION_TEACHER,
-    });
-    verified = output;
   }
 
   if (!isLessonVerificationReportComplete(verified.verificationReport, checkIds)) {
-    throw new Error('Lesson verification did not report every required check with evidence.');
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_review_report_incomplete',
+      feedback:
+        'Return exactly one verificationReport entry for every required checkId. Do not omit, duplicate, or invent checkIds, and give every entry non-empty concrete evidence from the corrected draft.',
+      message: 'The lesson verification report is incomplete.',
+    });
   }
 
   const uncheckedStructuralCheckIds = findUncheckedLessonVerificationStructuralCheckIds(
@@ -384,9 +409,11 @@ export const verifyLessonContentDraft = async (input: {
     checkIds
   );
   if (uncheckedStructuralCheckIds.length > 0) {
-    throw new Error(
-      `Lesson verification introduced unchecked structural features: ${uncheckedStructuralCheckIds.join(', ')}.`
-    );
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_review_unchecked_structural_feature',
+      feedback: `Do not introduce structural features whose checks were not authorized for this verification attempt. Remove or replace the newly introduced feature types requiring these missing checks: ${uncheckedStructuralCheckIds.join(', ')}. Preserve valid existing content.`,
+      message: 'The lesson verifier introduced an unchecked structural feature.',
+    });
   }
 
   const { verificationReport: _verificationReport, ...draft } = verified;
