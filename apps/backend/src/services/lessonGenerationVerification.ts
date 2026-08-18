@@ -1,11 +1,11 @@
 import {
-  GENERATED_VISUAL_RELEVANCE_RULE,
-  INTERACTIVE_VISUAL_VALUE_RULE,
-  MAX_GENERATED_VISUALS_PER_LESSON,
+  ACTIVE_PAUSE_OPTIONS_RULE,
+  ACTIVE_PAUSE_TEXT_FORMAT_RULE,
   MAX_LESSON_QUIZ_QUESTIONS,
-  VISUAL_FORMAT_SELECTION_RULE,
+  ORIGINAL_IMAGE_PRIORITY_RULE,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks';
+import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
   buildLessonContinuityRule,
   FORMULA_RELEVANCE_RULE,
@@ -156,13 +156,13 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa deve avere quattro opzioni distinte e non deve poter essere risolta copiando o riconoscendo una definizione locale.`;
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa non deve poter essere risolta copiando o riconoscendo una definizione locale. ${ACTIVE_PAUSE_OPTIONS_RULE}`;
     case 'quiz-text':
-      return 'Domande e opzioni sono testo normale: rimuovi backticks o code fence che racchiudono l intera stringa, preservando eventuale codice inline interno.';
+      return ACTIVE_PAUSE_TEXT_FORMAT_RULE;
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
-      return `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${GENERATED_VISUAL_RELEVANCE_RULE} ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}`;
+      return `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
     case 'youtube-structure':
       return `${YOUTUBE_STRUCTURE_CHECK}\n${YOUTUBE_CLIP_PEDAGOGY_RULES}`;
   }
