@@ -12,6 +12,9 @@ export const LESSON_NAMED_SOURCE_ATTRIBUTION_RULE =
 export const LESSON_ACRONYM_EXPANSION_RULE =
   'Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.';
 
+export const LESSON_ANALOGY_USAGE_RULE =
+  'Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell intera lezione, mai una per ogni paragrafo; se puoi spiegare bene in modo diretto, non usare alcuna analogia.';
+
 export const LESSON_POSITIVE_DEFINITION_RULE =
   'Quando introduci un concetto nuovo, definiscilo prima in positivo: chiarisci che cosa e o che cosa fa. Usa contrasti, negazioni e formule come "non e soltanto" solo dopo che il significato di base e gia comprensibile.';
 
@@ -20,6 +23,9 @@ export const LESSON_HEADING_STRUCTURE_RULE =
 
 export const LESSON_SOURCE_PRECEDENCE_RULE =
   'Quando esiste materiale sorgente primario, conserva le sue convenzioni specifiche, definizioni locali, nomi, direzioni e scelte tecniche. Il dossier di ricerca e supplementare: puo colmare lacune, aggiornare fatti o chiarire passaggi, ma non deve sostituire una convenzione propria della fonte con un alternativa semplicemente diversa e valida, salvo che la fonte sia effettivamente errata.';
+
+export const LESSON_RESEARCH_TRANSFORMATION_RULE =
+  'Quando la lezione e costruita da dossier di ricerca o fonti consultate senza un materiale sorgente primario, usa quei riferimenti come base fattuale ma trasformali in una spiegazione didattica autonoma: non copiarli, non serializzarli e non riassumerli punto per punto come un report di ricerca.';
 
 export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
   'Costruisci anche la singola lezione in ordine strettamente propedeutico: ogni passaggio deve richiedere soltanto concetti gia introdotti oppure spiegati nello stesso blocco locale, senza rimandarne il significato a sezioni successive.',
@@ -65,7 +71,7 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 10. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
 11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
 12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
-13. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
+13. ${LESSON_ANALOGY_USAGE_RULE}
 14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. ${FORMULA_RELEVANCE_RULE} Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
 15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
 16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
