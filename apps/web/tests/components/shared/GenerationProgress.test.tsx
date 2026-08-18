@@ -107,10 +107,12 @@ describe('GenerationProgress', () => {
       />
     );
 
-    expect(screen.getByText(/(Nuovo tentativo in corso|Starting another attempt)/i)).toHaveTextContent(
-      /(?:Tentativo|Attempt) 2/
-    );
-    expect(screen.queryByText(/(non è riuscito|failed|Riprovo automaticamente|Retrying automatically)/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/(Nuovo tentativo in corso|Starting another attempt)/i)
+    ).toHaveTextContent(/(?:Tentativo|Attempt) 2/);
+    expect(
+      screen.queryByText(/(non è riuscito|failed|Riprovo automaticamente|Retrying automatically)/i)
+    ).not.toBeInTheDocument();
     expect(screen.getByText(/1:05$/)).toBeInTheDocument();
     expect(screen.queryByText(/lesson_provider_secret_failure/i)).not.toBeInTheDocument();
   });
