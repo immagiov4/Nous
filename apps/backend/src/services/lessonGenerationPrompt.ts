@@ -13,6 +13,7 @@ import {
   buildUserGenerationNotesBlock,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
+  LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SHARED_WRITING_RULES,
   LESSON_SOURCE_PRECEDENCE_RULE,
@@ -61,7 +62,7 @@ export const buildLessonGenerationPrompt = (input: LessonPromptInput): string =>
   const sourceModeRules = input.sourceContext
     ? `- ${LESSON_SOURCE_PRECEDENCE_RULE}
 - Integra il materiale sorgente nella spiegazione senza rimandi opachi a pagine, sezioni o posizioni del documento.`
-    : `- Usa il dossier come fonte dei contenuti, ma non copiarlo o riassumerlo punto per punto: trasformalo in prosa di lezione.
+    : `- ${LESSON_RESEARCH_TRANSFORMATION_RULE}
 - Non fingere che lo studente abbia un documento aperto e non aggiungere bibliografie o sezioni delle fonti nel corpo.`;
 
   return `Genera una LEZIONE COMPLETA, AUTONOMA E APPROFONDITA.
