@@ -1,4 +1,7 @@
-import { LESSON_TECHNICAL_NOTATION_ADJACENCY_RULE } from './lessonWritingContract';
+import {
+  LESSON_STRUCTURED_SOURCE_COMPARISON_RULE,
+  LESSON_TECHNICAL_NOTATION_ADJACENCY_RULE,
+} from './lessonWritingContract';
 
 export const LESSON_INSTRUCTION_PACK_IDS = [
   'mathematics',
@@ -42,8 +45,7 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   },
   {
     checkId: 'core.structure',
-    instruction:
-      'Obiettivo, ordine, collegamenti, pause attive e conclusione formano una lezione didatticamente coerente.',
+    instruction: `Obiettivo, ordine, collegamenti, pause attive e conclusione formano una lezione didatticamente coerente. ${LESSON_STRUCTURED_SOURCE_COMPARISON_RULE}`,
   },
   {
     checkId: 'core.active-pauses',
