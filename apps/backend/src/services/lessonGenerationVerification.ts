@@ -14,13 +14,17 @@ import {
   LESSON_ACRONYM_EXPANSION_RULE,
   LESSON_ANALOGY_USAGE_RULE,
   LESSON_ASCII_VISUAL_RULE,
+  LESSON_GUIDED_NOVICE_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
+  LESSON_LIST_STRUCTURE_RULE,
+  LESSON_LOCAL_REPETITION_RULE,
   LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SELF_SUFFICIENCY_RULE,
+  LESSON_SINGLE_CORE_BUILD_RULE,
   LESSON_SOURCE_PRECEDENCE_RULE,
   SYSTEM_INSTRUCTION_TEACHER,
   YOUTUBE_CLIP_PEDAGOGY_RULES,
@@ -81,12 +85,12 @@ const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
   exercise => `${exercise.type}: ${exercise.instruction}`
 ).join('\n');
 
-const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate o bibliografie in nessuna posizione della lezione.`;
+const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_LIST_STRUCTURE_RULE} I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate o bibliografie in nessuna posizione della lezione.`;
 const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_PRIORITY_RULE} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti secondo questa regola. Ogni imageRef deve usare un assetId disponibile, avere un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino; rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come not-applicable.`;
 const YOUTUBE_STRUCTURE_CHECK =
   'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
 const CODE_STRUCTURE_CHECK =
-  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido; correggi anche frammenti tecnici rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice. Se non contiene materiale tecnico di questo tipo, segna il controllo come non-applicable.';
+  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido. La riga di apertura contiene soltanto il fence e, se serve, il nome del linguaggio; correggi frammenti tecnici o etichette di linguaggio rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice. Se non contiene materiale tecnico di questo tipo, segna il controllo come non-applicable.';
 const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} Se la bozza non contiene matematica, segna il controllo come not-applicable.`;
 
 const buildVerificationSchema = (
@@ -226,8 +230,12 @@ const buildLessonVerificationPrompt = (
   const hasReferenceMaterial = Boolean(
     input.sourceContext || input.researchContext || input.sources.length > 0
   );
-  const isResearchOnly = !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
+  const isResearchOnly =
+    !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
   const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
+    if (item.checkId === 'core.progression') {
+      return { ...item, instruction: `${item.instruction} ${LESSON_GUIDED_NOVICE_RULE}` };
+    }
     if (item.checkId === 'core.clarity') {
       return { ...item, instruction: `${item.instruction} ${LESSON_ACRONYM_EXPANSION_RULE}` };
     }
@@ -247,7 +255,10 @@ const buildLessonVerificationPrompt = (
       };
     }
     if (item.checkId === 'core.relevance') {
-      return { ...item, instruction: `${item.instruction} ${LESSON_ANALOGY_USAGE_RULE}` };
+      return {
+        ...item,
+        instruction: `${item.instruction} ${LESSON_ANALOGY_USAGE_RULE} ${LESSON_LOCAL_REPETITION_RULE} ${LESSON_SINGLE_CORE_BUILD_RULE}`,
+      };
     }
     return item;
   });
