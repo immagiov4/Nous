@@ -105,9 +105,10 @@ describe('lesson verification prompt architecture', () => {
     expect(requiredIds).toContain('generated-visual');
   });
 
-  test('requires report entries for semantic and structural checks', () => {
+  test('requires report entries for semantic coverage and structural checks', () => {
     const requiredIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, plainDraft);
 
+    expect(requiredIds).toContain('core.coverage');
     expect(requiredIds).toContain('core.progression');
     for (const checkId of BASE_CHECKS) expect(requiredIds).toContain(checkId);
     expect(new Set(requiredIds).size).toBe(requiredIds.length);
