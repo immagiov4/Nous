@@ -9,7 +9,6 @@ wiki_page_id: "p-prompt-engineering"
 The following files were used as context for this page:
 
 - [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
-- [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts)
 - [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts)
 - [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts)
 - [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
@@ -76,7 +75,7 @@ flowchart TD
 
 ## Shared writing contracts
 
-The main shared constants live in `packages/shared-types/lessonWritingContract.ts`, with cross-cutting first-exposure pedagogy in `lessonPedagogyContracts.ts`:
+The main shared lesson-writing constants live in `packages/shared-types/lessonWritingContract.ts`:
 
 | Rule constant | Responsibility |
 | :--- | :--- |
