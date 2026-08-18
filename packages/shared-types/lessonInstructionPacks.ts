@@ -21,6 +21,9 @@ export interface LessonVerificationChecklistItem {
   instruction: string;
 }
 
+export const VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE =
+  'Quando il pacchetto visual-learning e attivo, consideralo una richiesta esplicita del task di includere almeno una rappresentazione visiva didatticamente necessaria. Preferisci immagini o media sorgente adeguati quando disponibili; se nessun media sorgente soddisfa il bisogno, il verifier puo ripristinare il minimo generated-visual necessario. Non soddisfare il requisito con elementi decorativi.';
+
 const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklistItem[] = [
   {
     checkId: 'core.instructions',
@@ -115,6 +118,7 @@ const LESSON_INSTRUCTION_PACKS: Record<LessonInstructionPackId, LessonInstructio
     description:
       'La comprensione richiede immagini, diagrammi, animazioni o rappresentazioni spaziali.',
     writingRules: [
+      VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE,
       'Prepara ogni visuale con il contesto minimo necessario e collegala esplicitamente al concetto che deve rendere visibile.',
       'Dopo la visuale, chiarisci il dettaglio da osservare e la conclusione didattica; non usarla come decorazione o sostituto di una spiegazione mancante.',
       'Non chiedere alla visuale di rappresentare relazioni che il formato scelto non puo mostrare in modo affidabile.',
@@ -123,6 +127,7 @@ const LESSON_INSTRUCTION_PACKS: Record<LessonInstructionPackId, LessonInstructio
       'Ogni visuale e preparata dal testo e ha un obiettivo didattico riconoscibile.',
       'Il testo indica che cosa osservare e quale conclusione ricavare.',
       'Formato e contenuto della visuale sono adatti alla relazione da mostrare.',
+      VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE,
     ],
   },
 };
