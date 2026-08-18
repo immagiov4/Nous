@@ -1,8 +1,3 @@
-import {
-  LESSON_STRUCTURED_SOURCE_COMPARISON_RULE,
-  LESSON_TECHNICAL_NOTATION_ADJACENCY_RULE,
-} from './lessonWritingContract';
-
 export const LESSON_INSTRUCTION_PACK_IDS = [
   'mathematics',
   'code',
@@ -31,7 +26,8 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   },
   {
     checkId: 'core.progression',
-    instruction: `La progressione locale non richiede concetti non ancora introdotti e non lascia anticipazioni sospese. Ogni nuovo concetto, domanda, tecnica o astrazione ha un ponte conciso che chiarisce perche segue dal ragionamento precedente, anche se il contenuto e fattualmente corretto; non aggiungere ponti rituali quando il nesso e gia esplicito. ${LESSON_TECHNICAL_NOTATION_ADJACENCY_RULE}`,
+    instruction:
+      'La progressione locale non richiede concetti non ancora introdotti e non lascia anticipazioni sospese. Ogni nuovo concetto, domanda, tecnica o astrazione ha un ponte conciso che chiarisce perche segue dal ragionamento precedente, anche se il contenuto e fattualmente corretto; non aggiungere ponti rituali quando il nesso e gia esplicito.',
   },
   {
     checkId: 'core.clarity',
@@ -45,7 +41,8 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   },
   {
     checkId: 'core.structure',
-    instruction: `Obiettivo, ordine, collegamenti, pause attive e conclusione formano una lezione didatticamente coerente. ${LESSON_STRUCTURED_SOURCE_COMPARISON_RULE}`,
+    instruction:
+      'Obiettivo, ordine, collegamenti, pause attive e conclusione formano una lezione didatticamente coerente.',
   },
   {
     checkId: 'core.active-pauses',
