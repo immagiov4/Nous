@@ -118,6 +118,10 @@ const isEscaped = (value: string, index: number): boolean => {
 const isAsciiDigit = (value: string | undefined): boolean =>
   value !== undefined && value >= '0' && value <= '9';
 
+const isAsciiLetter = (value: string | undefined): boolean =>
+  value !== undefined &&
+  ((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z'));
+
 const hasLaterSingleDollar = (value: string, startIndex: number): boolean => {
   for (let index = startIndex + 1; index < value.length; index += 1) {
     if (value[index] !== '$' || isEscaped(value, index)) continue;
@@ -125,6 +129,30 @@ const hasLaterSingleDollar = (value: string, startIndex: number): boolean => {
     return true;
   }
   return false;
+};
+
+const isLikelyCurrencyAmount = (value: string, dollarIndex: number): boolean => {
+  if (!isAsciiDigit(value[dollarIndex + 1]) || hasLaterSingleDollar(value, dollarIndex)) return false;
+
+  let cursor = dollarIndex + 1;
+  while (isAsciiDigit(value[cursor])) cursor += 1;
+  if (
+    (value[cursor] === '.' || value[cursor] === ',') &&
+    isAsciiDigit(value[cursor + 1])
+  ) {
+    cursor += 1;
+    while (isAsciiDigit(value[cursor])) cursor += 1;
+  }
+
+  const immediatelyAfterNumber = value[cursor];
+  if (immediatelyAfterNumber === undefined) return true;
+  if (isAsciiLetter(immediatelyAfterNumber)) return false;
+  if ('.;,!?'.includes(immediatelyAfterNumber)) return true;
+  if (immediatelyAfterNumber.trim() !== '') return false;
+
+  while (value[cursor]?.trim() === '') cursor += 1;
+  const nextNonSpace = value[cursor];
+  return nextNonSpace === undefined || isAsciiLetter(nextNonSpace) || '.;,!?'.includes(nextNonSpace);
 };
 
 const hasInlineDollarMath = (value: string): boolean => {
@@ -136,7 +164,7 @@ const hasInlineDollarMath = (value: string): boolean => {
     if (openingIndex === null) {
       const next = value[index + 1];
       if (!next || next.trim() === '') continue;
-      if (isAsciiDigit(next) && !hasLaterSingleDollar(value, index)) continue;
+      if (isLikelyCurrencyAmount(value, index)) continue;
       openingIndex = index;
       continue;
     }
@@ -187,13 +215,19 @@ const markdownHasMathSyntax = (markdown: string): boolean => {
   return false;
 };
 
+const collectMathCheckText = (draft: LessonContentDraft): string =>
+  draft.contentBlocks
+    .flatMap(block => {
+      if (block.type === 'markdown') return [block.markdown];
+      if (block.type === 'inline-quiz') return [block.quiz.question, ...block.quiz.options];
+      return [];
+    })
+    .join('\n');
+
 export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
-  const markdown = draft.contentBlocks
-    .filter(block => block.type === 'markdown')
-    .map(block => block.markdown)
-    .join('\n');
+  const mathCheckText = collectMathCheckText(draft);
   const hasQuiz = draft.contentBlocks.some(block => block.type === 'inline-quiz');
   const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
   const hasGeneratedVisual =
@@ -212,7 +246,7 @@ export const buildApplicableLessonVerificationCheckIds = (
   if (hasImageRefs) checkIds.push('image-reference');
   if (hasGeneratedVisual) checkIds.push('generated-visual');
   if (hasYoutube) checkIds.push('youtube-structure');
-  if (markdownHasMathSyntax(markdown)) checkIds.push('math-structure');
+  if (markdownHasMathSyntax(mathCheckText)) checkIds.push('math-structure');
 
   return checkIds;
 };
