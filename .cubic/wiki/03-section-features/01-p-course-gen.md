@@ -137,18 +137,22 @@ Lesson writing uses explicit prompt layers rather than placing every pedagogical
 The final verification pass reuses the same reference context and the generated draft, but it does not embed the complete writer prompt again. Instead it combines the semantic checklist with focused shared invariants and structural checks, reducing duplicated instructions while retaining the rules that must hold before publication.
 
 ### Writing Rule Highlights
+*  **Coverage and Depth**: A lesson must substantially develop the content required by its title, description and pedagogical context rather than returning an accurate outline. The same semantic coverage check runs again before publication.
 *  **Propedeutic Order**: Concepts must be explained using only previously introduced terms or definitions within the same local block; the verifier reuses the complete local propedeutic rule family rather than a hand-copied subset.
 *  **Language and Density**: Clear lexicon, immediate explanation of technical terminology, acronym expansion, avoidance of unnecessary foreignisms, content-preserving simplification and a discursive register are one shared rule family. Explicit student style notes override these defaults within structural constraints.
 *  **Relevance and Style**: Analogy limits, concrete-example preference, repetition control, non-decorative engagement and metadiscourse avoidance are verified from the same canonical family used by the writer.
 *  **Self-Sufficiency**: Lessons must work as standalone texts without requiring the student to have the source document open.
-*  **Source Integrity**: Primary-source conventions take precedence over merely alternative research conventions; meaningful tables, matrices, captions, legends and structured comparisons remain structurally legible.
-*  **Formula Relevance**: Mathematical formulas should only be used when natural to the subject; KaTeX delimiters, braces and active LaTeX environments must remain balanced.
+*  **Source Fidelity**: Source-backed lessons must integrate distinctive relevant arguments, definitions, examples, cases, comparisons and technical passages from the primary material. Research is supplementary; it must not replace the source with a generic lesson or silently swap source-specific conventions for merely alternative ones.
+*  **Structured Source Content**: Meaningful tables, matrices, captions, legends and structured comparisons remain structurally legible rather than being discarded or flattened.
+*  **Technical Formatting**: Standalone or multiline code, pseudocode, commands and output use fenced blocks; short identifiers, API names, commands and fragments may remain inline code inside prose. KaTeX delimiters, braces and active LaTeX environments must remain balanced.
 *  **Active Pauses**: Placement, reasoning demand, option quality and text formatting are shared contracts reused by generation and verification rather than parallel prompt prose.
 *  **Visual Selection**: Original source images are preferred when they are clear and pedagogically equivalent; generated visuals and YouTube clips remain subject to their dedicated planning contracts.
 
 ### Focused lesson verification
 
-The verifier requires one `verificationReport` entry with non-empty evidence for every semantic and structural check ID. Markdown/prose integrity, positive definitions, self-sufficiency, ASCII pseudo-visual rejection, code formatting, math formatting, active-pause quality and generated-visual planning are always available checks; checks that do not apply return `not-applicable` only where the contract explicitly allows it.
+The verifier requires one `verificationReport` entry with non-empty evidence for every semantic and structural check ID. `core.coverage` explicitly compares the final draft with the lesson reference context; in source-backed lessons it also checks that distinctive relevant primary-source material survived generation. This prevents a short but correct outline, or a generic research-based explanation, from passing merely because its individual claims are accurate.
+
+Markdown/prose integrity, positive definitions, self-sufficiency, ASCII pseudo-visual rejection, code formatting, math formatting, active-pause quality and generated-visual planning are always available structural checks; checks that do not apply return `not-applicable` only where the contract explicitly allows it.
 
 Image-reference verification is enabled when an image reference already exists or original image candidates are available. YouTube verification is enabled when a clip exists or a timestamped transcript is available. These source-driven checks let the verifier repair a relevant omission without authorizing media that the task cannot support. After the model returns, structural requirements are recomputed against the corrected draft so newly introduced source-dependent media cannot bypass its own validation.
 
