@@ -54,11 +54,27 @@ export const LESSON_LOCAL_REPETITION_RULE =
 export const LESSON_SINGLE_CORE_BUILD_RULE =
   'Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.';
 
+export const LESSON_METADISCOURSE_RULE =
+  'Evita metadiscorso ed enfasi ridondante: entra nel contenuto della lezione senza commentare inutilmente il fatto che stai spiegando, riassumendo o organizzando il testo.';
+
+export const LESSON_RELEVANCE_STYLE_RULES = [
+  LESSON_ANALOGY_USAGE_RULE,
+  LESSON_CONCRETE_EXAMPLE_PREFERENCE_RULE,
+  LESSON_RECURRING_STYLE_PHRASE_RULE,
+  LESSON_LOCAL_REPETITION_RULE,
+  LESSON_SINGLE_CORE_BUILD_RULE,
+  LESSON_ENGAGEMENT_RELEVANCE_RULE,
+  LESSON_METADISCOURSE_RULE,
+] as const;
+
 export const LESSON_MAIN_PROSE_RULE =
   'Il corpo principale della lezione deve restare prosa discorsiva: non trasformare la spiegazione in una sequenza di liste puntate. Usa liste soltanto quando la relazione tra elementi, passaggi o confronti ne beneficia davvero.';
 
 export const LESSON_LIST_STRUCTURE_RULE =
   'Quando elenchi due o piu elementi fratelli, usa una lista Markdown vera. Non creare pseudo-liste come paragrafi consecutivi "Etichetta: ..." senza bullet: se non e una lista, fondi il contenuto in paragrafi completi.';
+
+export const LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE =
+  'Tratta tabelle, matrici, didascalie, legende e label testuali dei grafici come contenuto tecnico quando portano informazione: non scartarle come rumore e preservane una rappresentazione leggibile nella lezione.';
 
 export const LESSON_STRUCTURED_SOURCE_COMPARISON_RULE =
   'Quando il materiale di riferimento presenta una tabella o un confronto strutturato rilevante, preservane la struttura con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in prosa confusa.';
@@ -146,7 +162,7 @@ const NUMBERED_LOCAL_PROPEDEUTIC_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.map(
 
 export const LESSON_SHARED_WRITING_RULES = `${NUMBERED_LANGUAGE_CLARITY_RULES}
 13. ${LESSON_ANALOGY_USAGE_RULE}
-14. ${LESSON_CONCRETE_EXAMPLE_PREFERENCE_RULE} ${FORMULA_RELEVANCE_RULE} ${LESSON_STRUCTURED_SOURCE_COMPARISON_RULE}
+14. ${LESSON_CONCRETE_EXAMPLE_PREFERENCE_RULE} ${FORMULA_RELEVANCE_RULE} ${LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE} ${LESSON_STRUCTURED_SOURCE_COMPARISON_RULE}
 15. ${LESSON_RECURRING_STYLE_PHRASE_RULE}
 16. ${LESSON_LOCAL_REPETITION_RULE}
 17. ${LESSON_SINGLE_CORE_BUILD_RULE}
