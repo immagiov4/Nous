@@ -1,30 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  buildLessonGenerationPrompt,
-  buildLessonGenerationReferenceContext,
-} from '../../src/services/lessonGenerationPrompt.js';
-import type {
-  LessonContentDraft,
-  LessonGenerationInput,
-} from '../../src/services/lessonGenerationTypes.js';
-import { buildLessonVerificationPrompt } from '../../src/services/lessonGenerationVerification.js';
-
-const input: Omit<LessonGenerationInput, 'config' | 'signal'> = {
-  description: 'Capire come gli eventi diventano azioni di gioco.',
-  generationNotes: 'Preferisci esempi concreti e un ritmo medio.',
-  imageCandidates: [],
-  instructionPacks: [],
-  language: 'Italiano',
-  pedagogicalContext: 'Studente con conoscenze di programmazione di base.',
-  previousLessonTitles: ['Input fisico e semantica'],
-  refreshResearch: false,
-  researchContext: '',
-  sectionTitle: 'Dall evento all azione',
-  sourceContext:
-    'Un evento descrive la sorgente fisica; il mapping assegna un significato di gioco.',
-  sources: [],
-};
+import type { LessonContentDraft } from '../../src/services/lessonGenerationTypes.js';
+import { buildApplicableLessonVerificationCheckIds } from '../../src/services/lessonGenerationVerification.js';
 
 const plainDraft: LessonContentDraft = {
   contentBlocks: [
@@ -37,68 +14,19 @@ const plainDraft: LessonContentDraft = {
   imageRefs: [],
 };
 
-describe('lesson prompt architecture', () => {
-  test('keeps reference context separate from writer instructions', () => {
-    const reference = buildLessonGenerationReferenceContext(input);
-    const writer = buildLessonGenerationPrompt(input);
+const BASE_CHECKS = [
+  'markdown-structure',
+  'self-sufficiency',
+  'ascii-visual',
+  'code-structure',
+] as const;
 
-    expect(reference).toContain('MATERIALE SORGENTE PRIMARIO');
-    expect(reference).toContain('Preferisci esempi concreti');
-    expect(reference).not.toContain('CONTRATTO DI SCRITTURA');
-    expect(reference).not.toContain('PAUSE ATTIVE:');
-    expect(writer).toContain(reference);
-    expect(writer).toContain('CONTRATTO DI SCRITTURA');
-    expect(writer).toContain('PAUSE ATTIVE:');
+describe('lesson verification prompt architecture', () => {
+  test('keeps universal verifier invariants independent from optional draft features', () => {
+    expect(buildApplicableLessonVerificationCheckIds(plainDraft)).toEqual(BASE_CHECKS);
   });
 
-  test('does not copy the full writer contract into verification', () => {
-    const verification = buildLessonVerificationPrompt(input, plainDraft);
-
-    expect(verification).toContain('CHECKLIST OBBLIGATORIA');
-    expect(verification).toContain('core.progression');
-    expect(verification).toContain('VINCOLI DI FOCUS SEMPRE OBBLIGATORI');
-    expect(verification).toContain('Non anticipare in dettaglio argomenti');
-    expect(verification).toContain('Non simulare esempi visivi con ASCII art');
-    expect(verification).not.toContain('CONTRATTO DI SCRITTURA');
-    expect(verification).not.toContain('exerciseType deve appartenere a questo catalogo');
-  });
-
-  test('enables structural checks only from features present in the draft', () => {
-    const plainVerification = buildLessonVerificationPrompt(input, plainDraft);
-
-    expect(plainVerification).not.toContain('Ogni imageRef usa un assetId disponibile');
-    expect(plainVerification).not.toContain('Ogni piano visuale ha esattamente');
-    expect(plainVerification).not.toContain('Ogni clip YouTube usa un sourceIndex valido');
-    expect(plainVerification).not.toContain('Correggi delimitatori o graffe KaTeX');
-    expect(plainVerification).not.toContain('Codice, pseudocodice, comandi e output');
-
-    const candidateOnlyInput: typeof input = {
-      ...input,
-      imageCandidates: [
-        {
-          id: 'candidate-1',
-          sourceOrder: 0,
-          visibleLabel: 'Schema disponibile',
-        },
-      ],
-    };
-    expect(buildLessonVerificationPrompt(candidateOnlyInput, plainDraft)).not.toContain(
-      'Ogni imageRef usa un assetId disponibile'
-    );
-
-    const codePackOnlyInput: typeof input = { ...input, instructionPacks: ['code'] };
-    expect(buildLessonVerificationPrompt(codePackOnlyInput, plainDraft)).not.toContain(
-      'Codice, pseudocodice, comandi e output'
-    );
-
-    const currencyDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [{ markdown: 'Il prezzo del servizio e $12 al mese.', type: 'markdown' }],
-    };
-    expect(buildLessonVerificationPrompt(input, currencyDraft)).not.toContain(
-      'Correggi delimitatori o graffe KaTeX'
-    );
-
+  test('enables feature-scoped checks from structured draft features', () => {
     const imageDraft: LessonContentDraft = {
       ...plainDraft,
       imageRefs: [
@@ -110,9 +38,10 @@ describe('lesson prompt architecture', () => {
         },
       ],
     };
-    expect(buildLessonVerificationPrompt(input, imageDraft)).toContain(
-      'Ogni imageRef usa un assetId disponibile'
-    );
+    expect(buildApplicableLessonVerificationCheckIds(imageDraft)).toEqual([
+      ...BASE_CHECKS,
+      'image-reference',
+    ]);
 
     const visualDraft: LessonContentDraft = {
       ...plainDraft,
@@ -140,9 +69,10 @@ describe('lesson prompt architecture', () => {
         },
       ],
     };
-    expect(buildLessonVerificationPrompt(input, visualDraft)).toContain(
-      'Ogni piano visuale ha esattamente'
-    );
+    expect(buildApplicableLessonVerificationCheckIds(visualDraft)).toEqual([
+      ...BASE_CHECKS,
+      'generated-visual',
+    ]);
 
     const youtubeDraft: LessonContentDraft = {
       ...plainDraft,
@@ -154,30 +84,10 @@ describe('lesson prompt architecture', () => {
         },
       ],
     };
-    expect(buildLessonVerificationPrompt(input, youtubeDraft)).toContain(
-      'Ogni clip YouTube usa un sourceIndex valido'
-    );
-
-    const mathDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [{ markdown: 'La relazione si esprime come $x + 1 = 2$.', type: 'markdown' }],
-    };
-    expect(buildLessonVerificationPrompt(input, mathDraft)).toContain(
-      'Correggi delimitatori o graffe KaTeX'
-    );
-
-    const codeDraft: LessonContentDraft = {
-      ...plainDraft,
-      contentBlocks: [
-        {
-          markdown: 'Esempio:\n```ts\nconst action = map(event);\n```',
-          type: 'markdown',
-        },
-      ],
-    };
-    expect(buildLessonVerificationPrompt(input, codeDraft)).toContain(
-      'Codice, pseudocodice, comandi e output'
-    );
+    expect(buildApplicableLessonVerificationCheckIds(youtubeDraft)).toEqual([
+      ...BASE_CHECKS,
+      'youtube-structure',
+    ]);
 
     const quizDraft: LessonContentDraft = {
       ...plainDraft,
@@ -194,8 +104,36 @@ describe('lesson prompt architecture', () => {
         },
       ],
     };
-    expect(buildLessonVerificationPrompt(input, quizDraft)).toContain(
-      'non deve poter essere risolta copiando'
-    );
+    expect(buildApplicableLessonVerificationCheckIds(quizDraft)).toEqual([
+      ...BASE_CHECKS,
+      'quiz-quality',
+      'quiz-text',
+    ]);
+  });
+
+  test('treats valid and malformed math delimiters as math but not a lone currency amount', () => {
+    const validMathDraft: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [{ markdown: 'La relazione e $x + 1 = 2$.', type: 'markdown' }],
+    };
+    expect(buildApplicableLessonVerificationCheckIds(validMathDraft)).toEqual([
+      ...BASE_CHECKS,
+      'math-structure',
+    ]);
+
+    const malformedMathDraft: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [{ markdown: 'La variabile $x rappresenta lo stato.', type: 'markdown' }],
+    };
+    expect(buildApplicableLessonVerificationCheckIds(malformedMathDraft)).toEqual([
+      ...BASE_CHECKS,
+      'math-structure',
+    ]);
+
+    const currencyDraft: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [{ markdown: 'Il prezzo del servizio e $12 al mese.', type: 'markdown' }],
+    };
+    expect(buildApplicableLessonVerificationCheckIds(currencyDraft)).toEqual(BASE_CHECKS);
   });
 });
