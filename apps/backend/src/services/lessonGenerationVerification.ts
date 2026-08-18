@@ -4,6 +4,7 @@ import {
   ACTIVE_PAUSE_TEXT_FORMAT_RULE,
   MAX_LESSON_QUIZ_QUESTIONS,
   ORIGINAL_IMAGE_PRIORITY_RULE,
+  ORIGINAL_IMAGE_USAGE_RULES,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
@@ -14,11 +15,15 @@ import {
   LESSON_ACRONYM_EXPANSION_RULE,
   LESSON_ANALOGY_USAGE_RULE,
   LESSON_ASCII_VISUAL_RULE,
+  LESSON_CODE_FORMATTING_RULE,
   LESSON_GUIDED_NOVICE_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
   LESSON_LIST_STRUCTURE_RULE,
+  LESSON_LOCAL_PROPEDEUTIC_RULES,
   LESSON_LOCAL_REPETITION_RULE,
+  LESSON_MAIN_PROSE_RULE,
+  LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE,
   LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
@@ -26,6 +31,7 @@ import {
   LESSON_SELF_SUFFICIENCY_RULE,
   LESSON_SINGLE_CORE_BUILD_RULE,
   LESSON_SOURCE_PRECEDENCE_RULE,
+  LESSON_STRUCTURED_SOURCE_COMPARISON_RULE,
   SYSTEM_INSTRUCTION_TEACHER,
   YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '@shared/lessonWritingContract';
@@ -50,11 +56,21 @@ interface LessonResponseSchemaContract {
   };
 }
 
+const LESSON_VERIFICATION_STATUS = {
+  corrected: 'corrected',
+  notApplicable: 'not-applicable',
+  pass: 'pass',
+} as const;
+
+const LESSON_VERIFICATION_STATUS_VALUES = Object.values(LESSON_VERIFICATION_STATUS);
+type LessonVerificationStatus =
+  (typeof LESSON_VERIFICATION_STATUS)[keyof typeof LESSON_VERIFICATION_STATUS];
+
 interface LessonVerificationReportItem {
   action: string;
   checkId: string;
   evidence: string;
-  status: 'corrected' | 'not-applicable' | 'pass';
+  status: LessonVerificationStatus;
 }
 
 type VerifiedLessonContentDraft = LessonContentDraft & {
@@ -65,12 +81,13 @@ type LessonVerificationInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
 
 type LessonVerificationCheckContext = Pick<
   LessonGenerationInput,
-  'imageCandidates' | 'instructionPacks'
-> &
-  Partial<Pick<LessonGenerationInput, 'sources'>>;
+  'imageCandidates' | 'instructionPacks' | 'sources'
+>;
 
-type LessonVerificationStructuralContext = Pick<LessonGenerationInput, 'imageCandidates'> &
-  Partial<Pick<LessonGenerationInput, 'sources'>>;
+type LessonVerificationStructuralContext = Pick<
+  LessonGenerationInput,
+  'imageCandidates' | 'sources'
+>;
 
 export type LessonVerificationStructuralCheckId =
   | 'ascii-visual'
@@ -84,17 +101,27 @@ export type LessonVerificationStructuralCheckId =
   | 'self-sufficiency'
   | 'youtube-structure';
 
+const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerificationStructuralCheckId[] = [
+  'markdown-structure',
+  'positive-definition',
+  'self-sufficiency',
+  'ascii-visual',
+  'code-structure',
+  'math-structure',
+  'quiz-quality',
+  'generated-visual',
+];
+
 const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
   exercise => `${exercise.type}: ${exercise.instruction}`
 ).join('\n');
 
-const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_LIST_STRUCTURE_RULE} I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate o bibliografie in nessuna posizione della lezione.`;
-const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_PRIORITY_RULE} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti secondo questa regola. Ogni imageRef deve usare un assetId disponibile, avere un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino; rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come not-applicable.`;
-const YOUTUBE_STRUCTURE_CHECK =
-  'Se nei riferimenti esiste un transcript YouTube timestampato ma la bozza non contiene clip, valuta se movimento, successione dei passaggi o dimostrazione nel tempo aggiungono informazione didattica che una buona visuale statica non puo offrire altrettanto bene: se si, aggiungi soltanto il minimo intervallo utile; se no, segna il controllo come not-applicable. Ogni clip presente o aggiunta usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
-const CODE_STRUCTURE_CHECK =
-  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido. La riga di apertura contiene soltanto il fence e, se serve, il nome del linguaggio; correggi frammenti tecnici o etichette di linguaggio rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice. Se non contiene materiale tecnico di questo tipo, segna il controllo come not-applicable.';
-const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} Se la bozza non contiene matematica, segna il controllo come not-applicable.`;
+const LOCAL_PROPEDEUTIC_VERIFICATION_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.join(' ');
+const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_MAIN_PROSE_RULE} ${LESSON_LIST_STRUCTURE_RULE} ${LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE}`;
+const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_USAGE_RULES.join(' ')} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
+const YOUTUBE_STRUCTURE_CHECK = `Se nei riferimenti esiste un transcript YouTube timestampato ma la bozza non contiene clip, applica le regole pedagogiche sottostanti anche alla decisione di omissione: aggiungi soltanto il minimo intervallo utile quando una clip e davvero necessaria; altrimenti segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni clip presente o aggiunta usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.`;
+const CODE_STRUCTURE_CHECK = `${LESSON_CODE_FORMATTING_RULE} Se la bozza non contiene codice, pseudocodice, comandi o output, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
+const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} Se la bozza non contiene matematica, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -113,7 +140,7 @@ const buildVerificationSchema = (
             action: { type: 'string' },
             checkId: { enum: checkIds, type: 'string' },
             evidence: { minLength: 1, type: 'string' },
-            status: { enum: ['pass', 'corrected', 'not-applicable'], type: 'string' },
+            status: { enum: LESSON_VERIFICATION_STATUS_VALUES, type: 'string' },
           },
           required: ['checkId', 'status', 'evidence', 'action'],
           type: 'object',
@@ -130,30 +157,16 @@ const buildVerificationSchema = (
 export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
-  const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
-  const hasImageRefs = draft.imageRefs.length > 0;
-
-  const checkIds: LessonVerificationStructuralCheckId[] = [
-    'markdown-structure',
-    'positive-definition',
-    'self-sufficiency',
-    'ascii-visual',
-    'code-structure',
-    'math-structure',
-    'quiz-quality',
-    'generated-visual',
-  ];
-
-  if (hasImageRefs) checkIds.push('image-reference');
-  if (hasYoutube) checkIds.push('youtube-structure');
-
+  const checkIds = [...BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS];
+  if (draft.imageRefs.length > 0) checkIds.push('image-reference');
+  if (draft.contentBlocks.some(block => block.type === 'youtube-clips')) {
+    checkIds.push('youtube-structure');
+  }
   return checkIds;
 };
 
-const hasTimestampedYoutubeSource = (
-  sources: LessonGenerationInput['sources'] | undefined
-): boolean =>
-  sources?.some(source => (source.youtubeTranscript?.segments.length ?? 0) > 0) ?? false;
+const hasTimestampedYoutubeSource = (sources: LessonGenerationInput['sources']): boolean =>
+  sources.some(source => (source.youtubeTranscript?.segments.length ?? 0) > 0);
 
 const buildRequiredLessonVerificationStructuralCheckIds = (
   input: LessonVerificationStructuralContext,
@@ -218,11 +231,11 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come not-applicable. Ogni inline-quiz presente o aggiunta deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa non deve poter essere risolta copiando o riconoscendo una definizione locale. ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni inline-quiz presente o aggiunta deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
-      return `Se la bozza non contiene visuali generati, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente uno; se un visuale generato e richiesto ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcun visuale generato e nessuna istruzione esplicita lo richiede, segna il controllo come not-applicable. Ogni piano visuale presente o aggiunto ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
+      return `Se la bozza non contiene visuali generati, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente uno; se un visuale generato e richiesto ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcun visuale generato e nessuna istruzione esplicita lo richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni piano visuale presente o aggiunto ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
     case 'youtube-structure':
       return `${YOUTUBE_STRUCTURE_CHECK}\n${YOUTUBE_CLIP_PEDAGOGY_RULES}`;
   }
@@ -239,7 +252,10 @@ const buildLessonVerificationPrompt = (
     !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
   const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
     if (item.checkId === 'core.progression') {
-      return { ...item, instruction: `${item.instruction} ${LESSON_GUIDED_NOVICE_RULE}` };
+      return {
+        ...item,
+        instruction: `${LOCAL_PROPEDEUTIC_VERIFICATION_RULES} ${LESSON_GUIDED_NOVICE_RULE}`,
+      };
     }
     if (item.checkId === 'core.clarity') {
       return { ...item, instruction: `${item.instruction} ${LESSON_ACRONYM_EXPANSION_RULE}` };
@@ -253,11 +269,15 @@ const buildLessonVerificationPrompt = (
         .join(' ');
       return sourceRules ? { ...item, instruction: `${item.instruction} ${sourceRules}` } : item;
     }
-    if (item.checkId === 'core.structure' && isResearchOnly) {
-      return {
-        ...item,
-        instruction: `${item.instruction} ${LESSON_RESEARCH_TRANSFORMATION_RULE}`,
-      };
+    if (item.checkId === 'core.structure') {
+      const structureRules = [
+        item.instruction,
+        hasReferenceMaterial ? LESSON_STRUCTURED_SOURCE_COMPARISON_RULE : '',
+        isResearchOnly ? LESSON_RESEARCH_TRANSFORMATION_RULE : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return { ...item, instruction: structureRules };
     }
     if (item.checkId === 'core.relevance') {
       return {
@@ -270,8 +290,7 @@ const buildLessonVerificationPrompt = (
   const structuralCheckIds = buildRequiredLessonVerificationStructuralCheckIds(input, draft);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
-  return `RIFERIMENTI DELLA LEZIONE:
-${buildLessonGenerationReferenceContext(input)}
+  return `${buildLessonGenerationReferenceContext(input)}
 
 BOZZA DA VERIFICARE:
 ${JSON.stringify(draft)}
@@ -279,8 +298,9 @@ ${JSON.stringify(draft)}
 COMPITO DI VERIFICA:
 Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
 Per ogni checkId elencato sotto, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto. Non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
-Compila esattamente una voce verificationReport per ciascun checkId, inclusi i controlli strutturali. Usa not-applicable solo quando l'istruzione lo consente e il contenuto corrispondente non esiste nella bozza.
-Non introdurre pause, imageRefs, visuali generati o clip YouTube di un tipo il cui checkId non sia elencato sotto. Se devi rimuovere un artefatto invalido e il controllo del formato sostitutivo non e presente, correggi in prosa o rimuovi l'artefatto invece di introdurre una nuova feature non verificata.
+Compila esattamente una voce verificationReport per ciascun checkId, inclusi i controlli strutturali. Usa ${LESSON_VERIFICATION_STATUS.notApplicable} solo quando l'istruzione lo consente e il contenuto corrispondente non esiste nella bozza.
+La presenza di un check di riparazione non e un invito ad aggiungere una feature: crea pause o visuali generati soltanto quando una richiesta esplicita del task li rende necessari.
+Non introdurre imageRefs o clip YouTube se il relativo checkId non e elencato sotto. Se devi rimuovere un artefatto invalido e il controllo del formato sostitutivo non e presente, correggi in prosa o rimuovi l'artefatto invece di introdurre una nuova feature non verificata.
 
 VINCOLI DI CONTINUITA E FOCUS SEMPRE OBBLIGATORI:
 - ${continuityRule}
