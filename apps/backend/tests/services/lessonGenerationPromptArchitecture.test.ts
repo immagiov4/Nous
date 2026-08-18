@@ -26,6 +26,8 @@ const BASE_CHECKS = [
   'ascii-visual',
   'code-structure',
   'math-structure',
+  'quiz-quality',
+  'generated-visual',
 ] as const;
 
 const imageCandidate = {
@@ -53,6 +55,16 @@ const timestampedYoutubeSource = {
 describe('lesson verification prompt architecture', () => {
   test('keeps universal verifier invariants independent from optional draft features', () => {
     expect(buildApplicableLessonVerificationCheckIds(plainDraft)).toEqual(BASE_CHECKS);
+  });
+
+  test('keeps omission-repair checks available for required pauses and generated visuals', () => {
+    const requiredIds = buildRequiredLessonVerificationCheckIds(
+      { imageCandidates: [], instructionPacks: [] },
+      plainDraft
+    );
+
+    expect(requiredIds).toContain('quiz-quality');
+    expect(requiredIds).toContain('generated-visual');
   });
 
   test('requires report entries for semantic and structural checks', () => {
@@ -163,10 +175,7 @@ describe('lesson verification prompt architecture', () => {
         },
       ],
     };
-    expect(buildApplicableLessonVerificationCheckIds(visualDraft)).toEqual([
-      ...BASE_CHECKS,
-      'generated-visual',
-    ]);
+    expect(buildApplicableLessonVerificationCheckIds(visualDraft)).toEqual(BASE_CHECKS);
 
     const youtubeDraft: LessonContentDraft = {
       ...plainDraft,
@@ -198,18 +207,13 @@ describe('lesson verification prompt architecture', () => {
         },
       ],
     };
-    expect(buildApplicableLessonVerificationCheckIds(quizDraft)).toEqual([
-      ...BASE_CHECKS,
-      'quiz-quality',
-      'quiz-text',
-    ]);
+    expect(buildApplicableLessonVerificationCheckIds(quizDraft)).toEqual(BASE_CHECKS);
 
     const requiredQuizIds = buildRequiredLessonVerificationCheckIds(
       { imageCandidates: [], instructionPacks: [] },
       quizDraft
     );
     expect(requiredQuizIds).toContain('quiz-quality');
-    expect(requiredQuizIds).toContain('quiz-text');
     expect(new Set(requiredQuizIds).size).toBe(requiredQuizIds.length);
   });
 
@@ -262,6 +266,47 @@ describe('lesson verification prompt architecture', () => {
       findUncheckedLessonVerificationStructuralCheckIds(
         structuralContext,
         verifiedWithNewYoutube,
+        checkedIds
+      )
+    ).toEqual([]);
+  });
+
+  test('allows a generated visual introduced under the always-available restoration check', () => {
+    const checkedIds = buildRequiredLessonVerificationCheckIds(
+      { imageCandidates: [], instructionPacks: [] },
+      plainDraft
+    );
+    const verifiedWithGeneratedVisual: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [
+        ...plainDraft.contentBlocks,
+        { slotId: 'visual-1', type: 'generated-visual' },
+      ],
+      generatedVisuals: [
+        {
+          altText: 'Flusso dal dispositivo all azione',
+          anchorHeading: 'Dall evento all azione',
+          complexity: 'simple',
+          concept: 'Mapping degli input',
+          coverage: 'all_elements',
+          coverageRationale: 'Mostra l intero flusso.',
+          factualRequirements: ['Il dispositivo produce un evento', 'Il mapping assegna un azione'],
+          interactionLevel: 'none',
+          pedagogicalGoal: 'Rendere visibile la separazione tra evento e azione.',
+          reason: 'La relazione e strutturale.',
+          requiresDepiction: false,
+          slotId: 'visual-1',
+          title: 'Dal dispositivo all azione',
+          visualDirection: 'Due box collegati da una freccia.',
+          visualType: 'flowchart_svg',
+        },
+      ],
+    };
+
+    expect(
+      findUncheckedLessonVerificationStructuralCheckIds(
+        { imageCandidates: [] },
+        verifiedWithGeneratedVisual,
         checkedIds
       )
     ).toEqual([]);
