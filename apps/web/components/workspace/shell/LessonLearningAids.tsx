@@ -514,7 +514,7 @@ export function MobileLearningAids({
                 aria-label={t('Concetti chiave')}
                 className="fixed right-3 top-[5.75rem] z-[60] max-h-[min(70dvh,36rem)] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-[1.75rem] border border-gray-200 bg-white p-3 shadow-[0_18px_45px_rgba(15,23,42,0.16)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_18px_45px_rgba(0,0,0,0.4)]"
                 isOpen={isOpen}
-                originX="top right"
+                originX="top center"
                 role="complementary"
               >
                 <div className="mb-3 flex items-center justify-between gap-2 px-1">

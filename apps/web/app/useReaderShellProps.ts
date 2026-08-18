@@ -632,6 +632,7 @@ export const useReaderShellProps = ({
         generatingSectionId: controller.generatingSectionId ?? null,
         isRepairingApplicationExercises,
         isLoading: controller.isBlocking,
+        isSectionLoading: controller.workflowState.loadSection.status === 'pending',
         isMobileViewport: readerState.readerChrome.isMobileViewport,
         learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
         repairApplicationExercisesLabel: getApplicationExerciseRepairLabel(controller.learningPlan),

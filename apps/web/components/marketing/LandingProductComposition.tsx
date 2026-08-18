@@ -1812,6 +1812,7 @@ export const LandingProductVideoFrame = ({
       expandedModuleId,
       generatingSectionId: isGenerating ? activeLesson.id : null,
       isLoading: isGenerating,
+      isSectionLoading: isGenerating,
       isMobileViewport,
       isRepairingApplicationExercises: false,
       learningPlanTitle: courseTitle,

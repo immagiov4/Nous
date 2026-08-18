@@ -192,6 +192,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
       generatingSectionId: null,
       isRepairingApplicationExercises: false,
       isLoading: false,
+      isSectionLoading: false,
       isMobileViewport: false,
       learningPlanTitle: 'Titolo',
       repairApplicationExercisesLabel: 'Pianifica esercizi',

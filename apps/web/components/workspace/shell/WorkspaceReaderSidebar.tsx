@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState, useTransition } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../../constants/layout.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { ApplicationExerciseNode, LessonNode, PathNode } from '../../../types.ts';
@@ -21,22 +21,39 @@ import type { WorkspaceReaderSidebarModel } from './types.ts';
 const LAB_CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const LESSON_CONTEXT_MENU_WIDTH = 272;
 const LESSON_CONTEXT_MENU_HEIGHT = 120;
+const LESSON_ROW_BASE_PADDING_REM = 1;
+const LESSON_ROW_NESTED_INDENT_REM = 0.9;
 const MOBILE_SIDEBAR_MOTION_CLASS_NAME =
   'max-sm:duration-150 max-sm:ease-[cubic-bezier(0.2,0.85,0.25,1)] max-sm:motion-reduce:transition-none';
+const MODULE_TITLE_PREFIX = /^(?:modulo|module)\s+(\d+)\s*(?:[—–-]\s*)?/i;
+
+const getModuleDisplay = (title: string, fallbackOrdinal: number) => {
+  const prefixMatch = title.match(MODULE_TITLE_PREFIX);
+  return {
+    ordinal: prefixMatch ? Number(prefixMatch[1]) : fallbackOrdinal,
+    title: title.replace(MODULE_TITLE_PREFIX, '').trim(),
+  };
+};
 
 const getSectionStatusLabel = ({
   hasGeneratedContent,
   isActive,
   isCompleted,
   isGenerating,
+  isLoading,
 }: {
   hasGeneratedContent: boolean;
   isActive: boolean;
   isCompleted: boolean;
   isGenerating: boolean;
+  isLoading: boolean;
 }) => {
   if (isGenerating) {
     return t('Generazione lezione in corso…');
+  }
+
+  if (isLoading) {
+    return t('Caricamento...');
   }
 
   if (isCompleted) {
@@ -103,14 +120,23 @@ const renderSectionStatus = ({
   isActive,
   isCompleted,
   isGenerating,
+  isLoading,
 }: {
   hasGeneratedContent: boolean;
   isActive: boolean;
   isCompleted: boolean;
   isGenerating: boolean;
+  isLoading: boolean;
 }) => {
-  if (isGenerating) {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500" strokeWidth={2} />;
+  if (isGenerating || isLoading) {
+    return (
+      <Loader2
+        className={`h-3.5 w-3.5 animate-spin ${
+          isGenerating ? 'text-orange-500' : 'text-gray-700 dark:text-zinc-100'
+        }`}
+        strokeWidth={2}
+      />
+    );
   }
 
   if (isCompleted) {
@@ -143,6 +169,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   generatingSectionId,
   isRepairingApplicationExercises,
   isLoading,
+  isSectionLoading: isActiveSectionLoading,
   isMobileViewport,
   learningPlanTitle,
   placement = 'viewport',
@@ -164,6 +191,8 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
     y: number;
   }>(null);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [pendingSectionId, setPendingSectionId] = useState<string | null>(null);
+  const [, startSectionTransition] = useTransition();
   const lessonContextMenuRef = useRef<HTMLDivElement>(null);
   const feedbackTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -194,6 +223,12 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       globalThis.window.removeEventListener('keydown', handleKeyDown);
     };
   }, [lessonContextMenu]);
+
+  useEffect(() => {
+    if (pendingSectionId === activeSectionId && !isActiveSectionLoading) {
+      setPendingSectionId(null);
+    }
+  }, [activeSectionId, isActiveSectionLoading, pendingSectionId]);
 
   const handleLessonContextMenu = (
     event: ReactMouseEvent<HTMLButtonElement>,
@@ -285,7 +320,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       >
         <div className="shrink-0 flex flex-col gap-4 border-b border-gray-200/80 px-5 py-5 dark:border-zinc-700/80 sm:px-6">
           <div className="flex items-start justify-between gap-4">
-            <h1 className="font-serif text-xl font-bold leading-tight text-gray-900 dark:text-white">
+            <h1 className="font-serif text-lg font-bold leading-tight text-gray-900 sm:text-xl dark:text-white">
               {learningPlanTitle || t('Percorso di Studio')}
             </h1>
             {isMobileViewport ? (
@@ -313,7 +348,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
             <button
               type="button"
               onClick={onBackToLibrary}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600"
+              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600"
             >
               <LibraryBig className="h-4 w-4" /> {t('Libreria')}
             </button>
@@ -324,7 +359,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                 setIsFeedbackOpen(true);
                 if (isMobileViewport) onSetIsMobileSidebarOpen(false);
               }}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600"
+              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600"
             >
               <MessageSquareWarning className="h-4 w-4 shrink-0" />
               <span className="whitespace-nowrap">{t('Segnala problema')}</span>
@@ -358,114 +393,140 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
             isMobileViewport ? 'reader-sidebar-scroll-mobile' : ''
           }`}
         >
-          <div className="space-y-6">
-            <div className="space-y-3">
-              {sidebarGroups.map(group => {
-                const isExpanded = expandedModuleId === group.id;
+          <div className="space-y-2">
+            {sidebarGroups.map((group, groupIndex) => {
+              const isExpanded = expandedModuleId === group.id;
+              const module = getModuleDisplay(group.title, groupIndex + 1);
 
-                return (
-                  <section
-                    key={group.id}
-                    className="border-b border-gray-200/70 pb-3 last:border-b-0 last:pb-0 dark:border-zinc-700/80"
+              return (
+                <section
+                  key={group.id}
+                  className="border-b border-gray-200/70 pb-2 last:border-b-0 last:pb-0 dark:border-zinc-700/80"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onModuleToggle(group.id)}
+                    className={`flex min-h-12 w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors sm:min-h-11 ${
+                      isExpanded
+                        ? 'text-gray-900 dark:text-gray-100'
+                        : 'text-gray-600 hover:bg-gray-100/70 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-zinc-700/70 dark:hover:text-gray-100'
+                    }`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => onModuleToggle(group.id)}
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-                        isExpanded
-                          ? 'text-gray-900 dark:text-gray-100'
-                          : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-zinc-800/70 dark:hover:text-gray-200'
-                      }`}
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-gray-50 font-serif text-base font-semibold text-gray-800 sm:h-8 sm:w-8 dark:border-zinc-600 dark:bg-zinc-700/70 dark:text-zinc-100">
+                      {module.ordinal}
+                    </span>
+                    <span
+                      className="min-w-0 flex-1 font-serif text-sm font-semibold leading-snug sm:text-[15px]"
+                      title={group.title}
                     >
-                      <ChevronRight
-                        className={`h-4 w-4 flex-shrink-0 transition-transform duration-300 ${
-                          isExpanded ? 'rotate-90' : ''
-                        }`}
-                      />
-                      <span
-                        className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.18em]"
-                        title={group.title}
-                      >
-                        {group.title}
-                      </span>
-                    </button>
+                      {module.title}
+                    </span>
+                    <ChevronRight
+                      className={`h-4 w-4 shrink-0 transition-transform duration-300 ${
+                        isExpanded ? '-rotate-90' : 'rotate-90'
+                      }`}
+                    />
+                  </button>
 
-                    {isExpanded ? (
-                      <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 pl-4 dark:border-zinc-700/80">
-                        {group.sections.map((section: PathNode) => {
-                          const isActive = activeSectionId === section.id;
-                          const depth = group.sectionDepthById[section.id] ?? 0;
-                          const hasGeneratedContent =
-                            section.kind === 'lesson' && Boolean(section.content?.trim());
-                          const isGenerating =
-                            section.kind === 'lesson' && generatingSectionId === section.id;
-                          // Disabled only when a different section is being
-                          // generated — otherwise all sections are clickable
-                          // (to start generation or navigate).
-                          const isDisabled =
-                            generatingSectionId !== null && !hasGeneratedContent && !isGenerating;
-                          const statusLabel =
-                            section.kind === 'exercise'
-                              ? getExerciseStatusLabel(section, isActive)
-                              : getSectionStatusLabel({
-                                  hasGeneratedContent,
-                                  isActive,
-                                  isCompleted: section.isCompleted,
-                                  isGenerating,
-                                });
+                  {isExpanded ? (
+                    <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 pl-4 dark:border-zinc-700/80">
+                      {group.sections.map((section: PathNode) => {
+                        const isActive = activeSectionId === section.id;
+                        const depth = group.sectionDepthById[section.id] ?? 0;
+                        const hasGeneratedContent =
+                          section.kind === 'lesson' && Boolean(section.content?.trim());
+                        const isGenerationInProgress =
+                          section.kind === 'lesson' && generatingSectionId === section.id;
+                        const isFirstTimeGeneration =
+                          isGenerationInProgress && !hasGeneratedContent;
+                        const isCachedLessonLoading = isGenerationInProgress && hasGeneratedContent;
+                        const isLessonLoading =
+                          pendingSectionId === section.id ||
+                          (isActive && isActiveSectionLoading) ||
+                          isCachedLessonLoading;
+                        // Disabled only when a different section is being
+                        // generated — otherwise all sections are clickable
+                        // (to start generation or navigate).
+                        const isDisabled =
+                          generatingSectionId !== null &&
+                          !hasGeneratedContent &&
+                          !isGenerationInProgress;
+                        const statusLabel =
+                          section.kind === 'exercise'
+                            ? getExerciseStatusLabel(section, isActive)
+                            : getSectionStatusLabel({
+                                hasGeneratedContent,
+                                isActive,
+                                isCompleted: section.isCompleted,
+                                isGenerating: isFirstTimeGeneration,
+                                isLoading: isLessonLoading,
+                              });
 
-                          return (
-                            <button
-                              type="button"
-                              key={section.id}
-                              onClick={() =>
-                                section.kind === 'exercise'
-                                  ? onSelectExercise(section)
-                                  : onSelectSection(section)
+                        return (
+                          <button
+                            type="button"
+                            key={section.id}
+                            onClick={() => {
+                              if (section.kind === 'exercise') {
+                                onSelectExercise(section);
+                                return;
                               }
-                              onContextMenu={
-                                section.kind === 'lesson'
-                                  ? event => handleLessonContextMenu(event, section)
-                                  : undefined
+
+                              if (section.id === activeSectionId) {
+                                return;
                               }
-                              disabled={isDisabled}
-                              style={{ paddingLeft: `${depth * 0.9}rem` }}
-                              className={`flex w-full items-center gap-3 py-2 text-left transition-colors ${
-                                isActive
-                                  ? 'text-gray-900 dark:text-gray-100'
-                                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                              } ${isDisabled ? 'cursor-not-allowed opacity-40' : ''}`}
+
+                              setPendingSectionId(section.id);
+                              startSectionTransition(() => onSelectSection(section));
+                            }}
+                            onContextMenu={
+                              section.kind === 'lesson'
+                                ? event => handleLessonContextMenu(event, section)
+                                : undefined
+                            }
+                            disabled={isDisabled}
+                            aria-busy={isLessonLoading || undefined}
+                            style={{
+                              paddingLeft: `${
+                                LESSON_ROW_BASE_PADDING_REM + depth * LESSON_ROW_NESTED_INDENT_REM
+                              }rem`,
+                            }}
+                            className={`flex min-h-11 w-full items-center gap-3.5 rounded-lg py-1.5 text-left transition-colors sm:min-h-9 sm:gap-3 ${
+                              isActive
+                                ? 'bg-gray-100 px-4 text-gray-900 dark:bg-zinc-700/70 dark:text-gray-100'
+                                : 'px-4 text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-zinc-700/50 dark:hover:text-gray-200'
+                            } ${isDisabled ? 'cursor-not-allowed opacity-40' : ''}`}
+                          >
+                            <div
+                              className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
+                              title={statusLabel}
                             >
+                              {section.kind === 'exercise'
+                                ? renderExerciseStatus(section, isActive)
+                                : renderSectionStatus({
+                                    hasGeneratedContent,
+                                    isActive,
+                                    isCompleted: section.isCompleted,
+                                    isGenerating: isFirstTimeGeneration,
+                                    isLoading: isLessonLoading,
+                                  })}
+                            </div>
+                            <div className="min-w-0 flex-1">
                               <div
-                                className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
-                                title={statusLabel}
+                                className={`truncate text-sm ${isActive ? 'font-medium' : 'font-normal'}`}
+                                title={section.title}
                               >
-                                {section.kind === 'exercise'
-                                  ? renderExerciseStatus(section, isActive)
-                                  : renderSectionStatus({
-                                      hasGeneratedContent,
-                                      isActive,
-                                      isCompleted: section.isCompleted,
-                                      isGenerating,
-                                    })}
+                                {section.title}
                               </div>
-                              <div className="min-w-0 flex-1">
-                                <div
-                                  className={`truncate text-sm ${isActive ? 'font-medium' : 'font-normal'}`}
-                                  title={section.title}
-                                >
-                                  {section.title}
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                  </section>
-                );
-              })}
-            </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
           </div>
         </div>
       </aside>

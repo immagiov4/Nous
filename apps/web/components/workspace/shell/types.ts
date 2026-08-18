@@ -113,6 +113,7 @@ export interface WorkspaceReaderSidebarModel {
   generatingSectionId: string | null;
   isRepairingApplicationExercises: boolean;
   isLoading: boolean;
+  isSectionLoading: boolean;
   isMobileViewport: boolean;
   learningPlanTitle: string;
   placement?: 'viewport' | 'container';
