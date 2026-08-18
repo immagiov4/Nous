@@ -52,7 +52,7 @@ Student generation notes have high priority for style, density, pacing and simil
 
 The verifier reuses only the writer invariants that can otherwise disappear between generation and publication. Continuity includes truthful references to completed lessons and prevents re-teaching their generic foundations. `core.clarity` retains acronym expansion; `core.progression` retains guided treatment for a novice or struggling learner; `core.relevance` retains analogy and local-repetition limits. `core.structure` retains structured source comparisons and adds the research-to-lesson transformation rule for research-only lessons. `core.correctness` applies named attribution whenever reference material is available and adds primary-source precedence only when a primary source exists.
 
-Feature-specific media checks are activated from concrete draft state or from source assets whose omission itself must be reviewed. In particular, `image-reference` runs when the draft contains `imageRefs` or when selectable original image candidates exist. Source-image selection remains proportional: equivalent figures are deduplicated rather than all being forced into the lesson. The same priority rule is also applied inside `generated-visual`, so an available source-specific diagram or screenshot is not silently replaced by an equivalent generated visual. YouTube verification also activates when a timestamped YouTube transcript is available, allowing the verifier to decide whether an omitted motion-dependent demonstration should become a minimal clip.
+Media checks are activated either from concrete draft state, from source assets whose omission itself must be reviewed, or from explicit task requirements that the writer may have missed. `image-reference` runs when the draft contains `imageRefs` or selectable original image candidates exist. Source-image selection remains proportional: equivalent figures are deduplicated rather than all being forced into the lesson. `quiz-quality` and `generated-visual` remain available even when the draft omits those features so the verifier can restore an explicitly required active pause or generated visual; otherwise they return `not-applicable`. YouTube verification also activates when a timestamped YouTube transcript is available, allowing the verifier to decide whether an omitted motion-dependent demonstration should become a minimal clip.
 
 ```mermaid
 flowchart TD
@@ -91,7 +91,7 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | `LESSON_NAMED_SOURCE_ATTRIBUTION_RULE` | Replaces opaque source references with a source/author name when known, or direct prose when no reliable name exists. |
 | `LESSON_SOURCE_PRECEDENCE_RULE` | Keeps source-specific conventions authoritative over merely alternative dossier conventions. |
 | `LESSON_RESEARCH_TRANSFORMATION_RULE` | Converts research-only input into lesson prose instead of a point-by-point research report. |
-| `FORMULA_RELEVANCE_RULE` / `LESSON_KATEX_FORMATTING_RULE` | Keep mathematical notation meaningful and syntactically valid. |
+| `FORMULA_RELEVANCE_RULE` / `LESSON_KATEX_FORMATTING_RULE` | Keep mathematical notation meaningful, delimiters/braces valid and active LaTeX environments paired. |
 | `LESSON_ASCII_VISUAL_RULE` | Prevents text/ASCII pseudo-visuals when dedicated renderers should be used. |
 | `YOUTUBE_CLIP_PEDAGOGY_RULES` | Determines when motion/video materially improves the lesson and removes duplicate or equivalent clips. |
 
@@ -105,16 +105,14 @@ Each report item requires `checkId`, `status`, non-empty `evidence` and `action`
 
 ## Verification behavior
 
-The base structural contract always includes Markdown and heading/list structure, positive definition order, lesson self-sufficiency, the ASCII pseudo-visual prohibition, code structure, and math/KaTeX structure with formula relevance. Code and math checks are deliberately unconditional because malformed content can be defined by missing syntax; when the corresponding content does not exist, the verifier returns `not-applicable`.
+The base structural contract always includes Markdown and heading/list structure, positive definition order, lesson self-sufficiency, the ASCII pseudo-visual prohibition, code structure, math/KaTeX structure, active-pause quality and generated-visual restoration/planning. Code and math checks are deliberately unconditional because malformed content can be defined by missing syntax; when the corresponding content does not exist, the verifier returns `not-applicable`. Quiz and generated-visual checks also remain available so an explicit student/task requirement can be restored even if the writer omitted the feature; when neither the draft nor the task requires the feature, they return `not-applicable`.
 
 Other structural checks are activated only when their review can affect the lesson:
 
-- quiz checks when `inline-quiz` blocks exist; `exerciseType` must match the actual mental operation and distractors must remain plausible;
 - `image-reference` when `imageRefs` exist or original image candidates are available, allowing reference validation, proportional selection and detection of an omitted useful source image;
-- generated-visual checks when visual plans/blocks exist; these include the full visual-planning contract and re-apply original-image priority;
 - YouTube checks when clip blocks exist **or a timestamped YouTube transcript is available**. With a transcript but no clip, the verifier first decides whether motion, temporal succession or a demonstration carries information a good static visual cannot convey as well; it may add only the minimum useful interval when that check was part of the pass. Existing clips are checked for interval validity, pedagogical self-sufficiency and duplicate/equivalent material.
 
-The verifier must not add an optional feature type that was outside the check set computed for the pass. After verification returns, the service recomputes the structural requirements against the returned draft and rejects it if a new quiz, image reference, generated visual or YouTube block would require a check that was never run. A timestamped YouTube source, like an original image candidate, can therefore authorize a source-driven selection check before the model adds the corresponding media block.
+After verification returns, the service recomputes structural requirements against the returned draft and rejects it if the model introduced a media feature that was outside the checked contract. Because active-pause and generated-visual restoration checks are always present, the verifier may safely add those features only when the task explicitly requires them. Original image candidates and timestamped YouTube transcripts similarly authorize source-driven checks before the corresponding media block exists.
 
 The complete draft is still supplied to the verifier because semantic review requires the full lesson, but it is serialized compactly rather than pretty-printed to avoid unnecessary input tokens.
 
