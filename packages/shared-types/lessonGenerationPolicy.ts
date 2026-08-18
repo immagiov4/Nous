@@ -61,6 +61,12 @@ export const ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE: ReadonlyArray<{
   },
 ];
 
+export const ACTIVE_PAUSE_PLACEMENT_RULE =
+  'Ogni pausa e un blocco inline-quiz autosufficiente collocato dopo un blocco markdown che contiene tutte le informazioni necessarie dalla pausa precedente. Visuali generati o clip YouTube pertinenti tra quel markdown e la pausa non interrompono il contesto. Una pausa consuma il contesto esplicativo: non inserire due inline-quiz consecutive, non raggrupparle in fondo e non usare marker o un array quiz separato.';
+
+export const ACTIVE_PAUSE_REASONING_RULE =
+  'Ogni pausa deve richiedere almeno discriminazione concettuale, applicazione a un caso nuovo, inferenza, previsione, diagnosi, classificazione, sequenziamento o micro-sintesi. Se la risposta corretta si puo scegliere copiando, parafrasando o riconoscendo per sovrapposizione lessicale una frase o definizione immediatamente vicina, trasformala in un caso nuovo oppure rimuovi la pausa.';
+
 export const ACTIVE_PAUSE_OPTIONS_RULE =
   'Ogni pausa ha quattro opzioni testualmente distinte e distrattori plausibili rispetto al concetto verificato: le alternative errate devono rappresentare confusioni realistiche, non risposte palesemente assurde.';
 
