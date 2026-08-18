@@ -30,6 +30,12 @@ const BASE_CHECKS = [
   'generated-visual',
 ] as const;
 
+const EMPTY_CHECK_CONTEXT = {
+  imageCandidates: [],
+  instructionPacks: [],
+  sources: [],
+} as const;
+
 const imageCandidate = {
   caption: 'Schema originale del mapping.',
   id: 'asset-1',
@@ -52,26 +58,55 @@ const timestampedYoutubeSource = {
   },
 };
 
+const imageRef = {
+  alt: 'Schema del mapping',
+  anchorHeading: 'Dall evento all azione',
+  assetId: 'asset-1',
+  caption: 'Dal segnale fisico all azione logica.',
+};
+
+const generatedVisual = {
+  altText: 'Flusso dal dispositivo all azione',
+  anchorHeading: 'Dall evento all azione',
+  complexity: 'simple' as const,
+  concept: 'Mapping degli input',
+  coverage: 'all_elements' as const,
+  coverageRationale: 'Mostra l intero flusso.',
+  factualRequirements: ['Il dispositivo produce un evento', 'Il mapping assegna un azione'],
+  interactionLevel: 'none' as const,
+  pedagogicalGoal: 'Rendere visibile la separazione tra evento e azione.',
+  reason: 'La relazione e strutturale.',
+  requiresDepiction: false,
+  slotId: 'visual-1',
+  title: 'Dal dispositivo all azione',
+  visualDirection: 'Due box collegati da una freccia.',
+  visualType: 'flowchart_svg' as const,
+};
+
+const inlineQuizBlock = {
+  quiz: {
+    correctIndex: 0,
+    exerciseType: 'application-card',
+    options: ['A', 'B', 'C', 'D'],
+    question: 'Quale mapping useresti in un caso nuovo?',
+  },
+  type: 'inline-quiz' as const,
+};
+
 describe('lesson verification prompt architecture', () => {
-  test('keeps universal verifier invariants independent from optional draft features', () => {
+  test('keeps base verifier invariants independent from draft-owned optional media', () => {
     expect(buildApplicableLessonVerificationCheckIds(plainDraft)).toEqual(BASE_CHECKS);
   });
 
   test('keeps omission-repair checks available for required pauses and generated visuals', () => {
-    const requiredIds = buildRequiredLessonVerificationCheckIds(
-      { imageCandidates: [], instructionPacks: [] },
-      plainDraft
-    );
+    const requiredIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, plainDraft);
 
     expect(requiredIds).toContain('quiz-quality');
     expect(requiredIds).toContain('generated-visual');
   });
 
   test('requires report entries for semantic and structural checks', () => {
-    const requiredIds = buildRequiredLessonVerificationCheckIds(
-      { imageCandidates: [], instructionPacks: [] },
-      plainDraft
-    );
+    const requiredIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, plainDraft);
 
     expect(requiredIds).toContain('core.progression');
     for (const checkId of BASE_CHECKS) expect(requiredIds).toContain(checkId);
@@ -110,40 +145,22 @@ describe('lesson verification prompt architecture', () => {
     ).toBe(false);
   });
 
-  test('checks source-image selection when original candidates are available', () => {
-    const requiredIds = buildRequiredLessonVerificationCheckIds(
-      { imageCandidates: [imageCandidate], instructionPacks: [] },
+  test('adds source-driven checks before the corresponding media exists', () => {
+    const imageIds = buildRequiredLessonVerificationCheckIds(
+      { ...EMPTY_CHECK_CONTEXT, imageCandidates: [imageCandidate] },
+      plainDraft
+    );
+    const youtubeIds = buildRequiredLessonVerificationCheckIds(
+      { ...EMPTY_CHECK_CONTEXT, sources: [timestampedYoutubeSource] },
       plainDraft
     );
 
-    expect(requiredIds).toContain('image-reference');
+    expect(imageIds).toContain('image-reference');
+    expect(youtubeIds).toContain('youtube-structure');
   });
 
-  test('checks YouTube selection when a timestamped transcript is available', () => {
-    const requiredIds = buildRequiredLessonVerificationCheckIds(
-      {
-        imageCandidates: [],
-        instructionPacks: [],
-        sources: [timestampedYoutubeSource],
-      },
-      plainDraft
-    );
-
-    expect(requiredIds).toContain('youtube-structure');
-  });
-
-  test('enables feature-scoped checks from structured draft features', () => {
-    const imageDraft: LessonContentDraft = {
-      ...plainDraft,
-      imageRefs: [
-        {
-          alt: 'Schema del mapping',
-          anchorHeading: 'Dall evento all azione',
-          assetId: 'asset-1',
-          caption: 'Dal segnale fisico all azione logica.',
-        },
-      ],
-    };
+  test('adds draft-owned image and YouTube checks without changing always-available checks', () => {
+    const imageDraft: LessonContentDraft = { ...plainDraft, imageRefs: [imageRef] };
     expect(buildApplicableLessonVerificationCheckIds(imageDraft)).toEqual([
       ...BASE_CHECKS,
       'image-reference',
@@ -155,25 +172,7 @@ describe('lesson verification prompt architecture', () => {
         ...plainDraft.contentBlocks,
         { slotId: 'visual-1', type: 'generated-visual' },
       ],
-      generatedVisuals: [
-        {
-          altText: 'Flusso dal dispositivo all azione',
-          anchorHeading: 'Dall evento all azione',
-          complexity: 'simple',
-          concept: 'Mapping degli input',
-          coverage: 'all_elements',
-          coverageRationale: 'Mostra l intero flusso.',
-          factualRequirements: ['Il dispositivo produce un evento', 'Il mapping assegna un azione'],
-          interactionLevel: 'none',
-          pedagogicalGoal: 'Rendere visibile la separazione tra evento e azione.',
-          reason: 'La relazione e strutturale.',
-          requiresDepiction: false,
-          slotId: 'visual-1',
-          title: 'Dal dispositivo all azione',
-          visualDirection: 'Due box collegati da una freccia.',
-          visualType: 'flowchart_svg',
-        },
-      ],
+      generatedVisuals: [generatedVisual],
     };
     expect(buildApplicableLessonVerificationCheckIds(visualDraft)).toEqual(BASE_CHECKS);
 
@@ -194,34 +193,13 @@ describe('lesson verification prompt architecture', () => {
 
     const quizDraft: LessonContentDraft = {
       ...plainDraft,
-      contentBlocks: [
-        ...plainDraft.contentBlocks,
-        {
-          quiz: {
-            correctIndex: 0,
-            exerciseType: 'application-card',
-            options: ['A', 'B', 'C', 'D'],
-            question: 'Quale mapping useresti in un caso nuovo?',
-          },
-          type: 'inline-quiz',
-        },
-      ],
+      contentBlocks: [...plainDraft.contentBlocks, inlineQuizBlock],
     };
     expect(buildApplicableLessonVerificationCheckIds(quizDraft)).toEqual(BASE_CHECKS);
-
-    const requiredQuizIds = buildRequiredLessonVerificationCheckIds(
-      { imageCandidates: [], instructionPacks: [] },
-      quizDraft
-    );
-    expect(requiredQuizIds).toContain('quiz-quality');
-    expect(new Set(requiredQuizIds).size).toBe(requiredQuizIds.length);
   });
 
-  test('detects optional feature types introduced after the checked contract was built', () => {
-    const checkedIds = buildRequiredLessonVerificationCheckIds(
-      { imageCandidates: [], instructionPacks: [] },
-      plainDraft
-    );
+  test('blocks source-dependent media introduced without source authorization', () => {
+    const checkedIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, plainDraft);
     const verifiedWithNewYoutube: LessonContentDraft = {
       ...plainDraft,
       contentBlocks: [
@@ -232,26 +210,41 @@ describe('lesson verification prompt architecture', () => {
         },
       ],
     };
+    const verifiedWithNewImageRef: LessonContentDraft = {
+      ...plainDraft,
+      imageRefs: [imageRef],
+    };
 
     expect(
       findUncheckedLessonVerificationStructuralCheckIds(
-        { imageCandidates: [] },
+        { imageCandidates: [], sources: [] },
         verifiedWithNewYoutube,
         checkedIds
       )
     ).toEqual(['youtube-structure']);
+    expect(
+      findUncheckedLessonVerificationStructuralCheckIds(
+        { imageCandidates: [], sources: [] },
+        verifiedWithNewImageRef,
+        checkedIds
+      )
+    ).toEqual(['image-reference']);
   });
 
-  test('allows a YouTube clip introduced under a transcript-driven selection check', () => {
-    const structuralContext = {
-      imageCandidates: [],
-      sources: [timestampedYoutubeSource],
-    };
-    const checkedIds = buildRequiredLessonVerificationCheckIds(
-      { ...structuralContext, instructionPacks: [] },
+  test('allows source-dependent media introduced under the corresponding source check', () => {
+    const imageContext = { imageCandidates: [imageCandidate], sources: [] };
+    const imageCheckedIds = buildRequiredLessonVerificationCheckIds(
+      { ...imageContext, instructionPacks: [] },
       plainDraft
     );
-    const verifiedWithNewYoutube: LessonContentDraft = {
+    const verifiedWithImageRef: LessonContentDraft = { ...plainDraft, imageRefs: [imageRef] };
+
+    const youtubeContext = { imageCandidates: [], sources: [timestampedYoutubeSource] };
+    const youtubeCheckedIds = buildRequiredLessonVerificationCheckIds(
+      { ...youtubeContext, instructionPacks: [] },
+      plainDraft
+    );
+    const verifiedWithYoutube: LessonContentDraft = {
       ...plainDraft,
       contentBlocks: [
         ...plainDraft.contentBlocks,
@@ -264,49 +257,46 @@ describe('lesson verification prompt architecture', () => {
 
     expect(
       findUncheckedLessonVerificationStructuralCheckIds(
-        structuralContext,
-        verifiedWithNewYoutube,
-        checkedIds
+        imageContext,
+        verifiedWithImageRef,
+        imageCheckedIds
+      )
+    ).toEqual([]);
+    expect(
+      findUncheckedLessonVerificationStructuralCheckIds(
+        youtubeContext,
+        verifiedWithYoutube,
+        youtubeCheckedIds
       )
     ).toEqual([]);
   });
 
-  test('allows a generated visual introduced under the always-available restoration check', () => {
-    const checkedIds = buildRequiredLessonVerificationCheckIds(
-      { imageCandidates: [], instructionPacks: [] },
-      plainDraft
-    );
+  test('allows task-repair features introduced under always-available checks', () => {
+    const checkedIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, plainDraft);
     const verifiedWithGeneratedVisual: LessonContentDraft = {
       ...plainDraft,
       contentBlocks: [
         ...plainDraft.contentBlocks,
         { slotId: 'visual-1', type: 'generated-visual' },
       ],
-      generatedVisuals: [
-        {
-          altText: 'Flusso dal dispositivo all azione',
-          anchorHeading: 'Dall evento all azione',
-          complexity: 'simple',
-          concept: 'Mapping degli input',
-          coverage: 'all_elements',
-          coverageRationale: 'Mostra l intero flusso.',
-          factualRequirements: ['Il dispositivo produce un evento', 'Il mapping assegna un azione'],
-          interactionLevel: 'none',
-          pedagogicalGoal: 'Rendere visibile la separazione tra evento e azione.',
-          reason: 'La relazione e strutturale.',
-          requiresDepiction: false,
-          slotId: 'visual-1',
-          title: 'Dal dispositivo all azione',
-          visualDirection: 'Due box collegati da una freccia.',
-          visualType: 'flowchart_svg',
-        },
-      ],
+      generatedVisuals: [generatedVisual],
+    };
+    const verifiedWithQuiz: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [...plainDraft.contentBlocks, inlineQuizBlock],
     };
 
     expect(
       findUncheckedLessonVerificationStructuralCheckIds(
-        { imageCandidates: [] },
+        { imageCandidates: [], sources: [] },
         verifiedWithGeneratedVisual,
+        checkedIds
+      )
+    ).toEqual([]);
+    expect(
+      findUncheckedLessonVerificationStructuralCheckIds(
+        { imageCandidates: [], sources: [] },
+        verifiedWithQuiz,
         checkedIds
       )
     ).toEqual([]);
