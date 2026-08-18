@@ -43,10 +43,10 @@ export const generateLessonResearchSummary = async ({
   }
   const summary = await research(generationInput);
   if (youtubeOutcome?.videoCandidates.length) {
-    const decisionUrls = new Set(
-      summary.youtubeCandidateDecisions?.map(decision => decision.url) || []
-    );
+    const decisions = summary.youtubeCandidateDecisions ?? [];
+    const decisionUrls = new Set(decisions.map(decision => decision.url));
     if (
+      decisions.length !== youtubeOutcome.videoCandidates.length ||
       decisionUrls.size !== youtubeOutcome.videoCandidates.length ||
       youtubeOutcome.videoCandidates.some(video => !decisionUrls.has(video.url))
     ) {
