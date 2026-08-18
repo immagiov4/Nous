@@ -1,4 +1,5 @@
 import {
+  ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
   ACTIVE_PAUSE_OPTIONS_RULE,
   ACTIVE_PAUSE_TEXT_FORMAT_RULE,
   MAX_LESSON_QUIZ_QUESTIONS,
@@ -10,9 +11,12 @@ import {
   buildLessonContinuityRule,
   FORMULA_RELEVANCE_RULE,
   LESSON_ASCII_VISUAL_RULE,
+  LESSON_HEADING_STRUCTURE_RULE,
+  LESSON_KATEX_FORMATTING_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SELF_SUFFICIENCY_RULE,
+  LESSON_SOURCE_PRECEDENCE_RULE,
   SYSTEM_INSTRUCTION_TEACHER,
   YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '@shared/lessonWritingContract';
@@ -68,14 +72,17 @@ export type LessonVerificationStructuralCheckId =
   | 'self-sufficiency'
   | 'youtube-structure';
 
-const MARKDOWN_STRUCTURE_CHECK =
-  'I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate o bibliografie in nessuna posizione della lezione.';
-const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_PRIORITY_RULE} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti. Se un candidato originale e chiaramente pertinente, leggibile e specifico della fonte e copre un bisogno pedagogico della lezione, deve essere usato salvo che una visuale generata risponda a una domanda didattica realmente diversa. Ogni imageRef deve usare un assetId disponibile, avere un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino; rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come not-applicable.`;
+const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
+  exercise => `${exercise.type}: ${exercise.instruction}`
+).join('\n');
+
+const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate o bibliografie in nessuna posizione della lezione.`;
+const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_PRIORITY_RULE} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti secondo questa regola. Ogni imageRef deve usare un assetId disponibile, avere un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino; rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come not-applicable.`;
 const YOUTUBE_STRUCTURE_CHECK =
   'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
 const CODE_STRUCTURE_CHECK =
   'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido; correggi anche frammenti tecnici rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice. Se non contiene materiale tecnico di questo tipo, segna il controllo come non-applicable.';
-const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} Se la bozza contiene matematica, correggi delimitatori o graffe KaTeX non bilanciati, inclusi delimitatori $, \\(, \\), \\[, \\] lasciati orfani. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico. Se non contiene matematica, segna il controllo come not-applicable.`;
+const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} Se la bozza non contiene matematica, segna il controllo come not-applicable.`;
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -195,7 +202,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa non deve poter essere risolta copiando o riconoscendo una definizione locale. ${ACTIVE_PAUSE_OPTIONS_RULE}`;
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa non deve poter essere risolta copiando o riconoscendo una definizione locale. ${ACTIVE_PAUSE_OPTIONS_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
     case 'quiz-text':
       return ACTIVE_PAUSE_TEXT_FORMAT_RULE;
     case 'image-reference':
@@ -211,7 +218,11 @@ const buildLessonVerificationPrompt = (
   input: LessonVerificationInput,
   draft: LessonContentDraft
 ): string => {
-  const checklist = buildLessonVerificationChecklist(input.instructionPacks);
+  const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item =>
+    input.sourceContext && item.checkId === 'core.correctness'
+      ? { ...item, instruction: `${item.instruction} ${LESSON_SOURCE_PRECEDENCE_RULE}` }
+      : item
+  );
   const structuralCheckIds = buildRequiredLessonVerificationStructuralCheckIds(input, draft);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   return `RIFERIMENTI DELLA LEZIONE:
