@@ -7,7 +7,10 @@ import {
   ORIGINAL_IMAGE_PRIORITY_RULE,
   ORIGINAL_IMAGE_USAGE_RULES,
 } from '@shared/lessonGenerationPolicy';
-import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks';
+import {
+  buildLessonVerificationChecklist,
+  VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE,
+} from '@shared/lessonInstructionPacks';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
   buildLessonContinuityRule,
@@ -246,7 +249,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
-      return `Se la bozza non contiene visuali generati, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente uno; se un visuale generato e richiesto ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcun visuale generato e nessuna istruzione esplicita lo richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni piano visuale presente o aggiunto ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
+      return `${VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE} Se la bozza non contiene visuali generati, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO, il CONTESTO DIDATTICO VINCOLANTE o un pacchetto specialistico attivo rendano necessaria una rappresentazione visiva che non sia gia soddisfatta adeguatamente da immagini o media sorgente. Quando visual-learning e attivo e tale bisogno resta scoperto, aggiungi soltanto il numero minimo di generated-visual necessario; non segnare questo controllo come ${LESSON_VERIFICATION_STATUS.notApplicable} soltanto perche note e contesto non menzionano esplicitamente un visuale. Se nessuna istruzione del task richiede una rappresentazione mancante e non esistono visuali generati, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni piano visuale presente o aggiunto ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
     case 'youtube-structure':
       return `${YOUTUBE_STRUCTURE_CHECK}\n${YOUTUBE_CLIP_PEDAGOGY_RULES}`;
   }
