@@ -36,6 +36,20 @@ const imageCandidate = {
   visibleLabel: 'Figura 1',
 };
 
+const timestampedYoutubeSource = {
+  title: 'Dimostrazione del cambio di stato',
+  url: 'https://www.youtube.com/watch?v=demo',
+  youtubeTranscript: {
+    segments: [
+      {
+        endSeconds: 8,
+        startSeconds: 0,
+        text: 'Il dispositivo cambia stato durante la dimostrazione.',
+      },
+    ],
+  },
+};
+
 describe('lesson verification prompt architecture', () => {
   test('keeps universal verifier invariants independent from optional draft features', () => {
     expect(buildApplicableLessonVerificationCheckIds(plainDraft)).toEqual(BASE_CHECKS);
@@ -91,6 +105,19 @@ describe('lesson verification prompt architecture', () => {
     );
 
     expect(requiredIds).toContain('image-reference');
+  });
+
+  test('checks YouTube selection when a timestamped transcript is available', () => {
+    const requiredIds = buildRequiredLessonVerificationCheckIds(
+      {
+        imageCandidates: [],
+        instructionPacks: [],
+        sources: [timestampedYoutubeSource],
+      },
+      plainDraft
+    );
+
+    expect(requiredIds).toContain('youtube-structure');
   });
 
   test('enables feature-scoped checks from structured draft features', () => {
@@ -209,5 +236,34 @@ describe('lesson verification prompt architecture', () => {
         checkedIds
       )
     ).toEqual(['youtube-structure']);
+  });
+
+  test('allows a YouTube clip introduced under a transcript-driven selection check', () => {
+    const structuralContext = {
+      imageCandidates: [],
+      sources: [timestampedYoutubeSource],
+    };
+    const checkedIds = buildRequiredLessonVerificationCheckIds(
+      { ...structuralContext, instructionPacks: [] },
+      plainDraft
+    );
+    const verifiedWithNewYoutube: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [
+        ...plainDraft.contentBlocks,
+        {
+          clips: [{ endSeconds: 8, sourceIndex: 0, startSeconds: 0, title: 'Cambio di stato' }],
+          type: 'youtube-clips',
+        },
+      ],
+    };
+
+    expect(
+      findUncheckedLessonVerificationStructuralCheckIds(
+        structuralContext,
+        verifiedWithNewYoutube,
+        checkedIds
+      )
+    ).toEqual([]);
   });
 });
