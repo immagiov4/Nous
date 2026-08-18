@@ -1,7 +1,7 @@
 export const FORMULA_RELEVANCE_RULE =
   'Usa formule matematiche solo quando sono naturali per la materia o quando il materiale originale le usa e sono necessarie per comprenderlo. Non trasformare concetti qualitativi, umanistici o discorsivi in equazioni inventate o decorative: se la formula non aggiunge precisione reale, spiega il concetto in prosa.';
 
-export const LESSON_KATEX_FORMATTING_RULE = String.raw`Per le formule usa sintassi KaTeX coerente: $...$ o \(...\) inline, $$...$$ o \[...\] display; chiudi sempre delimitatori e graffe. Quando citi letteralmente comandi LaTeX come \begin{equation} o \end{equation} senza aprire davvero un ambiente matematico, rendili come codice inline Markdown cosi i validatori non li interpretano come struttura LaTeX attiva.`;
+export const LESSON_KATEX_FORMATTING_RULE = String.raw`Per le formule usa sintassi KaTeX coerente: $...$ o \(...\) inline, $$...$$ o \[...\] display; chiudi sempre delimitatori e graffe e abbina ogni ambiente LaTeX attivo \begin{...} al corrispondente \end{...}. Quando citi letteralmente comandi LaTeX come \begin{equation} o \end{equation} senza aprire davvero un ambiente matematico, rendili come codice inline Markdown cosi i validatori non li interpretano come struttura LaTeX attiva.`;
 
 export const LESSON_SELF_SUFFICIENCY_RULE =
   'La lezione deve funzionare senza il materiale originale aperto: integra nel testo tutto cio che serve per capire il passaggio corrente e rimuovi rimandi opachi a pagine, sezioni, figure o posizioni della fonte che richiederebbero di riaprirla.';
