@@ -70,6 +70,16 @@ export const ACTIVE_PAUSE_TEXT_FORMAT_RULE =
 export const ORIGINAL_IMAGE_PRIORITY_RULE =
   'Quando nei riferimenti sono disponibili immagini originali chiare, pertinenti e specifiche della fonte — per esempio schermate, oggetti, casi o diagrammi complessi propri del documento — preferiscile a visuali generate equivalenti. Se piu immagini originali coprono lo stesso bisogno pedagogico, usa solo il numero minimo utile e proporzionato alla struttura della lezione, evitando figure ridondanti. Genera una sostituzione solo quando gli originali non coprono la stessa esigenza pedagogica o non sono sufficientemente leggibili.';
 
+export const ORIGINAL_IMAGE_USAGE_RULES = [
+  'Ogni immagine originale deve servire una spiegazione vicina: non usarla come decorazione o intermezzo visivo.',
+  'Puoi referenziare soltanto gli assetId forniti. Se nessuna immagine e chiaramente pertinente, lascia imageRefs vuoto.',
+  'Ogni imageRef deve avere un anchorHeading che corrisponde esattamente a un heading presente in un blocco markdown, senza i simboli #.',
+  'Usa soltanto immagini con una caption visiva chiara e autosufficiente. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper o frammenti.',
+  ORIGINAL_IMAGE_PRIORITY_RULE,
+  'Non usare il contesto testuale per indovinare una figura poco chiara: caption e testo vicino servono soltanto a disambiguare una figura gia riconoscibile.',
+  'Il paragrafo vicino deve dire che cosa guardare nell immagine e perche e utile; non citare mai un assetId tecnico nel markdown.',
+] as const;
+
 export const LESSON_VISUAL_TYPES = [
   'chart_html',
   'flowchart_svg',
