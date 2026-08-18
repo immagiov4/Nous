@@ -69,7 +69,7 @@ ${buildLessonGenerationReferenceContext(input)}
 CONTRATTO DI SCRITTURA:
 ${buildLessonInstructionPackBlock(input.instructionPacks, 'writing')}
 1. Scrivi una lezione esaustiva in Markdown ricco. Mantieni una buona densita informativa senza riempitivo o ripetizioni decorative; se le note chiedono un ritmo piu lento o ridondanza didattica, rispettale.
-2. Incorpora e spiega i contenuti in modo discorsivo ma tecnico, con esempi concreti, formule e codice solo quando aiutano davvero. La lezione deve funzionare senza il materiale originale aperto. Quando introduci un concetto, parti da una definizione positiva; usa il contrasto solo dopo averlo definito.
+2. Incorpora e spiega i contenuti in modo discorsivo ma tecnico, con esempi concreti, formule e codice solo quando aiutano davvero.
 3. Organizza il testo con heading chiari, usando soltanto le sezioni necessarie. Non ripetere il titolo della lezione e non creare heading riempitivi o quasi duplicati.
 4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione con semplici parafrasi e non inserire mini-riassunti immediati.
 5. Evita metadiscorso ed enfasi ridondante. Il corpo principale deve essere prosa; usa liste Markdown vere soltanto per elementi fratelli, tassonomie, passaggi o confronti che ne beneficiano.
