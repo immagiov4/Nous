@@ -4,6 +4,9 @@ export const FORMULA_RELEVANCE_RULE =
 export const LESSON_SELF_SUFFICIENCY_RULE =
   'La lezione deve funzionare senza il materiale originale aperto: integra nel testo tutto cio che serve per capire il passaggio corrente e rimuovi rimandi opachi a pagine, sezioni, figure o posizioni della fonte che richiederebbero di riaprirla.';
 
+export const LESSON_POSITIVE_DEFINITION_RULE =
+  'Quando introduci un concetto nuovo, definiscilo prima in positivo: chiarisci che cosa e o che cosa fa. Usa contrasti, negazioni e formule come "non e soltanto" solo dopo che il significato di base e gia comprensibile.';
+
 export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
   'Costruisci anche la singola lezione in ordine strettamente propedeutico: ogni passaggio deve richiedere soltanto concetti gia introdotti oppure spiegati nello stesso blocco locale, senza rimandarne il significato a sezioni successive.',
   'Quando introduci un nuovo concetto, domanda, tecnica o astrazione, rendi esplicito perche segue dal ragionamento precedente: chiarisci con un ponte conciso il bisogno, limite, conseguenza o passaggio intermedio che lo rende necessario. Se il nesso e gia esplicito, prosegui senza formule di transizione ripetitive; se non puoi motivarlo nel punto in cui compare, spostalo dove la sua motivazione appartiene naturalmente alla spiegazione.',
@@ -48,6 +51,7 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
 17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.
 18. NON usare intestazioni inglesi o template rigidi. Scegli solo sezioni con titoli naturali nella lingua della lezione. Niente scalette fisse o stampi ricorrenti: la struttura deve nascere dal contenuto.
+- ${LESSON_POSITIVE_DEFINITION_RULE}
 - ${LESSON_SELF_SUFFICIENCY_RULE}
 - ${LESSON_ASCII_VISUAL_RULE}
 - Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.
