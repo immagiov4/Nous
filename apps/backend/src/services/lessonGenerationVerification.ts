@@ -135,7 +135,7 @@ export const buildApplicableLessonVerificationCheckIds = (
   return checkIds;
 };
 
-export const buildRequiredLessonVerificationStructuralCheckIds = (
+const buildRequiredLessonVerificationStructuralCheckIds = (
   input: Pick<LessonGenerationInput, 'imageCandidates'>,
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
