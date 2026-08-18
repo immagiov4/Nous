@@ -15,11 +15,23 @@ export const LESSON_ACRONYM_EXPANSION_RULE =
 export const LESSON_ANALOGY_USAGE_RULE =
   'Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell intera lezione, mai una per ogni paragrafo; se puoi spiegare bene in modo diretto, non usare alcuna analogia.';
 
+export const LESSON_LOCAL_REPETITION_RULE =
+  'Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato: ogni paragrafo deve avanzare.';
+
+export const LESSON_SINGLE_CORE_BUILD_RULE =
+  'Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in sezioni diverse con semplici parafrasi.';
+
+export const LESSON_LIST_STRUCTURE_RULE =
+  'Quando elenchi due o piu elementi fratelli, usa una lista Markdown vera. Non creare pseudo-liste come paragrafi consecutivi "Etichetta: ..." senza bullet: se non e una lista, fondi il contenuto in paragrafi completi.';
+
+export const LESSON_GUIDED_NOVICE_RULE =
+  'Quando insegni una procedura o un modello complesso a uno studente che il contesto indica come inesperto o in difficolta, privilegia una progressione guidata: mostra prima un esempio svolto o ragionato che esplicita i passaggi, poi varia il caso o chiedi di applicare il principio. Non costringere lo studente a scoprire da solo passaggi che non sono ancora stati insegnati.';
+
 export const LESSON_POSITIVE_DEFINITION_RULE =
   'Quando introduci un concetto nuovo, definiscilo prima in positivo: chiarisci che cosa e o che cosa fa. Usa contrasti, negazioni e formule come "non e soltanto" solo dopo che il significato di base e gia comprensibile.';
 
 export const LESSON_HEADING_STRUCTURE_RULE =
-  'Organizza il testo con heading chiari e usa soltanto le sezioni necessarie. Non ripetere il titolo della lezione come heading e non creare heading riempitivi, quasi duplicati o introdotti solo per spezzare artificialmente il testo.';
+  'Organizza il testo con heading chiari e usa soltanto le sezioni necessarie. Non ripetere il titolo della lezione come heading, non creare heading riempitivi o quasi duplicati e non imporre intestazioni inglesi o template rigidi quando la lingua della lezione offre titoli naturali.';
 
 export const LESSON_SOURCE_PRECEDENCE_RULE =
   'Quando esiste materiale sorgente primario, conserva le sue convenzioni specifiche, definizioni locali, nomi, direzioni e scelte tecniche. Il dossier di ricerca e supplementare: puo colmare lacune, aggiornare fatti o chiarire passaggi, ma non deve sostituire una convenzione propria della fonte con un alternativa semplicemente diversa e valida, salvo che la fonte sia effettivamente errata.';
@@ -62,7 +74,7 @@ export const LESSON_ASCII_VISUAL_RULE =
   'Non simulare esempi visivi con ASCII art, righe di caratteri ripetuti, lettere usate come pixel, blocchi monospace o tabelle di simboli: gli esempi visivi vengono prodotti dai renderer dedicati.';
 
 const NUMBERED_LOCAL_PROPEDEUTIC_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.map(
-  (rule, index) => `${index + 19}. ${rule}`
+  (rule, index) => `${index + 18}. ${rule}`
 ).join('\n');
 
 export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.
@@ -74,15 +86,14 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 13. ${LESSON_ANALOGY_USAGE_RULE}
 14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. ${FORMULA_RELEVANCE_RULE} Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
 15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
-16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
-17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.
-18. NON usare intestazioni inglesi o template rigidi. Scegli solo sezioni con titoli naturali nella lingua della lezione. Niente scalette fisse o stampi ricorrenti: la struttura deve nascere dal contenuto.
+16. ${LESSON_LOCAL_REPETITION_RULE}
+17. ${LESSON_SINGLE_CORE_BUILD_RULE}
 - ${LESSON_POSITIVE_DEFINITION_RULE}
 - ${LESSON_SELF_SUFFICIENCY_RULE}
 - ${LESSON_NAMED_SOURCE_ATTRIBUTION_RULE}
 - ${LESSON_ASCII_VISUAL_RULE}
 - Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.
-- Quando insegni una procedura o un modello complesso a uno studente che il contesto indica come inesperto o in difficolta, privilegia una progressione guidata: mostra prima un esempio svolto o ragionato che esplicita i passaggi, poi varia il caso o chiedi di applicare il principio. Non costringere lo studente a scoprire da solo passaggi che non sono ancora stati insegnati.
+- ${LESSON_GUIDED_NOVICE_RULE}
 ${NUMBERED_LOCAL_PROPEDEUTIC_RULES}`;
 
 export const SYSTEM_INSTRUCTION_TEACHER = `Sei il Professor Nous, un docente rigoroso e accessibile.
