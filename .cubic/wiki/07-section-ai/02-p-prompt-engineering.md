@@ -45,13 +45,13 @@ This block contains reference data but not the writer contract. Keeping the two 
 
 `buildLessonGenerationPrompt()` combines the reference context with the detailed writing contract. The writer contract includes shared rules for progression, clarity, attribution, source precedence, research-to-lesson transformation, repetition, analogies, Markdown structure, active pauses and media behavior.
 
-Student generation notes have high priority for style, density, pacing and similar preferences, but cannot override structural output, focus, safety or syntax constraints.
+Student generation notes have high priority for style, density, pacing and similar preferences, but cannot override structural output, focus, safety or syntax constraints. That precedence is itself centralized in `LESSON_STUDENT_STYLE_OVERRIDE_RULE` so generation and verification do not maintain parallel interpretations of personalization.
 
 ### 4. Focused verifier contract
 
 `buildLessonVerificationPrompt()` does **not** embed the complete writer prompt. It receives the reusable lesson context, the generated draft, the mandatory semantic checklist and a focused structural contract.
 
-The verifier reuses complete rule families when partial copies would create drift. `core.progression` receives the full canonical `LESSON_LOCAL_PROPEDEUTIC_RULES` family plus guided-novice handling, so prerequisite order, conceptual bridges, local notation explanations, controlled anticipation and difficulty-sensitive density move together. `core.clarity` retains acronym expansion; `core.relevance` retains analogy and repetition limits. `core.structure` adds structured-source preservation only when reference material exists and research-to-lesson transformation only for research-only lessons. `core.correctness` applies named attribution whenever reference material is available and adds primary-source precedence only when a primary source exists.
+The verifier reuses complete rule families when partial copies would create drift. `core.progression` receives the full canonical `LESSON_LOCAL_PROPEDEUTIC_RULES` family plus guided-novice handling, so prerequisite order, conceptual bridges, local notation explanations, controlled anticipation and difficulty-sensitive density move together. `core.clarity` receives the full `LESSON_LANGUAGE_CLARITY_RULES` family, including clear lexicon, technical-term explanation, acronym expansion, unnecessary-foreignism avoidance, content-preserving simplification and discursive register. `core.relevance` receives the full `LESSON_RELEVANCE_STYLE_RULES` family, including analogy limits, concrete-example preference, repetition control, non-decorative engagement and metadiscourse avoidance. Both style families reuse the same student-style precedence rule. `core.structure` adds technical-source structure and structured-comparison preservation only when reference material exists and research-to-lesson transformation only for research-only lessons. `core.correctness` applies named attribution whenever reference material is available and adds primary-source precedence only when a primary source exists.
 
 Media checks are activated either from concrete draft state, from source assets whose omission itself must be reviewed, or from explicit task requirements that the writer may have missed. `image-reference` runs when the draft contains `imageRefs` or selectable original image candidates exist and reuses the same original-image usage contract as the writer. `quiz-quality` and `generated-visual` remain available even when the draft omits those features so the verifier can restore an explicitly required active pause or generated visual; otherwise they return `not-applicable`. YouTube verification also activates when a timestamped YouTube transcript is available, allowing the verifier to decide whether an omitted motion-dependent demonstration should become a minimal clip.
 
@@ -76,18 +76,17 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | Rule constant | Responsibility |
 | :--- | :--- |
 | `LESSON_SHARED_WRITING_RULES` | General lesson prose behavior assembled from canonical sub-rules. |
+| `LESSON_LANGUAGE_CLARITY_RULES` | Canonical clear-language, terminology, acronym, foreignism, simplification and register family. |
+| `LESSON_RELEVANCE_STYLE_RULES` | Canonical analogy, example, repetition, engagement and metadiscourse family. |
 | `LESSON_LOCAL_PROPEDEUTIC_RULES` | Full local prerequisite, transition, anticipation and difficulty-sensitive progression contract. |
 | `LESSON_SCOPE_RULES` | Prevents scope drift, premature future-lesson detail and unnecessary continuation. |
 | `buildLessonContinuityRule()` | Prevents fabricated backward continuity and invented prior-course coverage. |
 | `buildLessonNoRepetitionRule()` | Prevents re-teaching generic foundations already covered by completed lessons. |
-| `LESSON_ACRONYM_EXPANSION_RULE` | Expands acronyms and abbreviations on first occurrence. |
-| `LESSON_ANALOGY_USAGE_RULE` | Allows at most one useful short analogy and rejects metaphor inflation. |
-| `LESSON_LOCAL_REPETITION_RULE` / `LESSON_SINGLE_CORE_BUILD_RULE` | Prevent immediate mini-summaries and repetition of the same core concept across three sections. |
-| `LESSON_GUIDED_NOVICE_RULE` | Uses a worked/reasoned progression before independent application when the learner is inexperienced or struggling. |
+| `LESSON_STUDENT_STYLE_OVERRIDE_RULE` | Gives explicit student personalization precedence over default style while preserving structural constraints. |
 | `LESSON_MAIN_PROSE_RULE` / `LESSON_LIST_STRUCTURE_RULE` | Keeps the lesson prose-led while using real Markdown lists where sibling structure warrants them. |
+| `LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE` / `LESSON_STRUCTURED_SOURCE_COMPARISON_RULE` | Preserve meaningful tables, matrices, captions, legends and structured comparisons. |
 | `LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE` | Keeps structured quiz/media/source artifacts out of Markdown blocks. |
 | `LESSON_CODE_FORMATTING_RULE` | Keeps code, pseudocode, commands and output inside valid fenced blocks. |
-| `LESSON_STRUCTURED_SOURCE_COMPARISON_RULE` | Preserves meaningful source tables or structured comparisons as Markdown tables or comparative lists. |
 | `LESSON_POSITIVE_DEFINITION_RULE` | Requires a new concept to be defined positively before contrastive framing. |
 | `LESSON_HEADING_STRUCTURE_RULE` | Prevents repeated lesson titles, filler headings, near-duplicates and rigid foreign-language templates. |
 | `LESSON_SELF_SUFFICIENCY_RULE` | Keeps the lesson understandable without reopening the original source. |
@@ -98,9 +97,9 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | `LESSON_ASCII_VISUAL_RULE` | Prevents text/ASCII pseudo-visuals when dedicated renderers should be used. |
 | `YOUTUBE_CLIP_PEDAGOGY_RULES` | Assembles the canonical video selection, self-sufficiency, deduplication and grouping rules. |
 
-`packages/shared-types/lessonGenerationPolicy.ts` similarly owns active-pause option/text rules and the canonical `ORIGINAL_IMAGE_USAGE_RULES`, so generation and verification do not maintain parallel image-selection prose.
+`packages/shared-types/lessonGenerationPolicy.ts` owns the active-pause placement, reasoning, option and text-format contracts plus the canonical `ORIGINAL_IMAGE_USAGE_RULES`. Generation and verification therefore reuse the same pause/media invariants instead of maintaining parallel prompt prose.
 
-Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verification checks only for lessons that materially need them, such as mathematics, code, technical sources or visual learning. The pack module stays independent from the writer-contract module; the verifier composes the two layers explicitly.
+Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verification checks only for lessons that materially need them, such as mathematics, code, technical sources or visual learning. The universal active-pause semantic check reuses the canonical reasoning rule from `lessonGenerationPolicy.ts`.
 
 ## Structured output schemas
 
