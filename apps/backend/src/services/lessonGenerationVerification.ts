@@ -102,16 +102,17 @@ export type LessonVerificationStructuralCheckId =
   | 'self-sufficiency'
   | 'youtube-structure';
 
-const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerificationStructuralCheckId[] = [
-  'markdown-structure',
-  'positive-definition',
-  'self-sufficiency',
-  'ascii-visual',
-  'code-structure',
-  'math-structure',
-  'quiz-quality',
-  'generated-visual',
-];
+const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerificationStructuralCheckId[] =
+  [
+    'markdown-structure',
+    'positive-definition',
+    'self-sufficiency',
+    'ascii-visual',
+    'code-structure',
+    'math-structure',
+    'quiz-quality',
+    'generated-visual',
+  ];
 
 const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
   exercise => `${exercise.type}: ${exercise.instruction}`
