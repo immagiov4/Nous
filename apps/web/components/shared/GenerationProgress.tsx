@@ -148,11 +148,7 @@ export default function GenerationProgress({
 
       {progress.retrying ? (
         <p className="mt-3 text-xs font-medium text-amber-700 sm:mt-5 sm:text-sm dark:text-amber-400">
-          {t(
-            progress.failure
-              ? 'Un passaggio non è riuscito. Riprovo automaticamente.'
-              : 'Nuovo tentativo in corso.'
-          )}
+          {t('Nuovo tentativo in corso.')}
           {progress.attempt === undefined ? null : ` · ${t('Tentativo')} ${progress.attempt}`}
         </p>
       ) : null}

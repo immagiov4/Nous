@@ -15,6 +15,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/workflows/courseGenerationPreparation.ts](../../../apps/backend/src/workflows/courseGenerationPreparation.ts)
 - [apps/backend/src/workflows/courseGenerationProduction.ts](../../../apps/backend/src/workflows/courseGenerationProduction.ts)
 - [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+- [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
+- [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts)
 - [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
 
 </details>
@@ -130,15 +132,31 @@ Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:213-228
 
 ## Pedagogical Context and Prompting
 
-The workflow passes strict pedagogical instructions to the lesson generation phase, governed by the `SYSTEM_INSTRUCTION_TEACHER` and `LESSON_SHARED_WRITING_RULES`.
+Lesson writing uses explicit prompt layers rather than placing every pedagogical rule in the system message. `SYSTEM_INSTRUCTION_TEACHER` keeps the stable Professor Nous role, grounding rules and instruction/data boundary; `buildLessonGenerationReferenceContext()` carries lesson-specific context; `buildLessonGenerationPrompt()` adds the canonical writer contract and applicable specialist packs.
+
+The final verification pass reuses the same reference context and the generated draft, but it does not embed the complete writer prompt again. Instead it combines the semantic checklist with focused shared invariants and structural checks, reducing duplicated instructions while retaining the rules that must hold before publication.
 
 ### Writing Rule Highlights
-*  **Propedeutic Order**: Concepts must be explained using only previously introduced terms or definitions within the same block.
+*  **Coverage and Depth**: A lesson must substantially develop the content required by its title, description and pedagogical context rather than returning an accurate outline. The same semantic coverage check runs again before publication.
+*  **Propedeutic Order**: Concepts must be explained using only previously introduced terms or definitions within the same local block; the verifier reuses the complete local propedeutic rule family rather than a hand-copied subset.
+*  **Language and Density**: Clear lexicon, immediate explanation of technical terminology, acronym expansion, avoidance of unnecessary foreignisms, content-preserving simplification and a discursive register are one shared rule family. Explicit student style notes override these defaults within structural constraints.
+*  **Relevance and Style**: Analogy limits, concrete-example preference, repetition control, non-decorative engagement and metadiscourse avoidance are verified from the same canonical family used by the writer.
 *  **Self-Sufficiency**: Lessons must work as standalone texts without requiring the student to have the source document open.
-*  **Formula Relevance**: Mathematical formulas should only be used when natural to the subject, not for decorative purposes.
-*  **Active Pauses**: Inline quizzes are inserted to encourage inference and micro-synthesis rather than simple paraphrase.
+*  **Source Fidelity**: Source-backed lessons must integrate distinctive relevant arguments, definitions, examples, cases, comparisons and technical passages from the primary material. Research is supplementary; it must not replace the source with a generic lesson or silently swap source-specific conventions for merely alternative ones.
+*  **Structured Source Content**: Meaningful tables, matrices, captions, legends and structured comparisons remain structurally legible rather than being discarded or flattened.
+*  **Technical Formatting**: Standalone or multiline code, pseudocode, commands and output use fenced blocks; short identifiers, API names, commands and fragments may remain inline code inside prose. KaTeX delimiters, braces and active LaTeX environments must remain balanced.
+*  **Active Pauses**: Placement, reasoning demand, option quality and text formatting are shared contracts reused by generation and verification rather than parallel prompt prose.
+*  **Visual Selection**: Original source images are preferred when they are clear and pedagogically equivalent; generated visuals and YouTube clips remain subject to their dedicated planning contracts.
 
-Sources: [packages/shared-types/lessonWritingContract.ts:36-79](../../../packages/shared-types/lessonWritingContract.ts#L36-L79), [apps/backend/src/services/lessonGenerationPrompt.ts:68-103](../../../apps/backend/src/services/lessonGenerationPrompt.ts#L68-L103)
+### Focused lesson verification
+
+The verifier requires one `verificationReport` entry with non-empty evidence for every semantic and structural check ID. `core.coverage` explicitly compares the final draft with the lesson reference context; in source-backed lessons it also checks that distinctive relevant primary-source material survived generation. This prevents a short but correct outline, or a generic research-based explanation, from passing merely because its individual claims are accurate.
+
+Markdown/prose integrity, positive definitions, self-sufficiency, ASCII pseudo-visual rejection, code formatting, math formatting, active-pause quality and generated-visual planning are always available structural checks; checks that do not apply return `not-applicable` only where the contract explicitly allows it.
+
+Image-reference verification is enabled when an image reference already exists or original image candidates are available. YouTube verification is enabled when a clip exists or a timestamped transcript is available. These source-driven checks let the verifier repair a relevant omission without authorizing media that the task cannot support. After the model returns, structural requirements are recomputed against the corrected draft so newly introduced source-dependent media cannot bypass its own validation.
+
+Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
 
 ## Summary of Key Services
 
