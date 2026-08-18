@@ -81,7 +81,6 @@ export type LessonVerificationStructuralCheckId =
   | 'math-structure'
   | 'positive-definition'
   | 'quiz-quality'
-  | 'quiz-text'
   | 'self-sufficiency'
   | 'youtube-structure';
 
@@ -94,7 +93,7 @@ const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_PRIORITY_RULE} Valuta sia le imm
 const YOUTUBE_STRUCTURE_CHECK =
   'Se nei riferimenti esiste un transcript YouTube timestampato ma la bozza non contiene clip, valuta se movimento, successione dei passaggi o dimostrazione nel tempo aggiungono informazione didattica che una buona visuale statica non puo offrire altrettanto bene: se si, aggiungi soltanto il minimo intervallo utile; se no, segna il controllo come not-applicable. Ogni clip presente o aggiunta usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
 const CODE_STRUCTURE_CHECK =
-  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido. La riga di apertura contiene soltanto il fence e, se serve, il nome del linguaggio; correggi frammenti tecnici o etichette di linguaggio rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice. Se non contiene materiale tecnico di questo tipo, segna il controllo come non-applicable.';
+  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido. La riga di apertura contiene soltanto il fence e, se serve, il nome del linguaggio; correggi frammenti tecnici o etichette di linguaggio rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice. Se non contiene materiale tecnico di questo tipo, segna il controllo come not-applicable.';
 const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} Se la bozza non contiene matematica, segna il controllo come not-applicable.`;
 
 const buildVerificationSchema = (
@@ -131,7 +130,6 @@ const buildVerificationSchema = (
 export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
-  const hasQuiz = draft.contentBlocks.some(block => block.type === 'inline-quiz');
   const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
   const hasGeneratedVisual =
     draft.generatedVisuals.length > 0 ||
@@ -145,9 +143,9 @@ export const buildApplicableLessonVerificationCheckIds = (
     'ascii-visual',
     'code-structure',
     'math-structure',
+    'quiz-quality',
   ];
 
-  if (hasQuiz) checkIds.push('quiz-quality', 'quiz-text');
   if (hasImageRefs) checkIds.push('image-reference');
   if (hasGeneratedVisual) checkIds.push('generated-visual');
   if (hasYoutube) checkIds.push('youtube-structure');
@@ -223,9 +221,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa non deve poter essere risolta copiando o riconoscendo una definizione locale. ${ACTIVE_PAUSE_OPTIONS_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
-    case 'quiz-text':
-      return ACTIVE_PAUSE_TEXT_FORMAT_RULE;
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come not-applicable. Ogni inline-quiz presente o aggiunta deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa non deve poter essere risolta copiando o riconoscendo una definizione locale. ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
@@ -246,7 +242,7 @@ const buildLessonVerificationPrompt = (
     !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
   const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
     if (item.checkId === 'core.progression') {
-      return { ...item, instruction: `${item.instruction} ${LESSON_GUIDED_NOVICE_RULE}` };
+      return { ...item, instruction: `${item.instruction} ${LESSON_GUIDIDED_NOVICE_RULE}` };
     }
     if (item.checkId === 'core.clarity') {
       return { ...item, instruction: `${item.instruction} ${LESSON_ACRONYM_EXPANSION_RULE}` };
