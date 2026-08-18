@@ -406,10 +406,10 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                   <button
                     type="button"
                     onClick={() => onModuleToggle(group.id)}
-                    className={`flex min-h-12 w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors sm:min-h-11 ${
+                    className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors sm:min-h-11 ${
                       isExpanded
-                        ? 'text-gray-900 dark:text-gray-100'
-                        : 'text-gray-600 hover:bg-gray-100/70 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-zinc-700/70 dark:hover:text-gray-100'
+                        ? 'text-gray-700 dark:text-zinc-200'
+                        : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-700/70 dark:hover:text-zinc-200'
                     }`}
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-gray-50 font-serif text-base font-semibold text-gray-800 sm:h-8 sm:w-8 dark:border-zinc-600 dark:bg-zinc-700/70 dark:text-zinc-100">
