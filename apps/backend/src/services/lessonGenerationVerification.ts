@@ -240,7 +240,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
   }
 };
 
-export const buildLessonVerificationPrompt = (
+const buildLessonVerificationPrompt = (
   input: LessonVerificationInput,
   draft: LessonContentDraft
 ): string => {
