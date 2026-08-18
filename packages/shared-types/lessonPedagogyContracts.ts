@@ -1,2 +1,1 @@
-export const LESSON_FIRST_EXPOSURE_RULE =
-  'La prima esposizione significativa a un concetto nuovo deve renderne comprensibile il significato in positivo prima di usarlo per contrasto o negazione. Questo vale anche per heading, frase di apertura, label e metafore usate come nome del concetto: non presentare per prima cosa cio che il concetto non e, un suo limite o una metafora non ancora spiegata. Dopo che il significato di base e chiaro, contrasti e negazioni possono precisarlo.';
+export { LESSON_FIRST_EXPOSURE_RULE } from './lessonWritingContract';
