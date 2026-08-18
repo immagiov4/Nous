@@ -24,4 +24,6 @@ export const retryLessonGenerationCorrection = (
 ): LessonGenerationCorrectionError => new LessonGenerationCorrectionError(correction);
 
 export const isLessonStructuredOutputError = (error: unknown): boolean =>
-  error instanceof SyntaxError || error instanceof z.ZodError || NoObjectGeneratedError.isInstance(error);
+  error instanceof SyntaxError ||
+  error instanceof z.ZodError ||
+  NoObjectGeneratedError.isInstance(error);
