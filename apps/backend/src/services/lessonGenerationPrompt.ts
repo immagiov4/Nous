@@ -9,6 +9,7 @@ import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks'
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
   buildLessonContinuityRule,
+  buildLessonNoRepetitionRule,
   buildUserGenerationNotesBlock,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
@@ -54,12 +55,8 @@ ${input.imageCandidates.length ? `IMMAGINI ORIGINALI SELEZIONABILI TRAMITE ASSET
 };
 
 export const buildLessonGenerationPrompt = (input: LessonPromptInput): string => {
-  const isFirstLesson = input.previousLessonTitles.length === 0;
-  const previousContext = input.previousLessonTitles.join(', ') || 'Inizio percorso';
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
-  const noRepetitionRule = isFirstLesson
-    ? ''
-    : `Le lezioni precedenti (${previousContext}) hanno gia coperto le loro basi. Parti direttamente dall'argomento specifico della lezione e non riesporre introduzioni generiche soltanto per creare continuita.`;
+  const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
   const scopeRules = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
   const sourceModeRules = input.sourceContext
     ? `- ${LESSON_SOURCE_PRECEDENCE_RULE}
