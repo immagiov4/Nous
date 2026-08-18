@@ -1,4 +1,5 @@
 import { ACTIVE_PAUSE_REASONING_RULE } from './lessonGenerationPolicy';
+import { LESSON_COVERAGE_DEPTH_RULE } from './lessonWritingContract';
 
 export const LESSON_INSTRUCTION_PACK_IDS = [
   'mathematics',
@@ -25,6 +26,10 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
     checkId: 'core.instructions',
     instruction:
       'Istruzioni, livello, tono, lingua, ritmo e preferenze esplicite dello studente sono rispettati.',
+  },
+  {
+    checkId: 'core.coverage',
+    instruction: LESSON_COVERAGE_DEPTH_RULE,
   },
   {
     checkId: 'core.progression',
