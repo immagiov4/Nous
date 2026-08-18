@@ -11,7 +11,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts)
 - [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
 - [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
-- [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts)
+- [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts)
+- [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts)
 - [apps/backend/src/services/lessonGenerationCorrection.ts](../../../apps/backend/src/services/lessonGenerationCorrection.ts)
 - [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
 - [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
@@ -81,9 +82,9 @@ The `draftLesson` stage uses the `Professor Nous` system prompt to generate the 
 | **Propedeutic order** | Requires prerequisites and first concept exposures to be understandable before later abstractions, contrasts or negations depend on them. |
 | **Formatting** | Enforces standard Markdown and KaTeX for mathematical formulas. |
 | **Active Pauses** | Injects 0-3 inline quizzes that require higher-order thinking (classification, sequence, etc.). |
-| **Visual Planning** | Identifies specific points where a `generated-visual` or `youtube-clips` block improves understanding. |
+| **Visual Planning** | Identifies specific points where a `generated-visual` or `youtube-clips` block improves understanding. An active `visual-learning` pack is itself an explicit requirement for a necessary visual representation: source media are preferred when adequate, otherwise the verifier may restore the minimum generated visual needed. |
 
-Sources: [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts)
+Sources: [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts), [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts)
 
 ### Corrective Retry Lifecycle
 
@@ -103,7 +104,7 @@ Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../
 The pipeline enforces a "Propedeutic Order," meaning every technical term or symbol must be explained in common words immediately upon introduction. When a new concept, question, technique, or abstraction follows the prior reasoning, drafting and review require a concise conceptual bridge that explains why it belongs there; a missing bridge must be corrected even when the content is factually correct, while already explicit links must not receive ritual boilerplate.
 
 The first-exposure contract is stricter than a later positive definition: a concept cannot first appear as an unexplained metaphor, negative heading or contrastive label and only be defined afterward. Its first meaningful heading/lead/label exposure must establish enough positive meaning for the reader to understand what is being discussed. The system also forbids ASCII pseudo-visuals and unnecessary metadiscourse.
-Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonPedagogyContracts.ts](../../../packages/shared-types/lessonPedagogyContracts.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts), [packages/shared-types/lessonGenerationPolicy.ts](../../../packages/shared-types/lessonGenerationPolicy.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
 
 ### Visual Rendering Fan-Out
 The rendering of visuals is handled as a `fanOut` operation, allowing multiple visual plans to be processed in parallel.
