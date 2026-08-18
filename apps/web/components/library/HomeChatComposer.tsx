@@ -19,6 +19,7 @@ interface HomeChatComposerProps {
   readonly activeSurface: HomeChatSurfaceState;
   readonly assessmentComplete: boolean;
   readonly assessmentMessages: Message[];
+  readonly compactSurface?: boolean;
   readonly draftTemplate?: {
     id: string;
     mode?: HomeChatMode;
@@ -386,6 +387,7 @@ export default function HomeChatComposer({
   activeSurface,
   assessmentComplete,
   assessmentMessages,
+  compactSurface = false,
   draftTemplate,
   draftValueOverride,
   homeChatMode,
@@ -555,7 +557,11 @@ export default function HomeChatComposer({
   return (
     <div
       ref={surfaceRootRef}
-      className="border-t border-gray-100 px-4 pb-4 pt-3 dark:border-zinc-700/50 sm:px-5 max-md:shrink-0"
+      className={`max-md:shrink-0 ${
+        compactSurface
+          ? 'border-0 p-0'
+          : 'border-t border-gray-100 px-4 pb-4 pt-3 dark:border-zinc-700/50 sm:px-5'
+      }`}
     >
       {homeChatMode === 'new-course' ? (
         <PendingFilesNotice

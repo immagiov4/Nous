@@ -10,18 +10,24 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { LessonLearningAid, LessonLearningAidKind } from '../../../types.ts';
 import { createEntityId } from '../../../utils/ids.ts';
+import { MotionPopover } from '../../../utils/motion/index.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
-interface LessonLearningAidsProps {
+interface LearningAidsProps {
   readonly isDarkMode: boolean;
-  readonly isMobileViewport: boolean;
   readonly learningAids: LessonLearningAid[];
   readonly onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
+}
+
+interface MobileLearningAidsProps
+  extends Pick<LearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'> {
+  readonly isOpen: boolean;
+  readonly onOpenChange: (isOpen: boolean) => void;
 }
 
 const LEARNING_AID_TITLE_MAX_LENGTH = 64;
@@ -162,7 +168,7 @@ function LearningAidList({
   isDarkMode,
   learningAids,
   onSaveLearningAids,
-}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
+}: Pick<LearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
   const [expandedAidIds, setExpandedAidIds] = useState<Set<string>>(() => new Set());
   const [draft, setDraft] = useState<LearningAidDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -392,7 +398,7 @@ export function HeaderLearningAids({
   isDarkMode,
   learningAids,
   onSaveLearningAids,
-}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
+}: Pick<LearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -445,13 +451,16 @@ export function HeaderLearningAids({
   );
 }
 
-function MobileLearningAids({
+export function MobileLearningAids({
   isDarkMode,
   learningAids,
   onSaveLearningAids,
-}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
-  const [isOpen, setIsOpen] = useState(false);
+  isOpen,
+  onOpenChange,
+}: MobileLearningAidsProps) {
   const portalContainer = typeof document === 'undefined' ? null : document.body;
+  const panelRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -460,80 +469,77 @@ function MobileLearningAids({
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsOpen(false);
+        onOpenChange(false);
       }
     };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        !(target instanceof Node) ||
+        panelRef.current?.contains(target) ||
+        triggerRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      onOpenChange(false);
+    };
+
     document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen]);
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isOpen, onOpenChange]);
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
-        aria-label={t('Apri concetti chiave')}
-        className="mb-5 flex w-full items-center justify-between gap-3 border-y border-gray-200 py-3 text-left text-sm text-gray-700 transition-colors hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-white"
-        onClick={() => setIsOpen(true)}
+        aria-expanded={isOpen}
+        aria-label={t(isOpen ? 'Chiudi concetti chiave' : 'Apri concetti chiave')}
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent p-2 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200 ${isOpen ? 'bg-gray-100 text-gray-500 dark:bg-zinc-700/50 dark:text-zinc-300' : ''}`}
+        onClick={() => onOpenChange(!isOpen)}
+        title={t('Concetti chiave')}
       >
-        <span className="flex min-w-0 items-center gap-2.5">
-          <BookOpen className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
-          <span className="font-medium">{t('Concetti chiave')}</span>
-        </span>
-        <ChevronDown className="h-4 w-4 -rotate-90 text-gray-500 dark:text-zinc-400" />
+        <BookOpen className="reader-mobile-control-icon" />
       </button>
 
-      {isOpen && portalContainer
+      {portalContainer && isOpen
         ? createPortal(
-            <div className="fixed inset-0 z-[100] flex items-end p-3">
-              <button
-                type="button"
-                aria-label={t('Chiudi concetti chiave dallo sfondo')}
-                className="absolute inset-0 bg-black/40"
-                onClick={() => setIsOpen(false)}
-              />
-              <section
-                role="dialog"
-                aria-modal="true"
+            <div ref={panelRef}>
+              <MotionPopover
                 aria-label={t('Concetti chiave')}
-                className="relative max-h-[min(75dvh,40rem)] w-full overflow-hidden rounded-[1.8rem] border border-gray-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+                className="fixed right-3 top-[5.75rem] z-[60] max-h-[min(70dvh,36rem)] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-[1.75rem] border border-gray-200 bg-white p-3 shadow-[0_18px_45px_rgba(15,23,42,0.16)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_18px_45px_rgba(0,0,0,0.4)]"
+                isOpen={isOpen}
+                originX="top right"
+                role="complementary"
               >
-                <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-5 py-4 dark:border-zinc-700">
-                  <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+                <div className="mb-3 flex items-center justify-between gap-2 px-1">
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
                     {t('Concetti chiave')}
                   </h2>
                   <button
                     type="button"
                     aria-label={t('Chiudi concetti chiave')}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                    onClick={() => setIsOpen(false)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                    onClick={() => onOpenChange(false)}
                   >
                     <X className="h-4 w-4" />
                   </button>
-                </header>
-                <div className="max-h-[calc(min(75dvh,40rem)-5rem)] overflow-y-auto px-4 py-4 overscroll-contain">
-                  <LearningAidList
-                    isDarkMode={isDarkMode}
-                    learningAids={learningAids}
-                    onSaveLearningAids={onSaveLearningAids}
-                  />
                 </div>
-              </section>
+                <LearningAidList
+                  isDarkMode={isDarkMode}
+                  learningAids={learningAids}
+                  onSaveLearningAids={onSaveLearningAids}
+                />
+              </MotionPopover>
             </div>,
             portalContainer
           )
         : null}
     </>
   );
-}
-
-/*
- * Mobile keeps the entry point in the reading flow. Desktop owns the same content from the
- * sticky header so the reading column never moves sideways to make room for contextual aids.
- */
-export default function LessonLearningAids(props: LessonLearningAidsProps) {
-  if (!props.isMobileViewport) {
-    return null;
-  }
-
-  return <MobileLearningAids {...props} />;
 }

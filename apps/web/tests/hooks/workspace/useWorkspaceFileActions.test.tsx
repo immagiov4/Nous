@@ -65,6 +65,39 @@ test('reports export failures and leaves the action available for retry', async 
   expect(notify).toHaveBeenCalledWith('Esportazione non riuscita. Riprova.');
 });
 
+test('exposes import progress while a course is being imported', async () => {
+  let finishImport: (() => void) | undefined;
+  const importProjectFile = vi.fn(
+    () =>
+      new Promise<{ errorMessage?: string }>(resolve => {
+        finishImport = () => resolve({});
+      })
+  );
+  const target = {
+    files: [new File(['backup'], 'course.nous.zip', { type: 'application/zip' })],
+    value: 'selected',
+  };
+  const { result } = renderHook(() =>
+    useWorkspaceFileActions(buildHookArgs({ importProjectFile }))
+  );
+
+  let importPromise: Promise<void> | undefined;
+  act(() => {
+    importPromise = result.current.handlePlanUpload({
+      target,
+    } as unknown as ChangeEvent<HTMLInputElement>);
+  });
+  expect(result.current.isImportingProject).toBe(true);
+
+  await act(async () => {
+    finishImport?.();
+    await importPromise;
+  });
+
+  expect(result.current.isImportingProject).toBe(false);
+  expect(target.value).toBe('');
+});
+
 test('forwards every selected course source in one upload action', async () => {
   const handleSourceUpload = vi.fn(async () => ({}));
   const { result } = renderHook(() =>

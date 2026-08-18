@@ -193,7 +193,7 @@ describe('NewHomeView library interactions', () => {
   test('imports a single course from the library header', async () => {
     const user = userEvent.setup();
     const onImportProjectFile = vi.fn();
-    render(
+    const { rerender } = render(
       <NewHomeView
         chatProps={chatProps}
         isDarkMode={false}
@@ -219,9 +219,33 @@ describe('NewHomeView library interactions', () => {
 
     expect(onImportProjectFile).toHaveBeenCalledTimes(1);
     expect(onImportProjectFile.mock.calls[0]?.[0].target.files?.[0]).toBe(file);
+
+    rerender(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isImportingProject
+        isLibraryLoading={false}
+        libraryFolders={[folder]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onImportProjectFile={onImportProjectFile}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    expect(screen.getByText('Importazione progetto...')).toBeInTheDocument();
   });
 
-  test('keeps the Favorites count reactive and localized for empty, singular, and plural states', () => {
+  test('keeps the Favorites count reactive while the chip shows only the number', () => {
     const renderView = (projects: SavedProjectMeta[]) => (
       <NewHomeView
         chatProps={chatProps}
@@ -250,9 +274,12 @@ describe('NewHomeView library interactions', () => {
 
     const view = render(renderView([]));
     const favoritesChip = screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ });
+    expect(favoritesChip).toHaveTextContent('Preferiti');
+    expect(favoritesChip).toHaveTextContent('0');
     expect(favoritesChip).toHaveAttribute('title', '0 corsi');
 
     view.rerender(renderView([{ ...project, isFavorite: true }]));
+    expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveTextContent('1');
     expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveAttribute(
       'title',
       '1 corso'
@@ -264,6 +291,7 @@ describe('NewHomeView library interactions', () => {
         { ...project, id: 'project-2', isFavorite: true },
       ])
     );
+    expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveTextContent('2');
     expect(screen.getByRole('button', { name: /^(Preferiti|Favorites)$/ })).toHaveAttribute(
       'title',
       '2 corsi'

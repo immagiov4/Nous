@@ -608,6 +608,7 @@ const MarkdownRenderer = ({
       <div
         ref={annotationHighlightLayerRef}
         aria-hidden="true"
+        data-nous-annotation-highlight-layer
         className="pointer-events-none absolute inset-0 z-10 mix-blend-multiply dark:mix-blend-screen"
       />
       {contentParts.map(part =>

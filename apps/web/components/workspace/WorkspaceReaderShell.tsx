@@ -1,5 +1,9 @@
-import { memo, useLayoutEffect } from 'react';
-import { READER_SIDEBAR_WIDTH_PX } from '../../constants/layout.ts';
+import { memo, useEffect, useLayoutEffect } from 'react';
+import {
+  READER_MOBILE_TOP_FADE_ALPHA_PROPERTY,
+  READER_MOBILE_TOP_FADE_SCROLL_RANGE_PX,
+  READER_SIDEBAR_WIDTH_PX,
+} from '../../constants/layout.ts';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
@@ -18,6 +22,39 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   sidebar,
 }: WorkspaceReaderShellProps) {
   const { viewportHeight } = useMobileKeyboardOffset();
+
+  useEffect(() => {
+    if (displayMode === 'embedded' || !header.isMobileViewport) {
+      return;
+    }
+
+    const scrollContainer = content.scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    let previousFadeAlpha = '';
+    const handleScroll = () => {
+      const fadeProgress = Math.min(
+        scrollContainer.scrollTop / READER_MOBILE_TOP_FADE_SCROLL_RANGE_PX,
+        1
+      );
+      const fadeAlpha = (1 - fadeProgress).toFixed(3);
+      if (fadeAlpha === previousFadeAlpha) {
+        return;
+      }
+
+      previousFadeAlpha = fadeAlpha;
+      scrollContainer.style.setProperty(READER_MOBILE_TOP_FADE_ALPHA_PROPERTY, fadeAlpha);
+    };
+
+    handleScroll();
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      scrollContainer.style.removeProperty(READER_MOBILE_TOP_FADE_ALPHA_PROPERTY);
+    };
+  }, [content.scrollContainerRef, displayMode, header.isMobileViewport]);
 
   useLayoutEffect(() => {
     if (displayMode === 'embedded' || typeof document === 'undefined') {
@@ -87,10 +124,12 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
             }
       }
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-white/80 backdrop-blur dark:bg-zinc-800/80"
-      />
+      {!header.isMobileViewport ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-white/80 backdrop-blur dark:bg-zinc-800/80"
+        />
+      ) : null}
       <WorkspaceReaderSidebar {...sidebarModel} />
 
       <div
