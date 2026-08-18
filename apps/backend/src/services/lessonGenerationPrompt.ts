@@ -45,9 +45,7 @@ const buildImageRules = (hasCandidates: boolean): string =>
 
 const buildRetryCorrectionBlock = (feedback: string | undefined): string => {
   const correction = feedback?.trim();
-  return correction
-    ? `\nCORREZIONE OBBLIGATORIA DAL TENTATIVO PRECEDENTE:\n${correction}\n`
-    : '';
+  return correction ? `\nCORREZIONE OBBLIGATORIA DAL TENTATIVO PRECEDENTE:\n${correction}\n` : '';
 };
 
 export const buildLessonGenerationReferenceContext = (input: LessonPromptInput): string => {
