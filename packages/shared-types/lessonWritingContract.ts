@@ -1,11 +1,19 @@
 export const FORMULA_RELEVANCE_RULE =
   'Usa formule matematiche solo quando sono naturali per la materia o quando il materiale originale le usa e sono necessarie per comprenderlo. Non trasformare concetti qualitativi, umanistici o discorsivi in equazioni inventate o decorative: se la formula non aggiunge precisione reale, spiega il concetto in prosa.';
 
+export const LESSON_KATEX_FORMATTING_RULE = String.raw`Per le formule usa sintassi KaTeX coerente: $...$ o \(...\) inline, $$...$$ o \[...\] display; chiudi sempre delimitatori e graffe. Quando citi letteralmente comandi LaTeX come \begin{equation} o \end{equation} senza aprire davvero un ambiente matematico, rendili come codice inline Markdown cosi i validatori non li interpretano come struttura LaTeX attiva.`;
+
 export const LESSON_SELF_SUFFICIENCY_RULE =
   'La lezione deve funzionare senza il materiale originale aperto: integra nel testo tutto cio che serve per capire il passaggio corrente e rimuovi rimandi opachi a pagine, sezioni, figure o posizioni della fonte che richiederebbero di riaprirla.';
 
 export const LESSON_POSITIVE_DEFINITION_RULE =
   'Quando introduci un concetto nuovo, definiscilo prima in positivo: chiarisci che cosa e o che cosa fa. Usa contrasti, negazioni e formule come "non e soltanto" solo dopo che il significato di base e gia comprensibile.';
+
+export const LESSON_HEADING_STRUCTURE_RULE =
+  'Organizza il testo con heading chiari e usa soltanto le sezioni necessarie. Non ripetere il titolo della lezione come heading e non creare heading riempitivi, quasi duplicati o introdotti solo per spezzare artificialmente il testo.';
+
+export const LESSON_SOURCE_PRECEDENCE_RULE =
+  'Quando esiste materiale sorgente primario, conserva le sue convenzioni specifiche, definizioni locali, nomi, direzioni e scelte tecniche. Il dossier di ricerca e supplementare: puo colmare lacune, aggiornare fatti o chiarire passaggi, ma non deve sostituire una convenzione propria della fonte con un alternativa semplicemente diversa e valida, salvo che la fonte sia effettivamente errata.';
 
 export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
   'Costruisci anche la singola lezione in ordine strettamente propedeutico: ogni passaggio deve richiedere soltanto concetti gia introdotti oppure spiegati nello stesso blocco locale, senza rimandarne il significato a sezioni successive.',
@@ -18,6 +26,7 @@ export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
 
 export const YOUTUBE_CLIP_PEDAGOGY_RULES = `- Scegli un video quando il cambiamento nel tempo, la successione dei passaggi o il movimento contiene informazione didattica che una buona immagine statica non puo mostrare altrettanto bene. Per relazioni spaziali ferme, confronti di configurazioni o schemi leggibili a colpo d'occhio, preferisci una visuale statica.
 - Ogni clip deve essere autosufficiente nel punto in cui appare: lo studente deve possedere gia i prerequisiti necessari e il testo vicino deve dire che cosa osservare. Non obbligarlo a guardare parti precedenti o successive del video per capire l'intervallo.
+- Non duplicare lo stesso intervallo e non conservare piu clip che mostrano materiale pedagogicamente equivalente. Piu clip, anche dallo stesso video, sono utili solo quando coprono passaggi realmente distinti di una sequenza o rispondono a domande didattiche diverse.
 - Se le clip sono utili come consolidamento ma interromperebbero la spiegazione, raggruppale in un unico blocco \`youtube-clips\` dopo la conclusione del nucleo concettuale. Usalo come riepilogo visuale mirato, non come appendice generica o duplicazione automatica delle immagini.`;
 
 export const LESSON_SCOPE_RULES = [
