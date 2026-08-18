@@ -17,6 +17,7 @@ import {
   LESSON_LIST_STRUCTURE_RULE,
   LESSON_MAIN_PROSE_RULE,
   LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE,
+  LESSON_METADISCOURSE_RULE,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SHARED_WRITING_RULES,
@@ -69,8 +70,7 @@ ${buildLessonInstructionPackBlock(input.instructionPacks, 'writing')}
 1. Scrivi una lezione esaustiva in Markdown ricco. Mantieni una buona densita informativa senza riempitivo o ripetizioni decorative; se le note chiedono un ritmo piu lento o ridondanza didattica, rispettale.
 2. Incorpora e spiega i contenuti in modo discorsivo ma tecnico, con esempi concreti, formule e codice solo quando aiutano davvero.
 3. ${LESSON_HEADING_STRUCTURE_RULE}
-4. Evita metadiscorso ed enfasi ridondante. ${LESSON_MAIN_PROSE_RULE}
-5. Tratta tabelle, matrici, didascalie, legende e label testuali dei grafici come contenuto tecnico, non come rumore.
+4. ${LESSON_METADISCOURSE_RULE} ${LESSON_MAIN_PROSE_RULE}
 - ${LESSON_LIST_STRUCTURE_RULE}
 ${LESSON_SHARED_WRITING_RULES}
 - ${sourceModeRule}
