@@ -9,22 +9,22 @@ export const LESSON_SELF_SUFFICIENCY_RULE =
 export const LESSON_NAMED_SOURCE_ATTRIBUTION_RULE =
   'Se attribuisci esplicitamente un idea a una fonte, usa il nome della fonte o dell autore quando e disponibile nei riferimenti; evita formule opache come "il documento afferma", "la fonte dice" o "nel testo si legge". Se non hai un nome affidabile, esponi direttamente il contenuto senza inventare un attribuzione.';
 
-export const LESSON_CLEAR_LEXICON_RULE =
+const LESSON_CLEAR_LEXICON_RULE =
   'Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta. Dove il passaggio e semplice, non renderlo artificialmente denso o pesante.';
 
-export const LESSON_TECHNICAL_TERM_CLARITY_RULE =
+const LESSON_TECHNICAL_TERM_CLARITY_RULE =
   'Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.';
 
-export const LESSON_ACRONYM_EXPANSION_RULE =
+const LESSON_ACRONYM_EXPANSION_RULE =
   'Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.';
 
-export const LESSON_FOREIGNISM_RULE =
+const LESSON_FOREIGNISM_RULE =
   'Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.';
 
-export const LESSON_CONTENT_PRESERVING_SIMPLIFICATION_RULE =
+const LESSON_CONTENT_PRESERVING_SIMPLIFICATION_RULE =
   'Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.';
 
-export const LESSON_DISCURSIVE_REGISTER_RULE =
+const LESSON_DISCURSIVE_REGISTER_RULE =
   'Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.';
 
 export const LESSON_LANGUAGE_CLARITY_RULES = [
@@ -36,22 +36,22 @@ export const LESSON_LANGUAGE_CLARITY_RULES = [
   LESSON_DISCURSIVE_REGISTER_RULE,
 ] as const;
 
-export const LESSON_ANALOGY_USAGE_RULE =
+const LESSON_ANALOGY_USAGE_RULE =
   "Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo; se puoi spiegare bene in modo diretto, non usare alcuna analogia.";
 
-export const LESSON_CONCRETE_EXAMPLE_PREFERENCE_RULE =
+const LESSON_CONCRETE_EXAMPLE_PREFERENCE_RULE =
   'Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate.';
 
-export const LESSON_RECURRING_STYLE_PHRASE_RULE =
+const LESSON_RECURRING_STYLE_PHRASE_RULE =
   'Evita formule stilistiche ricorrenti come "l analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.';
 
-export const LESSON_ENGAGEMENT_RELEVANCE_RULE =
+const LESSON_ENGAGEMENT_RELEVANCE_RULE =
   'Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.';
 
-export const LESSON_LOCAL_REPETITION_RULE =
+const LESSON_LOCAL_REPETITION_RULE =
   'Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato: ogni paragrafo deve avanzare.';
 
-export const LESSON_SINGLE_CORE_BUILD_RULE =
+const LESSON_SINGLE_CORE_BUILD_RULE =
   'Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.';
 
 export const LESSON_METADISCOURSE_RULE =
@@ -100,7 +100,7 @@ export const LESSON_SOURCE_PRECEDENCE_RULE =
 export const LESSON_RESEARCH_TRANSFORMATION_RULE =
   'Quando la lezione e costruita da dossier di ricerca o fonti consultate senza un materiale sorgente primario, usa quei riferimenti come base fattuale ma trasformali in una spiegazione didattica autonoma: non copiarli, non serializzarli e non riassumerli punto per punto come un report di ricerca.';
 
-export const LESSON_TECHNICAL_NOTATION_ADJACENCY_RULE =
+const LESSON_TECHNICAL_NOTATION_ADJACENCY_RULE =
   "Quando introduci un termine tecnico, un simbolo, una formula o un'operazione, collegalo immediatamente alla sua spiegazione in parole comuni. La spiegazione puo precedere o seguire la prima rappresentazione, ma deve stare nello stesso paragrafo o in quello immediatamente successivo e chiarire che cosa rappresenta e perche serve.";
 
 export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
@@ -112,16 +112,16 @@ export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
   'Quando le note dello studente dichiarano difficolta in un dominio, riduci la densita locale: introduci una sola nuova astrazione per volta e collega immediatamente significato in prosa e rappresentazione tecnica, in qualunque ordine risultino piu naturali. La ridondanza deliberata richiesta dallo studente e ammessa quando consolida il modello mentale invece di limitarsi a parafrasare.',
 ] as const;
 
-export const YOUTUBE_CLIP_SELECTION_RULE =
+const YOUTUBE_CLIP_SELECTION_RULE =
   "Scegli un video quando il cambiamento nel tempo, la successione dei passaggi o il movimento contiene informazione didattica che una buona immagine statica non puo mostrare altrettanto bene. Per relazioni spaziali ferme, confronti di configurazioni o schemi leggibili a colpo d'occhio, preferisci una visuale statica.";
 
-export const YOUTUBE_CLIP_SELF_SUFFICIENCY_RULE =
+const YOUTUBE_CLIP_SELF_SUFFICIENCY_RULE =
   'Ogni clip deve essere autosufficiente nel punto in cui appare: lo studente deve possedere gia i prerequisiti necessari e il testo vicino deve dire che cosa osservare. Non obbligarlo a guardare parti precedenti o successive del video per capire l intervallo.';
 
-export const YOUTUBE_CLIP_DEDUPLICATION_RULE =
+const YOUTUBE_CLIP_DEDUPLICATION_RULE =
   'Non duplicare lo stesso intervallo e non conservare piu clip che mostrano materiale pedagogicamente equivalente. Piu clip, anche dallo stesso video, sono utili solo quando coprono passaggi realmente distinti di una sequenza o rispondono a domande didattiche diverse.';
 
-export const YOUTUBE_CLIP_GROUPING_RULE =
+const YOUTUBE_CLIP_GROUPING_RULE =
   'Se le clip sono utili come consolidamento ma interromperebbero la spiegazione, raggruppale in un unico blocco `youtube-clips` dopo la conclusione del nucleo concettuale. Usalo come riepilogo visuale mirato, non come appendice generica o duplicazione automatica delle immagini.';
 
 export const YOUTUBE_CLIP_PEDAGOGY_RULES = [
