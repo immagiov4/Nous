@@ -45,7 +45,8 @@ This block contains reference data but not the writer contract. Keeping the two 
 `buildLessonGenerationPrompt()` combines the reference context with the detailed writing contract. The writer contract includes:
 
 - `LESSON_SHARED_WRITING_RULES` and local propedeutic rules;
-- shared heading, source-precedence and KaTeX rules;
+- shared heading, acronym, attribution, source-precedence and KaTeX rules;
+- shared continuity and prior-lesson no-repetition rules;
 - source and scope rules;
 - optional specialist instruction packs;
 - active-pause requirements;
@@ -58,7 +59,7 @@ Student generation notes have high priority for style, density, pacing and simil
 
 `buildLessonVerificationPrompt()` does **not** embed the complete writer prompt. It receives the reusable lesson context, the generated draft, the mandatory semantic checklist and a focused structural contract.
 
-Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material or continues beyond the current lesson focus. Source-backed correctness also preserves primary-source conventions over merely different dossier conventions. The verifier retains product-wide invariants such as positive first definitions, heading discipline, self-sufficiency, valid code and math formatting, and the prohibition on ASCII pseudo-visuals.
+Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material, repeats foundations already covered by completed lessons or continues beyond the current lesson focus. Source-backed correctness preserves primary-source conventions over merely different dossier conventions and requires named attribution instead of opaque phrases such as “the document says”. The clarity check retains first-occurrence acronym expansion. The verifier also keeps product-wide invariants such as positive first definitions, heading discipline, self-sufficiency, valid code and math formatting, and the prohibition on ASCII pseudo-visuals.
 
 Feature-specific media checks are activated from concrete draft state or from source assets whose omission itself must be reviewed. In particular, `image-reference` runs when the draft contains `imageRefs` or when selectable original image candidates exist. Source-image selection remains proportional: equivalent figures are deduplicated rather than all being forced into the lesson. The same priority rule is also applied inside `generated-visual`, so an available source-specific diagram or screenshot is not silently replaced by an equivalent generated visual.
 
@@ -86,9 +87,12 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 | `LESSON_LOCAL_PROPEDEUTIC_RULES` | Local prerequisite order and conceptual bridges. |
 | `LESSON_SCOPE_RULES` | Prevents scope drift, premature future-lesson detail and unnecessary continuation. |
 | `buildLessonContinuityRule()` | Prevents fabricated backward continuity and invented prior-course coverage. |
+| `buildLessonNoRepetitionRule()` | Prevents re-teaching generic foundations already covered by completed lessons. |
+| `LESSON_ACRONYM_EXPANSION_RULE` | Requires acronyms and abbreviations to be expanded and clarified on first occurrence. |
 | `LESSON_POSITIVE_DEFINITION_RULE` | Requires a new concept to be defined positively before contrastive framing. |
 | `LESSON_HEADING_STRUCTURE_RULE` | Prevents repeated lesson titles, filler headings and near-duplicate sections. |
 | `LESSON_SELF_SUFFICIENCY_RULE` | Keeps the lesson understandable without reopening the original source. |
+| `LESSON_NAMED_SOURCE_ATTRIBUTION_RULE` | Replaces opaque “the document says” references with a source/author name when known, or direct prose when no reliable name exists. |
 | `LESSON_SOURCE_PRECEDENCE_RULE` | Keeps source-specific conventions authoritative over merely alternative dossier conventions. |
 | `FORMULA_RELEVANCE_RULE` | Keeps mathematical notation meaningful rather than decorative. |
 | `LESSON_KATEX_FORMATTING_RULE` | Defines KaTeX delimiters and requires literal LaTeX commands to be rendered as inline code. |
@@ -117,6 +121,8 @@ The base structural contract always includes:
 - the ASCII pseudo-visual prohibition;
 - code structure;
 - math/KaTeX structure and formula relevance, including inline-code disambiguation for literal LaTeX commands.
+
+Semantic checks are also selectively enriched from the same shared contracts: `core.clarity` checks first-occurrence acronym expansion, while source-backed `core.correctness` checks primary-source precedence and named attribution. Continuity/focus instructions include both truthful references to completed lessons and the no-repetition rule when prior lessons exist.
 
 Code and math checks are deliberately unconditional because their most important failure mode can be malformed or missing syntax that cannot be reliably feature-gated without semantic guessing. When the corresponding content does not exist, the verifier returns `not-applicable`.
 
