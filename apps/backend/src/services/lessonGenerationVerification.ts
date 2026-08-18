@@ -50,6 +50,11 @@ type VerifiedLessonContentDraft = LessonContentDraft & {
 
 type LessonVerificationInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
 
+type LessonVerificationCheckContext = Pick<
+  LessonGenerationInput,
+  'imageCandidates' | 'instructionPacks'
+>;
+
 export type LessonVerificationStructuralCheckId =
   | 'ascii-visual'
   | 'code-structure'
@@ -64,9 +69,8 @@ export type LessonVerificationStructuralCheckId =
   | 'youtube-structure';
 
 const MARKDOWN_STRUCTURE_CHECK =
-  'I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici o una sezione fonti terminale.';
-const IMAGE_REFERENCE_CHECK =
-  'Ogni imageRef usa un assetId disponibile, ha un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino. Rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara.';
+  'I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate o bibliografie in nessuna posizione della lezione.';
+const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_PRIORITY_RULE} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti. Se un candidato originale e chiaramente pertinente, leggibile e specifico della fonte e copre un bisogno pedagogico della lezione, deve essere usato salvo che una visuale generata risponda a una domanda didattica realmente diversa. Ogni imageRef deve usare un assetId disponibile, avere un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino; rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come not-applicable.`;
 const YOUTUBE_STRUCTURE_CHECK =
   'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
 const CODE_STRUCTURE_CHECK =
@@ -131,14 +135,36 @@ export const buildApplicableLessonVerificationCheckIds = (
   return checkIds;
 };
 
+export const buildRequiredLessonVerificationStructuralCheckIds = (
+  input: Pick<LessonGenerationInput, 'imageCandidates'>,
+  draft: LessonContentDraft
+): LessonVerificationStructuralCheckId[] => {
+  const checkIds = buildApplicableLessonVerificationCheckIds(draft);
+  if (input.imageCandidates.length > 0 && !checkIds.includes('image-reference')) {
+    checkIds.push('image-reference');
+  }
+  return checkIds;
+};
+
 export const buildRequiredLessonVerificationCheckIds = (
-  input: Pick<LessonGenerationInput, 'instructionPacks'>,
+  input: LessonVerificationCheckContext,
   draft: LessonContentDraft
 ): string[] => {
   const semanticIds = buildLessonVerificationChecklist(input.instructionPacks).map(
     item => item.checkId
   );
-  return [...semanticIds, ...buildApplicableLessonVerificationCheckIds(draft)];
+  return [...semanticIds, ...buildRequiredLessonVerificationStructuralCheckIds(input, draft)];
+};
+
+export const findUncheckedLessonVerificationStructuralCheckIds = (
+  input: Pick<LessonGenerationInput, 'imageCandidates'>,
+  draft: LessonContentDraft,
+  checkedIds: readonly string[]
+): LessonVerificationStructuralCheckId[] => {
+  const checkedIdSet = new Set(checkedIds);
+  return buildRequiredLessonVerificationStructuralCheckIds(input, draft).filter(
+    checkId => !checkedIdSet.has(checkId)
+  );
 };
 
 const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCheckId): string => {
@@ -173,7 +199,7 @@ const buildLessonVerificationPrompt = (
   draft: LessonContentDraft
 ): string => {
   const checklist = buildLessonVerificationChecklist(input.instructionPacks);
-  const structuralCheckIds = buildApplicableLessonVerificationCheckIds(draft);
+  const structuralCheckIds = buildRequiredLessonVerificationStructuralCheckIds(input, draft);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   return `RIFERIMENTI DELLA LEZIONE:
 ${buildLessonGenerationReferenceContext(input)}
@@ -185,6 +211,7 @@ COMPITO DI VERIFICA:
 Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
 Per ogni checkId elencato sotto, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto. Non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
 Compila esattamente una voce verificationReport per ciascun checkId, inclusi i controlli strutturali. Usa not-applicable solo quando l'istruzione lo consente e il contenuto corrispondente non esiste nella bozza.
+Non introdurre pause, imageRefs, visuali generati o clip YouTube di un tipo il cui checkId non sia elencato sotto. Se devi rimuovere un artefatto invalido e il controllo del formato sostitutivo non e presente, correggi in prosa o rimuovi l'artefatto invece di introdurre una nuova feature non verificata.
 
 VINCOLI DI CONTINUITA E FOCUS SEMPRE OBBLIGATORI:
 - ${continuityRule}
@@ -247,6 +274,18 @@ export const verifyLessonContentDraft = async (input: {
   if (reportedIds.size !== checkIds.length || checkIds.some(checkId => !reportedIds.has(checkId))) {
     throw new Error('Lesson verification did not report every required check.');
   }
+
+  const uncheckedStructuralCheckIds = findUncheckedLessonVerificationStructuralCheckIds(
+    generationInput,
+    verified,
+    checkIds
+  );
+  if (uncheckedStructuralCheckIds.length > 0) {
+    throw new Error(
+      `Lesson verification introduced unchecked structural features: ${uncheckedStructuralCheckIds.join(', ')}.`
+    );
+  }
+
   const { verificationReport: _verificationReport, ...draft } = verified;
   return draft;
 };
