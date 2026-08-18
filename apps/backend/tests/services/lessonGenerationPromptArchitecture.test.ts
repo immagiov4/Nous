@@ -4,6 +4,7 @@ import type { LessonContentDraft } from '../../src/services/lessonGenerationType
 import {
   buildApplicableLessonVerificationCheckIds,
   buildRequiredLessonVerificationCheckIds,
+  findUncheckedLessonVerificationStructuralCheckIds,
 } from '../../src/services/lessonGenerationVerification.js';
 
 const plainDraft: LessonContentDraft = {
@@ -26,6 +27,14 @@ const BASE_CHECKS = [
   'math-structure',
 ] as const;
 
+const imageCandidate = {
+  caption: 'Schema originale del mapping.',
+  id: 'asset-1',
+  sourceOrder: 0,
+  textCurrent: 'Il diagramma mostra il passaggio dall evento fisico all azione logica.',
+  visibleLabel: 'Figura 1',
+};
+
 describe('lesson verification prompt architecture', () => {
   test('keeps universal verifier invariants independent from optional draft features', () => {
     expect(buildApplicableLessonVerificationCheckIds(plainDraft)).toEqual(BASE_CHECKS);
@@ -33,13 +42,22 @@ describe('lesson verification prompt architecture', () => {
 
   test('requires report entries for semantic and structural checks', () => {
     const requiredIds = buildRequiredLessonVerificationCheckIds(
-      { instructionPacks: [] },
+      { imageCandidates: [], instructionPacks: [] },
       plainDraft
     );
 
     expect(requiredIds).toContain('core.progression');
     for (const checkId of BASE_CHECKS) expect(requiredIds).toContain(checkId);
     expect(new Set(requiredIds).size).toBe(requiredIds.length);
+  });
+
+  test('checks source-image selection when original candidates are available', () => {
+    const requiredIds = buildRequiredLessonVerificationCheckIds(
+      { imageCandidates: [imageCandidate], instructionPacks: [] },
+      plainDraft
+    );
+
+    expect(requiredIds).toContain('image-reference');
   });
 
   test('enables feature-scoped checks from structured draft features', () => {
@@ -127,11 +145,36 @@ describe('lesson verification prompt architecture', () => {
     ]);
 
     const requiredQuizIds = buildRequiredLessonVerificationCheckIds(
-      { instructionPacks: [] },
+      { imageCandidates: [], instructionPacks: [] },
       quizDraft
     );
     expect(requiredQuizIds).toContain('quiz-quality');
     expect(requiredQuizIds).toContain('quiz-text');
     expect(new Set(requiredQuizIds).size).toBe(requiredQuizIds.length);
+  });
+
+  test('detects optional feature types introduced after the checked contract was built', () => {
+    const checkedIds = buildRequiredLessonVerificationCheckIds(
+      { imageCandidates: [], instructionPacks: [] },
+      plainDraft
+    );
+    const verifiedWithNewYoutube: LessonContentDraft = {
+      ...plainDraft,
+      contentBlocks: [
+        ...plainDraft.contentBlocks,
+        {
+          clips: [{ endSeconds: 12, sourceIndex: 0, startSeconds: 4, title: 'Cambio di stato' }],
+          type: 'youtube-clips',
+        },
+      ],
+    };
+
+    expect(
+      findUncheckedLessonVerificationStructuralCheckIds(
+        { imageCandidates: [] },
+        verifiedWithNewYoutube,
+        checkedIds
+      )
+    ).toEqual(['youtube-structure']);
   });
 });
