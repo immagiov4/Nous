@@ -375,7 +375,11 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'root/stage-document-sources', runId: 'run-1' },
       idempotencyKey: 'stage-documents-key',
       input,
-      providerEffect: immediateProviderEffect,
+      providerEffect: {
+        run: () => {
+          throw new Error('hotfix must not checkpoint extracted data URLs');
+        },
+      },
       retryFeedback: '',
       signal,
     });
@@ -479,7 +483,7 @@ describe('durable lesson document stage', () => {
     expect(JSON.stringify(output)).not.toContain('data:image');
   });
 
-  test('reuses extracted captions when asset staging is retried', async () => {
+  test('repeats extraction when asset staging is retried during the hotfix', async () => {
     const extractImages = vi.fn().mockResolvedValue({ assets: [extractedImage], warnings: [] });
     const stage = vi
       .fn()
@@ -513,7 +517,7 @@ describe('durable lesson document stage', () => {
       stage: 'sources',
     });
 
-    expect(extractImages).toHaveBeenCalledOnce();
+    expect(extractImages).toHaveBeenCalledTimes(2);
     expect(stage).toHaveBeenCalledTimes(2);
   });
 

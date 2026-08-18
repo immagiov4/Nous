@@ -1,5 +1,6 @@
 import { buildVisibleImageLabel, selectCandidatePdfImages } from '@shared/lessonPdfImageSelection';
 import * as z from 'zod';
+
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot } from '../projects/types.js';
@@ -170,12 +171,10 @@ export const createLessonDocumentSourceStage =
       });
     }
 
-    if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
-    const extraction = await context.providerEffect.run({
-      key: 'extract-images',
-      operation: () => extractImages({ context, project, section }),
-      outputSchema: LessonPdfImageExtractionOutcomeSchema,
-    });
+    // Extraction returns transient data URLs, so it cannot be durably checkpointed before bytes are staged as assets.
+    const extraction = LessonPdfImageExtractionOutcomeSchema.parse(
+      await extractImages({ context, project, section })
+    );
     const durable = readDurablePdfImages(project);
     const durableIds = new Set(durable.map(image => image.id));
     const legacy = readExistingPdfImageAssets(project).filter(image => !durableIds.has(image.id));
