@@ -25,6 +25,7 @@ import {
   LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE,
   LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
+  LESSON_PRIMARY_SOURCE_INTEGRATION_RULE,
   LESSON_RELEVANCE_STYLE_RULES,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
@@ -255,6 +256,12 @@ const buildLessonVerificationPrompt = (
   const isResearchOnly =
     !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
   const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
+    if (item.checkId === 'core.coverage' && input.sourceContext) {
+      return {
+        ...item,
+        instruction: `${item.instruction} ${LESSON_PRIMARY_SOURCE_INTEGRATION_RULE}`,
+      };
+    }
     if (item.checkId === 'core.progression') {
       return {
         ...item,
