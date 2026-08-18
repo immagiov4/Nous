@@ -19,10 +19,13 @@ export const LESSON_LOCAL_REPETITION_RULE =
   'Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato: ogni paragrafo deve avanzare.';
 
 export const LESSON_SINGLE_CORE_BUILD_RULE =
-  'Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in sezioni diverse con semplici parafrasi.';
+  'Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.';
 
 export const LESSON_LIST_STRUCTURE_RULE =
   'Quando elenchi due o piu elementi fratelli, usa una lista Markdown vera. Non creare pseudo-liste come paragrafi consecutivi "Etichetta: ..." senza bullet: se non e una lista, fondi il contenuto in paragrafi completi.';
+
+export const LESSON_STRUCTURED_SOURCE_COMPARISON_RULE =
+  'Quando il materiale di riferimento presenta una tabella o un confronto strutturato rilevante, preservane la struttura con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in prosa confusa.';
 
 export const LESSON_GUIDED_NOVICE_RULE =
   'Quando insegni una procedura o un modello complesso a uno studente che il contesto indica come inesperto o in difficolta, privilegia una progressione guidata: mostra prima un esempio svolto o ragionato che esplicita i passaggi, poi varia il caso o chiedi di applicare il principio. Non costringere lo studente a scoprire da solo passaggi che non sono ancora stati insegnati.';
@@ -87,7 +90,7 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
 12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
 13. ${LESSON_ANALOGY_USAGE_RULE}
-14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. ${FORMULA_RELEVANCE_RULE} Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
+14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. ${FORMULA_RELEVANCE_RULE} ${LESSON_STRUCTURED_SOURCE_COMPARISON_RULE}
 15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
 16. ${LESSON_LOCAL_REPETITION_RULE}
 17. ${LESSON_SINGLE_CORE_BUILD_RULE}
