@@ -32,7 +32,7 @@ Nous keeps lesson prompting split into explicit layers instead of repeating the 
 - treat the explicit `NOTE DI PERSONALIZZAZIONE DEL CORSO` block as student instructions, subject to structural constraints;
 - do not invent unsupported facts or silently fill source gaps.
 
-Detailed style, progression, formatting and media behavior no longer live in the system instruction. They are supplied by the task-specific writer contract.
+Detailed style, progression, formatting and media behavior no longer live in the system instruction. They are supplied by task-specific shared contracts.
 
 ### 2. Reusable lesson reference context
 
@@ -42,16 +42,7 @@ This block contains reference data but not the writer contract. Keeping the two 
 
 ### 3. Canonical writer contract
 
-`buildLessonGenerationPrompt()` combines the reference context with the detailed writing contract. The writer contract includes:
-
-- `LESSON_SHARED_WRITING_RULES` and local propedeutic rules;
-- shared heading, acronym, attribution, source-precedence and KaTeX rules;
-- shared continuity and prior-lesson no-repetition rules;
-- source and scope rules;
-- optional specialist instruction packs;
-- active-pause requirements;
-- image, video and generated-visual rules;
-- Markdown and code formatting constraints.
+`buildLessonGenerationPrompt()` combines the reference context with the detailed writing contract. The writer contract includes shared rules for progression, clarity, attribution, source precedence, research-to-lesson transformation, repetition, analogies, Markdown structure, active pauses and media behavior.
 
 Student generation notes have high priority for style, density, pacing and similar preferences, but cannot override structural output, focus, safety or syntax constraints.
 
@@ -59,7 +50,7 @@ Student generation notes have high priority for style, density, pacing and simil
 
 `buildLessonVerificationPrompt()` does **not** embed the complete writer prompt. It receives the reusable lesson context, the generated draft, the mandatory semantic checklist and a focused structural contract.
 
-Scope and continuity rules remain explicitly present because a coherent draft can still be wrong if it expands into future lessons, invents prior material, repeats foundations already covered by completed lessons or continues beyond the current lesson focus. Source-backed correctness preserves primary-source conventions over merely different dossier conventions and requires named attribution instead of opaque phrases such as “the document says”. The clarity check retains first-occurrence acronym expansion. The verifier also keeps product-wide invariants such as positive first definitions, heading discipline, self-sufficiency, valid code and math formatting, and the prohibition on ASCII pseudo-visuals.
+The verifier reuses only the writer invariants that can otherwise disappear between generation and publication. Continuity includes truthful references to completed lessons and prevents re-teaching their generic foundations. `core.clarity` retains acronym expansion; `core.progression` retains guided treatment for a novice or struggling learner; `core.relevance` retains analogy and local-repetition limits. `core.correctness` applies named attribution whenever reference material is available and adds primary-source precedence only when a primary source exists. Research-only lessons add the shared research-to-lesson transformation rule to `core.structure` so a dossier is not serialized as a report.
 
 Feature-specific media checks are activated from concrete draft state or from source assets whose omission itself must be reviewed. In particular, `image-reference` runs when the draft contains `imageRefs` or when selectable original image candidates exist. Source-image selection remains proportional: equivalent figures are deduplicated rather than all being forced into the lesson. The same priority rule is also applied inside `generated-visual`, so an available source-specific diagram or screenshot is not silently replaced by an equivalent generated visual.
 
@@ -83,19 +74,23 @@ The main shared constants live in `packages/shared-types/lessonWritingContract.t
 
 | Rule constant | Responsibility |
 | :--- | :--- |
-| `LESSON_SHARED_WRITING_RULES` | Lexicon, repetition, examples, analogies, source handling and lesson prose behavior. |
+| `LESSON_SHARED_WRITING_RULES` | General lesson prose behavior assembled from canonical sub-rules. |
 | `LESSON_LOCAL_PROPEDEUTIC_RULES` | Local prerequisite order and conceptual bridges. |
 | `LESSON_SCOPE_RULES` | Prevents scope drift, premature future-lesson detail and unnecessary continuation. |
 | `buildLessonContinuityRule()` | Prevents fabricated backward continuity and invented prior-course coverage. |
 | `buildLessonNoRepetitionRule()` | Prevents re-teaching generic foundations already covered by completed lessons. |
-| `LESSON_ACRONYM_EXPANSION_RULE` | Requires acronyms and abbreviations to be expanded and clarified on first occurrence. |
+| `LESSON_ACRONYM_EXPANSION_RULE` | Expands acronyms and abbreviations on first occurrence. |
+| `LESSON_ANALOGY_USAGE_RULE` | Allows at most one useful short analogy and rejects metaphor inflation. |
+| `LESSON_LOCAL_REPETITION_RULE` / `LESSON_SINGLE_CORE_BUILD_RULE` | Prevent immediate mini-summaries and repeated paraphrases of the same core concept. |
+| `LESSON_GUIDED_NOVICE_RULE` | Uses a worked/reasoned progression before independent application when the learner is inexperienced or struggling. |
+| `LESSON_LIST_STRUCTURE_RULE` | Uses real Markdown lists for sibling items instead of pseudo-lists. |
 | `LESSON_POSITIVE_DEFINITION_RULE` | Requires a new concept to be defined positively before contrastive framing. |
-| `LESSON_HEADING_STRUCTURE_RULE` | Prevents repeated lesson titles, filler headings and near-duplicate sections. |
+| `LESSON_HEADING_STRUCTURE_RULE` | Prevents repeated lesson titles, filler headings, near-duplicates and rigid foreign-language templates. |
 | `LESSON_SELF_SUFFICIENCY_RULE` | Keeps the lesson understandable without reopening the original source. |
-| `LESSON_NAMED_SOURCE_ATTRIBUTION_RULE` | Replaces opaque “the document says” references with a source/author name when known, or direct prose when no reliable name exists. |
+| `LESSON_NAMED_SOURCE_ATTRIBUTION_RULE` | Replaces opaque source references with a source/author name when known, or direct prose when no reliable name exists. |
 | `LESSON_SOURCE_PRECEDENCE_RULE` | Keeps source-specific conventions authoritative over merely alternative dossier conventions. |
-| `FORMULA_RELEVANCE_RULE` | Keeps mathematical notation meaningful rather than decorative. |
-| `LESSON_KATEX_FORMATTING_RULE` | Defines KaTeX delimiters and requires literal LaTeX commands to be rendered as inline code. |
+| `LESSON_RESEARCH_TRANSFORMATION_RULE` | Converts research-only input into lesson prose instead of a point-by-point research report. |
+| `FORMULA_RELEVANCE_RULE` / `LESSON_KATEX_FORMATTING_RULE` | Keep mathematical notation meaningful and syntactically valid. |
 | `LESSON_ASCII_VISUAL_RULE` | Prevents text/ASCII pseudo-visuals when dedicated renderers should be used. |
 | `YOUTUBE_CLIP_PEDAGOGY_RULES` | Determines when motion/video materially improves the lesson and removes duplicate or equivalent clips. |
 
@@ -105,35 +100,20 @@ Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verific
 
 Lesson generation remains schema-driven. `LESSON_JOB_RESPONSE_SCHEMA` requires structured `contentBlocks`, `generatedVisuals` and `imageRefs`; the verifier extends that schema temporarily with a `verificationReport` entry for **every required semantic and structural check ID**.
 
-Each report item requires `checkId`, `status`, non-empty `evidence` and `action`. The schema requires exactly the combined number of checks, and runtime validation also rejects whitespace-only evidence, duplicate/missing IDs or any required ID omission. This makes structural checks such as `math-structure` or `generated-visual` observable instead of leaving them as unreported prose instructions.
-
-The verification report is removed before the lesson draft continues through the pipeline.
+Each report item requires `checkId`, `status`, non-empty `evidence` and `action`. The schema requires exactly the combined number of checks, and runtime validation also rejects whitespace-only evidence, duplicate/missing IDs or any required ID omission. The verification report is removed before the lesson draft continues through the pipeline.
 
 ## Verification behavior
 
-The verifier is designed to make a small model inspect the actual artifact instead of merely acknowledging that a rule exists. Each required check must return concrete evidence tied to the draft.
-
-The base structural contract always includes:
-
-- Markdown structure, including heading discipline and the location-independent prohibition on structured source lists and bibliographies;
-- positive definition order;
-- lesson self-sufficiency;
-- the ASCII pseudo-visual prohibition;
-- code structure;
-- math/KaTeX structure and formula relevance, including inline-code disambiguation for literal LaTeX commands.
-
-Semantic checks are also selectively enriched from the same shared contracts: `core.clarity` checks first-occurrence acronym expansion, while source-backed `core.correctness` checks primary-source precedence and named attribution. Continuity/focus instructions include both truthful references to completed lessons and the no-repetition rule when prior lessons exist.
-
-Code and math checks are deliberately unconditional because their most important failure mode can be malformed or missing syntax that cannot be reliably feature-gated without semantic guessing. When the corresponding content does not exist, the verifier returns `not-applicable`.
+The base structural contract always includes Markdown and heading/list structure, positive definition order, lesson self-sufficiency, the ASCII pseudo-visual prohibition, code structure, and math/KaTeX structure with formula relevance. Code and math checks are deliberately unconditional because malformed content can be defined by missing syntax; when the corresponding content does not exist, the verifier returns `not-applicable`.
 
 Other structural checks are activated only when their review can affect the lesson:
 
-- quiz checks when `inline-quiz` blocks exist; `exerciseType` must match the actual mental operation using the shared exercise catalog, and distractors must remain plausible;
+- quiz checks when `inline-quiz` blocks exist; `exerciseType` must match the actual mental operation and distractors must remain plausible;
 - `image-reference` when `imageRefs` exist or original image candidates are available, allowing reference validation, proportional selection and detection of an omitted useful source image;
 - generated-visual checks when visual plans/blocks exist; these include the full visual-planning contract and re-apply original-image priority;
 - YouTube checks when clip blocks exist, including interval validity, pedagogical self-sufficiency and duplicate/equivalent-clip removal.
 
-The verifier must not add an optional feature type that was outside the check set computed for the pass. After verification returns, the service recomputes the structural requirements against the returned draft and rejects it if a new quiz, image reference, generated visual or YouTube block would require a check that was never run. Original image candidates are accounted for before the pass, so adding a justified `imageRef` remains covered by `image-reference`.
+The verifier must not add an optional feature type that was outside the check set computed for the pass. After verification returns, the service recomputes the structural requirements against the returned draft and rejects it if a new quiz, image reference, generated visual or YouTube block would require a check that was never run.
 
 The complete draft is still supplied to the verifier because semantic review requires the full lesson, but it is serialized compactly rather than pretty-printed to avoid unnecessary input tokens.
 
