@@ -1,6 +1,8 @@
 import {
   ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
+  ACTIVE_PAUSE_OPTIONS_RULE,
   MAX_GENERATED_VISUALS_PER_LESSON,
+  ORIGINAL_IMAGE_PRIORITY_RULE,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
@@ -28,7 +30,7 @@ const buildImageRules = (hasCandidates: boolean): string =>
 - Puoi referenziare SOLO gli assetId forniti. Se nessuna immagine e chiaramente pertinente, restituisci imageRefs vuoto.
 - Se usi un'immagine, anchorHeading deve corrispondere ESATTAMENTE a un heading presente in un blocco markdown, senza i simboli #.
 - Usa solo immagini con una caption visiva chiara e autosufficiente. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper o frammenti.
-- L'immagine originale e prioritaria quando e chiara, pertinente e specifica della fonte: schermate, oggetti, casi o diagrammi complessi propri del documento vanno conservati.
+- ${ORIGINAL_IMAGE_PRIORITY_RULE}
 - Non usare il contesto testuale per indovinare una figura poco chiara. Caption e testo vicino servono soltanto a disambiguare una figura gia riconoscibile.
 - Il paragrafo vicino deve dire che cosa guardare nell'immagine e perche e utile. Non citare mai un assetId tecnico nel markdown.`
     : '\n- Per questa lezione imageRefs deve essere un array vuoto.';
@@ -91,7 +93,7 @@ PAUSE ATTIVE:
 - contentBlocks puo contenere da zero a tre pause attive. Usa il numero minimo necessario; non aggiungere una pausa per raggiungere un numero prefissato.
 - Ogni pausa e un blocco inline-quiz autosufficiente collocato dopo un blocco markdown che contiene tutte le informazioni necessarie. Tra quel markdown e la pausa possono esserci visuali generati o clip YouTube pertinenti; una pausa consuma il contesto esplicativo, quindi non inserire due inline-quiz consecutive. Non raggrupparle in fondo e non usare marker o un array quiz separato.
 - Ogni pausa richiede applicazione, confronto, inferenza, diagnosi, classificazione, sequenziamento, micro-sintesi o previsione. Se la risposta e una parafrasi del testo locale, trasformala in un caso nuovo oppure rimuovila.
-- Ogni pausa ha quattro opzioni testualmente distinte e distrattori plausibili. Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence.
+- ${ACTIVE_PAUSE_OPTIONS_RULE}
 - exerciseType deve appartenere a questo catalogo:
 ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 
