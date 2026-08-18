@@ -37,10 +37,12 @@ flowchart TD
     Validate --> SourceFin[Finalize Sources]
     SourceFin --> Exercises[Place Exercises]
     Exercises --> Persist[Persist Course]
-    Persist --> Result[Return Result]
+    Persist --> Result[Return Generated Course]
+    Result --> Publish[Publish Project Revision]
+    Publish --> Done([Workflow Result])
 ```
 
-Each stage produces a schema-validated state so durable retries do not depend on implicit in-memory context.
+Each stage produces a schema-validated state so durable retries do not depend on implicit in-memory context. After the saved course is finalized, `publish-course-project-revision` emits the durable project-revision event consumed by listeners before the workflow completes.
 
 ## Planning and quality verification
 
@@ -83,7 +85,11 @@ The verifier returns a required report item for **every semantic and structural 
 
 The universal structural contract includes Markdown structure, positive definition order, self-sufficiency, ASCII-visual rejection, code structure and math/KaTeX structure. Code and math validation are intentionally unconditional because malformed technical content can be defined by missing or broken syntax; if a lesson contains no such content, the verifier marks that check `not-applicable` instead of relying on semantic guessing.
 
-Other structural checks remain draft-scoped. Selectable image candidates do not trigger image-reference validation unless `imageRefs` are present, generated-visual and YouTube rules run only when those blocks exist, and quiz-specific checks run only for inline quizzes. The complete draft is still reviewed semantically, but its JSON is compactly serialized to avoid unnecessary prompt tokens.
+Other structural checks remain scoped to concrete media state and available source assets. `image-reference` runs when the draft already contains `imageRefs` **or** original image candidates are available, so the verifier can catch both invalid references and omission of a clearly useful source image. Generated-visual and YouTube rules run only when those blocks exist, and quiz-specific checks run only for inline quizzes. A generated-visual check also re-applies source-image priority so an equivalent paid rendering cannot silently replace a better original asset.
+
+The verifier is not allowed to introduce a new optional feature type that was outside the structural contract computed for the verification pass. After the model returns, the service recomputes applicable structural IDs and rejects the result if a newly introduced quiz, image reference, generated visual or YouTube block would require a check that was not run.
+
+The complete draft is still reviewed semantically, but its JSON is compactly serialized to avoid unnecessary prompt tokens.
 
 ## Evaluation requirement
 
