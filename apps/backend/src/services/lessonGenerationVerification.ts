@@ -131,9 +131,6 @@ export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
   const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
-  const hasGeneratedVisual =
-    draft.generatedVisuals.length > 0 ||
-    draft.contentBlocks.some(block => block.type === 'generated-visual');
   const hasImageRefs = draft.imageRefs.length > 0;
 
   const checkIds: LessonVerificationStructuralCheckId[] = [
@@ -144,10 +141,10 @@ export const buildApplicableLessonVerificationCheckIds = (
     'code-structure',
     'math-structure',
     'quiz-quality',
+    'generated-visual',
   ];
 
   if (hasImageRefs) checkIds.push('image-reference');
-  if (hasGeneratedVisual) checkIds.push('generated-visual');
   if (hasYoutube) checkIds.push('youtube-structure');
 
   return checkIds;
@@ -225,7 +222,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
-      return `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
+      return `Se la bozza non contiene visuali generati, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente uno; se un visuale generato e richiesto ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcun visuale generato e nessuna istruzione esplicita lo richiede, segna il controllo come not-applicable. Ogni piano visuale presente o aggiunto ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
     case 'youtube-structure':
       return `${YOUTUBE_STRUCTURE_CHECK}\n${YOUTUBE_CLIP_PEDAGOGY_RULES}`;
   }
@@ -242,7 +239,7 @@ const buildLessonVerificationPrompt = (
     !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
   const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
     if (item.checkId === 'core.progression') {
-      return { ...item, instruction: `${item.instruction} ${LESSON_GUIDIDED_NOVICE_RULE}` };
+      return { ...item, instruction: `${item.instruction} ${LESSON_GUIDED_NOVICE_RULE}` };
     }
     if (item.checkId === 'core.clarity') {
       return { ...item, instruction: `${item.instruction} ${LESSON_ACRONYM_EXPANSION_RULE}` };
