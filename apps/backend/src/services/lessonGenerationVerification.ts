@@ -7,11 +7,13 @@ import {
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonVerificationChecklist } from '@shared/lessonInstructionPacks';
 import {
+  buildLessonContinuityRule,
   FORMULA_RELEVANCE_RULE,
   LESSON_ASCII_VISUAL_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SELF_SUFFICIENCY_RULE,
   SYSTEM_INSTRUCTION_TEACHER,
+  YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '@shared/lessonWritingContract';
 import { generateText, jsonSchema, Output } from 'ai';
 
@@ -134,7 +136,6 @@ const hasInlineDollarMath = (value: string): boolean => {
     if (openingIndex === null) {
       const next = value[index + 1];
       if (!next || next.trim() === '') continue;
-      // A lone "$12" is normally currency, while "$2 + 2$" still has a closing delimiter.
       if (isAsciiDigit(next) && !hasLaterSingleDollar(value, index)) continue;
       openingIndex = index;
       continue;
@@ -147,7 +148,6 @@ const hasInlineDollarMath = (value: string): boolean => {
     openingIndex = next && next.trim() !== '' ? index : null;
   }
 
-  // An unmatched opening delimiter is itself malformed math that the verifier must repair.
   return openingIndex !== null;
 };
 
@@ -172,8 +172,11 @@ const markdownHasMathSyntax = (markdown: string): boolean => {
     if (activeFence) continue;
     if (
       line.includes('\\(') ||
+      line.includes('\\)') ||
       line.includes('\\[') ||
+      line.includes('\\]') ||
       line.includes('\\begin{') ||
+      line.includes('\\end{') ||
       line.includes('$$') ||
       hasInlineDollarMath(line)
     ) {
@@ -202,7 +205,6 @@ export const buildApplicableLessonVerificationCheckIds = (
     'markdown-structure',
     'self-sufficiency',
     'ascii-visual',
-    // This stays unconditional because malformed code can be the absence of a valid fence.
     'code-structure',
   ];
 
@@ -234,9 +236,9 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'generated-visual':
       return `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${GENERATED_VISUAL_RELEVANCE_RULE} ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}`;
     case 'youtube-structure':
-      return YOUTUBE_STRUCTURE_CHECK;
+      return `${YOUTUBE_STRUCTURE_CHECK}\n${YOUTUBE_CLIP_PEDAGOGY_RULES}`;
     case 'math-structure':
-      return `${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati, inclusi delimitatori $ lasciati aperti. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico.`;
+      return `${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati, inclusi delimitatori $, \\(, \\), \\[, \\] lasciati orfani. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico.`;
   }
 };
 
@@ -247,6 +249,7 @@ const buildLessonVerificationPrompt = (
   const checklist = buildLessonVerificationChecklist(input.instructionPacks);
   const structuralCheckIds = buildApplicableLessonVerificationCheckIds(draft);
   const structuralChecks = structuralCheckIds.map(buildStructuralCheckInstruction);
+  const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   return `RIFERIMENTI DELLA LEZIONE:
 ${buildLessonGenerationReferenceContext(input)}
 
@@ -257,7 +260,8 @@ COMPITO DI VERIFICA:
 Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
 Per ogni controllo, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto: non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
 
-VINCOLI DI FOCUS SEMPRE OBBLIGATORI:
+VINCOLI DI CONTINUITA E FOCUS SEMPRE OBBLIGATORI:
+- ${continuityRule}
 ${LESSON_SCOPE_RULES.map(rule => `- ${rule}`).join('\n')}
 
 CHECKLIST OBBLIGATORIA:
