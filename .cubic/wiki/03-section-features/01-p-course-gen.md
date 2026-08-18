@@ -61,7 +61,7 @@ Course planning and lesson writing are separate concerns. When an individual les
 1. `SYSTEM_INSTRUCTION_TEACHER` contains only the stable Professor Nous role and highest-level grounding/priority invariants.
 2. `buildLessonGenerationReferenceContext()` contains the reusable lesson data: student notes, pedagogical context, source material, research and media references.
 3. `buildLessonGenerationPrompt()` adds the detailed canonical writer contract, including shared writing rules, scope, progression, active pauses and applicable media constraints.
-4. `buildLessonVerificationPrompt()` reuses the reference context and the generated draft, but **does not receive the complete writer prompt again**. It receives the mandatory semantic checklist, lesson scope rules and only structural checks that apply to features actually present in the draft.
+4. `buildLessonVerificationPrompt()` reuses the reference context and the generated draft, but **does not receive the complete writer prompt again**. It receives the mandatory semantic checklist, shared scope/continuity invariants and a small set of structural checks selected from the actual draft.
 
 This separation reduces duplicated instructions while keeping lesson behavior explicit. Student personalization notes remain executable task instructions; instructions encountered inside untrusted source material remain data.
 
@@ -70,6 +70,7 @@ This separation reduces duplicated instructions while keeping lesson behavior ex
 - **Propedeutic order:** a lesson should require only concepts already introduced or explained locally.
 - **Conceptual bridges:** new abstractions should have a concise reason for appearing where they do.
 - **Scope discipline:** future lessons may be named when useful but not prematurely taught in detail.
+- **Continuity discipline:** first lessons cannot fabricate backward references, and later lessons can only refer to completed lesson titles supplied by the workflow.
 - **Self-sufficiency:** the generated lesson must work without the original document open beside it.
 - **Formula relevance:** mathematical notation is used only when it adds real precision.
 - **Active pauses:** questions should require discrimination, application, inference or synthesis rather than copying a nearby definition.
@@ -79,7 +80,7 @@ This separation reduces duplicated instructions while keeping lesson behavior ex
 
 The verifier returns a required report item for every semantic checklist entry. Each item includes status, evidence and action; code rejects a report that omits required check IDs.
 
-Structural rules are feature-scoped from the actual draft. Selectable image candidates do not trigger image-reference validation unless `imageRefs` are present, and a specialist code pack alone does not imply that the draft contains a code block. The complete draft is still reviewed semantically, but its JSON is compactly serialized to avoid unnecessary prompt tokens.
+Structural rules are scoped from the actual draft where that is reliable. Selectable image candidates do not trigger image-reference validation unless `imageRefs` are present, generated-visual and YouTube rules run only when those blocks exist, and quiz-specific checks run only for inline quizzes. The code-structure check is intentionally unconditional because malformed code can be defined by the absence of a Markdown fence. The math check is activated when math syntax or malformed delimiters appear in lesson Markdown or inline-quiz text. The complete draft is still reviewed semantically, but its JSON is compactly serialized to avoid unnecessary prompt tokens.
 
 ## Evaluation requirement
 
