@@ -1043,9 +1043,6 @@ export const LandingProductVideoFrame = ({
 
   const activeLesson = demoLessons.find(lesson => lesson.id === activeSectionId) || demoLessons[0];
   const activeLessonIndex = demoLessons.findIndex(lesson => lesson.id === activeLesson.id);
-  const activeSidebarGroup =
-    courseGroups.find(group => group.sections.some(section => section.id === activeLesson.id)) ||
-    courseGroups[0];
   const quizAnswers = quizAnswersBySection[activeLesson.id] ||
     activeLesson.quiz?.map(() => -1) || [-1];
   const visibleSidebarGroups = useMemo(
@@ -1595,14 +1592,12 @@ export const LandingProductVideoFrame = ({
       isLoading: isGenerating,
       isMobileViewport,
       isQuizSubmitted: false,
-      learningAids: [],
       onAdvanceSection: advanceLesson,
       onAttachExerciseFiles: () => {},
       onCompleteSection: completeLesson,
       onContentClick: () => {},
       onContentContextMenu: event => event.preventDefault(),
       onContentPointerDownCapture: () => {},
-      onSaveLearningAids: async () => true,
       onRemoveExerciseAttachment: () => {},
       onRequestExerciseFeedback: () => {},
       onSelectQuizAnswer: (questionIndex, optionIndex) => {
@@ -1627,9 +1622,6 @@ export const LandingProductVideoFrame = ({
       },
     },
     header: {
-      activeSectionId: hasActiveLesson ? activeLesson.id : null,
-      activeSectionTitle: hasActiveLesson ? activeLesson.title : null,
-      activeSidebarGroup: hasActiveLesson ? activeSidebarGroup : null,
       courseGenerationNotes,
       hasActiveSection: hasActiveLesson,
       isDarkMode,
@@ -1641,7 +1633,6 @@ export const LandingProductVideoFrame = ({
       isSettingsOpen,
       lastAudioTab,
       learningAids: [],
-      learningPlanTitle: courseTitle,
       loadingStatus: isGenerating
         ? isItalian
           ? t('Generazione della lezione')
@@ -1649,7 +1640,6 @@ export const LandingProductVideoFrame = ({
         : '',
       musicUrl,
       musicVolume,
-      onBackToLibrary: () => showStage('plan'),
       onOpenSidebar: () => setIsMobileSidebarOpen(current => !current),
       onRegenerateActiveSection: () => showStage('generation'),
       onSaveLearningAids: async () => true,
@@ -1822,6 +1812,7 @@ export const LandingProductVideoFrame = ({
       expandedModuleId,
       generatingSectionId: isGenerating ? activeLesson.id : null,
       isLoading: isGenerating,
+      isSectionLoading: isGenerating,
       isMobileViewport,
       isRepairingApplicationExercises: false,
       learningPlanTitle: courseTitle,

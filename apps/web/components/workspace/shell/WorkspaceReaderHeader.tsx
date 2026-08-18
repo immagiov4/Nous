@@ -1,31 +1,27 @@
-import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
+import { Moon, RefreshCw, Settings2, SidebarOpen, Sun } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
-import { HeaderLearningAids } from './LessonLearningAids.tsx';
+import { HeaderLearningAids, MobileLearningAids } from './LessonLearningAids.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
 const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
-  activeSectionTitle,
-  activeSidebarGroup,
   hasActiveSection,
   courseGenerationNotes,
   isDarkMode,
   isFocusMode,
   isLoading,
-  isMobileSidebarOpen,
   isMobileViewport,
   isMusicPlaying,
+  isMobileSidebarOpen,
   isSettingsOpen,
   lastAudioTab,
-  learningPlanTitle,
   learningAids,
   loadingStatus,
   musicUrl,
   musicVolume,
-  onBackToLibrary,
   onOpenSidebar,
   onRegenerateActiveSection,
   onSaveLearningAids,
@@ -44,9 +40,8 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
 }: WorkspaceReaderHeaderModel) {
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isAudioOpen, setIsAudioOpen] = useState(false);
+  const [isMobileLearningAidsOpen, setIsMobileLearningAidsOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
-  const activeContentTitle = activeSectionTitle || learningPlanTitle || t('Lezione');
-  const activeContentGroupTitle = activeSidebarGroup?.title || learningPlanTitle || t('Percorso');
   const canRegenerate = hasActiveSection;
   const isRegenerateConfirmVisible = isRegenerateConfirmOpen && canRegenerate && !isLoading;
 
@@ -121,8 +116,12 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   return (
     <header
       className={`
-        sticky top-0 relative z-50 flex flex-shrink-0 overflow-visible border-b border-gray-100 bg-white/80 backdrop-blur transition-opacity duration-500 ease-in-out dark:border-zinc-700/80 dark:bg-zinc-800/80
-        ${isMobileViewport ? 'flex-col gap-2.5 px-4 py-2.5 sm:min-h-[4rem]' : 'h-16 items-center justify-between px-8'}
+        z-50 flex flex-shrink-0 overflow-visible transition-opacity duration-500 ease-in-out
+        ${
+          isMobileViewport
+            ? 'pointer-events-none absolute inset-x-0 top-0 flex-col items-stretch gap-2 bg-transparent px-4 pb-3 pt-4'
+            : 'sticky top-0 h-16 items-center justify-between border-b border-gray-100 bg-white/80 px-8 backdrop-blur dark:border-zinc-700/80 dark:bg-zinc-800/80'
+        }
         opacity-100
       `}
     >
@@ -131,38 +130,22 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
           isMobileViewport ? 'items-start justify-between gap-3' : 'items-center gap-6'
         }`}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+        <div
+          className={`flex min-w-0 items-center gap-3 overflow-hidden ${isMobileViewport ? '' : 'flex-1'}`}
+        >
           {isMobileViewport ? (
-            <>
+            <div className="pointer-events-auto flex items-center">
               <button
                 type="button"
-                onClick={onBackToLibrary}
-                className="rounded-full border border-gray-200 bg-white/85 p-2 text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
-                title={t('Torna alla libreria')}
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
+                aria-expanded={isMobileSidebarOpen}
+                aria-label={t('Apri elenco lezioni')}
                 onClick={onOpenSidebar}
-                className="rounded-full border border-gray-200 bg-white/85 p-2 text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
-                title={t(isMobileSidebarOpen ? 'Chiudi elenco lezioni' : 'Apri elenco lezioni')}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-gray-300/80 bg-white text-gray-500 shadow-sm transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
+                title={t('Apri elenco lezioni')}
               >
-                {isMobileSidebarOpen ? (
-                  <X className="h-4 w-4" />
-                ) : (
-                  <SidebarOpen className="h-4 w-4" />
-                )}
+                <SidebarOpen className="reader-mobile-control-icon" />
               </button>
-              <div className="min-w-0 overflow-hidden">
-                <p className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
-                  {activeContentGroupTitle}
-                </p>
-                <h2 className="truncate font-serif text-base text-gray-900 dark:text-white">
-                  {activeContentTitle}
-                </h2>
-              </div>
-            </>
+            </div>
           ) : isFocusMode ? (
             <button
               type="button"
@@ -176,8 +159,10 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
         </div>
 
         <div
-          className={`flex min-w-0 shrink-0 items-center justify-end ${
-            isMobileViewport ? 'gap-1.5' : 'gap-6'
+          className={`pointer-events-auto flex min-w-0 shrink-0 items-center justify-end ${
+            isMobileViewport
+              ? 'gap-0.5 rounded-full border border-gray-300/80 bg-white px-1.5 py-0.5 shadow-sm dark:border-zinc-600 dark:bg-zinc-800 dark:shadow-none'
+              : 'gap-6'
           }`}
         >
           {!isMobileViewport ? loadingBadge : null}
@@ -189,12 +174,14 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               disabled={!canRegenerate || isLoading}
               className={`inline-flex items-center justify-center rounded-full border transition-colors ${
                 isMobileViewport
-                  ? 'h-10 w-10'
+                  ? 'h-9 w-9 border-0 bg-transparent text-gray-400 hover:bg-black/5 hover:text-gray-600 dark:bg-transparent dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
                   : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
               } ${
                 !canRegenerate || isLoading
                   ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500'
-                  : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
+                  : isMobileViewport
+                    ? ''
+                    : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
               }`}
               title={t(
                 canRegenerate ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
@@ -202,7 +189,9 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               aria-expanded={isRegenerateConfirmVisible}
               aria-haspopup="dialog"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw
+                className={`${isMobileViewport ? 'reader-mobile-control-icon' : 'h-4 w-4'} ${isLoading ? 'animate-spin' : ''}`}
+              />
               {!isMobileViewport ? <span>{t('Rigenera')}</span> : null}
             </button>
 
@@ -284,7 +273,10 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             isOpen={isAudioOpen}
             onToggle={open => {
               setIsAudioOpen(open);
-              if (open) onSetSettingsOpen(false);
+              if (open) {
+                onSetSettingsOpen(false);
+                setIsMobileLearningAidsOpen(false);
+              }
             }}
             initialTab={lastAudioTab}
             onTabChange={onSetLastAudioTab}
@@ -296,6 +288,22 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             setMusicVolume={onSetMusicVolume}
             tts={tts}
           />
+
+          {isMobileViewport && hasActiveSection ? (
+            <MobileLearningAids
+              isDarkMode={isDarkMode}
+              learningAids={learningAids}
+              onSaveLearningAids={onSaveLearningAids}
+              isOpen={isMobileLearningAidsOpen}
+              onOpenChange={open => {
+                setIsMobileLearningAidsOpen(open);
+                if (open) {
+                  setIsAudioOpen(false);
+                  onSetSettingsOpen(false);
+                }
+              }}
+            />
+          ) : null}
 
           {!isMobileViewport && hasActiveSection ? (
             <HeaderLearningAids
@@ -313,22 +321,37 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             type="button"
             onClick={() => {
               onSetSettingsOpen(!isSettingsOpen);
-              if (!isSettingsOpen) setIsAudioOpen(false);
+              if (!isSettingsOpen) {
+                setIsAudioOpen(false);
+                setIsMobileLearningAidsOpen(false);
+              }
             }}
             onPointerDown={e => e.stopPropagation()}
-            className="rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
+            className={
+              isMobileViewport
+                ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent p-2 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
+                : 'rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300'
+            }
             title={t('Apri impostazioni lettura')}
           >
-            <Settings2 className="h-5 w-5" />
+            <Settings2 className={isMobileViewport ? 'reader-mobile-control-icon' : 'h-5 w-5'} />
           </button>
 
           <button
             type="button"
             onClick={() => onSetDarkMode(!isDarkMode)}
-            className="rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
+            className={
+              isMobileViewport
+                ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent p-2 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
+                : 'rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300'
+            }
             title={t('Cambia Tema')}
           >
-            {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            {isDarkMode ? (
+              <Sun className={isMobileViewport ? 'reader-mobile-control-icon' : 'h-5 w-5'} />
+            ) : (
+              <Moon className={isMobileViewport ? 'reader-mobile-control-icon' : 'h-5 w-5'} />
+            )}
           </button>
         </div>
       </div>

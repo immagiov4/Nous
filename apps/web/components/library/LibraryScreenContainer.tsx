@@ -260,6 +260,7 @@ export const LibraryScreenContainer = ({
         }}
         isDarkMode={readerState.readerChrome.isDarkMode}
         isExportingProject={fileActions.isExportingProject}
+        isImportingProject={fileActions.isImportingProject}
         isLibraryLoading={isLibraryLoading}
         libraryFolders={projectLibrary.libraryFolders}
         libraryTree={projectLibrary.libraryTree}

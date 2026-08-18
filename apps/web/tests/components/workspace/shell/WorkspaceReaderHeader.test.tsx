@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderHeaderModel } from '../../../../components/workspace/shell/types.ts';
@@ -14,9 +14,6 @@ vi.mock('../../../../components/workspace/shell/WorkspaceReaderSettingsPanel.tsx
 }));
 
 const buildProps = (): WorkspaceReaderHeaderModel => ({
-  activeSectionId: 'section-1',
-  activeSectionTitle: 'Lezione 1',
-  activeSidebarGroup: null,
   hasActiveSection: true,
   courseGenerationNotes: '',
   isDarkMode: false,
@@ -27,12 +24,10 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   isMusicPlaying: false,
   syncState: 'saved',
   isSettingsOpen: false,
-  learningPlanTitle: 'Percorso',
   learningAids: [],
   loadingStatus: '',
   musicUrl: '',
   musicVolume: 20,
-  onBackToLibrary: vi.fn(),
   onOpenSidebar: vi.fn(),
   onRegenerateActiveSection: vi.fn(),
   onSaveLearningAids: vi.fn(async () => true),
@@ -165,10 +160,14 @@ describe('WorkspaceReaderHeader', () => {
     expect(screen.getByRole('banner').children).toHaveLength(2);
   });
 
-  test('lets the phone header follow its content height while preserving the tablet minimum', () => {
+  test('uses transparent floating controls on the phone header', () => {
     render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport />);
 
-    expect(screen.getByRole('banner')).toHaveClass('sm:min-h-[4rem]');
+    expect(screen.getByRole('banner')).toHaveClass('pointer-events-none');
+    expect(screen.getByRole('banner')).toHaveClass('absolute');
+    expect(screen.getByRole('banner')).toHaveClass('top-0');
+    expect(screen.getByRole('banner')).not.toHaveClass('relative');
+    expect(screen.getByRole('banner')).not.toHaveClass('rounded-2xl');
     expect(screen.getByRole('banner')).not.toHaveClass('min-h-[4rem]');
   });
 
@@ -178,6 +177,52 @@ describe('WorkspaceReaderHeader', () => {
     render(<WorkspaceReaderHeader {...props} isMobileViewport />);
 
     expect(screen.getByTestId('music-player')).toBeInTheDocument();
+  });
+
+  test('closes mobile key concepts when pressing outside the panel', async () => {
+    const user = userEvent.setup();
+
+    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport />);
+
+    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
+    expect(screen.getByRole('complementary', { name: 'Concetti chiave' })).toBeInTheDocument();
+
+    await user.click(document.body);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('complementary', { name: 'Concetti chiave' })
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  test('closes mobile key concepts with Escape', async () => {
+    const user = userEvent.setup();
+
+    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport />);
+
+    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
+    await user.keyboard('{Escape}');
+
+    expect(
+      screen.queryByRole('complementary', { name: 'Concetti chiave' })
+    ).not.toBeInTheDocument();
+  });
+
+  test('keeps only the reader controls in the mobile floating header', () => {
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+
+    expect(screen.queryByText('Lezione 1')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apri elenco lezioni' })).toHaveClass('h-11', 'w-11');
+    expect(
+      screen.getByRole('button', { name: 'Rigenera la lezione corrente' })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('music-player')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apri concetti chiave' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apri impostazioni lettura' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cambia Tema' })).toBeInTheDocument();
   });
 
   test('opens desktop key concepts from the sticky header without showing a count', async () => {

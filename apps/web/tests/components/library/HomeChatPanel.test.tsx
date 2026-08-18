@@ -234,6 +234,37 @@ describe('HomeChatPanel', () => {
     expect(chat).toContainElement(screen.getByRole('textbox'));
   });
 
+  test('removes the outer surface treatment only while the chat is compact', () => {
+    setViewportWidth(1280);
+    const props = { ...buildProps(), assessmentMessages: [] };
+    const { container, rerender } = render(
+      <HomeChatPanel {...props} compactWhenEmpty hideHeaderCopy hideModeSelector />
+    );
+    const chat = container.querySelector('section');
+    const composer = chat?.lastElementChild;
+    expect(chat).toHaveClass(
+      'rounded-none',
+      'bg-transparent',
+      'shadow-none',
+      'dark:bg-transparent',
+      'dark:shadow-none'
+    );
+    expect(composer).toHaveClass('border-0', 'p-0');
+
+    rerender(
+      <HomeChatPanel
+        {...props}
+        assessmentMessages={[{ role: 'user', text: 'Inizia la conversazione' }]}
+        compactWhenEmpty
+        hideHeaderCopy
+        hideModeSelector
+      />
+    );
+
+    expect(chat).not.toHaveClass('rounded-none', 'bg-transparent');
+    expect(composer).not.toHaveClass('border-0', 'p-0');
+  });
+
   test('can cancel an active new-course interview from the trash action', async () => {
     const user = userEvent.setup();
     const props = buildProps();

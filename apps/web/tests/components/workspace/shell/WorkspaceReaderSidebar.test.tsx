@@ -12,6 +12,7 @@ const buildProps = (
   generatingSectionId: null,
   isRepairingApplicationExercises: false,
   isLoading: false,
+  isSectionLoading: false,
   isMobileViewport: false,
   learningPlanTitle: 'Percorso di Studio',
   repairApplicationExercisesLabel: 'Pianifica esercizi',
@@ -128,6 +129,164 @@ describe('WorkspaceReaderSidebar', () => {
     expect(
       screen.getByTitle('PROTECT: IAM, autenticazione, MFA e accesso privilegiato esteso')
     ).toBeInTheDocument();
+  });
+
+  test('shows the module number separately from its redundant title prefix', () => {
+    render(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          sidebarGroups: [
+            {
+              id: 'module-1',
+              sectionDepthById: {},
+              title: 'Modulo 1 — Fondamenti della sicurezza',
+              sections: [],
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText('Fondamenti della sicurezza')).toBeInTheDocument();
+    expect(screen.queryByText('Modulo 1 — Fondamenti della sicurezza')).toBeNull();
+  });
+
+  test('preserves a module ordinal when earlier empty modules are omitted', () => {
+    render(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          sidebarGroups: [
+            {
+              id: 'module-2',
+              sectionDepthById: {},
+              title: 'Modulo 2 — Fondamenti della sicurezza',
+              sections: [],
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  test('keeps nested lesson content inset inside the active-row background', () => {
+    render(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          sidebarGroups: [
+            {
+              id: 'module-1',
+              sectionDepthById: { 'section-1': 2 },
+              title: 'Modulo 1',
+              sections: buildProps().sidebarGroups[0]?.sections || [],
+            },
+          ],
+        })}
+      />
+    );
+
+    const activeLesson = screen.getByRole('button', {
+      name: 'PROTECT: IAM, autenticazione, MFA e accesso privilegiato esteso',
+    });
+    expect(activeLesson).toHaveStyle({ paddingLeft: '2.8rem' });
+    expect(activeLesson).toHaveClass('bg-gray-100');
+  });
+
+  test('shows the active lesson as loading while its content is opening', () => {
+    render(<WorkspaceReaderSidebar {...buildProps({ isSectionLoading: true })} />);
+
+    const activeLesson = screen.getByRole('button', {
+      name: 'PROTECT: IAM, autenticazione, MFA e accesso privilegiato esteso',
+    });
+
+    expect(activeLesson).toHaveAttribute('aria-busy', 'true');
+    expect(activeLesson.querySelector('.animate-spin')).not.toBeNull();
+    expect(activeLesson.querySelector('.text-gray-700')).not.toBeNull();
+  });
+
+  test('reserves orange lesson status feedback for first-time generation', () => {
+    const { rerender } = render(
+      <WorkspaceReaderSidebar {...buildProps({ generatingSectionId: 'section-1' })} />
+    );
+
+    expect(
+      screen.getByRole('button', { name: /PROTECT:/ }).querySelector('.text-orange-500')
+    ).not.toBeNull();
+
+    rerender(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          generatingSectionId: 'section-1',
+          sidebarGroups: [
+            {
+              id: 'module-1',
+              sectionDepthById: { 'section-1': 0 },
+              title: 'Modulo 1',
+              sections: [
+                {
+                  kind: 'lesson',
+                  id: 'section-1',
+                  title: 'PROTECT: IAM, autenticazione, MFA e accesso privilegiato esteso',
+                  description: 'Descrizione',
+                  content: 'Contenuto già generato',
+                  isCompleted: false,
+                  type: 'core',
+                },
+              ],
+            },
+          ],
+        })}
+      />
+    );
+
+    const cachedLesson = screen.getByRole('button', { name: /PROTECT:/ });
+    expect(cachedLesson.querySelector('.text-orange-500')).toBeNull();
+    expect(cachedLesson.querySelector('.text-gray-700')).not.toBeNull();
+  });
+
+  test('shows a spinner immediately on the lesson selected for navigation', () => {
+    const onSelectSection = vi.fn();
+    render(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          onSelectSection,
+          sidebarGroups: [
+            {
+              id: 'module-1',
+              sectionDepthById: { 'section-1': 0, 'section-2': 0 },
+              title: 'Modulo 1',
+              sections: [
+                {
+                  kind: 'lesson',
+                  id: 'section-1',
+                  title: 'Lezione attiva',
+                  description: 'Descrizione',
+                  isCompleted: false,
+                  type: 'core',
+                },
+                {
+                  kind: 'lesson',
+                  id: 'section-2',
+                  title: 'Lezione da aprire',
+                  description: 'Descrizione',
+                  isCompleted: false,
+                  type: 'core',
+                },
+              ],
+            },
+          ],
+        })}
+      />
+    );
+
+    const selectedLesson = screen.getByRole('button', { name: 'Lezione da aprire' });
+    fireEvent.click(selectedLesson);
+
+    expect(onSelectSection).toHaveBeenCalledWith(expect.objectContaining({ id: 'section-2' }));
+    expect(selectedLesson).toHaveAttribute('aria-busy', 'true');
+    expect(selectedLesson.querySelector('.animate-spin')).not.toBeNull();
   });
 
   test('renders application exercise rows separately from lesson rows', () => {

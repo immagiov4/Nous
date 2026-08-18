@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderShellProps } from '../../../components/workspace/shell/types.ts';
@@ -43,7 +43,9 @@ vi.mock('../../../components/workspace/shell/WorkspaceReaderSidebar.tsx', () => 
 const buildProps = (): WorkspaceReaderShellProps => {
   const scrollContainerRef = createRef<HTMLDivElement>();
   const scrollTo = vi.fn();
-  scrollContainerRef.current = { scrollTo } as unknown as HTMLDivElement;
+  const scrollContainer = document.createElement('div');
+  scrollContainer.scrollTo = scrollTo;
+  scrollContainerRef.current = scrollContainer;
 
   return {
     banners: {
@@ -64,14 +66,12 @@ const buildProps = (): WorkspaceReaderShellProps => {
       isLoading: false,
       isMobileViewport: false,
       isQuizSubmitted: false,
-      learningAids: [],
       onAdvanceSection: vi.fn(),
       onCompleteSection: vi.fn(),
       onAttachExerciseFiles: vi.fn(),
       onContentClick: vi.fn(),
       onContentContextMenu: vi.fn(),
       onContentPointerDownCapture: vi.fn(),
-      onSaveLearningAids: vi.fn(async () => true),
       onRequestExerciseFeedback: vi.fn(),
       onSelectQuizAnswer: vi.fn(),
       onRemoveExerciseAttachment: vi.fn(),
@@ -89,9 +89,6 @@ const buildProps = (): WorkspaceReaderShellProps => {
       },
     },
     header: {
-      activeSectionId: null,
-      activeSectionTitle: null,
-      activeSidebarGroup: null,
       hasActiveSection: false,
       courseGenerationNotes: '',
       isDarkMode: false,
@@ -102,12 +99,10 @@ const buildProps = (): WorkspaceReaderShellProps => {
       isMusicPlaying: false,
       isSettingsOpen: false,
       syncState: 'saved',
-      learningPlanTitle: 'Titolo',
       learningAids: [],
       loadingStatus: '',
       musicUrl: '',
       musicVolume: 0.3,
-      onBackToLibrary: vi.fn(),
       onOpenSidebar: vi.fn(),
       onRegenerateActiveSection: vi.fn(),
       onSaveLearningAids: vi.fn(async () => true),
@@ -197,6 +192,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
       generatingSectionId: null,
       isRepairingApplicationExercises: false,
       isLoading: false,
+      isSectionLoading: false,
       isMobileViewport: false,
       learningPlanTitle: 'Titolo',
       repairApplicationExercisesLabel: 'Pianifica esercizi',
@@ -282,6 +278,30 @@ describe('WorkspaceReaderShell', () => {
     const { container } = render(<WorkspaceReaderShell {...buildProps()} />);
 
     expect(container.firstElementChild).toHaveStyle({ height: '612px', maxHeight: '612px' });
+  });
+
+  test('gradually reduces the mobile top fade alpha over the initial scroll range', () => {
+    const props = buildProps();
+    props.header.isMobileViewport = true;
+    const scrollContainer = props.content.scrollContainerRef.current;
+
+    render(<WorkspaceReaderShell {...props} />);
+
+    expect(scrollContainer?.style.getPropertyValue('--reader-mobile-top-fade-alpha')).toBe('1.000');
+
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 25;
+      fireEvent.scroll(scrollContainer);
+      expect(scrollContainer.style.getPropertyValue('--reader-mobile-top-fade-alpha')).toBe(
+        '0.500'
+      );
+
+      scrollContainer.scrollTop = 50;
+      fireEvent.scroll(scrollContainer);
+      expect(scrollContainer.style.getPropertyValue('--reader-mobile-top-fade-alpha')).toBe(
+        '0.000'
+      );
+    }
   });
 
   test('supports an embedded reader without locking or resetting the document viewport', () => {

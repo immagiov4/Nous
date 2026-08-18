@@ -113,6 +113,7 @@ export interface WorkspaceReaderSidebarModel {
   generatingSectionId: string | null;
   isRepairingApplicationExercises: boolean;
   isLoading: boolean;
+  isSectionLoading: boolean;
   isMobileViewport: boolean;
   learningPlanTitle: string;
   placement?: 'viewport' | 'container';
@@ -172,9 +173,6 @@ export interface WorkspaceReaderTextPickerModel {
 export interface WorkspaceReaderHeaderModel {
   lastAudioTab: AudioPanelTab;
   onSetLastAudioTab: (tab: AudioPanelTab) => void;
-  activeSectionId: string | null;
-  activeSectionTitle: string | null;
-  activeSidebarGroup: SidebarGroup | null;
   hasActiveSection: boolean;
   courseGenerationNotes: string;
   isDarkMode: boolean;
@@ -184,12 +182,10 @@ export interface WorkspaceReaderHeaderModel {
   isMobileViewport: boolean;
   isMusicPlaying: boolean;
   isSettingsOpen: boolean;
-  learningPlanTitle: string;
   learningAids: LessonLearningAid[];
   loadingStatus: string;
   musicUrl: string;
   musicVolume: number;
-  onBackToLibrary: () => void;
   onOpenSidebar: () => void;
   onRegenerateActiveSection: () => void;
   onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
@@ -222,7 +218,6 @@ export interface WorkspaceReaderContentModel {
   isLoading: boolean;
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
-  learningAids: LessonLearningAid[];
   documentSourceReferences?: ResolvedLessonSourceReference[];
   loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   lessonSources?: ResearchSourceReference[];
@@ -233,7 +228,6 @@ export interface WorkspaceReaderContentModel {
   onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
-  onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
   onRequestExerciseFeedback: (exerciseId: string, internalText: string) => void;
   onRetryGeneratedVisual?: (block: LessonGeneratedVisualBlock) => Promise<boolean>;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;

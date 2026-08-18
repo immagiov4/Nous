@@ -428,6 +428,17 @@ textarea::-webkit-scrollbar-thumb:hover {
   line-height: 1.8;
 }
 
+.reader-mobile-control-icon {
+  width: 1.155rem;
+  height: 1.155rem;
+}
+
+@media (max-width: 767px) {
+  .reader-lesson-markdown > [data-nous-annotation-highlight-layer] + * {
+    margin-top: 0;
+  }
+}
+
 .prose blockquote {
   border-left: 3px solid var(--accent);
   padding-left: 1rem;
