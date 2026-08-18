@@ -68,7 +68,7 @@ export const ACTIVE_PAUSE_TEXT_FORMAT_RULE =
   'Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence; preserva soltanto eventuale codice inline interno.';
 
 export const ORIGINAL_IMAGE_PRIORITY_RULE =
-  "Quando nei riferimenti e disponibile un'immagine originale chiara, pertinente e specifica della fonte — per esempio una schermata, un oggetto, un caso o un diagramma complesso proprio del documento — preferiscila a una visuale generata equivalente. Genera una sostituzione solo quando l'originale non copre la stessa esigenza pedagogica o non e sufficientemente leggibile.";
+  "Quando nei riferimenti sono disponibili immagini originali chiare, pertinenti e specifiche della fonte — per esempio schermate, oggetti, casi o diagrammi complessi propri del documento — preferiscile a visuali generate equivalenti. Se piu immagini originali coprono lo stesso bisogno pedagogico, usa solo il numero minimo utile e proporzionato alla struttura della lezione, evitando figure ridondanti. Genera una sostituzione solo quando gli originali non coprono la stessa esigenza pedagogica o non sono sufficientemente leggibili.";
 
 export const LESSON_VISUAL_TYPES = [
   'chart_html',
