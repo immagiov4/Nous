@@ -40,7 +40,7 @@ export const LESSON_RESEARCH_TRANSFORMATION_RULE =
   'Quando la lezione e costruita da dossier di ricerca o fonti consultate senza un materiale sorgente primario, usa quei riferimenti come base fattuale ma trasformali in una spiegazione didattica autonoma: non copiarli, non serializzarli e non riassumerli punto per punto come un report di ricerca.';
 
 export const LESSON_TECHNICAL_NOTATION_ADJACENCY_RULE =
-  'Quando introduci un termine tecnico, un simbolo, una formula o un operazione, collegalo immediatamente alla sua spiegazione in parole comuni. La spiegazione puo precedere o seguire la prima rappresentazione, ma deve stare nello stesso paragrafo o in quello immediatamente successivo e chiarire che cosa rappresenta e perche serve.';
+  "Quando introduci un termine tecnico, un simbolo, una formula o un'operazione, collegalo immediatamente alla sua spiegazione in parole comuni. La spiegazione puo precedere o seguire la prima rappresentazione, ma deve stare nello stesso paragrafo o in quello immediatamente successivo e chiarire che cosa rappresenta e perche serve.";
 
 export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
   'Costruisci anche la singola lezione in ordine strettamente propedeutico: ogni passaggio deve richiedere soltanto concetti gia introdotti oppure spiegati nello stesso blocco locale, senza rimandarne il significato a sezioni successive.',
