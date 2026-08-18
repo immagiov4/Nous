@@ -93,7 +93,7 @@ const buildVerificationSchema = (
           properties: {
             action: { type: 'string' },
             checkId: { enum: checkIds, type: 'string' },
-            evidence: { type: 'string' },
+            evidence: { minLength: 1, type: 'string' },
             status: { enum: ['pass', 'corrected', 'not-applicable'], type: 'string' },
           },
           required: ['checkId', 'status', 'evidence', 'action'],
@@ -164,6 +164,19 @@ export const findUncheckedLessonVerificationStructuralCheckIds = (
   const checkedIdSet = new Set(checkedIds);
   return buildRequiredLessonVerificationStructuralCheckIds(input, draft).filter(
     checkId => !checkedIdSet.has(checkId)
+  );
+};
+
+export const isLessonVerificationReportComplete = (
+  report: readonly { checkId: string; evidence: string }[],
+  checkIds: readonly string[]
+): boolean => {
+  if (report.length !== checkIds.length) return false;
+  const reportedIds = new Set(report.map(item => item.checkId));
+  return (
+    reportedIds.size === checkIds.length &&
+    checkIds.every(checkId => reportedIds.has(checkId)) &&
+    report.every(item => item.evidence.trim().length > 0)
   );
 };
 
@@ -270,9 +283,8 @@ export const verifyLessonContentDraft = async (input: {
     verified = output;
   }
 
-  const reportedIds = new Set(verified.verificationReport.map(item => item.checkId));
-  if (reportedIds.size !== checkIds.length || checkIds.some(checkId => !reportedIds.has(checkId))) {
-    throw new Error('Lesson verification did not report every required check.');
+  if (!isLessonVerificationReportComplete(verified.verificationReport, checkIds)) {
+    throw new Error('Lesson verification did not report every required check with evidence.');
   }
 
   const uncheckedStructuralCheckIds = findUncheckedLessonVerificationStructuralCheckIds(
