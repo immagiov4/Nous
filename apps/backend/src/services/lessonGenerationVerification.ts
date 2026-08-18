@@ -1,4 +1,5 @@
 import {
+  GENERATED_VISUAL_RELEVANCE_RULE,
   INTERACTIVE_VISUAL_VALUE_RULE,
   MAX_GENERATED_VISUALS_PER_LESSON,
   MAX_LESSON_QUIZ_QUESTIONS,
@@ -9,6 +10,7 @@ import {
   FORMULA_RELEVANCE_RULE,
   LESSON_ASCII_VISUAL_RULE,
   LESSON_SCOPE_RULES,
+  LESSON_SELF_SUFFICIENCY_RULE,
   SYSTEM_INSTRUCTION_TEACHER,
 } from '@shared/lessonWritingContract';
 import { generateText, jsonSchema, Output } from 'ai';
@@ -45,6 +47,18 @@ type VerifiedLessonContentDraft = LessonContentDraft & {
 
 type LessonVerificationInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
 
+export type LessonVerificationStructuralCheckId =
+  | 'ascii-visual'
+  | 'code-structure'
+  | 'generated-visual'
+  | 'image-reference'
+  | 'markdown-structure'
+  | 'math-structure'
+  | 'quiz-quality'
+  | 'quiz-text'
+  | 'self-sufficiency'
+  | 'youtube-structure';
+
 const MARKDOWN_STRUCTURE_CHECK =
   'I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici o una sezione fonti terminale.';
 const IMAGE_REFERENCE_CHECK =
@@ -52,7 +66,7 @@ const IMAGE_REFERENCE_CHECK =
 const YOUTUBE_STRUCTURE_CHECK =
   'Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.';
 const CODE_STRUCTURE_CHECK =
-  'Codice, pseudocodice, comandi e output devono stare in un solo code block valido; non trasformare prosa o formule in codice.';
+  'Se la bozza contiene codice, pseudocodice, comandi o output, racchiudili in un code block Markdown valido; correggi anche frammenti tecnici rimasti nudi fuori dai fence. Non trasformare prosa o formule in codice.';
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -99,6 +113,18 @@ const isEscaped = (value: string, index: number): boolean => {
   return backslashes % 2 === 1;
 };
 
+const isAsciiDigit = (value: string | undefined): boolean =>
+  value !== undefined && value >= '0' && value <= '9';
+
+const hasLaterSingleDollar = (value: string, startIndex: number): boolean => {
+  for (let index = startIndex + 1; index < value.length; index += 1) {
+    if (value[index] !== '$' || isEscaped(value, index)) continue;
+    if (value[index - 1] === '$' || value[index + 1] === '$') continue;
+    return true;
+  }
+  return false;
+};
+
 const hasInlineDollarMath = (value: string): boolean => {
   let openingIndex: number | null = null;
   for (let index = 0; index < value.length; index += 1) {
@@ -107,7 +133,10 @@ const hasInlineDollarMath = (value: string): boolean => {
 
     if (openingIndex === null) {
       const next = value[index + 1];
-      if (next && next.trim() !== '') openingIndex = index;
+      if (!next || next.trim() === '') continue;
+      // A lone "$12" is normally currency, while "$2 + 2$" still has a closing delimiter.
+      if (isAsciiDigit(next) && !hasLaterSingleDollar(value, index)) continue;
+      openingIndex = index;
       continue;
     }
 
@@ -117,13 +146,13 @@ const hasInlineDollarMath = (value: string): boolean => {
     const next = value[index + 1];
     openingIndex = next && next.trim() !== '' ? index : null;
   }
-  return false;
+
+  // An unmatched opening delimiter is itself malformed math that the verifier must repair.
+  return openingIndex !== null;
 };
 
-const inspectMarkdownSyntax = (markdown: string): { hasCode: boolean; hasMath: boolean } => {
+const markdownHasMathSyntax = (markdown: string): boolean => {
   let activeFence: { character: '`' | '~'; length: number } | null = null;
-  let hasCode = false;
-  let hasMath = false;
 
   for (const line of markdown.split('\n')) {
     const trimmed = line.trimStart();
@@ -133,7 +162,6 @@ const inspectMarkdownSyntax = (markdown: string): { hasCode: boolean; hasMath: b
       if (length >= 3) {
         if (!activeFence) {
           activeFence = { character: first, length };
-          hasCode = true;
         } else if (activeFence.character === first && length >= activeFence.length) {
           activeFence = null;
         }
@@ -149,19 +177,20 @@ const inspectMarkdownSyntax = (markdown: string): { hasCode: boolean; hasMath: b
       line.includes('$$') ||
       hasInlineDollarMath(line)
     ) {
-      hasMath = true;
+      return true;
     }
   }
 
-  return { hasCode, hasMath };
+  return false;
 };
 
-const buildApplicableStructuralChecks = (draft: LessonContentDraft): string[] => {
+export const buildApplicableLessonVerificationCheckIds = (
+  draft: LessonContentDraft
+): LessonVerificationStructuralCheckId[] => {
   const markdown = draft.contentBlocks
     .filter(block => block.type === 'markdown')
     .map(block => block.markdown)
     .join('\n');
-  const syntax = inspectMarkdownSyntax(markdown);
   const hasQuiz = draft.contentBlocks.some(block => block.type === 'inline-quiz');
   const hasYoutube = draft.contentBlocks.some(block => block.type === 'youtube-clips');
   const hasGeneratedVisual =
@@ -169,29 +198,46 @@ const buildApplicableStructuralChecks = (draft: LessonContentDraft): string[] =>
     draft.contentBlocks.some(block => block.type === 'generated-visual');
   const hasImageRefs = draft.imageRefs.length > 0;
 
-  const checks = [MARKDOWN_STRUCTURE_CHECK, LESSON_ASCII_VISUAL_RULE];
+  const checkIds: LessonVerificationStructuralCheckId[] = [
+    'markdown-structure',
+    'self-sufficiency',
+    'ascii-visual',
+    // This stays unconditional because malformed code can be the absence of a valid fence.
+    'code-structure',
+  ];
 
-  if (hasQuiz) {
-    checks.push(
-      `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa deve avere quattro opzioni distinte e non deve poter essere risolta copiando o riconoscendo una definizione locale.`,
-      'Domande e opzioni sono testo normale: rimuovi backticks o code fence che racchiudono l intera stringa, preservando eventuale codice inline interno.'
-    );
-  }
-  if (hasImageRefs) checks.push(IMAGE_REFERENCE_CHECK);
-  if (hasGeneratedVisual) {
-    checks.push(
-      `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}`
-    );
-  }
-  if (hasYoutube) checks.push(YOUTUBE_STRUCTURE_CHECK);
-  if (syntax.hasMath) {
-    checks.push(
-      `${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico.`
-    );
-  }
-  if (syntax.hasCode) checks.push(CODE_STRUCTURE_CHECK);
+  if (hasQuiz) checkIds.push('quiz-quality', 'quiz-text');
+  if (hasImageRefs) checkIds.push('image-reference');
+  if (hasGeneratedVisual) checkIds.push('generated-visual');
+  if (hasYoutube) checkIds.push('youtube-structure');
+  if (markdownHasMathSyntax(markdown)) checkIds.push('math-structure');
 
-  return checks;
+  return checkIds;
+};
+
+const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCheckId): string => {
+  switch (checkId) {
+    case 'markdown-structure':
+      return MARKDOWN_STRUCTURE_CHECK;
+    case 'self-sufficiency':
+      return LESSON_SELF_SUFFICIENCY_RULE;
+    case 'ascii-visual':
+      return LESSON_ASCII_VISUAL_RULE;
+    case 'code-structure':
+      return CODE_STRUCTURE_CHECK;
+    case 'quiz-quality':
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi non interrompono quel contesto. La pausa deve avere quattro opzioni distinte e non deve poter essere risolta copiando o riconoscendo una definizione locale.`;
+    case 'quiz-text':
+      return 'Domande e opzioni sono testo normale: rimuovi backticks o code fence che racchiudono l intera stringa, preservando eventuale codice inline interno.';
+    case 'image-reference':
+      return IMAGE_REFERENCE_CHECK;
+    case 'generated-visual':
+      return `Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${GENERATED_VISUAL_RELEVANCE_RULE} ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}`;
+    case 'youtube-structure':
+      return YOUTUBE_STRUCTURE_CHECK;
+    case 'math-structure':
+      return `${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati, inclusi delimitatori $ lasciati aperti. Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico.`;
+  }
 };
 
 export const buildLessonVerificationPrompt = (
@@ -199,7 +245,8 @@ export const buildLessonVerificationPrompt = (
   draft: LessonContentDraft
 ): string => {
   const checklist = buildLessonVerificationChecklist(input.instructionPacks);
-  const structuralChecks = buildApplicableStructuralChecks(draft);
+  const structuralCheckIds = buildApplicableLessonVerificationCheckIds(draft);
+  const structuralChecks = structuralCheckIds.map(buildStructuralCheckInstruction);
   return `RIFERIMENTI DELLA LEZIONE:
 ${buildLessonGenerationReferenceContext(input)}
 
