@@ -12,11 +12,13 @@ import {
   buildLessonNoRepetitionRule,
   FORMULA_RELEVANCE_RULE,
   LESSON_ACRONYM_EXPANSION_RULE,
+  LESSON_ANALOGY_USAGE_RULE,
   LESSON_ASCII_VISUAL_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
   LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
+  LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SELF_SUFFICIENCY_RULE,
   LESSON_SOURCE_PRECEDENCE_RULE,
@@ -221,15 +223,31 @@ const buildLessonVerificationPrompt = (
   input: LessonVerificationInput,
   draft: LessonContentDraft
 ): string => {
+  const hasReferenceMaterial = Boolean(
+    input.sourceContext || input.researchContext || input.sources.length > 0
+  );
+  const isResearchOnly = !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
   const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
     if (item.checkId === 'core.clarity') {
       return { ...item, instruction: `${item.instruction} ${LESSON_ACRONYM_EXPANSION_RULE}` };
     }
-    if (input.sourceContext && item.checkId === 'core.correctness') {
+    if (item.checkId === 'core.correctness') {
+      const sourceRules = [
+        input.sourceContext ? LESSON_SOURCE_PRECEDENCE_RULE : '',
+        hasReferenceMaterial ? LESSON_NAMED_SOURCE_ATTRIBUTION_RULE : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return sourceRules ? { ...item, instruction: `${item.instruction} ${sourceRules}` } : item;
+    }
+    if (item.checkId === 'core.structure' && isResearchOnly) {
       return {
         ...item,
-        instruction: `${item.instruction} ${LESSON_SOURCE_PRECEDENCE_RULE} ${LESSON_NAMED_SOURCE_ATTRIBUTION_RULE}`,
+        instruction: `${item.instruction} ${LESSON_RESEARCH_TRANSFORMATION_RULE}`,
       };
+    }
+    if (item.checkId === 'core.relevance') {
+      return { ...item, instruction: `${item.instruction} ${LESSON_ANALOGY_USAGE_RULE}` };
     }
     return item;
   });
