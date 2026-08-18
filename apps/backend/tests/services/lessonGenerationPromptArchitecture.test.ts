@@ -5,6 +5,7 @@ import {
   buildApplicableLessonVerificationCheckIds,
   buildRequiredLessonVerificationCheckIds,
   findUncheckedLessonVerificationStructuralCheckIds,
+  isLessonVerificationReportComplete,
 } from '../../src/services/lessonGenerationVerification.js';
 
 const plainDraft: LessonContentDraft = {
@@ -49,6 +50,38 @@ describe('lesson verification prompt architecture', () => {
     expect(requiredIds).toContain('core.progression');
     for (const checkId of BASE_CHECKS) expect(requiredIds).toContain(checkId);
     expect(new Set(requiredIds).size).toBe(requiredIds.length);
+  });
+
+  test('requires concrete evidence while preserving exact check-id coverage', () => {
+    const checkIds = ['core.progression', 'markdown-structure'];
+    const completeReport = [
+      { checkId: 'core.progression', evidence: 'La bozza introduce il mapping dopo l evento.' },
+      {
+        checkId: 'markdown-structure',
+        evidence: 'I blocchi markdown non contengono marker o bibliografie.',
+      },
+    ];
+
+    expect(isLessonVerificationReportComplete(completeReport, checkIds)).toBe(true);
+    expect(
+      isLessonVerificationReportComplete(
+        [completeReport[0], { checkId: 'markdown-structure', evidence: '' }],
+        checkIds
+      )
+    ).toBe(false);
+    expect(
+      isLessonVerificationReportComplete(
+        [completeReport[0], { checkId: 'markdown-structure', evidence: '   ' }],
+        checkIds
+      )
+    ).toBe(false);
+    expect(isLessonVerificationReportComplete([completeReport[0]], checkIds)).toBe(false);
+    expect(
+      isLessonVerificationReportComplete(
+        [completeReport[0], { checkId: 'core.progression', evidence: 'Duplicato.' }],
+        checkIds
+      )
+    ).toBe(false);
   });
 
   test('checks source-image selection when original candidates are available', () => {
