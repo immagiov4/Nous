@@ -119,8 +119,7 @@ const isAsciiDigit = (value: string | undefined): boolean =>
   value !== undefined && value >= '0' && value <= '9';
 
 const isAsciiLetter = (value: string | undefined): boolean =>
-  value !== undefined &&
-  ((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z'));
+  value !== undefined && ((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z'));
 
 const hasLaterSingleDollar = (value: string, startIndex: number): boolean => {
   for (let index = startIndex + 1; index < value.length; index += 1) {
@@ -132,14 +131,12 @@ const hasLaterSingleDollar = (value: string, startIndex: number): boolean => {
 };
 
 const isLikelyCurrencyAmount = (value: string, dollarIndex: number): boolean => {
-  if (!isAsciiDigit(value[dollarIndex + 1]) || hasLaterSingleDollar(value, dollarIndex)) return false;
+  if (!isAsciiDigit(value[dollarIndex + 1]) || hasLaterSingleDollar(value, dollarIndex))
+    return false;
 
   let cursor = dollarIndex + 1;
   while (isAsciiDigit(value[cursor])) cursor += 1;
-  if (
-    (value[cursor] === '.' || value[cursor] === ',') &&
-    isAsciiDigit(value[cursor + 1])
-  ) {
+  if ((value[cursor] === '.' || value[cursor] === ',') && isAsciiDigit(value[cursor + 1])) {
     cursor += 1;
     while (isAsciiDigit(value[cursor])) cursor += 1;
   }
@@ -152,7 +149,9 @@ const isLikelyCurrencyAmount = (value: string, dollarIndex: number): boolean => 
 
   while (value[cursor]?.trim() === '') cursor += 1;
   const nextNonSpace = value[cursor];
-  return nextNonSpace === undefined || isAsciiLetter(nextNonSpace) || '.;,!?'.includes(nextNonSpace);
+  return (
+    nextNonSpace === undefined || isAsciiLetter(nextNonSpace) || '.;,!?'.includes(nextNonSpace)
+  );
 };
 
 const hasInlineDollarMath = (value: string): boolean => {
