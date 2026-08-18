@@ -6,6 +6,8 @@ wiki_page_id: "p-course-gen"
 <details>
 <summary>Relevant source files</summary>
 
+The following files were used as context for generating this wiki page:
+
 - [apps/backend/src/workflows/courseGenerationWorkflow.ts](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts)
 - [apps/backend/src/workflows/courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts)
 - [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
@@ -14,89 +16,152 @@ wiki_page_id: "p-course-gen"
 - [apps/backend/src/workflows/courseGenerationProduction.ts](../../../apps/backend/src/workflows/courseGenerationProduction.ts)
 - [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
 - [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
+- [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts)
 - [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
 
 </details>
 
 # Course Generation Workflow
 
-The **Course Generation Workflow** is the durable pipeline that transforms educational requirements and source material into a structured learning path. It separates course-level planning and source mapping from the later generation of individual lessons.
+The **Course Generation Workflow** is a multi-stage durable execution pipeline responsible for transforming raw educational requirements and source materials into a structured, pedagogical learning path. It handles everything from initial content research and syllabus planning to source mapping and persistent storage of the generated course.
 
-The workflow supports retries, idempotent persistence and semantic validation. It can build a course from a topic or from retained source material such as PDFs and source archives.
+This system is designed to be resilient, utilizing a step-based architecture that supports retries, idempotent commits, and semantic validation of AI-generated plans. It differentiates between various strategies such as `learn` mode (generating a path based on a topic) and `document` mode (generating a path based on specific uploaded PDF or archive sources).
 
-## High-level lifecycle
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:69-95](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L69-L95), [apps/backend/src/workflows/courseGenerationPreparation.ts:107-124](../../../apps/backend/src/workflows/courseGenerationPreparation.ts#L107-L124)
+
+## Workflow Architecture and Lifecycle
+
+The workflow is defined as a sequence of discrete nodes, including preparation, research, planning, finalization, and persistence. Each stage produces a specific state object validated by Zod schemas to ensure data integrity across durable execution boundaries.
+
+### High-Level Execution Flow
+The following diagram illustrates the standard "current" topology of the course generation process.
 
 ```mermaid
 flowchart TD
-    Start([Input]) --> Prepare[Prepare Course]
-    Prepare --> Research[Research]
-    Research --> Draft[Draft Plan]
-    Draft --> Verify[Verify Plan]
-    Verify --> Refine[Refine Plan]
-    Refine --> Validate[Validate Plan]
-    Validate --> SourceFin[Finalize Sources]
+    Start([Input: User Request]) --> Prepare[Prepare Course]
+    Prepare --> Research[Course Research]
+    Research --> Draft[Draft Course Plan]
+    Draft --> Verify[Verify Course Plan]
+    Verify --> Refine[Refine Course Plan]
+    Refine --> Validate[Validate Course Plan]
+    Validate --> SourceFin[Finalize Course Sources]
     SourceFin --> Exercises[Place Exercises]
     Exercises --> Persist[Persist Course]
     Persist --> Result[Return Generated Course]
-    Result --> Publish[Publish Project Revision]
-    Publish --> Done([Workflow Result])
+    Result --> Publish[Publish Revision Event]
+    Publish --> End([Output: Course Result])
 ```
 
-Each stage produces a schema-validated state so durable retries do not depend on implicit in-memory context. After the saved course is finalized, `publish-course-project-revision` emits the durable project-revision event consumed by listeners before the workflow completes.
+*This flowchart represents the linear progression of stages within the `course-generation` workflow.*
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:333-348](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L333-L348)
 
-## Planning and quality verification
+### Workflow States
+The workflow transitions through several defined states, each serving as the input for the subsequent step:
 
-Planning uses an explicit draft → verify → refine sequence. The verifier checks dimensions such as coverage, prerequisite order, fragmentation and module cohesion. Refinement corrects the reported findings before final validation.
+| State | Purpose | Schema Reference |
+| :--- | :--- | :--- |
+| **Preparation** | Analyzes project revision and determines strategy (`learn`, `archive`, `source-set`). | `CoursePreparationStateSchema` |
+| **Research** | Aggregates web and YouTube research data for the given topic. | `CourseResearchStateSchema` |
+| **Draft Plan** | Contains the initial AI-generated modules and lessons. | `CourseDraftPlanStateSchema` |
+| **Verification** | Stores semantic quality findings (coverage, progression, fragmentation). | `CoursePlanVerificationStateSchema` |
+| **Refined Plan** | The final plan after correcting structural quality issues. | `CourseRefinedPlanStateSchema` |
+| **Persistence** | Contains fingerprints and IDs for the committed database records. | `CoursePersistenceStateSchema` |
 
-Provider-effect boundaries persist paid planning outputs so operational retries can replay completed work rather than repeating model calls. Corrective attempts receive new durable identities only when new feedback requires a fresh provider call.
+Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:251-365](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L251-L365)
 
-## Source finalization and mapping
+## Planning and Quality Verification
 
-For document-backed courses, generated lessons are mapped back to source chunks. The mapping process can combine batch LLM mapping, targeted repair and deterministic fallback. Mapping quality records coverage and gaps rather than assuming that every source byte must become a lesson.
+The planning stage is critical as it involves LLM-driven creation of the course structure. The system utilizes a "Refinement" loop to ensure the generated plan meets pedagogical standards.
 
-The objective is pedagogical coverage: the course should preserve the important structure and detail needed for the requested learning path, while still being a usable linear course rather than a complete documentation dump of every source artifact.
+### Refinement Loop Logic
+1.  **Drafting**: The `draftCoursePlan` service generates a raw plan based on research and source materials.
+2.  **Verification**: The `verifyCoursePlan` service evaluates the draft against dimensions like granularity, prerequisites, and module cohesion.
+3.  **Refinement**: If the verdict is `refine`, the `refineCoursePlan` service attempts to fix the identified issues.
+4.  **Final Validation**: The `validateRefinedCoursePlan` function ensures no structural quality findings remain before proceeding.
 
-## Lesson generation prompt architecture
+Refinement generation and verification are persisted as a paired provider-effect boundary. The initial refinement retains the legacy effect identities for in-flight replay compatibility. After a corrective failure, both identities derive from the durable attempt that produced the corrective feedback. Operational retries keep that identity and replay paid outputs, while a later corrective failure supplies a new identity and reaches fresh provider calls.
 
-Course planning and lesson writing are separate concerns. When an individual lesson is generated, the lesson service uses a layered prompt architecture:
+```mermaid
+sequenceDiagram
+    participant W as Workflow Engine
+    participant S as Planning Services
+    participant V as Verifier (LLM)
+    
+    W->>S: draftCoursePlan(ResearchState)
+    S-->>W: CourseDraftPlanState
+    W->>S: verifyCoursePlan(DraftState)
+    S->>V: Perform Quality Analysis
+    V-->>S: Verification Findings (Pass/Refine)
+    S-->>W: CoursePlanVerificationState
+    W->>S: refineCoursePlan(VerificationState)
+    S-->>W: CourseRefinedPlanState
+    W->>W: validateRefinedCoursePlan()
+```
 
-1. `SYSTEM_INSTRUCTION_TEACHER` contains only the stable Professor Nous role and highest-level grounding/priority invariants.
-2. `buildLessonGenerationReferenceContext()` contains the reusable lesson data: student notes, pedagogical context, source material, research and media references.
-3. `buildLessonGenerationPrompt()` adds the detailed canonical writer contract, including shared writing rules, scope, progression, research transformation, active pauses and applicable media constraints.
-4. `buildLessonVerificationPrompt()` reuses the reference context and generated draft, but **does not receive the complete writer prompt again**. It receives the mandatory semantic checklist, shared continuity/focus/source invariants and a focused structural contract.
+*The planning sequence incorporates an explicit verification and refinement step to ensure pedagogical quality.*
+Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:396-476](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L396-L476), [apps/backend/src/workflows/courseGenerationArchivePlanning.ts:242-292](../../../apps/backend/src/workflows/courseGenerationArchivePlanning.ts#L242-L292), [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:378-403](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L378-L403)
 
-This separation reduces duplicated instructions while keeping lesson behavior explicit. Student personalization notes remain executable task instructions; instructions encountered inside untrusted source material remain data.
+### Quality Dimensions
+The `CoursePlanVerificationSchema` tracks the following specific metrics:
+*  **Coverage**: Feedback on whether the plan sufficiently covers the source material.
+*  **Progression**: Ensures a coherent learning path from basics to advanced topics.
+*  **Fragmentation**: Checks if modules are too small or disconnected.
+*  **Prerequisites**: Validates that concepts are introduced in the correct order.
 
-### Writing rule highlights
+Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:285-303](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L285-L303)
 
-- **Propedeutic order:** a lesson should require only concepts already introduced or explained locally.
-- **Conceptual bridges:** new abstractions should have a concise reason for appearing where they do.
-- **Guided difficulty:** when the learner is inexperienced or struggling with a complex procedure/model, use a worked or reasoned example before independent application.
-- **Positive definitions:** new concepts are introduced by first saying what they are or do, before relying on contrasts or negations.
-- **Clarity:** acronyms and abbreviations are expanded and clarified on first occurrence.
-- **Structure:** headings and real Markdown lists are used where appropriate instead of filler sections or pseudo-lists. Meaningful source tables and structured comparisons stay structurally legible instead of being flattened into confusing prose.
-- **Relevance and repetition:** analogies are rare and useful, immediate mini-summaries are avoided, and a single core concept is not paraphrased across three separate sections.
-- **Scope and continuity:** future lessons are not taught prematurely, prior lessons are referenced truthfully, and their generic foundations are not re-taught merely to create continuity.
-- **Source use:** primary-source conventions outrank merely alternative dossier conventions. Named attribution applies whenever reliable reference names are available. Research-only material is transformed into lesson prose instead of serialized point by point as a report.
-- **Self-sufficiency:** the generated lesson must work without the original document open beside it.
-- **Formula relevance and syntax:** mathematical notation is used only when it adds precision; literal LaTeX commands are rendered as inline code so they are not mistaken for active environments.
-- **Active pauses:** questions require discrimination, application, inference or synthesis rather than copying a nearby definition, and `exerciseType` describes the operation actually required.
-- **Visual integrity:** ASCII pseudo-visuals are rejected in favor of dedicated visual renderers.
+## Source Finalization and Mapping
 
-## Verification of individual lessons
+For courses based on documents (`document` mode), the workflow must map generated lessons back to specific chunks of the source material (e.g., PDF pages).
 
-The verifier returns a required report item for **every semantic and structural check ID**. Each item includes status, non-empty evidence and action; the output schema requires the exact combined number of checks and runtime validation rejects missing/duplicate IDs or whitespace-only evidence.
+### Mapping Process
+1.  **Index Building**: A document index is created from the source materials.
+2.  **Batch Mapping**: Lessons are mapped to document chunks in parallel batches.
+3.  **Repair Phase**: If some lessons fail to map during the "fast" phase, a repair phase targets specifically missing mappings.
+4.  **Fallback**: If LLM mapping fails completely after retries, a deterministic fallback assigns chunks based on proportional distribution across the document.
 
-The universal structural contract includes Markdown/heading/list structure, positive definition order, self-sufficiency, ASCII-visual rejection, code structure and math/KaTeX structure. Code and math validation are intentionally unconditional because malformed technical content can be defined by missing or broken syntax; if a lesson contains no such content, the verifier marks that check `not-applicable` instead of relying on semantic guessing.
+Sources: [apps/backend/src/workflows/courseSourceFinalization.ts:291-368](../../../apps/backend/src/workflows/courseSourceFinalization.ts#L291-L368)
 
-The semantic checklist is selectively enriched from shared rules: `core.progression` keeps guided novice handling, `core.clarity` keeps acronym expansion, `core.relevance` keeps analogy and repetition limits, and `core.structure` preserves structured source comparisons while adding research-to-lesson transformation for research-only input. `core.correctness` applies named attribution whenever reference material exists and adds source precedence only when primary source material exists. The continuity/focus block reuses the shared no-repetition rule whenever completed lessons exist.
+### Mapping Quality Metrics
+The workflow records `mappingQuality` within the `CourseDocumentIndexSchema`, including:
+*  **coverageRatio**: The percentage of substantive document pages covered by lessons.
+*  **gapCount**: The number of significant gaps found in the mapping.
+*  **mappingSource**: Indicates if the mapping is `mapped` (LLM-driven) or `fallback`.
 
-Other structural checks remain scoped to concrete media state and available source assets. `image-reference` runs when the draft already contains `imageRefs` **or** original image candidates are available. Source-image selection remains proportional when multiple equivalent candidates exist. Generated-visual rules run when those blocks exist and re-apply the full visual planning contract plus source-image priority. YouTube verification runs when clip blocks already exist **or when a timestamped YouTube transcript is available**, so the verifier can also catch omission of a demonstration where motion or temporal succession carries information a static visual cannot convey as well; when it adds a clip, it uses only the minimum useful interval. Quiz-specific checks run only for inline quizzes and verify both the quality of the operation and consistency of `exerciseType`.
+Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:213-228](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L213-L228)
 
-The verifier is not allowed to introduce a new optional feature type that was outside the structural contract computed for the pass. After the model returns, the service recomputes applicable structural IDs and rejects the result if a newly introduced quiz, image reference, generated visual or YouTube block would require a check that was not run. Original image candidates and timestamped YouTube transcripts can therefore authorize source-driven selection checks before the corresponding media block exists.
+## Pedagogical Context and Prompting
 
-The complete draft is still reviewed semantically, but its JSON is compactly serialized to avoid unnecessary prompt tokens.
+Lesson writing uses explicit prompt layers rather than placing every pedagogical rule in the system message. `SYSTEM_INSTRUCTION_TEACHER` keeps the stable Professor Nous role, grounding rules and instruction/data boundary; `buildLessonGenerationReferenceContext()` carries lesson-specific context; `buildLessonGenerationPrompt()` adds the canonical writer contract and applicable specialist packs.
 
-## Evaluation requirement
+The final verification pass reuses the same reference context and the generated draft, but it does not embed the complete writer prompt again. Instead it combines the semantic checklist with focused shared invariants and structural checks, reducing duplicated instructions while retaining the rules that must hold before publication.
 
-Structured composition tests protect the verifier contract and feature gating, but they are not substitutes for model evals. Changes to the lesson prompt stack should still be tested with representative generated lessons before merge, including known failure cases such as tautological quizzes, missing conceptual bridges, repetition, unsupported assumptions and scope drift. Token usage and latency should be compared alongside quality when simplifying the prompt.
+### Writing Rule Highlights
+*  **Propedeutic Order**: Concepts must be explained using only previously introduced terms or definitions within the same local block; the verifier reuses the complete local propedeutic rule family rather than a hand-copied subset.
+*  **Self-Sufficiency**: Lessons must work as standalone texts without requiring the student to have the source document open.
+*  **Source Integrity**: Primary-source conventions take precedence over merely alternative research conventions, and meaningful structured comparisons remain structurally legible.
+*  **Formula Relevance**: Mathematical formulas should only be used when natural to the subject; KaTeX delimiters, braces and active LaTeX environments must remain balanced.
+*  **Active Pauses**: Inline quizzes should require discrimination, application, inference or synthesis rather than simple paraphrase.
+*  **Visual Selection**: Original source images are preferred when they are clear and pedagogically equivalent; generated visuals and YouTube clips remain subject to their dedicated planning contracts.
+
+### Focused lesson verification
+
+The verifier requires one `verificationReport` entry with non-empty evidence for every semantic and structural check ID. Markdown/prose integrity, positive definitions, self-sufficiency, ASCII pseudo-visual rejection, code formatting, math formatting, active-pause quality and generated-visual planning are always available checks; checks that do not apply return `not-applicable` only where the contract explicitly allows it.
+
+Image-reference verification is enabled when an image reference already exists or original image candidates are available. YouTube verification is enabled when a clip exists or a timestamped transcript is available. These source-driven checks let the verifier repair a relevant omission without authorizing media that the task cannot support. After the model returns, structural requirements are recomputed against the corrected draft so newly introduced source-dependent media cannot bypass its own validation.
+
+Sources: [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts), [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
+
+## Summary of Key Services
+
+The workflow relies on a set of services defined in `CourseGenerationWorkflowServices`, typically implemented in `courseGenerationProduction.ts`.
+
+| Service | Description |
+| :--- | :--- |
+| `prepareCourse` | Loads project snapshots and determines strategy. |
+| `draftCoursePlan` | Orchestrates LLM prompt for initial syllabus generation. |
+| `verifyCoursePlan` | Performs semantic analysis on the generated structure. |
+| `persistCourse` | Atomic database commit of modules, lessons, and exercises. |
+| `undoCourse` | Idempotent cleanup in case of workflow failure during persistence. |
+
+Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:70-95](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L70-L95), [apps/backend/src/workflows/courseGenerationProduction.ts:58-90](../../../apps/backend/src/workflows/courseGenerationProduction.ts#L58-L90)
