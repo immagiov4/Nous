@@ -1,3 +1,5 @@
+import { ACTIVE_PAUSE_REASONING_RULE } from './lessonGenerationPolicy';
+
 export const LESSON_INSTRUCTION_PACK_IDS = [
   'mathematics',
   'code',
@@ -46,8 +48,7 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   },
   {
     checkId: 'core.active-pauses',
-    instruction:
-      'Per ogni inline-quiz identifica l operazione mentale necessaria per rispondere. Una pausa e invalida se la risposta corretta si puo scegliere copiando, parafrasando o riconoscendo per sovrapposizione lessicale una frase o definizione immediatamente vicina. Deve richiedere almeno discriminazione concettuale, applicazione a un caso nuovo, inferenza, previsione, diagnosi, classificazione, sequenziamento o sintesi; se non esiste una buona domanda, rimuovi la pausa invece di conservarne una tautologica.',
+    instruction: ACTIVE_PAUSE_REASONING_RULE,
   },
   {
     checkId: 'core.relevance',
