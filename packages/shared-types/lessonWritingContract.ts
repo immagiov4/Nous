@@ -94,6 +94,9 @@ export const LESSON_GUIDED_NOVICE_RULE =
 export const LESSON_POSITIVE_DEFINITION_RULE =
   'Quando introduci un concetto nuovo, definiscilo prima in positivo: chiarisci che cosa e o che cosa fa. Usa contrasti, negazioni e formule come "non e soltanto" solo dopo che il significato di base e gia comprensibile.';
 
+export const LESSON_FIRST_EXPOSURE_RULE =
+  'La prima esposizione significativa a un concetto nuovo deve renderne comprensibile il significato in positivo prima di usarlo per contrasto o negazione. Questo vale anche per heading, frase di apertura, label e metafore usate come nome del concetto: non presentare per prima cosa cio che il concetto non e, un suo limite o una metafora non ancora spiegata. Dopo che il significato di base e chiaro, contrasti e negazioni possono precisarlo.';
+
 export const LESSON_HEADING_STRUCTURE_RULE =
   'Organizza il testo con heading chiari e usa soltanto le sezioni necessarie. Non ripetere il titolo della lezione come heading, non creare heading riempitivi o quasi duplicati e non imporre intestazioni inglesi o template rigidi quando la lingua della lezione offre titoli naturali.';
 
