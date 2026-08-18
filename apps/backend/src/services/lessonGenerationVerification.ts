@@ -12,26 +12,26 @@ import {
   buildLessonContinuityRule,
   buildLessonNoRepetitionRule,
   FORMULA_RELEVANCE_RULE,
-  LESSON_ACRONYM_EXPANSION_RULE,
-  LESSON_ANALOGY_USAGE_RULE,
   LESSON_ASCII_VISUAL_RULE,
   LESSON_CODE_FORMATTING_RULE,
+  LESSON_ENGAGEMENT_RELEVANCE_RULE,
   LESSON_GUIDED_NOVICE_RULE,
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
+  LESSON_LANGUAGE_CLARITY_RULES,
   LESSON_LIST_STRUCTURE_RULE,
   LESSON_LOCAL_PROPEDEUTIC_RULES,
-  LESSON_LOCAL_REPETITION_RULE,
   LESSON_MAIN_PROSE_RULE,
   LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE,
   LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
+  LESSON_RELEVANCE_STYLE_RULES,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
   LESSON_SELF_SUFFICIENCY_RULE,
-  LESSON_SINGLE_CORE_BUILD_RULE,
   LESSON_SOURCE_PRECEDENCE_RULE,
   LESSON_STRUCTURED_SOURCE_COMPARISON_RULE,
+  LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE,
   SYSTEM_INSTRUCTION_TEACHER,
   YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '@shared/lessonWritingContract';
@@ -117,6 +117,10 @@ const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
 ).join('\n');
 
 const LOCAL_PROPEDEUTIC_VERIFICATION_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.join(' ');
+const STUDENT_STYLE_OVERRIDE_RULE =
+  'Queste sono preferenze di default: se le NOTE DI PERSONALIZZAZIONE DEL CORSO chiedono esplicitamente una diversa scelta di stile, densita, ripetizione, esempi, analogie, gergo o registro, applica le note entro i vincoli strutturali del task.';
+const LANGUAGE_CLARITY_VERIFICATION_RULES = `${STUDENT_STYLE_OVERRIDE_RULE} ${LESSON_LANGUAGE_CLARITY_RULES.join(' ')}`;
+const RELEVANCE_STYLE_VERIFICATION_RULES = `${STUDENT_STYLE_OVERRIDE_RULE} ${LESSON_RELEVANCE_STYLE_RULES.join(' ')}`;
 const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_MAIN_PROSE_RULE} ${LESSON_LIST_STRUCTURE_RULE} ${LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE}`;
 const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_USAGE_RULES.join(' ')} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
 const YOUTUBE_STRUCTURE_CHECK = `Se nei riferimenti esiste un transcript YouTube timestampato ma la bozza non contiene clip, applica le regole pedagogiche sottostanti anche alla decisione di omissione: aggiungi soltanto il minimo intervallo utile quando una clip e davvero necessaria; altrimenti segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni clip presente o aggiunta usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.`;
@@ -258,7 +262,10 @@ const buildLessonVerificationPrompt = (
       };
     }
     if (item.checkId === 'core.clarity') {
-      return { ...item, instruction: `${item.instruction} ${LESSON_ACRONYM_EXPANSION_RULE}` };
+      return {
+        ...item,
+        instruction: `${item.instruction} ${LANGUAGE_CLARITY_VERIFICATION_RULES}`,
+      };
     }
     if (item.checkId === 'core.correctness') {
       const sourceRules = [
@@ -272,6 +279,7 @@ const buildLessonVerificationPrompt = (
     if (item.checkId === 'core.structure') {
       const structureRules = [
         item.instruction,
+        hasReferenceMaterial ? LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE : '',
         hasReferenceMaterial ? LESSON_STRUCTURED_SOURCE_COMPARISON_RULE : '',
         isResearchOnly ? LESSON_RESEARCH_TRANSFORMATION_RULE : '',
       ]
@@ -282,7 +290,7 @@ const buildLessonVerificationPrompt = (
     if (item.checkId === 'core.relevance') {
       return {
         ...item,
-        instruction: `${item.instruction} ${LESSON_ANALOGY_USAGE_RULE} ${LESSON_LOCAL_REPETITION_RULE} ${LESSON_SINGLE_CORE_BUILD_RULE}`,
+        instruction: `${RELEVANCE_STYLE_VERIFICATION_RULES} ${LESSON_ENGAGEMENT_RELEVANCE_RULE}`,
       };
     }
     return item;
