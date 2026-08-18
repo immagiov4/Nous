@@ -8,6 +8,7 @@ import {
   ORIGINAL_IMAGE_USAGE_RULES,
 } from '@shared/lessonGenerationPolicy';
 import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
+import { LESSON_FIRST_EXPOSURE_RULE } from '@shared/lessonPedagogyContracts';
 import { LESSON_VISUAL_PLANNING_RULES } from '@shared/lessonVisualContracts';
 import {
   buildLessonContinuityRule,
@@ -80,7 +81,7 @@ CONTRATTO DI SCRITTURA:
 ${buildLessonInstructionPackBlock(input.instructionPacks, 'writing')}
 1. ${LESSON_COVERAGE_DEPTH_RULE} Scrivi in Markdown ricco con buona densita informativa e senza riempitivo; se le note chiedono un ritmo piu lento o ridondanza didattica, rispettale.
 2. Incorpora e spiega i contenuti in modo discorsivo ma tecnico, con esempi concreti, formule e codice solo quando aiutano davvero.
-3. ${LESSON_HEADING_STRUCTURE_RULE}
+3. ${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_FIRST_EXPOSURE_RULE}
 4. ${LESSON_METADISCOURSE_RULE} ${LESSON_MAIN_PROSE_RULE}
 - ${LESSON_LIST_STRUCTURE_RULE}
 ${LESSON_SHARED_WRITING_RULES}
