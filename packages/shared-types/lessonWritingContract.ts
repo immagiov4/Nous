@@ -13,7 +13,7 @@ export const LESSON_ACRONYM_EXPANSION_RULE =
   'Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.';
 
 export const LESSON_ANALOGY_USAGE_RULE =
-  'Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell intera lezione, mai una per ogni paragrafo; se puoi spiegare bene in modo diretto, non usare alcuna analogia.';
+  "Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo; se puoi spiegare bene in modo diretto, non usare alcuna analogia.";
 
 export const LESSON_LOCAL_REPETITION_RULE =
   'Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato: ogni paragrafo deve avanzare.';
@@ -21,11 +21,20 @@ export const LESSON_LOCAL_REPETITION_RULE =
 export const LESSON_SINGLE_CORE_BUILD_RULE =
   'Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.';
 
+export const LESSON_MAIN_PROSE_RULE =
+  'Il corpo principale della lezione deve restare prosa discorsiva: non trasformare la spiegazione in una sequenza di liste puntate. Usa liste soltanto quando la relazione tra elementi, passaggi o confronti ne beneficia davvero.';
+
 export const LESSON_LIST_STRUCTURE_RULE =
   'Quando elenchi due o piu elementi fratelli, usa una lista Markdown vera. Non creare pseudo-liste come paragrafi consecutivi "Etichetta: ..." senza bullet: se non e una lista, fondi il contenuto in paragrafi completi.';
 
 export const LESSON_STRUCTURED_SOURCE_COMPARISON_RULE =
   'Quando il materiale di riferimento presenta una tabella o un confronto strutturato rilevante, preservane la struttura con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in prosa confusa.';
+
+export const LESSON_CODE_FORMATTING_RULE =
+  'Per codice, pseudocodice, comandi e output usa un code block Markdown valido. La riga di apertura contiene soltanto il fence e, se serve, il nome del linguaggio; non lasciare frammenti tecnici o etichette di linguaggio nudi fuori dai fence e non trasformare prosa o formule in codice.';
+
+export const LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE =
+  'I blocchi markdown non devono contenere quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate, bibliografie o commenti di implementazione: usa i blocchi e i campi strutturati dedicati.';
 
 export const LESSON_GUIDED_NOVICE_RULE =
   'Quando insegni una procedura o un modello complesso a uno studente che il contesto indica come inesperto o in difficolta, privilegia una progressione guidata: mostra prima un esempio svolto o ragionato che esplicita i passaggi, poi varia il caso o chiedi di applicare il principio. Non costringere lo studente a scoprire da solo passaggi che non sono ancora stati insegnati.';
@@ -54,10 +63,26 @@ export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
   'Quando le note dello studente dichiarano difficolta in un dominio, riduci la densita locale: introduci una sola nuova astrazione per volta e collega immediatamente significato in prosa e rappresentazione tecnica, in qualunque ordine risultino piu naturali. La ridondanza deliberata richiesta dallo studente e ammessa quando consolida il modello mentale invece di limitarsi a parafrasare.',
 ] as const;
 
-export const YOUTUBE_CLIP_PEDAGOGY_RULES = `- Scegli un video quando il cambiamento nel tempo, la successione dei passaggi o il movimento contiene informazione didattica che una buona immagine statica non puo mostrare altrettanto bene. Per relazioni spaziali ferme, confronti di configurazioni o schemi leggibili a colpo d'occhio, preferisci una visuale statica.
-- Ogni clip deve essere autosufficiente nel punto in cui appare: lo studente deve possedere gia i prerequisiti necessari e il testo vicino deve dire che cosa osservare. Non obbligarlo a guardare parti precedenti o successive del video per capire l'intervallo.
-- Non duplicare lo stesso intervallo e non conservare piu clip che mostrano materiale pedagogicamente equivalente. Piu clip, anche dallo stesso video, sono utili solo quando coprono passaggi realmente distinti di una sequenza o rispondono a domande didattiche diverse.
-- Se le clip sono utili come consolidamento ma interromperebbero la spiegazione, raggruppale in un unico blocco \`youtube-clips\` dopo la conclusione del nucleo concettuale. Usalo come riepilogo visuale mirato, non come appendice generica o duplicazione automatica delle immagini.`;
+export const YOUTUBE_CLIP_SELECTION_RULE =
+  "Scegli un video quando il cambiamento nel tempo, la successione dei passaggi o il movimento contiene informazione didattica che una buona immagine statica non puo mostrare altrettanto bene. Per relazioni spaziali ferme, confronti di configurazioni o schemi leggibili a colpo d'occhio, preferisci una visuale statica.";
+
+export const YOUTUBE_CLIP_SELF_SUFFICIENCY_RULE =
+  'Ogni clip deve essere autosufficiente nel punto in cui appare: lo studente deve possedere gia i prerequisiti necessari e il testo vicino deve dire che cosa osservare. Non obbligarlo a guardare parti precedenti o successive del video per capire l intervallo.';
+
+export const YOUTUBE_CLIP_DEDUPLICATION_RULE =
+  'Non duplicare lo stesso intervallo e non conservare piu clip che mostrano materiale pedagogicamente equivalente. Piu clip, anche dallo stesso video, sono utili solo quando coprono passaggi realmente distinti di una sequenza o rispondono a domande didattiche diverse.';
+
+export const YOUTUBE_CLIP_GROUPING_RULE =
+  'Se le clip sono utili come consolidamento ma interromperebbero la spiegazione, raggruppale in un unico blocco `youtube-clips` dopo la conclusione del nucleo concettuale. Usalo come riepilogo visuale mirato, non come appendice generica o duplicazione automatica delle immagini.';
+
+export const YOUTUBE_CLIP_PEDAGOGY_RULES = [
+  YOUTUBE_CLIP_SELECTION_RULE,
+  YOUTUBE_CLIP_SELF_SUFFICIENCY_RULE,
+  YOUTUBE_CLIP_DEDUPLICATION_RULE,
+  YOUTUBE_CLIP_GROUPING_RULE,
+]
+  .map(rule => `- ${rule}`)
+  .join('\n');
 
 export const LESSON_SCOPE_RULES = [
   'Spiega solo il contenuto che appartiene davvero a questa lezione.',
