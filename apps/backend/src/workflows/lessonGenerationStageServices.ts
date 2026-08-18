@@ -2,12 +2,12 @@ import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import type { GenerateLessonLearningAidsInput } from '../services/lessonGenerationAids.js';
-import type { PrerequisiteCoverageDecision } from '../services/lessonGenerationCoverage.js';
 import {
   isLessonStructuredOutputError,
-  LessonGenerationCorrectionError,
   type LessonGenerationCorrection,
+  LessonGenerationCorrectionError,
 } from '../services/lessonGenerationCorrection.js';
+import type { PrerequisiteCoverageDecision } from '../services/lessonGenerationCoverage.js';
 import {
   buildLessonGenerationInput,
   buildLessonPedagogicalContext,
