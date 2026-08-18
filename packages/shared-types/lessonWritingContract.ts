@@ -3,6 +3,9 @@ export const FORMULA_RELEVANCE_RULE =
 
 export const LESSON_KATEX_FORMATTING_RULE = String.raw`Per le formule usa sintassi KaTeX coerente: $...$ o \(...\) inline, $$...$$ o \[...\] display; chiudi sempre delimitatori e graffe e abbina ogni ambiente LaTeX attivo \begin{...} al corrispondente \end{...}. Quando citi letteralmente comandi LaTeX come \begin{equation} o \end{equation} senza aprire davvero un ambiente matematico, rendili come codice inline Markdown cosi i validatori non li interpretano come struttura LaTeX attiva.`;
 
+export const LESSON_COVERAGE_DEPTH_RULE =
+  'Sviluppa in modo sostanziale i contenuti necessari per soddisfare titolo, descrizione e contesto didattico vincolante della lezione. Non limitarti a nominarli come in un outline: costruisci per ciascun nucleo richiesto una spiegazione sufficiente a comprenderne significato, passaggi e conseguenze rilevanti, senza espandere argomenti che appartengono a lezioni future.';
+
 export const LESSON_SELF_SUFFICIENCY_RULE =
   'La lezione deve funzionare senza il materiale originale aperto: integra nel testo tutto cio che serve per capire il passaggio corrente e rimuovi rimandi opachi a pagine, sezioni, figure o posizioni della fonte che richiederebbero di riaprirla.';
 
@@ -80,7 +83,7 @@ export const LESSON_STRUCTURED_SOURCE_COMPARISON_RULE =
   'Quando il materiale di riferimento presenta una tabella o un confronto strutturato rilevante, preservane la struttura con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in prosa confusa.';
 
 export const LESSON_CODE_FORMATTING_RULE =
-  'Per codice, pseudocodice, comandi e output usa un code block Markdown valido. La riga di apertura contiene soltanto il fence e, se serve, il nome del linguaggio; non lasciare frammenti tecnici o etichette di linguaggio nudi fuori dai fence e non trasformare prosa o formule in codice.';
+  'Usa code block Markdown per esempi standalone o multilinea di codice, pseudocodice, comandi e output. Per brevi identificatori, nomi di API, singoli comandi o frammenti citati dentro una frase usa codice inline quando serve a distinguerli dalla prosa. La riga di apertura di un code block contiene soltanto il fence e, se serve, il nome del linguaggio; non lasciare etichette di linguaggio nude fuori dai fence e non trasformare prosa o formule in codice.';
 
 export const LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE =
   'I blocchi markdown non devono contenere quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici, fonti strutturate, bibliografie o commenti di implementazione: usa i blocchi e i campi strutturati dedicati.';
@@ -93,6 +96,9 @@ export const LESSON_POSITIVE_DEFINITION_RULE =
 
 export const LESSON_HEADING_STRUCTURE_RULE =
   'Organizza il testo con heading chiari e usa soltanto le sezioni necessarie. Non ripetere il titolo della lezione come heading, non creare heading riempitivi o quasi duplicati e non imporre intestazioni inglesi o template rigidi quando la lingua della lezione offre titoli naturali.';
+
+export const LESSON_PRIMARY_SOURCE_INTEGRATION_RULE =
+  'Quando esiste materiale sorgente primario, integra nella lezione i suoi contenuti distintivi rilevanti per titolo, descrizione e obiettivo specifico — argomenti, definizioni, esempi, casi, confronti o passaggi tecnici — invece di sostituirli con una spiegazione generica ricavabile dal solo dossier di ricerca.';
 
 export const LESSON_SOURCE_PRECEDENCE_RULE =
   'Quando esiste materiale sorgente primario, conserva le sue convenzioni specifiche, definizioni locali, nomi, direzioni e scelte tecniche. Il dossier di ricerca e supplementare: puo colmare lacune, aggiornare fatti o chiarire passaggi, ma non deve sostituire una convenzione propria della fonte con un alternativa semplicemente diversa e valida, salvo che la fonte sia effettivamente errata.';
