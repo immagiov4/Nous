@@ -1,6 +1,9 @@
 export const FORMULA_RELEVANCE_RULE =
   'Usa formule matematiche solo quando sono naturali per la materia o quando il materiale originale le usa e sono necessarie per comprenderlo. Non trasformare concetti qualitativi, umanistici o discorsivi in equazioni inventate o decorative: se la formula non aggiunge precisione reale, spiega il concetto in prosa.';
 
+export const LESSON_SELF_SUFFICIENCY_RULE =
+  'La lezione deve funzionare senza il materiale originale aperto: integra nel testo tutto cio che serve per capire il passaggio corrente e rimuovi rimandi opachi a pagine, sezioni, figure o posizioni della fonte che richiederebbero di riaprirla.';
+
 export const LESSON_LOCAL_PROPEDEUTIC_RULES = [
   'Costruisci anche la singola lezione in ordine strettamente propedeutico: ogni passaggio deve richiedere soltanto concetti gia introdotti oppure spiegati nello stesso blocco locale, senza rimandarne il significato a sezioni successive.',
   'Quando introduci un nuovo concetto, domanda, tecnica o astrazione, rendi esplicito perche segue dal ragionamento precedente: chiarisci con un ponte conciso il bisogno, limite, conseguenza o passaggio intermedio che lo rende necessario. Se il nesso e gia esplicito, prosegui senza formule di transizione ripetitive; se non puoi motivarlo nel punto in cui compare, spostalo dove la sua motivazione appartiene naturalmente alla spiegazione.',
@@ -40,6 +43,7 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
 17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.
 18. NON usare intestazioni inglesi o template rigidi. Scegli solo sezioni con titoli naturali nella lingua della lezione. Niente scalette fisse o stampi ricorrenti: la struttura deve nascere dal contenuto.
+- ${LESSON_SELF_SUFFICIENCY_RULE}
 - ${LESSON_ASCII_VISUAL_RULE}
 - Usa casi reali o storici, contrasti, domande-problema e dettagli sorprendenti solo quando rendono visibile il concetto, ne motivano il bisogno o chiariscono una conseguenza. Non aggiungere curiosita decorative per rendere il testo apparentemente piu umano e non inventare ricordi, esperienze personali o autobiografia del docente/IA.
 - Quando insegni una procedura o un modello complesso a uno studente che il contesto indica come inesperto o in difficolta, privilegia una progressione guidata: mostra prima un esempio svolto o ragionato che esplicita i passaggi, poi varia il caso o chiedi di applicare il principio. Non costringere lo studente a scoprire da solo passaggi che non sono ancora stati insegnati.
