@@ -99,19 +99,30 @@ export const LessonResearchDossierSchema = z.object({
     .optional(),
 });
 
-export const LessonPdfImageMetadataSchema = z.object({
+const LessonPdfImageMetadataPrefixShape = {
   asset: ProjectAssetRefSchema,
   caption: z.string().optional(),
   id: LessonIdentifierSchema,
   intrinsicHeight: z.number().int().positive().optional(),
   intrinsicWidth: z.number().int().positive().optional(),
   pageNumber: z.number().int().positive().optional(),
-  sourceHash: Sha256HexSchema.optional(),
+};
+const LessonPdfImageMetadataSuffixShape = {
   sourceId: LessonIdentifierSchema.optional(),
   sourceOrder: z.number().int().nonnegative(),
   textAfter: z.string(),
   textBefore: z.string(),
   textCurrent: z.string().optional(),
+};
+
+export const LessonPdfImageMetadataSchema = z.object({
+  ...LessonPdfImageMetadataPrefixShape,
+  sourceHash: Sha256HexSchema.optional(),
+  ...LessonPdfImageMetadataSuffixShape,
+});
+export const PreviousLessonPdfImageMetadataSchema = z.object({
+  ...LessonPdfImageMetadataPrefixShape,
+  ...LessonPdfImageMetadataSuffixShape,
 });
 
 const LessonImageCandidateSchema = z.object({

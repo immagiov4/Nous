@@ -919,6 +919,58 @@ describe('durable lesson document stage', () => {
     expect(JSON.stringify(output)).not.toContain('data:image');
   });
 
+  test('prefers fresh versioned extraction over anonymous legacy metadata', async () => {
+    const currentSourceHash = 'b'.repeat(64);
+    const legacyProject = withStoredPdfSourceVersion(project, currentSourceHash);
+    legacyProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [{ ...extractedImage, caption: 'Legacy caption', id: 'legacy-image' }],
+    };
+    const legacyInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(legacyProject, 'lesson-1'),
+    });
+    const stage = vi.fn().mockResolvedValue(storedAsset);
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      captionImage: vi.fn().mockResolvedValue('Fresh caption'),
+      extractImages: vi.fn().mockResolvedValue({
+        assets: [
+          {
+            ...extractedImage,
+            id: 'fresh-image',
+            sourceHash: currentSourceHash,
+            sourceId: 'stable-source',
+          },
+        ],
+        warnings: [],
+      }),
+      loadProject: vi.fn().mockResolvedValue(legacyProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'legacy-refresh-key',
+      input: legacyInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(stage).toHaveBeenCalledOnce();
+    expect(output.pdfImages).toEqual([
+      expect.objectContaining({
+        caption: 'Fresh caption',
+        id: 'fresh-image',
+        sourceHash: currentSourceHash,
+        sourceId: 'stable-source',
+      }),
+    ]);
+  });
+
   test('reuses checkpointed extraction, captions and staged assets on retry', async () => {
     const captionImage = vi.fn().mockResolvedValue('Schema dei messaggi');
     const extractImages = vi.fn().mockResolvedValue({ assets: [extractedImage], warnings: [] });

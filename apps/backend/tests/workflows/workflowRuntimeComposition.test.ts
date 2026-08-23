@@ -6,6 +6,7 @@ import type { CourseGenerationApi } from '../../src/workflows/courseGenerationAp
 import type { CourseInterviewApi } from '../../src/workflows/courseInterviewApi.js';
 import { COURSE_INTERVIEW_WORKFLOW_ID } from '../../src/workflows/courseInterviewWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
+import { LESSON_GENERATION_WORKFLOW_ID } from '../../src/workflows/lessonGenerationStart.js';
 import type { LessonVisualRetryStarter } from '../../src/workflows/lessonVisualRetryStart.js';
 import type { WorkflowOutboxClaim } from '../../src/workflows/postgresWorkflowOutboxStore.js';
 import { COURSE_PROJECT_REVISION_EVENT } from '../../src/workflows/projectRevisionNotifications.js';
@@ -24,6 +25,8 @@ import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflow
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
 
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
+const PRE_PDF_SOURCE_HASH_LESSON_DEFINITION =
+  'ec69547055bd7c687c7d6cec929bb6e6395ed5ec5957674a7c52dcd1a718c378';
 const productionRegistry = createProductionRegistry();
 
 const createStore = (): WorkflowRuntimeCompositionStore => ({
@@ -75,6 +78,15 @@ describe('workflow runtime production composition', () => {
     const precedingHash = hashPreExternalEffectWorkflowManifest(current.manifest);
 
     expect(productionRegistry.resolve(COURSE_INTERVIEW_WORKFLOW_ID, precedingHash)).not.toBeNull();
+  });
+
+  test('resumes lesson workflows created before PDF image source hashes became durable', () => {
+    expect(
+      productionRegistry.resolve(
+        LESSON_GENERATION_WORKFLOW_ID,
+        PRE_PDF_SOURCE_HASH_LESSON_DEFINITION
+      )
+    ).not.toBeNull();
   });
 
   test('accepts supported revision events through the durable recipient boundary', async () => {

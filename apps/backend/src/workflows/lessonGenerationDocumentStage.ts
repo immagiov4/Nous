@@ -381,13 +381,20 @@ export const createLessonDocumentSourceStage =
       ),
     ];
     const currentSourceHashes = readCurrentProjectSourceHashes(project);
-    const availableById = new Map(
-      durable
-        .filter(image => belongsToCurrentSourceVersion(image, currentSourceHashes))
-        .map(image => [image.id, image])
+    const freshVersionedByteKeys = new Set(
+      staged.flatMap(image =>
+        image.sourceId && image.sourceHash
+          ? [buildPdfImageByteKey(image.asset.hash, image.asset.mediaType)]
+          : []
+      )
     );
+    const isAvailable = (image: LessonPdfImageMetadata): boolean =>
+      belongsToCurrentSourceVersion(image, currentSourceHashes) &&
+      (Boolean(image.sourceId) ||
+        !freshVersionedByteKeys.has(buildPdfImageByteKey(image.asset.hash, image.asset.mediaType)));
+    const availableById = new Map(durable.filter(isAvailable).map(image => [image.id, image]));
     for (const image of staged) {
-      if (!belongsToCurrentSourceVersion(image, currentSourceHashes)) continue;
+      if (!isAvailable(image)) continue;
       availableById.set(image.id, image);
     }
     const available = selectSectionPdfImages([...availableById.values()], project, section);

@@ -138,7 +138,7 @@ To maintain consistency as code evolves, the engine validates workflow definitio
 
 ### Definition Hashing
 
-Workflow definitions are hashed using SHA-256. This hash is stored with the run to ensure that a resumed workflow uses the exact same logic it started with. The engine supports different hash modes to handle backward compatibility during rolling deployments.
+Workflow definitions are hashed using SHA-256. The run stores this hash and resumes only against the matching registered definition. Hash modes cover older manifest formats. Contract changes need the previous schema set as a separate registered definition. The lesson workflow keeps its pre-`sourceHash` durable schemas registered so runs started before that deployment can finish with their original definition hash. Sources: [apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts](../../../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts), [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowContract.ts)
 
 | Hash Mode | Purpose |
 | --- | --- |

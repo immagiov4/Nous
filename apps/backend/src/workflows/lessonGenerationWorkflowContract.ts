@@ -18,6 +18,7 @@ import {
   LessonResultBlockSchema,
   LessonVisualPlanningDecisionSchema,
   LessonYouTubePlanningSchema,
+  PreviousLessonPdfImageMetadataSchema,
   ProjectLessonVisualSchema,
   ResearchSourceSchema,
   YouTubeResearchOutcomeSchema,
@@ -91,80 +92,6 @@ const LessonAssetOwnerSchema = z.object({
   nodeInstanceId: LessonIdentifierSchema,
 });
 
-export const LessonSourcesStateSchema = LessonCoverageStateSchema.extend({
-  documentAssetOwners: z.array(LessonAssetOwnerSchema),
-  pdfImages: z.array(LessonPdfImageMetadataSchema),
-  stage: z.literal('sources'),
-});
-
-export const LessonYouTubePlanStateSchema = LessonSourcesStateSchema.extend({
-  stage: z.literal('youtube-plan'),
-  youtubeSearchPlan: z
-    .object({
-      fallbackQuery: z.string(),
-      focusConcept: z.string(),
-      specificQuery: z.string(),
-    })
-    .nullable(),
-});
-
-export const LessonYouTubeSearchStateSchema = LessonYouTubePlanStateSchema.extend({
-  stage: z.literal('youtube-search'),
-  youtubeSearchOutcome: YouTubeResearchOutcomeSchema.nullable(),
-});
-
-export const LessonYouTubeStateSchema = LessonSourcesStateSchema.extend({
-  discoveredYoutubeSources: z.array(ResearchSourceSchema),
-  research: z.object({
-    context: z.string(),
-    youtube: YouTubeResearchOutcomeSchema.nullable(),
-  }),
-  stage: z.literal('youtube'),
-});
-
-export const LessonResearchStateSchema = LessonYouTubeStateSchema.extend({
-  lessonSources: z.array(ResearchSourceSchema),
-  research: z.object({
-    context: z.string(),
-    summary: LessonResearchSummarySchema.nullable(),
-    youtube: YouTubeResearchOutcomeSchema.nullable(),
-  }),
-  stage: z.literal('research'),
-});
-
-export const LessonDraftStateSchema = LessonResearchStateSchema.extend({
-  draft: LessonContentDraftSchema,
-  stage: z.literal('draft'),
-});
-
-export const LessonReviewedStateSchema = z.object({
-  documentAssetOwners: z.array(LessonAssetOwnerSchema),
-  documentSourceHash: z.string().length(64).nullable(),
-  draft: LessonContentDraftSchema,
-  existingDossierJson: z.string().nullable(),
-  lessonInputData: LessonGenerationInputDataSchema.pick({
-    description: true,
-    imageCandidates: true,
-    sectionTitle: true,
-  }),
-  lessonSources: z.array(ResearchSourceSchema),
-  pdfImages: z.array(LessonPdfImageMetadataSchema),
-  request: LessonGenerationRequestSchema,
-  research: z.object({
-    summary: LessonResearchSummarySchema.nullable(),
-    youtube: YouTubeResearchOutcomeSchema.nullable(),
-  }),
-  sourceFingerprint: z.string().length(64),
-  stage: z.literal('review'),
-  targetFingerprint: z.string().length(64),
-  warnings: z.array(LessonGenerationWarningSchema),
-});
-
-export const LessonAidsStateSchema = LessonReviewedStateSchema.extend({
-  learningAids: z.array(LessonLearningAidSchema),
-  stage: z.literal('aids'),
-});
-
 const StepFailureBaseShape = {
   code: LessonIdentifierSchema,
   message: LessonIdentifierSchema,
@@ -195,68 +122,184 @@ const LessonVisualFanOutResultSchema = z.discriminatedUnion('status', [
   }),
 ]);
 
-export const LessonVisualFanOutStateSchema = z.object({
-  lesson: LessonAidsStateSchema,
-  stage: z.literal('visual-results'),
-  visualResults: z.array(LessonVisualFanOutResultSchema),
+const createLessonGenerationDurableSchemaSet = (
+  pdfImageMetadataSchema: typeof LessonPdfImageMetadataSchema,
+  documentAssetsSchema: typeof LessonDocumentAssetsSchema
+) => {
+  const LessonSourcesStateSchema = LessonCoverageStateSchema.extend({
+    documentAssetOwners: z.array(LessonAssetOwnerSchema),
+    pdfImages: z.array(pdfImageMetadataSchema),
+    stage: z.literal('sources'),
+  });
+  const LessonYouTubePlanStateSchema = LessonSourcesStateSchema.extend({
+    stage: z.literal('youtube-plan'),
+    youtubeSearchPlan: z
+      .object({
+        fallbackQuery: z.string(),
+        focusConcept: z.string(),
+        specificQuery: z.string(),
+      })
+      .nullable(),
+  });
+  const LessonYouTubeSearchStateSchema = LessonYouTubePlanStateSchema.extend({
+    stage: z.literal('youtube-search'),
+    youtubeSearchOutcome: YouTubeResearchOutcomeSchema.nullable(),
+  });
+  const LessonYouTubeStateSchema = LessonSourcesStateSchema.extend({
+    discoveredYoutubeSources: z.array(ResearchSourceSchema),
+    research: z.object({
+      context: z.string(),
+      youtube: YouTubeResearchOutcomeSchema.nullable(),
+    }),
+    stage: z.literal('youtube'),
+  });
+  const LessonResearchStateSchema = LessonYouTubeStateSchema.extend({
+    lessonSources: z.array(ResearchSourceSchema),
+    research: z.object({
+      context: z.string(),
+      summary: LessonResearchSummarySchema.nullable(),
+      youtube: YouTubeResearchOutcomeSchema.nullable(),
+    }),
+    stage: z.literal('research'),
+  });
+  const LessonDraftStateSchema = LessonResearchStateSchema.extend({
+    draft: LessonContentDraftSchema,
+    stage: z.literal('draft'),
+  });
+  const LessonReviewedStateSchema = z.object({
+    documentAssetOwners: z.array(LessonAssetOwnerSchema),
+    documentSourceHash: z.string().length(64).nullable(),
+    draft: LessonContentDraftSchema,
+    existingDossierJson: z.string().nullable(),
+    lessonInputData: LessonGenerationInputDataSchema.pick({
+      description: true,
+      imageCandidates: true,
+      sectionTitle: true,
+    }),
+    lessonSources: z.array(ResearchSourceSchema),
+    pdfImages: z.array(pdfImageMetadataSchema),
+    request: LessonGenerationRequestSchema,
+    research: z.object({
+      summary: LessonResearchSummarySchema.nullable(),
+      youtube: YouTubeResearchOutcomeSchema.nullable(),
+    }),
+    sourceFingerprint: z.string().length(64),
+    stage: z.literal('review'),
+    targetFingerprint: z.string().length(64),
+    warnings: z.array(LessonGenerationWarningSchema),
+  });
+  const LessonAidsStateSchema = LessonReviewedStateSchema.extend({
+    learningAids: z.array(LessonLearningAidSchema),
+    stage: z.literal('aids'),
+  });
+  const LessonVisualFanOutStateSchema = z.object({
+    lesson: LessonAidsStateSchema,
+    stage: z.literal('visual-results'),
+    visualResults: z.array(LessonVisualFanOutResultSchema),
+  });
+  const LessonVisualsStateSchema = LessonAidsStateSchema.extend({
+    content: LessonIdentifierSchema,
+    contentBlocks: z.array(LessonResultBlockSchema),
+    documentAssets: documentAssetsSchema.nullable(),
+    generatedVisuals: z.array(ProjectLessonVisualSchema),
+    imageRefs: z.array(LessonPdfImageReferenceSchema),
+    quiz: z.array(LessonQuizSchema),
+    stage: z.literal('visuals'),
+    visualAssetOwners: z.array(LessonAssetOwnerSchema),
+    visualPlanningDecision: LessonVisualPlanningDecisionSchema,
+  });
+  const LessonGenerationWorkflowResultSchema = z.object({
+    alreadyCompleted: z.boolean().optional(),
+    content: LessonIdentifierSchema,
+    contentBlocks: z.array(LessonResultBlockSchema),
+    documentAssets: documentAssetsSchema.nullable().optional(),
+    generatedVisuals: z.array(ProjectLessonVisualSchema),
+    imageRefs: z.array(LessonPdfImageReferenceSchema),
+    learningAids: z.array(LessonLearningAidSchema),
+    projectId: LessonIdentifierSchema,
+    projectRevision: z.number().int().nonnegative().optional(),
+    quiz: z.array(LessonQuizSchema),
+    researchDossier: LessonResearchDossierSchema.optional(),
+    sectionId: LessonIdentifierSchema,
+    visualPlanningDecision: LessonVisualPlanningDecisionSchema.optional(),
+    warnings: z.array(LessonGenerationWarningSchema),
+  });
+  const LessonGenerationPreparationOutcomeSchema = z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('already-completed'),
+      result: LessonGenerationWorkflowResultSchema,
+    }),
+    z.object({
+      kind: z.literal('generate'),
+      state: LessonContextStateSchema,
+    }),
+  ]);
+  const PersistedLessonGenerationResultSchema = LessonGenerationWorkflowResultSchema.extend({
+    researchDossier: LessonResearchDossierSchema,
+  });
+  const LessonPersistenceStateSchema = z.object({
+    committedTargetFingerprint: z.string().length(64),
+    persistedAt: z.string().min(1),
+    previous: z.object({
+      documentAssetsJson: z.string().nullable(),
+      researchDossierJson: z.string().nullable(),
+      sectionJson: z.string(),
+    }),
+    result: PersistedLessonGenerationResultSchema,
+    stage: z.literal('persistence'),
+    userId: LessonIdentifierSchema,
+  });
+
+  return {
+    LessonAidsStateSchema,
+    LessonDraftStateSchema,
+    LessonGenerationPreparationOutcomeSchema,
+    LessonGenerationWorkflowResultSchema,
+    LessonPersistenceStateSchema,
+    LessonResearchStateSchema,
+    LessonReviewedStateSchema,
+    LessonSourcesStateSchema,
+    LessonVisualFanOutStateSchema,
+    LessonVisualsStateSchema,
+    LessonYouTubePlanStateSchema,
+    LessonYouTubeSearchStateSchema,
+    LessonYouTubeStateSchema,
+  };
+};
+
+export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet(
+  LessonPdfImageMetadataSchema,
+  LessonDocumentAssetsSchema
+);
+
+export const {
+  LessonAidsStateSchema,
+  LessonDraftStateSchema,
+  LessonGenerationPreparationOutcomeSchema,
+  LessonGenerationWorkflowResultSchema,
+  LessonPersistenceStateSchema,
+  LessonResearchStateSchema,
+  LessonReviewedStateSchema,
+  LessonSourcesStateSchema,
+  LessonVisualFanOutStateSchema,
+  LessonVisualsStateSchema,
+  LessonYouTubePlanStateSchema,
+  LessonYouTubeSearchStateSchema,
+  LessonYouTubeStateSchema,
+} = CurrentLessonGenerationDurableSchemaSet;
+
+const PreviousLessonDocumentAssetsSchema = LessonDocumentAssetsSchema.extend({
+  usedImages: z.array(
+    PreviousLessonPdfImageMetadataSchema as unknown as typeof LessonPdfImageMetadataSchema
+  ),
 });
 
-export const LessonVisualsStateSchema = LessonAidsStateSchema.extend({
-  content: LessonIdentifierSchema,
-  contentBlocks: z.array(LessonResultBlockSchema),
-  documentAssets: LessonDocumentAssetsSchema.nullable(),
-  generatedVisuals: z.array(ProjectLessonVisualSchema),
-  imageRefs: z.array(LessonPdfImageReferenceSchema),
-  quiz: z.array(LessonQuizSchema),
-  stage: z.literal('visuals'),
-  visualAssetOwners: z.array(LessonAssetOwnerSchema),
-  visualPlanningDecision: LessonVisualPlanningDecisionSchema,
-});
+export const PreviousLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet(
+  PreviousLessonPdfImageMetadataSchema as unknown as typeof LessonPdfImageMetadataSchema,
+  PreviousLessonDocumentAssetsSchema
+);
 
-export const LessonGenerationWorkflowResultSchema = z.object({
-  alreadyCompleted: z.boolean().optional(),
-  content: LessonIdentifierSchema,
-  contentBlocks: z.array(LessonResultBlockSchema),
-  documentAssets: LessonDocumentAssetsSchema.nullable().optional(),
-  generatedVisuals: z.array(ProjectLessonVisualSchema),
-  imageRefs: z.array(LessonPdfImageReferenceSchema),
-  learningAids: z.array(LessonLearningAidSchema),
-  projectId: LessonIdentifierSchema,
-  projectRevision: z.number().int().nonnegative().optional(),
-  quiz: z.array(LessonQuizSchema),
-  researchDossier: LessonResearchDossierSchema.optional(),
-  sectionId: LessonIdentifierSchema,
-  visualPlanningDecision: LessonVisualPlanningDecisionSchema.optional(),
-  warnings: z.array(LessonGenerationWarningSchema),
-});
-
-export const LessonGenerationPreparationOutcomeSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('already-completed'),
-    result: LessonGenerationWorkflowResultSchema,
-  }),
-  z.object({
-    kind: z.literal('generate'),
-    state: LessonContextStateSchema,
-  }),
-]);
-
-const PersistedLessonGenerationResultSchema = LessonGenerationWorkflowResultSchema.extend({
-  researchDossier: LessonResearchDossierSchema,
-});
-
-export const LessonPersistenceStateSchema = z.object({
-  committedTargetFingerprint: z.string().length(64),
-  persistedAt: z.string().min(1),
-  previous: z.object({
-    documentAssetsJson: z.string().nullable(),
-    researchDossierJson: z.string().nullable(),
-    sectionJson: z.string(),
-  }),
-  result: PersistedLessonGenerationResultSchema,
-  stage: z.literal('persistence'),
-  userId: LessonIdentifierSchema,
-});
+export type LessonGenerationDurableSchemaSet = typeof CurrentLessonGenerationDurableSchemaSet;
 
 export type LessonDraftState = z.infer<typeof LessonDraftStateSchema>;
 export type LessonAidsState = z.infer<typeof LessonAidsStateSchema>;
