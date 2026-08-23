@@ -18,6 +18,7 @@ import {
 } from '@shared/youtubeTranscript';
 import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
+import { buildSha256HexDigest } from '../utils/hash.js';
 import { isRecord } from '../utils/validation.js';
 import type { ExtractedPdfImage, extractPdfImages } from './pdfImageExtractor.js';
 import { isPdfProjectSourceFile, readProjectSourceText } from './projectSourceText.js';
@@ -608,7 +609,7 @@ const toPdfImageAsset = (
   sourceId: string
 ): LessonPdfImageAsset => ({
   dataUrl: image.dataUrl,
-  id: `pdf-img-${image.hash.slice(0, 24)}`,
+  id: `pdf-img-${buildSha256HexDigest(Buffer.from(JSON.stringify([sourceId, image.hash])))}`,
   intrinsicHeight: image.intrinsicHeight,
   intrinsicWidth: image.intrinsicWidth,
   mimeType: image.mimeType,
@@ -644,6 +645,7 @@ export const extractStoredPdfImageAssets = async ({
   const singleSourcePartialPages =
     storedSources.length === 1 ? readMappedPdfPages(project, section) : undefined;
   const assets: LessonPdfImageAsset[] = [];
+  const assetIds = new Set<string>();
   const warnings: LessonWorkflowWarning[] = [];
   const extractionFailures: unknown[] = [];
   let successfulSourceCount = 0;
@@ -667,12 +669,12 @@ export const extractStoredPdfImageAssets = async ({
           stage: 'sources' as const,
         }))
       );
-      const uniqueImages = extraction.images.filter(
-        image => !assets.some(candidate => candidate.id === `pdf-img-${image.hash.slice(0, 24)}`)
-      );
-      uniqueImages.forEach(image => {
-        assets.push(toPdfImageAsset(image, assets.length + 1, source.id));
-      });
+      for (const image of extraction.images) {
+        const asset = toPdfImageAsset(image, assets.length + 1, source.id);
+        if (assetIds.has(asset.id)) continue;
+        assetIds.add(asset.id);
+        assets.push(asset);
+      }
     } catch (error) {
       if (signal.aborted) throw error;
       extractionFailures.push(error);

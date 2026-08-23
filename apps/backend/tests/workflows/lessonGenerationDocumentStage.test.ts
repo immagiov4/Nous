@@ -8,6 +8,7 @@ import {
   type LessonPdfImageAsset,
 } from '../../src/services/lessonGenerationSources.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
+import { buildSha256HexDigest } from '../../src/utils/hash.js';
 import { snapshotImmutableJson } from '../../src/workflows/jsonSnapshot.js';
 import {
   buildLessonGenerationSourceFingerprint,
@@ -199,7 +200,7 @@ describe('durable lesson document stage', () => {
     expect(images).toEqual({
       assets: [
         expect.objectContaining({
-          id: 'pdf-img-1234567890abcdef12345678',
+          id: expect.stringMatching(/^pdf-img-[a-f0-9]{64}$/u),
           pageNumber: 3,
         }),
       ],
@@ -300,9 +301,23 @@ describe('durable lesson document stage', () => {
     const detachedProject = await store.loadProject('user-1', 'project-1');
     const section = detachedProject?.learningPlan?.modules?.[0]?.children?.[0];
     if (!detachedProject || !section) throw new Error('Missing multi-source PDF fixture.');
-    const extractImages = vi.fn().mockResolvedValue({ failedPages: [], images: [] });
+    const extractImages = vi.fn().mockResolvedValue({
+      failedPages: [],
+      images: [
+        {
+          dataUrl: extractedImage.dataUrl,
+          hash: '1234567890abcdef1234567890abcdef',
+          id: 'raw-image',
+          mimeType: 'image/png',
+          pageNumber: 3,
+          sizeBytes: 5,
+          textAfter: extractedImage.textAfter,
+          textBefore: extractedImage.textBefore,
+        },
+      ],
+    });
 
-    await extractStoredPdfImageAssets({
+    const images = await extractStoredPdfImageAssets({
       extractImages,
       project: detachedProject,
       section,
@@ -325,6 +340,11 @@ describe('durable lesson document stage', () => {
       [8],
       expect.any(AbortSignal)
     );
+    expect(images.assets).toEqual([
+      expect.objectContaining({ sourceId: 'source-a' }),
+      expect.objectContaining({ sourceId: 'source-b' }),
+    ]);
+    expect(new Set(images.assets.map(image => image.id)).size).toBe(2);
   });
 
   test('rejects when every stored PDF source fails image extraction', async () => {
@@ -394,7 +414,12 @@ describe('durable lesson document stage', () => {
 
     expect(stage).toHaveBeenCalledWith({
       bytes: new Uint8Array(Buffer.from('image')),
-      idempotencyKey: JSON.stringify(['lesson-pdf-image', 'stage-documents-key', 'pdf-img-1']),
+      idempotencyKey: JSON.stringify([
+        'lesson-pdf-image',
+        'stage-documents-key',
+        buildSha256HexDigest(Buffer.from('image')),
+        'image/png',
+      ]),
       mediaType: 'image/png',
       nodeInstanceId: 'root/stage-document-sources',
       projectId: 'project-1',
@@ -424,6 +449,163 @@ describe('durable lesson document stage', () => {
     expect(JSON.stringify(output)).not.toContain('data:image');
     expect(providerEffect.keys).toEqual(['extract-images']);
     expect(JSON.stringify([...providerEffect.results.values()])).not.toContain('data:image');
+  });
+
+  test('reuses durable bytes without losing a second source association', async () => {
+    const multiSourceProject = structuredClone(project);
+    const lesson = multiSourceProject.learningPlan?.modules?.[0]?.children?.[0];
+    if (!lesson) throw new Error('Missing test lesson.');
+    lesson.sourceReferences = [{ sourceId: 'source-b' }];
+    multiSourceProject.source = {
+      kind: 'document',
+      sources: [{ id: 'source-a' }, { id: 'source-b' }],
+    };
+    const imageAsset = {
+      ...storedAsset,
+      hash: buildSha256HexDigest(Buffer.from('image')),
+    };
+    multiSourceProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [
+        {
+          asset: imageAsset,
+          id: 'pdf-img-existing-source-a',
+          pageNumber: 4,
+          sourceId: 'source-a',
+          sourceOrder: 1,
+          textAfter: '',
+          textBefore: '',
+        },
+      ],
+    };
+    const scopedInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(multiSourceProject, 'lesson-1'),
+    });
+    const stage = vi.fn().mockResolvedValue(imageAsset);
+    const captionImage = vi.fn().mockResolvedValue('Immagine della fonte B');
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      captionImage,
+      extractImages: vi.fn().mockResolvedValue({
+        assets: [
+          {
+            ...extractedImage,
+            id: 'pdf-img-source-b',
+            sourceId: 'source-b',
+          },
+        ],
+        warnings: [],
+      }),
+      loadProject: vi.fn().mockResolvedValue(multiSourceProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'reuse-key',
+      input: scopedInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(stage).not.toHaveBeenCalled();
+    expect(captionImage).toHaveBeenCalledOnce();
+    expect(output.pdfImages).toEqual([
+      expect.objectContaining({
+        asset: imageAsset,
+        id: 'pdf-img-source-b',
+        sourceId: 'source-b',
+      }),
+    ]);
+    expect(output.documentAssetOwners).toEqual([]);
+  });
+
+  test('stages shared bytes once while keeping metadata for both sources', async () => {
+    const stage = vi.fn().mockResolvedValue(storedAsset);
+    const captionImage = vi.fn().mockResolvedValue('Immagine condivisa');
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      captionImage,
+      extractImages: vi.fn().mockResolvedValue({
+        assets: ['source-a', 'source-b'].map((sourceId, index) => ({
+          ...extractedImage,
+          id: `pdf-img-${sourceId}`,
+          sourceId,
+          sourceOrder: index + 1,
+        })),
+        warnings: [],
+      }),
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'shared-bytes-key',
+      input,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(stage).toHaveBeenCalledOnce();
+    expect(captionImage).toHaveBeenCalledTimes(2);
+    expect(output.pdfImages.map(image => image.sourceId)).toEqual(['source-a', 'source-b']);
+    expect(output.documentAssetOwners).toEqual([
+      { assetIds: [storedAsset.id], nodeInstanceId: 'stage' },
+    ]);
+  });
+
+  test('finishes one document source before captioning the next', async () => {
+    let releaseSourceA: (() => void) | undefined;
+    const sourceAReleased = new Promise<void>(resolve => {
+      releaseSourceA = resolve;
+    });
+    const startedSources: Array<string | undefined> = [];
+    const captionImage = vi
+      .fn()
+      .mockImplementation(async ({ image }: { image: LessonPdfImageAsset }) => {
+        startedSources.push(image.sourceId);
+        if (image.sourceId === 'source-a') await sourceAReleased;
+        return `Caption ${image.sourceId}`;
+      });
+    const extracted = ['source-a', 'source-b'].flatMap((sourceId, sourceIndex) =>
+      [0, 1].map(imageIndex => ({
+        ...extractedImage,
+        dataUrl: `data:image/png;base64,${Buffer.from(`${sourceId}-${imageIndex}`).toString('base64')}`,
+        id: `pdf-img-${sourceId}-${imageIndex}`,
+        sourceId,
+        sourceOrder: sourceIndex * 2 + imageIndex + 1,
+      }))
+    );
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn().mockResolvedValue(storedAsset) },
+      captionImage,
+      extractImages: vi.fn().mockResolvedValue({ assets: extracted, warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+
+    const output = run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'caption-order-key',
+      input,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    await vi.waitFor(() => expect(startedSources.length).toBeGreaterThanOrEqual(2));
+    expect(startedSources).toEqual(['source-a', 'source-a']);
+    releaseSourceA?.();
+    await expect(output).resolves.toMatchObject({ stage: 'sources' });
+    expect(startedSources).toEqual(['source-a', 'source-a', 'source-b', 'source-b']);
   });
 
   test('rejects a result prepared from stale source authority before extracting images', async () => {
