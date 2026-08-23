@@ -238,7 +238,7 @@ export class LessonSourceUnavailableError extends Error {
   }
 }
 
-const readAuthoritativePrimarySourceId = (project: ProjectSnapshot): string => {
+export const readAuthoritativePrimarySourceId = (project: ProjectSnapshot): string => {
   if (!isRecord(project.source)) return '';
   const refId =
     isRecord(project.source.ref) && typeof project.source.ref.id === 'string'

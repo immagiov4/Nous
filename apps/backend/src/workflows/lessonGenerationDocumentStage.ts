@@ -9,6 +9,7 @@ import type {
   LessonPdfImageExtractionOutcome,
 } from '../services/lessonGenerationSources.js';
 import {
+  readAuthoritativePrimarySourceId,
   readExistingPdfImageAssets,
   readMappedPdfPages,
   readSectionSourceIds,
@@ -295,13 +296,9 @@ const readCurrentProjectSourceAuthority = (
       if (isRecord(source)) addHash(source.id, source.hash);
     }
   }
-  if (isRecord(project.source.ref)) {
-    let primarySourceId: unknown = project.source.ref.id;
-    if (typeof primarySourceId !== 'string' && isRecord(project.source.file)) {
-      primarySourceId = project.source.file.sourceId;
-    }
-    addHash(primarySourceId, project.source.ref.hash);
-  }
+  const primarySourceId = readAuthoritativePrimarySourceId(project);
+  const primarySourceHash = isRecord(project.source.ref) ? project.source.ref.hash : undefined;
+  addHash(primarySourceId, primarySourceHash);
   return { hashes, sourceIds };
 };
 

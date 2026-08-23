@@ -953,6 +953,58 @@ describe('durable lesson document stage', () => {
     expect(output.lessonInputData.imageCandidates).toEqual([]);
   });
 
+  test('uses a file-only source ID as authority for anonymous metadata', async () => {
+    const fileOnlyProject = structuredClone(project);
+    fileOnlyProject.source = {
+      file: {
+        data: '',
+        mimeType: 'application/pdf',
+        name: 'stable-source.pdf',
+        sourceId: 'stable-source',
+      },
+      kind: 'pdf',
+    };
+    fileOnlyProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [
+        {
+          asset: storedAsset,
+          caption: 'Removed anonymous caption',
+          id: 'pdf-img-file-only-old-source',
+          pageNumber: 2,
+          sourceOrder: 1,
+          textAfter: 'Removed after',
+          textBefore: 'Removed before',
+        },
+      ],
+    };
+    const fileOnlyInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(fileOnlyProject, 'lesson-1'),
+    });
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn() },
+      captionImage: vi.fn(),
+      extractImages: vi.fn().mockResolvedValue({ assets: [], warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(fileOnlyProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'file-only-authority-key',
+      input: fileOnlyInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(output.pdfImages).toEqual([]);
+    expect(output.lessonInputData.imageCandidates).toEqual([]);
+  });
+
   test('finishes one document source before captioning the next', async () => {
     let releaseSourceA: (() => void) | undefined;
     const sourceAReleased = new Promise<void>(resolve => {
