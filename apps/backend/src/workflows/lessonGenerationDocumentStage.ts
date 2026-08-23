@@ -260,11 +260,20 @@ const selectSectionPdfImages = (
   );
 };
 
-const readCurrentProjectSourceHashes = (project: ProjectSnapshot): Map<string, string> => {
+interface CurrentProjectSourceAuthority {
+  readonly hashes: ReadonlyMap<string, string>;
+  readonly sourceIds: ReadonlySet<string>;
+}
+
+const readCurrentProjectSourceAuthority = (
+  project: ProjectSnapshot
+): CurrentProjectSourceAuthority => {
   const hashes = new Map<string, string>();
-  if (!isRecord(project.source)) return hashes;
+  const sourceIds = new Set<string>();
+  if (!isRecord(project.source)) return { hashes, sourceIds };
   const addHash = (sourceId: unknown, sourceHash: unknown) => {
     if (typeof sourceId !== 'string' || !sourceId.trim()) return;
+    sourceIds.add(sourceId);
     const parsed = Sha256HexSchema.safeParse(sourceHash);
     if (parsed.success) hashes.set(sourceId, parsed.data);
   };
@@ -280,15 +289,16 @@ const readCurrentProjectSourceHashes = (project: ProjectSnapshot): Map<string, s
     }
     addHash(primarySourceId, project.source.ref.hash);
   }
-  return hashes;
+  return { hashes, sourceIds };
 };
 
 const belongsToCurrentSourceVersion = (
   image: LessonPdfImageMetadata,
-  currentSourceHashes: ReadonlyMap<string, string>
+  authority: CurrentProjectSourceAuthority
 ): boolean => {
   if (!image.sourceId) return true;
-  const currentSourceHash = currentSourceHashes.get(image.sourceId);
+  if (authority.sourceIds.size > 0 && !authority.sourceIds.has(image.sourceId)) return false;
+  const currentSourceHash = authority.hashes.get(image.sourceId);
   return !currentSourceHash || image.sourceHash === currentSourceHash;
 };
 
@@ -380,7 +390,7 @@ export const createLessonDocumentSourceStage =
         staged.map(image => image.asset.id).filter(assetId => !durableAssetIds.has(assetId))
       ),
     ];
-    const currentSourceHashes = readCurrentProjectSourceHashes(project);
+    const currentSourceAuthority = readCurrentProjectSourceAuthority(project);
     const freshVersionedByteKeys = new Set(
       staged.flatMap(image =>
         image.sourceId && image.sourceHash
@@ -389,7 +399,7 @@ export const createLessonDocumentSourceStage =
       )
     );
     const isAvailable = (image: LessonPdfImageMetadata): boolean =>
-      belongsToCurrentSourceVersion(image, currentSourceHashes) &&
+      belongsToCurrentSourceVersion(image, currentSourceAuthority) &&
       (Boolean(image.sourceId) ||
         !freshVersionedByteKeys.has(buildPdfImageByteKey(image.asset.hash, image.asset.mediaType)));
     const availableById = new Map(durable.filter(isAvailable).map(image => [image.id, image]));

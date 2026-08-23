@@ -793,6 +793,50 @@ describe('durable lesson document stage', () => {
     expect(output.lessonInputData.imageCandidates).toEqual([]);
   });
 
+  test('excludes legacy filename associations outside current source authority', async () => {
+    const revisedProject = withStoredPdfSourceVersion(project, 'b'.repeat(64));
+    revisedProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [
+        {
+          asset: storedAsset,
+          caption: 'Removed legacy caption',
+          id: 'pdf-img-legacy-filename',
+          pageNumber: 2,
+          sourceId: 'stable-source.pdf',
+          sourceOrder: 1,
+          textAfter: 'Removed after',
+          textBefore: 'Removed before',
+        },
+      ],
+    };
+    const revisedInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(revisedProject, 'lesson-1'),
+    });
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn() },
+      captionImage: vi.fn(),
+      extractImages: vi.fn().mockResolvedValue({ assets: [], warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(revisedProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'legacy-filename-image-key',
+      input: revisedInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(output.pdfImages).toEqual([]);
+    expect(output.lessonInputData.imageCandidates).toEqual([]);
+  });
+
   test('finishes one document source before captioning the next', async () => {
     let releaseSourceA: (() => void) | undefined;
     const sourceAReleased = new Promise<void>(resolve => {
