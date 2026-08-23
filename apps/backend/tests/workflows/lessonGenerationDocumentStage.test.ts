@@ -908,6 +908,51 @@ describe('durable lesson document stage', () => {
     expect(output.lessonInputData.imageCandidates).toEqual([]);
   });
 
+  test('excludes anonymous durable metadata after an authoritative source replacement', async () => {
+    const revisedProject = withStoredPdfSourceVersion(project, 'b'.repeat(64));
+    revisedProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [
+        {
+          asset: storedAsset,
+          caption: 'Removed anonymous caption',
+          id: 'pdf-img-anonymous-old-source',
+          pageNumber: 2,
+          sourceOrder: 1,
+          textAfter: 'Removed after',
+          textBefore: 'Removed before',
+        },
+      ],
+    };
+    const revisedInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(revisedProject, 'lesson-1'),
+    });
+    const stage = vi.fn();
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      captionImage: vi.fn(),
+      extractImages: vi.fn().mockResolvedValue({ assets: [], warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(revisedProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'anonymous-replaced-image-key',
+      input: revisedInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(stage).not.toHaveBeenCalled();
+    expect(output.pdfImages).toEqual([]);
+    expect(output.lessonInputData.imageCandidates).toEqual([]);
+  });
+
   test('finishes one document source before captioning the next', async () => {
     let releaseSourceA: (() => void) | undefined;
     const sourceAReleased = new Promise<void>(resolve => {

@@ -291,10 +291,10 @@ const readCurrentProjectSourceAuthority = (
 };
 
 const belongsToCurrentSourceVersion = (
-  image: LessonPdfImageMetadata,
+  image: Pick<LessonPdfImageMetadata, 'sourceHash' | 'sourceId'>,
   authority: CurrentProjectSourceAuthority
 ): boolean => {
-  if (!image.sourceId) return true;
+  if (!image.sourceId) return authority.sourceIds.size === 0;
   if (authority.sourceIds.size > 0 && !authority.sourceIds.has(image.sourceId)) return false;
   const currentSourceHash = authority.hashes.get(image.sourceId);
   return !currentSourceHash || image.sourceHash === currentSourceHash;
@@ -329,10 +329,14 @@ export const createLessonDocumentSourceStage =
       });
     }
 
+    const currentSourceAuthority = readCurrentProjectSourceAuthority(project);
     const durable = readDurablePdfImages(project);
     const durableIds = new Set(durable.map(image => image.id));
     const durableAssetIds = new Set(durable.map(image => image.asset.id));
-    const legacy = readExistingPdfImageAssets(project).filter(image => !durableIds.has(image.id));
+    const legacy = readExistingPdfImageAssets(project).filter(
+      image =>
+        !durableIds.has(image.id) && belongsToCurrentSourceVersion(image, currentSourceAuthority)
+    );
     if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
     const extraction = await context.providerEffect.run({
       key: 'extract-images-assets-v2',
@@ -384,7 +388,6 @@ export const createLessonDocumentSourceStage =
         staged.map(image => image.asset.id).filter(assetId => !durableAssetIds.has(assetId))
       ),
     ];
-    const currentSourceAuthority = readCurrentProjectSourceAuthority(project);
     const freshVersionedByteKeys = new Set(
       staged.flatMap(image =>
         image.sourceId && image.sourceHash
