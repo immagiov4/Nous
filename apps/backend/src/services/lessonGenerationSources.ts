@@ -16,7 +16,6 @@ import {
   parseYouTubeTranscript,
   type YouTubeTranscript,
 } from '@shared/youtubeTranscript';
-import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
@@ -79,12 +78,6 @@ export interface LessonImageCandidate {
   textCurrent?: string;
   visibleLabel: string;
 }
-
-type CaptionPdfImage = (
-  image: ExtractedPdfImage,
-  config: GlobalModelConfig,
-  signal: AbortSignal
-) => Promise<string | null>;
 
 const PDF_ASSET_SESSION_TIMEOUT_MS = 90_000;
 
@@ -612,10 +605,8 @@ export const readMappedPdfPages = (
 const toPdfImageAsset = (
   image: ExtractedPdfImage,
   sourceOrder: number,
-  caption: string | null,
   sourceId: string
 ): LessonPdfImageAsset => ({
-  ...(caption ? { caption } : {}),
   dataUrl: image.dataUrl,
   id: `pdf-img-${image.hash.slice(0, 24)}`,
   intrinsicHeight: image.intrinsicHeight,
@@ -631,8 +622,6 @@ const toPdfImageAsset = (
 });
 
 export const extractStoredPdfImageAssets = async ({
-  captionImage,
-  config,
   extractImages,
   project,
   section,
@@ -640,8 +629,6 @@ export const extractStoredPdfImageAssets = async ({
   store,
   userId,
 }: {
-  captionImage: CaptionPdfImage;
-  config: GlobalModelConfig;
   extractImages: typeof extractPdfImages;
   project: ProjectSnapshot;
   section: Record<string, unknown>;
@@ -683,23 +670,8 @@ export const extractStoredPdfImageAssets = async ({
       const uniqueImages = extraction.images.filter(
         image => !assets.some(candidate => candidate.id === `pdf-img-${image.hash.slice(0, 24)}`)
       );
-      const captions = await Promise.all(
-        uniqueImages.map(async image => {
-          try {
-            return await captionImage(image, config, signal);
-          } catch (error) {
-            if (signal.aborted) throw error;
-            console.warn('[Lesson workflow] Optional PDF image caption failed.', {
-              error,
-              pageNumber: image.pageNumber,
-              projectId: project.id,
-            });
-            return null;
-          }
-        })
-      );
-      uniqueImages.forEach((image, index) => {
-        assets.push(toPdfImageAsset(image, assets.length + 1, captions[index] || null, source.id));
+      uniqueImages.forEach(image => {
+        assets.push(toPdfImageAsset(image, assets.length + 1, source.id));
       });
     } catch (error) {
       if (signal.aborted) throw error;

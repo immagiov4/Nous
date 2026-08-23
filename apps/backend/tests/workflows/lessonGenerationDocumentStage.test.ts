@@ -8,6 +8,7 @@ import {
   type LessonPdfImageAsset,
 } from '../../src/services/lessonGenerationSources.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
+import { snapshotImmutableJson } from '../../src/workflows/jsonSnapshot.js';
 import {
   buildLessonGenerationSourceFingerprint,
   buildLessonGenerationTargetFingerprint,
@@ -80,7 +81,6 @@ const input = LessonCoverageStateSchema.parse({
 });
 
 const extractedImage: LessonPdfImageAsset = {
-  caption: 'Schema dei messaggi',
   dataUrl: 'data:image/png;base64,aW1hZ2U=',
   id: 'pdf-img-1',
   intrinsicHeight: 600,
@@ -102,6 +102,22 @@ const storedAsset: ProjectAssetRef = {
 
 const immediateProviderEffect: WorkflowProviderEffectExecutor = {
   run: async ({ operation, outputSchema }) => outputSchema.parse(await operation()),
+};
+
+const createMemoryProviderEffect = () => {
+  const results = new Map<string, unknown>();
+  const keys: string[] = [];
+  const executor: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      keys.push(key);
+      const existing = results.get(key);
+      if (existing !== undefined) return outputSchema.parse(existing);
+      const output = snapshotImmutableJson(outputSchema.parse(await operation()));
+      results.set(key, output);
+      return outputSchema.parse(output);
+    },
+  };
+  return { executor, keys, results };
 };
 
 describe('durable lesson document stage', () => {
@@ -166,8 +182,6 @@ describe('durable lesson document stage', () => {
     });
 
     const images = await extractStoredPdfImageAssets({
-      captionImage: vi.fn().mockResolvedValue('Schema dei messaggi'),
-      config: modelConfig,
       extractImages,
       project: detachedProject,
       section,
@@ -185,7 +199,6 @@ describe('durable lesson document stage', () => {
     expect(images).toEqual({
       assets: [
         expect.objectContaining({
-          caption: 'Schema dei messaggi',
           id: 'pdf-img-1234567890abcdef12345678',
           pageNumber: 3,
         }),
@@ -290,8 +303,6 @@ describe('durable lesson document stage', () => {
     const extractImages = vi.fn().mockResolvedValue({ failedPages: [], images: [] });
 
     await extractStoredPdfImageAssets({
-      captionImage: vi.fn(),
-      config: modelConfig,
       extractImages,
       project: detachedProject,
       section,
@@ -334,8 +345,6 @@ describe('durable lesson document stage', () => {
     if (!detachedProject || !section) throw new Error('Missing detached PDF fixture.');
 
     const failure = await extractStoredPdfImageAssets({
-      captionImage: vi.fn(),
-      config: modelConfig,
       extractImages: vi.fn().mockRejectedValue(new Error('parser unavailable')),
       project: detachedProject,
       section,
@@ -351,9 +360,12 @@ describe('durable lesson document stage', () => {
   });
 
   test('stages PDF bytes and checkpoints only durable metadata', async () => {
+    const captionImage = vi.fn().mockResolvedValue('Schema dei messaggi');
     const stage = vi.fn().mockResolvedValue(storedAsset);
+    const providerEffect = createMemoryProviderEffect();
     const run = createLessonDocumentSourceStage({
       assets: { stage },
+      captionImage,
       extractImages: vi.fn().mockResolvedValue({
         assets: [extractedImage],
         warnings: [
@@ -375,11 +387,7 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'root/stage-document-sources', runId: 'run-1' },
       idempotencyKey: 'stage-documents-key',
       input,
-      providerEffect: {
-        run: () => {
-          throw new Error('hotfix must not checkpoint extracted data URLs');
-        },
-      },
+      providerEffect: providerEffect.executor,
       retryFeedback: '',
       signal,
     });
@@ -394,6 +402,7 @@ describe('durable lesson document stage', () => {
       signal,
       userId: 'user-1',
     });
+    expect(captionImage).toHaveBeenCalledOnce();
     expect(output.pdfImages).toEqual([
       expect.objectContaining({ asset: storedAsset, id: 'pdf-img-1', pageNumber: 4 }),
     ]);
@@ -413,6 +422,8 @@ describe('durable lesson document stage', () => {
     ]);
     expect(JSON.stringify(output)).not.toContain('aW1hZ2U=');
     expect(JSON.stringify(output)).not.toContain('data:image');
+    expect(providerEffect.keys).toEqual(['extract-images']);
+    expect(JSON.stringify([...providerEffect.results.values()])).not.toContain('data:image');
   });
 
   test('rejects a result prepared from stale source authority before extracting images', async () => {
@@ -421,6 +432,7 @@ describe('durable lesson document stage', () => {
     const extractImages = vi.fn();
     const run = createLessonDocumentSourceStage({
       assets: { stage: vi.fn() },
+      captionImage: vi.fn().mockResolvedValue(null),
       extractImages,
       loadProject: vi.fn().mockResolvedValue(changedProject),
     });
@@ -449,7 +461,7 @@ describe('durable lesson document stage', () => {
     legacyProject.documentAssets = {
       imageCount: 1,
       kind: 'pdf',
-      usedImages: [extractedImage],
+      usedImages: [{ ...extractedImage, caption: 'Schema dei messaggi' }],
     };
     const legacyInput = LessonCoverageStateSchema.parse({
       ...input,
@@ -458,6 +470,7 @@ describe('durable lesson document stage', () => {
     const stage = vi.fn().mockResolvedValue(storedAsset);
     const run = createLessonDocumentSourceStage({
       assets: { stage },
+      captionImage: vi.fn().mockResolvedValue(null),
       extractImages: vi.fn().mockResolvedValue({ assets: [], warnings: [] }),
       loadProject: vi.fn().mockResolvedValue(legacyProject),
     });
@@ -483,21 +496,14 @@ describe('durable lesson document stage', () => {
     expect(JSON.stringify(output)).not.toContain('data:image');
   });
 
-  test('repeats extraction when asset staging is retried during the hotfix', async () => {
+  test('reuses checkpointed extraction, captions and staged assets on retry', async () => {
+    const captionImage = vi.fn().mockResolvedValue('Schema dei messaggi');
     const extractImages = vi.fn().mockResolvedValue({ assets: [extractedImage], warnings: [] });
-    const stage = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('asset storage unavailable'))
-      .mockResolvedValueOnce(storedAsset);
-    let persistedExtraction: unknown;
-    const providerEffect: WorkflowProviderEffectExecutor = {
-      run: async ({ operation, outputSchema }) => {
-        persistedExtraction ??= outputSchema.parse(await operation());
-        return outputSchema.parse(persistedExtraction);
-      },
-    };
+    const stage = vi.fn().mockResolvedValue(storedAsset);
+    const providerEffect = createMemoryProviderEffect();
     const run = createLessonDocumentSourceStage({
       assets: { stage },
+      captionImage,
       extractImages,
       loadProject: vi.fn().mockResolvedValue(project),
     });
@@ -507,18 +513,20 @@ describe('durable lesson document stage', () => {
       execution: { nodeInstanceId: 'stage', runId: 'run-1' },
       idempotencyKey: 'retry-key',
       input,
-      providerEffect,
+      providerEffect: providerEffect.executor,
       retryFeedback: '',
       signal: new AbortController().signal,
     };
 
-    await expect(run(context)).rejects.toThrow('asset storage unavailable');
+    await expect(run(context)).resolves.toMatchObject({ stage: 'sources' });
     await expect(run({ ...context, attemptNumber: 2 })).resolves.toMatchObject({
       stage: 'sources',
     });
 
-    expect(extractImages).toHaveBeenCalledTimes(2);
-    expect(stage).toHaveBeenCalledTimes(2);
+    expect(extractImages).toHaveBeenCalledOnce();
+    expect(captionImage).toHaveBeenCalledOnce();
+    expect(stage).toHaveBeenCalledOnce();
+    expect(providerEffect.keys).toEqual(['extract-images', 'extract-images']);
   });
 
   test('ranks PDF images against mapped pages from their own source', async () => {
@@ -596,6 +604,7 @@ describe('durable lesson document stage', () => {
     });
     const run = createLessonDocumentSourceStage({
       assets: { stage: vi.fn() },
+      captionImage: vi.fn().mockResolvedValue(null),
       extractImages: vi.fn().mockResolvedValue({ assets: [], warnings: [] }),
       loadProject: vi.fn().mockResolvedValue(multiSourceProject),
     });
@@ -670,6 +679,7 @@ describe('durable lesson document stage', () => {
     });
     const run = createLessonDocumentSourceStage({
       assets: { stage: vi.fn() },
+      captionImage: vi.fn().mockResolvedValue(null),
       extractImages: vi.fn().mockResolvedValue({ assets: [], warnings: [] }),
       loadProject: vi.fn().mockResolvedValue(multiSourceProject),
     });

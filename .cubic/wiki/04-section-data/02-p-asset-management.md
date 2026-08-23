@@ -29,6 +29,8 @@ Assets in the system transition through several states to ensure that only conte
 ### Staging and Adoption
 When an AI workflow generates an image or document, it is uploaded to storage and recorded in the `project_assets` table with a `staged` state. This process is idempotent, keyed by an `idempotencyKey` and `workflowRunId`. If a project is saved and includes references to these assets, they are "adopted" (moved to an `active` state). Assets that are never adopted or belong to failed workflow runs are eventually queued for deletion.
 
+PDF lesson generation follows the same path. The document stage uploads extracted image bytes before it records the provider effect result. Workflow checkpoints and project snapshots retain the `ProjectAssetRef` and image metadata, not the data URL.
+
 Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:5-40](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L5-L40), [apps/backend/src/projects/projectAssetReconciliation.ts:10-30](../../../apps/backend/src/projects/projectAssetReconciliation.ts#L10-L30)
 
 ```mermaid

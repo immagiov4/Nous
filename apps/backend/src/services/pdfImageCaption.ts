@@ -8,12 +8,19 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import type { ExtractedPdfImage } from './pdfImageExtractor.js';
+
+interface PdfImageCaptionInput {
+  dataUrl: string;
+  pageNumber?: number;
+  textAfter?: string;
+  textBefore?: string;
+  textCurrent?: string;
+}
 
 const OPENROUTER_PDF_IMAGE_CAPTION_MODEL =
   process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
 
-const buildCaptionPrompt = (image: ExtractedPdfImage): string => {
+const buildCaptionPrompt = (image: PdfImageCaptionInput): string => {
   const context = [
     image.textBefore ? `Text immediately above the image:\n${image.textBefore.trim()}` : '',
     image.textCurrent ? `Text aligned with the image area:\n${image.textCurrent.trim()}` : '',
@@ -43,7 +50,7 @@ const resolveCaptionModel = (config: GlobalModelConfig): string => {
 };
 
 export const captionPdfImage = async (
-  image: ExtractedPdfImage,
+  image: PdfImageCaptionInput,
   config: GlobalModelConfig,
   signal: AbortSignal
 ): Promise<string | null> => {

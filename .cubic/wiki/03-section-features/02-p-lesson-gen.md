@@ -15,6 +15,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
 - [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
 - [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts)
+- [apps/backend/src/workflows/lessonGenerationDocumentStage.ts](../../../apps/backend/src/workflows/lessonGenerationDocumentStage.ts)
+- [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
 </details>
 
 # Lesson Generation Pipeline
@@ -67,6 +69,8 @@ The system assesses the primary source material for coverage gaps. If the lesson
 *  **YouTube Research:** A branching path that plans specific and fallback queries to find timestamped transcripts.
 *  **Research Dossier:** The `generateResearchSummary` service creates a dense factual dossier, including controversies and recent developments, which serves as the "source of truth" for the LLM during drafting.
 Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts:258-360](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts#L258-L360), [apps/backend/src/services/lessonGenerationModel.ts:311-336](../../../apps/backend/src/services/lessonGenerationModel.ts#L311-L336)
+
+For stored PDFs, `stage-document-sources` keeps extracted data URLs local to one provider effect operation. It stages each image in project asset storage, computes the optional caption, and returns only `ProjectAssetRef` values and textual metadata. The provider effect records that durable result, so a workflow retry does not repeat PDF extraction, asset staging, or caption generation. Sources: [apps/backend/src/workflows/lessonGenerationDocumentStage.ts](../../../apps/backend/src/workflows/lessonGenerationDocumentStage.ts), [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
 
 ### 3. Content Drafting and Review
 The `draftLesson` stage uses the `Professor Nous` system prompt to generate the lesson body. This process is governed by a complex writing contract.

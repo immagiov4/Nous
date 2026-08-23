@@ -13,6 +13,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/workflows/validation.ts](../../../apps/backend/src/workflows/validation.ts)
 - [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts)
 - [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts)
+- [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts)
+- [apps/backend/src/workflows/jsonSnapshot.ts](../../../apps/backend/src/workflows/jsonSnapshot.ts)
 </details>
 
 # Postgres Workflow Engine
@@ -125,6 +127,10 @@ Sources: [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integratio
 The engine heavily utilizes PostgreSQL transactions and advisory locks. `pg_advisory_xact_lock` is used to prevent concurrent run creation for the same `userId` and `requestKey`.
 
 Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:488-498](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L488-L498)
+
+### Provider effect results
+
+Provider effects record an external provider result before the step continues. The runner validates the result with the effect schema and then takes an immutable JSON snapshot. Durable snapshots reject data URLs and binary objects. A provider operation that produces an image must therefore stage the bytes in object storage before it returns, and return only the asset reference and JSON metadata. A retry reads the recorded provider result instead of repeating the completed extraction or model call. Sources: [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts), [apps/backend/src/workflows/jsonSnapshot.ts](../../../apps/backend/src/workflows/jsonSnapshot.ts)
 
 ## Workflow Integrity and Validation
 

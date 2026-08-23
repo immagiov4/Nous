@@ -29,6 +29,10 @@ import { failPermanently } from './retryPolicy.js';
 
 interface LessonDocumentSourceStageDependencies {
   readonly assets: Pick<ProjectAssetWriter, 'stage'>;
+  readonly captionImage: (input: {
+    context: LessonGenerationStageContext<LessonCoverageState>;
+    image: LessonPdfImageAsset;
+  }) => Promise<string | null>;
   readonly extractImages: (input: {
     context: LessonGenerationStageContext<LessonCoverageState>;
     project: ProjectSnapshot;
@@ -58,6 +62,11 @@ const LessonPdfImageExtractionOutcomeSchema = z.object({
   warnings: z.array(LessonGenerationWarningSchema),
 });
 
+const DurableLessonPdfImageExtractionOutcomeSchema = z.object({
+  assets: z.array(LessonPdfImageMetadataSchema),
+  warnings: z.array(LessonGenerationWarningSchema),
+});
+
 const readDurablePdfImages = (project: ProjectSnapshot): LessonPdfImageMetadata[] => {
   if (!isRecord(project.documentAssets) || !Array.isArray(project.documentAssets.usedImages)) {
     return [];
@@ -76,12 +85,12 @@ const decodeImageDataUrl = (image: LessonPdfImageAsset): Uint8Array => {
   return bytes;
 };
 
-const stagePdfImage = async (
+const stagePdfImageBytes = (
   image: LessonPdfImageAsset,
   context: LessonGenerationStageContext<LessonCoverageState>,
   assets: Pick<ProjectAssetWriter, 'stage'>
-): Promise<LessonPdfImageMetadata> => {
-  const asset = await assets.stage({
+): Promise<LessonPdfImageMetadata['asset']> =>
+  assets.stage({
     bytes: decodeImageDataUrl(image),
     idempotencyKey: JSON.stringify(['lesson-pdf-image', context.idempotencyKey, image.id]),
     mediaType: image.mimeType,
@@ -91,19 +100,50 @@ const stagePdfImage = async (
     signal: context.signal,
     userId: context.input.request.userId,
   });
-  return {
-    asset,
-    ...(image.caption ? { caption: image.caption } : {}),
-    id: image.id,
-    ...(image.intrinsicHeight ? { intrinsicHeight: image.intrinsicHeight } : {}),
-    ...(image.intrinsicWidth ? { intrinsicWidth: image.intrinsicWidth } : {}),
-    ...(image.pageNumber ? { pageNumber: image.pageNumber } : {}),
-    ...(image.sourceId ? { sourceId: image.sourceId } : {}),
-    sourceOrder: image.sourceOrder,
-    textAfter: image.textAfter,
-    textBefore: image.textBefore,
-    ...(image.textCurrent ? { textCurrent: image.textCurrent } : {}),
-  };
+
+const toPdfImageMetadata = (
+  image: LessonPdfImageAsset,
+  asset: LessonPdfImageMetadata['asset'],
+  caption: string | null = image.caption || null
+): LessonPdfImageMetadata => ({
+  asset,
+  ...(caption ? { caption } : {}),
+  id: image.id,
+  ...(image.intrinsicHeight ? { intrinsicHeight: image.intrinsicHeight } : {}),
+  ...(image.intrinsicWidth ? { intrinsicWidth: image.intrinsicWidth } : {}),
+  ...(image.pageNumber ? { pageNumber: image.pageNumber } : {}),
+  ...(image.sourceId ? { sourceId: image.sourceId } : {}),
+  sourceOrder: image.sourceOrder,
+  textAfter: image.textAfter,
+  textBefore: image.textBefore,
+  ...(image.textCurrent ? { textCurrent: image.textCurrent } : {}),
+});
+
+const stageLegacyPdfImage = async (
+  image: LessonPdfImageAsset,
+  context: LessonGenerationStageContext<LessonCoverageState>,
+  assets: Pick<ProjectAssetWriter, 'stage'>
+): Promise<LessonPdfImageMetadata> =>
+  toPdfImageMetadata(image, await stagePdfImageBytes(image, context, assets));
+
+const stageExtractedPdfImage = async (
+  image: LessonPdfImageAsset,
+  context: LessonGenerationStageContext<LessonCoverageState>,
+  dependencies: Pick<LessonDocumentSourceStageDependencies, 'assets' | 'captionImage'>
+): Promise<LessonPdfImageMetadata> => {
+  const asset = await stagePdfImageBytes(image, context, dependencies.assets);
+  let caption: string | null = null;
+  try {
+    caption = await dependencies.captionImage({ context, image });
+  } catch (error) {
+    if (context.signal.aborted) throw error;
+    console.warn('[Lesson workflow] Optional PDF image caption failed.', {
+      error,
+      pageNumber: image.pageNumber,
+      projectId: context.input.request.projectId,
+    });
+  }
+  return toPdfImageMetadata(image, asset, caption);
 };
 
 const toImageCandidate = (
@@ -143,12 +183,12 @@ const selectSectionPdfImages = (
 };
 
 export const createLessonDocumentSourceStage =
-  ({ assets, extractImages, loadProject }: LessonDocumentSourceStageDependencies) =>
+  (dependencies: LessonDocumentSourceStageDependencies) =>
   async (
     context: LessonGenerationStageContext<LessonCoverageState>
   ): Promise<LessonSourcesState> => {
     const { projectId, sectionId, userId } = context.input.request;
-    const project = await loadProject(userId, projectId);
+    const project = await dependencies.loadProject(userId, projectId);
     if (!project) {
       throw failPermanently({
         code: 'lesson_project_missing',
@@ -171,16 +211,34 @@ export const createLessonDocumentSourceStage =
       });
     }
 
-    // Extraction returns transient data URLs, so it cannot be durably checkpointed before bytes are staged as assets.
-    const extraction = LessonPdfImageExtractionOutcomeSchema.parse(
-      await extractImages({ context, project, section })
-    );
     const durable = readDurablePdfImages(project);
     const durableIds = new Set(durable.map(image => image.id));
     const legacy = readExistingPdfImageAssets(project).filter(image => !durableIds.has(image.id));
-    const staged = await Promise.all(
-      [...legacy, ...extraction.assets].map(image => stagePdfImage(image, context, assets))
-    );
+    const legacyIds = new Set(legacy.map(image => image.id));
+    if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
+    const extraction = await context.providerEffect.run({
+      key: 'extract-images',
+      operation: async () => {
+        const transient = LessonPdfImageExtractionOutcomeSchema.parse(
+          await dependencies.extractImages({ context, project, section })
+        );
+        const extracted = transient.assets.filter(
+          image => !durableIds.has(image.id) && !legacyIds.has(image.id)
+        );
+        const [stagedLegacy, stagedExtracted] = await Promise.all([
+          Promise.all(
+            legacy.map(image => stageLegacyPdfImage(image, context, dependencies.assets))
+          ),
+          Promise.all(extracted.map(image => stageExtractedPdfImage(image, context, dependencies))),
+        ]);
+        return {
+          assets: [...stagedLegacy, ...stagedExtracted],
+          warnings: transient.warnings,
+        };
+      },
+      outputSchema: DurableLessonPdfImageExtractionOutcomeSchema,
+    });
+    const staged = extraction.assets;
     const availableById = new Map([...durable, ...staged].map(image => [image.id, image]));
     const available = selectSectionPdfImages([...availableById.values()], project, section);
     const sourceIds = new Set(available.flatMap(image => (image.sourceId ? [image.sourceId] : [])));
