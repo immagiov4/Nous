@@ -362,9 +362,10 @@ export const createLessonDocumentSourceStage =
           metadataByAssociation,
           reusableAssetsByByteKey,
         };
-        const stagedLegacy = await Promise.all(
-          legacy.map(image => stageLegacyPdfImage(image, stageState))
-        );
+        const stagedLegacy: LessonPdfImageMetadata[] = [];
+        for (const image of legacy) {
+          stagedLegacy.push(await stageLegacyPdfImage(image, stageState));
+        }
         const stagedExtracted = await stageExtractedPdfImages(extracted, stageState);
         return {
           assets: [...stagedLegacy, ...stagedExtracted],

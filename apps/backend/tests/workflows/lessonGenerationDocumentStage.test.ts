@@ -870,12 +870,20 @@ describe('durable lesson document stage', () => {
     expect(extractImages).not.toHaveBeenCalled();
   });
 
-  test('converts legacy PDF images to durable assets when extraction returns nothing', async () => {
+  test('converts legacy PDF images and stages repeated bytes once', async () => {
     const legacyProject = structuredClone(project);
     legacyProject.documentAssets = {
-      imageCount: 1,
+      imageCount: 2,
       kind: 'pdf',
-      usedImages: [{ ...extractedImage, caption: 'Schema dei messaggi' }],
+      usedImages: [
+        {
+          ...extractedImage,
+          caption: 'Schema dei messaggi',
+          id: 'legacy-image-a',
+          sourceId: 'source-a',
+        },
+        { ...extractedImage, id: 'legacy-image-b', sourceId: 'source-b', sourceOrder: 2 },
+      ],
     };
     const legacyInput = LessonCoverageStateSchema.parse({
       ...input,
@@ -902,10 +910,11 @@ describe('durable lesson document stage', () => {
 
     expect(stage).toHaveBeenCalledOnce();
     expect(output.pdfImages).toEqual([
-      expect.objectContaining({ asset: storedAsset, id: 'pdf-img-1' }),
+      expect.objectContaining({ asset: storedAsset, id: 'legacy-image-a' }),
+      expect.objectContaining({ asset: storedAsset, id: 'legacy-image-b' }),
     ]);
     expect(output.lessonInputData.imageCandidates).toEqual([
-      expect.objectContaining({ id: 'pdf-img-1' }),
+      expect.objectContaining({ id: 'legacy-image-a' }),
     ]);
     expect(JSON.stringify(output)).not.toContain('data:image');
   });
