@@ -238,10 +238,23 @@ export class LessonSourceUnavailableError extends Error {
   }
 }
 
+const readAuthoritativePrimarySourceId = (project: ProjectSnapshot): string => {
+  if (!isRecord(project.source)) return '';
+  const refId =
+    isRecord(project.source.ref) && typeof project.source.ref.id === 'string'
+      ? project.source.ref.id.trim()
+      : '';
+  if (refId) return refId;
+  return isRecord(project.source.file) && typeof project.source.file.sourceId === 'string'
+    ? project.source.file.sourceId.trim()
+    : '';
+};
+
 const loadStoredSourceCandidates = async (
   store: ProjectStore,
   userId: string,
-  projectId: string
+  projectId: string,
+  fallbackSourceId = ''
 ): Promise<StoredSourceCandidate[]> => {
   const storedSources = await store.loadProjectSources(userId, projectId);
   if (storedSources.length) {
@@ -257,7 +270,7 @@ const loadStoredSourceCandidates = async (
         {
           file: primarySource,
           hash: buildSha256HexDigest(Buffer.from(primarySource.data, 'base64')),
-          id: primarySource.sourceId || primarySource.name,
+          id: primarySource.sourceId || fallbackSourceId || primarySource.name,
         },
       ]
     : [];
@@ -485,13 +498,7 @@ export const readOriginalSourceNames = (
     isRecord(project.source.file) && typeof project.source.file.name === 'string'
       ? project.source.file.name.trim()
       : '';
-  const primarySourceId =
-    (isRecord(project.source.ref) && typeof project.source.ref.id === 'string'
-      ? project.source.ref.id.trim()
-      : '') ||
-    (isRecord(project.source.file) && typeof project.source.file.sourceId === 'string'
-      ? project.source.file.sourceId.trim()
-      : '');
+  const primarySourceId = readAuthoritativePrimarySourceId(project);
   const archiveName =
     project.source.kind === 'archive' && typeof project.source.name === 'string'
       ? project.source.name.trim()
@@ -658,7 +665,12 @@ export const extractStoredPdfImageAssets = async ({
 }): Promise<LessonPdfImageExtractionOutcome> => {
   if (project.sourceKind !== 'document') return { assets: [], warnings: [] };
   const storedSources = filterReferencedStoredSources(
-    await loadStoredSourceCandidates(store, userId, project.id),
+    await loadStoredSourceCandidates(
+      store,
+      userId,
+      project.id,
+      readAuthoritativePrimarySourceId(project)
+    ),
     section
   ).filter(candidate => isPdfProjectSourceFile(candidate.file));
   const singleSourcePartialPages =

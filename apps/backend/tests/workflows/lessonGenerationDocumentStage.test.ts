@@ -243,6 +243,9 @@ describe('durable lesson document stage', () => {
           id: expect.stringMatching(/^pdf-img-[a-f0-9]{64}$/u),
           pageNumber: 3,
           sourceHash: buildSha256HexDigest(Buffer.from('pdf bytes for the durable workflow test')),
+          sourceId: `source-${buildSha256HexDigest(
+            Buffer.from('pdf bytes for the durable workflow test')
+          ).slice(0, 24)}`,
         }),
       ],
       warnings: [
