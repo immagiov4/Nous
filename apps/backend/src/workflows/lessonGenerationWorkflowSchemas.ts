@@ -4,6 +4,7 @@ import type { ProjectAssetRef, ProjectLessonVisual } from '@shared/projectAsset'
 import * as z from 'zod';
 
 const SHA256_HEX_LENGTH = 64;
+export const Sha256HexSchema = z.string().length(SHA256_HEX_LENGTH);
 export const LessonIdentifierSchema = z.string().min(1);
 const TimestampSchema = z.string().min(1);
 
@@ -18,8 +19,8 @@ const YouTubeTranscriptSegmentSchema = TranscriptRangeSchema.extend({
 
 export const ProjectAssetRefSchema: z.ZodType<ProjectAssetRef> = z.object({
   byteSize: z.number().int().nonnegative(),
-  hash: z.string().length(SHA256_HEX_LENGTH),
-  id: z.string().length(SHA256_HEX_LENGTH),
+  hash: Sha256HexSchema,
+  id: Sha256HexSchema,
   mediaType: LessonIdentifierSchema,
 });
 
@@ -105,6 +106,7 @@ export const LessonPdfImageMetadataSchema = z.object({
   intrinsicHeight: z.number().int().positive().optional(),
   intrinsicWidth: z.number().int().positive().optional(),
   pageNumber: z.number().int().positive().optional(),
+  sourceHash: Sha256HexSchema.optional(),
   sourceId: LessonIdentifierSchema.optional(),
   sourceOrder: z.number().int().nonnegative(),
   textAfter: z.string(),
@@ -285,7 +287,7 @@ export const LessonDocumentAssetsSchema = z.object({
   imageCount: z.number().int().nonnegative(),
   kind: z.literal('pdf'),
   parsedAt: TimestampSchema,
-  sourceHash: z.string().length(SHA256_HEX_LENGTH).optional(),
+  sourceHash: Sha256HexSchema.optional(),
   usedImages: z.array(LessonPdfImageMetadataSchema),
 });
 

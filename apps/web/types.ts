@@ -427,6 +427,8 @@ export interface PdfImageAsset {
   textAfter: string;
   sourceOrder: number;
   pageNumber?: number;
+  sourceHash?: string;
+  sourceId?: string;
 }
 
 export type PdfDocumentImageAsset = PdfImageAsset | ProjectDocumentImageAsset;

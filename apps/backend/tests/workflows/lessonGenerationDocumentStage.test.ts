@@ -202,6 +202,7 @@ describe('durable lesson document stage', () => {
         expect.objectContaining({
           id: expect.stringMatching(/^pdf-img-[a-f0-9]{64}$/u),
           pageNumber: 3,
+          sourceHash: buildSha256HexDigest(Buffer.from('pdf bytes for the durable workflow test')),
         }),
       ],
       warnings: [
@@ -212,6 +213,70 @@ describe('durable lesson document stage', () => {
         }),
       ],
     });
+  });
+
+  test('versions image metadata when a stored source is replaced', async () => {
+    const extractVersion = async (sourceBytes: string) => {
+      const store = new InMemoryProjectStore();
+      const file = {
+        data: Buffer.from(sourceBytes).toString('base64'),
+        mimeType: 'application/pdf',
+        name: 'stable-source.pdf',
+      };
+      await store.saveProject('user-1', {
+        ...project,
+        source: {
+          file,
+          kind: 'pdf',
+          sources: [
+            {
+              file,
+              hash: 'placeholder',
+              id: 'stable-source',
+              kind: 'pdf',
+              name: file.name,
+              outline: [],
+              outlineOrigin: 'none',
+              position: 0,
+              status: 'ready',
+            },
+          ],
+        },
+      });
+      const detachedProject = await store.loadProject('user-1', 'project-1');
+      const section = detachedProject?.learningPlan?.modules?.[0]?.children?.[0];
+      if (!detachedProject || !section) throw new Error('Missing revised source fixture.');
+      return extractStoredPdfImageAssets({
+        extractImages: vi.fn().mockResolvedValue({
+          failedPages: [],
+          images: [
+            {
+              dataUrl: extractedImage.dataUrl,
+              hash: 'same-image-hash',
+              id: 'raw-image',
+              mimeType: 'image/png',
+              pageNumber: 3,
+              sizeBytes: 5,
+              textAfter: extractedImage.textAfter,
+              textBefore: extractedImage.textBefore,
+            },
+          ],
+        }),
+        project: detachedProject,
+        section,
+        signal: new AbortController().signal,
+        store,
+        userId: 'user-1',
+      });
+    };
+
+    const original = await extractVersion('original PDF bytes');
+    const revised = await extractVersion('revised PDF bytes');
+
+    expect(original.assets[0]?.sourceId).toBe('stable-source');
+    expect(revised.assets[0]?.sourceId).toBe('stable-source');
+    expect(original.assets[0]?.sourceHash).not.toBe(revised.assets[0]?.sourceHash);
+    expect(original.assets[0]?.id).not.toBe(revised.assets[0]?.id);
   });
 
   test('scopes mapped PDF pages to their source in multi-document courses', async () => {
@@ -559,6 +624,82 @@ describe('durable lesson document stage', () => {
     expect(output.documentAssetOwners).toEqual([
       { assetIds: [storedAsset.id], nodeInstanceId: 'stage' },
     ]);
+  });
+
+  test('refreshes metadata for a revised source while reusing durable bytes', async () => {
+    const revisedProject = structuredClone(project);
+    const imageAsset = {
+      ...storedAsset,
+      hash: buildSha256HexDigest(Buffer.from('image')),
+    };
+    revisedProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [
+        {
+          asset: imageAsset,
+          caption: 'Old caption',
+          id: 'pdf-img-old-version',
+          pageNumber: 2,
+          sourceHash: 'a'.repeat(64),
+          sourceId: 'stable-source',
+          sourceOrder: 1,
+          textAfter: 'Old after',
+          textBefore: 'Old before',
+        },
+      ],
+    };
+    const revisedInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(revisedProject, 'lesson-1'),
+    });
+    const stage = vi.fn().mockResolvedValue(imageAsset);
+    const captionImage = vi.fn().mockResolvedValue('New caption');
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      captionImage,
+      extractImages: vi.fn().mockResolvedValue({
+        assets: [
+          {
+            ...extractedImage,
+            id: 'pdf-img-new-version',
+            pageNumber: 6,
+            sourceHash: 'b'.repeat(64),
+            sourceId: 'stable-source',
+            textAfter: 'New after',
+            textBefore: 'New before',
+          },
+        ],
+        warnings: [],
+      }),
+      loadProject: vi.fn().mockResolvedValue(revisedProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'revised-source-key',
+      input: revisedInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(stage).not.toHaveBeenCalled();
+    expect(captionImage).toHaveBeenCalledOnce();
+    expect(output.pdfImages).toEqual([
+      expect.objectContaining({
+        asset: imageAsset,
+        caption: 'New caption',
+        id: 'pdf-img-new-version',
+        pageNumber: 6,
+        sourceHash: 'b'.repeat(64),
+        sourceId: 'stable-source',
+        textBefore: 'New before',
+      }),
+    ]);
+    expect(output.documentAssetOwners).toEqual([]);
   });
 
   test('finishes one document source before captioning the next', async () => {

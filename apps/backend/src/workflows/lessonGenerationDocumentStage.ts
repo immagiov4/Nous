@@ -25,6 +25,7 @@ import {
   LessonGenerationWarningSchema,
   type LessonPdfImageMetadata,
   LessonPdfImageMetadataSchema,
+  Sha256HexSchema,
 } from './lessonGenerationWorkflowSchemas.js';
 import { failPermanently } from './retryPolicy.js';
 
@@ -53,6 +54,7 @@ const LessonPdfImageExtractionOutcomeSchema = z.object({
       mimeType: z.string(),
       pageNumber: z.number().int().positive().optional(),
       sizeBytes: z.number().int().nonnegative().optional(),
+      sourceHash: Sha256HexSchema.optional(),
       sourceId: z.string().optional(),
       sourceOrder: z.number().int().nonnegative(),
       textAfter: z.string(),
@@ -89,11 +91,12 @@ const decodeImageDataUrl = (image: LessonPdfImageAsset): Uint8Array => {
 const buildPdfImageByteKey = (contentHash: string, mediaType: string): string =>
   JSON.stringify([contentHash, mediaType]);
 
-const buildPdfImageAssociationKey = (
+const buildPdfImageVersionedAssociationKey = (
   contentHash: string,
   mediaType: string,
-  sourceId?: string
-): string => JSON.stringify([contentHash, mediaType, sourceId ?? null]);
+  sourceId?: string,
+  sourceHash?: string
+): string => JSON.stringify([contentHash, mediaType, sourceId ?? null, sourceHash ?? null]);
 
 interface PdfImageStageState {
   readonly context: LessonGenerationStageContext<LessonCoverageState>;
@@ -141,6 +144,7 @@ const toPdfImageMetadata = (
   ...(image.intrinsicHeight ? { intrinsicHeight: image.intrinsicHeight } : {}),
   ...(image.intrinsicWidth ? { intrinsicWidth: image.intrinsicWidth } : {}),
   ...(image.pageNumber ? { pageNumber: image.pageNumber } : {}),
+  ...(image.sourceHash ? { sourceHash: image.sourceHash } : {}),
   ...(image.sourceId ? { sourceId: image.sourceId } : {}),
   sourceOrder: image.sourceOrder,
   textAfter: image.textAfter,
@@ -154,7 +158,12 @@ const stageLegacyPdfImage = async (
 ): Promise<LessonPdfImageMetadata> => {
   const bytes = decodeImageDataUrl(image);
   const contentHash = buildSha256HexDigest(bytes);
-  const associationKey = buildPdfImageAssociationKey(contentHash, image.mimeType, image.sourceId);
+  const associationKey = buildPdfImageVersionedAssociationKey(
+    contentHash,
+    image.mimeType,
+    image.sourceId,
+    image.sourceHash
+  );
   const existing = state.metadataByAssociation.get(associationKey);
   if (existing) return existing;
   const metadata = toPdfImageMetadata(
@@ -171,7 +180,12 @@ const stageExtractedPdfImage = async (
 ): Promise<LessonPdfImageMetadata> => {
   const bytes = decodeImageDataUrl(image);
   const contentHash = buildSha256HexDigest(bytes);
-  const associationKey = buildPdfImageAssociationKey(contentHash, image.mimeType, image.sourceId);
+  const associationKey = buildPdfImageVersionedAssociationKey(
+    contentHash,
+    image.mimeType,
+    image.sourceId,
+    image.sourceHash
+  );
   const existing = state.metadataByAssociation.get(associationKey);
   if (existing) return existing;
   const asset = await stagePdfImageBytes(image, bytes, contentHash, state);
@@ -246,6 +260,16 @@ const selectSectionPdfImages = (
   );
 };
 
+const isSupersededPdfImageMetadata = (
+  existing: LessonPdfImageMetadata,
+  replacement: LessonPdfImageMetadata
+): boolean =>
+  Boolean(replacement.sourceHash) &&
+  existing.sourceId === replacement.sourceId &&
+  existing.asset.hash === replacement.asset.hash &&
+  existing.asset.mediaType === replacement.asset.mediaType &&
+  existing.sourceHash !== replacement.sourceHash;
+
 export const createLessonDocumentSourceStage =
   (dependencies: LessonDocumentSourceStageDependencies) =>
   async (
@@ -300,10 +324,11 @@ export const createLessonDocumentSourceStage =
           durable.map(
             image =>
               [
-                buildPdfImageAssociationKey(
+                buildPdfImageVersionedAssociationKey(
                   image.asset.hash,
                   image.asset.mediaType,
-                  image.sourceId
+                  image.sourceId,
+                  image.sourceHash
                 ),
                 image,
               ] as const
@@ -332,7 +357,13 @@ export const createLessonDocumentSourceStage =
         staged.map(image => image.asset.id).filter(assetId => !durableAssetIds.has(assetId))
       ),
     ];
-    const availableById = new Map([...durable, ...staged].map(image => [image.id, image]));
+    const availableById = new Map(durable.map(image => [image.id, image]));
+    for (const image of staged) {
+      for (const [existingId, existing] of availableById) {
+        if (isSupersededPdfImageMetadata(existing, image)) availableById.delete(existingId);
+      }
+      availableById.set(image.id, image);
+    }
     const available = selectSectionPdfImages([...availableById.values()], project, section);
     const sourceIds = new Set(available.flatMap(image => (image.sourceId ? [image.sourceId] : [])));
     const mappedPagesBySourceId = new Map(

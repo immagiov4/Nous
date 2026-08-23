@@ -86,6 +86,8 @@ export interface ProjectDocumentImageAsset {
   readonly intrinsicHeight?: number;
   readonly intrinsicWidth?: number;
   readonly pageNumber?: number;
+  readonly sourceHash?: string;
+  readonly sourceId?: string;
   readonly sourceOrder: number;
   readonly textAfter: string;
   readonly textBefore: string;

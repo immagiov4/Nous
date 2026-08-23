@@ -45,6 +45,7 @@ export interface LessonPdfImageAsset {
   mimeType: string;
   pageNumber?: number;
   sizeBytes?: number;
+  sourceHash?: string;
   sourceId?: string;
   sourceOrder: number;
   textAfter: string;
@@ -226,6 +227,7 @@ export const buildMappedSourceContext = (
 
 interface StoredSourceCandidate {
   file: { data: string; mimeType: string; name: string };
+  hash: string;
   id: string;
 }
 
@@ -243,11 +245,21 @@ const loadStoredSourceCandidates = async (
 ): Promise<StoredSourceCandidate[]> => {
   const storedSources = await store.loadProjectSources(userId, projectId);
   if (storedSources.length) {
-    return storedSources.map(source => ({ file: source.file, id: source.ref.id }));
+    return storedSources.map(source => ({
+      file: source.file,
+      hash: source.ref.hash,
+      id: source.ref.id,
+    }));
   }
   const primarySource = await store.loadProjectSource(userId, projectId);
   return primarySource
-    ? [{ file: primarySource, id: primarySource.sourceId || primarySource.name }]
+    ? [
+        {
+          file: primarySource,
+          hash: buildSha256HexDigest(Buffer.from(primarySource.data, 'base64')),
+          id: primarySource.sourceId || primarySource.name,
+        },
+      ]
     : [];
 };
 
@@ -544,6 +556,9 @@ const parsePdfImageAsset = (image: unknown): LessonPdfImageAsset | null => {
     ...(typeof image.sourceId === 'string' && image.sourceId.trim()
       ? { sourceId: image.sourceId.trim() }
       : {}),
+    ...(typeof image.sourceHash === 'string' && image.sourceHash.trim()
+      ? { sourceHash: image.sourceHash.trim() }
+      : {}),
     ...(typeof image.textCurrent === 'string' ? { textCurrent: image.textCurrent } : {}),
   };
 };
@@ -606,15 +621,19 @@ export const readMappedPdfPages = (
 const toPdfImageAsset = (
   image: ExtractedPdfImage,
   sourceOrder: number,
-  sourceId: string
+  sourceId: string,
+  sourceHash: string
 ): LessonPdfImageAsset => ({
   dataUrl: image.dataUrl,
-  id: `pdf-img-${buildSha256HexDigest(Buffer.from(JSON.stringify([sourceId, image.hash])))}`,
+  id: `pdf-img-${buildSha256HexDigest(
+    Buffer.from(JSON.stringify([sourceId, sourceHash, image.hash]))
+  )}`,
   intrinsicHeight: image.intrinsicHeight,
   intrinsicWidth: image.intrinsicWidth,
   mimeType: image.mimeType,
   pageNumber: image.pageNumber,
   sizeBytes: image.sizeBytes,
+  sourceHash,
   sourceId,
   sourceOrder,
   textAfter: image.textAfter?.trim() || '',
@@ -670,7 +689,7 @@ export const extractStoredPdfImageAssets = async ({
         }))
       );
       for (const image of extraction.images) {
-        const asset = toPdfImageAsset(image, assets.length + 1, source.id);
+        const asset = toPdfImageAsset(image, assets.length + 1, source.id, source.hash);
         if (assetIds.has(asset.id)) continue;
         assetIds.add(asset.id);
         assets.push(asset);
