@@ -186,8 +186,6 @@ const stageExtractedPdfImage = async (
     image.sourceId,
     image.sourceHash
   );
-  const existing = state.metadataByAssociation.get(associationKey);
-  if (existing) return existing;
   const asset = await stagePdfImageBytes(image, bytes, contentHash, state);
   let caption: string | null = null;
   try {
@@ -335,16 +333,12 @@ export const createLessonDocumentSourceStage =
     const durableIds = new Set(durable.map(image => image.id));
     const durableAssetIds = new Set(durable.map(image => image.asset.id));
     const legacy = readExistingPdfImageAssets(project).filter(image => !durableIds.has(image.id));
-    const legacyIds = new Set(legacy.map(image => image.id));
     if (!context.providerEffect) throw new Error('Provider effect persistence is required.');
     const extraction = await context.providerEffect.run({
-      key: 'extract-images',
+      key: 'extract-images-assets-v2',
       operation: async () => {
         const transient = LessonPdfImageExtractionOutcomeSchema.parse(
           await dependencies.extractImages({ context, project, section })
-        );
-        const extracted = transient.assets.filter(
-          image => !durableIds.has(image.id) && !legacyIds.has(image.id)
         );
         const reusableAssetsByByteKey = new Map(
           durable.map(
@@ -376,7 +370,7 @@ export const createLessonDocumentSourceStage =
         for (const image of legacy) {
           stagedLegacy.push(await stageLegacyPdfImage(image, stageState));
         }
-        const stagedExtracted = await stageExtractedPdfImages(extracted, stageState);
+        const stagedExtracted = await stageExtractedPdfImages(transient.assets, stageState);
         return {
           assets: [...stagedLegacy, ...stagedExtracted],
           warnings: transient.warnings,

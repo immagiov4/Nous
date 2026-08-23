@@ -555,7 +555,7 @@ describe('durable lesson document stage', () => {
     ]);
     expect(JSON.stringify(output)).not.toContain('aW1hZ2U=');
     expect(JSON.stringify(output)).not.toContain('data:image');
-    expect(providerEffect.keys).toEqual(['extract-images']);
+    expect(providerEffect.keys).toEqual(['extract-images-assets-v2']);
     expect(JSON.stringify([...providerEffect.results.values()])).not.toContain('data:image');
   });
 
@@ -742,6 +742,77 @@ describe('durable lesson document stage', () => {
       }),
     ]);
     expect(output.documentAssetOwners).toEqual([]);
+  });
+
+  test('keeps fresh placement metadata for unchanged bytes in the same source version', async () => {
+    const currentProject = withStoredPdfSourceVersion(project, 'b'.repeat(64));
+    const imageAsset = {
+      ...storedAsset,
+      hash: buildSha256HexDigest(Buffer.from('image')),
+    };
+    currentProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [
+        {
+          asset: imageAsset,
+          caption: 'Page 2 caption',
+          id: 'pdf-img-same-version',
+          pageNumber: 2,
+          sourceHash: 'b'.repeat(64),
+          sourceId: 'stable-source',
+          sourceOrder: 1,
+          textAfter: 'Page 2 after',
+          textBefore: 'Page 2 before',
+        },
+      ],
+    };
+    const currentInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(currentProject, 'lesson-1'),
+    });
+    const captionImage = vi.fn().mockResolvedValue('Page 8 caption');
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn() },
+      captionImage,
+      extractImages: vi.fn().mockResolvedValue({
+        assets: [
+          {
+            ...extractedImage,
+            id: 'pdf-img-same-version',
+            pageNumber: 8,
+            sourceHash: 'b'.repeat(64),
+            sourceId: 'stable-source',
+            textAfter: 'Page 8 after',
+            textBefore: 'Page 8 before',
+          },
+        ],
+        warnings: [],
+      }),
+      loadProject: vi.fn().mockResolvedValue(currentProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'same-version-placement-key',
+      input: currentInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(captionImage).toHaveBeenCalledOnce();
+    expect(output.pdfImages).toEqual([
+      expect.objectContaining({
+        asset: imageAsset,
+        caption: 'Page 8 caption',
+        id: 'pdf-img-same-version',
+        pageNumber: 8,
+        textBefore: 'Page 8 before',
+      }),
+    ]);
   });
 
   test('excludes metadata for images removed from a revised source', async () => {
@@ -1045,7 +1116,36 @@ describe('durable lesson document stage', () => {
     expect(extractImages).toHaveBeenCalledOnce();
     expect(captionImage).toHaveBeenCalledOnce();
     expect(stage).toHaveBeenCalledOnce();
-    expect(providerEffect.keys).toEqual(['extract-images', 'extract-images']);
+    expect(providerEffect.keys).toEqual(['extract-images-assets-v2', 'extract-images-assets-v2']);
+  });
+
+  test('does not replay the pre-asset provider-effect payload under the durable schema', async () => {
+    const providerEffect = createMemoryProviderEffect();
+    providerEffect.results.set('extract-images', {
+      assets: [extractedImage],
+      warnings: [],
+    });
+    const extractImages = vi.fn().mockResolvedValue({ assets: [], warnings: [] });
+    const run = createLessonDocumentSourceStage({
+      assets: { stage: vi.fn() },
+      captionImage: vi.fn(),
+      extractImages,
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+
+    await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'provider-payload-version-key',
+      input,
+      providerEffect: providerEffect.executor,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(extractImages).toHaveBeenCalledOnce();
+    expect(providerEffect.keys).toEqual(['extract-images-assets-v2']);
   });
 
   test('ranks PDF images against mapped pages from their own source', async () => {

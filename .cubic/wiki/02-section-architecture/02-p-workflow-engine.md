@@ -130,7 +130,7 @@ Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:488-49
 
 ### Provider effect results
 
-Provider effects record an external provider result before the step continues. The runner validates the result with the effect schema and then takes an immutable JSON snapshot. Durable snapshots reject data URLs and binary objects. A provider operation that produces an image must therefore stage the bytes in object storage before it returns, and return only the asset reference and JSON metadata. A retry reads the recorded provider result instead of repeating the completed extraction or model call. Sources: [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts), [apps/backend/src/workflows/jsonSnapshot.ts](../../../apps/backend/src/workflows/jsonSnapshot.ts)
+Provider effects record an external provider result before the step continues. The runner validates the result with the effect schema and then takes an immutable JSON snapshot. Durable snapshots reject data URLs and binary objects. A provider operation that produces an image must stage the bytes in object storage before it returns, then return only the asset reference and JSON metadata. A retry reads the recorded provider result instead of repeating the completed extraction or model call. When that durable payload schema changes, the effect key changes too. This prevents a resumed run from parsing an older payload with the new schema. Sources: [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts), [apps/backend/src/workflows/jsonSnapshot.ts](../../../apps/backend/src/workflows/jsonSnapshot.ts)
 
 ## Workflow Integrity and Validation
 
