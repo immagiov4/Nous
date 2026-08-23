@@ -681,7 +681,6 @@ describe('durable lesson document stage', () => {
           caption: 'Old caption',
           id: 'pdf-img-old-version',
           pageNumber: 2,
-          sourceHash: 'a'.repeat(64),
           sourceId: 'stable-source',
           sourceOrder: 1,
           textAfter: 'Old after',

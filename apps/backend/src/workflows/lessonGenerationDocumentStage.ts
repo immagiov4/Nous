@@ -287,7 +287,7 @@ const belongsToCurrentSourceVersion = (
   image: LessonPdfImageMetadata,
   currentSourceHashes: ReadonlyMap<string, string>
 ): boolean => {
-  if (!image.sourceId || !image.sourceHash) return true;
+  if (!image.sourceId) return true;
   const currentSourceHash = currentSourceHashes.get(image.sourceId);
   return !currentSourceHash || image.sourceHash === currentSourceHash;
 };
