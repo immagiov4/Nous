@@ -15,40 +15,43 @@ import {
 import { WorkflowExecutionDefaultsSchema } from './config.js';
 import { emit, fanOut, routeBy, sequence, step, workflow } from './definition.js';
 import {
+  CurrentLessonGenerationDurableSchemaSet,
   type LessonAidsState,
-  LessonAidsStateSchema,
+  type LessonAidsStateSchema,
   type LessonContextState,
   LessonContextStateSchema,
   type LessonCoverageState,
   LessonCoverageStateSchema,
   type LessonDraftState,
-  LessonDraftStateSchema,
+  type LessonDraftStateSchema,
+  type LessonGenerationDurableSchemaSet,
   type LessonGenerationPreparationOutcome,
-  LessonGenerationPreparationOutcomeSchema,
+  type LessonGenerationPreparationOutcomeSchema,
   type LessonGenerationRequest,
   LessonGenerationRequestSchema,
   type LessonGenerationWorkflowInput,
   LessonGenerationWorkflowInputSchema,
   type LessonGenerationWorkflowResult,
-  LessonGenerationWorkflowResultSchema,
+  type LessonGenerationWorkflowResultSchema,
   type LessonPersistenceState,
-  LessonPersistenceStateSchema,
+  type LessonPersistenceStateSchema,
   type LessonResearchState,
-  LessonResearchStateSchema,
+  type LessonResearchStateSchema,
   type LessonReviewedState,
-  LessonReviewedStateSchema,
+  type LessonReviewedStateSchema,
   type LessonSourcesState,
-  LessonSourcesStateSchema,
+  type LessonSourcesStateSchema,
   type LessonVisualFanOutState,
-  LessonVisualFanOutStateSchema,
+  type LessonVisualFanOutStateSchema,
   type LessonVisualsState,
-  LessonVisualsStateSchema,
+  type LessonVisualsStateSchema,
   type LessonYouTubePlanState,
-  LessonYouTubePlanStateSchema,
+  type LessonYouTubePlanStateSchema,
   type LessonYouTubeSearchState,
-  LessonYouTubeSearchStateSchema,
+  type LessonYouTubeSearchStateSchema,
   type LessonYouTubeState,
-  LessonYouTubeStateSchema,
+  type LessonYouTubeStateSchema,
+  PreviousLessonGenerationDurableSchemaSet,
   type SublessonPlanState,
   SublessonPlanStateSchema,
   type SublessonReadyState,
@@ -227,12 +230,13 @@ const visualInputs = (state: LessonAidsState) => {
   });
 };
 
-export const createLessonGenerationWorkflow = <
+const createLessonGenerationWorkflowDefinition = <
   Config extends LessonGenerationWorkflowConfig = LessonGenerationWorkflowConfig,
   Services extends LessonGenerationWorkflowServices = LessonGenerationWorkflowServices,
 >(
   executionDefaults: Config,
-  configSchema: z.ZodType<Config> = LessonGenerationWorkflowConfigSchema as z.ZodType<Config>
+  configSchema: z.ZodType<Config>,
+  durableSchemas: LessonGenerationDurableSchemaSet
 ) => {
   const visualWorkflow = createLessonVisualWorkflows<Config, Services>(
     executionDefaults,
@@ -337,7 +341,7 @@ export const createLessonGenerationWorkflow = <
   >({
     id: 'prepare-lesson',
     inputSchema: LessonGenerationRequestSchema,
-    outputSchema: LessonGenerationPreparationOutcomeSchema,
+    outputSchema: durableSchemas.LessonGenerationPreparationOutcomeSchema,
     run: context =>
       runStage(
         context,
@@ -356,8 +360,8 @@ export const createLessonGenerationWorkflow = <
     Services
   >({
     id: 'return-existing-lesson',
-    inputSchema: LessonGenerationPreparationOutcomeSchema,
-    outputSchema: LessonGenerationWorkflowResultSchema,
+    inputSchema: durableSchemas.LessonGenerationPreparationOutcomeSchema,
+    outputSchema: durableSchemas.LessonGenerationWorkflowResultSchema,
     run: async ({ input }) => {
       if (input.kind !== 'already-completed') {
         throw new Error('The existing-lesson route received a generation context.');
@@ -373,7 +377,7 @@ export const createLessonGenerationWorkflow = <
     Services
   >({
     id: 'unwrap-generation-context',
-    inputSchema: LessonGenerationPreparationOutcomeSchema,
+    inputSchema: durableSchemas.LessonGenerationPreparationOutcomeSchema,
     outputSchema: LessonContextStateSchema,
     run: async ({ input }) => {
       if (input.kind !== 'generate') {
@@ -414,7 +418,7 @@ export const createLessonGenerationWorkflow = <
     externalEffect: 'provider-with-postprocessing',
     id: 'stage-document-sources',
     inputSchema: LessonCoverageStateSchema,
-    outputSchema: LessonSourcesStateSchema,
+    outputSchema: durableSchemas.LessonSourcesStateSchema,
     timeoutMs: LESSON_DOCUMENT_SOURCE_TIMEOUT_MS,
     run: context =>
       runStage(
@@ -434,8 +438,8 @@ export const createLessonGenerationWorkflow = <
     Services
   >({
     id: 'bypass-youtube-research',
-    inputSchema: LessonSourcesStateSchema,
-    outputSchema: LessonYouTubeStateSchema,
+    inputSchema: durableSchemas.LessonSourcesStateSchema,
+    outputSchema: durableSchemas.LessonYouTubeStateSchema,
     run: async ({ input }) => ({
       ...input,
       discoveredYoutubeSources: [],
@@ -452,8 +456,8 @@ export const createLessonGenerationWorkflow = <
   >({
     externalEffect: 'provider',
     id: 'plan-youtube-research',
-    inputSchema: LessonSourcesStateSchema,
-    outputSchema: LessonYouTubePlanStateSchema,
+    inputSchema: durableSchemas.LessonSourcesStateSchema,
+    outputSchema: durableSchemas.LessonYouTubePlanStateSchema,
     run: context =>
       runStage(
         context,
@@ -473,8 +477,8 @@ export const createLessonGenerationWorkflow = <
   >({
     externalEffect: 'provider',
     id: 'research-specific-youtube',
-    inputSchema: LessonYouTubePlanStateSchema,
-    outputSchema: LessonYouTubeSearchStateSchema,
+    inputSchema: durableSchemas.LessonYouTubePlanStateSchema,
+    outputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
     run: context =>
       runStage(
         context,
@@ -494,8 +498,8 @@ export const createLessonGenerationWorkflow = <
   >({
     externalEffect: 'provider',
     id: 'research-fallback-youtube',
-    inputSchema: LessonYouTubeSearchStateSchema,
-    outputSchema: LessonYouTubeSearchStateSchema,
+    inputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
+    outputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
     run: context =>
       runStage(
         context,
@@ -514,8 +518,8 @@ export const createLessonGenerationWorkflow = <
     Services
   >({
     id: 'finalize-youtube-research',
-    inputSchema: LessonYouTubeSearchStateSchema,
-    outputSchema: LessonYouTubeStateSchema,
+    inputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
+    outputSchema: durableSchemas.LessonYouTubeStateSchema,
     run: context =>
       runStage(
         context,
@@ -534,16 +538,16 @@ export const createLessonGenerationWorkflow = <
     Services
   >({
     id: 'keep-youtube-search-result',
-    inputSchema: LessonYouTubeSearchStateSchema,
-    outputSchema: LessonYouTubeSearchStateSchema,
+    inputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
+    outputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
     run: async ({ input }) => input,
   });
 
   const routeYouTubeFallback = routeBy({
     cases: { fallback: researchFallbackYouTube, finalize: keepYouTubeSearchResult },
     id: 'route-youtube-fallback',
-    inputSchema: LessonYouTubeSearchStateSchema,
-    outputSchema: LessonYouTubeSearchStateSchema,
+    inputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
+    outputSchema: durableSchemas.LessonYouTubeSearchStateSchema,
     select: input =>
       input.youtubeSearchPlan !== null &&
       input.youtubeSearchOutcome?.discoveredVideoCount === 0 &&
@@ -565,8 +569,8 @@ export const createLessonGenerationWorkflow = <
   const routeYouTubeResearch = routeBy({
     cases: { bypass: bypassYouTubeResearch, research: researchYouTube },
     id: 'route-youtube-research',
-    inputSchema: LessonSourcesStateSchema,
-    outputSchema: LessonYouTubeStateSchema,
+    inputSchema: durableSchemas.LessonSourcesStateSchema,
+    outputSchema: durableSchemas.LessonYouTubeStateSchema,
     select: input =>
       input.request.forceRegenerate || input.existingDossierJson === null ? 'research' : 'bypass',
   });
@@ -579,8 +583,8 @@ export const createLessonGenerationWorkflow = <
   >({
     externalEffect: 'provider',
     id: 'research-lesson',
-    inputSchema: LessonYouTubeStateSchema,
-    outputSchema: LessonResearchStateSchema,
+    inputSchema: durableSchemas.LessonYouTubeStateSchema,
+    outputSchema: durableSchemas.LessonResearchStateSchema,
     run: context =>
       runStage(
         context,
@@ -601,8 +605,8 @@ export const createLessonGenerationWorkflow = <
   >({
     externalEffect: 'provider',
     id: 'draft-lesson',
-    inputSchema: LessonResearchStateSchema,
-    outputSchema: LessonDraftStateSchema,
+    inputSchema: durableSchemas.LessonResearchStateSchema,
+    outputSchema: durableSchemas.LessonDraftStateSchema,
     run: context =>
       runStage(
         context,
@@ -623,8 +627,8 @@ export const createLessonGenerationWorkflow = <
   >({
     externalEffect: 'provider',
     id: 'review-lesson',
-    inputSchema: LessonDraftStateSchema,
-    outputSchema: LessonReviewedStateSchema,
+    inputSchema: durableSchemas.LessonDraftStateSchema,
+    outputSchema: durableSchemas.LessonReviewedStateSchema,
     run: context =>
       runStage(
         context,
@@ -645,8 +649,8 @@ export const createLessonGenerationWorkflow = <
   >({
     externalEffect: 'provider',
     id: 'generate-learning-aids',
-    inputSchema: LessonReviewedStateSchema,
-    outputSchema: LessonAidsStateSchema,
+    inputSchema: durableSchemas.LessonReviewedStateSchema,
+    outputSchema: durableSchemas.LessonAidsStateSchema,
     run: context =>
       runStage(
         context,
@@ -680,11 +684,11 @@ export const createLessonGenerationWorkflow = <
       ),
     }),
     id: 'render-visuals',
-    inputSchema: LessonAidsStateSchema,
+    inputSchema: durableSchemas.LessonAidsStateSchema,
     inputs: visualInputs,
     itemSchema: visualWorkflow.inputSchema,
     keyBy: input => input.plan.slotId,
-    outputSchema: LessonVisualFanOutStateSchema,
+    outputSchema: durableSchemas.LessonVisualFanOutStateSchema,
     worker: visualWorkflow,
   });
 
@@ -695,8 +699,8 @@ export const createLessonGenerationWorkflow = <
     Services
   >({
     id: 'normalize-lesson',
-    inputSchema: LessonVisualFanOutStateSchema,
-    outputSchema: LessonVisualsStateSchema,
+    inputSchema: durableSchemas.LessonVisualFanOutStateSchema,
+    outputSchema: durableSchemas.LessonVisualsStateSchema,
     run: context =>
       runStage(
         context,
@@ -714,8 +718,8 @@ export const createLessonGenerationWorkflow = <
     commit: ({ execution, input, output, services, transaction }) =>
       services.persistLesson({ execution, input, output, transaction }),
     id: 'persist-lesson',
-    inputSchema: LessonVisualsStateSchema,
-    outputSchema: LessonPersistenceStateSchema,
+    inputSchema: durableSchemas.LessonVisualsStateSchema,
+    outputSchema: durableSchemas.LessonPersistenceStateSchema,
     run: context =>
       runStage(
         context,
@@ -736,8 +740,8 @@ export const createLessonGenerationWorkflow = <
     Services
   >({
     id: 'return-generated-lesson',
-    inputSchema: LessonPersistenceStateSchema,
-    outputSchema: LessonGenerationWorkflowResultSchema,
+    inputSchema: durableSchemas.LessonPersistenceStateSchema,
+    outputSchema: durableSchemas.LessonGenerationWorkflowResultSchema,
     run: context =>
       runStage(
         context,
@@ -752,7 +756,7 @@ export const createLessonGenerationWorkflow = <
   const publishProjectRevision = emit({
     event: LESSON_PROJECT_REVISION_EVENT,
     id: 'publish-project-revision',
-    inputSchema: LessonGenerationWorkflowResultSchema,
+    inputSchema: durableSchemas.LessonGenerationWorkflowResultSchema,
     payload: result =>
       ProjectRevisionEventSchema.parse({
         projectId: result.projectId,
@@ -782,8 +786,8 @@ export const createLessonGenerationWorkflow = <
   const routePreparedLesson = routeBy({
     cases: { 'already-completed': returnExistingLesson, generate: generateLesson },
     id: 'route-prepared-lesson',
-    inputSchema: LessonGenerationPreparationOutcomeSchema,
-    outputSchema: LessonGenerationWorkflowResultSchema,
+    inputSchema: durableSchemas.LessonGenerationPreparationOutcomeSchema,
+    outputSchema: durableSchemas.LessonGenerationWorkflowResultSchema,
     select: outcome => outcome.kind,
   });
 
@@ -800,10 +804,36 @@ export const createLessonGenerationWorkflow = <
     },
     id: 'lesson-generation',
     inputSchema: LessonGenerationWorkflowInputSchema,
-    outputSchema: LessonGenerationWorkflowResultSchema,
+    outputSchema: durableSchemas.LessonGenerationWorkflowResultSchema,
     root: sequence({
       id: 'lesson-generation',
       nodes: [routeLessonTarget, prepareLesson, routePreparedLesson] as const,
     }),
   });
 };
+
+export const createLessonGenerationWorkflow = <
+  Config extends LessonGenerationWorkflowConfig = LessonGenerationWorkflowConfig,
+  Services extends LessonGenerationWorkflowServices = LessonGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = LessonGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createLessonGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    CurrentLessonGenerationDurableSchemaSet
+  );
+
+export const createPreviousLessonGenerationWorkflow = <
+  Config extends LessonGenerationWorkflowConfig = LessonGenerationWorkflowConfig,
+  Services extends LessonGenerationWorkflowServices = LessonGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = LessonGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createLessonGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    PreviousLessonGenerationDurableSchemaSet
+  );

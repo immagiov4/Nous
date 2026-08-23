@@ -482,6 +482,8 @@ const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
           typeof image.intrinsicHeight === 'number' ? image.intrinsicHeight : undefined,
         intrinsicWidth: typeof image.intrinsicWidth === 'number' ? image.intrinsicWidth : undefined,
         pageNumber: typeof image.pageNumber === 'number' ? image.pageNumber : undefined,
+        sourceHash: ensureString(image.sourceHash) || undefined,
+        sourceId: ensureString(image.sourceId) || undefined,
         sourceOrder: typeof image.sourceOrder === 'number' ? image.sourceOrder : 0,
         textAfter: ensureString(image.textAfter),
         textBefore: ensureString(image.textBefore),

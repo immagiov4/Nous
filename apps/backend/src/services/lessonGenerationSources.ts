@@ -16,9 +16,9 @@ import {
   parseYouTubeTranscript,
   type YouTubeTranscript,
 } from '@shared/youtubeTranscript';
-import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
+import { buildSha256HexDigest } from '../utils/hash.js';
 import { isRecord } from '../utils/validation.js';
 import type { ExtractedPdfImage, extractPdfImages } from './pdfImageExtractor.js';
 import { isPdfProjectSourceFile, readProjectSourceText } from './projectSourceText.js';
@@ -45,6 +45,7 @@ export interface LessonPdfImageAsset {
   mimeType: string;
   pageNumber?: number;
   sizeBytes?: number;
+  sourceHash?: string;
   sourceId?: string;
   sourceOrder: number;
   textAfter: string;
@@ -79,12 +80,6 @@ export interface LessonImageCandidate {
   textCurrent?: string;
   visibleLabel: string;
 }
-
-type CaptionPdfImage = (
-  image: ExtractedPdfImage,
-  config: GlobalModelConfig,
-  signal: AbortSignal
-) => Promise<string | null>;
 
 const PDF_ASSET_SESSION_TIMEOUT_MS = 90_000;
 
@@ -232,6 +227,7 @@ export const buildMappedSourceContext = (
 
 interface StoredSourceCandidate {
   file: { data: string; mimeType: string; name: string };
+  hash: string;
   id: string;
 }
 
@@ -242,18 +238,41 @@ export class LessonSourceUnavailableError extends Error {
   }
 }
 
+export const readAuthoritativePrimarySourceId = (project: ProjectSnapshot): string => {
+  if (!isRecord(project.source)) return '';
+  const refId =
+    isRecord(project.source.ref) && typeof project.source.ref.id === 'string'
+      ? project.source.ref.id.trim()
+      : '';
+  if (refId) return refId;
+  return isRecord(project.source.file) && typeof project.source.file.sourceId === 'string'
+    ? project.source.file.sourceId.trim()
+    : '';
+};
+
 const loadStoredSourceCandidates = async (
   store: ProjectStore,
   userId: string,
-  projectId: string
+  projectId: string,
+  fallbackSourceId = ''
 ): Promise<StoredSourceCandidate[]> => {
   const storedSources = await store.loadProjectSources(userId, projectId);
   if (storedSources.length) {
-    return storedSources.map(source => ({ file: source.file, id: source.ref.id }));
+    return storedSources.map(source => ({
+      file: source.file,
+      hash: source.ref.hash,
+      id: source.ref.id,
+    }));
   }
   const primarySource = await store.loadProjectSource(userId, projectId);
   return primarySource
-    ? [{ file: primarySource, id: primarySource.sourceId || primarySource.name }]
+    ? [
+        {
+          file: primarySource,
+          hash: buildSha256HexDigest(Buffer.from(primarySource.data, 'base64')),
+          id: primarySource.sourceId || fallbackSourceId || primarySource.name,
+        },
+      ]
     : [];
 };
 
@@ -479,13 +498,7 @@ export const readOriginalSourceNames = (
     isRecord(project.source.file) && typeof project.source.file.name === 'string'
       ? project.source.file.name.trim()
       : '';
-  const primarySourceId =
-    (isRecord(project.source.ref) && typeof project.source.ref.id === 'string'
-      ? project.source.ref.id.trim()
-      : '') ||
-    (isRecord(project.source.file) && typeof project.source.file.sourceId === 'string'
-      ? project.source.file.sourceId.trim()
-      : '');
+  const primarySourceId = readAuthoritativePrimarySourceId(project);
   const archiveName =
     project.source.kind === 'archive' && typeof project.source.name === 'string'
       ? project.source.name.trim()
@@ -550,6 +563,9 @@ const parsePdfImageAsset = (image: unknown): LessonPdfImageAsset | null => {
     ...(typeof image.sourceId === 'string' && image.sourceId.trim()
       ? { sourceId: image.sourceId.trim() }
       : {}),
+    ...(typeof image.sourceHash === 'string' && image.sourceHash.trim()
+      ? { sourceHash: image.sourceHash.trim() }
+      : {}),
     ...(typeof image.textCurrent === 'string' ? { textCurrent: image.textCurrent } : {}),
   };
 };
@@ -612,17 +628,19 @@ export const readMappedPdfPages = (
 const toPdfImageAsset = (
   image: ExtractedPdfImage,
   sourceOrder: number,
-  caption: string | null,
-  sourceId: string
+  sourceId: string,
+  sourceHash: string
 ): LessonPdfImageAsset => ({
-  ...(caption ? { caption } : {}),
   dataUrl: image.dataUrl,
-  id: `pdf-img-${image.hash.slice(0, 24)}`,
+  id: `pdf-img-${buildSha256HexDigest(
+    Buffer.from(JSON.stringify([sourceId, sourceHash, image.hash]))
+  )}`,
   intrinsicHeight: image.intrinsicHeight,
   intrinsicWidth: image.intrinsicWidth,
   mimeType: image.mimeType,
   pageNumber: image.pageNumber,
   sizeBytes: image.sizeBytes,
+  sourceHash,
   sourceId,
   sourceOrder,
   textAfter: image.textAfter?.trim() || '',
@@ -631,8 +649,6 @@ const toPdfImageAsset = (
 });
 
 export const extractStoredPdfImageAssets = async ({
-  captionImage,
-  config,
   extractImages,
   project,
   section,
@@ -640,8 +656,6 @@ export const extractStoredPdfImageAssets = async ({
   store,
   userId,
 }: {
-  captionImage: CaptionPdfImage;
-  config: GlobalModelConfig;
   extractImages: typeof extractPdfImages;
   project: ProjectSnapshot;
   section: Record<string, unknown>;
@@ -651,12 +665,18 @@ export const extractStoredPdfImageAssets = async ({
 }): Promise<LessonPdfImageExtractionOutcome> => {
   if (project.sourceKind !== 'document') return { assets: [], warnings: [] };
   const storedSources = filterReferencedStoredSources(
-    await loadStoredSourceCandidates(store, userId, project.id),
+    await loadStoredSourceCandidates(
+      store,
+      userId,
+      project.id,
+      readAuthoritativePrimarySourceId(project)
+    ),
     section
   ).filter(candidate => isPdfProjectSourceFile(candidate.file));
   const singleSourcePartialPages =
     storedSources.length === 1 ? readMappedPdfPages(project, section) : undefined;
   const assets: LessonPdfImageAsset[] = [];
+  const assetIds = new Set<string>();
   const warnings: LessonWorkflowWarning[] = [];
   const extractionFailures: unknown[] = [];
   let successfulSourceCount = 0;
@@ -680,27 +700,12 @@ export const extractStoredPdfImageAssets = async ({
           stage: 'sources' as const,
         }))
       );
-      const uniqueImages = extraction.images.filter(
-        image => !assets.some(candidate => candidate.id === `pdf-img-${image.hash.slice(0, 24)}`)
-      );
-      const captions = await Promise.all(
-        uniqueImages.map(async image => {
-          try {
-            return await captionImage(image, config, signal);
-          } catch (error) {
-            if (signal.aborted) throw error;
-            console.warn('[Lesson workflow] Optional PDF image caption failed.', {
-              error,
-              pageNumber: image.pageNumber,
-              projectId: project.id,
-            });
-            return null;
-          }
-        })
-      );
-      uniqueImages.forEach((image, index) => {
-        assets.push(toPdfImageAsset(image, assets.length + 1, captions[index] || null, source.id));
-      });
+      for (const image of extraction.images) {
+        const asset = toPdfImageAsset(image, assets.length + 1, source.id, source.hash);
+        if (assetIds.has(asset.id)) continue;
+        assetIds.add(asset.id);
+        assets.push(asset);
+      }
     } catch (error) {
       if (signal.aborted) throw error;
       extractionFailures.push(error);
