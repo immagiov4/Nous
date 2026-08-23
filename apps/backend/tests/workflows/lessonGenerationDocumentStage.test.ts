@@ -1164,6 +1164,59 @@ describe('durable lesson document stage', () => {
     expect(providerEffect.keys).toEqual(['extract-images-assets-v2', 'extract-images-assets-v2']);
   });
 
+  test('finishes asset staging before starting captions', async () => {
+    let rejectSecondStage: ((reason?: unknown) => void) | undefined;
+    const secondStage = new Promise<ProjectAssetRef>((_resolve, reject) => {
+      rejectSecondStage = reject;
+    });
+    const secondImage = {
+      ...extractedImage,
+      dataUrl: 'data:image/png;base64,c2Vjb25kLWltYWdl',
+      id: 'pdf-img-2',
+      sourceOrder: 2,
+    };
+    const captionImage = vi.fn().mockResolvedValue('Caption');
+    const extractImages = vi.fn().mockResolvedValue({
+      assets: [extractedImage, secondImage],
+      warnings: [],
+    });
+    const stage = vi
+      .fn()
+      .mockResolvedValueOnce(storedAsset)
+      .mockReturnValueOnce(secondStage)
+      .mockResolvedValue(storedAsset);
+    const providerEffect = createMemoryProviderEffect();
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      captionImage,
+      extractImages,
+      loadProject: vi.fn().mockResolvedValue(project),
+    });
+    const context = {
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'staging-failure-key',
+      input,
+      providerEffect: providerEffect.executor,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    };
+
+    const firstAttempt = run(context);
+    await vi.waitFor(() => expect(stage).toHaveBeenCalledTimes(2));
+    expect(captionImage).not.toHaveBeenCalled();
+    rejectSecondStage?.(new Error('asset storage unavailable'));
+    await expect(firstAttempt).rejects.toThrow('asset storage unavailable');
+
+    await expect(run({ ...context, attemptNumber: 2 })).resolves.toMatchObject({
+      stage: 'sources',
+    });
+    expect(extractImages).toHaveBeenCalledTimes(2);
+    expect(stage).toHaveBeenCalledTimes(4);
+    expect(captionImage).toHaveBeenCalledTimes(2);
+  });
+
   test('does not replay the pre-asset provider-effect payload under the durable schema', async () => {
     const providerEffect = createMemoryProviderEffect();
     providerEffect.results.set('extract-images', {

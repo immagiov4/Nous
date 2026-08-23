@@ -174,33 +174,42 @@ const stageLegacyPdfImage = async (
   return metadata;
 };
 
-const stageExtractedPdfImage = async (
+interface StagedExtractedPdfImage {
+  readonly asset: LessonPdfImageMetadata['asset'];
+  readonly image: LessonPdfImageAsset;
+}
+
+const stageExtractedPdfImageBytes = async (
   image: LessonPdfImageAsset,
   state: PdfImageStageState
-): Promise<LessonPdfImageMetadata> => {
+): Promise<StagedExtractedPdfImage> => {
   const bytes = decodeImageDataUrl(image);
   const contentHash = buildSha256HexDigest(bytes);
-  const associationKey = buildPdfImageVersionedAssociationKey(
-    contentHash,
-    image.mimeType,
-    image.sourceId,
-    image.sourceHash
-  );
-  const asset = await stagePdfImageBytes(image, bytes, contentHash, state);
+  return {
+    asset: await stagePdfImageBytes(image, bytes, contentHash, state),
+    image,
+  };
+};
+
+const captionStagedPdfImage = async (
+  staged: StagedExtractedPdfImage,
+  state: PdfImageStageState
+): Promise<LessonPdfImageMetadata> => {
   let caption: string | null = null;
   try {
-    caption = await state.dependencies.captionImage({ context: state.context, image });
+    caption = await state.dependencies.captionImage({
+      context: state.context,
+      image: staged.image,
+    });
   } catch (error) {
     if (state.context.signal.aborted) throw error;
     console.warn('[Lesson workflow] Optional PDF image caption failed.', {
       error,
-      pageNumber: image.pageNumber,
+      pageNumber: staged.image.pageNumber,
       projectId: state.context.input.request.projectId,
     });
   }
-  const metadata = toPdfImageMetadata(image, asset, caption);
-  state.metadataByAssociation.set(associationKey, metadata);
-  return metadata;
+  return toPdfImageMetadata(staged.image, staged.asset, caption);
 };
 
 const stageExtractedPdfImages = async (
@@ -213,13 +222,19 @@ const stageExtractedPdfImages = async (
     sourceImages.push(image);
     imagesBySource.set(image.sourceId, sourceImages);
   }
-  const staged: LessonPdfImageMetadata[] = [];
+  const stagedBySource: StagedExtractedPdfImage[][] = [];
   for (const sourceImages of imagesBySource.values()) {
-    staged.push(
-      ...(await Promise.all(sourceImages.map(image => stageExtractedPdfImage(image, state))))
+    stagedBySource.push(
+      await Promise.all(sourceImages.map(image => stageExtractedPdfImageBytes(image, state)))
     );
   }
-  return staged;
+  const metadata: LessonPdfImageMetadata[] = [];
+  for (const sourceImages of stagedBySource) {
+    metadata.push(
+      ...(await Promise.all(sourceImages.map(image => captionStagedPdfImage(image, state))))
+    );
+  }
+  return metadata;
 };
 
 const toImageCandidate = (
