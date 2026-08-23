@@ -260,15 +260,37 @@ const selectSectionPdfImages = (
   );
 };
 
-const isSupersededPdfImageMetadata = (
-  existing: LessonPdfImageMetadata,
-  replacement: LessonPdfImageMetadata
-): boolean =>
-  Boolean(replacement.sourceHash) &&
-  existing.sourceId === replacement.sourceId &&
-  existing.asset.hash === replacement.asset.hash &&
-  existing.asset.mediaType === replacement.asset.mediaType &&
-  existing.sourceHash !== replacement.sourceHash;
+const readCurrentProjectSourceHashes = (project: ProjectSnapshot): Map<string, string> => {
+  const hashes = new Map<string, string>();
+  if (!isRecord(project.source)) return hashes;
+  const addHash = (sourceId: unknown, sourceHash: unknown) => {
+    if (typeof sourceId !== 'string' || !sourceId.trim()) return;
+    const parsed = Sha256HexSchema.safeParse(sourceHash);
+    if (parsed.success) hashes.set(sourceId, parsed.data);
+  };
+  if (Array.isArray(project.source.sources)) {
+    for (const source of project.source.sources) {
+      if (isRecord(source)) addHash(source.id, source.hash);
+    }
+  }
+  if (isRecord(project.source.ref)) {
+    let primarySourceId: unknown = project.source.ref.id;
+    if (typeof primarySourceId !== 'string' && isRecord(project.source.file)) {
+      primarySourceId = project.source.file.sourceId;
+    }
+    addHash(primarySourceId, project.source.ref.hash);
+  }
+  return hashes;
+};
+
+const belongsToCurrentSourceVersion = (
+  image: LessonPdfImageMetadata,
+  currentSourceHashes: ReadonlyMap<string, string>
+): boolean => {
+  if (!image.sourceId || !image.sourceHash) return true;
+  const currentSourceHash = currentSourceHashes.get(image.sourceId);
+  return !currentSourceHash || image.sourceHash === currentSourceHash;
+};
 
 export const createLessonDocumentSourceStage =
   (dependencies: LessonDocumentSourceStageDependencies) =>
@@ -357,11 +379,14 @@ export const createLessonDocumentSourceStage =
         staged.map(image => image.asset.id).filter(assetId => !durableAssetIds.has(assetId))
       ),
     ];
-    const availableById = new Map(durable.map(image => [image.id, image]));
+    const currentSourceHashes = readCurrentProjectSourceHashes(project);
+    const availableById = new Map(
+      durable
+        .filter(image => belongsToCurrentSourceVersion(image, currentSourceHashes))
+        .map(image => [image.id, image])
+    );
     for (const image of staged) {
-      for (const [existingId, existing] of availableById) {
-        if (isSupersededPdfImageMetadata(existing, image)) availableById.delete(existingId);
-      }
+      if (!belongsToCurrentSourceVersion(image, currentSourceHashes)) continue;
       availableById.set(image.id, image);
     }
     const available = selectSectionPdfImages([...availableById.values()], project, section);

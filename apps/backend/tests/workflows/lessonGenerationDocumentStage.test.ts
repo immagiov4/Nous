@@ -101,6 +101,46 @@ const storedAsset: ProjectAssetRef = {
   mediaType: 'image/png',
 };
 
+const withStoredPdfSourceVersion = (
+  snapshot: ProjectSnapshot,
+  sourceHash: string
+): ProjectSnapshot => {
+  const file = {
+    data: '',
+    mimeType: 'application/pdf',
+    name: 'stable-source.pdf',
+    sourceId: 'stable-source',
+  };
+  return {
+    ...structuredClone(snapshot),
+    source: {
+      file,
+      kind: 'pdf',
+      ref: {
+        byteSize: 100,
+        hash: sourceHash,
+        id: 'stable-source',
+        mimeType: file.mimeType,
+        name: file.name,
+        objectPath: `users/user-1/projects/project-1/stable-source/${sourceHash}/original`,
+      },
+      sources: [
+        {
+          file,
+          hash: sourceHash,
+          id: 'stable-source',
+          kind: 'pdf',
+          name: file.name,
+          outline: [],
+          outlineOrigin: 'none',
+          position: 0,
+          status: 'ready',
+        },
+      ],
+    },
+  };
+};
+
 const immediateProviderEffect: WorkflowProviderEffectExecutor = {
   run: async ({ operation, outputSchema }) => outputSchema.parse(await operation()),
 };
@@ -627,7 +667,7 @@ describe('durable lesson document stage', () => {
   });
 
   test('refreshes metadata for a revised source while reusing durable bytes', async () => {
-    const revisedProject = structuredClone(project);
+    const revisedProject = withStoredPdfSourceVersion(project, 'b'.repeat(64));
     const imageAsset = {
       ...storedAsset,
       hash: buildSha256HexDigest(Buffer.from('image')),
@@ -700,6 +740,55 @@ describe('durable lesson document stage', () => {
       }),
     ]);
     expect(output.documentAssetOwners).toEqual([]);
+  });
+
+  test('excludes metadata for images removed from a revised source', async () => {
+    const revisedProject = withStoredPdfSourceVersion(project, 'b'.repeat(64));
+    revisedProject.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      usedImages: [
+        {
+          asset: storedAsset,
+          caption: 'Removed image caption',
+          id: 'pdf-img-removed-version',
+          pageNumber: 2,
+          sourceHash: 'a'.repeat(64),
+          sourceId: 'stable-source',
+          sourceOrder: 1,
+          textAfter: 'Removed after',
+          textBefore: 'Removed before',
+        },
+      ],
+    };
+    const revisedInput = LessonCoverageStateSchema.parse({
+      ...input,
+      sourceFingerprint: buildLessonGenerationSourceFingerprint(revisedProject, 'lesson-1'),
+    });
+    const stage = vi.fn();
+    const captionImage = vi.fn();
+    const run = createLessonDocumentSourceStage({
+      assets: { stage },
+      captionImage,
+      extractImages: vi.fn().mockResolvedValue({ assets: [], warnings: [] }),
+      loadProject: vi.fn().mockResolvedValue(revisedProject),
+    });
+
+    const output = await run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'stage', runId: 'run-1' },
+      idempotencyKey: 'removed-source-image-key',
+      input: revisedInput,
+      providerEffect: immediateProviderEffect,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    expect(stage).not.toHaveBeenCalled();
+    expect(captionImage).not.toHaveBeenCalled();
+    expect(output.pdfImages).toEqual([]);
+    expect(output.lessonInputData.imageCandidates).toEqual([]);
   });
 
   test('finishes one document source before captioning the next', async () => {
