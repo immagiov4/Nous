@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 
 import type { GlobalModelConfig } from '../../src/config/modelConfig.js';
+import { LessonGenerationCorrectionError } from '../../src/services/lessonGenerationCorrection.js';
 import {
   type LessonContentDraft,
   type LessonGenerationInput,
@@ -58,13 +59,17 @@ test('durable verification rejects an unbalanced LaTeX environment left by the r
     imageRefs: [],
   };
 
-  await expect(
-    reviewLessonContentDraftStrict({
-      draft: invalidDraft,
-      generationInput: generationInput(),
-      verify: vi.fn().mockResolvedValue(invalidDraft),
-    })
-  ).rejects.toThrow('Verified lesson has unbalanced LaTeX environments.');
+  const review = reviewLessonContentDraftStrict({
+    draft: invalidDraft,
+    generationInput: generationInput(),
+    verify: vi.fn().mockResolvedValue(invalidDraft),
+  });
+
+  await expect(review).rejects.toBeInstanceOf(LessonGenerationCorrectionError);
+  await expect(review).rejects.toMatchObject({
+    code: 'lesson_review_latex_unbalanced',
+    feedback: expect.stringContaining('every active LaTeX environment'),
+  });
 });
 
 test('durable verification can repair an invalid initial quiz placement', async () => {
@@ -116,13 +121,17 @@ test('durable verification rejects an invalid reviewed quiz instead of approving
     imageRefs: [],
   };
 
-  await expect(
-    reviewLessonContentDraftStrict({
-      draft,
-      generationInput: generationInput(),
-      verify: vi.fn().mockResolvedValue(invalidReviewedDraft),
-    })
-  ).rejects.toThrow('Verified lesson has an invalid typed inline quiz contract.');
+  const review = reviewLessonContentDraftStrict({
+    draft,
+    generationInput: generationInput(),
+    verify: vi.fn().mockResolvedValue(invalidReviewedDraft),
+  });
+
+  await expect(review).rejects.toBeInstanceOf(LessonGenerationCorrectionError);
+  await expect(review).rejects.toMatchObject({
+    code: 'lesson_review_quiz_placement_invalid',
+    feedback: expect.stringContaining('Every quiz must follow explanatory markdown'),
+  });
 });
 
 test('durable verification accepts a quiz after explanatory markdown with media in between', async () => {
