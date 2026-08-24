@@ -121,6 +121,15 @@ describe('lesson verification prompt architecture', () => {
       ...plainDraft,
       contentBlocks: [{ markdown: '# Esempio\n\n~~~ts\nconst enabled = true;', type: 'markdown' }],
     });
+    const indentedCodeMarkupIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, {
+      ...plainDraft,
+      contentBlocks: [
+        {
+          markdown: '# Esempio\n\n    const enabled = true;\n    return enabled;',
+          type: 'markdown',
+        },
+      ],
+    });
     const mathMarkupIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, {
       ...plainDraft,
       contentBlocks: [{ markdown: '# Formula\n\n$x = 1', type: 'markdown' }],
@@ -147,6 +156,8 @@ x = 1 \)`,
     expect(codeMarkupIds).not.toContain('math-structure');
     expect(tildeCodeMarkupIds).toContain('code-structure');
     expect(tildeCodeMarkupIds).not.toContain('math-structure');
+    expect(indentedCodeMarkupIds).toContain('code-structure');
+    expect(indentedCodeMarkupIds).not.toContain('math-structure');
     expect(mathMarkupIds).toContain('math-structure');
     expect(mathMarkupIds).not.toContain('code-structure');
     expect(closingMathMarkupIds).toContain('math-structure');

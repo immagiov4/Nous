@@ -122,6 +122,7 @@ const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerification
   ];
 
 const CODE_MARKUP_MARKERS = ['`', '~~~'] as const;
+const INDENTED_CODE_BLOCK_PATTERN = /(?:^|\n[ \t]*\n)(?: {4}|\t)\S/;
 const MATH_MARKUP_MARKERS = [
   '$',
   String.raw`\(`,
@@ -150,6 +151,9 @@ const draftMarkdownContains = (draft: LessonContentDraft, markers: readonly stri
   draft.contentBlocks.some(
     block => block.type === 'markdown' && markers.some(marker => block.markdown.includes(marker))
   );
+
+const draftMarkdownMatches = (draft: LessonContentDraft, pattern: RegExp): boolean =>
+  draft.contentBlocks.some(block => block.type === 'markdown' && pattern.test(block.markdown));
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -186,7 +190,12 @@ export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
   const checkIds = [...BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS];
-  if (draftMarkdownContains(draft, CODE_MARKUP_MARKERS)) checkIds.push('code-structure');
+  if (
+    draftMarkdownContains(draft, CODE_MARKUP_MARKERS) ||
+    draftMarkdownMatches(draft, INDENTED_CODE_BLOCK_PATTERN)
+  ) {
+    checkIds.push('code-structure');
+  }
   if (draftMarkdownContains(draft, MATH_MARKUP_MARKERS)) checkIds.push('math-structure');
   if (draft.imageRefs.length > 0) checkIds.push('image-reference');
   if (draft.contentBlocks.some(block => block.type === 'youtube-clips')) {
