@@ -19,7 +19,7 @@ The following files were used as context for generating this wiki page:
 
 # Testing & Quality Gates
 
-Nous Reader uses focused local checks during development, GitHub Actions for the full test signal after each push, and one local SonarQube scan on the final merge candidate. Fallow blocks new dead-code findings against a committed baseline.
+Nous Reader uses focused local checks during development, GitHub Actions for the full test signal on pull-request updates and pushes to `main`, and one local SonarQube scan on the final merge candidate. Fallow blocks new dead-code findings against a committed baseline.
 
 Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](../../../scripts/run-full-quality-gate.ts#L1-L20)
 

@@ -6,13 +6,12 @@ on:
       - main
   pull_request:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   test:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-test
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -40,6 +39,9 @@ jobs:
 
   supabase-contract:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-supabase
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -92,6 +94,9 @@ jobs:
 
   managed-staging-contract:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-managed-staging
+      cancel-in-progress: false
     env:
       DATABASE_URL: ${{ secrets.SUPABASE_STAGING_DATABASE_URL }}
       SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_STAGING_JWT_SECRET }}

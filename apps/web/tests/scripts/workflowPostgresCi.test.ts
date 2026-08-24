@@ -14,15 +14,15 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
+  concurrency: {
+    'cancel-in-progress': boolean;
+    group: string;
+  };
   if?: string;
   steps: WorkflowStep[];
 };
 
 type WorkflowConfig = {
-  concurrency: {
-    'cancel-in-progress': boolean;
-    group: string;
-  };
   jobs: Record<string, WorkflowJob>;
   on: {
     pull_request: unknown;
@@ -47,9 +47,13 @@ describe('workflow PostgreSQL CI contract', () => {
   test('runs pull request branches once and cancels superseded runs', () => {
     expect(workflow.on.push.branches).toEqual(['main']);
     expect(workflow.on.pull_request).toBeNull();
-    expect(workflow.concurrency).toEqual({
+    expect(workflow.jobs.test.concurrency).toEqual({
       'cancel-in-progress': true,
-      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}`,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-test`,
+    });
+    expect(workflow.jobs['supabase-contract'].concurrency).toEqual({
+      'cancel-in-progress': true,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-supabase`,
     });
   });
 
@@ -59,6 +63,10 @@ describe('workflow PostgreSQL CI contract', () => {
       "env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''";
 
     expect(managedStagingJob.if).toBeUndefined();
+    expect(managedStagingJob.concurrency).toEqual({
+      'cancel-in-progress': false,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-managed-staging`,
+    });
     expect(managedStagingJob.steps).not.toHaveLength(0);
     expect(managedStagingJob.steps.every(step => step.if === credentialsCondition)).toBe(true);
   });
