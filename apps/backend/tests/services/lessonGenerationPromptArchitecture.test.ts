@@ -125,6 +125,17 @@ describe('lesson verification prompt architecture', () => {
       ...plainDraft,
       contentBlocks: [{ markdown: '# Formula\n\n$x = 1', type: 'markdown' }],
     });
+    const closingMathMarkupIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, {
+      ...plainDraft,
+      contentBlocks: [
+        {
+          markdown: String.raw`# Formula
+
+x = 1 \)`,
+          type: 'markdown',
+        },
+      ],
+    });
 
     expect(plainIds).not.toContain('code-structure');
     expect(plainIds).not.toContain('math-structure');
@@ -138,6 +149,8 @@ describe('lesson verification prompt architecture', () => {
     expect(tildeCodeMarkupIds).not.toContain('math-structure');
     expect(mathMarkupIds).toContain('math-structure');
     expect(mathMarkupIds).not.toContain('code-structure');
+    expect(closingMathMarkupIds).toContain('math-structure');
+    expect(closingMathMarkupIds).not.toContain('code-structure');
   });
 
   test('requires report entries for semantic coverage and structural checks', () => {
