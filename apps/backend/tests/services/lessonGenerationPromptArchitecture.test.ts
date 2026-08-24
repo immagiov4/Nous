@@ -24,8 +24,6 @@ const BASE_CHECKS = [
   'positive-definition',
   'self-sufficiency',
   'ascii-visual',
-  'code-structure',
-  'math-structure',
   'quiz-quality',
   'generated-visual',
 ] as const;
@@ -103,6 +101,25 @@ describe('lesson verification prompt architecture', () => {
 
     expect(requiredIds).toContain('quiz-quality');
     expect(requiredIds).toContain('generated-visual');
+  });
+
+  test('scopes code and math structural checks to their instruction packs', () => {
+    const plainIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, plainDraft);
+    const codeIds = buildRequiredLessonVerificationCheckIds(
+      { ...EMPTY_CHECK_CONTEXT, instructionPacks: ['code'] },
+      plainDraft
+    );
+    const mathIds = buildRequiredLessonVerificationCheckIds(
+      { ...EMPTY_CHECK_CONTEXT, instructionPacks: ['mathematics'] },
+      plainDraft
+    );
+
+    expect(plainIds).not.toContain('code-structure');
+    expect(plainIds).not.toContain('math-structure');
+    expect(codeIds).toContain('code-structure');
+    expect(codeIds).not.toContain('math-structure');
+    expect(mathIds).toContain('math-structure');
+    expect(mathIds).not.toContain('code-structure');
   });
 
   test('requires report entries for semantic coverage and structural checks', () => {
@@ -218,14 +235,14 @@ describe('lesson verification prompt architecture', () => {
 
     expect(
       findUncheckedLessonVerificationStructuralCheckIds(
-        { imageCandidates: [], sources: [] },
+        { imageCandidates: [], instructionPacks: [], sources: [] },
         verifiedWithNewYoutube,
         checkedIds
       )
     ).toEqual(['youtube-structure']);
     expect(
       findUncheckedLessonVerificationStructuralCheckIds(
-        { imageCandidates: [], sources: [] },
+        { imageCandidates: [], instructionPacks: [], sources: [] },
         verifiedWithNewImageRef,
         checkedIds
       )
@@ -233,18 +250,16 @@ describe('lesson verification prompt architecture', () => {
   });
 
   test('allows source-dependent media introduced under the corresponding source check', () => {
-    const imageContext = { imageCandidates: [imageCandidate], sources: [] };
-    const imageCheckedIds = buildRequiredLessonVerificationCheckIds(
-      { ...imageContext, instructionPacks: [] },
-      plainDraft
-    );
+    const imageContext = { imageCandidates: [imageCandidate], instructionPacks: [], sources: [] };
+    const imageCheckedIds = buildRequiredLessonVerificationCheckIds(imageContext, plainDraft);
     const verifiedWithImageRef: LessonContentDraft = { ...plainDraft, imageRefs: [imageRef] };
 
-    const youtubeContext = { imageCandidates: [], sources: [timestampedYoutubeSource] };
-    const youtubeCheckedIds = buildRequiredLessonVerificationCheckIds(
-      { ...youtubeContext, instructionPacks: [] },
-      plainDraft
-    );
+    const youtubeContext = {
+      imageCandidates: [],
+      instructionPacks: [],
+      sources: [timestampedYoutubeSource],
+    };
+    const youtubeCheckedIds = buildRequiredLessonVerificationCheckIds(youtubeContext, plainDraft);
     const verifiedWithYoutube: LessonContentDraft = {
       ...plainDraft,
       contentBlocks: [
@@ -289,14 +304,14 @@ describe('lesson verification prompt architecture', () => {
 
     expect(
       findUncheckedLessonVerificationStructuralCheckIds(
-        { imageCandidates: [], sources: [] },
+        { imageCandidates: [], instructionPacks: [], sources: [] },
         verifiedWithGeneratedVisual,
         checkedIds
       )
     ).toEqual([]);
     expect(
       findUncheckedLessonVerificationStructuralCheckIds(
-        { imageCandidates: [], sources: [] },
+        { imageCandidates: [], instructionPacks: [], sources: [] },
         verifiedWithQuiz,
         checkedIds
       )

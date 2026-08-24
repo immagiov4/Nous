@@ -96,7 +96,7 @@ type LessonVerificationCheckContext = Pick<
 
 type LessonVerificationStructuralContext = Pick<
   LessonGenerationInput,
-  'imageCandidates' | 'sources'
+  'imageCandidates' | 'instructionPacks' | 'sources'
 >;
 
 export type LessonVerificationStructuralCheckId =
@@ -117,8 +117,6 @@ const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerification
     'positive-definition',
     'self-sufficiency',
     'ascii-visual',
-    'code-structure',
-    'math-structure',
     'quiz-quality',
     'generated-visual',
   ];
@@ -187,6 +185,8 @@ const buildRequiredLessonVerificationStructuralCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
   const checkIds = buildApplicableLessonVerificationCheckIds(draft);
+  if (input.instructionPacks.includes('code')) checkIds.push('code-structure');
+  if (input.instructionPacks.includes('mathematics')) checkIds.push('math-structure');
   if (input.imageCandidates.length > 0 && !checkIds.includes('image-reference')) {
     checkIds.push('image-reference');
   }
