@@ -40,7 +40,7 @@ The `doctor` utility is a read-only diagnostic tool that reports on environment 
 Sources: [scripts/doctor.ts:98-124](../../../scripts/doctor.ts#L98-L124), [AGENTS.md:144-150](../../../AGENTS.md#L144-L150)
 
 ### The Full Quality Gate
-The `gate:full` command runs one heavy process at a time. It runs quality, Fallow, the Bun test suite, and Node coverage before it starts SonarQube. It stops SonarQube after the scan, including when startup or analysis throws.
+The `gate:full` command runs one heavy process at a time. It runs quality, Fallow, the Bun test suite, and Node coverage before it starts SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate stops SonarQube after the scan, including when startup, preflight, or analysis throws.
 
 ```mermaid
 flowchart TD
@@ -49,7 +49,8 @@ flowchart TD
     F --> T[Vitest under Bun]
     T --> Cov[Coverage under Node]
     Cov --> Up[sonar:up]
-    Up --> Sonar[sonar:scan]
+    Up --> Preflight[doctor:gate]
+    Preflight --> Sonar[sonar:scan]
     Sonar --> Stop[sonar:stop]
     Stop --> End[Merge Admission]
 ```
@@ -138,6 +139,6 @@ SonarQube acts as a local-only merge gate and is intentionally excluded from Git
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
-Use focused checks while editing. Use GitHub CI for the full suite after a push. Run `gate:full` once after implementation and review feedback are complete.
+Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. Run `gate:full` once after implementation and review feedback are complete.
 
 Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)

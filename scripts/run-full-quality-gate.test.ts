@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   executeFullQualityGate,
@@ -12,6 +12,7 @@ const GATE_SCRIPTS = {
   test: 'test',
   coverage: 'test:coverage',
   sonarStart: 'sonar:up',
+  sonarPreflight: 'doctor:gate',
   sonarScan: 'sonar:scan',
   sonarStop: 'sonar:stop',
 } as const;
@@ -23,6 +24,8 @@ const passedResult = (stage: GateStage): GateStageResult => ({
   durationMs: 1,
   exitCode: 0,
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('full quality gate runner', () => {
   test('runs one heavy stage at a time and stops Sonar after the scan', async () => {
@@ -85,6 +88,5 @@ describe('full quality gate runner', () => {
     ]);
     expect(stderr).toHaveBeenCalledTimes(3);
     expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarStop);
-    stderr.mockRestore();
   });
 });

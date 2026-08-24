@@ -136,8 +136,9 @@ including when startup or analysis throws. It completes every stage that can run
 failure if any stage fails. The Sonar container has no automatic restart policy.
 
 Keep the development loop narrow. Run focused tests and the relevant type or lint checks for the
-changed area. After a push, use GitHub CI as the full-suite signal unless a failure needs local
-diagnosis. Do not rerun the full local suite, coverage, or Sonar after each incremental commit. On a
+changed area. After a pull-request update or a push to `main`, use GitHub CI as the full-suite signal
+unless a failure needs local diagnosis. Do not rerun the full local suite, coverage, or Sonar after
+each incremental commit. On a
 resource-constrained Windows host, run only one heavy analysis process at a time. If a broad run
 times out in unrelated tests, rerun those files in isolation before treating them as regressions or
 changing timeout policy.

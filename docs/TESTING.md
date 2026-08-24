@@ -34,8 +34,9 @@ bun run gate:full
   total is unchanged. The local `check:fallow` command remains informational. Refreshing the
   baseline first verifies that the current result introduces no new recorded debt.
 - `gate:full` runs quality, the blocking Fallow regression check, the complete Bun suite, and Node
-  coverage one at a time. It then starts the local Sonar service, runs the analysis, and stops the
-  service. The stop command also runs when Sonar startup or analysis throws. The React Hooks ESLint
+  coverage one at a time. It then starts the local Sonar service, verifies the pinned Bun runtime
+  and Sonar readiness with `doctor:gate`, runs the analysis, and stops the service. The stop command
+  also runs when Sonar startup, preflight, or analysis throws. The React Hooks ESLint
   check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint
   pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
 
