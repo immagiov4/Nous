@@ -18,6 +18,7 @@ type WorkflowJob = {
     'cancel-in-progress': boolean;
     group: string;
   };
+  env?: Record<string, string>;
   if?: string;
   steps: WorkflowStep[];
 };
@@ -68,6 +69,11 @@ describe('workflow PostgreSQL CI contract', () => {
     expect(managedStagingJob.if).toBe(
       "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     );
+    expect(managedStagingJob.env).toEqual({
+      DATABASE_URL: `\${{ secrets.SUPABASE_STAGING_DATABASE_URL }}`,
+      SUPABASE_JWT_SECRET: `\${{ secrets.SUPABASE_STAGING_JWT_SECRET }}`,
+      SUPABASE_URL: `\${{ secrets.SUPABASE_STAGING_URL }}`,
+    });
     expect(managedStagingJob.concurrency).toEqual({
       'cancel-in-progress': false,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-managed-staging`,
