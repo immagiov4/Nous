@@ -59,7 +59,7 @@
     "test:workflow-postgres:critical": "bun run scripts/run-workflow-postgres-contract.ts critical",
     "test:workflow-codex": "bun run scripts/run-real-workflow-provider-tests.ts",
     "test:watch": "bun --bun vitest --config apps/web/vitest.config.ts",
-    "test:coverage": "bun run check:node && node node_modules/vitest/vitest.mjs run --coverage --config apps/web/vitest.config.ts --maxWorkers=4"
+    "test:coverage": "bun run check:node && vitest run --coverage --config apps/web/vitest.config.ts --maxWorkers=4"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",

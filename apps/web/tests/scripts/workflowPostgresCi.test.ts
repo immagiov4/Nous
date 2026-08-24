@@ -64,8 +64,8 @@ describe('workflow PostgreSQL CI contract', () => {
   test('runs the complete Bun suite once without discarded CI coverage', () => {
     const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
 
-    expect(commands).toContain('bun run quality:ci');
-    expect(commands).toContain('bun run test');
+    expect(commands.filter(command => command === 'bun run quality:ci')).toHaveLength(1);
+    expect(commands.filter(command => command === 'bun run test')).toHaveLength(1);
     expect(commands).not.toContain('bun run test:coverage');
     expect(packageScripts['quality:ci']).toContain('bun run check:depcruise');
     expect(packageScripts.quality).not.toContain('check:depcruise');

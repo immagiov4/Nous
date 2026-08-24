@@ -49,15 +49,17 @@ flowchart TD
     Start[Run bun run doctor] --> ParseArgs[Parse --profile Argument]
     ParseArgs --> BunCheck[Inspect Bun Runtime Version]
     BunCheck --> DepCheck[Check Workspace Binaries]
-    DepCheck --> CheckExec{Preflight Fail?}
+    DepCheck --> ChecksProfile{checks or all?}
+    ChecksProfile -- Yes --> Fallow[Inspect Fallow Baseline]
+    ChecksProfile -- No --> CheckExec{Preflight Fail?}
+    Fallow --> CheckExec
     CheckExec -- Yes --> Exit[Exit Code 1]
     CheckExec -- No --> ProfileBranch{Selected Profile}
     
-    ProfileBranch -- checks/all --> Quality[Run Quality & Tests]
+    ProfileBranch -- checks --> Summary[Generate Summary]
     ProfileBranch -- gate/all --> Sonar[Probe SonarQube]
     ProfileBranch -- local/all --> Supabase[Probe Supabase & Migrations]
     
-    Quality --> Summary[Generate Summary]
     Sonar --> Summary
     Supabase --> Summary
 ```
