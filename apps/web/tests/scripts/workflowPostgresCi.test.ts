@@ -13,12 +13,17 @@ type WorkflowStep = {
   with?: Record<string, unknown>;
 };
 
+type WorkflowJob = {
+  if?: string;
+  steps: WorkflowStep[];
+};
+
 type WorkflowConfig = {
   concurrency: {
     'cancel-in-progress': boolean;
     group: string;
   };
-  jobs: Record<string, { steps: WorkflowStep[] }>;
+  jobs: Record<string, WorkflowJob>;
   on: {
     pull_request: unknown;
     push: { branches: string[] };
@@ -46,6 +51,16 @@ describe('workflow PostgreSQL CI contract', () => {
       'cancel-in-progress': true,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}`,
     });
+  });
+
+  test('keeps managed staging validation on pull requests without using missing credentials', () => {
+    const managedStagingJob = workflow.jobs['managed-staging-contract'];
+    const credentialsCondition =
+      "env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''";
+
+    expect(managedStagingJob.if).toBeUndefined();
+    expect(managedStagingJob.steps).not.toHaveLength(0);
+    expect(managedStagingJob.steps.every(step => step.if === credentialsCondition)).toBe(true);
   });
 
   test('uses the canonical Supabase contract without the retired source migrator', () => {

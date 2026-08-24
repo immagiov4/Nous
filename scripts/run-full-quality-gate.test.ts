@@ -6,6 +6,18 @@ import {
   type GateStageResult,
 } from './run-full-quality-gate.ts';
 
+const GATE_SCRIPTS = {
+  quality: 'quality',
+  fallow: 'check:fallow:ci',
+  test: 'test',
+  coverage: 'test:coverage',
+  sonarStart: 'sonar:up',
+  sonarScan: 'sonar:scan',
+  sonarStop: 'sonar:stop',
+} as const;
+
+const EXPECTED_GATE_SCRIPTS = Object.values(GATE_SCRIPTS);
+
 const passedResult = (stage: GateStage): GateStageResult => ({
   ...stage,
   durationMs: 1,
@@ -27,21 +39,13 @@ describe('full quality gate runner', () => {
       return passedResult(stage);
     });
 
-    expect(invokedScripts).toEqual([
-      'quality',
-      'check:fallow:ci',
-      'test',
-      'test:coverage',
-      'sonar:up',
-      'sonar:scan',
-      'sonar:stop',
-    ]);
+    expect(invokedScripts).toEqual(EXPECTED_GATE_SCRIPTS);
     expect(maximumActiveStageCount).toBe(1);
   });
 
   test('continues through Sonar and exposes every failed stage', async () => {
     const invokedScripts: string[] = [];
-    const failedScripts = new Set(['quality', 'test:coverage']);
+    const failedScripts = new Set([GATE_SCRIPTS.quality, GATE_SCRIPTS.coverage]);
 
     const results = await executeFullQualityGate(async stage => {
       invokedScripts.push(stage.script);
@@ -51,16 +55,20 @@ describe('full quality gate runner', () => {
       };
     });
 
-    expect(invokedScripts.at(-1)).toBe('sonar:stop');
+    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarStop);
     expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
-      'quality',
-      'test:coverage',
+      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.coverage,
     ]);
   });
 
   test('continues after runner crashes and reports every crashed stage', async () => {
     const invokedScripts: string[] = [];
-    const crashedScripts = new Set(['quality', 'sonar:up', 'sonar:stop']);
+    const crashedScripts = new Set([
+      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.sonarStart,
+      GATE_SCRIPTS.sonarStop,
+    ]);
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const results = await executeFullQualityGate(async stage => {
@@ -69,22 +77,14 @@ describe('full quality gate runner', () => {
       return passedResult(stage);
     });
 
-    expect(invokedScripts).toEqual([
-      'quality',
-      'check:fallow:ci',
-      'test',
-      'test:coverage',
-      'sonar:up',
-      'sonar:scan',
-      'sonar:stop',
-    ]);
+    expect(invokedScripts).toEqual(EXPECTED_GATE_SCRIPTS);
     expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
-      'quality',
-      'sonar:up',
-      'sonar:stop',
+      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.sonarStart,
+      GATE_SCRIPTS.sonarStop,
     ]);
     expect(stderr).toHaveBeenCalledTimes(3);
-    expect(invokedScripts.at(-1)).toBe('sonar:stop');
+    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarStop);
     stderr.mockRestore();
   });
 });
