@@ -23,7 +23,7 @@ export default defineConfig({
     testTimeout: TEST_TIMEOUT_MS,
     coverage: {
       provider: 'v8',
-      reporter: ['lcov'],
+      reporter: ['lcovonly'],
       exclude: [
         '**/*.d.ts',
         'apps/web/dist/**',

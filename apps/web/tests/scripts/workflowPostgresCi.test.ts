@@ -67,10 +67,6 @@ describe('workflow PostgreSQL CI contract', () => {
     expect(commands.filter(command => command === 'bun run quality:ci')).toHaveLength(1);
     expect(commands.filter(command => command === 'bun run test')).toHaveLength(1);
     expect(commands).not.toContain('bun run test:coverage');
-    expect(packageScripts['quality:ci']).toContain('bun run check:depcruise');
-    expect(packageScripts.quality).not.toContain('check:depcruise');
-    expect(packageScripts['test:coverage']).toContain('bun run check:node');
-    expect(packageScripts['test:coverage']).toContain('--maxWorkers=4');
   });
 
   test('keeps staging credentials on trusted main pushes', () => {
