@@ -24,8 +24,6 @@ const LOCAL_WORKSPACE_BINARIES = ['supabase'] as const;
 
 const DIAGNOSTIC_STAGES = [
   { label: 'Quality checks', script: 'quality' },
-  { label: 'Semgrep rule tests', script: 'check:semgrep:rules' },
-  { label: 'Semgrep repository scan', script: 'check:semgrep' },
   { label: 'Fallow regression check', script: 'check:fallow:ci' },
   { label: 'Test suite', script: 'test' },
 ] as const;
@@ -71,7 +69,6 @@ type LocalSupabaseConfig = {
 
 type EnvironmentInspectionOptions = {
   bunVersion?: string;
-  findExecutable?: (command: string) => string | null;
 };
 
 export type LocalSupabaseConfigResolution =
@@ -339,21 +336,7 @@ export const inspectEnvironment = (
 ): DiagnosticResult[] => {
   const results = [inspectBunRuntime(options.bunVersion), inspectWorkspaceDependencies(profile)];
   if (profileIncludesChecks(profile)) {
-    const findExecutable = options.findExecutable ?? (command => Bun.which(command));
-    results.push(
-      findExecutable('uvx')
-        ? {
-            detail: 'Available for the pinned Semgrep checks.',
-            label: 'uvx runtime',
-            status: 'PASS',
-          }
-        : {
-            detail: 'Required by the Semgrep gate. Install uv and retry.',
-            label: 'uvx runtime',
-            status: 'FAIL',
-          },
-      inspectFallowBaseline()
-    );
+    results.push(inspectFallowBaseline());
   }
   return results;
 };

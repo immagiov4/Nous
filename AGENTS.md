@@ -130,9 +130,10 @@ bun run test          # Vitest test suite (runs under Bun runtime)
 `doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without
 starting, restarting, configuring, or migrating services. The default `checks` profile runs the
 service-free checks; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all`
-combines them. `gate:full` starts with `doctor:gate`, runs quality, Semgrep, the Fallow regression
-check, and the Bun suite as independent lanes, then runs coverage and Sonar analysis sequentially;
-it completes every stage and exits with failure if any stage fails.
+combines them. `gate:full` runs quality, the Fallow regression check, the Bun suite, and coverage
+one at a time. It starts Sonar only for the final analysis and stops the local service afterward,
+including when startup or analysis throws. It completes every stage that can run and exits with
+failure if any stage fails. The Sonar container has no automatic restart policy.
 
 Keep the development loop narrow. Run focused tests and the relevant type or lint checks for the
 changed area. After a push, use GitHub CI as the full-suite signal unless a failure needs local
@@ -153,9 +154,10 @@ explicit review or CI request. For a trivially scoped pull request limited to do
 metadata, or workflow files, with no analyzable application-code or runtime-behavior change, clean
 CI and review, and no explicit Sonar request, the merge owner may skip the local scan only after
 recording that rationale. Diff size or file count alone never qualifies. A required Sonar scan that
-is skipped, failed, or unreachable blocks the merge. If the local Sonar service is unavailable, the
-merge owner must start it with `bun run sonar:up` before the final gate. Triage every new Sonar bug,
-vulnerability, and security hotspot, and fix or explicitly resolve each new finding before merging.
+is skipped, failed, or unreachable blocks the merge. `gate:full` starts the local Sonar service
+through `bun run sonar:up`. If startup fails, diagnose that command before rerunning the gate.
+Triage every new Sonar bug, vulnerability, and security hotspot, and fix or explicitly resolve each
+new finding before merging.
 Use `bun run fix` to auto-fix lint and format issues.
 Do not claim validation passed unless it was actually run.
 

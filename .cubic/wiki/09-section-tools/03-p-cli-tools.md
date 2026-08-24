@@ -128,6 +128,9 @@ Developers use the following commands to interact with the diagnostic and qualit
 | `bun run doctor` | Run observational health checks (default: `checks` profile). |
 | `bun run quality` | Run TypeScript type checks and Biome linting. |
 | `bun run gate` | Full local gate: quality + fallow regression + tests. |
+| `bun run gate:full` | Run the final local gate, including Node coverage and Sonar analysis. |
+| `bun run sonar:up` | Start and provision the loopback-only Sonar service for diagnosis. |
+| `bun run sonar:stop` | Stop the Sonar containers without deleting their volumes. |
 | `bun run fix` | Automatically fix Biome linting, formatting, and import ordering. |
 | `bun run test` | Execute the Vitest suite under the Bun runtime. |
 

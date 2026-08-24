@@ -3,8 +3,12 @@ name: CI
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -22,20 +26,8 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          enable-cache: true
-          version: '0.11.16'
-
       - name: Run Quality Checks (TypeScript + Biome)
         run: bun run quality
-
-      - name: Verify Semgrep Rules
-        run: bun run check:semgrep:rules
-
-      - name: Run Semgrep Maintainability Checks
-        run: bun run check:semgrep
 
       - name: Run Fallow Static Analysis (regression check)
         run: bun run check:fallow:ci

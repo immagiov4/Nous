@@ -1,8 +1,6 @@
 # Testing and quality gates
 
 The root scripts in `package.json` are the canonical development and CI entrypoints.
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) so the gate can run its pinned
-Semgrep CLI through `uvx`. There is no alternate Semgrep runner.
 
 ## Routine checks
 
@@ -28,26 +26,23 @@ bun run gate:full
   configures, or migrates a service.
 - `quality` runs the TypeScript checks, Biome, dependency boundaries, and React Hooks lint.
 - `test` runs the Vitest suite under Bun.
-- `gate:checks` runs `quality`, the Semgrep rule tests and repository scan, and Fallow.
+- `gate:checks` runs `quality` and Fallow.
 - `gate` adds the Vitest suite to `gate:checks`.
 - `gate:ci` uses the same blocking checks and fails when Fallow reports a finding identity that is
   absent from its versioned regression baseline. The output classifies findings as new, removed,
   or unchanged, so replacing one accepted finding with one new finding still fails even when the
   total is unchanged. The local `check:fallow` command remains informational. Refreshing the
   baseline first verifies that the current result introduces no new recorded debt.
-- `gate:full` checks local Sonar readiness, then runs quality, Semgrep, the blocking Fallow
-  regression check, and the complete Bun suite as independent lanes. After every lane finishes, it
-  generates application LCOV coverage on Node and launches the local Sonar scan. Coverage and
-  Sonar remain sequential because the scanner consumes the LCOV report. The React Hooks ESLint
-  lane also creates the external-issues report consumed by Sonar, so the same lint pass is not run
-  twice. The full gate completes every stage so an earlier failure cannot silently skip Sonar,
-  then exits with a failure if any stage failed. The scanner waits for the Sonar quality-gate
-  result and propagates a failing gate.
+- `gate:full` runs quality, the blocking Fallow regression check, the complete Bun suite, and Node
+  coverage one at a time. It then starts the local Sonar service, runs the analysis, and stops the
+  service. The stop command also runs when Sonar startup or analysis throws. The React Hooks ESLint
+  check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint
+  pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
 
 ## Pull request Sonar merge policy
 
 SonarQube remains a local merge gate and is intentionally excluded from GitHub Actions. CI results
-for TypeScript, tests, coverage, Semgrep, Fallow, and relevant contracts remain independent
+for TypeScript, tests, coverage, Fallow, and relevant contracts remain independent
 authoritative checks. Classify the pull request before merging.
 
 Sonar is required when the diff includes any of the following:
@@ -82,8 +77,8 @@ full gate. Do not treat a failed or unreachable required Sonar scan as a skip.
 
 ### When required Sonar is unavailable
 
-If Sonar is required and the local service is unavailable, the merge owner must restore the
-existing local lifecycle before rerunning the full gate:
+`gate:full` starts Sonar immediately before analysis and stops it afterward. If startup fails, use
+the standalone lifecycle command to diagnose the service before rerunning the full gate:
 
 ```bash
 bun run sonar:up
@@ -113,16 +108,15 @@ same file does not change its identity. File moves and file or symbol renames ap
 finding plus one new finding; the new identity remains blocking until the refactor is reviewed and
 the baseline is refreshed explicitly.
 
-Before the first local full gate, start Sonar with `bun run sonar:up`. The service is local-only:
-Docker publishes it exclusively on `127.0.0.1:9000`; its internal provisioner has no published port
-and permits anonymous analysis only through that loopback-bound service.
+The service is local-only. Docker publishes it exclusively on `127.0.0.1:9000`; its internal
+provisioner has no published port and permits anonymous analysis only through that loopback-bound
+service.
 
 ## Sonar quality ratchet
 
-Run `bun run gate:full` after each non-trivial completed batch. Triage every new bug,
+Run `bun run gate:full` once on the exact final merge candidate. Triage every new bug,
 vulnerability, and security hotspot before considering the batch complete. Existing code-smell debt
-may be addressed in an explicitly scoped, safe cleanup batch; there is no fixed per-batch quota and
-unrelated refactors must not be forced merely to reduce the total.
+may be addressed in an explicitly scoped cleanup batch; there is no fixed per-batch quota.
 
 Biome fixes and formatting remain separate, explicit commands:
 
@@ -130,27 +124,6 @@ Biome fixes and formatting remain separate, explicit commands:
 bun run fix
 bun run format
 ```
-
-## Semgrep maintainability checks
-
-Semgrep is executed through the pinned version in the root scripts:
-
-```bash
-bun run check:semgrep:rules
-bun run check:semgrep
-```
-
-`check:semgrep:rules` validates the annotated positive and negative fixtures beside the rules.
-`check:semgrep` scans the repository and fails on any finding.
-
-Only deterministic, high-confidence syntax rules belong in this gate. A new rule must:
-
-1. start with meaningful `ruleid` and `ok` fixtures;
-2. avoid duplicating Biome, TypeScript, dependency-cruiser, Fallow, or Sonar;
-3. pass its fixtures and a full-repository scan without accepted false positives.
-
-Rules based on semantic guesses, model output, arbitrary size or usage thresholds, or source-text
-keyword lists do not belong in Semgrep.
 
 ## Supabase contract
 

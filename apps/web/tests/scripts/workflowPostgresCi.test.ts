@@ -14,7 +14,15 @@ type WorkflowStep = {
 };
 
 type WorkflowConfig = {
+  concurrency: {
+    'cancel-in-progress': boolean;
+    group: string;
+  };
   jobs: Record<string, { steps: WorkflowStep[] }>;
+  on: {
+    pull_request: unknown;
+    push: { branches: string[] };
+  };
 };
 
 const workflow = parse(readFileSync(resolve('.github/workflows/ci.yml'), 'utf8')) as WorkflowConfig;
@@ -31,6 +39,15 @@ function requireStep(name: string): WorkflowStep {
 }
 
 describe('workflow PostgreSQL CI contract', () => {
+  test('runs pull request branches once and cancels superseded runs', () => {
+    expect(workflow.on.push.branches).toEqual(['main']);
+    expect(Object.hasOwn(workflow.on, 'pull_request')).toBe(true);
+    expect(workflow.concurrency).toEqual({
+      'cancel-in-progress': true,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}`,
+    });
+  });
+
   test('uses the canonical Supabase contract without the retired source migrator', () => {
     const canonicalContract = requireStep('Run Canonical Auth/RLS Contract');
     const workflowCommands = Object.values(workflow.jobs)
