@@ -121,6 +121,7 @@ const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerification
     'generated-visual',
   ];
 
+const CODE_MARKUP_MARKERS = ['`', '~~~'] as const;
 const MATH_MARKUP_PREFIXES = ['$', String.raw`\(`, String.raw`\[`, String.raw`\begin{`] as const;
 
 const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
@@ -177,7 +178,7 @@ export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
   const checkIds = [...BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS];
-  if (draftMarkdownContains(draft, ['`'])) checkIds.push('code-structure');
+  if (draftMarkdownContains(draft, CODE_MARKUP_MARKERS)) checkIds.push('code-structure');
   if (draftMarkdownContains(draft, MATH_MARKUP_PREFIXES)) checkIds.push('math-structure');
   if (draft.imageRefs.length > 0) checkIds.push('image-reference');
   if (draft.contentBlocks.some(block => block.type === 'youtube-clips')) {
