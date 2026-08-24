@@ -38,8 +38,9 @@ bun run gate:full
   check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint
   pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
 - `test:coverage` requires Node 24.19.0, pinned in `.node-version`. It stops before Vitest if PATH
-  resolves to another Node version. It uses four workers and writes only `coverage/lcov.info`, the
-  report Sonar consumes. CI does not generate and discard a second coverage report.
+  resolves to another Node version. Its preflight deletes the previous `coverage/lcov.info` before
+  that check, so a later Sonar stage cannot consume stale coverage. It uses four workers and writes
+  only the report Sonar consumes. CI does not generate and discard a second coverage report.
 
 ## Pull request Sonar merge policy
 

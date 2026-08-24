@@ -139,6 +139,6 @@ SonarQube acts as a local-only merge gate and is intentionally excluded from Git
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
-Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. Coverage rejects a Node version that differs from the 24.19.0 pin in `.node-version`, uses four workers, and writes only the LCOV report consumed by Sonar.
+Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. The coverage preflight deletes the previous LCOV report before it checks the Node 24.19.0 pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses four workers and writes only the LCOV report consumed by Sonar.
 
 Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)
