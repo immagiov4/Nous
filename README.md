@@ -75,6 +75,6 @@ Authenticated sessions use server storage. Import/export remains available for m
 
 ## Useful Commands
 
-Use `bun run doctor` for an actionable local health report and `bun run gate` for the complete
-local quality gate. See
+Use `bun run doctor` for an actionable local health report. GitHub CI runs the complete Bun suite;
+`bun run gate:full` adds coverage and Sonar on the final commit. See
 [Testing and quality gates](docs/TESTING.md) for the canonical command list and CI contract.

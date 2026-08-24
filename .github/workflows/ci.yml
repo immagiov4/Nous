@@ -28,17 +28,14 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run Quality Checks (TypeScript + Biome)
-        run: bun run quality
+      - name: Run CI Quality Checks
+        run: bun run quality:ci
 
       - name: Run Fallow Static Analysis (regression check)
         run: bun run check:fallow:ci
 
       - name: Run Test Suite
         run: bun run test
-
-      - name: Run Coverage
-        run: bun run test:coverage
 
   supabase-contract:
     runs-on: ubuntu-latest

@@ -13,9 +13,8 @@ export type GateStageResult = GateStage & {
 type RunGateStage = (stage: GateStage) => Promise<GateStageResult>;
 
 const CHECK_GATE_STAGES: GateStage[] = [
-  { label: 'Type, lint, and dependency quality', script: 'quality' },
+  { label: 'Type and lint quality', script: 'quality' },
   { label: 'Fallow regression check', script: 'check:fallow:ci' },
-  { label: 'Bun test suite', script: 'test' },
 ];
 
 const COVERAGE_STAGE: GateStage = {

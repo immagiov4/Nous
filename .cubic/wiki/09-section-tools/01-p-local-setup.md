@@ -13,6 +13,7 @@ The following files were used as context for generating this wiki page:
 - [docker-compose.sonarqube.yml](../../../docker-compose.sonarqube.yml)
 - [README.md](../../../README.md)
 - [AGENTS.md](../../../AGENTS.md)
+- [.node-version](../../../.node-version)
 - [biome.json](../../../biome.json)
 </details>
 
@@ -37,9 +38,10 @@ The project utilizes [Bun](https://bun.sh/) as its primary runtime and package m
 Sources: [README.md:15-22](../../../README.md#L15-L22), [AGENTS.md:144-155](../../../AGENTS.md#L144-L155)
 
 ### Runtime Verification
-The environment health is validated by comparing the current environment against pinned versions defined in `package.json` and CI workflows.
+The environment health is validated against the pinned Bun version in `package.json` and CI. Coverage checks the Node version in `.node-version` before Vitest starts.
 *  **Bun Version:** The system expects a specific version of Bun (e.g., `1.3.14`). Mismatches trigger a `FAIL` status in the diagnostic tools.
-*  **Workspace Binaries:** Essential tools like `biome`, `eslint`, `vitest`, and `supabase` must be present in `node_modules/.bin`.
+*  **Node Version:** Coverage runs under Node 24.19.0, pinned in `.node-version`.
+*  **Workspace Binaries:** Local profiles require tools such as `biome`, `eslint`, `vitest`, and `supabase`. Dependency-cruiser runs only in CI.
 
 Sources: [scripts/doctor.ts:167-195](../../../scripts/doctor.ts#L167-L195), [scripts/doctor.ts:19-27](../../../scripts/doctor.ts#L19-L27)
 
@@ -81,7 +83,7 @@ Nous Reader employs a multi-layered diagnostic system to ensure code quality and
 
 ### The "Doctor" Utility
 The `doctor` script supports multiple profiles to probe different aspects of the environment:
-*  **`checks`:** Validates runtime versions, workspace binaries, and static debt (Fallow baseline).
+*  **`checks`:** Validates the Bun contract, workspace binaries, and the Fallow baseline without running quality or tests.
 *  **`gate`:** Probes the local SonarQube service.
 *  **`local`:** Probes Supabase health (Auth, REST, Storage, Realtime) and migration parity.
 *  **`all`:** Combines all of the above.
@@ -118,7 +120,7 @@ Environment variables are managed via `.env.local`. Key configurations include:
 Sources: [README.md:21-23](../../../README.md#L21-L23), [README.md:40-45](../../../README.md#L40-L45), [scripts/ensure-local-dev-services.ts:8](../../../scripts/ensure-local-dev-services.ts#L8)
 
 ### Code Style Enforcement
-The project uses **Biome** for linting and formatting, replacing traditional ESLint/Prettier setups for speed. The configuration is defined in `biome.json`, enforcing single quotes and a line width of 100.
+The project uses Biome for linting and formatting. `biome.json` pins LF line endings so Windows and CI check the same files. It also sets single quotes and a line width of 100.
 Sources: [biome.json:20-40](../../../biome.json#L20-L40)
 
 ## Conclusion

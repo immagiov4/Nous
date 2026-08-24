@@ -37,6 +37,7 @@ const packageScripts = JSON.parse(readFileSync(resolve('package.json'), 'utf8'))
   string,
   string
 >;
+const testSteps = workflow.jobs.test.steps;
 const supabaseSteps = workflow.jobs['supabase-contract'].steps;
 
 function requireStep(name: string): WorkflowStep {
@@ -58,6 +59,18 @@ describe('workflow PostgreSQL CI contract', () => {
       'cancel-in-progress': true,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-supabase`,
     });
+  });
+
+  test('runs the complete Bun suite once without discarded CI coverage', () => {
+    const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
+
+    expect(commands).toContain('bun run quality:ci');
+    expect(commands).toContain('bun run test');
+    expect(commands).not.toContain('bun run test:coverage');
+    expect(packageScripts['quality:ci']).toContain('bun run check:depcruise');
+    expect(packageScripts.quality).not.toContain('check:depcruise');
+    expect(packageScripts['test:coverage']).toContain('bun run check:node');
+    expect(packageScripts['test:coverage']).toContain('--maxWorkers=4');
   });
 
   test('keeps staging credentials on trusted main pushes', () => {

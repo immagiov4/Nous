@@ -117,10 +117,10 @@ bun run doctor        # Read-only diagnostic; defaults to the checks profile
 bun run doctor -- --profile gate   # Probe the existing local Sonar service
 bun run doctor -- --profile local  # Probe local Supabase services and migration parity
 bun run doctor -- --profile all    # Run checks plus every service probe
-bun run quality       # TypeScript type checks + Biome lint
+bun run quality       # Local TypeScript, Biome, and React Hooks checks
+bun run quality:ci    # CI quality checks, including dependency graph validation
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
-bun run gate          # Full gate: quality + fallow + tests
-bun run gate:full     # Local merge gate when Sonar is required: checks + coverage + Sonar
+bun run gate:full     # Final local merge gate after green CI: checks + coverage + Sonar
 bun run gate:ci       # CI gate: quality + fallow regression + tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
@@ -128,12 +128,13 @@ bun run test          # Vitest test suite (runs under Bun runtime)
 ```
 
 `doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without
-starting, restarting, configuring, or migrating services. The default `checks` profile runs the
-service-free checks; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all`
-combines them. `gate:full` runs quality, the Fallow regression check, the Bun suite, and coverage
-one at a time. It starts Sonar only for the final analysis and stops the local service afterward,
-including when startup or analysis throws. It completes every stage that can run and exits with
-failure if any stage fails. The Sonar container has no automatic restart policy.
+starting, restarting, configuring, migrating services, or running the test suite. The default
+`checks` profile inspects the service-free environment; `gate` probes Sonar, `local` probes Supabase and migration parity, and `all`
+combines them. `gate:full` runs local quality, the Fallow regression check, and Node coverage one at
+a time after GitHub CI passes on the exact commit. It does not repeat the complete Bun suite or the
+dependency graph check from CI. It starts Sonar only for the final analysis and stops the local
+service afterward, including when startup or analysis throws. It completes every stage that can run
+and exits with failure if any stage fails. The Sonar container has no automatic restart policy.
 
 Keep the development loop narrow. Run focused tests and the relevant type or lint checks for the
 changed area. After a pull-request update or a push to `main`, use GitHub CI as the full-suite signal
@@ -143,11 +144,16 @@ resource-constrained Windows host, run only one heavy analysis process at a time
 times out in unrelated tests, rerun those files in isolation before treating them as regressions or
 changing timeout policy.
 
-Run `bun run gate:full` once on the exact final merge candidate, after implementation and review
-feedback are complete. A mid-cycle full gate is reserved for a large or high-risk batch, or for
-diagnosing a gate-specific finding. If later analyzable code changes invalidate the final result,
-use focused checks while iterating and run the full gate again only when the next merge candidate is
-ready. SonarQube remains a local-only merge gate and is intentionally not part of GitHub Actions. It
+Coverage requires the exact Node version pinned in `.node-version`. The command fails before Vitest
+if PATH resolves to another version. It uses four workers and writes only the LCOV report consumed by Sonar. Do not add another
+complete coverage pass to CI or raise test timeouts to hide local resource contention.
+
+After GitHub CI passes, run `bun run gate:full` once on the same final merge candidate, after
+implementation and review feedback are complete. A mid-cycle full gate is reserved for a large or
+high-risk batch, or for diagnosing a gate-specific finding. If later analyzable code changes
+invalidate the final result, use focused checks while iterating and run the full gate again only
+when the next merge candidate is ready. SonarQube remains a local-only merge gate and is
+intentionally not part of GitHub Actions. It
 is mandatory for pull requests that change analyzable application source (`apps/`, `packages/`, or
 analyzed tooling under `scripts/`), tests that change or establish behavioral contracts,
 source/build/dependency/security configuration that changes analyzed runtime behavior, or an
