@@ -107,6 +107,8 @@ a feature is core or better left to external tools.
 - Once the Cubic/wiki documentation is stabilized, every pull request that changes contracts, APIs, persistence, workflows, user-visible behavior, or UI must update the pertinent `.cubic/wiki` page in the same cycle, or explicitly state in the pull request why no update is needed.
 - Cubic remains the regenerable foundation for architectural documentation. Do not duplicate architectural documentation outside `.cubic/wiki`.
 - The historical `Lumina-Reader` repository is out of scope and must not be consulted or used.
+- Cubic reviews a pull request when it opens but does not automatically review every later push. Address its initial findings, then rely on the incremental Codex review while the branch changes.
+- Do not mention Cubic after each commit. Once Codex has finished and every Codex finding is fixed or rejected with evidence, mention `@cubic-dev-ai` once for the final review.
 
 ## Validation Commands
 
@@ -132,21 +134,29 @@ combines them. `gate:full` starts with `doctor:gate`, runs quality, Semgrep, the
 check, and the Bun suite as independent lanes, then runs coverage and Sonar analysis sequentially;
 it completes every stage and exits with failure if any stage fails.
 
-Run the narrowest meaningful validation first. Before completing a non-trivial local batch,
-run `bun run gate:full`; it must still reach Sonar when an earlier stage fails. SonarQube remains a
-local-only merge gate and is intentionally not part of GitHub Actions. It is mandatory for pull
-requests that change analyzable application source (`apps/`, `packages/`, or analyzed tooling under
-`scripts/`), tests that change or establish behavioral contracts, source/build/dependency/security
-configuration that changes analyzed runtime behavior, or an explicit review or CI request. For a
-trivially scoped pull request limited to documentation, metadata, or workflow files, with no
-analyzable application-code or runtime-behavior change, clean CI and review, and no explicit Sonar
-request, the merge owner may skip the local scan only after recording that rationale. Diff size or
-file count alone never qualifies; when scope is uncertain, run the full gate. A required Sonar scan
-that is skipped, failed, or unreachable blocks the merge. If the local Sonar service is unavailable,
-the merge owner must start it with `bun run sonar:up` and rerun the full gate so coverage completes before
-the Sonar scan. Triage every new Sonar bug, vulnerability, and security hotspot, and fix or
-explicitly resolve each new finding before merging. Use `bun run fix` to auto-fix lint and format
-issues.
+Keep the development loop narrow. Run focused tests and the relevant type or lint checks for the
+changed area. After a push, use GitHub CI as the full-suite signal unless a failure needs local
+diagnosis. Do not rerun the full local suite, coverage, or Sonar after each incremental commit. On a
+resource-constrained Windows host, run only one heavy analysis process at a time. If a broad run
+times out in unrelated tests, rerun those files in isolation before treating them as regressions or
+changing timeout policy.
+
+Run `bun run gate:full` once on the exact final merge candidate, after implementation and review
+feedback are complete. A mid-cycle full gate is reserved for a large or high-risk batch, or for
+diagnosing a gate-specific finding. If later analyzable code changes invalidate the final result,
+use focused checks while iterating and run the full gate again only when the next merge candidate is
+ready. SonarQube remains a local-only merge gate and is intentionally not part of GitHub Actions. It
+is mandatory for pull requests that change analyzable application source (`apps/`, `packages/`, or
+analyzed tooling under `scripts/`), tests that change or establish behavioral contracts,
+source/build/dependency/security configuration that changes analyzed runtime behavior, or an
+explicit review or CI request. For a trivially scoped pull request limited to documentation,
+metadata, or workflow files, with no analyzable application-code or runtime-behavior change, clean
+CI and review, and no explicit Sonar request, the merge owner may skip the local scan only after
+recording that rationale. Diff size or file count alone never qualifies. A required Sonar scan that
+is skipped, failed, or unreachable blocks the merge. If the local Sonar service is unavailable, the
+merge owner must start it with `bun run sonar:up` before the final gate. Triage every new Sonar bug,
+vulnerability, and security hotspot, and fix or explicitly resolve each new finding before merging.
+Use `bun run fix` to auto-fix lint and format issues.
 Do not claim validation passed unless it was actually run.
 
 ## Core Philosophy
@@ -339,6 +349,8 @@ Do not close your eyes after one local fix.
 
 Treat review findings like bug reports: each finding is evidence of a possible problem class, not merely a request to change the cited line.
 
+Fix a reported bug only after identifying a supported product path that can trigger it, or a material security or reliability risk that justifies defensive work. Trace the path from a real user action or external input to the faulty branch. If the scenario has no plausible supported trigger, is not exploitable, and would require an artificial state the product cannot create, reject the finding with evidence instead of adding code.
+
 1. Verify the finding against the current code and identify the underlying invariant or root pattern.
 2. Search the same file for other instances of that pattern.
 3. Search related modules, contracts, shared constants, callers, tests, examples, and documentation for the same class of problem.
@@ -373,6 +385,8 @@ For debugging tasks: show exact evidence (files, functions, lines), explain the 
 ## Version Control Discipline
 
 Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
+
+Write every GitHub issue and pull-request title and description in English.
 
 When a Codex GitHub review is requested, treat an eyes reaction as review-in-progress and wait for the completed review before merging. React to every Codex finding with thumbs up or thumbs down, reply with the evidence-based disposition, and do not leave its thread unresolved: resolve it only after the fix is merged or the finding is explicitly rejected with evidence.
 
