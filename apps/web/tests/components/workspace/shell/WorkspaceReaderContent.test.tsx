@@ -26,14 +26,12 @@ const buildProps = (
   isLoading: false,
   isMobileViewport: false,
   isQuizSubmitted: false,
-  learningAids: [],
   onAdvanceSection: vi.fn(),
   onCompleteSection: vi.fn(),
   onAttachExerciseFiles: vi.fn(),
   onContentClick: vi.fn(),
   onContentContextMenu: vi.fn(),
   onContentPointerDownCapture: vi.fn(),
-  onSaveLearningAids: vi.fn(async () => true),
   onRequestExerciseFeedback: vi.fn(),
   onSelectQuizAnswer: vi.fn(),
   onRemoveExerciseAttachment: vi.fn(),
@@ -367,58 +365,6 @@ describe('WorkspaceReaderContent', () => {
     expect(
       container.querySelector('mark[data-nous-annotation-id="annotation-typed-block-boundary"]')
     ).toHaveTextContent('Bersaglio');
-  });
-
-  test('keeps the desktop reading column centered when contextual learning aids exist', () => {
-    render(
-      <WorkspaceReaderContent
-        {...buildProps({
-          learningAids: [
-            {
-              id: 'learning-aid-definition-protocollo',
-              kind: 'definition',
-              title: 'Protocollo',
-              content: 'Regole condivise per scambiare messaggi.',
-            },
-          ],
-        })}
-      />
-    );
-
-    expect(screen.queryByRole('complementary', { name: 'Concetti chiave' })).toBeNull();
-    expect(screen.queryByText('Regole condivise per scambiare messaggi.')).toBeNull();
-  });
-
-  test('keeps learning aids collapsed in a mobile bottom sheet until requested', async () => {
-    const user = userEvent.setup();
-
-    render(
-      <WorkspaceReaderContent
-        {...buildProps({
-          isMobileViewport: true,
-          learningAids: [
-            {
-              id: 'learning-aid-formula-latenza',
-              kind: 'formula',
-              title: 'Latenza totale',
-              content: 'T = T_prop + T_tx',
-            },
-          ],
-        })}
-      />
-    );
-
-    expect(screen.queryByText('T = T_prop + T_tx')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
-
-    expect(screen.getByRole('dialog', { name: 'Concetti chiave' })).toBeInTheDocument();
-    expect(screen.queryByText('T = T_prop + T_tx')).toBeNull();
-
-    await user.click(screen.getByRole('button', { name: 'Espandi Latenza totale' }));
-    expect(screen.getByText('T = T_prop + T_tx')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Chiudi concetti chiave' }));
-    expect(screen.queryByRole('dialog', { name: 'Concetti chiave' })).toBeNull();
   });
 
   test('handles context-menu requests from empty space around the reading column', () => {

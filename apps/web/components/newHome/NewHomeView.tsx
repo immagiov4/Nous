@@ -99,6 +99,7 @@ interface NewHomeViewProps {
   readonly chatProps: ChatProps;
   readonly isDarkMode: boolean;
   readonly isExportingProject: boolean;
+  readonly isImportingProject?: boolean;
   readonly isLibraryLoading: boolean;
   readonly libraryFolders: LibraryFolder[];
   readonly libraryTree: LibraryTree;
@@ -588,6 +589,7 @@ const CourseList = ({
   favoriteIds,
   filter,
   isExportingProject,
+  isImportingProject,
   isPhoneViewport,
   libraryFolders,
   libraryTree,
@@ -611,6 +613,7 @@ const CourseList = ({
   favoriteIds: string[];
   filter: CourseFilter;
   isExportingProject: boolean;
+  isImportingProject: boolean;
   isPhoneViewport: boolean;
   libraryFolders: LibraryFolder[];
   libraryTree: LibraryTree;
@@ -922,14 +925,23 @@ const CourseList = ({
         <div className="flex items-center gap-3">
           {onImportProjectFile ? (
             <label
-              className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-dashed border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
+              aria-busy={isImportingProject}
+              className={`inline-flex items-center gap-2 rounded-full border border-dashed border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300 ${
+                isImportingProject ? 'cursor-wait opacity-70' : 'cursor-pointer'
+              }`}
               title={t('Importa backup Nous (.nous.zip, formato legacy o JSON legacy)')}
             >
-              <Download className="h-3.5 w-3.5" /> {t('Importa')}
+              {isImportingProject ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}{' '}
+              {isImportingProject ? t('Importazione progetto...') : t('Importa')}
               <input
                 type="file"
                 className="hidden"
                 accept=".nous.zip,.lumina.zip,.zip,.json,.nous,.lumina"
+                disabled={isImportingProject}
                 onChange={onImportProjectFile}
               />
             </label>
@@ -986,27 +998,26 @@ const CourseList = ({
               {
                 filter: 'favorites' as const,
                 label: t('Preferiti'),
-                countLabel: formatCourseCount(favoriteIds.length),
+                count: favoriteIds.length,
                 icon: Heart,
               },
             ].map(option => {
+              const count = option.count;
               const Icon = option.icon;
               return (
                 <button
                   key={option.filter}
                   type="button"
                   aria-label={option.label}
-                  title={'countLabel' in option ? option.countLabel : undefined}
+                  title={typeof count === 'number' ? formatCourseCount(count) : undefined}
                   aria-pressed={filter === option.filter}
                   onClick={() => selectFilter(option.filter)}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900"
                 >
                   {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
                   {option.label}
-                  {'countLabel' in option ? (
-                    <span className="min-w-[3.6rem] text-left tabular-nums opacity-70">
-                      {option.countLabel}
-                    </span>
+                  {typeof count === 'number' ? (
+                    <span className="text-[0.65rem] tabular-nums opacity-60">{count}</span>
                   ) : null}
                 </button>
               );
@@ -1435,6 +1446,7 @@ const HomePage = ({
   coverImages,
   favoriteIds,
   isExportingProject,
+  isImportingProject,
   isPhoneViewport,
   isLibraryLoading,
   libraryFolders,
@@ -1456,6 +1468,7 @@ const HomePage = ({
   coverImages: Record<string, string>;
   favoriteIds: string[];
   isExportingProject: boolean;
+  isImportingProject: boolean;
   isPhoneViewport: boolean;
   isLibraryLoading: boolean;
   libraryFolders: LibraryFolder[];
@@ -1585,6 +1598,7 @@ const HomePage = ({
             favoriteIds={favoriteIds}
             filter={filter}
             isExportingProject={isExportingProject}
+            isImportingProject={isImportingProject}
             isPhoneViewport={isPhoneViewport}
             libraryFolders={libraryFolders}
             libraryTree={libraryTree}
@@ -1943,6 +1957,7 @@ export const NewHomeView = ({
   chatProps,
   isDarkMode,
   isExportingProject,
+  isImportingProject = false,
   isLibraryLoading,
   libraryFolders,
   libraryTree,
@@ -2059,6 +2074,7 @@ export const NewHomeView = ({
               coverImages={coverImages}
               favoriteIds={favoriteIds}
               isExportingProject={isExportingProject}
+              isImportingProject={isImportingProject}
               isPhoneViewport={isPhoneViewport}
               isLibraryLoading={isLibraryLoading}
               libraryFolders={libraryFolders}

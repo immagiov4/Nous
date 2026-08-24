@@ -53,7 +53,7 @@ Freshness and failure rules:
   files indiscriminately.
 
 ## Quick Map
-Core Philosophy → Context Before Code → Simplicity → Naming → Single Source of Truth → Magic Numbers → Configuration Constants → Modularity & Helpers → Parameters → Error Handling → Comments → Code Style → Runtime Assumptions → Localization → UI Design → Event Handling → Data Ordering → Security → Testing → Bug Fixing → Change Discipline → Confirmation → Version Control → Performance → State & Side Effects → Dead Code → Tradeoffs → Output Style → Final Checklist
+Core Philosophy → Context Before Code → Simplicity → Naming → Single Source of Truth → Magic Numbers → Configuration Constants → Modularity & Helpers → Parameters → Error Handling → Comments → Code Style → Runtime Assumptions → Localization → UI Design → Event Handling → Data Ordering → Security → Testing → Bug Fixing → Review Feedback → Change Discipline → Confirmation → Version Control → Performance → State & Side Effects → Dead Code → Tradeoffs → Output Style → Final Checklist
 
 ## Working Rules
 
@@ -334,6 +334,19 @@ When fixing a bug, identify the root pattern, then search for similar occurrence
 6. Validate the broader pattern is gone.
 
 Do not close your eyes after one local fix.
+
+## Review Feedback Methodology
+
+Treat review findings like bug reports: each finding is evidence of a possible problem class, not merely a request to change the cited line.
+
+1. Verify the finding against the current code and identify the underlying invariant or root pattern.
+2. Search the same file for other instances of that pattern.
+3. Search related modules, contracts, shared constants, callers, tests, examples, and documentation for the same class of problem.
+4. Fix all relevant occurrences consistently rather than applying a one-line patch to the exact example the reviewer happened to notice.
+5. Add or adjust meaningful regression coverage when it can protect the underlying contract.
+6. Re-review the changed surface for sibling regressions before asking the reviewer to run again.
+
+Do not mechanically process review comments one at a time. Distinguish false positives and genuinely local nits from systemic findings; when a finding reveals a broader class of issue, close that class before requesting another review.
 
 ## Change Discipline
 

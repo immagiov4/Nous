@@ -89,10 +89,10 @@ export const createProductionLessonGenerationServices = (
     reviseArtifact: reviseLessonVisualArtifact,
     stageDocumentSources: createLessonDocumentSourceStage({
       assets: workflowStore.projectAssets,
+      captionImage: ({ context, image }) =>
+        captionPdfImage(image, mutableModelConfig(context.config.models), context.signal),
       extractImages: ({ context, project, section }) =>
         extractStoredPdfImageAssets({
-          captionImage: captionPdfImage,
-          config: mutableModelConfig(context.config.models),
           extractImages: extractPdfImages,
           project,
           section,

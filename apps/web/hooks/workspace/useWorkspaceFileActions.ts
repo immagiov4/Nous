@@ -40,7 +40,9 @@ export const useWorkspaceFileActions = ({
 }: UseWorkspaceFileActionsArgs) => {
   const fileUploadModeRef = useRef<UploadMode>('new-project');
   const exportPendingRef = useRef(false);
+  const importPendingRef = useRef(false);
   const [isExportingProject, setIsExportingProject] = useState(false);
+  const [isImportingProject, setIsImportingProject] = useState(false);
   const sourceFileInputId = useId();
   const planFileInputId = useId();
 
@@ -78,10 +80,12 @@ export const useWorkspaceFileActions = ({
   const handlePlanUpload = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const selectedFile = event.target.files?.[0];
-      if (!selectedFile) {
+      if (!selectedFile || importPendingRef.current) {
         return;
       }
 
+      importPendingRef.current = true;
+      setIsImportingProject(true);
       try {
         const result = await importProjectFile(selectedFile);
         if (result.errorMessage) {
@@ -92,6 +96,8 @@ export const useWorkspaceFileActions = ({
           );
         }
       } finally {
+        importPendingRef.current = false;
+        setIsImportingProject(false);
         if (event.target) {
           event.target.value = '';
         }
@@ -158,6 +164,7 @@ export const useWorkspaceFileActions = ({
     handlePlanUpload,
     handleUploadSourceClick,
     isExportingProject,
+    isImportingProject,
     planFileInputId,
     sourceFileInputId,
   };

@@ -18,7 +18,7 @@ export default function WorkspaceReaderSettingsPanel({
 }: WorkspaceReaderSettingsPanelProps) {
   return (
     <OpenRouterModelPanel
-      className="fixed left-1/2 top-20 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 sm:absolute sm:right-8 sm:top-[calc(100%+0.75rem)] sm:left-auto sm:translate-x-0 max-h-[calc(100dvh-6rem)]"
+      className="pointer-events-auto fixed left-1/2 top-20 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 sm:absolute sm:right-8 sm:top-[calc(100%+0.75rem)] sm:left-auto sm:translate-x-0 max-h-[calc(100dvh-6rem)]"
       courseNotes={courseNotes}
       expandedSections={expandedSections}
       onClose={onClose}

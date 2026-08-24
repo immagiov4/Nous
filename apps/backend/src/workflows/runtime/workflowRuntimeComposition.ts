@@ -63,7 +63,10 @@ import {
   createLessonGenerationStarter,
   LESSON_GENERATION_WORKFLOW_ID,
 } from '../lessonGenerationStart.js';
-import { createLessonGenerationWorkflow } from '../lessonGenerationWorkflow.js';
+import {
+  createLessonGenerationWorkflow,
+  createPreviousLessonGenerationWorkflow,
+} from '../lessonGenerationWorkflow.js';
 import {
   createLessonVisualRetryStarter,
   type LessonVisualRetryStarter,
@@ -224,7 +227,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     visual,
   });
-  const previousLessonWorkflow = createLessonGenerationWorkflow(lessonWorkflow.executionDefaults);
+  const previousLessonWorkflow = createPreviousLessonGenerationWorkflow(
+    lessonWorkflow.executionDefaults
+  );
   const pdfMappingRepairWorkflow = createPdfMappingRepairWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
     models,
@@ -269,8 +274,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: lessonWorkflow,
     previous: [
-      preProviderPostprocessingPrevious(lessonWorkflow),
-      preExternalEffectPrevious(lessonWorkflow),
+      previousLessonWorkflow,
+      preProviderPostprocessingPrevious(previousLessonWorkflow),
+      preExternalEffectPrevious(previousLessonWorkflow),
       preCompatibilityIdAndExternalEffectPrevious(previousLessonWorkflow),
     ],
   });

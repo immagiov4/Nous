@@ -21,6 +21,13 @@ import {
   X,
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  READER_MOBILE_BOTTOM_FADE_HEIGHT_PX,
+  READER_MOBILE_BOTTOM_FADE_MIN_ALPHA,
+  READER_MOBILE_INITIAL_TOP_OFFSET_PX,
+  READER_MOBILE_TOP_FADE_ALPHA_PROPERTY,
+  READER_MOBILE_TOP_FADE_HEIGHT_PX,
+} from '../../../constants/layout.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import { getYouTubeVideoClipsEnabled } from '../../../services/openrouter/youtubeResearchClient.ts';
@@ -62,14 +69,13 @@ import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import SurfaceErrorBoundary from '../../shared/SurfaceErrorBoundary.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
 import LessonDocumentSources from './LessonDocumentSources.tsx';
-import LessonLearningAids from './LessonLearningAids.tsx';
 import type { WorkspaceReaderContentModel } from './types.ts';
 import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
 import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 import YouTubeClipCarousel from './YouTubeClipCarousel.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
-
+const MOBILE_READER_EDGE_FADE_MASK = `linear-gradient(to bottom, rgba(0, 0, 0, var(${READER_MOBILE_TOP_FADE_ALPHA_PROPERTY}, 1)) 0, black ${READER_MOBILE_TOP_FADE_HEIGHT_PX}px, black calc(100% - ${READER_MOBILE_BOTTOM_FADE_HEIGHT_PX}px), rgba(0, 0, 0, ${READER_MOBILE_BOTTOM_FADE_MIN_ALPHA}) 100%)`;
 const buildMarkdownAnnotationBoundaryContexts = (
   blocks: LessonContentBlock[]
 ): Array<SectionAnnotationBoundaryContext | undefined> => {
@@ -923,7 +929,6 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   isFocusMode,
   isLoading,
   isMobileViewport,
-  learningAids,
   lessonSources = [],
   onAdvanceSection,
   onAttachExerciseFiles,
@@ -931,7 +936,6 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   onContentClick,
   onContentContextMenu,
   onContentPointerDownCapture,
-  onSaveLearningAids,
   onRequestExerciseFeedback,
   onRetryGeneratedVisual,
   onSelectQuizAnswer,
@@ -973,8 +977,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     };
   }, [hasVideoClips]);
   const readingShellClassName = isFocusMode
-    ? 'max-w-[72rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-12 xl:px-16'
-    : 'max-w-[90rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
+    ? 'max-w-[72rem] px-4 pb-36 pt-0 sm:px-8 sm:pt-8 lg:px-12 xl:px-16'
+    : 'max-w-[90rem] px-4 pb-36 pt-0 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
   const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
   const lessonLayoutClassName = readingColumnClassName;
   const hasStructuredSourceAttribution =
@@ -1125,7 +1129,16 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       onContextMenu={onContentContextMenu}
       onPointerDownCapture={onContentPointerDownCapture}
       style={{
+        maskImage:
+          isMobileViewport && scrollMode !== 'document' ? MOBILE_READER_EDGE_FADE_MASK : undefined,
+        maskMode: isMobileViewport && scrollMode !== 'document' ? 'alpha' : undefined,
+        maskRepeat: isMobileViewport && scrollMode !== 'document' ? 'no-repeat' : undefined,
+        maskSize: isMobileViewport && scrollMode !== 'document' ? '100% 100%' : undefined,
         touchAction: scrollMode === 'document' ? 'auto' : 'pan-y',
+        WebkitMaskImage:
+          isMobileViewport && scrollMode !== 'document' ? MOBILE_READER_EDGE_FADE_MASK : undefined,
+        WebkitMaskRepeat: isMobileViewport && scrollMode !== 'document' ? 'no-repeat' : undefined,
+        WebkitMaskSize: isMobileViewport && scrollMode !== 'document' ? '100% 100%' : undefined,
       }}
     >
       {ttsTextPicker.isActive ? (
@@ -1164,6 +1177,9 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       ))}
       <div
         className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}
+        style={{
+          paddingTop: isMobileViewport ? READER_MOBILE_INITIAL_TOP_OFFSET_PX : undefined,
+        }}
       >
         <section
           ref={contentRef}
@@ -1198,14 +1214,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
           {shouldShowLessonContent ? (
             <div className={lessonLayoutClassName}>
               <div className="min-w-0 space-y-2">
-                {isMobileViewport ? (
-                  <LessonLearningAids
-                    isDarkMode={isDarkMode}
-                    isMobileViewport
-                    learningAids={learningAids}
-                    onSaveLearningAids={onSaveLearningAids}
-                  />
-                ) : null}
+                {/* The mobile bottom-sheet slot is reserved for the autogenerated lesson summary. */}
                 {isContextHintVisible ? (
                   <div className="mb-6 flex items-start gap-3 rounded-2xl border border-orange-200/80 bg-orange-50/80 px-4 py-3 text-sm leading-6 text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/25 dark:text-orange-100">
                     <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
@@ -1249,7 +1258,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                               projectId={projectId}
                               sectionAnnotationBoundaryContext={annotationBoundaryContext}
                               sectionAnnotations={sectionAnnotations}
-                              className={`prose-lg leading-7 sm:prose-xl sm:leading-loose prose-p:text-gray-800 dark:prose-p:text-gray-200 prose-headings:font-serif prose-headings:font-normal prose-headings:text-gray-900 dark:prose-headings:text-white prose-strong:font-semibold prose-strong:text-orange-800 dark:prose-strong:text-orange-400 ${isDarkMode ? 'prose-invert' : ''}`}
+                              className={`reader-lesson-markdown prose-lg leading-7 sm:prose-xl sm:leading-loose prose-p:text-gray-800 dark:prose-p:text-gray-200 prose-headings:font-serif prose-headings:font-normal prose-headings:text-gray-900 dark:prose-headings:text-white prose-strong:font-semibold prose-strong:text-orange-800 dark:prose-strong:text-orange-400 ${isDarkMode ? 'prose-invert' : ''}`}
                             />
                           );
                         }
@@ -1330,7 +1339,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                                 onClick={onContentClick}
                                 projectId={projectId}
                                 sectionAnnotations={sectionAnnotations}
-                                className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
+                                className={`reader-lesson-markdown prose-lg leading-7 sm:prose-xl sm:leading-loose
                           prose-p:text-gray-800 dark:prose-p:text-gray-200
                           prose-headings:font-serif prose-headings:font-normal
                           prose-headings:text-gray-900 dark:prose-headings:text-white

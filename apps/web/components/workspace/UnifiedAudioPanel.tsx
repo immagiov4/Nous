@@ -442,17 +442,20 @@ const UnifiedAudioPanel = ({
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-label={t(isOpen ? 'Chiudi menu audio' : 'Apri menu audio')}
-        className={`
-          cursor-pointer rounded-full border p-2 transition-colors
-          ${
-            isOpen || isAnyAudioActive
-              ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-200'
-              : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800 dark:hover:text-gray-300'
-          }
-        `}
+        className={
+          isMobileViewport
+            ? isOpen || isAnyAudioActive
+              ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-gray-100/80 p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:bg-zinc-700/50 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-200'
+              : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-2 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
+            : `cursor-pointer rounded-full border p-2 transition-colors ${
+                isOpen || isAnyAudioActive
+                  ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-200'
+                  : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800 dark:hover:text-gray-300'
+              }`
+        }
         title={t(isOpen ? 'Chiudi menu audio' : 'Menu audio')}
       >
-        <Headphones className="h-5 w-5" />
+        <Headphones className={isMobileViewport ? 'reader-mobile-control-icon' : 'h-5 w-5'} />
       </button>
 
       {isOpen && (

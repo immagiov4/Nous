@@ -13,6 +13,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/workflows/validation.ts](../../../apps/backend/src/workflows/validation.ts)
 - [apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts)
 - [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts)
+- [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts)
+- [apps/backend/src/workflows/jsonSnapshot.ts](../../../apps/backend/src/workflows/jsonSnapshot.ts)
 </details>
 
 # Postgres Workflow Engine
@@ -126,13 +128,17 @@ The engine heavily utilizes PostgreSQL transactions and advisory locks. `pg_advi
 
 Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:488-498](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L488-L498)
 
+### Provider effect results
+
+Provider effects record an external provider result before the step continues. The runner validates the result with the effect schema and then takes an immutable JSON snapshot. Durable snapshots reject data URLs and binary objects. A provider operation that produces an image must stage the bytes in object storage before it returns, then return only the asset reference and JSON metadata. Once that result exists, a retry reads it instead of repeating the completed operation. An interruption before persistence reruns the operation because there is no durable result to replay; asset writes remain idempotent. When the payload schema changes, the effect key changes too. This prevents a resumed run from parsing an older payload with the new schema. Sources: [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts), [apps/backend/src/workflows/jsonSnapshot.ts](../../../apps/backend/src/workflows/jsonSnapshot.ts)
+
 ## Workflow Integrity and Validation
 
 To maintain consistency as code evolves, the engine validates workflow definitions before they are materialised and checks their integrity during runtime.
 
 ### Definition Hashing
 
-Workflow definitions are hashed using SHA-256. This hash is stored with the run to ensure that a resumed workflow uses the exact same logic it started with. The engine supports different hash modes to handle backward compatibility during rolling deployments.
+Workflow definitions are hashed using SHA-256. The run stores this hash and resumes only against the matching registered definition. Hash modes cover older manifest formats. Contract changes need the previous schema set as a separate registered definition. The lesson workflow keeps its pre-`sourceHash` durable schemas registered so runs started before that deployment can finish with their original definition hash. Sources: [apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts](../../../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts), [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowContract.ts)
 
 | Hash Mode | Purpose |
 | --- | --- |
