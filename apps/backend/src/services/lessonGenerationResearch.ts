@@ -1,5 +1,6 @@
 import type { ProjectSnapshot } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
+import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import { mergeSources, type ResearchSource } from './lessonGenerationSources.js';
 import type {
   GenerateResearch,
@@ -42,14 +43,19 @@ export const generateLessonResearchSummary = async ({
   }
   const summary = await research(generationInput);
   if (youtubeOutcome?.videoCandidates.length) {
-    const decisionUrls = new Set(
-      summary.youtubeCandidateDecisions?.map(decision => decision.url) || []
-    );
+    const decisions = summary.youtubeCandidateDecisions ?? [];
+    const decisionUrls = new Set(decisions.map(decision => decision.url));
     if (
+      decisions.length !== youtubeOutcome.videoCandidates.length ||
       decisionUrls.size !== youtubeOutcome.videoCandidates.length ||
       youtubeOutcome.videoCandidates.some(video => !decisionUrls.has(video.url))
     ) {
-      throw new Error('Lesson research did not classify every YouTube candidate.');
+      throw retryLessonGenerationCorrection({
+        code: 'lesson_research_candidate_classification_incomplete',
+        feedback:
+          'Return exactly one youtubeCandidateDecisions entry for every supplied YouTube candidate URL. Preserve each URL exactly once and classify it as selected-source or rejected with a concise reason.',
+        message: 'The lesson research did not classify every YouTube candidate.',
+      });
     }
   }
   return summary;

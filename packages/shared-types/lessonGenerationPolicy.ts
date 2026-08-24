@@ -61,6 +61,31 @@ export const ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE: ReadonlyArray<{
   },
 ];
 
+export const ACTIVE_PAUSE_PLACEMENT_RULE =
+  'Ogni pausa e un blocco inline-quiz autosufficiente collocato dopo un blocco markdown che contiene tutte le informazioni necessarie dalla pausa precedente. Visuali generati o clip YouTube pertinenti tra quel markdown e la pausa non interrompono il contesto. Una pausa consuma il contesto esplicativo: non inserire due inline-quiz consecutive, non raggrupparle in fondo e non usare marker o un array quiz separato.';
+
+export const ACTIVE_PAUSE_REASONING_RULE =
+  'Ogni pausa deve richiedere almeno discriminazione concettuale, applicazione a un caso nuovo, inferenza, previsione, diagnosi, classificazione, sequenziamento o micro-sintesi. Se la risposta corretta si puo scegliere copiando, parafrasando o riconoscendo per sovrapposizione lessicale una frase o definizione immediatamente vicina, trasformala in un caso nuovo oppure rimuovi la pausa.';
+
+export const ACTIVE_PAUSE_OPTIONS_RULE =
+  'Ogni pausa ha quattro opzioni testualmente distinte e distrattori plausibili rispetto al concetto verificato: le alternative errate devono rappresentare confusioni realistiche, non risposte palesemente assurde.';
+
+export const ACTIVE_PAUSE_TEXT_FORMAT_RULE =
+  'Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence; preserva soltanto eventuale codice inline interno.';
+
+export const ORIGINAL_IMAGE_PRIORITY_RULE =
+  'Quando nei riferimenti sono disponibili immagini originali chiare, pertinenti e specifiche della fonte — per esempio schermate, oggetti, casi o diagrammi complessi propri del documento — preferiscile a visuali generate equivalenti. Se piu immagini originali coprono lo stesso bisogno pedagogico, usa solo il numero minimo utile e proporzionato alla struttura della lezione, evitando figure ridondanti. Genera una sostituzione solo quando gli originali non coprono la stessa esigenza pedagogica o non sono sufficientemente leggibili.';
+
+export const ORIGINAL_IMAGE_USAGE_RULES = [
+  'Ogni immagine originale deve servire una spiegazione vicina: non usarla come decorazione o intermezzo visivo.',
+  'Puoi referenziare soltanto gli assetId forniti. Se nessuna immagine e chiaramente pertinente, lascia imageRefs vuoto.',
+  'Ogni imageRef deve avere un anchorHeading che corrisponde esattamente a un heading presente in un blocco markdown, senza i simboli #.',
+  'Usa soltanto immagini con una caption visiva chiara e autosufficiente. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper o frammenti.',
+  ORIGINAL_IMAGE_PRIORITY_RULE,
+  'Non usare il contesto testuale per indovinare una figura poco chiara: caption e testo vicino servono soltanto a disambiguare una figura gia riconoscibile.',
+  'Il paragrafo vicino deve dire che cosa guardare nell immagine e perche e utile; non citare mai un assetId tecnico nel markdown.',
+] as const;
+
 export const LESSON_VISUAL_TYPES = [
   'chart_html',
   'flowchart_svg',
@@ -72,6 +97,9 @@ export const LESSON_VISUAL_TYPES = [
 ] as const;
 
 export type LessonVisualType = (typeof LESSON_VISUAL_TYPES)[number];
+
+export const GENERATED_VISUAL_RELEVANCE_RULE =
+  'Non generare visuali decorative. Ogni visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non limitarsi a riassumerlo o parafrasarlo; usa soltanto il numero minimo di visuali necessario.';
 
 export const INTERACTIVE_VISUAL_VALUE_RULE =
   'Tratta interactive_html come un formato costoso: usalo solo quando l’utente deve esplorare, modificare o confrontare stati e questa interazione produce una comprensione importante che testo, video o una o due immagini statiche non possono offrire altrettanto bene. Non usarlo per dimostrazioni cosmetiche, controlli banali o esempi statici travestiti da interattivi; se l’interazione non è essenziale, scegli il formato più semplice.';

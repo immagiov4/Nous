@@ -2,6 +2,11 @@ import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import type { GenerateLessonLearningAidsInput } from '../services/lessonGenerationAids.js';
+import {
+  isLessonStructuredOutputError,
+  type LessonGenerationCorrection,
+  LessonGenerationCorrectionError,
+} from '../services/lessonGenerationCorrection.js';
 import type { PrerequisiteCoverageDecision } from '../services/lessonGenerationCoverage.js';
 import {
   buildLessonGenerationInput,
@@ -53,7 +58,7 @@ import {
   LessonVisualPlanningDecisionSchema,
   ProjectLessonVisualSchema,
 } from './lessonGenerationWorkflowSchemas.js';
-import { failPermanently, readRetryAfterMs } from './retryPolicy.js';
+import { failPermanently, readRetryAfterMs, retryCorrective } from './retryPolicy.js';
 import { canonicalJson } from './schemaFingerprint.js';
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 
@@ -90,6 +95,7 @@ export interface LessonGenerationStageDependencies {
   readonly selectCoverage: (input: {
     config: GlobalModelConfig;
     description: string;
+    retryFeedback?: string;
     signal: AbortSignal;
     sourceContext: string;
     title: string;
@@ -117,15 +123,41 @@ const buildGenerationInput = (
   state: LessonGenerationInputState,
   config: GlobalModelConfig,
   signal: AbortSignal,
-  sources: ResearchSource[] = state.existingSources
-): LessonGenerationInput => ({
-  ...state.lessonInputData,
-  config,
-  refreshResearch: state.request.forceRegenerate,
-  researchContext: '',
-  signal,
-  sources,
-});
+  sources: ResearchSource[] = state.existingSources,
+  retryFeedback?: string
+): LessonGenerationInput => {
+  const correction = retryFeedback?.trim();
+  return {
+    ...state.lessonInputData,
+    config,
+    refreshResearch: state.request.forceRegenerate,
+    researchContext: '',
+    ...(correction ? { retryFeedback: correction } : {}),
+    signal,
+    sources,
+  };
+};
+
+const runCorrectableLessonOperation = async <Output>(
+  operation: () => Promise<Output>,
+  invalidOutput: LessonGenerationCorrection
+): Promise<Output> => {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof LessonGenerationCorrectionError) {
+      throw retryCorrective({
+        code: error.code,
+        feedback: error.feedback,
+        message: error.message,
+      });
+    }
+    if (isLessonStructuredOutputError(error)) {
+      throw retryCorrective(invalidOutput);
+    }
+    throw error;
+  }
+};
 
 const modelConfig = (context: { config: { readonly models: unknown } }): GlobalModelConfig =>
   context.config.models as GlobalModelConfig;
@@ -330,13 +362,23 @@ const assessSourceCoverage =
     if (!context.input.requiresCoverageAssessment) {
       return { ...context.input, stage: 'coverage' };
     }
-    const decision = await dependencies.selectCoverage({
-      config: modelConfig(context),
-      description: context.input.lessonInputData.description,
-      signal: context.signal,
-      sourceContext: context.input.lessonInputData.sourceContext,
-      title: context.input.lessonInputData.sectionTitle,
-    });
+    const decision = await runCorrectableLessonOperation(
+      () =>
+        dependencies.selectCoverage({
+          config: modelConfig(context),
+          description: context.input.lessonInputData.description,
+          ...(context.retryFeedback ? { retryFeedback: context.retryFeedback } : {}),
+          signal: context.signal,
+          sourceContext: context.input.lessonInputData.sourceContext,
+          title: context.input.lessonInputData.sectionTitle,
+        }),
+      {
+        code: 'lesson_coverage_output_invalid',
+        feedback:
+          'Return a valid coverage decision matching the required schema. Keep sufficient as a boolean and missingTopics as an array of concise topic strings with no extra fields.',
+        message: 'The lesson coverage model returned invalid structured output.',
+      }
+    );
     return {
       ...context.input,
       lessonInputData: {
@@ -503,14 +545,24 @@ const researchLesson =
         context.input.originalSources,
         context.input.existingSources,
         context.input.discoveredYoutubeSources
-      )
+      ),
+      context.retryFeedback
     );
-    const summary = await generateLessonResearchSummary({
-      existingDossier,
-      generationInput,
-      research: dependencies.generateResearch,
-      youtubeOutcome: context.input.research.youtube,
-    });
+    const summary = await runCorrectableLessonOperation(
+      () =>
+        generateLessonResearchSummary({
+          existingDossier,
+          generationInput,
+          research: dependencies.generateResearch,
+          youtubeOutcome: context.input.research.youtube,
+        }),
+      {
+        code: 'lesson_research_output_invalid',
+        feedback:
+          'Return a valid research dossier matching the requested schema exactly, including every required array and field and one decision for each supplied YouTube candidate.',
+        message: 'The lesson research model returned invalid structured output.',
+      }
+    );
     const lessonSources = selectLessonSources({
       discoveredYoutubeSources: context.input.discoveredYoutubeSources,
       existingSources: context.input.existingSources,
@@ -535,15 +587,25 @@ const draftLesson =
   ): LessonGenerationWorkflowServices['draftLesson'] =>
   async context => ({
     ...context.input,
-    draft: await dependencies.generateContent({
-      ...buildGenerationInput(
-        context.input,
-        modelConfig(context),
-        context.signal,
-        context.input.lessonSources
-      ),
-      researchContext: context.input.research.context,
-    }),
+    draft: await runCorrectableLessonOperation(
+      () =>
+        dependencies.generateContent({
+          ...buildGenerationInput(
+            context.input,
+            modelConfig(context),
+            context.signal,
+            context.input.lessonSources,
+            context.retryFeedback
+          ),
+          researchContext: context.input.research.context,
+        }),
+      {
+        code: 'lesson_draft_output_invalid',
+        feedback:
+          'Return only valid lesson JSON matching the required schema. Preserve all required contentBlocks, generatedVisuals, and imageRefs fields and do not add unsupported fields.',
+        message: 'The lesson writer returned invalid structured output.',
+      }
+    ),
     stage: 'draft',
   });
 
@@ -552,18 +614,28 @@ const reviewLesson =
     dependencies: LessonGenerationStageDependencies
   ): LessonGenerationWorkflowServices['reviewLesson'] =>
   async context => {
-    const draft = await dependencies.reviewContent({
-      draft: context.input.draft,
-      generationInput: {
-        ...buildGenerationInput(
-          context.input,
-          modelConfig(context),
-          context.signal,
-          context.input.lessonSources
-        ),
-        researchContext: context.input.research.context,
-      },
-    });
+    const draft = await runCorrectableLessonOperation(
+      () =>
+        dependencies.reviewContent({
+          draft: context.input.draft,
+          generationInput: {
+            ...buildGenerationInput(
+              context.input,
+              modelConfig(context),
+              context.signal,
+              context.input.lessonSources,
+              context.retryFeedback
+            ),
+            researchContext: context.input.research.context,
+          },
+        }),
+      {
+        code: 'lesson_review_output_invalid',
+        feedback:
+          'Return only valid lesson verification JSON matching the required schema, including the complete evidence-bearing verificationReport.',
+        message: 'The lesson verifier returned invalid structured output.',
+      }
+    );
     return {
       documentAssetOwners: context.input.documentAssetOwners,
       documentSourceHash: context.input.documentSourceHash,

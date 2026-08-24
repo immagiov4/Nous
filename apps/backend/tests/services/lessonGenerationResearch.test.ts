@@ -38,6 +38,19 @@ const researchSummary = {
   youtubeCandidateDecisions: [],
 };
 
+const youtubeOutcome = {
+  context: 'Transcript verificato',
+  discoveredVideoCount: 1,
+  rationale: 'Candidato pertinente',
+  videoCandidates: [
+    {
+      segments: [{ endSeconds: 5, startSeconds: 0, text: 'Spiegazione' }],
+      title: 'Video',
+      url: 'https://www.youtube.com/watch?v=video-1',
+    },
+  ],
+};
+
 describe('lesson research routing', () => {
   test('does not call a provider for source-backed material without gaps or video candidates', async () => {
     const research = vi.fn().mockResolvedValue(researchSummary);
@@ -99,22 +112,35 @@ describe('lesson research routing', () => {
       existingDossier: null,
       generationInput: input,
       research,
-      youtubeOutcome: {
-        context: 'Transcript verificato',
-        discoveredVideoCount: 1,
-        rationale: 'Candidato pertinente',
-        videoCandidates: [
-          {
-            segments: [{ endSeconds: 5, startSeconds: 0, text: 'Spiegazione' }],
-            title: 'Video',
-            url: 'https://www.youtube.com/watch?v=video-1',
-          },
-        ],
-      },
+      youtubeOutcome,
     });
 
     expect(result?.youtubeCandidateDecisions).toHaveLength(1);
     expect(research).toHaveBeenCalledOnce();
+  });
+
+  test('rejects duplicate YouTube decisions instead of accepting incomplete one-to-one classification', async () => {
+    const duplicateDecision = {
+      decision: 'selected-source' as const,
+      reason: 'Il transcript spiega il concetto.',
+      url: 'https://www.youtube.com/watch?v=video-1',
+    };
+    const research = vi.fn().mockResolvedValue({
+      ...researchSummary,
+      youtubeCandidateDecisions: [duplicateDecision, duplicateDecision],
+    });
+
+    const error = await generateLessonResearchSummary({
+      existingDossier: null,
+      generationInput: generationInput(),
+      research,
+      youtubeOutcome,
+    }).catch(value => value);
+
+    expect(error).toMatchObject({
+      code: 'lesson_research_candidate_classification_incomplete',
+      feedback: expect.stringContaining('exactly one youtubeCandidateDecisions entry'),
+    });
   });
 
   test('keeps original sources primary while adding sanitized web citations to the dossier', () => {
