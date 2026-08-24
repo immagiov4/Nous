@@ -103,7 +103,7 @@ describe('lesson verification prompt architecture', () => {
     expect(requiredIds).toContain('generated-visual');
   });
 
-  test('scopes code and math structural checks to their instruction packs', () => {
+  test('scopes code and math checks to specialist packs or explicit draft markup', () => {
     const plainIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, plainDraft);
     const codeIds = buildRequiredLessonVerificationCheckIds(
       { ...EMPTY_CHECK_CONTEXT, instructionPacks: ['code'] },
@@ -113,6 +113,14 @@ describe('lesson verification prompt architecture', () => {
       { ...EMPTY_CHECK_CONTEXT, instructionPacks: ['mathematics'] },
       plainDraft
     );
+    const codeMarkupIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, {
+      ...plainDraft,
+      contentBlocks: [{ markdown: '# Esempio\n\n```ts\nconst enabled = true;', type: 'markdown' }],
+    });
+    const mathMarkupIds = buildRequiredLessonVerificationCheckIds(EMPTY_CHECK_CONTEXT, {
+      ...plainDraft,
+      contentBlocks: [{ markdown: '# Formula\n\n$x = 1', type: 'markdown' }],
+    });
 
     expect(plainIds).not.toContain('code-structure');
     expect(plainIds).not.toContain('math-structure');
@@ -120,6 +128,10 @@ describe('lesson verification prompt architecture', () => {
     expect(codeIds).not.toContain('math-structure');
     expect(mathIds).toContain('math-structure');
     expect(mathIds).not.toContain('code-structure');
+    expect(codeMarkupIds).toContain('code-structure');
+    expect(codeMarkupIds).not.toContain('math-structure');
+    expect(mathMarkupIds).toContain('math-structure');
+    expect(mathMarkupIds).not.toContain('code-structure');
   });
 
   test('requires report entries for semantic coverage and structural checks', () => {

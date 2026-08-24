@@ -121,6 +121,8 @@ const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerification
     'generated-visual',
   ];
 
+const MATH_MARKUP_PREFIXES = ['$', String.raw`\(`, String.raw`\[`, String.raw`\begin{`] as const;
+
 const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
   exercise => `${exercise.type}: ${exercise.instruction}`
 ).join('\n');
@@ -134,6 +136,11 @@ const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_USAGE_RULES.join(' ')} Valuta si
 const YOUTUBE_STRUCTURE_CHECK = `Se nei riferimenti esiste un transcript YouTube timestampato ma la bozza non contiene clip, applica le regole pedagogiche sottostanti anche alla decisione di omissione: aggiungi soltanto il minimo intervallo utile quando una clip e davvero necessaria; altrimenti segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni clip presente o aggiunta usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.`;
 const CODE_STRUCTURE_CHECK = `${LESSON_CODE_FORMATTING_RULE} Se la bozza non contiene codice, pseudocodice, comandi o output, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
 const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} Se la bozza non contiene matematica, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
+
+const draftMarkdownContains = (draft: LessonContentDraft, markers: readonly string[]): boolean =>
+  draft.contentBlocks.some(
+    block => block.type === 'markdown' && markers.some(marker => block.markdown.includes(marker))
+  );
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -170,6 +177,8 @@ export const buildApplicableLessonVerificationCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
   const checkIds = [...BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS];
+  if (draftMarkdownContains(draft, ['`'])) checkIds.push('code-structure');
+  if (draftMarkdownContains(draft, MATH_MARKUP_PREFIXES)) checkIds.push('math-structure');
   if (draft.imageRefs.length > 0) checkIds.push('image-reference');
   if (draft.contentBlocks.some(block => block.type === 'youtube-clips')) {
     checkIds.push('youtube-structure');
@@ -185,8 +194,12 @@ const buildRequiredLessonVerificationStructuralCheckIds = (
   draft: LessonContentDraft
 ): LessonVerificationStructuralCheckId[] => {
   const checkIds = buildApplicableLessonVerificationCheckIds(draft);
-  if (input.instructionPacks.includes('code')) checkIds.push('code-structure');
-  if (input.instructionPacks.includes('mathematics')) checkIds.push('math-structure');
+  if (input.instructionPacks.includes('code') && !checkIds.includes('code-structure')) {
+    checkIds.push('code-structure');
+  }
+  if (input.instructionPacks.includes('mathematics') && !checkIds.includes('math-structure')) {
+    checkIds.push('math-structure');
+  }
   if (input.imageCandidates.length > 0 && !checkIds.includes('image-reference')) {
     checkIds.push('image-reference');
   }

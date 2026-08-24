@@ -56,7 +56,8 @@ flowchart TD
     Aids --> Visuals[Render Visuals]
     Visuals --> Normalize[Normalize Structure]
     Normalize --> Persist[Persist Lesson]
-    Persist --> Publish[Publish Project Revision]
+    Persist --> Finalize[Finalize Lesson Result]
+    Finalize --> Publish[Publish Project Revision]
     Publish --> End
 ```
 
