@@ -41,7 +41,7 @@ function requireStep(name: string): WorkflowStep {
 describe('workflow PostgreSQL CI contract', () => {
   test('runs pull request branches once and cancels superseded runs', () => {
     expect(workflow.on.push.branches).toEqual(['main']);
-    expect(Object.hasOwn(workflow.on, 'pull_request')).toBe(true);
+    expect(workflow.on.pull_request).toBeNull();
     expect(workflow.concurrency).toEqual({
       'cancel-in-progress': true,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}`,

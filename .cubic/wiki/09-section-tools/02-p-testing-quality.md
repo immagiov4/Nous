@@ -68,6 +68,7 @@ The project uses "Fallow" to detect unused files, exports, and dependencies. It 
 Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](../../../scripts/doctor.ts#L162-L184)
 
 ### Quality checks
+
 The `quality` script runs TypeScript checks, Biome, dependency-cruiser, and the React Hooks lint report. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
 Sources: [package.json](../../../package.json), [scripts/check-fallow-regression.ts](../../../scripts/check-fallow-regression.ts)
 

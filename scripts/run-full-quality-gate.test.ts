@@ -1,7 +1,6 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
-  CHECK_GATE_STAGES,
   executeFullQualityGate,
   type GateStage,
   type GateStageResult,
@@ -16,19 +15,28 @@ const passedResult = (stage: GateStage): GateStageResult => ({
 describe('full quality gate runner', () => {
   test('runs one heavy stage at a time and stops Sonar after the scan', async () => {
     const invokedScripts: string[] = [];
+    let activeStageCount = 0;
+    let maximumActiveStageCount = 0;
 
     await executeFullQualityGate(async stage => {
       invokedScripts.push(stage.script);
+      activeStageCount += 1;
+      maximumActiveStageCount = Math.max(maximumActiveStageCount, activeStageCount);
+      await Promise.resolve();
+      activeStageCount -= 1;
       return passedResult(stage);
     });
 
     expect(invokedScripts).toEqual([
-      ...CHECK_GATE_STAGES.map(stage => stage.script),
+      'quality',
+      'check:fallow:ci',
+      'test',
       'test:coverage',
       'sonar:up',
       'sonar:scan',
       'sonar:stop',
     ]);
+    expect(maximumActiveStageCount).toBe(1);
   });
 
   test('continues through Sonar and exposes every failed stage', async () => {
@@ -50,17 +58,33 @@ describe('full quality gate runner', () => {
     ]);
   });
 
-  test.each(['sonar:up', 'sonar:scan'])('stops Sonar when %s throws', async failedScript => {
+  test('continues after runner crashes and reports every crashed stage', async () => {
     const invokedScripts: string[] = [];
+    const crashedScripts = new Set(['quality', 'sonar:up', 'sonar:stop']);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
-    await expect(
-      executeFullQualityGate(async stage => {
-        invokedScripts.push(stage.script);
-        if (stage.script === failedScript) throw new Error('Sonar command crashed');
-        return passedResult(stage);
-      })
-    ).rejects.toThrow('Sonar command crashed');
+    const results = await executeFullQualityGate(async stage => {
+      invokedScripts.push(stage.script);
+      if (crashedScripts.has(stage.script)) throw new Error(`${stage.script} crashed`);
+      return passedResult(stage);
+    });
 
+    expect(invokedScripts).toEqual([
+      'quality',
+      'check:fallow:ci',
+      'test',
+      'test:coverage',
+      'sonar:up',
+      'sonar:scan',
+      'sonar:stop',
+    ]);
+    expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
+      'quality',
+      'sonar:up',
+      'sonar:stop',
+    ]);
+    expect(stderr).toHaveBeenCalledTimes(3);
     expect(invokedScripts.at(-1)).toBe('sonar:stop');
+    stderr.mockRestore();
   });
 });
