@@ -28,6 +28,7 @@ type WorkflowConfig = {
     pull_request: unknown;
     push: { branches: string[] };
   };
+  permissions: { contents: string };
 };
 
 const workflow = parse(readFileSync(resolve('.github/workflows/ci.yml'), 'utf8')) as WorkflowConfig;
@@ -47,6 +48,7 @@ describe('workflow PostgreSQL CI contract', () => {
   test('runs pull request branches once and cancels superseded runs', () => {
     expect(workflow.on.push.branches).toEqual(['main']);
     expect(workflow.on.pull_request).toBeNull();
+    expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(workflow.jobs.test.concurrency).toEqual({
       'cancel-in-progress': true,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-test`,
@@ -57,18 +59,22 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('keeps managed staging validation on pull requests without using missing credentials', () => {
+  test('keeps staging credentials on trusted main pushes', () => {
     const managedStagingJob = workflow.jobs['managed-staging-contract'];
+    const checkout = managedStagingJob.steps.find(step => step.name === 'Checkout');
     const credentialsCondition =
       "env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''";
 
-    expect(managedStagingJob.if).toBeUndefined();
+    expect(managedStagingJob.if).toBe(
+      "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    );
     expect(managedStagingJob.concurrency).toEqual({
       'cancel-in-progress': false,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-managed-staging`,
     });
     expect(managedStagingJob.steps).not.toHaveLength(0);
     expect(managedStagingJob.steps.every(step => step.if === credentialsCondition)).toBe(true);
+    expect(checkout?.with?.['persist-credentials']).toBe(false);
   });
 
   test('uses the canonical Supabase contract without the retired source migrator', () => {

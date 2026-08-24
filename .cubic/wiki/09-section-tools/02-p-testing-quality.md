@@ -19,7 +19,7 @@ The following files were used as context for generating this wiki page:
 
 # Testing & Quality Gates
 
-Nous Reader uses focused local checks during development, GitHub Actions for the full test signal on pull-request updates and pushes to `main`, and one local SonarQube scan on the final merge candidate. Fallow blocks new dead-code findings against a committed baseline.
+Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and one local SonarQube scan on the final merge candidate. Fallow blocks new dead-code findings against a committed baseline.
 
 Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](../../../scripts/run-full-quality-gate.ts#L1-L20)
 
@@ -75,6 +75,8 @@ Sources: [package.json](../../../package.json), [scripts/check-fallow-regression
 ## Continuous Integration (CI) Contracts
 
 The CI pipeline mirrors local gates but adds specialized logic for PostgreSQL and Supabase contract testing.
+
+Pull requests run the Auth/RLS contract against the disposable local Supabase stack. The managed staging contract receives staging credentials only on trusted pushes to `main`; its checkout does not persist the GitHub token.
 
 ### Workflow Selection Logic
 To optimize CI runs, the project uses a selection script that detects if changes affect the "PostgreSQL Contract." This is triggered by modifications to specific paths like backend source code, migrations, or database configurations.

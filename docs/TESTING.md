@@ -135,6 +135,9 @@ bun run test:supabase-local
 Both names run the canonical local Auth/RLS contract. See [Deployment](DEPLOYMENT.md) for local and
 managed staging prerequisites.
 
+Pull requests run this contract against the disposable local Supabase stack. CI exposes managed
+staging credentials only to the trusted `main` revision after merge.
+
 ## Durable workflow PostgreSQL contract
 
 Run the real persistence, claim, fencing, recovery, signal, fan-out, outbox, undo, and abrupt
