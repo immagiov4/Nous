@@ -19,7 +19,7 @@ The following files were used as context for generating this wiki page:
 
 # Testing & Quality Gates
 
-The Nous project employs a multi-tiered validation strategy to ensure code reliability, architectural consistency, and deployment readiness. This system includes local health checks, static analysis for dead code and security vulnerabilities, comprehensive test suites using Vitest, and a mandatory local SonarQube quality gate that acts as the final authority before merging.
+Nous Reader uses focused local checks during development, GitHub Actions on pull-request updates and pushes to `main`, and one local SonarQube scan on the final merge candidate. Fallow blocks new dead-code findings against a committed baseline.
 
 Sources: [AGENTS.md:143-162](../../../AGENTS.md#L143-L162), [scripts/run-full-quality-gate.ts:1-20](../../../scripts/run-full-quality-gate.ts#L1-L20)
 
@@ -40,26 +40,22 @@ The `doctor` utility is a read-only diagnostic tool that reports on environment 
 Sources: [scripts/doctor.ts:98-124](../../../scripts/doctor.ts#L98-L124), [AGENTS.md:144-150](../../../AGENTS.md#L144-L150)
 
 ### The Full Quality Gate
-The `gate:full` command executes a sequence of independent and dependent stages. Independent stages (Quality, Semgrep, Fallow, Test) are run concurrently to minimize duration, while Coverage and Sonar analysis are run sequentially to ensure accurate reporting.
+The `gate:full` command runs one heavy process at a time. It runs quality, Fallow, the Bun test suite, and Node coverage before it starts SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate stops SonarQube after the scan, including when startup, preflight, or analysis throws.
 
 ```mermaid
 flowchart TD
-    Start[bun run gate:full] --> Pre[Preflight: doctor:gate]
-    Pre --> Independent{Independent Stages}
-    
-    subgraph Parallel[Concurrent Execution]
-        Independent --> Q[Quality: Types & Lint]
-        Independent --> S[Semgrep: Security Scan]
-        Independent --> F[Fallow: Dead Code]
-        Independent --> T[Vitest: Unit & Integration]
-    end
-    
-    Q & S & F & T --> Cov[test:coverage]
-    Cov --> Sonar[sonar:scan]
-    Sonar --> End[Merge Admission]
+    Start[bun run gate:full] --> Q[Quality: Types & Lint]
+    Q --> F[Fallow: Dead Code]
+    F --> T[Vitest under Bun]
+    T --> Cov[Coverage under Node]
+    Cov --> Up[sonar:up]
+    Up --> Preflight[doctor:gate]
+    Preflight --> Sonar[sonar:scan]
+    Sonar --> Stop[sonar:stop]
+    Stop --> End[Merge Admission]
 ```
 
-The workflow ensures that even if an earlier stage fails, the process continues through to Sonar analysis to provide a complete diagnostic report.
+An earlier stage failure does not skip later stages. The command reports every failed stage after Sonar stops.
 Sources: [scripts/run-full-quality-gate.ts:22-60](../../../scripts/run-full-quality-gate.ts#L22-L60), [scripts/run-full-quality-gate.test.ts:39-57](../../../scripts/run-full-quality-gate.test.ts#L39-L57)
 
 ## Static Analysis & Regressions
@@ -72,13 +68,16 @@ The project uses "Fallow" to detect unused files, exports, and dependencies. It 
 
 Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doctor.ts:162-184](../../../scripts/doctor.ts#L162-L184)
 
-### Semgrep & Quality
-Security and architectural constraints are enforced via Semgrep rules. General code quality (TypeScript checks and Biome linting) is grouped under the `quality` script.
-Sources: [scripts/run-full-quality-gate.ts:25-26](../../../scripts/run-full-quality-gate.ts#L25-L26), [AGENTS.md:151](../../../AGENTS.md#L151)
+### Quality checks
+
+The `quality` script runs TypeScript checks, Biome, dependency-cruiser, and the React Hooks lint report. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
+Sources: [package.json](../../../package.json), [scripts/check-fallow-regression.ts](../../../scripts/check-fallow-regression.ts)
 
 ## Continuous Integration (CI) Contracts
 
 The CI pipeline mirrors local gates but adds specialized logic for PostgreSQL and Supabase contract testing.
+
+Pull requests run the Auth/RLS contract against the disposable local Supabase stack. The managed staging contract receives staging credentials only on trusted pushes to `main`; its checkout does not persist the GitHub token.
 
 ### Workflow Selection Logic
 To optimize CI runs, the project uses a selection script that detects if changes affect the "PostgreSQL Contract." This is triggered by modifications to specific paths like backend source code, migrations, or database configurations.
@@ -134,12 +133,12 @@ Sources: [scripts/run-full-quality-gate.ts:39-53](../../../scripts/run-full-qual
 
 ### SonarQube Integration
 SonarQube acts as a local-only merge gate and is intentionally excluded from GitHub Actions.
-- **Pre-requisite:** Local service must be started (`sonar:up`).
+- **Lifecycle:** `gate:full` starts the local service immediately before analysis and stops it after the scan.
 - **Configuration:** Docker binds the local service to `127.0.0.1:9000`. Its Docker-internal one-shot provisioner grants `Anyone` the global `Create Projects` and `Execute Analysis` permissions on a fresh volume, enabling anonymous analysis without scanner credentials. The `gate` Doctor profile requires that provisioner to complete successfully before it reports anonymous analysis ready.
 - **Merge Block:** A skipped, failed, or unreachable Sonar scan explicitly blocks the merge process.
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
-Testing and Quality Gates in Nous are designed to provide immediate feedback to developers while maintaining a strict, non-bypassable local standard for code health and architectural integrity. The reliance on local service probes (Sonar, Supabase) ensures that the development environment closely mirrors production constraints.
+Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. Run `gate:full` once after implementation and review feedback are complete.
 
 Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)

@@ -13,8 +13,23 @@ type WorkflowStep = {
   with?: Record<string, unknown>;
 };
 
+type WorkflowJob = {
+  concurrency: {
+    'cancel-in-progress': boolean;
+    group: string;
+  };
+  env?: Record<string, string>;
+  if?: string;
+  steps: WorkflowStep[];
+};
+
 type WorkflowConfig = {
-  jobs: Record<string, { steps: WorkflowStep[] }>;
+  jobs: Record<string, WorkflowJob>;
+  on: {
+    pull_request: unknown;
+    push: { branches: string[] };
+  };
+  permissions: { contents: string };
 };
 
 const workflow = parse(readFileSync(resolve('.github/workflows/ci.yml'), 'utf8')) as WorkflowConfig;
@@ -31,6 +46,43 @@ function requireStep(name: string): WorkflowStep {
 }
 
 describe('workflow PostgreSQL CI contract', () => {
+  test('runs pull request branches once and cancels superseded runs', () => {
+    expect(workflow.on.push.branches).toEqual(['main']);
+    expect(workflow.on.pull_request).toBeNull();
+    expect(workflow.permissions).toEqual({ contents: 'read' });
+    expect(workflow.jobs.test.concurrency).toEqual({
+      'cancel-in-progress': true,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-test`,
+    });
+    expect(workflow.jobs['supabase-contract'].concurrency).toEqual({
+      'cancel-in-progress': true,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-supabase`,
+    });
+  });
+
+  test('keeps staging credentials on trusted main pushes', () => {
+    const managedStagingJob = workflow.jobs['managed-staging-contract'];
+    const checkout = managedStagingJob.steps.find(step => step.name === 'Checkout');
+    const credentialsCondition =
+      "env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''";
+
+    expect(managedStagingJob.if).toBe(
+      "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    );
+    expect(managedStagingJob.env).toEqual({
+      DATABASE_URL: `\${{ secrets.SUPABASE_STAGING_DATABASE_URL }}`,
+      SUPABASE_JWT_SECRET: `\${{ secrets.SUPABASE_STAGING_JWT_SECRET }}`,
+      SUPABASE_URL: `\${{ secrets.SUPABASE_STAGING_URL }}`,
+    });
+    expect(managedStagingJob.concurrency).toEqual({
+      'cancel-in-progress': false,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-managed-staging`,
+    });
+    expect(managedStagingJob.steps).not.toHaveLength(0);
+    expect(managedStagingJob.steps.every(step => step.if === credentialsCondition)).toBe(true);
+    expect(checkout?.with?.['persist-credentials']).toBe(false);
+  });
+
   test('uses the canonical Supabase contract without the retired source migrator', () => {
     const canonicalContract = requireStep('Run Canonical Auth/RLS Contract');
     const workflowCommands = Object.values(workflow.jobs)

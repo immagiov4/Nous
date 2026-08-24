@@ -1,11 +1,23 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   executeFullQualityGate,
   type GateStage,
   type GateStageResult,
-  INDEPENDENT_GATE_STAGES,
 } from './run-full-quality-gate.ts';
+
+const GATE_SCRIPTS = {
+  quality: 'quality',
+  fallow: 'check:fallow:ci',
+  test: 'test',
+  coverage: 'test:coverage',
+  sonarStart: 'sonar:up',
+  sonarPreflight: 'doctor:gate',
+  sonarScan: 'sonar:scan',
+  sonarStop: 'sonar:stop',
+} as const;
+
+const EXPECTED_GATE_SCRIPTS = Object.values(GATE_SCRIPTS);
 
 const passedResult = (stage: GateStage): GateStageResult => ({
   ...stage,
@@ -13,41 +25,30 @@ const passedResult = (stage: GateStage): GateStageResult => ({
   exitCode: 0,
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('full quality gate runner', () => {
-  test('runs independent checks together, then coverage before Sonar', async () => {
-    const events: string[] = [];
-    let releaseIndependentStages: () => void = () => undefined;
-    const independentStagesStarted = new Promise<void>(resolve => {
-      releaseIndependentStages = resolve;
-    });
-    let independentStartCount = 0;
+  test('runs one heavy stage at a time and stops Sonar after the scan', async () => {
+    const invokedScripts: string[] = [];
+    let activeStageCount = 0;
+    let maximumActiveStageCount = 0;
 
-    const runStage = async (stage: GateStage): Promise<GateStageResult> => {
-      events.push(`start:${stage.script}`);
-      if (INDEPENDENT_GATE_STAGES.some(candidate => candidate.script === stage.script)) {
-        independentStartCount += 1;
-        if (independentStartCount === INDEPENDENT_GATE_STAGES.length) {
-          releaseIndependentStages();
-        }
-        await independentStagesStarted;
-      }
-      events.push(`end:${stage.script}`);
+    await executeFullQualityGate(async stage => {
+      invokedScripts.push(stage.script);
+      activeStageCount += 1;
+      maximumActiveStageCount = Math.max(maximumActiveStageCount, activeStageCount);
+      await Promise.resolve();
+      activeStageCount -= 1;
       return passedResult(stage);
-    };
+    });
 
-    await executeFullQualityGate(runStage);
-
-    const coverageStart = events.indexOf('start:test:coverage');
-    const sonarStart = events.indexOf('start:sonar:scan');
-    expect(coverageStart).toBeGreaterThan(
-      Math.max(...INDEPENDENT_GATE_STAGES.map(stage => events.indexOf(`end:${stage.script}`)))
-    );
-    expect(sonarStart).toBeGreaterThan(events.indexOf('end:test:coverage'));
+    expect(invokedScripts).toEqual(EXPECTED_GATE_SCRIPTS);
+    expect(maximumActiveStageCount).toBe(1);
   });
 
   test('continues through Sonar and exposes every failed stage', async () => {
     const invokedScripts: string[] = [];
-    const failedScripts = new Set(['quality', 'test:coverage']);
+    const failedScripts = new Set([GATE_SCRIPTS.quality, GATE_SCRIPTS.coverage]);
 
     const results = await executeFullQualityGate(async stage => {
       invokedScripts.push(stage.script);
@@ -57,10 +58,35 @@ describe('full quality gate runner', () => {
       };
     });
 
-    expect(invokedScripts.at(-1)).toBe('sonar:scan');
+    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarStop);
     expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
-      'quality',
-      'test:coverage',
+      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.coverage,
     ]);
+  });
+
+  test('continues after runner crashes and reports every crashed stage', async () => {
+    const invokedScripts: string[] = [];
+    const crashedScripts = new Set([
+      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.sonarStart,
+      GATE_SCRIPTS.sonarStop,
+    ]);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const results = await executeFullQualityGate(async stage => {
+      invokedScripts.push(stage.script);
+      if (crashedScripts.has(stage.script)) throw new Error(`${stage.script} crashed`);
+      return passedResult(stage);
+    });
+
+    expect(invokedScripts).toEqual(EXPECTED_GATE_SCRIPTS);
+    expect(results.filter(result => result.exitCode !== 0).map(result => result.script)).toEqual([
+      GATE_SCRIPTS.quality,
+      GATE_SCRIPTS.sonarStart,
+      GATE_SCRIPTS.sonarStop,
+    ]);
+    expect(stderr).toHaveBeenCalledTimes(3);
+    expect(invokedScripts.at(-1)).toBe(GATE_SCRIPTS.sonarStop);
   });
 });

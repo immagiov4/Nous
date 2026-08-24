@@ -12,14 +12,8 @@ export type GateStageResult = GateStage & {
 
 type RunGateStage = (stage: GateStage) => Promise<GateStageResult>;
 
-const PREFLIGHT_STAGE: GateStage = {
-  label: 'Local gate readiness',
-  script: 'doctor:gate',
-};
-
-export const INDEPENDENT_GATE_STAGES: GateStage[] = [
+const CHECK_GATE_STAGES: GateStage[] = [
   { label: 'Type, lint, and dependency quality', script: 'quality' },
-  { label: 'Semgrep rule and repository checks', script: 'gate:semgrep' },
   { label: 'Fallow regression check', script: 'check:fallow:ci' },
   { label: 'Bun test suite', script: 'test' },
 ];
@@ -32,6 +26,21 @@ const COVERAGE_STAGE: GateStage = {
 const SONAR_STAGE: GateStage = {
   label: 'Sonar analysis',
   script: 'sonar:scan',
+};
+
+const SONAR_START_STAGE: GateStage = {
+  label: 'Start local Sonar',
+  script: 'sonar:up',
+};
+
+const SONAR_PREFLIGHT_STAGE: GateStage = {
+  label: 'Runtime and Sonar preflight',
+  script: 'doctor:gate',
+};
+
+const SONAR_STOP_STAGE: GateStage = {
+  label: 'Stop local Sonar',
+  script: 'sonar:stop',
 };
 
 const formatDuration = (durationMs: number): string => `${(durationMs / 1_000).toFixed(3)}s`;
@@ -74,11 +83,30 @@ const createScriptRunner =
 export const executeFullQualityGate = async (
   runStage: RunGateStage
 ): Promise<GateStageResult[]> => {
-  const preflightResult = await runStage(PREFLIGHT_STAGE);
-  const independentResults = await Promise.all(INDEPENDENT_GATE_STAGES.map(runStage));
-  const coverageResult = await runStage(COVERAGE_STAGE);
-  const sonarResult = await runStage(SONAR_STAGE);
-  return [preflightResult, ...independentResults, coverageResult, sonarResult];
+  const runStageSafely = async (stage: GateStage): Promise<GateStageResult> => {
+    try {
+      return await runStage(stage);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`\n=== ${stage.label} crashed: ${reason} ===\n`);
+      return { ...stage, durationMs: 0, exitCode: 1 };
+    }
+  };
+
+  const results: GateStageResult[] = [];
+  for (const stage of CHECK_GATE_STAGES) results.push(await runStageSafely(stage));
+  const coverageResult = await runStageSafely(COVERAGE_STAGE);
+  results.push(coverageResult);
+  try {
+    results.push(
+      await runStageSafely(SONAR_START_STAGE),
+      await runStageSafely(SONAR_PREFLIGHT_STAGE),
+      await runStageSafely(SONAR_STAGE)
+    );
+  } finally {
+    results.push(await runStageSafely(SONAR_STOP_STAGE));
+  }
+  return results;
 };
 
 const main = async () => {

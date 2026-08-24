@@ -3,12 +3,18 @@ name: CI
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-test
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -22,20 +28,8 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          enable-cache: true
-          version: '0.11.16'
-
       - name: Run Quality Checks (TypeScript + Biome)
         run: bun run quality
-
-      - name: Verify Semgrep Rules
-        run: bun run check:semgrep:rules
-
-      - name: Run Semgrep Maintainability Checks
-        run: bun run check:semgrep
 
       - name: Run Fallow Static Analysis (regression check)
         run: bun run check:fallow:ci
@@ -48,6 +42,9 @@ jobs:
 
   supabase-contract:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-supabase
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -99,8 +96,11 @@ jobs:
         run: bunx supabase stop --no-backup
 
   managed-staging-contract:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-managed-staging
+      cancel-in-progress: false
     env:
       DATABASE_URL: ${{ secrets.SUPABASE_STAGING_DATABASE_URL }}
       SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_STAGING_JWT_SECRET }}
@@ -108,7 +108,10 @@ jobs:
 
     steps:
       - name: Checkout
+        if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Bun
         if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''

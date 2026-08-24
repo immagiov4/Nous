@@ -140,11 +140,10 @@ describe('resolveLocalSupabaseConfig', () => {
 
 describe('inspectEnvironment', () => {
   test('finds the installed tools required by every Doctor profile', () => {
-    const options = { bunVersion: '1.3.14', findExecutable: () => 'uvx' };
+    const options = { bunVersion: '1.3.14' };
     expect(inspectEnvironment('all', options)).toEqual([
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
-      expect.objectContaining({ label: 'uvx runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Fallow baseline', status: 'WARN' }),
     ]);
     expect(inspectEnvironment('gate', options)).toEqual([
