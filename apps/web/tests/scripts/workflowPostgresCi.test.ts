@@ -61,12 +61,15 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('runs the complete Bun suite once without discarded CI coverage', () => {
+  test('runs only the CI quality, Fallow, and complete Bun suite commands', () => {
     const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
 
-    expect(commands.filter(command => command === 'bun run quality:ci')).toHaveLength(1);
-    expect(commands.filter(command => command === 'bun run test')).toHaveLength(1);
-    expect(commands).not.toContain('bun run test:coverage');
+    expect(commands).toEqual([
+      'bun install --frozen-lockfile',
+      'bun run quality:ci',
+      'bun run check:fallow:ci',
+      'bun run test',
+    ]);
   });
 
   test('keeps staging credentials on trusted main pushes', () => {
