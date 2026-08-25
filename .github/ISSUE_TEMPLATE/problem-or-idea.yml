@@ -54,6 +54,12 @@ body:
       description: Record suspected causes that the available evidence has not verified.
 
   - type: textarea
+    id: potential-systemic-gap
+    attributes:
+      label: Potential systemic gap
+      description: When evidence suggests the same problem class may exist elsewhere, name the observed examples, the suspected wider scope, and what still needs investigation. This does not expand the scope of this issue.
+
+  - type: textarea
     id: unknowns
     attributes:
       label: Unknowns and decisions needed

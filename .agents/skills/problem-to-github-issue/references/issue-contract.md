@@ -15,6 +15,7 @@ information.
 - `Reproduction` records repeatable steps and the observed result.
 - `Hypotheses` contains plausible causes that evidence has not verified.
 - `Observability gaps` names the smallest missing signal needed to continue diagnosis.
+- `Potential systemic gap` records why the same root pattern may affect other paths or modules.
 - `Decisions already made` records choices approved by the maintainer or established contracts.
 - `Unknowns and decisions needed` keeps unknown facts separate from choices the maintainer owns.
 - `Open questions` is the exploratory equivalent when the issue records questions without asking
@@ -40,6 +41,8 @@ Classify each material source statement before writing prose:
 - A diagnostic limit may support `Observed evidence` when it states what was not established and
   what would establish it.
 - A hypothesis belongs in `Hypotheses`.
+- A suspected wider pattern belongs in `Potential systemic gap`. Separate observed occurrences from
+  the paths or modules that still need investigation.
 - An unapproved option belongs in `Unknowns and decisions needed` or `Open questions`.
 - An approved option becomes a decision and may support `Desired outcome` or `Acceptance criteria`.
 - An unknown belongs in `Unknowns and decisions needed`.
@@ -51,6 +54,10 @@ may become acceptance criteria when the chosen behavior directly implies them.
 Before naming a correction, trace the affected path through its callers and inspect sibling paths
 that enforce the same contract. When that evidence supports a fix, target the shared boundary and
 ask for one focused regression. Keep speculative refactors out of the issue.
+
+Use `Potential systemic gap` only when the investigation gives a concrete reason to suspect the
+same problem class elsewhere. It may justify a broader investigation or related issues, but it does
+not expand the current issue or approve architectural work without a maintainer decision.
 
 ## Ready-for-agent transition
 
