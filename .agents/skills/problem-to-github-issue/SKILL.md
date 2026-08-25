@@ -19,7 +19,8 @@ including closing an issue as duplicate or obsolete.
    contract. Do this before proposing a fix.
 4. Search open and closed issues for the same desired outcome and root-cause boundary.
 5. Build an evidence ledger. Classify each material statement as a reported observation, verified
-   evidence, a diagnostic limit, a hypothesis, an option, an unknown, or an approved decision.
+   evidence, a diagnostic limit, a hypothesis, a potential systemic gap, an option, an unknown, or
+   an approved decision.
 6. Ask the maintainer when an unresolved choice would change product behavior, architecture,
    policy, or a quantitative limit.
 
@@ -46,7 +47,8 @@ must trace to its permitted source class.
 ## Respect the lifecycle
 
 New issues start as triage records. Add a `ready-for-agent` label and an `Agent brief` only after the
-maintainer approves that transition and all blocking decisions are settled.
+maintainer approves that transition, all blocking decisions are settled, and all blocking
+dependencies are resolved.
 
 After editing or reopening a ready issue, revalidate its brief against the current issue. Remove the
 `ready-for-agent` label when the change introduces a blocking unknown or changes approved behavior,

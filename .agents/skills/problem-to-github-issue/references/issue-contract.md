@@ -99,6 +99,7 @@ The brief summary may restate a reported or verified problem and approved behavi
 hypotheses, unknowns, and unapproved options out of the autonomous implementation contract.
 
 Do not mark the issue ready while a blocking product, policy, architecture, or quantitative choice
-remains open. Close a duplicate only after the maintainer approves a comparison of its desired
-outcome and acceptance boundary with the candidate replacement. Close an obsolete issue only after
-the maintainer approves the rationale for why its requirement no longer applies.
+remains open or a blocking dependency remains unresolved. Close a duplicate only after the
+maintainer approves a comparison of its desired outcome and acceptance boundary with the candidate
+replacement. Close an obsolete issue only after the maintainer approves the rationale for why its
+requirement no longer applies.
