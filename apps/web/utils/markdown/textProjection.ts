@@ -418,6 +418,9 @@ const excludeProtectedRanges = (
   return fragments;
 };
 
+const markdownRangesOverlap = (left: MarkdownRange, right: MarkdownRange): boolean =>
+  left.start < right.end && left.end > right.start;
+
 interface InlineMarkdownSyntaxBalance {
   formatDelimiterCounts: Map<string, number>;
   linkDepth: number;
@@ -532,14 +535,9 @@ const expandInlineMarkdownEnd = (content: string, end: number): number => {
 const canBridgeInlineMarkdownGap = (
   content: string,
   left: MarkdownRange,
-  right: MarkdownRange,
-  protectedRanges: MarkdownRange[]
+  right: MarkdownRange
 ): boolean => {
   const gap = { start: left.end, end: right.start };
-  if (overlapsProtectedRange(gap, protectedRanges)) {
-    return false;
-  }
-
   return parseInlineMarkdownSyntax(content.slice(gap.start, gap.end), {
     formatDelimiterCounts: new Map(),
     linkDepth: 0,
@@ -577,8 +575,7 @@ const mergeInlineMarkdownRun = (content: string, segments: MarkdownRange[]): Mar
 
 const mergeInlineMarkdownSegments = (
   content: string,
-  segments: MarkdownRange[],
-  protectedRanges: MarkdownRange[]
+  segments: MarkdownRange[]
 ): MarkdownRange[] => {
   if (segments.length === 0) {
     return [];
@@ -591,7 +588,7 @@ const mergeInlineMarkdownSegments = (
     const currentSegment = segments[index];
     const previousSegment = currentRun.at(-1) as MarkdownRange;
 
-    if (canBridgeInlineMarkdownGap(content, previousSegment, currentSegment, protectedRanges)) {
+    if (canBridgeInlineMarkdownGap(content, previousSegment, currentSegment)) {
       currentRun.push(currentSegment);
       continue;
     }
@@ -607,7 +604,7 @@ export const buildMarkableSegments = (
   segments: MarkdownRange[],
   protectedRanges: MarkdownRange[]
 ): MarkdownRange[] =>
-  mergeInlineMarkdownSegments(content, segments, protectedRanges)
+  mergeInlineMarkdownSegments(content, segments)
     .flatMap(segment => splitSegmentOnParagraphBreaks(content, segment))
     .flatMap(segment => {
       const trimmedSegment = trimSegmentWhitespace(content, segment);
@@ -615,7 +612,16 @@ export const buildMarkableSegments = (
         return [];
       }
 
-      return excludeProtectedRanges(trimmedSegment, protectedRanges)
+      const exclusionRanges = protectedRanges.filter(protectedRange => {
+        const selectedSourceOverlapsRange = segments.some(sourceSegment =>
+          markdownRangesOverlap(sourceSegment, protectedRange)
+        );
+        const expandedSegmentContainsRange =
+          trimmedSegment.start <= protectedRange.start && trimmedSegment.end >= protectedRange.end;
+        return selectedSourceOverlapsRange || !expandedSegmentContainsRange;
+      });
+
+      return excludeProtectedRanges(trimmedSegment, exclusionRanges)
         .map(fragment => trimSegmentWhitespace(content, fragment))
         .filter((fragment): fragment is MarkdownRange => Boolean(fragment));
     });

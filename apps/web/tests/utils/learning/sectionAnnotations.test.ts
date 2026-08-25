@@ -270,7 +270,7 @@ test('applySectionAnnotation uses the visible text offset when text and context 
 
 test('materialized annotations preserve inline Markdown as one highlight', () => {
   const content =
-    'Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test)).';
+    'Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test) "Titolo (bilanciato)").';
   const created = applySectionAnnotation({
     annotations: [],
     content,
@@ -281,7 +281,7 @@ test('materialized annotations preserve inline Markdown as one highlight', () =>
   assert.ok(created);
   assert.equal(
     materializeSectionAnnotationMarks(content, created.annotations),
-    '<mark data-nous-annotation-id="annotation-inline-detached">Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test))</mark>.'
+    '<mark data-nous-annotation-id="annotation-inline-detached">Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test) "Titolo (bilanciato)")</mark>.'
   );
 });
 
@@ -578,7 +578,8 @@ test('applySectionAnnotation preserves inline math markdown while annotating the
 });
 
 test('applySectionAnnotation keeps one persistent highlight across inline markdown', () => {
-  const content = 'Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).';
+  const content =
+    'Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com/percorso_(test) "Titolo (bilanciato)").';
   const result = applySectionAnnotation({
     annotations: [],
     content,
@@ -590,7 +591,7 @@ test('applySectionAnnotation keeps one persistent highlight across inline markdo
   assert.ok(result);
   assert.equal(
     materializeSectionAnnotationMarks(content, result.annotations),
-    '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).</mark>'
+    '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com/percorso_(test) "Titolo (bilanciato)").</mark>'
   );
 
   const removed = removeSectionAnnotation({
