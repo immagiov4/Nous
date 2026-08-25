@@ -118,6 +118,7 @@ export const normalizeStoredProject = (data: unknown): ProjectSnapshot => {
 Sources: [apps/web/services/projects/projectSnapshot.ts:600-630](../../../apps/web/services/projects/projectSnapshot.ts#L600-L630)
 
 ### Archive Import Identity Remapping
+
 Project archive imports may restore a snapshot under a new project ID. The import boundary clones
 the snapshot and replaces project-scoped annotation artifact IDs for `future-asset`,
 `generated-visual`, and `pdf-image` references with the destination project ID. It preserves the
