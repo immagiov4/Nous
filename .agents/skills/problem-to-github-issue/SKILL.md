@@ -1,6 +1,6 @@
 ---
 name: problem-to-github-issue
-description: Diagnose a reported Nous problem, capture a product idea or investigation, and create or rewrite an English GitHub issue without inventing requirements. Use before opening, editing, deduplicating, or preparing an issue for autonomous implementation.
+description: Diagnose a reported Nous problem, capture a product idea or investigation, and govern an English GitHub issue without inventing requirements. Use before creating, editing, labeling, commenting on, closing, reopening, deduplicating, or preparing an issue for autonomous implementation.
 ---
 
 # Turn evidence into a GitHub issue
@@ -17,8 +17,8 @@ Read [the issue contract](references/issue-contract.md) before drafting or rewri
 3. Trace the affected path through its callers and inspect sibling paths that enforce the same
    contract. Do this before proposing a fix.
 4. Search open and closed issues for the same desired outcome and root-cause boundary.
-5. Build an evidence ledger. Classify each material statement as verified evidence, a diagnostic
-   limit, a hypothesis, an option, an unknown, or an approved decision.
+5. Build an evidence ledger. Classify each material statement as a reported observation, verified
+   evidence, a diagnostic limit, a hypothesis, an option, an unknown, or an approved decision.
 6. Ask the maintainer when an unresolved choice would change product behavior, architecture,
    policy, or a quantitative limit.
 

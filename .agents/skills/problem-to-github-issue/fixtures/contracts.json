@@ -252,5 +252,43 @@
     ],
     "draftBody": "## Agent brief\n\n### Summary\n\n- Implement the approved behavior.\n\n### Desired behavior\n\n- Use the approved behavior.\n\n### Acceptance criteria\n\n- The approved behavior is observable.\n\n### Retry policy\n\n- Retry three times.",
     "expectedErrors": ["unknown-agent-brief-field:Retry policy"]
+  },
+  {
+    "name": "unknown-top-level-section-is-rejected",
+    "readyForAgent": false,
+    "labels": [],
+    "sources": [],
+    "draftBody": "## Implementation plan\n\n- Retry the operation three times.",
+    "expectedErrors": ["unknown-section:Implementation plan"]
+  },
+  {
+    "name": "approved-option-is-not-current-behavior",
+    "readyForAgent": true,
+    "labels": ["ready-for-agent"],
+    "sources": [
+      {
+        "id": "brief-summary",
+        "text": "Implement the approved recovery behavior.",
+        "kind": "decision"
+      },
+      {
+        "id": "planned-change",
+        "text": "Retry failures with bounded backoff.",
+        "kind": "option",
+        "approved": true
+      },
+      {
+        "id": "approved-behavior",
+        "text": "Use the approved recovery behavior.",
+        "kind": "decision"
+      },
+      {
+        "id": "behavior-acceptance",
+        "text": "A recoverable failure can complete.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Agent brief\n\n### Summary\n\n- Implement the approved recovery behavior.\n\n### Current behavior\n\n- Retry failures with bounded backoff.\n\n### Desired behavior\n\n- Use the approved recovery behavior.\n\n### Acceptance criteria\n\n- A recoverable failure can complete.",
+    "expectedErrors": ["misplaced-agent-brief:planned-change:Current behavior"]
   }
 ]

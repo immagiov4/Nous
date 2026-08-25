@@ -31,6 +31,7 @@ Omit empty headings. A short bug can use `Problem`, `Desired outcome`, `Observed
 
 Classify each material source statement before writing prose:
 
+- A reported observation belongs in `Problem` until independent evidence verifies it.
 - Verified evidence may support `Observed evidence`.
 - A diagnostic limit may support `Observed evidence` when it states what was not established and
   what would establish it.
@@ -81,6 +82,9 @@ Use this shape:
 
 Every heading in the brief must contain information. Remove irrelevant headings. The brief may
 refer to issue evidence without copying volatile source locations into requirements.
+
+The brief summary may restate a reported or verified problem and approved behavior. It must keep
+hypotheses, unknowns, and unapproved options out of the autonomous implementation contract.
 
 Do not mark the issue ready while a blocking product, policy, architecture, or quantitative choice
 remains open. Do not close an issue as duplicate or obsolete until the maintainer approves a

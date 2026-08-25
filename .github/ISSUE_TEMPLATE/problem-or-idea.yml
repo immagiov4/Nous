@@ -26,16 +26,20 @@ body:
   - type: textarea
     id: desired-outcome
     attributes:
-      label: Desired outcome or direction
-      description: State the chosen outcome. If no outcome is settled, describe the direction without turning options into requirements.
-    validations:
-      required: true
+      label: Desired outcome
+      description: State only behavior that the maintainer has chosen or the problem necessarily implies. Leave blank when the outcome is not settled.
+
+  - type: textarea
+    id: direction
+    attributes:
+      label: Direction
+      description: For exploratory work, describe the direction and keep candidate options open. Leave blank when the desired outcome is settled.
 
   - type: textarea
     id: evidence
     attributes:
       label: Observed evidence
-      description: Add reproduction steps, logs, measurements, screenshots, or source evidence. If none is available, state what has not been established.
+      description: Add reproduction steps, logs, measurements, screenshots, or source evidence. If none is available, state what has not been established and what evidence would resolve the gap.
     validations:
       required: true
 

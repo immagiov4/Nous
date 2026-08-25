@@ -22,7 +22,9 @@ type Placement =
   | 'scope'
   | 'outOfScope'
   | 'verification'
-  | 'dependencies';
+  | 'dependencies'
+  | 'invariant'
+  | 'currentConstraint';
 
 interface SourceStatement {
   id: string;
@@ -57,6 +59,8 @@ const PLACEMENTS: Placement[] = [
   'outOfScope',
   'verification',
   'dependencies',
+  'invariant',
+  'currentConstraint',
 ];
 
 const SECTION_HEADINGS: Record<Placement, string> = {
@@ -75,6 +79,8 @@ const SECTION_HEADINGS: Record<Placement, string> = {
   outOfScope: 'Out of scope',
   verification: 'Verification',
   dependencies: 'Dependencies',
+  invariant: 'Invariant',
+  currentConstraint: 'Current constraint',
 };
 
 const REQUIRED_AGENT_BRIEF_FIELDS = [
@@ -84,14 +90,14 @@ const REQUIRED_AGENT_BRIEF_FIELDS = [
 ];
 
 const AGENT_BRIEF_ALLOWED_KINDS: Record<string, SourceKind[]> = {
-  Summary: ['decision'],
+  Summary: ['reported', 'verified', 'diagnostic-limit', 'decision', 'option'],
   'Current behavior': ['verified', 'diagnostic-limit'],
-  'Desired behavior': ['decision'],
-  'Key contracts and decisions': ['decision'],
-  'Acceptance criteria': ['decision'],
-  'Out of scope': ['decision'],
+  'Desired behavior': ['decision', 'option'],
+  'Key contracts and decisions': ['decision', 'option'],
+  'Acceptance criteria': ['decision', 'option'],
+  'Out of scope': ['decision', 'option'],
   Dependencies: ['verified', 'decision'],
-  Verification: ['decision'],
+  Verification: ['decision', 'option'],
 };
 
 const AGENT_BRIEF_METADATA_FIELDS = new Set(['Category']);
@@ -115,6 +121,9 @@ const allowedPlacements = (source: SourceStatement): Placement[] => {
             'scope',
             'outOfScope',
             'verification',
+            'dependencies',
+            'invariant',
+            'currentConstraint',
           ]
         : ['direction', 'unknownsAndDecisionsNeeded', 'openQuestions'];
     case 'decision':
@@ -126,6 +135,8 @@ const allowedPlacements = (source: SourceStatement): Placement[] => {
         'outOfScope',
         'verification',
         'dependencies',
+        'invariant',
+        'currentConstraint',
       ];
     case 'unknown':
       return ['unknownsAndDecisionsNeeded', 'openQuestions'];
@@ -169,6 +180,12 @@ const validateFixture = (fixture: ContractFixture): string[] => {
   const placementsById = new Map<string, Placement[]>();
   const agentBriefSourceIds = new Set<string>();
   const sections = readSections(fixture.draftBody);
+
+  for (const heading of sections.keys()) {
+    if (heading !== 'Agent brief' && !Object.values(SECTION_HEADINGS).includes(heading)) {
+      errors.push(`unknown-section:${heading}`);
+    }
+  }
 
   for (const placement of PLACEMENTS) {
     const section = sections.get(SECTION_HEADINGS[placement]);
@@ -247,8 +264,8 @@ const validateFixture = (fixture: ContractFixture): string[] => {
           }
 
           agentBriefSourceIds.add(source.id);
-          const approvedOption = source.kind === 'option' && source.approved;
-          if (!allowedKinds.includes(source.kind) && !approvedOption) {
+          const disallowedOption = source.kind === 'option' && !source.approved;
+          if (!allowedKinds.includes(source.kind) || disallowedOption) {
             errors.push(`misplaced-agent-brief:${source.id}:${fieldKey}`);
           }
         }
