@@ -20,16 +20,20 @@ test('annotation ranges ignore malformed image openers before ordinary links', (
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, []);
+  assert.deepEqual(protectedSlices, ['(https://example.com)']);
 });
 
 test('annotation ranges parse balanced parentheses in image destinations', () => {
-  const content = 'Prima ![diagramma](https://example.com/image_(large).png) dopo.';
+  const content =
+    'Prima ![diagramma](https://example.com/image_(large).png) e ![schema](<schema.png> ) dopo.';
   const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['![diagramma](https://example.com/image_(large).png)']);
+  assert.deepEqual(protectedSlices, [
+    '![diagramma](https://example.com/image_(large).png)',
+    '![schema](<schema.png> )',
+  ]);
 });
 
 test('annotation ranges keep adjacent inline code separate from an image', () => {
@@ -39,6 +43,56 @@ test('annotation ranges keep adjacent inline code separate from an image', () =>
   );
 
   assert.deepEqual(protectedSlices, ['![diagramma](image.png)', '`codice inline`']);
+});
+
+test('annotation ranges protect reference images and ordinary link destinations', () => {
+  const content = [
+    '![Schema nascosto][schema]',
+    '[Testo visibile](https://example.com/percorso-nascosto)',
+    '',
+    '[schema]: https://example.com/schema.png',
+  ].join('\n');
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.ok(protectedSlices.includes('![Schema nascosto][schema]'));
+  assert.ok(protectedSlices.includes('(https://example.com/percorso-nascosto)'));
+});
+
+test('annotation ranges leave renderer-visible malformed images anchorable', () => {
+  const content = '![testo ancora visibile](destinazione non valida)';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+});
+
+test('annotation ranges preserve malformed definitions and angle destinations', () => {
+  const content = [
+    '[ref]: destinazione non valida',
+    '[ref]: image(non-bilanciata',
+    '![alt](<destinazione non valida>)',
+    '![alt](<image.png>testo)',
+  ].join('\n');
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+});
+
+test('annotation ranges resolve escaped reference labels', () => {
+  const content = '![Alt nascosto][a\\]b]\n\n[a\\]b]: image.png';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.ok(protectedSlices.includes('![Alt nascosto][a\\]b]'));
+});
+
+test('annotation ranges include complete multiline reference definitions', () => {
+  const content = '[ref]: /image.png\n  "Titolo nascosto"';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, [content]);
 });
 
 test('getMarkdownProtectedRanges keeps code fences, inline code, and math blocks protected', () => {

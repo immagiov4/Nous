@@ -135,6 +135,23 @@ describe('prepareMarkdownForSpeech', () => {
     );
   });
 
+  test('does not read reference definition destinations', () => {
+    expect(
+      prepareMarkdownForSpeech(
+        'Testo introduttivo.\n\n[fonte]: https://example.com/percorso-nascosto'
+      )
+    ).toBe('Testo introduttivo.');
+  });
+
+  test('reads malformed definitions and removes complete multiline definitions', () => {
+    expect(prepareMarkdownForSpeech('[ref]: destinazione non valida')).toBe(
+      '[ref]: destinazione non valida'
+    );
+    expect(
+      prepareMarkdownForSpeech('Prima.\n\n[ref]: /image.png\n  "Titolo nascosto"\n\nDopo.')
+    ).toBe('Prima.\n\nDopo.');
+  });
+
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {
     const input = ['#  Titolo\tstrano', '', '', '', 'Testo\t con   spazi.'].join('\r\n');
 

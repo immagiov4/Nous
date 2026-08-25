@@ -1,4 +1,8 @@
-import { getMarkdownProtectedRanges, type MarkdownRange } from '../markdown/codeRanges.ts';
+import {
+  getMarkdownProtectedRanges,
+  getMarkdownReferenceDefinitionRanges,
+  type MarkdownRange,
+} from '../markdown/codeRanges.ts';
 import { stripPdfImagePlaceholders } from '../pdf/imagePlaceholders.ts';
 
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
@@ -100,6 +104,15 @@ const replaceMarkdownProtectedRanges = (content: string): string => {
 
   nextContent += content.slice(cursor);
   return nextContent;
+};
+
+const stripMarkdownReferenceDefinitions = (content: string): string => {
+  const ranges = getMarkdownReferenceDefinitionRanges(content);
+  return ranges.reduceRight(
+    (currentContent, range) =>
+      `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
+    content
+  );
 };
 
 const stripPlaceholderToken = (content: string, placeholderPrefix: string): string => {
@@ -386,8 +399,12 @@ export interface ReadableTextElement {
 }
 
 export const prepareMarkdownForSpeech = (content: string): string => {
+  const referenceDefinitionsStripped = stripMarkdownReferenceDefinitions(content);
   const placeholderStrippedContent = stripPlaceholderToken(
-    stripPlaceholderToken(stripPdfImagePlaceholders(content), VISUAL_EXAMPLE_PLACEHOLDER_PREFIX),
+    stripPlaceholderToken(
+      stripPdfImagePlaceholders(referenceDefinitionsStripped),
+      VISUAL_EXAMPLE_PLACEHOLDER_PREFIX
+    ),
     YOUTUBE_CLIP_PLACEHOLDER_PREFIX
   );
   const markdownProtectedContent = replaceMarkdownProtectedRanges(placeholderStrippedContent);

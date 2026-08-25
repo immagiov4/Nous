@@ -11,6 +11,7 @@ export const NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES = [
   '{{VISUAL_EXAMPLE:',
   '{{YOUTUBE_CLIP_SOURCE:',
   '{{INLINE_QUIZ:',
+  '{{VISUAL_SLOT:',
 ] as const;
 
 const isLineStart = (content: string, index: number) => index === 0 || content[index - 1] === '\n';
@@ -27,6 +28,9 @@ export const findInlineLinkDestinationEnd = (
 
   let depth = 0;
   let activeTitleQuote: '"' | "'" | null = null;
+  let hasClosedAngleDestination = false;
+  let hasDestination = false;
+  let isAngleDestination = false;
 
   for (let index = openingParenthesisIndex; index < value.length; index += 1) {
     const character = value[index];
@@ -38,18 +42,50 @@ export const findInlineLinkDestinationEnd = (
       if (character === activeTitleQuote) activeTitleQuote = null;
       continue;
     }
+    if (index === openingParenthesisIndex + 1 && character === '<') {
+      isAngleDestination = true;
+      continue;
+    }
+    if (isAngleDestination) {
+      if (/\s/u.test(character)) {
+        return -1;
+      }
+      if (character === '>') {
+        isAngleDestination = false;
+        hasClosedAngleDestination = true;
+        hasDestination = true;
+      }
+      continue;
+    }
+    if (hasClosedAngleDestination && character !== ')' && !/\s/u.test(character)) {
+      return -1;
+    }
+    if (depth === 1 && /\s/u.test(character)) {
+      const nextNonWhitespaceIndex = value.slice(index).search(/\S/u) + index;
+      const nextCharacter = value[nextNonWhitespaceIndex];
+      if (
+        !hasDestination ||
+        (nextCharacter !== ')' && nextCharacter !== '"' && nextCharacter !== "'")
+      ) {
+        return -1;
+      }
+      index = nextNonWhitespaceIndex - 1;
+      continue;
+    }
     if (depth === 1 && (character === '"' || character === "'") && /\s/u.test(value[index - 1])) {
       activeTitleQuote = character;
       continue;
     }
     if (character === '(') {
       depth += 1;
+      if (depth > 1) hasDestination = true;
       continue;
     }
     if (character === ')') {
       depth -= 1;
       if (depth === 0) return index;
     }
+    if (depth === 1) hasDestination = true;
   }
 
   return -1;
@@ -407,7 +443,7 @@ const mergeOverlappingRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
   return mergedRanges;
 };
 
-const findInlineLabelEnd = (content: string, openingBracketIndex: number): number => {
+export const findInlineLabelEnd = (content: string, openingBracketIndex: number): number => {
   let depth = 0;
   for (let index = openingBracketIndex; index < content.length; index += 1) {
     if (content[index] === '\\') {
@@ -421,6 +457,97 @@ const findInlineLabelEnd = (content: string, openingBracketIndex: number): numbe
     }
   }
   return -1;
+};
+
+const normalizeReferenceLabel = (label: string): string =>
+  label.trim().replaceAll(/\s+/gu, ' ').toLowerCase();
+
+export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownRange[] => {
+  const ranges: MarkdownRange[] = [];
+  const codeRanges = getMarkdownCodeRanges(content);
+  const titlePattern = /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))$/u;
+  let lineStart = 0;
+
+  while (lineStart < content.length) {
+    const lineBreak = content.indexOf('\n', lineStart);
+    const lineEnd = lineBreak === -1 ? content.length : lineBreak;
+    const indentationLength = content.slice(lineStart, lineEnd).match(/^[ \t]*/u)?.[0].length ?? 0;
+    const labelStart = lineStart + indentationLength;
+    const labelEnd =
+      indentationLength <= 3 && content[labelStart] === '['
+        ? findInlineLabelEnd(content, labelStart)
+        : -1;
+    let cursor = labelEnd + 1;
+
+    if (labelEnd !== -1 && labelEnd < lineEnd && content[cursor] === ':') {
+      cursor += 1;
+      while (cursor < lineEnd && /[ \t]/u.test(content[cursor])) cursor += 1;
+      const destinationStart = cursor;
+      let parenthesisDepth = 0;
+
+      if (content[cursor] === '<') {
+        cursor += 1;
+        while (cursor < lineEnd && content[cursor] !== '>' && !/\s/u.test(content[cursor])) {
+          cursor += content[cursor] === '\\' ? 2 : 1;
+        }
+        cursor = content[cursor] === '>' ? cursor + 1 : destinationStart;
+      } else {
+        while (cursor < lineEnd && !/[ \t]/u.test(content[cursor])) {
+          if (content[cursor] === '\\') {
+            cursor += 2;
+            continue;
+          }
+          if (content[cursor] === '(') parenthesisDepth += 1;
+          if (content[cursor] === ')') parenthesisDepth -= 1;
+          if (parenthesisDepth < 0) break;
+          cursor += 1;
+        }
+        if (parenthesisDepth !== 0) cursor = destinationStart;
+      }
+
+      const hasDestination = cursor > destinationStart;
+      const trailingText = content.slice(cursor, lineEnd).trim();
+      let definitionEnd = lineEnd;
+      if (hasDestination && !trailingText && lineBreak !== -1) {
+        const nextLineBreak = content.indexOf('\n', lineBreak + 1);
+        const continuationEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
+        const continuation = content.slice(lineBreak + 1, continuationEnd);
+        const continuationIndent = continuation.match(/^[ \t]*/u)?.[0].length ?? 0;
+        if (
+          continuationIndent >= 1 &&
+          continuationIndent <= 3 &&
+          titlePattern.test(continuation.trim())
+        ) {
+          definitionEnd = continuationEnd;
+        }
+      }
+
+      if (
+        hasDestination &&
+        (!trailingText || titlePattern.test(trailingText)) &&
+        !codeRanges.some(range => range.start < definitionEnd && range.end > lineStart)
+      ) {
+        ranges.push({ start: lineStart, end: definitionEnd });
+        lineStart = definitionEnd + (content[definitionEnd] === '\n' ? 1 : 0);
+        continue;
+      }
+    }
+
+    lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
+  }
+  return ranges;
+};
+
+const getMarkdownReferenceLabels = (content: string): Set<string> => {
+  const labels = new Set<string>();
+  for (const range of getMarkdownReferenceDefinitionRanges(content)) {
+    const labelStart = content.indexOf('[', range.start);
+    const labelEnd = findInlineLabelEnd(content, labelStart);
+    if (labelEnd !== -1) {
+      labels.add(normalizeReferenceLabel(content.slice(labelStart + 1, labelEnd)));
+    }
+  }
+  return labels;
 };
 
 const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
@@ -490,8 +617,10 @@ const getMarkdownMathRanges = (content: string): MarkdownRange[] => {
   return mergeRanges(ranges);
 };
 
-const getMarkdownImageRanges = (content: string): MarkdownRange[] => {
+export const getMarkdownImageRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
+  const codeRanges = getMarkdownCodeRanges(content);
+  const referenceLabels = getMarkdownReferenceLabels(content);
   let index = 0;
 
   while (index < content.length) {
@@ -500,14 +629,40 @@ const getMarkdownImageRanges = (content: string): MarkdownRange[] => {
       break;
     }
 
+    if (codeRanges.some(range => range.start < imageStart + 2 && range.end > imageStart)) {
+      index = imageStart + 2;
+      continue;
+    }
+
     if (isEscapedCharacter(content, imageStart)) {
       index = imageStart + 2;
       continue;
     }
 
     const labelEnd = findInlineLabelEnd(content, imageStart + 1);
+    if (labelEnd === -1) {
+      index = imageStart + 2;
+      continue;
+    }
+
     const destinationStart = labelEnd + 1;
-    if (labelEnd === -1 || content[destinationStart] !== '(') {
+    if (content[destinationStart] !== '(') {
+      const altText = content.slice(imageStart + 2, labelEnd);
+      if (content[destinationStart] === '[') {
+        const referenceEnd = findInlineLabelEnd(content, destinationStart);
+        const referenceLabel =
+          referenceEnd === -1 ? '' : content.slice(destinationStart + 1, referenceEnd) || altText;
+        if (referenceEnd !== -1 && referenceLabels.has(normalizeReferenceLabel(referenceLabel))) {
+          ranges.push({ start: imageStart, end: referenceEnd + 1 });
+          index = referenceEnd + 1;
+          continue;
+        }
+      } else if (referenceLabels.has(normalizeReferenceLabel(altText))) {
+        ranges.push({ start: imageStart, end: labelEnd + 1 });
+        index = labelEnd + 1;
+        continue;
+      }
+
       index = imageStart + 2;
       continue;
     }
@@ -520,6 +675,40 @@ const getMarkdownImageRanges = (content: string): MarkdownRange[] => {
 
     ranges.push({ start: imageStart, end: imageEnd + 1 });
     index = imageEnd + 1;
+  }
+
+  return ranges;
+};
+
+export const getMarkdownLinkDestinationRanges = (content: string): MarkdownRange[] => {
+  const ranges: MarkdownRange[] = [];
+  const codeRanges = getMarkdownCodeRanges(content);
+  let index = 0;
+
+  while (index < content.length) {
+    const labelStart = content.indexOf('[', index);
+    if (labelStart === -1) break;
+    if (codeRanges.some(range => range.start < labelStart + 1 && range.end > labelStart)) {
+      index = labelStart + 1;
+      continue;
+    }
+    if (content[labelStart - 1] === '!' || isEscapedCharacter(content, labelStart)) {
+      index = labelStart + 1;
+      continue;
+    }
+    const labelEnd = findInlineLabelEnd(content, labelStart);
+    const destinationStart = labelEnd + 1;
+    if (labelEnd === -1 || content[destinationStart] !== '(') {
+      index = labelStart + 1;
+      continue;
+    }
+    const destinationEnd = findInlineLinkDestinationEnd(content, destinationStart);
+    if (destinationEnd === -1) {
+      index = labelStart + 1;
+      continue;
+    }
+    ranges.push({ start: destinationStart, end: destinationEnd + 1 });
+    index = destinationEnd + 1;
   }
 
   return ranges;
@@ -550,6 +739,8 @@ export const getMarkdownAnnotationProtectedRanges = (content: string): MarkdownR
   mergeOverlappingRanges([
     ...getMarkdownCodeRanges(content),
     ...getMarkdownImageRanges(content),
+    ...getMarkdownLinkDestinationRanges(content),
+    ...getMarkdownReferenceDefinitionRanges(content),
     ...getMarkdownMathRanges(content),
     ...getNonAnchorablePlaceholderRanges(content),
   ]);

@@ -1332,6 +1332,53 @@ describe('ContextAnswerPanel', () => {
     });
   });
 
+  test('accepts a refined anchor without applying the original selection context', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          contextAfter: 'vecchio dopo',
+          contextBefore: 'vecchio prima',
+          lessonContent: 'Il passaggio raffinato appartiene alla lezione.',
+          selectedText: 'passaggio originale',
+        })}
+      />
+    );
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: { noteDraft: string; rationale: string; selectedTextDraft: string };
+          toolCallId: string;
+          toolName: string;
+        };
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            noteDraft: 'Nota raffinata.',
+            rationale: 'Il nuovo passaggio è più preciso.',
+            selectedTextDraft: 'passaggio raffinato',
+          },
+          toolCallId: 'tool-refined-note',
+          toolName: 'requestAddToNotes',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+  });
+
   test('reveals retrieved material after the answer and opens an exact note target', async () => {
     const user = userEvent.setup();
     const onOpenLibraryReference = vi.fn();

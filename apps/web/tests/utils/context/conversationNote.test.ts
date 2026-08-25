@@ -67,6 +67,7 @@ test('rejects note proposals whose text exists only in an unsupported viewer pla
     '{{VISUAL_EXAMPLE:visual-1|title=Schema durevole}}',
     '{{YOUTUBE_CLIP_SOURCE:1|title=Schema durevole}}',
     '{{INLINE_QUIZ:Schema durevole}}',
+    '{{VISUAL_SLOT:slot-1|title=Schema durevole}}',
   ];
 
   placeholders.forEach(content => {
@@ -74,6 +75,58 @@ test('rejects note proposals whose text exists only in an unsupported viewer pla
       hasAnchorableConversationNoteCandidate(content, { selectedText: 'Schema durevole' }),
       false
     );
+  });
+});
+
+test('rejects candidates that resolve only a visible fragment around protected text', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(
+      'Testo [fonte](https://example.com/percorso-nascosto) conclusivo.',
+      { selectedText: 'Testo percorso nascosto conclusivo' }
+    ),
+    false
+  );
+});
+
+test('rejects candidates found only in a reference definition', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(
+      '![Schema][schema]\n\n[schema]: https://example.com/percorso-nascosto',
+      { selectedText: 'percorso nascosto' }
+    ),
+    false
+  );
+});
+
+test('rejects candidates found only in a multiline reference definition title', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('[ref]: /image.png\n  "Titolo nascosto"', {
+      selectedText: 'Titolo nascosto',
+    }),
+    false
+  );
+});
+
+test('does not inherit stale boundary context when the proposed text changes', () => {
+  const candidates = buildConversationNoteSaveCandidates({
+    anchor: {
+      contextAfter: 'contesto vecchio dopo',
+      contextBefore: 'contesto vecchio prima',
+      selectedText: 'passaggio originale',
+      selectedTextStart: 10,
+    },
+    toolInput: { note: 'Nota', selectedText: 'passaggio raffinato' },
+  });
+
+  assert.deepEqual(candidates[0], {
+    fallbackSelection: {
+      contextAfter: 'contesto vecchio dopo',
+      contextBefore: 'contesto vecchio prima',
+      selectedText: 'passaggio originale',
+      selectedTextStart: 10,
+    },
+    note: 'Nota',
+    selectedText: 'passaggio raffinato',
   });
 });
 

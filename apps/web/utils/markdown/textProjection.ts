@@ -1,6 +1,10 @@
 import {
+  findInlineLabelEnd,
   findInlineLinkDestinationEnd,
+  getMarkdownImageRanges,
+  getMarkdownLinkDestinationRanges,
   getMarkdownMathRangeAt,
+  getMarkdownReferenceDefinitionRanges,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
   projectMarkdownMathRange,
@@ -60,6 +64,13 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
   let index = 0;
   let atLineStart = true;
   let activeCodeDelimiter: string | null = null;
+  const hiddenRangesByStart = new Map(
+    [
+      ...getMarkdownImageRanges(content),
+      ...getMarkdownLinkDestinationRanges(content),
+      ...getMarkdownReferenceDefinitionRanges(content),
+    ].map(range => [range.start, range])
+  );
 
   const pushCharacter = (character: string, sourceIndex: number) => {
     characters.push(character);
@@ -67,6 +78,11 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
   };
 
   while (index < content.length) {
+    const hiddenRange = hiddenRangesByStart.get(index);
+    if (hiddenRange) {
+      index = hiddenRange.end;
+      continue;
+    }
     if (
       NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.some(prefix => content.startsWith(prefix, index))
     ) {
@@ -139,9 +155,16 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
     }
 
     if (currentCharacter === '!' && content[index + 1] === '[') {
-      const imageEnd = content.indexOf(')', index + 2);
-      if (imageEnd !== -1) {
-        index = imageEnd + 1;
+      const labelEnd = findInlineLabelEnd(content, index + 1);
+      if (labelEnd !== -1) {
+        content
+          .slice(index, labelEnd + 1)
+          .split('')
+          .forEach((character, offset) => {
+            pushCharacter(character, index + offset);
+          });
+        atLineStart = false;
+        index = labelEnd + 1;
         continue;
       }
     }
