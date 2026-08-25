@@ -90,8 +90,8 @@ const REQUIRED_AGENT_BRIEF_FIELDS = [
 ];
 
 const AGENT_BRIEF_ALLOWED_KINDS: Record<string, SourceKind[]> = {
-  Summary: ['reported', 'verified', 'diagnostic-limit', 'decision', 'option'],
-  'Current behavior': ['verified', 'diagnostic-limit'],
+  Summary: ['reported', 'verified', 'decision', 'option'],
+  'Current behavior': ['verified'],
   'Desired behavior': ['decision', 'option'],
   'Key contracts and decisions': ['decision', 'option'],
   'Acceptance criteria': ['decision', 'option'],

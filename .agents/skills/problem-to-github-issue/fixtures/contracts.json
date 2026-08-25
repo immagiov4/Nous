@@ -290,5 +290,34 @@
     ],
     "draftBody": "## Agent brief\n\n### Summary\n\n- Implement the approved recovery behavior.\n\n### Current behavior\n\n- Retry failures with bounded backoff.\n\n### Desired behavior\n\n- Use the approved recovery behavior.\n\n### Acceptance criteria\n\n- A recoverable failure can complete.",
     "expectedErrors": ["misplaced-agent-brief:planned-change:Current behavior"]
+  },
+  {
+    "name": "diagnostic-limit-is-not-current-behavior",
+    "readyForAgent": true,
+    "labels": ["ready-for-agent"],
+    "sources": [
+      {
+        "id": "brief-summary",
+        "text": "Implement the approved recovery behavior.",
+        "kind": "decision"
+      },
+      {
+        "id": "missing-provider-trace",
+        "text": "The provider trace is unavailable.",
+        "kind": "diagnostic-limit"
+      },
+      {
+        "id": "approved-behavior",
+        "text": "Use the approved recovery behavior.",
+        "kind": "decision"
+      },
+      {
+        "id": "behavior-acceptance",
+        "text": "A recoverable failure can complete.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Agent brief\n\n### Summary\n\n- Implement the approved recovery behavior.\n\n### Current behavior\n\n- The provider trace is unavailable.\n\n### Desired behavior\n\n- Use the approved recovery behavior.\n\n### Acceptance criteria\n\n- A recoverable failure can complete.",
+    "expectedErrors": ["misplaced-agent-brief:missing-provider-trace:Current behavior"]
   }
 ]
