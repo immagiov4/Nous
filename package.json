@@ -25,11 +25,11 @@
     "lint:frontend": "tsgo --noEmit -p apps/web/tsconfig.json",
     "lint:backend": "tsgo --noEmit -p apps/backend/tsconfig.json",
     "lint:types": "bun run lint:frontend && bun run lint:backend",
-    "quality": "bun run lint && bun run check:biome && bun run check:depcruise && bun run check:eslint-react-hooks",
-    "gate:checks": "bun run quality && bun run check:fallow",
-    "gate": "bun run gate:checks && bun run test",
+    "quality": "bun run lint && bun run check:biome && bun run check:eslint-react-hooks",
+    "quality:ci": "bun run quality && bun run check:depcruise",
     "gate:full": "bun run scripts/run-full-quality-gate.ts",
-    "gate:ci": "bun run quality && bun run check:fallow:ci && bun run test",
+    "gate:ci": "bun run quality:ci && bun run check:fallow:ci && bun run test",
+    "prepare:coverage": "node scripts/prepare-node-coverage.mjs",
     "check:biome": "biome check .",
     "check:depcruise": "bun run check:depcruise:web && bun run check:depcruise:backend",
     "check:depcruise:backend": "cd apps/backend && dependency-cruiser --config ../../.dependency-cruiser.cjs --ts-config tsconfig.json src",
@@ -59,7 +59,7 @@
     "test:workflow-postgres:critical": "bun run scripts/run-workflow-postgres-contract.ts critical",
     "test:workflow-codex": "bun run scripts/run-real-workflow-provider-tests.ts",
     "test:watch": "bun --bun vitest --config apps/web/vitest.config.ts",
-    "test:coverage": "vitest run --coverage --config apps/web/vitest.config.ts"
+    "test:coverage": "bun run prepare:coverage && vitest run --coverage --config apps/web/vitest.config.ts --maxWorkers=4"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",

@@ -109,10 +109,10 @@ The `doctor` script provides a local diagnostic suite for developers to verify t
 
 | Profile | Checks Performed |
 | :--- | :--- |
-| `checks` | Quality, Fallow regression, and Test suite. |
+| `checks` | Bun contract, project executables, and the Fallow baseline. |
 | `gate` | Probes the loopback-only local SonarQube service. |
 | `local` | Verifies Supabase Auth, Data API, Storage, and Migration drift. |
-| `all` | Runs all available diagnostic profiles. |
+| `all` | Combines environment checks with the Sonar and Supabase probes. |
 
 Sources: [scripts/doctor.ts:60-70](../../../scripts/doctor.ts#L60-L70), [scripts/doctor.ts:108-130](../../../scripts/doctor.ts#L108-L130)
 

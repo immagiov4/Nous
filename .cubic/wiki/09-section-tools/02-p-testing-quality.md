@@ -32,7 +32,7 @@ The `doctor` utility is a read-only diagnostic tool that reports on environment 
 
 | Profile | Description |
 | :--- | :--- |
-| `checks` | Default profile. Runs service-free environment checks (Bun, dependencies) and static analysis. |
+| `checks` | Default profile. Inspects Bun, project executables, and the Fallow baseline without running quality or tests. |
 | `gate` | Probes the loopback-only local SonarQube service. |
 | `local` | Probes local Supabase services and checks for migration parity/drift. |
 | `all` | Combines environment checks with both Sonar and Supabase service probes. |
@@ -40,14 +40,14 @@ The `doctor` utility is a read-only diagnostic tool that reports on environment 
 Sources: [scripts/doctor.ts:98-124](../../../scripts/doctor.ts#L98-L124), [AGENTS.md:144-150](../../../AGENTS.md#L144-L150)
 
 ### The Full Quality Gate
-The `gate:full` command runs one heavy process at a time. It runs quality, Fallow, the Bun test suite, and Node coverage before it starts SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate stops SonarQube after the scan, including when startup, preflight, or analysis throws.
+
+The `gate:full` command runs one heavy process at a time after GitHub CI passes on the same commit. CI owns the complete Bun suite and dependency graph check. The local gate runs quality, Fallow, and Node coverage before it starts SonarQube. After startup, `doctor:gate` verifies the pinned Bun runtime and Sonar readiness before analysis. The gate stops SonarQube after the scan, including when startup, preflight, or analysis throws.
 
 ```mermaid
 flowchart TD
     Start[bun run gate:full] --> Q[Quality: Types & Lint]
     Q --> F[Fallow: Dead Code]
-    F --> T[Vitest under Bun]
-    T --> Cov[Coverage under Node]
+    F --> Cov[Coverage under Node]
     Cov --> Up[sonar:up]
     Up --> Preflight[doctor:gate]
     Preflight --> Sonar[sonar:scan]
@@ -70,7 +70,7 @@ Sources: [scripts/doctor.ts:6-7](../../../scripts/doctor.ts#L6-L7), [scripts/doc
 
 ### Quality checks
 
-The `quality` script runs TypeScript checks, Biome, dependency-cruiser, and the React Hooks lint report. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
+The local `quality` script runs TypeScript checks, Biome, and the React Hooks lint report. CI runs `quality:ci`, which adds dependency-cruiser once per commit. Fallow separately blocks new dead-code and dependency findings against `.fallow-baselines/regression.json`.
 Sources: [package.json](../../../package.json), [scripts/check-fallow-regression.ts](../../../scripts/check-fallow-regression.ts)
 
 ## Continuous Integration (CI) Contracts
@@ -139,6 +139,6 @@ SonarQube acts as a local-only merge gate and is intentionally excluded from Git
 
 Sources: [AGENTS.md:156-162](../../../AGENTS.md#L156-L162), [scripts/doctor.ts:233-275](../../../scripts/doctor.ts#L233-L275)
 
-Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. Run `gate:full` once after implementation and review feedback are complete.
+Use focused checks while editing. Use GitHub CI for the full suite after pull-request updates and pushes to `main`. After CI passes, run `gate:full` once on the same commit after implementation and review feedback are complete. The coverage preflight deletes the previous LCOV report before it checks the Node 24.19.0 pin, so Sonar cannot consume stale coverage after a runtime mismatch. Coverage uses four workers and writes only the LCOV report consumed by Sonar.
 
 Sources: [AGENTS.md:155-162](../../../AGENTS.md#L155-L162)

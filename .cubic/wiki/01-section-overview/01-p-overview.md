@@ -116,12 +116,11 @@ Sources: [apps/backend/src/services/lessonGenerationPrompt.ts:51-71](../../../ap
 
 ## Technical Validation and Quality Gates
 
-The project enforces a strict local and CI quality gate. The `bun run gate:full` command is a mandatory merge gate that includes quality checks, coverage, and Sonar analysis.
+CI owns the complete Bun test suite and dependency graph check. After CI passes, `bun run gate:full` runs local quality, coverage, and Sonar analysis on the same final commit.
 
 ### Available Developer Commands
 *  `bun run doctor`: Read-only health report of local services.
 *  `bun run quality`: TypeScript type checks and Biome linting.
-*  `bun run gate`: Executes quality checks, fallow analysis, and tests.
 *  `bun run test`: Runs the Vitest suite under the Bun runtime.
 
 Sources: [AGENTS.md:73-100](../../../AGENTS.md#L73-L100), [README.md:63-66](../../../README.md#L63-L66)

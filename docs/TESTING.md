@@ -12,39 +12,49 @@ bun run doctor -- --profile all
 bun run quality
 bun run check:fallow
 bun run test
-bun run gate
-bun run gate:full
 ```
 
 - `doctor` verifies the Bun/CI runtime contract, installed project executables, and versioned
-  Fallow baseline, then runs the core service-free quality and test checks independently so one
-  failure does not hide later failures. The `gate` profile checks the existing local Sonar service
+  Fallow baseline. It does not run quality or tests. The `gate` profile checks the existing local Sonar service
   and confirms that anonymous-analysis permissions were provisioned, while analysis remains
   restricted to its loopback-only Docker binding. The `local`
   profile checks the existing local Supabase services and migration parity,
   and `all` combines every profile. Every profile is read-only: it never starts, restarts,
   configures, or migrates a service.
-- `quality` runs the TypeScript checks, Biome, dependency boundaries, and React Hooks lint.
+- `quality` runs the TypeScript checks, Biome, and React Hooks lint. CI extends it with the
+  dependency boundary check through `quality:ci`.
 - `test` runs the Vitest suite under Bun.
-- `gate:checks` runs `quality` and Fallow.
-- `gate` adds the Vitest suite to `gate:checks`.
 - `gate:ci` uses the same blocking checks and fails when Fallow reports a finding identity that is
   absent from its versioned regression baseline. The output classifies findings as new, removed,
   or unchanged, so replacing one accepted finding with one new finding still fails even when the
   total is unchanged. The local `check:fallow` command remains informational. Refreshing the
   baseline first verifies that the current result introduces no new recorded debt.
-- `gate:full` runs quality, the blocking Fallow regression check, the complete Bun suite, and Node
-  coverage one at a time. It then starts the local Sonar service, verifies the pinned Bun runtime
-  and Sonar readiness with `doctor:gate`, runs the analysis, and stops the service. The stop command
-  also runs when Sonar startup, preflight, or analysis throws. The React Hooks ESLint
+
+## Final local validation
+
+After GitHub CI passes on the final commit, run:
+
+```bash
+bun run gate:full
+```
+
+- `gate:full` runs local quality, the blocking Fallow regression check, and Node coverage one at a
+  time after GitHub CI passes on the same commit. It does not repeat the complete Bun suite or the
+  dependency graph check from CI. It then starts the local Sonar service, verifies the pinned Bun
+  runtime and Sonar readiness with `doctor:gate`, runs the analysis, and stops the service. The stop
+  command also runs when Sonar startup, preflight, or analysis throws. The React Hooks ESLint
   check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint
   pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
+- `test:coverage` requires Node 24.19.0, pinned in `.node-version`. It stops before Vitest if PATH
+  resolves to another Node version. Its preflight deletes the previous `coverage/lcov.info` before
+  that check, so a later Sonar stage cannot consume stale coverage. It uses four workers and writes
+  only the report Sonar consumes. CI does not generate and discard a second coverage report.
 
 ## Pull request Sonar merge policy
 
-SonarQube remains a local merge gate and is intentionally excluded from GitHub Actions. CI results
-for TypeScript, tests, coverage, Fallow, and relevant contracts remain independent
-authoritative checks. Classify the pull request before merging.
+SonarQube remains a local merge gate and is intentionally excluded from GitHub Actions. CI checks
+TypeScript, dependency boundaries, the complete Bun suite, Fallow, and relevant contracts. The
+local gate adds Node coverage and Sonar on the same commit. Classify the pull request before merging.
 
 Sonar is required when the diff includes any of the following:
 
@@ -53,16 +63,15 @@ Sonar is required when the diff includes any of the following:
 - source, build, dependency, or security configuration that changes analyzed runtime behavior; or
 - an explicit review or CI request for Sonar.
 
-For those pull requests, run the full gate on the exact commit proposed for merge:
+For those pull requests, wait for CI to pass, then run the full gate on the same commit:
 
 ```bash
 bun run gate:full
 ```
 
-The command must exit successfully, including the Sonar quality gate after coverage. A green CI
-run does not substitute for this local result. Every new Sonar bug, vulnerability, security
-hotspot, or code smell must be fixed or explicitly resolved with an owner-visible disposition
-before merging.
+Both CI and the command must exit successfully. The local result includes Node coverage followed by
+the Sonar quality gate. Every new Sonar bug, vulnerability, security hotspot, or code smell must be
+fixed or explicitly resolved with an owner-visible disposition before merging.
 
 Sonar may be skipped only when all of these conditions hold:
 
@@ -115,7 +124,7 @@ service.
 
 ## Sonar quality ratchet
 
-Run `bun run gate:full` once on the exact final merge candidate. Triage every new bug,
+After GitHub CI passes, run `bun run gate:full` once on the exact final merge candidate. Triage every new bug,
 vulnerability, and security hotspot before considering the batch complete. Existing code-smell debt
 may be addressed in an explicitly scoped cleanup batch; there is no fixed per-batch quota.
 

@@ -12,21 +12,9 @@ const WORKSPACE_BIN_PATH = path.resolve('node_modules/.bin');
 const REALTIME_LOCAL_TENANT = 'realtime-dev';
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-const CHECK_WORKSPACE_BINARIES = [
-  'biome',
-  'dependency-cruiser',
-  'eslint',
-  'tsgo',
-  'vitest',
-] as const;
+const CHECK_WORKSPACE_BINARIES = ['biome', 'eslint', 'tsgo', 'vitest'] as const;
 const GATE_WORKSPACE_BINARIES = ['sonar-scanner'] as const;
 const LOCAL_WORKSPACE_BINARIES = ['supabase'] as const;
-
-const DIAGNOSTIC_STAGES = [
-  { label: 'Quality checks', script: 'quality' },
-  { label: 'Fallow regression check', script: 'check:fallow:ci' },
-  { label: 'Test suite', script: 'test' },
-] as const;
 
 const SUPABASE_SERVICE_CHECKS = [
   { label: 'Supabase Auth', pathName: '/auth/v1/health' },
@@ -565,23 +553,6 @@ const inspectSupabaseMigrations = async (): Promise<DiagnosticResult> => {
   }
 };
 
-const runDiagnosticStage = async ({ label, script }: (typeof DIAGNOSTIC_STAGES)[number]) => {
-  process.stdout.write(`\n=== ${label} (${script}) ===\n`);
-  const processHandle = Bun.spawn([process.execPath, 'run', script], {
-    cwd: process.cwd(),
-    stdin: 'inherit',
-    stdout: 'inherit',
-    stderr: 'inherit',
-  });
-  const exitCode = await processHandle.exited;
-
-  return {
-    detail: exitCode === 0 ? `bun run ${script}` : `bun run ${script} exited with code ${exitCode}`,
-    label,
-    status: exitCode === 0 ? ('PASS' as const) : ('FAIL' as const),
-  };
-};
-
 const runServiceDiagnostics = async (profile: DoctorProfile): Promise<DiagnosticResult[]> => {
   const results: DiagnosticResult[] = [];
   if (profileIncludesGate(profile)) results.push(...(await inspectSonarService()));
@@ -592,13 +563,6 @@ const runServiceDiagnostics = async (profile: DoctorProfile): Promise<Diagnostic
 };
 
 const writeSkippedSections = (profile: DoctorProfile) => {
-  if (!profileIncludesChecks(profile)) {
-    writeResult({
-      detail: 'Use the checks or all profile to execute quality and tests.',
-      label: 'Code checks',
-      status: 'SKIP',
-    });
-  }
   if (!profileIncludesGate(profile) && !profileIncludesLocal(profile)) {
     writeResult({
       detail: 'Use the gate, local, or all profile to probe existing services.',
@@ -630,11 +594,7 @@ const main = async () => {
     return;
   }
 
-  const results: DiagnosticResult[] = [];
-  if (profileIncludesChecks(profile)) {
-    for (const stage of DIAGNOSTIC_STAGES) results.push(await runDiagnosticStage(stage));
-  }
-  results.push(...(await runServiceDiagnostics(profile)));
+  const results = await runServiceDiagnostics(profile);
 
   process.stdout.write('\nSummary\n');
   writeSkippedSections(profile);

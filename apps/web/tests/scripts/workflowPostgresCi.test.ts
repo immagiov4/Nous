@@ -37,6 +37,7 @@ const packageScripts = JSON.parse(readFileSync(resolve('package.json'), 'utf8'))
   string,
   string
 >;
+const testSteps = workflow.jobs.test.steps;
 const supabaseSteps = workflow.jobs['supabase-contract'].steps;
 
 function requireStep(name: string): WorkflowStep {
@@ -58,6 +59,17 @@ describe('workflow PostgreSQL CI contract', () => {
       'cancel-in-progress': true,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-supabase`,
     });
+  });
+
+  test('runs only the CI quality, Fallow, and complete Bun suite commands', () => {
+    const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
+
+    expect(commands).toEqual([
+      'bun install --frozen-lockfile',
+      'bun run quality:ci',
+      'bun run check:fallow:ci',
+      'bun run test',
+    ]);
   });
 
   test('keeps staging credentials on trusted main pushes', () => {

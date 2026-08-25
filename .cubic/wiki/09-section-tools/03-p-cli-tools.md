@@ -49,15 +49,17 @@ flowchart TD
     Start[Run bun run doctor] --> ParseArgs[Parse --profile Argument]
     ParseArgs --> BunCheck[Inspect Bun Runtime Version]
     BunCheck --> DepCheck[Check Workspace Binaries]
-    DepCheck --> CheckExec{Preflight Fail?}
+    DepCheck --> ChecksProfile{checks or all?}
+    ChecksProfile -- Yes --> Fallow[Inspect Fallow Baseline]
+    ChecksProfile -- No --> CheckExec{Preflight Fail?}
+    Fallow --> CheckExec
     CheckExec -- Yes --> Exit[Exit Code 1]
     CheckExec -- No --> ProfileBranch{Selected Profile}
     
-    ProfileBranch -- checks/all --> Quality[Run Quality & Tests]
+    ProfileBranch -- checks --> Summary[Generate Summary]
     ProfileBranch -- gate/all --> Sonar[Probe SonarQube]
     ProfileBranch -- local/all --> Supabase[Probe Supabase & Migrations]
     
-    Quality --> Summary[Generate Summary]
     Sonar --> Summary
     Supabase --> Summary
 ```
@@ -127,8 +129,8 @@ Developers use the following commands to interact with the diagnostic and qualit
 | :--- | :--- |
 | `bun run doctor` | Run observational health checks (default: `checks` profile). |
 | `bun run quality` | Run TypeScript type checks and Biome linting. |
-| `bun run gate` | Full local gate: quality + fallow regression + tests. |
-| `bun run gate:full` | Run the final local gate, including Node coverage and Sonar analysis. |
+| `bun run quality:ci` | Add dependency boundary validation to the common quality checks in CI. |
+| `bun run gate:full` | After green CI, run quality, Fallow, Node coverage, and Sonar on the same final commit. |
 | `bun run sonar:up` | Start and provision the loopback-only Sonar service for diagnosis. |
 | `bun run sonar:stop` | Stop the Sonar containers without deleting their volumes. |
 | `bun run fix` | Automatically fix Biome linting, formatting, and import ordering. |

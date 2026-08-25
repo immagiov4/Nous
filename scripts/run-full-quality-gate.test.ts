@@ -9,7 +9,6 @@ import {
 const GATE_SCRIPTS = {
   quality: 'quality',
   fallow: 'check:fallow:ci',
-  test: 'test',
   coverage: 'test:coverage',
   sonarStart: 'sonar:up',
   sonarPreflight: 'doctor:gate',

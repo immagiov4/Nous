@@ -24,16 +24,16 @@ Central to this module is a set of specialized API endpoints and CLI tools desig
 
 ## System Diagnostics and Health Checks
 
-The project utilizes a comprehensive diagnostic script, `bun run doctor`, to perform read-only health reports across different environment profiles. This tool ensures that the local development environment, Supabase services, and quality gates are correctly configured before deployment or testing.
+The project uses `bun run doctor` for read-only health reports across environment profiles. It inspects runtime, dependency, baseline, and service readiness. It does not run quality checks or tests.
 
 ```mermaid
 flowchart TD
     Start[Run doctor script] --> Profile{Select Profile}
-    Profile -- checks --> Quality[Quality & Fallow Checks]
+    Profile -- checks --> Environment[Bun, Dependencies & Fallow Baseline]
     Profile -- gate --> Sonar[SonarQube Service Probe]
     Profile -- local --> Supabase[Supabase & Migration Parity]
     Profile -- all --> Combined[Run All Probes]
-    Quality --> Results[Report PASS/FAIL/WARN/SKIP]
+    Environment --> Results[Report PASS/FAIL/WARN/SKIP]
     Sonar --> Results
     Supabase --> Results
     Combined --> Results
@@ -45,10 +45,10 @@ Sources: [scripts/doctor.ts:88-115](../../../scripts/doctor.ts#L88-L115), [AGENT
 ### Diagnostic Profiles
 | Profile | Scope | Intended Use |
 | :--- | :--- | :--- |
-| `checks` | Biome linting, type checks, fallow regression | Default local health report |
-| `gate` | Loopback-only SonarQube availability | Pre-merge quality gate verification |
+| `checks` | Bun contract, project executables, and Fallow baseline | Default local health report |
+| `gate` | Loopback-only SonarQube availability | Sonar readiness diagnosis |
 | `local` | Supabase Auth, Storage, and Database API health | Local infrastructure debugging |
-| `all` | Combines all available diagnostic stages | Full system health audit |
+| `all` | Combines environment checks and every service probe | Full system health audit |
 
 Sources: [scripts/doctor.ts:47-51](../../../scripts/doctor.ts#L47-L51)
 
