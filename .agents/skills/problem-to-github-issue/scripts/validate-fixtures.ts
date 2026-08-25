@@ -175,11 +175,21 @@ const readSubsections = (section: string): Map<string, string> => {
   return subsections;
 };
 
+const readTopLevelHeadings = (draftBody: string): string[] =>
+  draftBody
+    .split(/\r?\n/)
+    .filter(line => line.startsWith('## '))
+    .map(line => line.slice(3).trim());
+
 const validateFixture = (fixture: ContractFixture): string[] => {
   const errors: string[] = [];
   const placementsById = new Map<string, Placement[]>();
   const agentBriefSourceIds = new Set<string>();
   const sections = readSections(fixture.draftBody);
+
+  for (const group of Map.groupBy(readTopLevelHeadings(fixture.draftBody), heading => heading)) {
+    if (group[1].length > 1) errors.push(`duplicate-section:${group[0]}`);
+  }
 
   for (const heading of sections.keys()) {
     if (heading !== 'Agent brief' && !Object.values(SECTION_HEADINGS).includes(heading)) {
@@ -189,7 +199,11 @@ const validateFixture = (fixture: ContractFixture): string[] => {
 
   for (const placement of PLACEMENTS) {
     const section = sections.get(SECTION_HEADINGS[placement]);
-    if (!section) continue;
+    if (section === undefined) continue;
+    if (!section.trim()) {
+      errors.push(`empty-section:${placement}`);
+      continue;
+    }
 
     for (const line of section
       .split(/\r?\n/)
@@ -236,11 +250,20 @@ const validateFixture = (fixture: ContractFixture): string[] => {
           continue;
         }
 
+        if (AGENT_BRIEF_METADATA_FIELDS.has(heading)) {
+          const metadataLines = content
+            .split(/\r?\n/)
+            .map(value => value.trim())
+            .filter(Boolean);
+          if (metadataLines.length !== 1 || metadataLines[0].startsWith('- ')) {
+            errors.push(`invalid-agent-brief-metadata:${heading}`);
+          }
+          continue;
+        }
+
         const allowedKinds = AGENT_BRIEF_ALLOWED_KINDS[heading];
         if (!allowedKinds) {
-          if (!AGENT_BRIEF_METADATA_FIELDS.has(heading)) {
-            errors.push(`unknown-agent-brief-field:${heading}`);
-          }
+          errors.push(`unknown-agent-brief-field:${heading}`);
           continue;
         }
 
@@ -286,8 +309,7 @@ const validateFixture = (fixture: ContractFixture): string[] => {
     if (
       fixture.readyForAgent &&
       source.blocking &&
-      (source.kind === 'option' || source.kind === 'unknown') &&
-      !source.approved
+      (source.kind === 'unknown' || (source.kind === 'option' && !source.approved))
     ) {
       errors.push(`open-decision-ready:${source.id}`);
     }

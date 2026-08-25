@@ -39,11 +39,11 @@
     "sources": [
       {
         "id": "import-correlation-id-unavailable",
-        "text": "The captured logs do not include an import correlation ID.",
+        "text": "The captured logs do not include an import correlation ID; a trace that records the ID at import start would establish it.",
         "kind": "diagnostic-limit"
       }
     ],
-    "draftBody": "## Observed evidence\n\n- The captured logs do not include an import correlation ID.",
+    "draftBody": "## Observed evidence\n\n- The captured logs do not include an import correlation ID; a trace that records the ID at import start would establish it.",
     "expectedErrors": []
   },
   {
@@ -319,5 +319,66 @@
     ],
     "draftBody": "## Agent brief\n\n### Summary\n\n- Implement the approved recovery behavior.\n\n### Current behavior\n\n- The provider trace is unavailable.\n\n### Desired behavior\n\n- Use the approved recovery behavior.\n\n### Acceptance criteria\n\n- A recoverable failure can complete.",
     "expectedErrors": ["misplaced-agent-brief:missing-provider-trace:Current behavior"]
+  },
+  {
+    "name": "duplicate-top-level-section-is-rejected",
+    "readyForAgent": false,
+    "labels": [],
+    "sources": [
+      {
+        "id": "verified-failure",
+        "text": "The export fails during the captured run.",
+        "kind": "verified"
+      }
+    ],
+    "draftBody": "## Observed evidence\n\n- An unclassified first statement.\n\n## Observed evidence\n\n- The export fails during the captured run.",
+    "expectedErrors": ["duplicate-section:Observed evidence"]
+  },
+  {
+    "name": "empty-top-level-section-is-rejected",
+    "readyForAgent": false,
+    "labels": [],
+    "sources": [],
+    "draftBody": "## Desired outcome\n\n",
+    "expectedErrors": ["empty-section:desiredOutcome"]
+  },
+  {
+    "name": "category-metadata-rejects-additional-content",
+    "readyForAgent": true,
+    "labels": ["ready-for-agent"],
+    "sources": [
+      { "id": "brief-summary", "text": "Implement the approved behavior.", "kind": "decision" },
+      { "id": "approved-behavior", "text": "Use the approved behavior.", "kind": "decision" },
+      {
+        "id": "behavior-acceptance",
+        "text": "The approved behavior is observable.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Agent brief\n\n### Category\n\nBug\nRetry three times.\n\n### Summary\n\n- Implement the approved behavior.\n\n### Desired behavior\n\n- Use the approved behavior.\n\n### Acceptance criteria\n\n- The approved behavior is observable.",
+    "expectedErrors": ["invalid-agent-brief-metadata:Category"]
+  },
+  {
+    "name": "approved-metadata-does-not-resolve-an-unknown",
+    "readyForAgent": true,
+    "labels": ["ready-for-agent"],
+    "sources": [
+      {
+        "id": "blocking-unknown",
+        "text": "The provider capability is unknown.",
+        "kind": "unknown",
+        "approved": true,
+        "blocking": true
+      },
+      { "id": "brief-summary", "text": "Implement the approved behavior.", "kind": "decision" },
+      { "id": "approved-behavior", "text": "Use the approved behavior.", "kind": "decision" },
+      {
+        "id": "behavior-acceptance",
+        "text": "The approved behavior is observable.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Open questions\n\n- The provider capability is unknown.\n\n## Agent brief\n\n### Summary\n\n- Implement the approved behavior.\n\n### Desired behavior\n\n- Use the approved behavior.\n\n### Acceptance criteria\n\n- The approved behavior is observable.",
+    "expectedErrors": ["open-decision-ready:blocking-unknown"]
   }
 ]

@@ -40,8 +40,6 @@ body:
     attributes:
       label: Observed evidence
       description: Add reproduction steps, logs, measurements, screenshots, or source evidence. If none is available, state what has not been established and what evidence would resolve the gap.
-    validations:
-      required: true
 
   - type: textarea
     id: decisions
@@ -70,8 +68,14 @@ body:
   - type: textarea
     id: scope
     attributes:
-      label: Scope and out of scope
-      description: Name boundaries only when an adjacent interpretation is plausible.
+      label: Scope
+      description: Name included boundaries only when an adjacent interpretation is plausible.
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Name excluded boundaries only when an adjacent interpretation is plausible.
 
   - type: textarea
     id: verification
