@@ -154,7 +154,12 @@ const createPostgresProjectStore = (
 };
 
 describe('PostgresProjectStore', () => {
-  test('durably hydrates a legacy archive version from retained metadata on project load', async () => {
+  test.each([
+    { legacyIndex: { entries: [{ kind: 'directory' as const, path: 'src' }] }, shape: 'version' },
+    { legacyIndex: undefined, shape: 'index object' },
+  ])('durably hydrates a legacy archive missing its $shape from retained metadata', async ({
+    legacyIndex,
+  }) => {
     const retainedEntries = [{ kind: 'directory' as const, path: 'src' }];
     const archiveVersion = {
       representationHash: createHash('sha256')
@@ -163,7 +168,7 @@ describe('PostgresProjectStore', () => {
       sourceHash: 'a'.repeat(64),
       sourceId: 'source-archive',
     };
-    const legacySnapshot: ProjectSnapshot = {
+    const legacySnapshot = {
       ...createMultiSourceSnapshot(),
       sourceKind: 'codebase',
       source: {
@@ -173,7 +178,7 @@ describe('PostgresProjectStore', () => {
           name: 'source.zip',
           sourceId: archiveVersion.sourceId,
         },
-        index: { entries: retainedEntries },
+        ...(legacyIndex ? { index: legacyIndex } : {}),
         kind: 'archive',
         name: 'source.zip',
         ref: {
@@ -185,7 +190,7 @@ describe('PostgresProjectStore', () => {
           objectPath: 'users/user-1/projects/project/source.zip',
         },
       },
-    };
+    } as ProjectSnapshot;
     let storedSnapshot = legacySnapshot;
     let repairValues: unknown[] = [];
     let projectLoadCount = 0;
@@ -206,7 +211,10 @@ describe('PostgresProjectStore', () => {
             ...storedSnapshot,
             source: {
               ...storedSnapshot.source,
-              index: { ...storedSnapshot.source?.index, version: archiveVersion },
+              index: {
+                ...(storedSnapshot.source?.index ?? { entries: retainedEntries }),
+                version: archiveVersion,
+              },
             },
           } as ProjectSnapshot;
           return Promise.resolve([]);
@@ -247,7 +255,11 @@ describe('PostgresProjectStore', () => {
     expect(reloaded?.source?.kind === 'archive' && reloaded.source.index.version).toEqual(
       archiveVersion
     );
+    expect(reloaded?.source?.kind === 'archive' && reloaded.source.index.entries).toEqual(
+      retainedEntries
+    );
     expect(repairValues).toEqual([
+      { entries: retainedEntries, version: archiveVersion },
       archiveVersion,
       'user-1',
       legacySnapshot.id,

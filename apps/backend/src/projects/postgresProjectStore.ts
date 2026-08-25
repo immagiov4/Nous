@@ -104,15 +104,15 @@ const buildSiblingOrderLockKey = (userId: string, parentFolderId: string | null)
   JSON.stringify(['library-sibling-order', userId, parentFolderId]);
 
 const readLegacySourceArchiveIdentity = (
-  snapshot: ProjectSnapshot
+  snapshot: unknown
 ): { sourceHash: string; sourceId: string } | null => {
-  const source = isRecord(snapshot.source) ? snapshot.source : null;
+  const source = isRecord(snapshot) && isRecord(snapshot.source) ? snapshot.source : null;
   const sourceIndex = source && isRecord(source.index) ? source.index : null;
   const sourceRef = source && isRecord(source.ref) ? source.ref : null;
   if (
     source?.kind !== 'archive' ||
-    !sourceIndex ||
-    sourceIndex.version ||
+    (Object.hasOwn(source, 'index') && !sourceIndex) ||
+    sourceIndex?.version ||
     !sourceRef ||
     typeof sourceRef.id !== 'string' ||
     typeof sourceRef.hash !== 'string'
@@ -467,17 +467,17 @@ export class PostgresProjectStore implements ProjectStore {
       return null;
     }
 
-    return this.hydrateLegacySourceArchiveVersion(userId, id, mergeProjectSnapshotRow(rows[0]));
+    return this.hydrateLegacySourceArchiveVersion(userId, id, rows[0]);
   }
 
   private async hydrateLegacySourceArchiveVersion(
     userId: string,
     id: ProjectId,
-    snapshot: ProjectSnapshot
+    row: ProjectSnapshotRow
   ): Promise<ProjectSnapshot> {
-    const sourceIdentity = readLegacySourceArchiveIdentity(snapshot);
+    const sourceIdentity = readLegacySourceArchiveIdentity(row.snapshot);
     if (!sourceIdentity) {
-      return snapshot;
+      return mergeProjectSnapshotRow(row);
     }
 
     const index = await this.loadProjectSourceArchiveIndex(userId, id);
@@ -486,15 +486,19 @@ export class PostgresProjectStore implements ProjectStore {
       sourceIdentity.sourceId !== index.version.sourceId ||
       sourceIdentity.sourceHash !== index.version.sourceHash
     ) {
-      return snapshot;
+      return mergeProjectSnapshotRow(row);
     }
 
     const repairedRows = await this.sql<ProjectSnapshotRow[]>`
       update public.project_snapshots
       set snapshot = jsonb_set(
         snapshot,
-        '{source,index,version}',
-        ${this.sql.json(toPostgresJson(index.version))}
+        '{source,index}',
+        coalesce(
+          snapshot #> '{source,index}',
+          ${this.sql.json(toPostgresJson(index))}
+        ) ||
+          jsonb_build_object('version', ${this.sql.json(toPostgresJson(index.version))})
       )
       where user_id = ${userId}
         and id = ${id}
@@ -523,7 +527,7 @@ export class PostgresProjectStore implements ProjectStore {
       where user_id = ${userId} and id = ${id}
       limit 1
     `;
-    return currentRows[0] ? mergeProjectSnapshotRow(currentRows[0]) : snapshot;
+    return currentRows[0] ? mergeProjectSnapshotRow(currentRows[0]) : mergeProjectSnapshotRow(row);
   }
 
   async loadProjectWithRevision(
@@ -540,12 +544,11 @@ export class PostgresProjectStore implements ProjectStore {
     `;
     const row = rows[0];
     if (!row) return null;
-    const snapshot = mergeProjectSnapshotRow(row);
-    if (!readLegacySourceArchiveIdentity(snapshot)) {
-      return { revision: Number(row.revision), snapshot };
+    if (!readLegacySourceArchiveIdentity(row.snapshot)) {
+      return { revision: Number(row.revision), snapshot: mergeProjectSnapshotRow(row) };
     }
 
-    await this.hydrateLegacySourceArchiveVersion(userId, id, snapshot);
+    await this.hydrateLegacySourceArchiveVersion(userId, id, row);
     const currentRows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
       select project_snapshots.snapshot, project_snapshots.document_index, projects.revision
       from public.project_snapshots
