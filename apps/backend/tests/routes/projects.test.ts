@@ -643,6 +643,31 @@ describe('/api/projects', () => {
     const app = createApp();
     const uploadId = '323e4567-e89b-42d3-a456-426614174000';
     const targetProjectId = 'restored-project';
+    const archivedSnapshot = createSnapshot('archived-project', 'Corso ripristinato');
+    archivedSnapshot.learningPlan.sections[0] = {
+      ...archivedSnapshot.learningPlan.sections[0],
+      annotations: [
+        {
+          anchor: { kind: 'lesson' },
+          artifactRefs: [
+            {
+              artifactId: 'archived-project:lesson-1:generated-visual:visual-1',
+              kind: 'generated-visual',
+              title: 'Visuale generato',
+            },
+            {
+              artifactId: 'archived-project:lesson-1:pdf-image:image-1',
+              kind: 'pdf-image',
+              title: 'Immagine PDF',
+            },
+          ],
+          createdAt: '2026-04-26T09:30:00.000Z',
+          id: 'annotation-1',
+          note: 'Questa nota deve restare invariata.',
+          updatedAt: '2026-04-26T09:30:00.000Z',
+        },
+      ],
+    };
     const backupBytes = await createProjectBackupArchive(
       {
         cover: {
@@ -650,7 +675,7 @@ describe('/api/projects', () => {
           mimeType: 'image/png',
           name: 'cover.png',
         },
-        project: createSnapshot('archived-project', 'Corso ripristinato'),
+        project: archivedSnapshot,
       },
       {
         invalidArchiveMessage: 'Invalid project backup.',
@@ -674,6 +699,19 @@ describe('/api/projects', () => {
     expect(completionResponse.body.snapshot).toMatchObject({
       id: targetProjectId,
       learningPlan: { title: 'Corso ripristinato' },
+    });
+    expect(completionResponse.body.snapshot.learningPlan.sections[0].annotations[0]).toMatchObject({
+      artifactRefs: [
+        {
+          artifactId: `${targetProjectId}:lesson-1:generated-visual:visual-1`,
+          kind: 'generated-visual',
+        },
+        {
+          artifactId: `${targetProjectId}:lesson-1:pdf-image:image-1`,
+          kind: 'pdf-image',
+        },
+      ],
+      note: 'Questa nota deve restare invariata.',
     });
     const coverResponse = await request(app).get(`/api/projects/projects/${targetProjectId}/cover`);
     expect(coverResponse.body.cover).toEqual({

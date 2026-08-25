@@ -480,7 +480,7 @@ export class InMemoryProjectStore implements ProjectStore {
       });
       idMap.set(ref.id, identity.id);
     }
-    const snapshot = remapProjectAssetReferences({ ...sourceSnapshot, id: targetProjectId }, idMap);
+    const snapshot = remapProjectAssetReferences(sourceSnapshot, idMap, targetProjectId);
     return this.saveProject(userId, snapshot, { importedCover: decoded.cover });
   }
 

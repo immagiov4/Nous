@@ -148,22 +148,61 @@ const remapDocumentAssetReferences = (
   }
 };
 
+const remapAnnotationArtifactReferences = (
+  project: Record<string, unknown>,
+  sourceProjectId: string,
+  targetProjectId: string
+): void => {
+  const sourcePrefix = `${sourceProjectId}:`;
+  for (const section of readProjectSections(project)) {
+    if (!Array.isArray(section.annotations)) continue;
+    for (const annotation of section.annotations) {
+      if (!isRecord(annotation) || !Array.isArray(annotation.artifactRefs)) continue;
+      for (const artifactRef of annotation.artifactRefs) {
+        if (
+          !isRecord(artifactRef) ||
+          typeof artifactRef.artifactId !== 'string' ||
+          (artifactRef.kind !== 'generated-visual' && artifactRef.kind !== 'pdf-image') ||
+          !artifactRef.artifactId.startsWith(sourcePrefix) ||
+          !artifactRef.artifactId.includes(`:${artifactRef.kind}:`)
+        ) {
+          continue;
+        }
+        artifactRef.artifactId = `${targetProjectId}:${artifactRef.artifactId.slice(sourcePrefix.length)}`;
+      }
+    }
+  }
+};
+
 export const remapProjectAssetReferences = <T>(
   project: T,
-  idMap: ReadonlyMap<string, string>
+  idMap: ReadonlyMap<string, string>,
+  targetProjectId?: string
 ): T => {
   collectProjectAssetReferences(project);
   const remapped = structuredClone(project);
   if (!isRecord(remapped)) throw new InvalidProjectBackupAssetError();
-  for (const section of readProjectSections(remapped)) {
+  const remappedProject: Record<string, unknown> = remapped;
+  if (targetProjectId !== undefined) {
+    if (
+      typeof remappedProject.id !== 'string' ||
+      !remappedProject.id.trim() ||
+      !targetProjectId.trim()
+    ) {
+      throw new InvalidProjectBackupAssetError();
+    }
+    remapAnnotationArtifactReferences(remappedProject, remappedProject.id, targetProjectId);
+    remappedProject.id = targetProjectId;
+  }
+  for (const section of readProjectSections(remappedProject)) {
     if (!Array.isArray(section.generatedVisuals)) continue;
     for (const visual of section.generatedVisuals) {
       if (!isRecord(visual)) continue;
       remapVisual(visual, idMap);
     }
   }
-  remapDocumentAssetReferences(remapped, idMap);
-  collectProjectAssetReferences(remapped);
+  remapDocumentAssetReferences(remappedProject, idMap);
+  collectProjectAssetReferences(remappedProject);
   return remapped as T;
 };
 

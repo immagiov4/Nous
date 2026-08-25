@@ -68,6 +68,39 @@ const projectWithAssets = () => ({
   },
 });
 
+const projectWithArtifactAnnotations = () => ({
+  id: 'source-project',
+  learningPlan: {
+    modules: [
+      {
+        children: [
+          {
+            annotations: [
+              {
+                anchor: { kind: 'lesson' },
+                artifactRefs: [
+                  {
+                    artifactId: 'source-project:lesson-1:generated-visual:visual-1',
+                    kind: 'generated-visual',
+                    title: 'Generated visual',
+                  },
+                  {
+                    artifactId: 'source-project:lesson-1:pdf-image:image-1',
+                    kind: 'pdf-image',
+                    title: 'PDF image',
+                  },
+                ],
+                id: 'annotation-1',
+                note: 'Keep this note exactly as written.',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+});
+
 describe('project backup asset references', () => {
   test('shares one asset identity, reference, media type, and HTML placeholder contract', () => {
     expect(isProjectAssetId(imageRef.id)).toBe(true);
@@ -129,6 +162,35 @@ describe('project backup asset references', () => {
     expect(
       projectWithAssets().learningPlan.modules[0]?.children[0]?.generatedVisuals[0]
     ).toMatchObject({ render: { asset: { id: imageRef.id } } });
+  });
+
+  test('remaps annotation artifact references when a project is imported under a new ID', () => {
+    const source = projectWithArtifactAnnotations();
+    const remapped = remapProjectAssetReferences(
+      source,
+      new Map(),
+      'imported-project'
+    ) as ReturnType<typeof projectWithArtifactAnnotations>;
+
+    expect(remapped.id).toBe('imported-project');
+    expect(remapped.learningPlan.modules[0]?.children[0]?.annotations[0]).toEqual({
+      anchor: { kind: 'lesson' },
+      artifactRefs: [
+        {
+          artifactId: 'imported-project:lesson-1:generated-visual:visual-1',
+          kind: 'generated-visual',
+          title: 'Generated visual',
+        },
+        {
+          artifactId: 'imported-project:lesson-1:pdf-image:image-1',
+          kind: 'pdf-image',
+          title: 'PDF image',
+        },
+      ],
+      id: 'annotation-1',
+      note: 'Keep this note exactly as written.',
+    });
+    expect(source).toEqual(projectWithArtifactAnnotations());
   });
 
   test('rejects HTML whose declared assets and placeholders disagree', () => {
