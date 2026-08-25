@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-
+import type { LessonNode, ProjectSource } from '../../../web/types.js';
+import { resolveLessonSourceReferences } from '../../../web/utils/context/sourceMaterial.js';
 import type { ProjectStore } from '../../src/projects/types.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 
@@ -1170,6 +1171,51 @@ describe('POST /api/chat/context', () => {
       loadProjectSourceArchiveIndex,
     });
     const token = authenticateProvider('openrouter', 'archive-owner');
+    const loadedSource: ProjectSource = {
+      file: {
+        data: '',
+        mimeType: 'application/zip',
+        name: 'src.zip',
+        sourceId: ARCHIVE_VERSION.sourceId,
+      },
+      index: {
+        entries: [],
+        version: ARCHIVE_VERSION,
+      },
+      kind: 'archive',
+      name: 'src.zip',
+      ref: {
+        byteSize: archiveBytes.byteLength,
+        hash: ARCHIVE_VERSION.sourceHash,
+        id: ARCHIVE_VERSION.sourceId,
+        mimeType: 'application/zip',
+        name: 'src.zip',
+        objectPath: 'users/archive-owner/projects/project-archive/src.zip',
+      },
+    };
+    const activeSection: LessonNode = {
+      description: 'Client map source lookup.',
+      id: 'lesson-client-map',
+      isCompleted: false,
+      kind: 'lesson',
+      sourceArchiveSelectors: [{ kind: 'file', path: 'src/client.cpp' }],
+      title: 'Client map',
+      type: 'core',
+    };
+    const sourceReferences = resolveLessonSourceReferences({
+      activeSection,
+      source: loadedSource,
+    }).map(
+      ({ archiveSelectors, archiveVersion, chunkIds, name, pageEnd, pageStart, sourceId }) => ({
+        archiveSelectors,
+        archiveVersion,
+        chunkIds,
+        name,
+        pageEnd,
+        pageStart,
+        sourceId,
+      })
+    );
 
     const response = await request(createApp())
       .post('/api/chat/context')
@@ -1180,20 +1226,13 @@ describe('POST /api/chat/context', () => {
         selectedText: 'ClientMap',
         sourceKind: 'archive',
         sourceMaterial: 'x'.repeat(MAX_CONTEXT_CHARS + 1),
-        sourceReferences: [
-          {
-            archiveSelectors: [{ kind: 'file', path: 'src/client.cpp' }],
-            archiveVersion: ARCHIVE_VERSION,
-            chunkIds: [],
-            name: 'src.zip',
-            sourceId: 'source-archive',
-          },
-        ],
+        sourceReferences,
       });
 
     expect(response.status).toBe(200);
     const archiveTool = aiMocks.streamText.mock.calls[0][0].tools.retrieveSourceArchive;
     expect(archiveTool).toBeDefined();
+    expect(sourceReferences[0]?.archiveVersion).toEqual(ARCHIVE_VERSION);
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('src/client.cpp');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('retrieveSourceArchive');
 

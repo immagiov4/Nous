@@ -154,6 +154,113 @@ const createPostgresProjectStore = (
 };
 
 describe('PostgresProjectStore', () => {
+  test('durably hydrates a legacy archive version from retained metadata on project load', async () => {
+    const retainedEntries = [{ kind: 'directory' as const, path: 'src' }];
+    const archiveVersion = {
+      representationHash: createHash('sha256')
+        .update(JSON.stringify(retainedEntries))
+        .digest('hex'),
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    };
+    const legacySnapshot: ProjectSnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          sourceId: archiveVersion.sourceId,
+        },
+        index: { entries: retainedEntries },
+        kind: 'archive',
+        name: 'source.zip',
+        ref: {
+          byteSize: 100,
+          hash: archiveVersion.sourceHash,
+          id: archiveVersion.sourceId,
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          objectPath: 'users/user-1/projects/project/source.zip',
+        },
+      },
+    };
+    let storedSnapshot = legacySnapshot;
+    let repairValues: unknown[] = [];
+    let projectLoadCount = 0;
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+        const statement = strings.join('?');
+        if (statement.includes('join public.projects')) {
+          const revision = projectLoadCount === 0 ? 7 : 8;
+          projectLoadCount += 1;
+          return Promise.resolve([{ document_index: null, revision, snapshot: storedSnapshot }]);
+        }
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve([{ document_index: null, snapshot: storedSnapshot }]);
+        }
+        if (statement.includes('set snapshot = jsonb_set')) {
+          repairValues = values;
+          storedSnapshot = {
+            ...storedSnapshot,
+            source: {
+              ...storedSnapshot.source,
+              index: { ...storedSnapshot.source?.index, version: archiveVersion },
+            },
+          } as ProjectSnapshot;
+          return Promise.resolve([]);
+        }
+        if (statement.includes('from public.project_sources source')) {
+          return Promise.resolve([
+            {
+              archive_representation_hash: archiveVersion.representationHash,
+              archive_source_hash: archiveVersion.sourceHash,
+              archive_source_id: archiveVersion.sourceId,
+              byte_size: null,
+              content_kind: null,
+              kind: 'directory',
+              path: 'src',
+              preview: null,
+              source_hash: null,
+              source_kind: 'archive',
+              warning_reason: null,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const loaded = await store.loadProjectWithRevision('user-1', legacySnapshot.id);
+    const reloaded = await store.loadProject('user-1', legacySnapshot.id);
+
+    expect(
+      loaded?.snapshot.source?.kind === 'archive' && loaded.snapshot.source.index.version
+    ).toEqual(archiveVersion);
+    expect(loaded?.revision).toBe(8);
+    expect(reloaded?.source?.kind === 'archive' && reloaded.source.index.version).toEqual(
+      archiveVersion
+    );
+    expect(repairValues).toEqual([
+      archiveVersion,
+      'user-1',
+      legacySnapshot.id,
+      archiveVersion.sourceId,
+      archiveVersion.sourceHash,
+      'user-1',
+      legacySnapshot.id,
+      archiveVersion.sourceId,
+      archiveVersion.sourceHash,
+      archiveVersion.representationHash,
+    ]);
+  });
+
   test('reports missing projects consistently for favorite and touch writes', async () => {
     const sqlClient = Object.assign(
       vi.fn(async () => []),

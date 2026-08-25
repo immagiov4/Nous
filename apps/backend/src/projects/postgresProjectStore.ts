@@ -103,6 +103,25 @@ type LibraryItem = SiblingItem;
 const buildSiblingOrderLockKey = (userId: string, parentFolderId: string | null): string =>
   JSON.stringify(['library-sibling-order', userId, parentFolderId]);
 
+const readLegacySourceArchiveIdentity = (
+  snapshot: ProjectSnapshot
+): { sourceHash: string; sourceId: string } | null => {
+  const source = isRecord(snapshot.source) ? snapshot.source : null;
+  const sourceIndex = source && isRecord(source.index) ? source.index : null;
+  const sourceRef = source && isRecord(source.ref) ? source.ref : null;
+  if (
+    source?.kind !== 'archive' ||
+    !sourceIndex ||
+    sourceIndex.version ||
+    !sourceRef ||
+    typeof sourceRef.id !== 'string' ||
+    typeof sourceRef.hash !== 'string'
+  ) {
+    return null;
+  }
+  return { sourceHash: sourceRef.hash, sourceId: sourceRef.id };
+};
+
 interface ProjectMetaRow {
   meta: SavedProjectMeta;
   revision: number;
@@ -448,7 +467,63 @@ export class PostgresProjectStore implements ProjectStore {
       return null;
     }
 
-    return mergeProjectSnapshotRow(rows[0]);
+    return this.hydrateLegacySourceArchiveVersion(userId, id, mergeProjectSnapshotRow(rows[0]));
+  }
+
+  private async hydrateLegacySourceArchiveVersion(
+    userId: string,
+    id: ProjectId,
+    snapshot: ProjectSnapshot
+  ): Promise<ProjectSnapshot> {
+    const sourceIdentity = readLegacySourceArchiveIdentity(snapshot);
+    if (!sourceIdentity) {
+      return snapshot;
+    }
+
+    const index = await this.loadProjectSourceArchiveIndex(userId, id);
+    if (
+      !index ||
+      sourceIdentity.sourceId !== index.version.sourceId ||
+      sourceIdentity.sourceHash !== index.version.sourceHash
+    ) {
+      return snapshot;
+    }
+
+    const repairedRows = await this.sql<ProjectSnapshotRow[]>`
+      update public.project_snapshots
+      set snapshot = jsonb_set(
+        snapshot,
+        '{source,index,version}',
+        ${this.sql.json(toPostgresJson(index.version))}
+      )
+      where user_id = ${userId}
+        and id = ${id}
+        and snapshot #> '{source,index,version}' is null
+        and snapshot #>> '{source,ref,id}' = ${index.version.sourceId}
+        and snapshot #>> '{source,ref,hash}' = ${index.version.sourceHash}
+        and exists (
+          select 1
+          from public.project_sources source
+          where source.user_id = ${userId}
+            and source.project_id = ${id}
+            and source.source_kind = 'archive'
+            and source.source_id = ${index.version.sourceId}
+            and source.source_hash = ${index.version.sourceHash}
+            and source.representation_hash = ${index.version.representationHash}
+        )
+      returning snapshot, document_index
+    `;
+    if (repairedRows[0]) {
+      return mergeProjectSnapshotRow(repairedRows[0]);
+    }
+
+    const currentRows = await this.sql<ProjectSnapshotRow[]>`
+      select snapshot, document_index
+      from public.project_snapshots
+      where user_id = ${userId} and id = ${id}
+      limit 1
+    `;
+    return currentRows[0] ? mergeProjectSnapshotRow(currentRows[0]) : snapshot;
   }
 
   async loadProjectWithRevision(
@@ -465,7 +540,26 @@ export class PostgresProjectStore implements ProjectStore {
     `;
     const row = rows[0];
     if (!row) return null;
-    return { revision: Number(row.revision), snapshot: mergeProjectSnapshotRow(row) };
+    const snapshot = mergeProjectSnapshotRow(row);
+    if (!readLegacySourceArchiveIdentity(snapshot)) {
+      return { revision: Number(row.revision), snapshot };
+    }
+
+    await this.hydrateLegacySourceArchiveVersion(userId, id, snapshot);
+    const currentRows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
+      select project_snapshots.snapshot, project_snapshots.document_index, projects.revision
+      from public.project_snapshots
+      join public.projects
+        on projects.user_id = project_snapshots.user_id and projects.id = project_snapshots.id
+      where project_snapshots.user_id = ${userId} and project_snapshots.id = ${id}
+      limit 1
+    `;
+    const currentRow = currentRows[0];
+    if (!currentRow) return null;
+    return {
+      revision: Number(currentRow.revision),
+      snapshot: mergeProjectSnapshotRow(currentRow),
+    };
   }
 
   async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
