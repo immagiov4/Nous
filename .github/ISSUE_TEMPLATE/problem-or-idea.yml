@@ -1,0 +1,66 @@
+name: Problem or idea
+description: Report a problem, propose a direction, or request an investigation
+title: ""
+labels: []
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Bug
+        - Product idea
+        - Investigation
+        - Decision
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: State what is broken, missing, confusing, or worth investigating.
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: Desired outcome
+      description: State only behavior that the maintainer has chosen or the problem necessarily implies. Leave blank when the outcome is not settled.
+
+  - type: textarea
+    id: direction
+    attributes:
+      label: Direction
+      description: For exploratory work, describe the direction and keep candidate options open. Leave blank when the desired outcome is settled.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Observed evidence
+      description: Add reproduction steps, logs, measurements, screenshots, or source evidence. Remove credentials, personal data, and private document content before posting. If none is available, state what has not been established and what evidence would resolve the gap.
+
+  - type: textarea
+    id: hypotheses
+    attributes:
+      label: Hypotheses
+      description: Record suspected causes that the available evidence has not verified.
+
+  - type: textarea
+    id: potential-systemic-gap
+    attributes:
+      label: Potential systemic gap
+      description: When evidence suggests the same problem class may exist elsewhere, name the observed examples, the suspected wider scope, and what still needs investigation. This does not expand the scope of this issue.
+
+  - type: textarea
+    id: unknowns
+    attributes:
+      label: Unknowns and decisions needed
+      description: Separate unknown facts and options that still need a decision.
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Add observable outcomes only when the desired behavior is settled.

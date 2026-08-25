@@ -398,6 +398,9 @@ Do not run state-changing version control commands without explicit approval. Ne
 
 Write every GitHub issue and pull-request title and description in English.
 
+When creating or rewriting any GitHub issue, or preparing one for autonomous work, read
+`.agents/skills/problem-to-github-issue/SKILL.md` and follow its evidence and lifecycle contract.
+
 When a Codex GitHub review is requested, treat an eyes reaction as review-in-progress and wait for the completed review before merging. React to every Codex finding with thumbs up or thumbs down, reply with the evidence-based disposition, and do not leave its thread unresolved: resolve it only after the fix is merged or the finding is explicitly rejected with evidence.
 
 For every pull request, name every issue it resolves in the pull-request description with GitHub-closing references where appropriate (for example, `Closes #123`). Before reporting the work complete, verify that each resolved issue was actually closed. Do not leave a completed issue open without an explicit reason such as a remaining manual-verification gate.
