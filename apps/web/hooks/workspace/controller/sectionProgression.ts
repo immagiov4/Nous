@@ -419,7 +419,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const currentProjectId = projectLibrary.getCurrentProjectId();
     if (
       !forceRegenerate &&
-      workflowState.loadSection.status === 'pending' &&
       state.isLessonGenerationActive(currentProjectId) &&
       state.getGeneratingSectionId(currentProjectId) === section.id
     ) {

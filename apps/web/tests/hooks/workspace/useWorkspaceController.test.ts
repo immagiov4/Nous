@@ -3940,7 +3940,7 @@ test('sublesson generation releases its gate after an error', async () => {
   assert.equal(sublessonCalls, 2);
 });
 
-test('lesson generation keeps its gate after workflow invalidation until the provider call settles', async () => {
+test('lesson generation remains navigable after workflow invalidation until the provider call settles', async () => {
   const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
   let generationCalls = 0;
   let releaseGeneration: (() => void) | undefined;
@@ -3995,7 +3995,7 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
   state.adapter.invalidateWorkflows(['loadSection']);
 
   const whileInvalidatedRequestSettles = await controller.openSection(getLessons(plan)[0]);
-  assert.equal(whileInvalidatedRequestSettles, 'ignored-busy');
+  assert.equal(whileInvalidatedRequestSettles, 'reopened-generating');
   assert.equal(generationCalls, 1);
   assert.equal(state.adapter.isLessonGenerationActive('project-1'), true);
   assert.equal(state.adapter.getGeneratingSectionId('project-1'), 'lesson-1');
