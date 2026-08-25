@@ -86,12 +86,7 @@
         "blocking": true
       }
     ],
-    "draftBody": "## Unknowns and decisions needed\n\n- Choose the remediation threshold.",
-    "agentBrief": {
-      "summary": ["Propose remediation from established evidence."],
-      "desiredBehavior": ["Use an approved transition policy."],
-      "acceptanceCriteria": ["The approved policy controls the suggestion."]
-    },
+    "draftBody": "## Unknowns and decisions needed\n\n- Choose the remediation threshold.\n\n## Agent brief\n\n### Summary\n\nPropose remediation from established evidence.\n\n### Desired behavior\n\nUse an approved transition policy.\n\n### Acceptance criteria\n\nThe approved policy controls the suggestion.",
     "expectedErrors": ["open-decision-ready:choose-remediation-threshold"]
   },
   {
@@ -110,18 +105,23 @@
         "kind": "decision"
       }
     ],
-    "draftBody": "## Desired outcome\n\n- One representation must own persisted lesson content.\n\n## Observed evidence\n\n- Two persisted content representations can diverge.",
-    "agentBrief": {
-      "category": ["bug"],
-      "summary": ["Keep one authoritative lesson content model."],
-      "currentBehavior": ["Two persisted representations can diverge."],
-      "desiredBehavior": ["One representation owns persisted lesson content."],
-      "contracts": ["Existing projects remain readable."],
-      "acceptanceCriteria": ["Round trips cannot create divergent content."],
-      "outOfScope": ["Unrelated reader redesign."],
-      "dependencies": ["Project migration contract."],
-      "verification": ["Run round-trip and migration regressions."]
-    },
+    "draftBody": "## Desired outcome\n\n- One representation must own persisted lesson content.\n\n## Observed evidence\n\n- Two persisted content representations can diverge.\n\n## Agent brief\n\n### Category\n\nBug\n\n### Summary\n\nKeep one authoritative lesson content model.\n\n### Current behavior\n\nTwo persisted representations can diverge.\n\n### Desired behavior\n\nOne representation owns persisted lesson content.\n\n### Key contracts and decisions\n\nExisting projects remain readable.\n\n### Acceptance criteria\n\nRound trips cannot create divergent content.\n\n### Out of scope\n\nUnrelated reader redesign.\n\n### Dependencies\n\nProject migration contract.\n\n### Verification\n\nRun round-trip and migration regressions.",
     "expectedErrors": []
+  },
+  {
+    "name": "unclassified-draft-statement-is-rejected",
+    "targetLanguage": "en",
+    "readyForAgent": false,
+    "sources": [],
+    "draftBody": "## Observed evidence\n\n- An unsupported factual claim.",
+    "expectedErrors": ["unclassified:observedEvidence"]
+  },
+  {
+    "name": "blank-required-agent-brief-field-is-rejected",
+    "targetLanguage": "en",
+    "readyForAgent": true,
+    "sources": [],
+    "draftBody": "## Agent brief\n\n### Summary\n\n\n### Desired behavior\n\nUse the approved behavior.\n\n### Acceptance criteria\n\nThe approved behavior is observable.",
+    "expectedErrors": ["empty-agent-brief:summary"]
   }
 ]

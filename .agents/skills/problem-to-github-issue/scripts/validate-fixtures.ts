@@ -21,25 +21,12 @@ interface SourceStatement {
   blocking?: boolean;
 }
 
-interface AgentBrief {
-  category?: string[];
-  summary: string[];
-  currentBehavior?: string[];
-  desiredBehavior: string[];
-  contracts?: string[];
-  acceptanceCriteria: string[];
-  outOfScope?: string[];
-  dependencies?: string[];
-  verification?: string[];
-}
-
 interface ContractFixture {
   name: string;
   targetLanguage: string;
   readyForAgent: boolean;
   sources: SourceStatement[];
   draftBody: string;
-  agentBrief?: AgentBrief;
   expectedErrors: string[];
 }
 
@@ -59,22 +46,10 @@ const SECTION_HEADINGS: Record<Placement, string> = {
   acceptanceCriteria: 'Acceptance criteria',
 };
 
-const REQUIRED_AGENT_BRIEF_FIELDS: (keyof AgentBrief)[] = [
-  'summary',
-  'desiredBehavior',
-  'acceptanceCriteria',
-];
-
-const AGENT_BRIEF_FIELDS: (keyof AgentBrief)[] = [
-  'category',
-  'summary',
-  'currentBehavior',
-  'desiredBehavior',
-  'contracts',
-  'acceptanceCriteria',
-  'outOfScope',
-  'dependencies',
-  'verification',
+const REQUIRED_AGENT_BRIEF_FIELDS = [
+  { heading: 'Summary', key: 'summary' },
+  { heading: 'Desired behavior', key: 'desiredBehavior' },
+  { heading: 'Acceptance criteria', key: 'acceptanceCriteria' },
 ];
 
 const allowedPlacements = (source: SourceStatement): Placement[] => {
@@ -111,6 +86,22 @@ const readSections = (draftBody: string): Map<string, string> => {
   return sections;
 };
 
+const readSubsections = (section: string): Map<string, string> => {
+  const subsections = new Map<string, string>();
+  let heading = '';
+
+  for (const line of section.split(/\r?\n/)) {
+    if (line.startsWith('### ')) {
+      heading = line.slice(4).trim();
+      subsections.set(heading, '');
+      continue;
+    }
+    if (heading) subsections.set(heading, `${subsections.get(heading)}\n${line}`);
+  }
+
+  return subsections;
+};
+
 const validateFixture = (fixture: ContractFixture): string[] => {
   const errors: string[] = [];
   const placementsById = new Map<string, Placement[]>();
@@ -118,10 +109,25 @@ const validateFixture = (fixture: ContractFixture): string[] => {
 
   if (fixture.targetLanguage !== 'en') errors.push(`target-language:${fixture.targetLanguage}`);
 
-  for (const source of fixture.sources) {
-    for (const placement of PLACEMENTS) {
-      const section = sections.get(SECTION_HEADINGS[placement]);
-      if (!section?.includes(source.text)) continue;
+  for (const placement of PLACEMENTS) {
+    const section = sections.get(SECTION_HEADINGS[placement]);
+    if (!section) continue;
+
+    for (const line of section
+      .split(/\r?\n/)
+      .map(value => value.trim())
+      .filter(Boolean)) {
+      if (!line.startsWith('- ')) {
+        errors.push(`unclassified:${placement}`);
+        continue;
+      }
+
+      const statement = line.slice(2).trim();
+      const source = fixture.sources.find(candidate => candidate.text === statement);
+      if (!source) {
+        errors.push(`unclassified:${placement}`);
+        continue;
+      }
 
       const existing = placementsById.get(source.id) ?? [];
       existing.push(placement);
@@ -149,17 +155,24 @@ const validateFixture = (fixture: ContractFixture): string[] => {
   }
 
   if (fixture.readyForAgent) {
-    if (!fixture.agentBrief) {
+    const agentBrief = sections.get('Agent brief');
+    if (!agentBrief) {
       errors.push('missing-agent-brief');
     } else {
+      const fields = readSubsections(agentBrief);
       for (const field of REQUIRED_AGENT_BRIEF_FIELDS) {
-        if (!fixture.agentBrief[field]) errors.push(`missing-agent-brief:${field}`);
+        if (!fields.has(field.heading)) errors.push(`missing-agent-brief:${field.key}`);
       }
-      for (const field of AGENT_BRIEF_FIELDS) {
-        if (fixture.agentBrief[field]?.length === 0) errors.push(`empty-agent-brief:${field}`);
+      for (const [heading, content] of fields) {
+        if (!content.trim()) {
+          const field = REQUIRED_AGENT_BRIEF_FIELDS.find(
+            candidate => candidate.heading === heading
+          );
+          errors.push(`empty-agent-brief:${field?.key ?? heading}`);
+        }
       }
     }
-  } else if (fixture.agentBrief) {
+  } else if (sections.has('Agent brief')) {
     errors.push('unexpected-agent-brief');
   }
 
