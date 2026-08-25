@@ -420,7 +420,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     if (
       !forceRegenerate &&
       state.isLessonGenerationActive(currentProjectId) &&
-      state.getGeneratingSectionId(currentProjectId) === section.id
+      state.getGeneratingSectionId(currentProjectId) === section.id &&
+      state.reattachLessonGeneration(currentProjectId, section.id)
     ) {
       stopAudio(true);
       domain.setActiveSectionId(section.id);
@@ -454,9 +455,22 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     state.setGeneratingSectionId(activeGeneration.projectId, activeGeneration.token, section.id);
-    const requestId = state.beginWorkflow(
+    let requestId = state.beginWorkflow(
       'loadSection',
       t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
+    );
+    state.setLessonGenerationReattachHandler(
+      activeGeneration.projectId,
+      activeGeneration.token,
+      () => {
+        if (state.getWorkflowState().loadSection.status === 'pending') {
+          return;
+        }
+        requestId = state.beginWorkflow(
+          'loadSection',
+          t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
+        );
+      }
     );
     const isGenerationRequestCurrent = () =>
       projectLibrary.getCurrentProjectId() === activeGeneration.projectId &&

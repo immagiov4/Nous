@@ -525,7 +525,12 @@ const createStateAdapter = () => {
     courseProposal: null as UserProfile | null,
     generationByProject: new Map<
       string | null,
-      { kind: WorkspaceGenerationKind; sectionId: string | null; token: number }
+      {
+        kind: WorkspaceGenerationKind;
+        onReattach?: () => void;
+        sectionId: string | null;
+        token: number;
+      }
     >(),
     nextGenerationToken: 0,
     missingSourceProjectId: null as string | null,
@@ -586,6 +591,19 @@ const createStateAdapter = () => {
       internalState.generationByProject.get(projectId)?.kind === 'lesson',
     isWorkflowCurrent: (workflowId, requestId) =>
       internalState.workflowState[workflowId].requestId === requestId,
+    reattachLessonGeneration: (projectId, sectionId) => {
+      const activeGeneration = internalState.generationByProject.get(projectId);
+      if (
+        activeGeneration?.kind !== 'lesson' ||
+        activeGeneration.sectionId !== sectionId ||
+        !activeGeneration.onReattach
+      ) {
+        return false;
+      }
+
+      activeGeneration.onReattach();
+      return true;
+    },
     resetSessionState: () => {
       internalState.assessmentMessages = [];
       internalState.courseProposal = null;
@@ -607,6 +625,15 @@ const createStateAdapter = () => {
         internalState.generationByProject.set(projectId, {
           ...activeGeneration,
           sectionId,
+        });
+      }
+    },
+    setLessonGenerationReattachHandler: (projectId, token, onReattach) => {
+      const activeGeneration = internalState.generationByProject.get(projectId);
+      if (activeGeneration?.kind === 'lesson' && activeGeneration.token === token) {
+        internalState.generationByProject.set(projectId, {
+          ...activeGeneration,
+          onReattach,
         });
       }
     },
@@ -4002,14 +4029,52 @@ test('lesson generation remains navigable after workflow invalidation until the 
 
   releaseGeneration?.();
 
-  assert.equal(await invalidatedGeneration, 'ignored-busy');
+  assert.equal(await invalidatedGeneration, 'loaded');
   assert.equal(disposeProgressObserver.mock.calls.length, 1);
+  assert.equal(state.internalState.workflowState.loadSection.status, 'succeeded');
   assert.equal(state.adapter.isLessonGenerationActive('project-1'), false);
   assert.equal(state.adapter.getGeneratingSectionId('project-1'), null);
 
   const retried = await controller.openSection(getLessons(plan)[0]);
   assert.equal(retried, 'loaded');
   assert.equal(generationCalls, 2);
+});
+
+test('lesson generation reports a terminal failure after workflow invalidation and re-entry', async () => {
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
+  let rejectGeneration: ((error: Error) => void) | undefined;
+  let markGenerationStarted: (() => void) | undefined;
+  const generationGate = new Promise<never>((_, reject) => {
+    rejectGeneration = reject;
+  });
+  const generationStarted = new Promise<void>(resolve => {
+    markGenerationStarted = resolve;
+  });
+  const generateDurableLesson = vi.fn(async () => {
+    markGenerationStarted?.();
+    return generationGate;
+  });
+  const { controller, state } = createControllerHarness({
+    domain: {
+      file: pdfFile,
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: { generateDurableLesson },
+  });
+
+  const invalidatedGeneration = controller.openSection(getLessons(plan)[0]);
+  await generationStarted;
+  state.adapter.invalidateWorkflows(['loadSection']);
+
+  assert.equal(await controller.openSection(getLessons(plan)[0]), 'reopened-generating');
+  rejectGeneration?.(new Error('Generazione interrotta'));
+
+  await assert.rejects(invalidatedGeneration, /Generazione interrotta/);
+  assert.equal(generateDurableLesson.mock.calls.length, 1);
+  assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
+  assert.equal(state.internalState.workflowState.loadSection.error, 'Generazione interrotta');
 });
 
 test('an active lesson generation blocks exercise brief and placement generation after workflow invalidation', async () => {

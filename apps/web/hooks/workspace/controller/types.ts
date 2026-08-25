@@ -189,6 +189,7 @@ export interface WorkspaceControllerStateAdapter {
   isGenerationActive: (projectId: string | null) => boolean;
   isLessonGenerationActive: (projectId: string | null) => boolean;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;
+  reattachLessonGeneration: (projectId: string | null, sectionId: string) => boolean;
   resetSessionState: () => void;
   setAssessmentMessages: (
     nextMessages: Message[] | ((previousMessages: Message[]) => Message[])
@@ -197,6 +198,11 @@ export interface WorkspaceControllerStateAdapter {
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
   setGeneratingSectionId: (projectId: string | null, token: number, sectionId: string) => void;
+  setLessonGenerationReattachHandler: (
+    projectId: string | null,
+    token: number,
+    onReattach: () => void
+  ) => void;
   setMissingSourceProjectId: (projectId: string | null) => void;
   setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
   setWorkflowReasoning: (

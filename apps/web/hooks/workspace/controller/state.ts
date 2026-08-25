@@ -26,7 +26,12 @@ export const useWorkspaceControllerState = () => {
   const generationByProjectRef = useRef(
     new Map<
       string | null,
-      { kind: WorkspaceGenerationKind; sectionId: string | null; token: number }
+      {
+        kind: WorkspaceGenerationKind;
+        onReattach?: () => void;
+        sectionId: string | null;
+        token: number;
+      }
     >()
   );
   const nextGenerationTokenRef = useRef(0);
@@ -124,6 +129,19 @@ export const useWorkspaceControllerState = () => {
         generationByProjectRef.current.get(projectId)?.kind === 'lesson',
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>
         workflowStateRef.current[workflowId].requestId === requestId,
+      reattachLessonGeneration: (projectId, sectionId) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (
+          activeGeneration?.kind !== 'lesson' ||
+          activeGeneration.sectionId !== sectionId ||
+          !activeGeneration.onReattach
+        ) {
+          return false;
+        }
+
+        activeGeneration.onReattach();
+        return true;
+      },
       resetSessionState: () => {
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
@@ -156,6 +174,17 @@ export const useWorkspaceControllerState = () => {
           sectionId,
         });
         commitGenerationChange();
+      },
+      setLessonGenerationReattachHandler: (projectId, token, onReattach) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (activeGeneration?.kind !== 'lesson' || activeGeneration.token !== token) {
+          return;
+        }
+
+        generationByProjectRef.current.set(projectId, {
+          ...activeGeneration,
+          onReattach,
+        });
       },
       setOpeningProjectId: (projectId: string | null) => {
         openingProjectIdRef.current = projectId;

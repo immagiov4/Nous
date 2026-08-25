@@ -101,7 +101,9 @@ Provider/network failures remain operational. Their diagnostics stay bounded and
 
 Recoverable retries are also neutral in the learner-facing generation UI: while the workflow is automatically retrying, the progress surface reports another attempt in progress rather than presenting a temporary internal rejection as a user-visible failure. Terminal workflow failure remains handled by the normal error surface.
 
-Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts), [apps/backend/src/workflows/retryPolicy.ts](../../../apps/backend/src/workflows/retryPolicy.ts), [apps/backend/src/workflows/postgresWorkflowStepStore.ts](../../../apps/backend/src/workflows/postgresWorkflowStepStore.ts), [apps/web/components/shared/GenerationProgress.tsx](../../../apps/web/components/shared/GenerationProgress.tsx)
+The workspace keeps the frontend generation gate alive when navigation invalidates the current lesson workflow view. If the learner returns to the lesson that owns the active generation, the gate reattaches the view to the existing request instead of starting another generation. The original request remains responsible for applying the terminal result or reporting its terminal error through the reattached workflow state.
+
+Sources: [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts), [apps/backend/src/workflows/retryPolicy.ts](../../../apps/backend/src/workflows/retryPolicy.ts), [apps/backend/src/workflows/postgresWorkflowStepStore.ts](../../../apps/backend/src/workflows/postgresWorkflowStepStore.ts), [apps/web/components/shared/GenerationProgress.tsx](../../../apps/web/components/shared/GenerationProgress.tsx), [apps/web/hooks/workspace/controller/sectionProgression.ts](../../../apps/web/hooks/workspace/controller/sectionProgression.ts)
 
 ## Technical Implementation Details
 
