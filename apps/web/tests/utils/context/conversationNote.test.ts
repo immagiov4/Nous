@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
+import {
+  buildConversationNoteSaveCandidates,
+  hasAnchorableConversationNoteCandidate,
+} from '../../../utils/context/conversationNote.ts';
 
 test('keeps a single candidate when the refined selection matches the original anchor', () => {
   const candidates = buildConversationNoteSaveCandidates({
@@ -32,6 +35,46 @@ test('keeps a single candidate when the refined selection matches the original a
       selectedTextStart: 42,
     },
   ]);
+});
+
+test('rejects note proposals whose text is absent or only belongs to an image', () => {
+  const content = 'Testo della lezione.\n\n![Schema della pipeline](asset://pipeline)';
+
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, { selectedText: 'Testo assente' }),
+    false
+  );
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: '  ' }), false);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, { selectedText: 'Schema della pipeline' }),
+    false
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, { selectedText: 'Testo della lezione' }),
+    true
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Usa ![x] come notazione; vedi esempio (sotto).', {
+      selectedText: '![x] come notazione',
+    }),
+    true
+  );
+});
+
+test('rejects note proposals whose text exists only in an unsupported viewer placeholder', () => {
+  const placeholders = [
+    '{{PDF_IMAGE:asset-1|alt=Schema durevole}}',
+    '{{VISUAL_EXAMPLE:visual-1|title=Schema durevole}}',
+    '{{YOUTUBE_CLIP_SOURCE:1|title=Schema durevole}}',
+    '{{INLINE_QUIZ:Schema durevole}}',
+  ];
+
+  placeholders.forEach(content => {
+    assert.equal(
+      hasAnchorableConversationNoteCandidate(content, { selectedText: 'Schema durevole' }),
+      false
+    );
+  });
 });
 
 test('adds a fallback candidate with the original anchored selection when the model refines too much', () => {

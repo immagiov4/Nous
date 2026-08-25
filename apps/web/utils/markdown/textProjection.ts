@@ -1,6 +1,7 @@
 import {
   getMarkdownMathRangeAt,
   type MarkdownRange,
+  NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
   projectMarkdownMathRange,
 } from './codeRanges.ts';
 
@@ -112,10 +113,7 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
 
   while (index < content.length) {
     if (
-      content.startsWith('{{PDF_IMAGE:', index) ||
-      content.startsWith('{{VISUAL_EXAMPLE:', index) ||
-      content.startsWith('{{YOUTUBE_CLIP_SOURCE:', index) ||
-      content.startsWith('{{INLINE_QUIZ:', index)
+      NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.some(prefix => content.startsWith(prefix, index))
     ) {
       const placeholderEnd = content.indexOf('}}', index);
       index = placeholderEnd === -1 ? content.length : placeholderEnd + 2;

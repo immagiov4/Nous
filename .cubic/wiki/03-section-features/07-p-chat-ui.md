@@ -96,6 +96,8 @@ The reader keeps contextual follow-ups in a session panel bound to the lesson an
 
 Artifact tools in a retained conversation continue to query the origin lesson. Successful saves and replacements update that origin snapshot immediately, so later tool calls observe the same artifacts that were persisted without rebinding the conversation to the currently displayed lesson.
 
+Contextual note proposals are accepted only when the annotation resolver can anchor the proposed text in the origin lesson markdown. Missing text and text available only through an artifact or unsupported viewer are rejected before the approval prompt, even when contextual chat could read that material.
+
 Sources: [apps/web/components/workspace/shell/ContextAnswerPanel.tsx](../../../apps/web/components/workspace/shell/ContextAnswerPanel.tsx), [apps/web/components/workspace/ReadingScreenContainer.tsx](../../../apps/web/components/workspace/ReadingScreenContainer.tsx), [apps/web/hooks/reader/useReaderContext.ts](../../../apps/web/hooks/reader/useReaderContext.ts)
 
 ## Backend Orchestration

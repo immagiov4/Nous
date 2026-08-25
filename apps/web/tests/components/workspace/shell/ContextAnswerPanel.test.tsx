@@ -1286,6 +1286,52 @@ describe('ContextAnswerPanel', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  test('rejects an unanchorable note proposal before showing an approval request', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: {
+            noteDraft: string;
+            rationale: string;
+            selectedTextDraft: string;
+          };
+          toolCallId: string;
+          toolName: string;
+        };
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            noteDraft: 'Nota su un artefatto.',
+            rationale: 'Il testo compare nel viewer.',
+            selectedTextDraft: 'Testo presente solo nell artefatto',
+          },
+          toolCallId: 'tool-unanchorable-note',
+          toolName: 'requestAddToNotes',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'requestAddToNotes',
+      toolCallId: 'tool-unanchorable-note',
+      output: { approved: false, mode: 'none', saved: false },
+    });
+  });
+
   test('reveals retrieved material after the answer and opens an exact note target', async () => {
     const user = userEvent.setup();
     const onOpenLibraryReference = vi.fn();

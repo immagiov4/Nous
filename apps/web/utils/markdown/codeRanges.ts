@@ -6,6 +6,12 @@ export interface MarkdownRange {
 const MARK_TAG_REGEX = /<\/?mark\b[^>]*>/g;
 const TEXT_LIKE_MATH_COMMANDS = new Set(['text', 'mathrm', 'mathtt', 'operatorname']);
 const ZERO_WIDTH_CHARACTERS_REGEX = /[\u200b-\u200d\uFEFF]/gu;
+export const NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES = [
+  '{{PDF_IMAGE:',
+  '{{VISUAL_EXAMPLE:',
+  '{{YOUTUBE_CLIP_SOURCE:',
+  '{{INLINE_QUIZ:',
+] as const;
 
 const isLineStart = (content: string, index: number) => index === 0 || content[index - 1] === '\n';
 const isAsciiAlphaNumeric = (character: string | undefined): boolean =>
@@ -415,8 +421,65 @@ const getMarkdownMathRanges = (content: string): MarkdownRange[] => {
   return mergeRanges(ranges);
 };
 
+const getMarkdownImageRanges = (content: string): MarkdownRange[] => {
+  const ranges: MarkdownRange[] = [];
+  let index = 0;
+
+  while (index < content.length) {
+    const imageStart = content.indexOf('![', index);
+    if (imageStart === -1) {
+      break;
+    }
+
+    if (isEscapedCharacter(content, imageStart)) {
+      index = imageStart + 2;
+      continue;
+    }
+
+    const destinationStart = content.indexOf('](', imageStart + 2);
+    if (destinationStart === -1) {
+      index = imageStart + 2;
+      continue;
+    }
+
+    const imageEnd = content.indexOf(')', destinationStart + 2);
+    if (imageEnd === -1) {
+      index = imageStart + 2;
+      continue;
+    }
+
+    ranges.push({ start: imageStart, end: imageEnd + 1 });
+    index = imageEnd + 1;
+  }
+
+  return ranges;
+};
+
+const getNonAnchorablePlaceholderRanges = (content: string): MarkdownRange[] => {
+  const ranges: MarkdownRange[] = [];
+
+  NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.forEach(prefix => {
+    let index = content.indexOf(prefix);
+    while (index !== -1) {
+      const placeholderEnd = content.indexOf('}}', index + prefix.length);
+      ranges.push({
+        start: index,
+        end: placeholderEnd === -1 ? content.length : placeholderEnd + 2,
+      });
+      index = placeholderEnd === -1 ? -1 : content.indexOf(prefix, placeholderEnd + 2);
+    }
+  });
+
+  return ranges;
+};
+
 export const getMarkdownProtectedRanges = (content: string): MarkdownRange[] =>
-  mergeRanges([...getMarkdownCodeRanges(content), ...getMarkdownMathRanges(content)]);
+  mergeRanges([
+    ...getMarkdownCodeRanges(content),
+    ...getMarkdownImageRanges(content),
+    ...getMarkdownMathRanges(content),
+    ...getNonAnchorablePlaceholderRanges(content),
+  ]);
 
 export const stripHighlightTagsInsideMarkdownCode = (content: string): string => {
   const ranges = getMarkdownCodeRanges(content);

@@ -3,6 +3,7 @@ import type {
   SaveConversationNoteInput,
   SaveConversationNoteToolInput,
 } from '../../components/workspace/shell/types.ts';
+import { resolveSelectedSegments } from '../learning/sectionAnnotationProjection.ts';
 
 const normalizeOptionalText = (value: string | undefined) => {
   const trimmedValue = value?.trim();
@@ -25,6 +26,11 @@ const areAnchorsEqual = (left: ConversationSelectionAnchor, right: ConversationS
   haveMatchingTextContext(left, right) &&
   normalizeSelectedTextStart(left.selectedTextStart) ===
     normalizeSelectedTextStart(right.selectedTextStart);
+
+export const hasAnchorableConversationNoteCandidate = (
+  content: string,
+  candidate: ConversationSelectionAnchor
+): boolean => resolveSelectedSegments({ content, ...candidate }).length > 0;
 
 export const buildConversationNoteSaveCandidates = ({
   anchor,
