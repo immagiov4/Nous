@@ -157,6 +157,13 @@ describe('PostgresProjectStore', () => {
   test.each([
     { legacyIndex: { entries: [{ kind: 'directory' as const, path: 'src' }] }, shape: 'version' },
     { legacyIndex: undefined, shape: 'index object' },
+    {
+      legacyIndex: {
+        entries: [{ kind: 'directory' as const, path: 'src' }],
+        version: null,
+      },
+      shape: 'JSON null version',
+    },
   ])('durably hydrates a legacy archive missing its $shape from retained metadata', async ({
     legacyIndex,
   }) => {
@@ -271,6 +278,9 @@ describe('PostgresProjectStore', () => {
       archiveVersion.sourceHash,
       archiveVersion.representationHash,
     ]);
+    expect(
+      sqlClient.mock.calls.some(([strings]) => strings.join('?').includes("= 'null'::jsonb"))
+    ).toBe(true);
   });
 
   test('reports missing projects consistently for favorite and touch writes', async () => {
@@ -377,6 +387,118 @@ describe('PostgresProjectStore', () => {
     expect(snapshots.map(snapshot => snapshot.id)).toEqual([firstSnapshot.id, secondSnapshot.id]);
     expect(statements).toHaveLength(1);
     expect(statements[0]).toContain('id = any');
+  });
+
+  test('durably hydrates missing archive indexes in ordered batch project loads', async () => {
+    const retainedEntries = [{ kind: 'directory' as const, path: 'src' }];
+    const archiveVersion = {
+      representationHash: createHash('sha256')
+        .update(JSON.stringify(retainedEntries))
+        .digest('hex'),
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    };
+    const legacySnapshot = {
+      ...createMultiSourceSnapshot(),
+      id: 'legacy-archive-project',
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          sourceId: archiveVersion.sourceId,
+        },
+        kind: 'archive',
+        name: 'source.zip',
+        ref: {
+          byteSize: 100,
+          hash: archiveVersion.sourceHash,
+          id: archiveVersion.sourceId,
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          objectPath: 'users/user-1/projects/legacy-archive-project/source.zip',
+        },
+      },
+    } as ProjectSnapshot;
+    const currentSnapshot = { ...createMultiSourceSnapshot(), id: 'current-project' };
+    let storedLegacySnapshot = legacySnapshot;
+    const queryValues: unknown[][] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+        const statement = strings.join('?');
+        queryValues.push(values);
+        if (statement.includes('id = any')) {
+          return Promise.resolve([
+            { document_index: null, id: currentSnapshot.id, snapshot: currentSnapshot },
+            { document_index: null, id: legacySnapshot.id, snapshot: storedLegacySnapshot },
+          ]);
+        }
+        if (statement.includes('set snapshot = jsonb_set')) {
+          storedLegacySnapshot = {
+            ...storedLegacySnapshot,
+            source: {
+              ...storedLegacySnapshot.source,
+              index: { entries: retainedEntries, version: archiveVersion },
+            },
+          } as ProjectSnapshot;
+          return Promise.resolve([{ document_index: null, snapshot: storedLegacySnapshot }]);
+        }
+        if (statement.includes('from public.project_sources source')) {
+          return Promise.resolve([
+            {
+              archive_representation_hash: archiveVersion.representationHash,
+              archive_source_hash: archiveVersion.sourceHash,
+              archive_source_id: archiveVersion.sourceId,
+              byte_size: null,
+              content_kind: null,
+              kind: 'directory',
+              path: 'src',
+              preview: null,
+              source_hash: null,
+              source_kind: 'archive',
+              warning_reason: null,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const snapshots = await store.loadProjectsById('user-1', [
+      legacySnapshot.id,
+      currentSnapshot.id,
+      legacySnapshot.id,
+    ]);
+
+    expect(snapshots.map(snapshot => snapshot.id)).toEqual([
+      legacySnapshot.id,
+      currentSnapshot.id,
+      legacySnapshot.id,
+    ]);
+    expect(snapshots[0]?.source?.kind === 'archive' && snapshots[0].source.index).toEqual({
+      entries: retainedEntries,
+      version: archiveVersion,
+    });
+    expect(queryValues[0]).toEqual([
+      'user-1',
+      [legacySnapshot.id, currentSnapshot.id, legacySnapshot.id],
+    ]);
+    expect(
+      queryValues.some(
+        values =>
+          values.includes('user-1') &&
+          values.includes(legacySnapshot.id) &&
+          values.includes(archiveVersion.sourceId) &&
+          values.includes(archiveVersion.sourceHash) &&
+          values.includes(archiveVersion.representationHash)
+      )
+    ).toBe(true);
   });
 
   test('repairs every missing library placement with a constant-size transaction', async () => {

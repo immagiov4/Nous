@@ -502,7 +502,10 @@ export class PostgresProjectStore implements ProjectStore {
       )
       where user_id = ${userId}
         and id = ${id}
-        and snapshot #> '{source,index,version}' is null
+        and (
+          snapshot #> '{source,index,version}' is null or
+          snapshot #> '{source,index,version}' = 'null'::jsonb
+        )
         and snapshot #>> '{source,ref,id}' = ${index.version.sourceId}
         and snapshot #>> '{source,ref,hash}' = ${index.version.sourceHash}
         and exists (
@@ -813,7 +816,10 @@ export class PostgresProjectStore implements ProjectStore {
       from public.project_snapshots
       where user_id = ${userId} and id = any(${ids}::text[])
     `;
-    const snapshotsById = new Map(rows.map(row => [row.id, mergeProjectSnapshotRow(row)] as const));
+    const snapshotsById = new Map<ProjectId, ProjectSnapshot>();
+    for (const row of rows) {
+      snapshotsById.set(row.id, await this.hydrateLegacySourceArchiveVersion(userId, row.id, row));
+    }
     return ids.flatMap(id => {
       const snapshot = snapshotsById.get(id);
       return snapshot ? [snapshot] : [];
