@@ -63,14 +63,3 @@ on, closing, or reopening an issue, confirm that the current request authorizes 
 Use an authenticated GitHub connector or `gh` for private data and mutations. If neither is
 available, return the draft and the exact blocked action. Do not substitute web search for private
 repository access.
-
-## Check the contract fixtures
-
-Run:
-
-```bash
-bun run check:issue-skill
-```
-
-The check exercises the few deterministic contract rules that matter. It does not parse arbitrary
-Markdown or infer meaning from prose. Reviewers verify the finished issue against the ledger.

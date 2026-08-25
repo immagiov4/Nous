@@ -4,7 +4,8 @@ Use this reference when drafting, rewriting, or preparing a Nous issue for auton
 
 ## Issue capture
 
-An issue is a durable triage record. Use only the sections that carry information.
+An issue is a durable triage record. Agent-prepared issues use only the sections that carry
+information.
 
 - `Problem` states the observed problem, unmet need, or investigation target.
 - `Desired outcome` states behavior the maintainer has chosen or the problem necessarily implies.
@@ -26,6 +27,9 @@ An issue is a durable triage record. Use only the sections that carry informatio
 
 Omit empty headings. A short bug can use `Problem`, `Desired outcome`, `Observed evidence`, and
 `Acceptance criteria`. An exploratory idea may use `Problem`, `Direction`, and `Open questions`.
+GitHub Issue Forms may add `_No response_` placeholders during initial intake. Remove those
+placeholders and their empty headings before adding `ready-for-agent` or otherwise governing the
+issue.
 
 ## Evidence ledger
 
@@ -87,5 +91,6 @@ The brief summary may restate a reported or verified problem and approved behavi
 hypotheses, unknowns, and unapproved options out of the autonomous implementation contract.
 
 Do not mark the issue ready while a blocking product, policy, architecture, or quantitative choice
-remains open. Do not close an issue as duplicate or obsolete until the maintainer approves a
-comparison of its desired outcome and acceptance boundary with the candidate replacement.
+remains open. Close a duplicate only after the maintainer approves a comparison of its desired
+outcome and acceptance boundary with the candidate replacement. Close an obsolete issue only after
+the maintainer approves the rationale for why its requirement no longer applies.
