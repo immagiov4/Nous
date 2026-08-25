@@ -89,6 +89,11 @@ const projectWithArtifactAnnotations = () => ({
                     kind: 'pdf-image',
                     title: 'PDF image',
                   },
+                  {
+                    artifactId: 'source-project:lesson-1:future-asset:asset-1',
+                    kind: 'future-asset',
+                    title: 'Future asset',
+                  },
                 ],
                 id: 'annotation-1',
                 note: 'Keep this note exactly as written.',
@@ -185,6 +190,11 @@ describe('project backup asset references', () => {
           artifactId: 'imported-project:lesson-1:pdf-image:image-1',
           kind: 'pdf-image',
           title: 'PDF image',
+        },
+        {
+          artifactId: 'imported-project:lesson-1:future-asset:asset-1',
+          kind: 'future-asset',
+          title: 'Future asset',
         },
       ],
       id: 'annotation-1',

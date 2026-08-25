@@ -14,6 +14,7 @@ The following files were used as context for generating this wiki page:
 - [apps/web/services/projects/courseSources.ts](../../../apps/web/services/projects/courseSources.ts)
 - [apps/backend/tests/helpers/inMemoryProjectStore.ts](../../../apps/backend/tests/helpers/inMemoryProjectStore.ts)
 - [apps/backend/tests/projects/postgresProjectStore.test.ts](../../../apps/backend/tests/projects/postgresProjectStore.test.ts)
+- [packages/shared-types/projectBackupAssets.ts](../../../packages/shared-types/projectBackupAssets.ts)
 
 </details>
 
@@ -115,6 +116,15 @@ export const normalizeStoredProject = (data: unknown): ProjectSnapshot => {
 ```
 
 Sources: [apps/web/services/projects/projectSnapshot.ts:600-630](../../../apps/web/services/projects/projectSnapshot.ts#L600-L630)
+
+### Archive Import Identity Remapping
+Project archive imports may restore a snapshot under a new project ID. The import boundary clones
+the snapshot and replaces project-scoped annotation artifact IDs for `future-asset`,
+`generated-visual`, and `pdf-image` references with the destination project ID. It preserves the
+remaining artifact ID segments, annotation note text, and other annotation metadata. The same
+boundary also remaps stored project asset references before persistence.
+
+Sources: [packages/shared-types/projectBackupAssets.ts:151-208](../../../packages/shared-types/projectBackupAssets.ts#L151-L208), [apps/backend/src/projects/projectAssetImport.ts:105-137](../../../apps/backend/src/projects/projectAssetImport.ts#L105-L137)
 
 ### Storage Backend (PostgreSQL)
 In production, `PostgresProjectStore` manages atomicity using database transactions. It ensures that source bytes are stored in immutable object storage while metadata is kept in Postgres. A failure in the metadata transaction triggers a cleanup of the orphaned binary objects in storage.

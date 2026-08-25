@@ -162,7 +162,9 @@ const remapAnnotationArtifactReferences = (
         if (
           !isRecord(artifactRef) ||
           typeof artifactRef.artifactId !== 'string' ||
-          (artifactRef.kind !== 'generated-visual' && artifactRef.kind !== 'pdf-image') ||
+          (artifactRef.kind !== 'future-asset' &&
+            artifactRef.kind !== 'generated-visual' &&
+            artifactRef.kind !== 'pdf-image') ||
           !artifactRef.artifactId.startsWith(sourcePrefix) ||
           !artifactRef.artifactId.includes(`:${artifactRef.kind}:`)
         ) {

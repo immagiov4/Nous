@@ -660,6 +660,11 @@ describe('/api/projects', () => {
               kind: 'pdf-image',
               title: 'Immagine PDF',
             },
+            {
+              artifactId: 'archived-project:lesson-1:future-asset:asset-1',
+              kind: 'future-asset',
+              title: 'Artefatto futuro',
+            },
           ],
           createdAt: '2026-04-26T09:30:00.000Z',
           id: 'annotation-1',
@@ -709,6 +714,10 @@ describe('/api/projects', () => {
         {
           artifactId: `${targetProjectId}:lesson-1:pdf-image:image-1`,
           kind: 'pdf-image',
+        },
+        {
+          artifactId: `${targetProjectId}:lesson-1:future-asset:asset-1`,
+          kind: 'future-asset',
         },
       ],
       note: 'Questa nota deve restare invariata.',
