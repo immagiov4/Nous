@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 import {
+  countPackageManagerBunSetups,
   inspectEnvironment,
   inspectSonarService,
-  parseCiBunVersions,
   parseDoctorArguments,
   parseFallowBaseline,
   parseMigrationList,
@@ -31,26 +31,41 @@ describe('parseDoctorArguments', () => {
 
 describe('parsePinnedBunVersion', () => {
   test('returns the exact Bun version from packageManager', () => {
-    expect(parsePinnedBunVersion(JSON.stringify({ packageManager: 'bun@1.3.14' }))).toBe('1.3.14');
+    expect(
+      parsePinnedBunVersion(
+        JSON.stringify({
+          devDependencies: { '@types/bun': '1.4.0' },
+          packageManager: 'bun@1.4.0',
+        })
+      )
+    ).toBe('1.4.0');
   });
 
   test.each([
     '{}',
     JSON.stringify({ packageManager: 'npm@11.0.0' }),
+    JSON.stringify({ devDependencies: {}, packageManager: 'bun@1.4.0' }),
+    JSON.stringify({
+      devDependencies: { '@types/bun': '1.3.14' },
+      packageManager: 'bun@1.4.0',
+    }),
   ])('rejects a manifest without a pinned Bun runtime: %s', manifest => {
     expect(() => parsePinnedBunVersion(manifest)).toThrow();
   });
 });
 
-describe('parseCiBunVersions', () => {
-  test('returns distinct pinned versions in stable order', () => {
+describe('countPackageManagerBunSetups', () => {
+  test('counts setup-bun steps that inherit packageManager', () => {
     expect(
-      parseCiBunVersions('bun-version: 1.3.14\nbun-version: 1.3.13\nbun-version: 1.3.14')
-    ).toEqual(['1.3.13', '1.3.14']);
+      countPackageManagerBunSetups('uses: oven-sh/setup-bun@v2\nuses: oven-sh/setup-bun@v2')
+    ).toBe(2);
   });
 
-  test('rejects a workflow without a Bun pin', () => {
-    expect(() => parseCiBunVersions('name: CI')).toThrow();
+  test.each([
+    'name: CI',
+    'uses: oven-sh/setup-bun@v2\nwith:\n  bun-version: 1.4.0',
+  ])('rejects CI that does not inherit packageManager: %s', workflow => {
+    expect(() => countPackageManagerBunSetups(workflow)).toThrow();
   });
 });
 
@@ -140,13 +155,12 @@ describe('resolveLocalSupabaseConfig', () => {
 
 describe('inspectEnvironment', () => {
   test('finds the installed tools required by every Doctor profile', () => {
-    const options = { bunVersion: '1.3.14' };
-    expect(inspectEnvironment('all', options)).toEqual([
+    expect(inspectEnvironment('all')).toEqual([
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
       expect.objectContaining({ label: 'Fallow baseline', status: 'WARN' }),
     ]);
-    expect(inspectEnvironment('gate', options)).toEqual([
+    expect(inspectEnvironment('gate')).toEqual([
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
     ]);

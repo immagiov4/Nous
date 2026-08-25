@@ -102,15 +102,27 @@ export const parsePinnedBunVersion = (contents: string): string => {
     throw new TypeError('packageManager must pin Bun');
   }
 
-  return match[1];
+  const pinnedBunVersion = match[1];
+  if (
+    !isRecord(manifest.devDependencies) ||
+    manifest.devDependencies['@types/bun'] !== pinnedBunVersion
+  ) {
+    throw new TypeError('@types/bun must match packageManager');
+  }
+
+  return pinnedBunVersion;
 };
 
-export const parseCiBunVersions = (contents: string): string[] => {
-  const versions = [...contents.matchAll(/bun-version:\s*([^\s#]+)/gu)].map(match => match[1]);
-  if (versions.length === 0) {
-    throw new TypeError('missing bun-version');
+export const countPackageManagerBunSetups = (contents: string): number => {
+  if (/bun-version\s*:/u.test(contents)) {
+    throw new TypeError('CI must read the Bun version from packageManager');
   }
-  return [...new Set(versions)].sort((left, right) => left.localeCompare(right));
+
+  const setupCount = [...contents.matchAll(/uses:\s*oven-sh\/setup-bun@v2\b/gu)].length;
+  if (setupCount === 0) {
+    throw new TypeError('missing oven-sh/setup-bun@v2');
+  }
+  return setupCount;
 };
 
 const compareFallowCategories = (left: FallowCategory, right: FallowCategory) => {
@@ -247,7 +259,7 @@ const inspectBunRuntime = (
 ): DiagnosticResult => {
   try {
     const pinnedBunVersion = parsePinnedBunVersion(readFileSync(PACKAGE_MANIFEST_PATH, 'utf8'));
-    const ciVersions = parseCiBunVersions(readFileSync(CI_WORKFLOW_PATH, 'utf8'));
+    countPackageManagerBunSetups(readFileSync(CI_WORKFLOW_PATH, 'utf8'));
     if (currentBunVersion !== pinnedBunVersion) {
       return {
         detail: `Expected ${pinnedBunVersion}, found ${currentBunVersion}. Run "bun upgrade".`,
@@ -255,15 +267,8 @@ const inspectBunRuntime = (
         status: 'FAIL',
       };
     }
-    if (ciVersions.length !== 1 || ciVersions[0] !== pinnedBunVersion) {
-      return {
-        detail: `package.json pins ${pinnedBunVersion}; CI pins ${ciVersions.join(', ')}.`,
-        label: 'Bun runtime',
-        status: 'FAIL',
-      };
-    }
     return {
-      detail: `${currentBunVersion} (local, package.json, and CI).`,
+      detail: `${currentBunVersion} (local and packageManager; CI reads packageManager).`,
       label: 'Bun runtime',
       status: 'PASS',
     };

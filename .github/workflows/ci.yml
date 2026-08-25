@@ -22,8 +22,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
@@ -51,8 +49,6 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
@@ -113,8 +109,6 @@ jobs:
       - name: Setup Bun
         if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
 
       - name: Install Dependencies
         if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''

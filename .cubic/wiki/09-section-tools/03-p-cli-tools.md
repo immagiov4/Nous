@@ -64,8 +64,8 @@ flowchart TD
     Supabase --> Summary
 ```
 
-The tool ensures the pinned Bun version in `package.json` matches the local runtime and the CI configuration in `.github/workflows/ci.yml`.
-Sources: [scripts/doctor.ts:182-212](../../../scripts/doctor.ts#L182-L212), [scripts/doctor.ts:404-436](../../../scripts/doctor.ts#L404-L436)
+The tool treats `package.json#packageManager` as the Bun version source. It verifies that the local runtime and `@types/bun` match the pin, and that GitHub Actions lets `oven-sh/setup-bun` read the same field instead of declaring another version.
+Sources: [scripts/doctor.ts:106-137](../../../scripts/doctor.ts#L106-L137), [scripts/doctor.ts:268-293](../../../scripts/doctor.ts#L268-L293)
 
 ## Workflow & CI Selectors
 

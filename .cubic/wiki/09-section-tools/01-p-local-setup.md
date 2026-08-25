@@ -38,12 +38,12 @@ The project utilizes [Bun](https://bun.sh/) as its primary runtime and package m
 Sources: [README.md:15-22](../../../README.md#L15-L22), [AGENTS.md:144-155](../../../AGENTS.md#L144-L155)
 
 ### Runtime Verification
-The environment health is validated against the pinned Bun version in `package.json` and CI. Coverage checks the Node version in `.node-version` before Vitest starts.
-*  **Bun Version:** The system expects a specific version of Bun (e.g., `1.3.14`). Mismatches trigger a `FAIL` status in the diagnostic tools.
+The environment health check treats `package.json#packageManager` as the Bun version source. GitHub Actions reads that field through `oven-sh/setup-bun`. Coverage checks the separate Node version in `.node-version` before Vitest starts.
+*  **Bun Version:** The system expects the exact Bun version in `packageManager` and the same `@types/bun` version. Local mismatches, stale Bun types, or an explicit CI override trigger a `FAIL` status.
 *  **Node Version:** Coverage runs under Node 24.19.0, pinned in `.node-version`.
 *  **Workspace Binaries:** Local profiles require tools such as `biome`, `eslint`, `vitest`, and `supabase`. Dependency-cruiser runs only in CI.
 
-Sources: [scripts/doctor.ts:167-195](../../../scripts/doctor.ts#L167-L195), [scripts/doctor.ts:19-27](../../../scripts/doctor.ts#L19-L27)
+Sources: [scripts/doctor.ts:106-137](../../../scripts/doctor.ts#L106-L137), [scripts/doctor.ts:268-293](../../../scripts/doctor.ts#L268-L293), [scripts/doctor.ts:15-23](../../../scripts/doctor.ts#L15-L23)
 
 ## Service Orchestration
 
