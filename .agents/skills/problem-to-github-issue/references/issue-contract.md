@@ -43,7 +43,8 @@ Classify each material source statement before writing prose:
 - A hypothesis belongs in `Hypotheses`.
 - A suspected wider pattern belongs in `Potential systemic gap`. Separate observed occurrences from
   the paths or modules that still need investigation.
-- An unapproved option belongs in `Unknowns and decisions needed` or `Open questions`.
+- An unapproved exploratory option may belong in `Direction`. Other unapproved options belong in
+  `Unknowns and decisions needed` or `Open questions`.
 - An approved option becomes a decision and may support `Desired outcome` or `Acceptance criteria`.
 - An unknown belongs in `Unknowns and decisions needed`.
 

@@ -42,12 +42,6 @@ body:
       description: Add reproduction steps, logs, measurements, screenshots, or source evidence. Remove credentials, personal data, and private document content before posting. If none is available, state what has not been established and what evidence would resolve the gap.
 
   - type: textarea
-    id: decisions
-    attributes:
-      label: Decisions already made
-      description: Include only choices approved by the maintainer or established by an authoritative contract.
-
-  - type: textarea
     id: hypotheses
     attributes:
       label: Hypotheses
@@ -70,35 +64,3 @@ body:
     attributes:
       label: Acceptance criteria
       description: Add observable outcomes only when the desired behavior is settled.
-
-  - type: textarea
-    id: scope
-    attributes:
-      label: Scope
-      description: Name included boundaries only when an adjacent interpretation is plausible.
-
-  - type: textarea
-    id: out-of-scope
-    attributes:
-      label: Out of scope
-      description: Name excluded boundaries only when an adjacent interpretation is plausible.
-
-  - type: textarea
-    id: verification
-    attributes:
-      label: Verification
-      description: State known checks or demonstrations that can prove completion.
-
-  - type: textarea
-    id: dependencies
-    attributes:
-      label: Dependencies
-      description: List blocking issues, decisions, migrations, or services.
-
-  - type: checkboxes
-    id: provenance
-    attributes:
-      label: Provenance check
-      options:
-        - label: I kept hypotheses and unapproved options separate from verified evidence and requirements.
-          required: true
