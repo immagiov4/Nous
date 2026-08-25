@@ -4077,6 +4077,64 @@ test('lesson generation reports a terminal failure after workflow invalidation a
   assert.equal(state.internalState.workflowState.loadSection.error, 'Generazione interrotta');
 });
 
+test('lesson generation reattaches while another project owns the pending workflow', async () => {
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
+  let rejectProjectA: ((error: Error) => void) | undefined;
+  let resolveProjectB: (() => void) | undefined;
+  const projectAGate = new Promise<never>((_, reject) => {
+    rejectProjectA = reject;
+  });
+  const projectBGate = new Promise<void>(resolve => {
+    resolveProjectB = resolve;
+  });
+  const generateDurableLesson = vi.fn(async ({ projectId }: { projectId: string }) => {
+    if (projectId === 'project-a') return projectAGate;
+    await projectBGate;
+    return {
+      content: '# Lezione generata',
+      contentBlocks: [],
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId,
+      quiz: [],
+      sectionId: 'lesson-1',
+      warnings: [],
+    };
+  });
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-a' },
+    openRouter: { generateDurableLesson },
+  });
+  const lesson = getLessons(plan)[0];
+
+  const projectAGeneration = harness.controller.openSection(lesson);
+  await Promise.resolve();
+  harness.state.adapter.invalidateWorkflows(['loadSection']);
+  harness.projectLibrary.adapter.setCurrentProjectId('project-b');
+  const projectBGeneration = harness.controller.openSection(lesson);
+  await Promise.resolve();
+
+  harness.projectLibrary.adapter.setCurrentProjectId('project-a');
+  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+  rejectProjectA?.(new Error('Generazione A interrotta'));
+
+  await assert.rejects(projectAGeneration, /Generazione A interrotta/);
+  assert.equal(harness.state.internalState.workflowState.loadSection.status, 'failed');
+  assert.equal(
+    harness.state.internalState.workflowState.loadSection.error,
+    'Generazione A interrotta'
+  );
+
+  harness.projectLibrary.adapter.setCurrentProjectId('project-b');
+  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+  resolveProjectB?.();
+  assert.equal(await projectBGeneration, 'loaded');
+  assert.equal(generateDurableLesson.mock.calls.length, 2);
+  assert.equal(harness.state.internalState.workflowState.loadSection.status, 'succeeded');
+});
+
 test('an active lesson generation blocks exercise brief and placement generation after workflow invalidation', async () => {
   const exercise: ApplicationExerciseNode = {
     kind: 'exercise',

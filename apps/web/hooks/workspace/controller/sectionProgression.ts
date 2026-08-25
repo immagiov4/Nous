@@ -455,21 +455,23 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     state.setGeneratingSectionId(activeGeneration.projectId, activeGeneration.token, section.id);
-    let requestId = state.beginWorkflow(
-      'loadSection',
-      t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
-    );
+    const beginLessonLoadWorkflow = () =>
+      state.beginWorkflow(
+        'loadSection',
+        t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
+      );
+    let requestId = beginLessonLoadWorkflow();
     state.setLessonGenerationReattachHandler(
       activeGeneration.projectId,
       activeGeneration.token,
       () => {
-        if (state.getWorkflowState().loadSection.status === 'pending') {
+        if (
+          state.isWorkflowCurrent('loadSection', requestId) &&
+          state.getWorkflowState().loadSection.status === 'pending'
+        ) {
           return;
         }
-        requestId = state.beginWorkflow(
-          'loadSection',
-          t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
-        );
+        requestId = beginLessonLoadWorkflow();
       }
     );
     const isGenerationRequestCurrent = () =>
