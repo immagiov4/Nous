@@ -474,10 +474,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         requestId = beginLessonLoadWorkflow();
       }
     );
-    const isGenerationRequestCurrent = () =>
-      projectLibrary.getCurrentProjectId() === activeGeneration.projectId &&
-      state.isWorkflowCurrent('loadSection', requestId);
-
     stopAudio(true);
     domain.setActiveSectionId(section.id);
 
@@ -494,6 +490,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (ownsGenerationGate) state.finishGeneration(projectId, activeGeneration.token);
       return 'ignored-busy';
     }
+    const isGenerationCurrent = () => state.isGenerationCurrent(projectId, activeGeneration.token);
+    const isGenerationViewCurrent = () =>
+      projectLibrary.getCurrentProjectId() === projectId &&
+      isGenerationCurrent() &&
+      state.isWorkflowCurrent('loadSection', requestId);
 
     const progressBridge = createGenerationProgressBridge({
       getProgress: () => state.getWorkflowState().loadSection.progress,
@@ -515,13 +516,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         forceRegenerate,
         onProgressStage: progressObserver.setStage,
         onWorkflowSnapshot: snapshot => {
-          if (!isGenerationRequestCurrent()) return;
+          if (!isGenerationViewCurrent()) return;
           progressBridge.updateFromWorkflow(snapshot);
         },
         projectId,
         sectionId: section.id,
       });
-      if (!isGenerationRequestCurrent()) return 'ignored-busy';
+      if (!isGenerationCurrent()) return 'ignored-busy';
 
       if (
         typeof result.projectRevision === 'number' &&
@@ -530,43 +531,51 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           revision: result.projectRevision,
         }))
       ) {
-        if (!isGenerationRequestCurrent()) return 'ignored-busy';
+        if (!isGenerationCurrent()) return 'ignored-busy';
         await progressObserver.finish();
         progressObserver.complete();
-        state.succeedWorkflow('loadSection', requestId);
+        if (isGenerationViewCurrent()) {
+          state.succeedWorkflow('loadSection', requestId);
+        }
         return 'loaded';
       }
-      if (!isGenerationRequestCurrent()) return 'ignored-busy';
+      if (!isGenerationCurrent()) return 'ignored-busy';
 
-      domain.updateSection(section.id, currentSection => ({
-        ...currentSection,
-        content: result.content,
-        contentBlocks: result.contentBlocks,
-        generationWarnings: result.warnings,
-        generatedVisuals: result.generatedVisuals,
-        imageRefs: result.imageRefs,
-        learningAids: result.learningAids,
-        quiz: result.quiz,
-        visualPlanningDecision: result.visualPlanningDecision,
-      }));
-      if (result.researchDossier) domain.setResearchLessonDossier(result.researchDossier);
-      if (result.documentAssets !== undefined) domain.setDocumentAssets(result.documentAssets);
+      if (projectLibrary.getCurrentProjectId() === projectId) {
+        domain.updateSection(section.id, currentSection => ({
+          ...currentSection,
+          content: result.content,
+          contentBlocks: result.contentBlocks,
+          generationWarnings: result.warnings,
+          generatedVisuals: result.generatedVisuals,
+          imageRefs: result.imageRefs,
+          learningAids: result.learningAids,
+          quiz: result.quiz,
+          visualPlanningDecision: result.visualPlanningDecision,
+        }));
+        if (result.researchDossier) domain.setResearchLessonDossier(result.researchDossier);
+        if (result.documentAssets !== undefined) domain.setDocumentAssets(result.documentAssets);
+      }
       await progressObserver.finish();
       progressObserver.complete();
-      state.succeedWorkflow('loadSection', requestId);
+      if (isGenerationViewCurrent()) {
+        state.succeedWorkflow('loadSection', requestId);
+      }
       return 'loaded';
     } catch (error) {
-      if (!isGenerationRequestCurrent()) return 'ignored-busy';
+      if (!isGenerationCurrent()) return 'ignored-busy';
       if (error instanceof LessonSourceUnavailableError) {
         state.setMissingSourceProjectId(projectId);
       }
-      state.failWorkflow(
-        'loadSection',
-        requestId,
-        error instanceof LessonSourceUnavailableError
-          ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
-          : getErrorMessage(error)
-      );
+      if (isGenerationViewCurrent()) {
+        state.failWorkflow(
+          'loadSection',
+          requestId,
+          error instanceof LessonSourceUnavailableError
+            ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
+            : getErrorMessage(error)
+        );
+      }
       throw error;
     } finally {
       progressObserver.dispose();

@@ -187,6 +187,7 @@ export interface WorkspaceControllerStateAdapter {
   getWorkflowState: () => WorkspaceWorkflowState;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isGenerationActive: (projectId: string | null) => boolean;
+  isGenerationCurrent: (projectId: string | null, token: number) => boolean;
   isLessonGenerationActive: (projectId: string | null) => boolean;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;
   reattachLessonGeneration: (projectId: string | null, sectionId: string) => boolean;

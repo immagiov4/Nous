@@ -587,6 +587,8 @@ const createStateAdapter = () => {
       );
     },
     isGenerationActive: projectId => internalState.generationByProject.has(projectId),
+    isGenerationCurrent: (projectId, token) =>
+      internalState.generationByProject.get(projectId)?.token === token,
     isLessonGenerationActive: projectId =>
       internalState.generationByProject.get(projectId)?.kind === 'lesson',
     isWorkflowCurrent: (workflowId, requestId) =>
@@ -4135,6 +4137,49 @@ test('lesson generation reattaches while another project owns the pending workfl
   assert.equal(harness.state.internalState.workflowState.loadSection.status, 'succeeded');
 });
 
+test('overlapping project generations keep their terminal results when they resolve out of order', async () => {
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
+  const generationResolvers = new Map<string, () => void>();
+  const generateDurableLesson = vi.fn(async ({ projectId }: { projectId: string }) => {
+    await new Promise<void>(resolve => {
+      generationResolvers.set(projectId, resolve);
+    });
+    return {
+      content: `# Lezione ${projectId}`,
+      contentBlocks: [],
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId,
+      quiz: [],
+      sectionId: 'lesson-1',
+      warnings: [],
+    };
+  });
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-a' },
+    openRouter: { generateDurableLesson },
+  });
+  const lesson = getLessons(plan)[0];
+
+  const projectAGeneration = harness.controller.openSection(lesson);
+  harness.state.adapter.invalidateWorkflows(['loadSection']);
+  harness.projectLibrary.adapter.setCurrentProjectId('project-b');
+  const projectBGeneration = harness.controller.openSection(lesson);
+
+  harness.projectLibrary.adapter.setCurrentProjectId('project-a');
+  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+  harness.projectLibrary.adapter.setCurrentProjectId('project-b');
+  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+
+  generationResolvers.get('project-a')?.();
+  assert.equal(await projectAGeneration, 'loaded');
+  generationResolvers.get('project-b')?.();
+  assert.equal(await projectBGeneration, 'loaded');
+  assert.equal(generateDurableLesson.mock.calls.length, 2);
+});
+
 test('an active lesson generation blocks exercise brief and placement generation after workflow invalidation', async () => {
   const exercise: ApplicationExerciseNode = {
     kind: 'exercise',
@@ -4209,7 +4254,7 @@ test('an active lesson generation blocks exercise brief and placement generation
   assert.deepEqual(repairResult, { outcome: 'noop' });
 
   releaseLesson?.();
-  assert.equal(await lessonGeneration, 'ignored-busy');
+  assert.equal(await lessonGeneration, 'loaded');
 });
 
 test('exercise brief generation keeps its gate after workflow invalidation until the provider call settles', async () => {

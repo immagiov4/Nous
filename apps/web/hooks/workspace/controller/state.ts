@@ -125,6 +125,8 @@ export const useWorkspaceControllerState = () => {
         commitWorkflowState(nextState);
       },
       isGenerationActive: projectId => generationByProjectRef.current.has(projectId),
+      isGenerationCurrent: (projectId, token) =>
+        generationByProjectRef.current.get(projectId)?.token === token,
       isLessonGenerationActive: projectId =>
         generationByProjectRef.current.get(projectId)?.kind === 'lesson',
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>

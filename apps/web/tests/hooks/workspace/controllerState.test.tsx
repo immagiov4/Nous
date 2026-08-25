@@ -20,6 +20,9 @@ describe('useWorkspaceControllerState generation ownership', () => {
     }
     expect(result.current.stateAdapter).not.toBe(firstAdapter);
     expect(result.current.stateAdapter.isGenerationActive('project-1')).toBe(true);
+    expect(result.current.stateAdapter.isGenerationCurrent('project-1', acquiredFirstToken)).toBe(
+      true
+    );
     expect(result.current.stateAdapter.isLessonGenerationActive('project-1')).toBe(false);
     expect(result.current.stateAdapter.tryBeginGeneration('project-1', 'lesson')).toBeNull();
 
@@ -48,6 +51,12 @@ describe('useWorkspaceControllerState generation ownership', () => {
     });
 
     expect(result.current.stateAdapter.isLessonGenerationActive('project-1')).toBe(true);
+    expect(result.current.stateAdapter.isGenerationCurrent('project-1', acquiredFirstToken)).toBe(
+      false
+    );
+    expect(result.current.stateAdapter.isGenerationCurrent('project-1', acquiredSecondToken)).toBe(
+      true
+    );
     expect(result.current.stateAdapter.getGeneratingSectionId('project-1')).toBe('lesson-current');
 
     act(() => {
