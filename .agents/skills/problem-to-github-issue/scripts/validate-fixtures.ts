@@ -94,6 +94,8 @@ const AGENT_BRIEF_ALLOWED_KINDS: Record<string, SourceKind[]> = {
   Verification: ['decision'],
 };
 
+const AGENT_BRIEF_METADATA_FIELDS = new Set(['Category']);
+
 const allowedPlacements = (source: SourceStatement): Placement[] => {
   switch (source.kind) {
     case 'reported':
@@ -218,7 +220,12 @@ const validateFixture = (fixture: ContractFixture): string[] => {
         }
 
         const allowedKinds = AGENT_BRIEF_ALLOWED_KINDS[heading];
-        if (!allowedKinds) continue;
+        if (!allowedKinds) {
+          if (!AGENT_BRIEF_METADATA_FIELDS.has(heading)) {
+            errors.push(`unknown-agent-brief-field:${heading}`);
+          }
+          continue;
+        }
 
         for (const line of content
           .split(/\r?\n/)
