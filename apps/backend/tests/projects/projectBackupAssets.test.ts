@@ -193,6 +193,16 @@ describe('project backup asset references', () => {
     expect(source).toEqual(projectWithArtifactAnnotations());
   });
 
+  test('rejects a non-string target project ID with the backup validation error', () => {
+    expect(() =>
+      remapProjectAssetReferences(
+        projectWithArtifactAnnotations(),
+        new Map(),
+        42 as unknown as string
+      )
+    ).toThrow(InvalidProjectBackupAssetError);
+  });
+
   test('rejects HTML whose declared assets and placeholders disagree', () => {
     const invalid = projectWithAssets();
     const visual = invalid.learningPlan.modules[0]?.children[0]?.generatedVisuals[1];

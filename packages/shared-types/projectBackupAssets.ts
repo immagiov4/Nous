@@ -187,6 +187,7 @@ export const remapProjectAssetReferences = <T>(
     if (
       typeof remappedProject.id !== 'string' ||
       !remappedProject.id.trim() ||
+      typeof targetProjectId !== 'string' ||
       !targetProjectId.trim()
     ) {
       throw new InvalidProjectBackupAssetError();
