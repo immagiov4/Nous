@@ -67,7 +67,5 @@ Run:
 bun run check:issue-skill
 ```
 
-The check compiles fixture issue bodies from their Markdown sections and validates each statement
-against its evidence ledger. It proves the contract at the draft boundary without pretending to
-infer the meaning or language of arbitrary prose. Verify the English default from this skill and
-the Issue Form during review.
+The check exercises the few deterministic contract rules that matter. It does not parse arbitrary
+Markdown or infer meaning from prose. Reviewers verify the finished issue against the ledger.
