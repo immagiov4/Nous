@@ -17,6 +17,44 @@ const isLineStart = (content: string, index: number) => index === 0 || content[i
 const isAsciiAlphaNumeric = (character: string | undefined): boolean =>
   Boolean(character && /[A-Za-z0-9]/u.test(character));
 
+export const findInlineLinkDestinationEnd = (
+  value: string,
+  openingParenthesisIndex: number
+): number => {
+  if (value[openingParenthesisIndex] !== '(') {
+    return -1;
+  }
+
+  let depth = 0;
+  let activeTitleQuote: '"' | "'" | null = null;
+
+  for (let index = openingParenthesisIndex; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === '\\') {
+      index += 1;
+      continue;
+    }
+    if (activeTitleQuote) {
+      if (character === activeTitleQuote) activeTitleQuote = null;
+      continue;
+    }
+    if (depth === 1 && (character === '"' || character === "'") && /\s/u.test(value[index - 1])) {
+      activeTitleQuote = character;
+      continue;
+    }
+    if (character === '(') {
+      depth += 1;
+      continue;
+    }
+    if (character === ')') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+};
+
 const countRepeatedCharacter = (content: string, index: number, character: string): number => {
   let cursor = index;
 
@@ -354,6 +392,37 @@ const mergeRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
   return mergedRanges;
 };
 
+const mergeOverlappingRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
+  const mergedRanges: MarkdownRange[] = [];
+
+  for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
+    const previousRange = mergedRanges.at(-1);
+    if (previousRange && range.start < previousRange.end) {
+      previousRange.end = Math.max(previousRange.end, range.end);
+    } else {
+      mergedRanges.push({ ...range });
+    }
+  }
+
+  return mergedRanges;
+};
+
+const findInlineLabelEnd = (content: string, openingBracketIndex: number): number => {
+  let depth = 0;
+  for (let index = openingBracketIndex; index < content.length; index += 1) {
+    if (content[index] === '\\') {
+      index += 1;
+      continue;
+    }
+    if (content[index] === '[') depth += 1;
+    if (content[index] === ']') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+};
+
 const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
   let index = 0;
@@ -436,13 +505,14 @@ const getMarkdownImageRanges = (content: string): MarkdownRange[] => {
       continue;
     }
 
-    const destinationStart = content.indexOf('](', imageStart + 2);
-    if (destinationStart === -1) {
+    const labelEnd = findInlineLabelEnd(content, imageStart + 1);
+    const destinationStart = labelEnd + 1;
+    if (labelEnd === -1 || content[destinationStart] !== '(') {
       index = imageStart + 2;
       continue;
     }
 
-    const imageEnd = content.indexOf(')', destinationStart + 2);
+    const imageEnd = findInlineLinkDestinationEnd(content, destinationStart);
     if (imageEnd === -1) {
       index = imageStart + 2;
       continue;
@@ -477,7 +547,7 @@ export const getMarkdownProtectedRanges = (content: string): MarkdownRange[] =>
   mergeRanges([...getMarkdownCodeRanges(content), ...getMarkdownMathRanges(content)]);
 
 export const getMarkdownAnnotationProtectedRanges = (content: string): MarkdownRange[] =>
-  mergeRanges([
+  mergeOverlappingRanges([
     ...getMarkdownCodeRanges(content),
     ...getMarkdownImageRanges(content),
     ...getMarkdownMathRanges(content),

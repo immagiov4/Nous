@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  getMarkdownAnnotationProtectedRanges,
   getMarkdownProtectedRanges,
   normalizeMathSelectionArtifacts,
 } from '../../../utils/markdown/codeRanges.ts';
@@ -11,6 +12,33 @@ test('normalizeMathSelectionArtifacts projects repeated math-like selection arti
   );
 
   assert.equal(normalized, 'Ridurre Tcluster e Tupdate accelera.');
+});
+
+test('annotation ranges ignore malformed image openers before ordinary links', () => {
+  const content = 'Spiega ![ questo testo e poi [consulta la fonte](https://example.com).';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, []);
+});
+
+test('annotation ranges parse balanced parentheses in image destinations', () => {
+  const content = 'Prima ![diagramma](https://example.com/image_(large).png) dopo.';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['![diagramma](https://example.com/image_(large).png)']);
+});
+
+test('annotation ranges keep adjacent inline code separate from an image', () => {
+  const content = '![diagramma](image.png)`codice inline`';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['![diagramma](image.png)', '`codice inline`']);
 });
 
 test('getMarkdownProtectedRanges keeps code fences, inline code, and math blocks protected', () => {

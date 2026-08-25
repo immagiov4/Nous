@@ -1,4 +1,5 @@
 import {
+  findInlineLinkDestinationEnd,
   getMarkdownMathRangeAt,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
@@ -30,52 +31,6 @@ export interface LooseProjection {
 const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
 const INLINE_FORMAT_DELIMITERS = ['***', '___', '**', '__', '~~', '*', '_'];
-
-const findInlineLinkDestinationEnd = (value: string, openingParenthesisIndex: number): number => {
-  if (value[openingParenthesisIndex] !== '(') {
-    return -1;
-  }
-
-  let depth = 0;
-  let activeTitleQuote: '"' | "'" | null = null;
-
-  for (let index = openingParenthesisIndex; index < value.length; index += 1) {
-    const character = value[index];
-
-    if (character === '\\') {
-      index += 1;
-      continue;
-    }
-
-    if (activeTitleQuote) {
-      if (character === activeTitleQuote) {
-        activeTitleQuote = null;
-      }
-      continue;
-    }
-
-    if (depth === 1 && (character === '"' || character === "'") && /\s/u.test(value[index - 1])) {
-      activeTitleQuote = character;
-      continue;
-    }
-
-    if (character === '(') {
-      depth += 1;
-      continue;
-    }
-
-    if (character !== ')') {
-      continue;
-    }
-
-    depth -= 1;
-    if (depth === 0) {
-      return index;
-    }
-  }
-
-  return -1;
-};
 
 export const escapeRegex = (value: string) =>
   value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);

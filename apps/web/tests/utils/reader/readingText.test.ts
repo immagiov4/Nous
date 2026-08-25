@@ -129,6 +129,12 @@ describe('prepareMarkdownForSpeech', () => {
     );
   });
 
+  test('reads inline code immediately adjacent to a markdown image', () => {
+    expect(prepareMarkdownForSpeech('![diagramma](image.png)`codice inline`')).toBe(
+      'codice inline'
+    );
+  });
+
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {
     const input = ['#  Titolo\tstrano', '', '', '', 'Testo\t con   spazi.'].join('\r\n');
 
