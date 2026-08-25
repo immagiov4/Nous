@@ -155,15 +155,23 @@ describe('resolveLocalSupabaseConfig', () => {
 
 describe('inspectEnvironment', () => {
   test('finds the installed tools required by every Doctor profile', () => {
-    expect(inspectEnvironment('all')).toEqual([
+    const environment = { bunVersion: '1.4.0' };
+
+    expect(inspectEnvironment('all', environment)).toEqual([
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
       expect.objectContaining({ label: 'Fallow baseline', status: 'WARN' }),
     ]);
-    expect(inspectEnvironment('gate')).toEqual([
+    expect(inspectEnvironment('gate', environment)).toEqual([
       expect.objectContaining({ label: 'Bun runtime', status: 'PASS' }),
       expect.objectContaining({ label: 'Workspace dependencies', status: 'PASS' }),
     ]);
+  });
+
+  test('rejects a runtime that differs from packageManager', () => {
+    expect(inspectEnvironment('gate', { bunVersion: 'unknown' })).toContainEqual(
+      expect.objectContaining({ label: 'Bun runtime', status: 'FAIL' })
+    );
   });
 });
 

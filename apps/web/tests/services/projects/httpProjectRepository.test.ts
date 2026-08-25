@@ -1084,6 +1084,10 @@ test('HttpProjectRepository distinguishes a deleted project from a revision conf
 });
 
 test('HttpProjectRepository chunks imports that exceed the proxy request limit', async () => {
+  const directMaxBytes = 20_000;
+  const maxChunkBytes = 16_000;
+  const maxSerializedBytes = 280_000;
+  const importTextCharacters = 33_000;
   const importedSnapshot = buildPdfSnapshot();
   const importTemplate = {
     ...importedSnapshot,
@@ -1091,11 +1095,11 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
   };
   const serializedTemplate = JSON.stringify(importTemplate);
   const textPrefix = serializedTemplate.indexOf('"text":""') + '"text":"'.length;
-  const beforeBoundaryEmoji = 16_000_000 - textPrefix - 1;
+  const beforeBoundaryEmoji = maxChunkBytes - textPrefix - 1;
   const largeImport = {
     ...importTemplate,
     documentIndex: {
-      text: `${'x'.repeat(beforeBoundaryEmoji)}😀${'x'.repeat(33_000_000 - beforeBoundaryEmoji)}`,
+      text: `${'x'.repeat(beforeBoundaryEmoji)}😀${'x'.repeat(importTextCharacters - beforeBoundaryEmoji)}`,
     },
   };
   let completionAttempts = 0;
@@ -1109,10 +1113,10 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
           success: true,
           config: {
             import: {
-              directMaxBytes: 20_000_000,
-              maxChunkBytes: 16_000_000,
+              directMaxBytes,
+              maxChunkBytes,
               maxChunkCount: 32,
-              maxSerializedBytes: 280_000_000,
+              maxSerializedBytes,
               requestTimeoutMs: 120_000,
             },
           },
@@ -1185,7 +1189,7 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
   expect(requests.map(request => Number(/\/chunks\/[^/]+\/(\d+)/u.exec(request.url)?.[1]))).toEqual(
     requests.map((_, index) => index)
   );
-  expect(requests.every(request => new Blob([request.chunk]).size <= 16_000_000)).toBe(true);
+  expect(requests.every(request => new Blob([request.chunk]).size <= maxChunkBytes)).toBe(true);
   for (let index = 0; index < requests.length - 1; index += 1) {
     const left = requests[index]?.chunk || '';
     const right = requests[index + 1]?.chunk || '';
