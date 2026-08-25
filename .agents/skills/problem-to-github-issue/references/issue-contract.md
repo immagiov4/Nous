@@ -16,6 +16,8 @@ An issue is a durable triage record. Use only the sections that carry informatio
 - `Observability gaps` names the smallest missing signal needed to continue diagnosis.
 - `Decisions already made` records choices approved by the maintainer or established contracts.
 - `Unknowns and decisions needed` keeps unknown facts separate from choices the maintainer owns.
+- `Open questions` is the exploratory equivalent when the issue records questions without asking
+  for an immediate decision.
 - `Acceptance criteria` contains observable outcomes implied by approved behavior.
 - `Scope` and `Out of scope` prevent a plausible expansion or misreading.
 - `Verification` states known checks or demonstrations that can prove completion.

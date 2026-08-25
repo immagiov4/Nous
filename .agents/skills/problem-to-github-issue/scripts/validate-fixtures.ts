@@ -35,6 +35,7 @@ interface SourceStatement {
 interface ContractFixture {
   name: string;
   readyForAgent: boolean;
+  labels: string[];
   sources: SourceStatement[];
   draftBody: string;
   expectedErrors: string[];
@@ -198,6 +199,7 @@ const validateFixture = (fixture: ContractFixture): string[] => {
   }
 
   if (fixture.readyForAgent) {
+    if (!fixture.labels.includes('ready-for-agent')) errors.push('missing-ready-label');
     const agentBrief = sections.get('Agent brief');
     if (!agentBrief) {
       errors.push('missing-agent-brief');
@@ -245,8 +247,9 @@ const validateFixture = (fixture: ContractFixture): string[] => {
         }
       }
     }
-  } else if (sections.has('Agent brief')) {
-    errors.push('unexpected-agent-brief');
+  } else {
+    if (fixture.labels.includes('ready-for-agent')) errors.push('unexpected-ready-label');
+    if (sections.has('Agent brief')) errors.push('unexpected-agent-brief');
   }
 
   for (const source of fixture.sources) {
