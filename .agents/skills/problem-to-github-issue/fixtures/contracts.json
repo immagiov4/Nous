@@ -75,7 +75,7 @@
     "expectedErrors": ["target-language:it"]
   },
   {
-    "name": "open-decision-blocks-ready-for-agent",
+    "name": "issue-123-open-decision-blocks-ready-for-agent",
     "targetLanguage": "en",
     "readyForAgent": true,
     "sources": [
@@ -90,7 +90,7 @@
     "expectedErrors": ["open-decision-ready:choose-remediation-threshold"]
   },
   {
-    "name": "settled-issue-can-have-an-agent-brief",
+    "name": "issue-114-settled-work-can-have-an-agent-brief",
     "targetLanguage": "en",
     "readyForAgent": true,
     "sources": [
