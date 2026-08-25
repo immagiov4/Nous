@@ -55,9 +55,6 @@ const failures = placementCases.flatMap(testCase => {
   return actual === testCase.expected ? [] : [testCase.name];
 });
 
-const defaultLanguage = 'en';
-if (defaultLanguage !== 'en') failures.push('issues default to English');
-
 const readyLabels = new Set(['ready-for-agent']);
 const requiredBriefFields = ['summary', 'desiredBehavior', 'acceptanceCriteria'];
 const completeBrief = {
@@ -73,4 +70,4 @@ if (!isReady) failures.push('ready work requires its label and agent brief');
 if (failures.length > 0)
   throw new Error(`Issue contract fixture failures:\n${failures.join('\n')}`);
 
-console.log(`Validated ${placementCases.length + 2} issue contract rules.`);
+console.log(`Validated ${placementCases.length + 1} issue contract rules.`);

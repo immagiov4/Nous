@@ -39,7 +39,7 @@ body:
     id: evidence
     attributes:
       label: Observed evidence
-      description: Add reproduction steps, logs, measurements, screenshots, or source evidence. If none is available, state what has not been established and what evidence would resolve the gap.
+      description: Add reproduction steps, logs, measurements, screenshots, or source evidence. Remove credentials, personal data, and private document content before posting. If none is available, state what has not been established and what evidence would resolve the gap.
 
   - type: textarea
     id: decisions

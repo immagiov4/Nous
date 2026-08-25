@@ -8,7 +8,8 @@ description: Diagnose a reported Nous problem, capture a product idea or investi
 An issue preserves the problem, verified evidence, and maintainer decisions. It may remain
 exploratory. A separate agent brief makes settled work executable.
 
-Read [the issue contract](references/issue-contract.md) before drafting or rewriting an issue.
+Read [the issue contract](references/issue-contract.md) before any governed lifecycle mutation,
+including closing an issue as duplicate or obsolete.
 
 ## Investigate before drafting
 
@@ -46,6 +47,10 @@ must trace to its permitted source class.
 
 New issues start as triage records. Add a `ready-for-agent` label and an `Agent brief` only after the
 maintainer approves that transition and all blocking decisions are settled.
+
+After editing or reopening a ready issue, revalidate its brief against the current issue. Remove the
+`ready-for-agent` label when the change introduces a blocking unknown or changes approved behavior,
+and restore it only after the maintainer approves the updated brief.
 
 The agent brief is the autonomous implementation contract. It describes behavior, boundaries,
 dependencies, and verification. It does not silently answer open questions from the issue.
