@@ -1,0 +1,84 @@
+name: Problem or idea
+description: Report a problem, propose a direction, or request an investigation
+title: ""
+labels: []
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Bug
+        - Product idea
+        - Investigation
+        - Decision
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: State what is broken, missing, confusing, or worth investigating.
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: Desired outcome or direction
+      description: State the chosen outcome. If no outcome is settled, describe the direction without turning options into requirements.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Observed evidence
+      description: Add reproduction steps, logs, measurements, screenshots, or source evidence. If none is available, state what has not been established.
+    validations:
+      required: true
+
+  - type: textarea
+    id: decisions
+    attributes:
+      label: Decisions already made
+      description: Include only choices approved by the maintainer or established by an authoritative contract.
+
+  - type: textarea
+    id: unknowns
+    attributes:
+      label: Unknowns and decisions needed
+      description: Separate unknown facts, hypotheses, and options that still need a decision.
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Add observable outcomes only when the desired behavior is settled.
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and out of scope
+      description: Name boundaries only when an adjacent interpretation is plausible.
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: State known checks or demonstrations that can prove completion.
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List blocking issues, decisions, migrations, or services.
+
+  - type: checkboxes
+    id: provenance
+    attributes:
+      label: Provenance check
+      options:
+        - label: I kept hypotheses and unapproved options separate from verified evidence and requirements.
+          required: true

@@ -1,0 +1,127 @@
+[
+  {
+    "name": "issue-95-keeps-reproduction-as-evidence",
+    "targetLanguage": "en",
+    "readyForAgent": false,
+    "sources": [
+      {
+        "id": "selection-is-a-no-op",
+        "text": "Selecting the item has no observable effect.",
+        "kind": "verified"
+      },
+      {
+        "id": "selection-must-open-an-action",
+        "text": "Selecting the item must expose an available action.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Desired outcome\n\n- Selecting the item must expose an available action.\n\n## Observed evidence\n\n- Selecting the item has no observable effect.",
+    "expectedErrors": []
+  },
+  {
+    "name": "issue-96-rejects-a-timeout-hypothesis-as-evidence",
+    "targetLanguage": "en",
+    "readyForAgent": false,
+    "sources": [
+      {
+        "id": "export-timeout-cause",
+        "text": "The export fails because the worker times out.",
+        "kind": "hypothesis"
+      }
+    ],
+    "draftBody": "## Observed evidence\n\n- The export fails because the worker times out.",
+    "expectedErrors": ["misplaced:export-timeout-cause:observedEvidence"]
+  },
+  {
+    "name": "issue-97-records-missing-evidence-as-a-limit",
+    "targetLanguage": "en",
+    "readyForAgent": false,
+    "sources": [
+      {
+        "id": "import-correlation-id-unavailable",
+        "text": "The captured logs do not include an import correlation ID.",
+        "kind": "diagnostic-limit"
+      }
+    ],
+    "draftBody": "## Observed evidence\n\n- The captured logs do not include an import correlation ID.",
+    "expectedErrors": []
+  },
+  {
+    "name": "issue-98-rejects-an-unapproved-ui-option-as-a-requirement",
+    "targetLanguage": "en",
+    "readyForAgent": false,
+    "sources": [
+      {
+        "id": "move-alert-outside-menu",
+        "text": "Move the alert outside the menu.",
+        "kind": "option"
+      }
+    ],
+    "draftBody": "## Acceptance criteria\n\n- Move the alert outside the menu.",
+    "expectedErrors": ["misplaced:move-alert-outside-menu:acceptanceCriteria"]
+  },
+  {
+    "name": "agent-created-issue-defaults-to-english",
+    "targetLanguage": "it",
+    "readyForAgent": false,
+    "sources": [
+      {
+        "id": "confirmed-code-path",
+        "text": "The confirmed path reaches the lesson generator.",
+        "kind": "verified"
+      }
+    ],
+    "draftBody": "## Observed evidence\n\n- The confirmed path reaches the lesson generator.",
+    "expectedErrors": ["target-language:it"]
+  },
+  {
+    "name": "open-decision-blocks-ready-for-agent",
+    "targetLanguage": "en",
+    "readyForAgent": true,
+    "sources": [
+      {
+        "id": "choose-remediation-threshold",
+        "text": "Choose the remediation threshold.",
+        "kind": "option",
+        "blocking": true
+      }
+    ],
+    "draftBody": "## Unknowns and decisions needed\n\n- Choose the remediation threshold.",
+    "agentBrief": {
+      "summary": ["Propose remediation from established evidence."],
+      "desiredBehavior": ["Use an approved transition policy."],
+      "acceptanceCriteria": ["The approved policy controls the suggestion."]
+    },
+    "expectedErrors": ["open-decision-ready:choose-remediation-threshold"]
+  },
+  {
+    "name": "settled-issue-can-have-an-agent-brief",
+    "targetLanguage": "en",
+    "readyForAgent": true,
+    "sources": [
+      {
+        "id": "content-fields-diverge",
+        "text": "Two persisted content representations can diverge.",
+        "kind": "verified"
+      },
+      {
+        "id": "one-authoritative-content-model",
+        "text": "One representation must own persisted lesson content.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Desired outcome\n\n- One representation must own persisted lesson content.\n\n## Observed evidence\n\n- Two persisted content representations can diverge.",
+    "agentBrief": {
+      "category": ["bug"],
+      "summary": ["Keep one authoritative lesson content model."],
+      "currentBehavior": ["Two persisted representations can diverge."],
+      "desiredBehavior": ["One representation owns persisted lesson content."],
+      "contracts": ["Existing projects remain readable."],
+      "acceptanceCriteria": ["Round trips cannot create divergent content."],
+      "outOfScope": ["Unrelated reader redesign."],
+      "dependencies": ["Project migration contract."],
+      "verification": ["Run round-trip and migration regressions."]
+    },
+    "expectedErrors": []
+  }
+]

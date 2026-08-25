@@ -1,0 +1,7 @@
+interface:
+  display_name: "Problem to GitHub Issue"
+  short_description: "Turn Nous evidence into honest GitHub issues"
+  default_prompt: "Use $problem-to-github-issue to investigate this report and draft an English GitHub issue."
+
+policy:
+  allow_implicit_invocation: true
