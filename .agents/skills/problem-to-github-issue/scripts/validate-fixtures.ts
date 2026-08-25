@@ -1,4 +1,5 @@
 type SourceKind =
+  | 'reported'
   | 'verified'
   | 'diagnostic-limit'
   | 'hypothesis'
@@ -7,11 +8,21 @@ type SourceKind =
   | 'unknown';
 
 type Placement =
+  | 'problem'
   | 'desiredOutcome'
+  | 'direction'
   | 'observedEvidence'
+  | 'reproduction'
   | 'hypotheses'
+  | 'observabilityGaps'
+  | 'decisionsAlreadyMade'
   | 'unknownsAndDecisionsNeeded'
-  | 'acceptanceCriteria';
+  | 'openQuestions'
+  | 'acceptanceCriteria'
+  | 'scope'
+  | 'outOfScope'
+  | 'verification'
+  | 'dependencies';
 
 interface SourceStatement {
   id: string;
@@ -23,7 +34,6 @@ interface SourceStatement {
 
 interface ContractFixture {
   name: string;
-  targetLanguage: string;
   readyForAgent: boolean;
   sources: SourceStatement[];
   draftBody: string;
@@ -31,19 +41,39 @@ interface ContractFixture {
 }
 
 const PLACEMENTS: Placement[] = [
+  'problem',
   'desiredOutcome',
+  'direction',
   'observedEvidence',
+  'reproduction',
   'hypotheses',
+  'observabilityGaps',
+  'decisionsAlreadyMade',
   'unknownsAndDecisionsNeeded',
+  'openQuestions',
   'acceptanceCriteria',
+  'scope',
+  'outOfScope',
+  'verification',
+  'dependencies',
 ];
 
 const SECTION_HEADINGS: Record<Placement, string> = {
+  problem: 'Problem',
   desiredOutcome: 'Desired outcome',
+  direction: 'Direction',
   observedEvidence: 'Observed evidence',
+  reproduction: 'Reproduction',
   hypotheses: 'Hypotheses',
+  observabilityGaps: 'Observability gaps',
+  decisionsAlreadyMade: 'Decisions already made',
   unknownsAndDecisionsNeeded: 'Unknowns and decisions needed',
+  openQuestions: 'Open questions',
   acceptanceCriteria: 'Acceptance criteria',
+  scope: 'Scope',
+  outOfScope: 'Out of scope',
+  verification: 'Verification',
+  dependencies: 'Dependencies',
 };
 
 const REQUIRED_AGENT_BRIEF_FIELDS = [
@@ -52,21 +82,50 @@ const REQUIRED_AGENT_BRIEF_FIELDS = [
   { heading: 'Acceptance criteria', key: 'acceptanceCriteria' },
 ];
 
+const AGENT_BRIEF_ALLOWED_KINDS: Record<string, SourceKind[]> = {
+  Summary: ['decision'],
+  'Current behavior': ['verified', 'diagnostic-limit'],
+  'Desired behavior': ['decision'],
+  'Key contracts and decisions': ['decision'],
+  'Acceptance criteria': ['decision'],
+  'Out of scope': ['decision'],
+  Dependencies: ['verified', 'decision'],
+  Verification: ['decision'],
+};
+
 const allowedPlacements = (source: SourceStatement): Placement[] => {
   switch (source.kind) {
+    case 'reported':
+      return ['problem'];
     case 'verified':
+      return ['problem', 'observedEvidence', 'reproduction', 'dependencies'];
     case 'diagnostic-limit':
-      return ['observedEvidence'];
+      return ['observedEvidence', 'observabilityGaps'];
     case 'hypothesis':
       return ['hypotheses'];
     case 'option':
       return source.approved
-        ? ['desiredOutcome', 'acceptanceCriteria']
-        : ['unknownsAndDecisionsNeeded'];
+        ? [
+            'desiredOutcome',
+            'decisionsAlreadyMade',
+            'acceptanceCriteria',
+            'scope',
+            'outOfScope',
+            'verification',
+          ]
+        : ['direction', 'unknownsAndDecisionsNeeded', 'openQuestions'];
     case 'decision':
-      return ['desiredOutcome', 'acceptanceCriteria'];
+      return [
+        'desiredOutcome',
+        'decisionsAlreadyMade',
+        'acceptanceCriteria',
+        'scope',
+        'outOfScope',
+        'verification',
+        'dependencies',
+      ];
     case 'unknown':
-      return ['unknownsAndDecisionsNeeded'];
+      return ['unknownsAndDecisionsNeeded', 'openQuestions'];
   }
 };
 
@@ -105,9 +164,8 @@ const readSubsections = (section: string): Map<string, string> => {
 const validateFixture = (fixture: ContractFixture): string[] => {
   const errors: string[] = [];
   const placementsById = new Map<string, Placement[]>();
+  const agentBriefSourceIds = new Set<string>();
   const sections = readSections(fixture.draftBody);
-
-  if (fixture.targetLanguage !== 'en') errors.push(`target-language:${fixture.targetLanguage}`);
 
   for (const placement of PLACEMENTS) {
     const section = sections.get(SECTION_HEADINGS[placement]);
@@ -139,21 +197,6 @@ const validateFixture = (fixture: ContractFixture): string[] => {
     }
   }
 
-  for (const source of fixture.sources) {
-    const placements = placementsById.get(source.id) ?? [];
-    if (placements.length === 0) errors.push(`unplaced:${source.id}`);
-    if (placements.length > 1) errors.push(`duplicate-placement:${source.id}`);
-
-    if (
-      fixture.readyForAgent &&
-      source.blocking &&
-      (source.kind === 'option' || source.kind === 'unknown') &&
-      !source.approved
-    ) {
-      errors.push(`open-decision-ready:${source.id}`);
-    }
-  }
-
   if (fixture.readyForAgent) {
     const agentBrief = sections.get('Agent brief');
     if (!agentBrief) {
@@ -169,11 +212,58 @@ const validateFixture = (fixture: ContractFixture): string[] => {
             candidate => candidate.heading === heading
           );
           errors.push(`empty-agent-brief:${field?.key ?? heading}`);
+          continue;
+        }
+
+        const allowedKinds = AGENT_BRIEF_ALLOWED_KINDS[heading];
+        if (!allowedKinds) continue;
+
+        for (const line of content
+          .split(/\r?\n/)
+          .map(value => value.trim())
+          .filter(Boolean)) {
+          const fieldKey =
+            REQUIRED_AGENT_BRIEF_FIELDS.find(candidate => candidate.heading === heading)?.key ??
+            heading;
+          if (!line.startsWith('- ')) {
+            errors.push(`unclassified-agent-brief:${fieldKey}`);
+            continue;
+          }
+
+          const statement = line.slice(2).trim();
+          const source = fixture.sources.find(candidate => candidate.text === statement);
+          if (!source) {
+            errors.push(`unclassified-agent-brief:${fieldKey}`);
+            continue;
+          }
+
+          agentBriefSourceIds.add(source.id);
+          const approvedOption = source.kind === 'option' && source.approved;
+          if (!allowedKinds.includes(source.kind) && !approvedOption) {
+            errors.push(`misplaced-agent-brief:${source.id}:${fieldKey}`);
+          }
         }
       }
     }
   } else if (sections.has('Agent brief')) {
     errors.push('unexpected-agent-brief');
+  }
+
+  for (const source of fixture.sources) {
+    const placements = placementsById.get(source.id) ?? [];
+    if (placements.length === 0 && !agentBriefSourceIds.has(source.id)) {
+      errors.push(`unplaced:${source.id}`);
+    }
+    if (placements.length > 1) errors.push(`duplicate-placement:${source.id}`);
+
+    if (
+      fixture.readyForAgent &&
+      source.blocking &&
+      (source.kind === 'option' || source.kind === 'unknown') &&
+      !source.approved
+    ) {
+      errors.push(`open-decision-ready:${source.id}`);
+    }
   }
 
   return errors.sort();

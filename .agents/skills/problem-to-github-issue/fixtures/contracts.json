@@ -1,7 +1,6 @@
 [
   {
     "name": "issue-95-keeps-reproduction-as-evidence",
-    "targetLanguage": "en",
     "readyForAgent": false,
     "sources": [
       {
@@ -20,7 +19,6 @@
   },
   {
     "name": "issue-96-rejects-a-timeout-hypothesis-as-evidence",
-    "targetLanguage": "en",
     "readyForAgent": false,
     "sources": [
       {
@@ -34,7 +32,6 @@
   },
   {
     "name": "issue-97-records-missing-evidence-as-a-limit",
-    "targetLanguage": "en",
     "readyForAgent": false,
     "sources": [
       {
@@ -48,7 +45,6 @@
   },
   {
     "name": "issue-98-rejects-an-unapproved-ui-option-as-a-requirement",
-    "targetLanguage": "en",
     "readyForAgent": false,
     "sources": [
       {
@@ -61,22 +57,45 @@
     "expectedErrors": ["misplaced:move-alert-outside-menu:acceptanceCriteria"]
   },
   {
-    "name": "agent-created-issue-defaults-to-english",
-    "targetLanguage": "it",
+    "name": "documented-ledger-sections-accept-their-source-classes",
     "readyForAgent": false,
     "sources": [
       {
-        "id": "confirmed-code-path",
-        "text": "The confirmed path reaches the lesson generator.",
+        "id": "reported-problem",
+        "text": "The user reports that selection has no effect.",
+        "kind": "reported"
+      },
+      {
+        "id": "possible-direction",
+        "text": "A contextual action is one option.",
+        "kind": "option"
+      },
+      {
+        "id": "approved-contract",
+        "text": "The selection interaction remains keyboard accessible.",
+        "kind": "decision"
+      },
+      {
+        "id": "reproduction-step",
+        "text": "Releasing a text selection reproduces the no-op.",
         "kind": "verified"
+      },
+      {
+        "id": "missing-signal",
+        "text": "No interaction event is recorded.",
+        "kind": "diagnostic-limit"
+      },
+      {
+        "id": "open-choice",
+        "text": "The exact action presentation is undecided.",
+        "kind": "unknown"
       }
     ],
-    "draftBody": "## Observed evidence\n\n- The confirmed path reaches the lesson generator.",
-    "expectedErrors": ["target-language:it"]
+    "draftBody": "## Problem\n\n- The user reports that selection has no effect.\n\n## Direction\n\n- A contextual action is one option.\n\n## Decisions already made\n\n- The selection interaction remains keyboard accessible.\n\n## Reproduction\n\n- Releasing a text selection reproduces the no-op.\n\n## Observability gaps\n\n- No interaction event is recorded.\n\n## Open questions\n\n- The exact action presentation is undecided.",
+    "expectedErrors": []
   },
   {
     "name": "issue-123-open-decision-blocks-ready-for-agent",
-    "targetLanguage": "en",
     "readyForAgent": true,
     "sources": [
       {
@@ -84,14 +103,28 @@
         "text": "Choose the remediation threshold.",
         "kind": "option",
         "blocking": true
+      },
+      {
+        "id": "brief-summary",
+        "text": "Implement the approved remediation policy.",
+        "kind": "decision"
+      },
+      {
+        "id": "approved-transition",
+        "text": "Use the approved transition policy.",
+        "kind": "decision"
+      },
+      {
+        "id": "transition-acceptance",
+        "text": "The approved policy controls the suggestion.",
+        "kind": "decision"
       }
     ],
-    "draftBody": "## Unknowns and decisions needed\n\n- Choose the remediation threshold.\n\n## Agent brief\n\n### Summary\n\nPropose remediation from established evidence.\n\n### Desired behavior\n\nUse an approved transition policy.\n\n### Acceptance criteria\n\nThe approved policy controls the suggestion.",
+    "draftBody": "## Unknowns and decisions needed\n\n- Choose the remediation threshold.\n\n## Agent brief\n\n### Summary\n\n- Implement the approved remediation policy.\n\n### Desired behavior\n\n- Use the approved transition policy.\n\n### Acceptance criteria\n\n- The approved policy controls the suggestion.",
     "expectedErrors": ["open-decision-ready:choose-remediation-threshold"]
   },
   {
     "name": "issue-114-settled-work-can-have-an-agent-brief",
-    "targetLanguage": "en",
     "readyForAgent": true,
     "sources": [
       {
@@ -103,14 +136,43 @@
         "id": "one-authoritative-content-model",
         "text": "One representation must own persisted lesson content.",
         "kind": "decision"
+      },
+      {
+        "id": "brief-summary",
+        "text": "Keep one authoritative lesson content model.",
+        "kind": "decision"
+      },
+      {
+        "id": "legacy-readability",
+        "text": "Existing projects remain readable.",
+        "kind": "decision"
+      },
+      {
+        "id": "round-trip-acceptance",
+        "text": "Round trips cannot create divergent content.",
+        "kind": "decision"
+      },
+      {
+        "id": "reader-redesign-out-of-scope",
+        "text": "An unrelated reader redesign is out of scope.",
+        "kind": "decision"
+      },
+      {
+        "id": "migration-dependency",
+        "text": "The work depends on the project migration contract.",
+        "kind": "verified"
+      },
+      {
+        "id": "verification-contract",
+        "text": "Run round-trip and migration regressions.",
+        "kind": "decision"
       }
     ],
-    "draftBody": "## Desired outcome\n\n- One representation must own persisted lesson content.\n\n## Observed evidence\n\n- Two persisted content representations can diverge.\n\n## Agent brief\n\n### Category\n\nBug\n\n### Summary\n\nKeep one authoritative lesson content model.\n\n### Current behavior\n\nTwo persisted representations can diverge.\n\n### Desired behavior\n\nOne representation owns persisted lesson content.\n\n### Key contracts and decisions\n\nExisting projects remain readable.\n\n### Acceptance criteria\n\nRound trips cannot create divergent content.\n\n### Out of scope\n\nUnrelated reader redesign.\n\n### Dependencies\n\nProject migration contract.\n\n### Verification\n\nRun round-trip and migration regressions.",
+    "draftBody": "## Desired outcome\n\n- One representation must own persisted lesson content.\n\n## Observed evidence\n\n- Two persisted content representations can diverge.\n\n## Agent brief\n\n### Category\n\nBug\n\n### Summary\n\n- Keep one authoritative lesson content model.\n\n### Current behavior\n\n- Two persisted content representations can diverge.\n\n### Desired behavior\n\n- One representation must own persisted lesson content.\n\n### Key contracts and decisions\n\n- Existing projects remain readable.\n\n### Acceptance criteria\n\n- Round trips cannot create divergent content.\n\n### Out of scope\n\n- An unrelated reader redesign is out of scope.\n\n### Dependencies\n\n- The work depends on the project migration contract.\n\n### Verification\n\n- Run round-trip and migration regressions.",
     "expectedErrors": []
   },
   {
     "name": "unclassified-draft-statement-is-rejected",
-    "targetLanguage": "en",
     "readyForAgent": false,
     "sources": [],
     "draftBody": "## Observed evidence\n\n- An unsupported factual claim.",
@@ -118,10 +180,35 @@
   },
   {
     "name": "blank-required-agent-brief-field-is-rejected",
-    "targetLanguage": "en",
     "readyForAgent": true,
-    "sources": [],
-    "draftBody": "## Agent brief\n\n### Summary\n\n\n### Desired behavior\n\nUse the approved behavior.\n\n### Acceptance criteria\n\nThe approved behavior is observable.",
+    "sources": [
+      { "id": "approved-behavior", "text": "Use the approved behavior.", "kind": "decision" },
+      {
+        "id": "observable-behavior",
+        "text": "The approved behavior is observable.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Agent brief\n\n### Summary\n\n\n### Desired behavior\n\n- Use the approved behavior.\n\n### Acceptance criteria\n\n- The approved behavior is observable.",
     "expectedErrors": ["empty-agent-brief:summary"]
+  },
+  {
+    "name": "unapproved-option-is-rejected-from-agent-brief",
+    "readyForAgent": true,
+    "sources": [
+      {
+        "id": "brief-summary",
+        "text": "Implement the approved recovery behavior.",
+        "kind": "decision"
+      },
+      { "id": "retry-three-times", "text": "Retry the operation three times.", "kind": "option" },
+      {
+        "id": "recovery-acceptance",
+        "text": "A recoverable failure can complete.",
+        "kind": "decision"
+      }
+    ],
+    "draftBody": "## Agent brief\n\n### Summary\n\n- Implement the approved recovery behavior.\n\n### Desired behavior\n\n- Retry the operation three times.\n\n### Acceptance criteria\n\n- A recoverable failure can complete.",
+    "expectedErrors": ["misplaced-agent-brief:retry-three-times:desiredBehavior"]
   }
 ]

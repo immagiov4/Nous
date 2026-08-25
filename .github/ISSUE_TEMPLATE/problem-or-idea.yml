@@ -46,10 +46,16 @@ body:
       description: Include only choices approved by the maintainer or established by an authoritative contract.
 
   - type: textarea
+    id: hypotheses
+    attributes:
+      label: Hypotheses
+      description: Record suspected causes that the available evidence has not verified.
+
+  - type: textarea
     id: unknowns
     attributes:
       label: Unknowns and decisions needed
-      description: Separate unknown facts, hypotheses, and options that still need a decision.
+      description: Separate unknown facts and options that still need a decision.
 
   - type: textarea
     id: acceptance-criteria
