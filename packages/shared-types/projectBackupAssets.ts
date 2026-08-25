@@ -148,6 +148,18 @@ const remapDocumentAssetReferences = (
   }
 };
 
+const isProjectScopedAnnotationArtifactRef = (
+  value: unknown,
+  sourcePrefix: string
+): value is Record<string, unknown> & { artifactId: string; kind: string } =>
+  isRecord(value) &&
+  typeof value.artifactId === 'string' &&
+  (value.kind === 'future-asset' ||
+    value.kind === 'generated-visual' ||
+    value.kind === 'pdf-image') &&
+  value.artifactId.startsWith(sourcePrefix) &&
+  value.artifactId.includes(`:${value.kind}:`);
+
 const remapAnnotationArtifactReferences = (
   project: Record<string, unknown>,
   sourceProjectId: string,
@@ -159,17 +171,7 @@ const remapAnnotationArtifactReferences = (
     for (const annotation of section.annotations) {
       if (!isRecord(annotation) || !Array.isArray(annotation.artifactRefs)) continue;
       for (const artifactRef of annotation.artifactRefs) {
-        if (
-          !isRecord(artifactRef) ||
-          typeof artifactRef.artifactId !== 'string' ||
-          (artifactRef.kind !== 'future-asset' &&
-            artifactRef.kind !== 'generated-visual' &&
-            artifactRef.kind !== 'pdf-image') ||
-          !artifactRef.artifactId.startsWith(sourcePrefix) ||
-          !artifactRef.artifactId.includes(`:${artifactRef.kind}:`)
-        ) {
-          continue;
-        }
+        if (!isProjectScopedAnnotationArtifactRef(artifactRef, sourcePrefix)) continue;
         artifactRef.artifactId = `${targetProjectId}:${artifactRef.artifactId.slice(sourcePrefix.length)}`;
       }
     }
