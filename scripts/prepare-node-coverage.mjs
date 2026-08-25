@@ -1,6 +1,7 @@
 import { readFileSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-const coverageReport = new URL('../coverage/lcov.info', import.meta.url);
+const coverageReport = resolve(import.meta.dirname, '..', 'coverage', 'lcov.info');
 const pinnedVersion = readFileSync(new URL('../.node-version', import.meta.url), 'utf8').trim();
 const activeVersion = process.versions.node;
 

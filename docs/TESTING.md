@@ -12,7 +12,6 @@ bun run doctor -- --profile all
 bun run quality
 bun run check:fallow
 bun run test
-bun run gate:full
 ```
 
 - `doctor` verifies the Bun/CI runtime contract, installed project executables, and versioned
@@ -30,6 +29,15 @@ bun run gate:full
   or unchanged, so replacing one accepted finding with one new finding still fails even when the
   total is unchanged. The local `check:fallow` command remains informational. Refreshing the
   baseline first verifies that the current result introduces no new recorded debt.
+
+## Final local validation
+
+After GitHub CI passes on the final commit, run:
+
+```bash
+bun run gate:full
+```
+
 - `gate:full` runs local quality, the blocking Fallow regression check, and Node coverage one at a
   time after GitHub CI passes on the same commit. It does not repeat the complete Bun suite or the
   dependency graph check from CI. It then starts the local Sonar service, verifies the pinned Bun
