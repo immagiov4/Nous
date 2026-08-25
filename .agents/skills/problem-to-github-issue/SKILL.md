@@ -50,9 +50,9 @@ New issues start as triage records. Add a `ready-for-agent` label and an `Agent 
 maintainer approves that transition, all blocking decisions are settled, and all blocking
 dependencies are resolved.
 
-After editing or reopening a ready issue, revalidate its brief against the current issue. Remove the
-`ready-for-agent` label when the change introduces a blocking unknown or changes approved behavior,
-and restore it only after the maintainer approves the updated brief.
+After editing or reopening a ready issue, revalidate it against the readiness contract. Remove the
+`ready-for-agent` label whenever it no longer meets that contract, and restore it only after the
+maintainer approves the updated brief.
 
 The agent brief is the autonomous implementation contract. It describes behavior, boundaries,
 dependencies, and verification. It does not silently answer open questions from the issue.

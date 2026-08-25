@@ -46,7 +46,8 @@ Classify each material source statement before writing prose:
 - An unapproved exploratory option may belong in `Direction`. Other unapproved options belong in
   `Unknowns and decisions needed` or `Open questions`.
 - An approved option becomes a decision and may support `Desired outcome` or `Acceptance criteria`.
-- An unknown belongs in `Unknowns and decisions needed`.
+- An exploratory unknown that needs no immediate maintainer decision belongs in `Open questions`.
+  Other unknowns belong in `Unknowns and decisions needed`.
 
 Examples, suggestions, candidate interfaces, and brainstormed numbers remain options until the
 maintainer approves them. Ordinary correctness, safety, integrity, and accessibility consequences
