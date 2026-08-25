@@ -474,6 +474,9 @@ const getNonAnchorablePlaceholderRanges = (content: string): MarkdownRange[] => 
 };
 
 export const getMarkdownProtectedRanges = (content: string): MarkdownRange[] =>
+  mergeRanges([...getMarkdownCodeRanges(content), ...getMarkdownMathRanges(content)]);
+
+export const getMarkdownAnnotationProtectedRanges = (content: string): MarkdownRange[] =>
   mergeRanges([
     ...getMarkdownCodeRanges(content),
     ...getMarkdownImageRanges(content),

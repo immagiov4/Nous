@@ -1,5 +1,8 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
-import { getMarkdownProtectedRanges, type MarkdownRange } from '../markdown/codeRanges.ts';
+import {
+  getMarkdownAnnotationProtectedRanges,
+  type MarkdownRange,
+} from '../markdown/codeRanges.ts';
 import {
   buildContextRegex,
   buildMarkableSegments,
@@ -50,7 +53,7 @@ const buildAnnotationResolutionContext = (
     contextOffset: contextualProjection.offset,
     contextText: contextualProjection.text,
     projection,
-    protectedRanges: getMarkdownProtectedRanges(content),
+    protectedRanges: getMarkdownAnnotationProtectedRanges(content),
   };
 };
 

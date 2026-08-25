@@ -1,5 +1,5 @@
 import {
-  getMarkdownProtectedRanges,
+  getMarkdownAnnotationProtectedRanges,
   type MarkdownRange,
   normalizeMathSelectionArtifacts,
 } from '../markdown/codeRanges.ts';
@@ -43,7 +43,7 @@ export const resolveSelectedSegments = ({
   const visibleProjection = buildVisibleProjection(content);
   const looseProjection = buildLooseProjection(content);
   const sourceLooseProjection = buildSourceLooseProjection(content);
-  const protectedRanges = getMarkdownProtectedRanges(content);
+  const protectedRanges = getMarkdownAnnotationProtectedRanges(content);
   const hasSelectionContext = Boolean(contextBefore || contextAfter);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
