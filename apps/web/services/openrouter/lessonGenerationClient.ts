@@ -439,13 +439,19 @@ export const resolveDurableSublessonRequestForSection = async (
   parentSectionId: string,
   sectionId: string
 ): Promise<DurableLessonRecovery | null> => {
+  const retained = await resolveDurableSublessonRequestForParent(projectId, parentSectionId);
+  return retained?.job.sectionId === sectionId ? retained : null;
+};
+
+export const resolveDurableSublessonRequestForParent = async (
+  projectId: string,
+  parentSectionId: string
+): Promise<DurableLessonRecovery | null> => {
   const retained = await resolveRetainedLessonRequest({
     projectId,
     requestIdentity: `sublesson:${parentSectionId}`,
   });
-  return retained?.job.projectId === projectId && retained.job.sectionId === sectionId
-    ? retained
-    : null;
+  return retained?.job.projectId === projectId ? retained : null;
 };
 
 export const isDurableSublessonRequestForSection = async (

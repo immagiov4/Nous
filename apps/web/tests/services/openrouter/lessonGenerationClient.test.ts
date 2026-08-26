@@ -21,6 +21,7 @@ const {
   isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
   LessonSourceUnavailableError,
+  resolveDurableSublessonRequestForParent,
   resolveDurableSublessonRequestForSection,
 } = await import('../../../services/openrouter/lessonGenerationClient.ts');
 
@@ -1145,6 +1146,27 @@ describe('generateDurableLesson', () => {
 
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
     expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('resolves a retained sublesson from its parent before the child is locally available', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'sublesson-request'
+    );
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        id: 'run-sublesson',
+        projectId: 'project-1',
+        sectionId: 'deep-lesson',
+        stage: 'drafting',
+        status: 'running',
+      })
+    );
+
+    const recovery = await resolveDurableSublessonRequestForParent('project-1', 'lesson-1');
+
+    expect(recovery?.job.sectionId).toBe('deep-lesson');
+    expect(globalThis.sessionStorage).toHaveLength(1);
   });
 
   test('replays a terminal sublesson failure without starting ordinary generation', async () => {

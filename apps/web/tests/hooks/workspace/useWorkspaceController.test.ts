@@ -893,6 +893,7 @@ const createOpenRouterMock = (
     hasDurableLessonRequest: () => false,
     hasDurableSublessonRequest: () => false,
     isDurableSublessonRequestForSection: async () => false,
+    resolveDurableSublessonRequestForParent: async () => null,
     resolveDurableSublessonRequestForSection: async () => null,
     repairDurablePdfMapping: async ({
       projectId,
@@ -1928,6 +1929,98 @@ test('openProject resumes a retained sublesson request for a populated active le
       })
     )
   );
+});
+
+test('openProject resumes a retained sublesson before its child is persisted', async () => {
+  const rootLesson = buildTestLesson({ content: '# Radice', id: 'lesson-root' });
+  const parentLesson = buildTestLesson({
+    content: '# Approfondimento padre',
+    id: 'deep-parent',
+    parentId: rootLesson.id,
+    type: 'deep-dive',
+  });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
+  const deepLesson = buildTestLesson({
+    content: '# Approfondimento',
+    id: 'deep-1',
+    parentId: parentLesson.id,
+    title: 'Approfondimento',
+    type: 'deep-dive',
+  });
+  const snapshot = createProjectSnapshot({
+    activeSectionId: parentLesson.id,
+    id: 'project-retained-parent-sublesson',
+    learningPlan: buildPlan({ sections: [rootLesson, parentLesson, readyLesson] }),
+    source: createProjectSourceFromFile(markdownFile),
+    state: AppState.READING,
+  });
+  const completedSnapshot = createProjectSnapshot({
+    ...snapshot,
+    activeSectionId: deepLesson.id,
+    learningPlan: buildPlan({ sections: [rootLesson, parentLesson, readyLesson, deepLesson] }),
+  });
+  const recovery = buildLessonRecovery(deepLesson.id, {
+    job: {
+      ...buildLessonRecovery(deepLesson.id).job,
+      projectId: snapshot.id,
+    },
+  });
+  const generateDurableLesson = vi.fn(async () => ({
+    content: deepLesson.content || '',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: snapshot.id,
+    projectRevision: 2,
+    quiz: [],
+    sectionId: deepLesson.id,
+    warnings: [],
+  }));
+  const generateDurableSublesson = vi.fn();
+  let resolveRecovery: ((value: DurableLessonRecovery) => void) | undefined;
+  const recoveryGate = new Promise<DurableLessonRecovery>(resolve => {
+    resolveRecovery = resolve;
+  });
+  const resolveDurableSublessonRequestForParent = vi.fn(async () => recoveryGate);
+  let harness!: ReturnType<typeof createControllerHarness>;
+  harness = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: {
+      generateDurableLesson,
+      generateDurableSublesson,
+      hasDurableSublessonRequest: (projectId, parentSectionId) =>
+        projectId === snapshot.id && parentSectionId === parentLesson.id,
+      resolveDurableSublessonRequestForParent,
+    },
+    projectLibrary: {
+      applyPersistedProjectRevision: async () => {
+        harness.domain.hydrateSnapshot(completedSnapshot);
+        return true;
+      },
+    },
+  });
+
+  expect((await harness.controller.openProject(snapshot.id)).outcome).toBe('opened');
+  await vi.waitFor(() => expect(resolveDurableSublessonRequestForParent).toHaveBeenCalledOnce());
+  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  resolveRecovery?.(recovery);
+  await vi.waitFor(() => expect(generateDurableLesson).toHaveBeenCalledOnce());
+  await vi.waitFor(() =>
+    expect(findPathNodeById(harness.domain.learningPlan?.modules, deepLesson.id)).toBeTruthy()
+  );
+
+  expect(generateDurableLesson).toHaveBeenCalledWith(
+    expect.objectContaining({
+      parentSectionId: parentLesson.id,
+      projectId: snapshot.id,
+      recovery,
+      sectionId: deepLesson.id,
+    })
+  );
+  expect(generateDurableSublesson).not.toHaveBeenCalled();
+  expect(harness.domain.activeSectionId).toBe(readyLesson.id);
+  expect(harness.state.adapter.isGenerationActive(snapshot.id)).toBe(false);
 });
 
 test('openProject uses the synchronously hydrated domain when its React closure is stale', async () => {

@@ -37,6 +37,7 @@ export {
   hasDurableSublessonRequest,
   isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
+  resolveDurableSublessonRequestForParent,
   resolveDurableSublessonRequestForSection,
 } from './lessonGenerationClient.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';

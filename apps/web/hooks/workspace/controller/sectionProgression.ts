@@ -1,3 +1,4 @@
+import type { LessonWorkflowSnapshot } from '@shared/lessonWorkflowContract';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
@@ -16,6 +17,7 @@ import {
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
 import {
   type DurableLessonRecovery,
+  type DurableLessonResult,
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
   LessonSourceUnavailableError,
 } from '../../../services/openrouter/lessonGenerationClient.ts';
@@ -54,6 +56,18 @@ interface ActiveGeneration {
   projectId: string | null;
   token: number;
 }
+
+interface SublessonFocus {
+  annotationNote?: string;
+  contextAfter?: string;
+  contextBefore?: string;
+  instructions: string;
+  selectedText: string;
+}
+
+type SublessonGenerationStart =
+  | { focus: SublessonFocus; kind: 'new'; parentSection: LessonNode }
+  | { kind: 'recovery'; parentSection: LessonNode };
 
 const getDeliverableValidationMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -708,13 +722,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
   }
 
-  async function createLessonFromSelection(args: {
-    annotationNote?: string;
-    contextAfter?: string;
-    contextBefore?: string;
-    instructions: string;
-    selectedText: string;
-  }): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
+  async function createLessonFromSelection(
+    args: SublessonFocus
+  ): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
     if (!domain.learningPlan || !domain.activeSectionId) {
       return {
         outcome: 'failed',
@@ -732,6 +742,20 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           'Non riesco a trovare la lezione corrente nel piano. Ricarica il progetto e riprova.',
       };
     }
+
+    return runSublessonGeneration({ focus: args, kind: 'new', parentSection });
+  }
+
+  async function resumeRetainedSublesson(
+    parentSection: LessonNode
+  ): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
+    return runSublessonGeneration({ kind: 'recovery', parentSection });
+  }
+
+  async function runSublessonGeneration(
+    start: SublessonGenerationStart
+  ): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
+    const { parentSection } = start;
 
     const workflowState = state.getWorkflowState();
     if (
@@ -796,22 +820,49 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     });
 
     try {
-      const result = await openRouter.generateDurableSublesson({
-        annotationNote: args.annotationNote,
-        contextAfter: args.contextAfter,
-        contextBefore: args.contextBefore,
-        instructions: args.instructions,
-        onProgressStage: progressObserver.setStage,
-        onWorkflowSnapshot: snapshot => {
-          if (!isGenerationCurrent()) return;
-          generatedSectionId = snapshot.sectionId;
-          state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
-          if (isGenerationViewCurrent()) progressBridge.updateFromWorkflow(snapshot);
-        },
-        parentSectionId: parentSection.id,
-        projectId,
-        selectedText: args.selectedText,
-      });
+      const recovery =
+        start.kind === 'recovery'
+          ? await openRouter.resolveDurableSublessonRequestForParent(projectId, parentSection.id)
+          : null;
+      if (!isGenerationCurrent()) return { outcome: 'ignored-busy' };
+      if (start.kind === 'recovery' && !recovery) {
+        if (isGenerationWorkflowCurrent()) state.invalidateWorkflows(['createLesson']);
+        return { outcome: 'ignored-busy' };
+      }
+      if (recovery) {
+        generatedSectionId = recovery.job.sectionId;
+        state.setGeneratingSectionId(projectId, generationToken, recovery.job.sectionId);
+      }
+      const onWorkflowSnapshot = (snapshot: LessonWorkflowSnapshot) => {
+        if (!isGenerationCurrent()) return;
+        generatedSectionId = snapshot.sectionId;
+        state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
+        if (isGenerationViewCurrent()) progressBridge.updateFromWorkflow(snapshot);
+      };
+      let result: DurableLessonResult;
+      if (start.kind === 'recovery') {
+        if (!recovery) return { outcome: 'ignored-busy' };
+        result = await openRouter.generateDurableLesson({
+          onProgressStage: progressObserver.setStage,
+          onWorkflowSnapshot,
+          parentSectionId: parentSection.id,
+          projectId,
+          recovery,
+          sectionId: recovery.job.sectionId,
+        });
+      } else {
+        result = await openRouter.generateDurableSublesson({
+          annotationNote: start.focus.annotationNote,
+          contextAfter: start.focus.contextAfter,
+          contextBefore: start.focus.contextBefore,
+          instructions: start.focus.instructions,
+          onProgressStage: progressObserver.setStage,
+          onWorkflowSnapshot,
+          parentSectionId: parentSection.id,
+          projectId,
+          selectedText: start.focus.selectedText,
+        });
+      }
 
       if (!isGenerationCurrent()) {
         return { outcome: 'ignored-busy' };
@@ -823,12 +874,28 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         );
       }
 
+      const activeSectionBeforeApply = domain.getDomainState().activeSectionId;
+      const shouldPreserveVisibleSection =
+        activeSectionBeforeApply !== null &&
+        activeSectionBeforeApply !== parentSection.id &&
+        activeSectionBeforeApply !== generatedSectionId;
       const applied = await projectLibrary.applyPersistedProjectRevision({
         projectId,
         revision: result.projectRevision,
       });
       if (!isGenerationCurrent()) {
         return { outcome: 'ignored-busy' };
+      }
+      if (
+        shouldPreserveVisibleSection &&
+        projectLibrary.getCurrentProjectId() === projectId &&
+        domain.getDomainState().activeSectionId !== activeSectionBeforeApply
+      ) {
+        domain.setActiveSectionId(activeSectionBeforeApply);
+        void projectLibrary.patchCurrentProject(
+          { activeSectionId: activeSectionBeforeApply, state: AppState.READING },
+          projectId
+        );
       }
       if (!isGenerationViewCurrent()) {
         if (isGenerationWorkflowCurrent()) {
@@ -979,6 +1046,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     openExercise,
     openSection,
     repairApplicationExercises,
+    resumeRetainedSublesson,
     regenerateActiveSection,
     updateApplicationExercise,
   };
