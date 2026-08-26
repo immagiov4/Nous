@@ -646,6 +646,7 @@ describe('/api/projects', () => {
     const archivedSnapshot = createSnapshot('archived-project', 'Corso ripristinato');
     archivedSnapshot.learningPlan.sections[0] = {
       ...archivedSnapshot.learningPlan.sections[0],
+      id: 'lesson-1',
       annotations: [
         {
           anchor: { kind: 'lesson' },

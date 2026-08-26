@@ -1,3 +1,4 @@
+import type { LearningArtifactKind } from '@shared/learningArtifact';
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import type { ProjectDocumentImageAsset, ProjectLessonVisual } from '@shared/projectAsset';
@@ -369,7 +370,7 @@ export interface LessonGeneratedVisual {
 
 export type StoredLessonVisual = LessonGeneratedVisual | ProjectLessonVisual;
 
-export type LearningArtifactKind = 'future-asset' | 'generated-visual' | 'pdf-image';
+export type { LearningArtifactKind } from '@shared/learningArtifact';
 export type LearningArtifactPreviewMode = 'chip-only' | 'thumbnail';
 
 export interface LearningArtifactSummary {

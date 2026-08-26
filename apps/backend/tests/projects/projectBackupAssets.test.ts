@@ -69,30 +69,41 @@ const projectWithAssets = () => ({
 });
 
 const projectWithArtifactAnnotations = () => ({
-  id: 'source-project',
+  id: 'source:project',
   learningPlan: {
     modules: [
       {
         children: [
           {
+            id: 'lesson-1',
             annotations: [
               {
                 anchor: { kind: 'lesson' },
                 artifactRefs: [
                   {
-                    artifactId: 'source-project:lesson-1:generated-visual:visual-1',
+                    artifactId: 'source:project:lesson-1:generated-visual:visual-1',
                     kind: 'generated-visual',
                     title: 'Generated visual',
                   },
                   {
-                    artifactId: 'source-project:lesson-1:pdf-image:image-1',
+                    artifactId: 'source:project:lesson-1:pdf-image:image-1',
                     kind: 'pdf-image',
                     title: 'PDF image',
                   },
                   {
-                    artifactId: 'source-project:lesson-1:future-asset:asset-1',
+                    artifactId: 'source:project:lesson-1:future-asset:asset-1',
                     kind: 'future-asset',
                     title: 'Future asset',
+                  },
+                  {
+                    artifactId: 'source:project:foreign:lesson-1:generated-visual:foreign-1',
+                    kind: 'generated-visual',
+                    title: 'Foreign project with shared prefix',
+                  },
+                  {
+                    artifactId: 'source:lesson-1:pdf-image:foreign-2',
+                    kind: 'pdf-image',
+                    title: 'Foreign project that prefixes the source',
                   },
                 ],
                 id: 'annotation-1',
@@ -195,6 +206,16 @@ describe('project backup asset references', () => {
           artifactId: 'imported-project:lesson-1:future-asset:asset-1',
           kind: 'future-asset',
           title: 'Future asset',
+        },
+        {
+          artifactId: 'source:project:foreign:lesson-1:generated-visual:foreign-1',
+          kind: 'generated-visual',
+          title: 'Foreign project with shared prefix',
+        },
+        {
+          artifactId: 'source:lesson-1:pdf-image:foreign-2',
+          kind: 'pdf-image',
+          title: 'Foreign project that prefixes the source',
         },
       ],
       id: 'annotation-1',

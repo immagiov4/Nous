@@ -1,3 +1,4 @@
+import { isLearningArtifactKind, type LearningArtifactKind } from './learningArtifact';
 import {
   buildProjectAssetPlaceholder,
   isProjectAssetId,
@@ -8,14 +9,6 @@ import {
 } from './projectAsset';
 
 const PROJECT_ASSET_IMPORT_ID_VERSION = 'project-asset-import-v1';
-const PROJECT_SCOPED_ANNOTATION_ARTIFACT_KINDS = [
-  'future-asset',
-  'generated-visual',
-  'pdf-image',
-] as const;
-
-type ProjectScopedAnnotationArtifactKind =
-  (typeof PROJECT_SCOPED_ANNOTATION_ARTIFACT_KINDS)[number];
 
 export class InvalidProjectBackupAssetError extends Error {
   constructor() {
@@ -156,37 +149,40 @@ const remapDocumentAssetReferences = (
   }
 };
 
-const isProjectScopedAnnotationArtifactKind = (
-  value: unknown
-): value is ProjectScopedAnnotationArtifactKind =>
-  PROJECT_SCOPED_ANNOTATION_ARTIFACT_KINDS.some(kind => kind === value);
-
 const isProjectScopedAnnotationArtifactRef = (
-  value: unknown,
-  sourcePrefix: string
+  value: unknown
 ): value is Record<string, unknown> & {
   artifactId: string;
-  kind: ProjectScopedAnnotationArtifactKind;
-} =>
-  isRecord(value) &&
-  typeof value.artifactId === 'string' &&
-  isProjectScopedAnnotationArtifactKind(value.kind) &&
-  value.artifactId.startsWith(sourcePrefix) &&
-  value.artifactId.includes(`:${value.kind}:`);
+  kind: LearningArtifactKind;
+} => isRecord(value) && typeof value.artifactId === 'string' && isLearningArtifactKind(value.kind);
+
+const readAnnotationArtifactProjectId = (
+  artifactRef: Record<string, unknown> & { artifactId: string; kind: LearningArtifactKind },
+  lessonId: string
+): string | null => {
+  const namespaceSeparator = `:${lessonId}:${artifactRef.kind}:`;
+  const namespaceEnd = artifactRef.artifactId.indexOf(namespaceSeparator);
+  return namespaceEnd > 0 ? artifactRef.artifactId.slice(0, namespaceEnd) : null;
+};
 
 const remapAnnotationArtifactReferences = (
   project: Record<string, unknown>,
   sourceProjectId: string,
   targetProjectId: string
 ): void => {
-  const sourcePrefix = `${sourceProjectId}:`;
   for (const section of readProjectSections(project)) {
-    if (!Array.isArray(section.annotations)) continue;
+    if (typeof section.id !== 'string' || !Array.isArray(section.annotations)) continue;
     for (const annotation of section.annotations) {
       if (!isRecord(annotation) || !Array.isArray(annotation.artifactRefs)) continue;
       for (const artifactRef of annotation.artifactRefs) {
-        if (!isProjectScopedAnnotationArtifactRef(artifactRef, sourcePrefix)) continue;
-        artifactRef.artifactId = `${targetProjectId}:${artifactRef.artifactId.slice(sourcePrefix.length)}`;
+        if (
+          !isProjectScopedAnnotationArtifactRef(artifactRef) ||
+          readAnnotationArtifactProjectId(artifactRef, section.id) !== sourceProjectId
+        ) {
+          continue;
+        }
+        const namespaceLength = sourceProjectId.length;
+        artifactRef.artifactId = `${targetProjectId}${artifactRef.artifactId.slice(namespaceLength)}`;
       }
     }
   }
