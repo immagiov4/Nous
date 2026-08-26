@@ -313,6 +313,7 @@ export const createProjectLifecycleCommands = (
           throw error;
         }
         state.invalidateWorkflows([...REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE]);
+        state.setProjectMissingSource(reattachProjectId, false);
         state.resetSessionState();
         projectLibrary.setProjectHydrated(true);
         state.succeedWorkflow('attachSource', requestId);

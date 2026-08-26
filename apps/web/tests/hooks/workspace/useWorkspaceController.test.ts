@@ -612,7 +612,6 @@ const createStateAdapter = () => {
       internalState.assessmentMessages = [];
       internalState.courseProposal = null;
       internalState.openingProjectId = null;
-      internalState.missingSourceProjects.clear();
     },
     setAssessmentMessages: nextMessages => {
       internalState.assessmentMessages =
