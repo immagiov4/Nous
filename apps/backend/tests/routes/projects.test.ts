@@ -761,6 +761,21 @@ describe('/api/projects', () => {
       mimeType: 'image/png',
       name: 'cover.png',
     });
+
+    const invalidTargetUploadId = '323e4567-e89b-42d3-a456-426614174001';
+    const invalidTargetChunkResponse = await request(app)
+      .put(`/api/projects/import/chunks/${invalidTargetUploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.from(backupBytes));
+    expect(invalidTargetChunkResponse.status).toBe(202);
+
+    const invalidTargetResponse = await request(app)
+      .post(`/api/projects/import/chunks/${invalidTargetUploadId}/complete`)
+      .send({
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.backup,
+        targetProjectId: 'restored:project',
+      });
+    expect(invalidTargetResponse.status).toBe(400);
   });
 
   test('round-trips every modern course source while snapshots remain byte-free', async () => {

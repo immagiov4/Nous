@@ -293,6 +293,21 @@ describe('project backup asset references', () => {
     ).toBe('imported-project:lesson-1:generated-visual:lesson-visual:run-id:slot-id');
   });
 
+  test('does not apply artifact scope validation to exercises', () => {
+    expect(() =>
+      remapProjectAssetReferences(
+        {
+          id: 'source-project',
+          learningPlan: {
+            modules: [{ children: [{ id: 'exercise:practice', kind: 'exercise' }] }],
+          },
+        },
+        new Map(),
+        'imported-project'
+      )
+    ).not.toThrow();
+  });
+
   test('remaps owned artifacts across many lessons without deriving namespaces from references', () => {
     const lessons = Array.from({ length: 48 }, (_, index) => ({
       annotations: [

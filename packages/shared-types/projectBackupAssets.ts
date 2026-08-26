@@ -239,6 +239,7 @@ const buildOwnedAnnotationArtifactIdMap = (
       : []
   );
   for (const section of readProjectSections(project)) {
+    if (section.kind === 'exercise') continue;
     if (typeof section.id !== 'string') continue;
     if (!isUnambiguousArtifactScopeId(section.id)) {
       throw new InvalidProjectBackupAssetError();

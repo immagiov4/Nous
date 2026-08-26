@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
 import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
 import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
+import { InvalidProjectBackupAssetError } from '@shared/projectBackupAssets';
 import {
   PROJECT_API_ERROR_CODE,
   PROJECT_PATCH_REBASE_MODE,
@@ -320,7 +321,14 @@ const importBinaryProjectUpload = async (input: {
     if (!targetProjectId) {
       throw new ProjectImportInputError('Identificativo del progetto importato non valido.');
     }
-    return input.store.importProjectArchive(input.userId, input.bytes, targetProjectId);
+    try {
+      return await input.store.importProjectArchive(input.userId, input.bytes, targetProjectId);
+    } catch (error) {
+      if (error instanceof InvalidProjectBackupAssetError) {
+        throw new ProjectImportInputError('Il backup contiene identificativi non validi.');
+      }
+      throw error;
+    }
   }
   if (input.body.payloadKind !== PROJECT_IMPORT_BINARY_KIND.sourceArchive) {
     throw new ProjectImportInputError('Tipo di backup binario mancante o non valido.');
