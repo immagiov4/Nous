@@ -16,4 +16,4 @@ export const buildLearningArtifactId = ({
 }): string => [projectId, lessonId, kind, artifactId].join(LEARNING_ARTIFACT_ID_SEPARATOR);
 
 export const isLearningArtifactKind = (value: unknown): value is LearningArtifactKind =>
-  LEARNING_ARTIFACT_KINDS.some(kind => kind === value);
+  LEARNING_ARTIFACT_KINDS.includes(value as LearningArtifactKind);

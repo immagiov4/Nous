@@ -189,6 +189,42 @@ const addOwnedArtifactId = ({
   );
 };
 
+interface OwnedArtifactScope {
+  artifactIds: Map<string, string>;
+  lessonId: string;
+  sourceProjectId: string;
+  targetProjectId: string;
+}
+
+const addGeneratedVisualArtifactIds = (
+  section: Record<string, unknown>,
+  scope: OwnedArtifactScope
+): void => {
+  if (!Array.isArray(section.generatedVisuals)) return;
+  for (const visual of section.generatedVisuals) {
+    if (!isRecord(visual) || typeof visual.id !== 'string') continue;
+    addOwnedArtifactId({ ...scope, artifactId: visual.id, kind: 'generated-visual' });
+  }
+};
+
+const addPdfImageArtifactIds = (
+  section: Record<string, unknown>,
+  pdfImageIds: ReadonlySet<string>,
+  scope: OwnedArtifactScope
+): void => {
+  if (!Array.isArray(section.imageRefs)) return;
+  for (const imageRef of section.imageRefs) {
+    if (
+      !isRecord(imageRef) ||
+      typeof imageRef.assetId !== 'string' ||
+      !pdfImageIds.has(imageRef.assetId)
+    ) {
+      continue;
+    }
+    addOwnedArtifactId({ ...scope, artifactId: imageRef.assetId, kind: 'pdf-image' });
+  }
+};
+
 const buildOwnedAnnotationArtifactIdMap = (
   project: Record<string, unknown>,
   sourceProjectId: string,
@@ -207,38 +243,14 @@ const buildOwnedAnnotationArtifactIdMap = (
     if (!isUnambiguousArtifactScopeId(section.id)) {
       throw new InvalidProjectBackupAssetError();
     }
-    if (Array.isArray(section.generatedVisuals)) {
-      for (const visual of section.generatedVisuals) {
-        if (!isRecord(visual) || typeof visual.id !== 'string') continue;
-        addOwnedArtifactId({
-          artifactId: visual.id,
-          artifactIds,
-          kind: 'generated-visual',
-          lessonId: section.id,
-          sourceProjectId,
-          targetProjectId,
-        });
-      }
-    }
-    if (Array.isArray(section.imageRefs)) {
-      for (const imageRef of section.imageRefs) {
-        if (
-          !isRecord(imageRef) ||
-          typeof imageRef.assetId !== 'string' ||
-          !pdfImageIds.has(imageRef.assetId)
-        ) {
-          continue;
-        }
-        addOwnedArtifactId({
-          artifactId: imageRef.assetId,
-          artifactIds,
-          kind: 'pdf-image',
-          lessonId: section.id,
-          sourceProjectId,
-          targetProjectId,
-        });
-      }
-    }
+    const scope = {
+      artifactIds,
+      lessonId: section.id,
+      sourceProjectId,
+      targetProjectId,
+    };
+    addGeneratedVisualArtifactIds(section, scope);
+    addPdfImageArtifactIds(section, pdfImageIds, scope);
   }
   return artifactIds;
 };
