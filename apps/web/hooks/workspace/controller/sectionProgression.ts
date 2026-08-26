@@ -1,4 +1,5 @@
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
   type ExerciseDeliverableValidationResult,
@@ -14,6 +15,7 @@ import {
 } from '../../../services/exercises/plan.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
 import {
+  type DurableLessonRecovery,
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
   LessonSourceUnavailableError,
 } from '../../../services/openrouter/lessonGenerationClient.ts';
@@ -400,7 +402,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const openSectionRequestId = state.beginOpenSectionRequest();
     const forceRegenerate = options.forceRegenerate === true;
 
-    if (!domain.learningPlan) {
+    if (!domain.getDomainState().learningPlan) {
       return 'ignored-busy';
     }
 
@@ -427,14 +429,25 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // is running. The user can freely switch between ready lessons.
     const hasPersistedLessonRequest =
       currentProjectId !== null && openRouter.hasDurableLessonRequest(currentProjectId, section.id);
-    const sublessonRecovery =
-      currentProjectId !== null && section.parentId !== undefined
-        ? await openRouter.resolveDurableSublessonRequestForSection(
-            currentProjectId,
-            section.parentId,
-            section.id
-          )
-        : null;
+    let sublessonRecovery: DurableLessonRecovery | null = null;
+    if (currentProjectId !== null && section.parentId !== undefined) {
+      try {
+        sublessonRecovery = await openRouter.resolveDurableSublessonRequestForSection(
+          currentProjectId,
+          section.parentId,
+          section.id
+        );
+      } catch (error) {
+        if (forceRegenerate || !section.content?.length || hasPersistedLessonRequest) {
+          throw error;
+        }
+        pushNousDebugTrace('open-section:cached-recovery-lookup-failed', {
+          errorMessage: getErrorMessage(error),
+          projectId: currentProjectId,
+          sectionId: section.id,
+        });
+      }
+    }
     const hasPersistedSublessonRequest = Boolean(sublessonRecovery);
     if (
       !state.isOpenSectionRequestCurrent(openSectionRequestId) ||
@@ -531,7 +544,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       setProgress: progress => state.setWorkflowProgress('loadSection', requestId, progress),
     });
     const progressObserver = openRouter.createGenerationProgressObserver({
-      language: domain.userProfile?.language || 'Italiano',
+      language: domain.getDomainState().userProfile?.language || 'Italiano',
       onUpdate: progressBridge.updateFromObserver,
       operation: 'lesson',
       subject: section.title,

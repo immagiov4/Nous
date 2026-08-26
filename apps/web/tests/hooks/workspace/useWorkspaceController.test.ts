@@ -229,6 +229,7 @@ const createDomainAdapter = (
     },
     file: null,
     generationNotes: '',
+    getDomainState: () => domain.domainState,
     hydrateSnapshot: snapshot => {
       domain.source = snapshot.source;
       domain.learningPlan = snapshot.learningPlan;
@@ -386,6 +387,30 @@ const createDomainAdapter = (
   }
   if (overrides.learningPlan !== undefined || overrides.activeSectionId !== undefined) {
     syncDomainDerived(domain);
+  }
+  if (overrides.source !== undefined) {
+    domain.domainState.source = overrides.source;
+  }
+  if (overrides.learningPlan !== undefined) {
+    domain.domainState.learningPlan = overrides.learningPlan;
+  }
+  if (overrides.documentAssets !== undefined) {
+    domain.domainState.documentAssets = overrides.documentAssets;
+  }
+  if (overrides.documentIndex !== undefined) {
+    domain.domainState.documentIndex = overrides.documentIndex;
+  }
+  if (overrides.isLearnMode !== undefined) {
+    domain.domainState.isLearnMode = overrides.isLearnMode;
+  }
+  if (overrides.userProfile !== undefined) {
+    domain.domainState.userProfile = overrides.userProfile;
+  }
+  if (overrides.syllabus !== undefined) {
+    domain.domainState.syllabus = overrides.syllabus;
+  }
+  if (overrides.activeSectionId !== undefined) {
+    domain.domainState.activeSectionId = overrides.activeSectionId;
   }
   if (overrides.researchCoursePlan !== undefined) {
     domain.domainState.researchCoursePlan = overrides.researchCoursePlan;
@@ -1848,6 +1873,56 @@ test('openProject resumes a retained regeneration for a populated active lesson'
   await vi.waitFor(() =>
     expect(getLessons(domain.learningPlan)[0]?.content).toBe('# Versione rigenerata')
   );
+});
+
+test('openProject uses the synchronously hydrated domain when its React closure is stale', async () => {
+  const snapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-stale-domain-closure',
+    learningPlan: buildPlan({
+      sections: [buildTestLesson({ content: '# Versione precedente', id: 'lesson-1' })],
+    }),
+    source: createProjectSourceFromFile(markdownFile),
+    state: AppState.READING,
+  });
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Versione rigenerata',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: snapshot.id,
+    quiz: [],
+    sectionId: 'lesson-1',
+    warnings: [],
+  }));
+  const harness = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: {
+      generateDurableLesson,
+      hasDurableLessonRequest: (projectId, sectionId) =>
+        projectId === snapshot.id && sectionId === 'lesson-1',
+    },
+  });
+  const staleDomain = harness.domain;
+  staleDomain.hydrateSnapshot = hydratedSnapshot => {
+    staleDomain.domainState = {
+      source: hydratedSnapshot.source,
+      learningPlan: hydratedSnapshot.learningPlan,
+      documentAssets: hydratedSnapshot.documentAssets ?? null,
+      documentIndex: hydratedSnapshot.documentIndex ?? null,
+      isLearnMode: hydratedSnapshot.isLearnMode,
+      userProfile: hydratedSnapshot.userProfile,
+      syllabus: hydratedSnapshot.syllabus,
+      researchCoursePlan: hydratedSnapshot.researchCoursePlan ?? null,
+      researchDossiersBySectionId: hydratedSnapshot.researchDossiersBySectionId ?? {},
+      activeSectionId: hydratedSnapshot.activeSectionId,
+    };
+  };
+
+  expect(staleDomain.learningPlan).toBeNull();
+  expect((await harness.controller.openProject(snapshot.id)).outcome).toBe('opened');
+  await vi.waitFor(() => expect(generateDurableLesson).toHaveBeenCalledOnce());
 });
 
 test('openProject does not download detached PDF bytes when the active lesson is cached', async () => {
@@ -3586,6 +3661,33 @@ test('openSection reuses a cached sibling of the retained sublesson request', as
     'deep-2'
   );
   expect(generateDurableLesson).not.toHaveBeenCalled();
+});
+
+test('openSection still opens a cached sibling when the optional recovery lookup fails', async () => {
+  const cachedSibling = buildTestLesson({
+    content: '# Approfondimento disponibile',
+    id: 'deep-2',
+    parentId: 'lesson-1',
+    title: 'Approfondimento B',
+    type: 'deep-dive',
+  });
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' }), cachedSibling] });
+  const lookupError = new Error('Recovery service unavailable');
+  const resolveDurableSublessonRequestForSection = vi.fn(async () => {
+    throw lookupError;
+  });
+  const generateDurableLesson = vi.fn();
+  const { controller } = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson, resolveDurableSublessonRequestForSection },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  await expect(controller.openSection(cachedSibling)).resolves.toBe('reused-cached');
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+
+  const uncachedSibling = { ...cachedSibling, content: undefined, id: 'deep-3' };
+  await expect(controller.openSection(uncachedSibling)).rejects.toBe(lookupError);
 });
 
 test('openSection ignores a retained-request lookup superseded by newer navigation', async () => {
@@ -5731,6 +5833,15 @@ test('goToLibrary returns the UX to library and stops active audio playback', as
   assert.equal(state.adapter.isWorkflowCurrent('contextQuestion', questionRequestId), false);
 });
 
+test('local deletion clears the deleted project missing-source state', async () => {
+  const { controller, state } = createControllerHarness();
+  state.adapter.setProjectMissingSource('project-deleted', true);
+
+  await controller.deleteProject('project-deleted');
+
+  expect(state.adapter.hasMissingSource('project-deleted')).toBe(false);
+});
+
 test('remote deletion leaves the deleted course and invalidates every active workflow', () => {
   const plan = buildPlan();
   const { controller, domain, projectLibrary, state, stopAudioCalls } = createControllerHarness({
@@ -5742,6 +5853,7 @@ test('remote deletion leaves the deleted course and invalidates every active wor
     projectLibrary: { currentProjectId: 'project-deleted' },
   });
   state.adapter.setScreenState(AppState.READING);
+  state.adapter.setProjectMissingSource('project-deleted', true);
   const activeRequests = Object.fromEntries(
     WORKSPACE_WORKFLOW_IDS.map(workflowId => [workflowId, state.adapter.beginWorkflow(workflowId)])
   );
@@ -5752,6 +5864,7 @@ test('remote deletion leaves the deleted course and invalidates every active wor
   assert.equal(domain.learningPlan, null);
   assert.equal(domain.source, null);
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(state.adapter.hasMissingSource('project-deleted'), false);
   assert.deepEqual(stopAudioCalls, [true]);
   for (const workflowId of WORKSPACE_WORKFLOW_IDS) {
     assert.equal(

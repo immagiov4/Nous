@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import {
   getProjectSourceFile,
@@ -12,6 +12,7 @@ import {
   selectGenerationNotes,
   selectMusicUrl,
   selectNeedsSourceFile,
+  type WorkspaceDomainAction,
   workspaceDomainReducer,
 } from '../../services/workspace/domain';
 import type {
@@ -30,11 +31,16 @@ import type {
 } from '../../types';
 
 export const useWorkspaceDomain = () => {
-  const [domainState, dispatch] = useReducer(
-    workspaceDomainReducer,
-    undefined,
-    createEmptyWorkspaceDomainState
-  );
+  const [domainState, setDomainState] = useState(createEmptyWorkspaceDomainState);
+  const domainStateRef = useRef(domainState);
+  domainStateRef.current = domainState;
+
+  const applyDomainAction = useCallback((action: WorkspaceDomainAction) => {
+    const nextState = workspaceDomainReducer(domainStateRef.current, action);
+    domainStateRef.current = nextState;
+    setDomainState(nextState);
+  }, []);
+  const getDomainState = useCallback(() => domainStateRef.current, []);
 
   const source = domainState.source;
   const file = useMemo(() => getProjectSourceFile(source), [source]);
@@ -69,84 +75,138 @@ export const useWorkspaceDomain = () => {
     [source, learningPlan, isLearnMode]
   );
 
-  const hydrateSnapshot = useCallback((snapshot: ProjectSnapshot) => {
-    dispatch({ type: 'hydrate', snapshot });
-  }, []);
+  const hydrateSnapshot = useCallback(
+    (snapshot: ProjectSnapshot) => {
+      applyDomainAction({ type: 'hydrate', snapshot });
+    },
+    [applyDomainAction]
+  );
 
   const resetDomain = useCallback(() => {
-    dispatch({ type: 'reset' });
-  }, []);
+    applyDomainAction({ type: 'reset' });
+  }, [applyDomainAction]);
 
-  const setSource = useCallback((nextSource: ProjectSource | null) => {
-    dispatch({ type: 'set-source', source: nextSource });
-  }, []);
+  const setSource = useCallback(
+    (nextSource: ProjectSource | null) => {
+      applyDomainAction({ type: 'set-source', source: nextSource });
+    },
+    [applyDomainAction]
+  );
 
-  const setLearningPlan = useCallback((nextPlan: LearningPlan | null) => {
-    dispatch({ type: 'set-learning-plan', learningPlan: nextPlan });
-  }, []);
+  const setLearningPlan = useCallback(
+    (nextPlan: LearningPlan | null) => {
+      applyDomainAction({ type: 'set-learning-plan', learningPlan: nextPlan });
+    },
+    [applyDomainAction]
+  );
 
-  const setDocumentAssets = useCallback((nextAssets: PdfDocumentAssets | null) => {
-    dispatch({ type: 'set-document-assets', documentAssets: nextAssets });
-  }, []);
+  const setDocumentAssets = useCallback(
+    (nextAssets: PdfDocumentAssets | null) => {
+      applyDomainAction({ type: 'set-document-assets', documentAssets: nextAssets });
+    },
+    [applyDomainAction]
+  );
 
-  const setDocumentIndex = useCallback((nextIndex: PdfTextIndex | null) => {
-    dispatch({ type: 'set-document-index', documentIndex: nextIndex });
-  }, []);
+  const setDocumentIndex = useCallback(
+    (nextIndex: PdfTextIndex | null) => {
+      applyDomainAction({ type: 'set-document-index', documentIndex: nextIndex });
+    },
+    [applyDomainAction]
+  );
 
-  const setIsLearnMode = useCallback((value: boolean) => {
-    dispatch({ type: 'set-learn-mode', isLearnMode: value });
-  }, []);
+  const setIsLearnMode = useCallback(
+    (value: boolean) => {
+      applyDomainAction({ type: 'set-learn-mode', isLearnMode: value });
+    },
+    [applyDomainAction]
+  );
 
-  const setUserProfile = useCallback((profile: UserProfile | null) => {
-    dispatch({ type: 'set-user-profile', userProfile: profile });
-  }, []);
+  const setUserProfile = useCallback(
+    (profile: UserProfile | null) => {
+      applyDomainAction({ type: 'set-user-profile', userProfile: profile });
+    },
+    [applyDomainAction]
+  );
 
-  const setSyllabus = useCallback((nextSyllabus: SyllabusItem[]) => {
-    dispatch({ type: 'set-syllabus', syllabus: nextSyllabus });
-  }, []);
+  const setSyllabus = useCallback(
+    (nextSyllabus: SyllabusItem[]) => {
+      applyDomainAction({ type: 'set-syllabus', syllabus: nextSyllabus });
+    },
+    [applyDomainAction]
+  );
 
-  const setResearchCoursePlan = useCallback((nextPlan: ResearchCoursePlan | null) => {
-    dispatch({ type: 'set-research-course-plan', researchCoursePlan: nextPlan });
-  }, []);
+  const setResearchCoursePlan = useCallback(
+    (nextPlan: ResearchCoursePlan | null) => {
+      applyDomainAction({ type: 'set-research-course-plan', researchCoursePlan: nextPlan });
+    },
+    [applyDomainAction]
+  );
 
-  const setResearchLessonDossier = useCallback((dossier: ResearchLessonDossier) => {
-    dispatch({ type: 'set-research-lesson-dossier', dossier });
-  }, []);
+  const setResearchLessonDossier = useCallback(
+    (dossier: ResearchLessonDossier) => {
+      applyDomainAction({ type: 'set-research-lesson-dossier', dossier });
+    },
+    [applyDomainAction]
+  );
 
-  const setResearchDossiers = useCallback((nextDossiers: ResearchDossiersBySectionId) => {
-    dispatch({ type: 'set-research-dossiers', researchDossiersBySectionId: nextDossiers });
-  }, []);
+  const setResearchDossiers = useCallback(
+    (nextDossiers: ResearchDossiersBySectionId) => {
+      applyDomainAction({
+        type: 'set-research-dossiers',
+        researchDossiersBySectionId: nextDossiers,
+      });
+    },
+    [applyDomainAction]
+  );
 
-  const setActiveSectionId = useCallback((nextSectionId: string | null) => {
-    dispatch({ type: 'set-active-section', activeSectionId: nextSectionId });
-  }, []);
+  const setActiveSectionId = useCallback(
+    (nextSectionId: string | null) => {
+      applyDomainAction({ type: 'set-active-section', activeSectionId: nextSectionId });
+    },
+    [applyDomainAction]
+  );
 
-  const setMusicUrl = useCallback((nextMusicUrl: string) => {
-    dispatch({ type: 'set-music-url', musicUrl: nextMusicUrl });
-  }, []);
+  const setMusicUrl = useCallback(
+    (nextMusicUrl: string) => {
+      applyDomainAction({ type: 'set-music-url', musicUrl: nextMusicUrl });
+    },
+    [applyDomainAction]
+  );
 
-  const setGenerationNotes = useCallback((nextNotes: string) => {
-    dispatch({ type: 'set-generation-notes', generationNotes: nextNotes });
-  }, []);
+  const setGenerationNotes = useCallback(
+    (nextNotes: string) => {
+      applyDomainAction({ type: 'set-generation-notes', generationNotes: nextNotes });
+    },
+    [applyDomainAction]
+  );
 
-  const updateActiveSectionContent = useCallback((content: string) => {
-    dispatch({ type: 'update-active-section-content', content });
-  }, []);
+  const updateActiveSectionContent = useCallback(
+    (content: string) => {
+      applyDomainAction({ type: 'update-active-section-content', content });
+    },
+    [applyDomainAction]
+  );
 
-  const updateActiveSectionQuiz = useCallback((nextQuiz: QuizQuestion[]) => {
-    dispatch({ type: 'update-active-section-quiz', quiz: nextQuiz });
-  }, []);
+  const updateActiveSectionQuiz = useCallback(
+    (nextQuiz: QuizQuestion[]) => {
+      applyDomainAction({ type: 'update-active-section-quiz', quiz: nextQuiz });
+    },
+    [applyDomainAction]
+  );
 
   const updateSection = useCallback(
     (sectionId: string, updater: (section: LessonNode) => LessonNode) => {
-      dispatch({ type: 'update-section', sectionId, updater });
+      applyDomainAction({ type: 'update-section', sectionId, updater });
     },
-    []
+    [applyDomainAction]
   );
 
-  const insertSectionAfter = useCallback((parentSectionId: string, section: LessonNode) => {
-    dispatch({ type: 'insert-section-after', parentSectionId, section });
-  }, []);
+  const insertSectionAfter = useCallback(
+    (parentSectionId: string, section: LessonNode) => {
+      applyDomainAction({ type: 'insert-section-after', parentSectionId, section });
+    },
+    [applyDomainAction]
+  );
 
   useEffect(() => {
     pushNousDebugTrace('domain/source-updated', {
@@ -166,6 +226,7 @@ export const useWorkspaceDomain = () => {
       domainState,
       file,
       generationNotes,
+      getDomainState,
       hydrateSnapshot,
       insertSectionAfter,
       isLearnMode,
@@ -205,6 +266,7 @@ export const useWorkspaceDomain = () => {
       domainState,
       file,
       generationNotes,
+      getDomainState,
       hydrateSnapshot,
       insertSectionAfter,
       isLearnMode,

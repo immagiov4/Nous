@@ -59,6 +59,7 @@ export interface WorkspaceDomainControllerAdapter {
   domainState: WorkspaceDomainState;
   file: FileData | null;
   generationNotes: string;
+  getDomainState: () => WorkspaceDomainState;
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
   isLearnMode: boolean;
   learningPlan: LearningPlan | null;
