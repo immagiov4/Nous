@@ -8,6 +8,8 @@ import type {
 const PDF_IMAGE_PLACEHOLDER_REGEX =
   /\{\{PDF_IMAGE:([^|{}]+)(?:\|alt=([^|{}]*))?(?:\|caption=([^{}]*))?\}\}/g;
 const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|{}]+)(?:\|title=([^{}]*))?\}\}/g;
+const LEGACY_PDF_IMAGE_PLACEHOLDER_REGEX =
+  /\{\{PDF_IMAGE:([^|{}]+)(?:\|alt=((?:(?!\{\{)[^|}])*))?(?:\|caption=((?:(?!\{\{)[^}])*))?\}\}/g;
 const LEGACY_PDF_FIGURE_REGEX =
   /<figure\b[\s\S]*?<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>[\s\S]*?<\/figure>/gi;
 const LEGACY_PDF_IMAGE_REGEX = /<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>/gi;
@@ -127,7 +129,16 @@ export const stripPdfImagePlaceholders = (content: string): string =>
   content.replaceAll(PDF_IMAGE_PLACEHOLDER_REGEX, ' ');
 
 export const restoreLegacyPdfImagePlaceholders = (content: string): string => {
-  const figuresRestored = content.replaceAll(LEGACY_PDF_FIGURE_REGEX, figureHtml => {
+  const placeholdersRestored = content.replaceAll(
+    LEGACY_PDF_IMAGE_PLACEHOLDER_REGEX,
+    (placeholder, assetId, alt, caption) => {
+      if (!String(alt || '').includes('{') && !String(caption || '').includes('{')) {
+        return placeholder;
+      }
+      return buildPlaceholder(assetId, alt, caption);
+    }
+  );
+  const figuresRestored = placeholdersRestored.replaceAll(LEGACY_PDF_FIGURE_REGEX, figureHtml => {
     const imageTag = figureHtml.match(/<img\b[^>]*data-pdf-asset-id=(["'])[^"'<>]+\1[^>]*>/i)?.[0];
     const assetId = imageTag ? extractAttribute(imageTag, 'data-pdf-asset-id') : undefined;
     if (!assetId) {

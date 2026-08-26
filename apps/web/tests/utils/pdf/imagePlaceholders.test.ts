@@ -119,3 +119,21 @@ test('restores legacy standalone PDF images into placeholders', () => {
 
   assert.match(restored, /\{\{PDF_IMAGE:pdf-img-001\|alt=Diagramma\}\}/);
 });
+
+test('normalizes persisted placeholders whose text contains a legacy opening brace', () => {
+  const restored = restoreLegacyPdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {A|caption=Insieme {A}} dopo'
+  );
+
+  assert.equal(restored, 'Prima {{PDF_IMAGE:pdf-img-001|alt=Set  A|caption=Insieme  A}} dopo');
+  assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
+});
+
+test('does not let an incomplete legacy marker consume the next complete placeholder', () => {
+  const restored = restoreLegacyPdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:bozza|alt=Set {A poi {{PDF_IMAGE:pdf-img-001}} dopo'
+  );
+
+  assert.match(restored, /\{\{PDF_IMAGE:bozza\|alt=Set \{A poi/u);
+  assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
+});
