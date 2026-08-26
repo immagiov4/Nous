@@ -3956,16 +3956,6 @@ test('sublesson generation releases its gate after an error', async () => {
     );
     return true;
   };
-  harness.projectLibrary.adapter.loadStoredProjectWithRevision = async () => ({
-    // A queued write may advance the durable project beyond the generation's revision.
-    revision: 3,
-    snapshot: createProjectSnapshot({
-      activeSectionId: 'deep-after-error',
-      id: 'project-1',
-      learningPlan: generatedPlan,
-      state: AppState.READING,
-    }),
-  });
 
   const failed = await harness.controller.createLessonFromSelection({
     instructions: 'Approfondisci',
@@ -4051,7 +4041,7 @@ test.each([
   });
   // Hydration updates the next React render, while this command retains the previous domain snapshot.
   harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
-    return true;
+    return false;
   };
   harness.projectLibrary.adapter.loadStoredProjectWithRevision = async () => ({
     // Re-entry must accept the section from a newer authoritative revision.
@@ -4939,17 +4929,6 @@ test('createLessonFromSelection hydrates and opens the authoritative durable sub
     );
     return true;
   };
-  harness.projectLibrary.adapter.loadStoredProjectWithRevision = async () => ({
-    revision: 8,
-    snapshot: createProjectSnapshot({
-      activeSectionId: 'deep-server',
-      documentIndex: createReadyIndex(),
-      id: 'project-1',
-      learningPlan: generatedPlan,
-      source: createProjectSourceFromFile(pdfFile),
-      state: AppState.READING,
-    }),
-  });
 
   const result = await harness.controller.createLessonFromSelection({
     annotationNote: 'Nota',
