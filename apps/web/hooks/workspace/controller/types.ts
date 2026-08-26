@@ -288,7 +288,7 @@ export interface WorkspaceControllerCommands {
   deleteProject: (projectId: string) => Promise<void>;
   exportProject: (projectId?: string) => Promise<void>;
   goToLibrary: () => Promise<void>;
-  handleRemoteProjectDeleted: (projectId: string) => void;
+  handleRemoteProjectDeleted: (projectId: string, wasActive: boolean) => void;
   handleSourceUpload: (
     selectedFiles: File | File[],
     options?: { mode?: 'new-project' | 'reattach-source' }

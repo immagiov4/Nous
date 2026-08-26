@@ -5865,7 +5865,7 @@ test('remote deletion leaves the deleted course and invalidates every active wor
     WORKSPACE_WORKFLOW_IDS.map(workflowId => [workflowId, state.adapter.beginWorkflow(workflowId)])
   );
 
-  controller.handleRemoteProjectDeleted('project-deleted');
+  controller.handleRemoteProjectDeleted('project-deleted', true);
 
   assert.equal(projectLibrary.adapter.currentProjectId, null);
   assert.equal(domain.learningPlan, null);
@@ -5881,4 +5881,29 @@ test('remote deletion leaves the deleted course and invalidates every active wor
       `${workflowId} should have been invalidated`
     );
   }
+});
+
+test('remote deletion clears retained state without leaving the active course', () => {
+  const clearDurableLessonRequestsForProject = vi.fn();
+  const { controller, domain, projectLibrary, state, stopAudioCalls } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      learningPlan: buildPlan(),
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    openRouter: { clearDurableLessonRequestsForProject },
+    projectLibrary: { currentProjectId: 'project-active' },
+  });
+  state.adapter.setScreenState(AppState.READING);
+  state.adapter.setProjectMissingSource('project-deleted', true);
+
+  controller.handleRemoteProjectDeleted('project-deleted', false);
+
+  expect(clearDurableLessonRequestsForProject).toHaveBeenCalledWith('project-deleted');
+  assert.equal(state.adapter.hasMissingSource('project-deleted'), false);
+  assert.equal(projectLibrary.adapter.currentProjectId, 'project-active');
+  assert.notEqual(domain.learningPlan, null);
+  assert.notEqual(domain.source, null);
+  assert.equal(state.internalState.screenState, AppState.READING);
+  assert.deepEqual(stopAudioCalls, []);
 });

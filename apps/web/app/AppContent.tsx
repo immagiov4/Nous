@@ -64,9 +64,7 @@ const AppContent = () => {
     if (syncState.kind !== 'remoteDeleted') return;
 
     projectLibrary.acknowledgeRemoteDeletion(syncState.projectId);
-    if (syncState.wasActive) {
-      controller.handleRemoteProjectDeleted(syncState.projectId);
-    }
+    controller.handleRemoteProjectDeleted(syncState.projectId, syncState.wasActive);
     notify(syncState.message);
   }, [controller, notify, projectLibrary]);
 

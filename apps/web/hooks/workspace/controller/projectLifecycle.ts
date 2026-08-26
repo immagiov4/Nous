@@ -739,10 +739,12 @@ export const createProjectLifecycleCommands = (
     pushNousDebugTrace('open-project:cancelled', { projectId });
   }
 
-  function handleRemoteProjectDeleted(projectId: string): void {
-    pushNousDebugTrace('project:remote-deleted', { projectId });
+  function handleRemoteProjectDeleted(projectId: string, wasActive: boolean): void {
+    pushNousDebugTrace('project:remote-deleted', { projectId, wasActive });
     openRouter.clearDurableLessonRequestsForProject(projectId);
     state.setProjectMissingSource(projectId, false);
+    if (!wasActive) return;
+
     stopAudio(true);
     projectLibrary.setProjectHydrated(false);
     projectLibrary.setCurrentProjectId(null);
