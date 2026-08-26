@@ -147,7 +147,22 @@ test('buildVisibleProjection preserves malformed email autolink brackets', () =>
 
 test('buildVisibleProjection hides supported mark syntax but preserves escaped raw html', () => {
   assert.equal(buildVisibleProjection('<mark>visibile</mark>').text, 'visibile');
+  assert.equal(
+    buildVisibleProjection('<mark>\npassaggio visibile\n</mark>').text,
+    '\npassaggio visibile\n'
+  );
   assert.match(buildVisibleProjection('<div>visibile</div>').text, /<div>visibile<\/div>/u);
+  assert.equal(
+    buildVisibleProjection('<mark>\npassaggio <div>visibile</div>\n</mark>').text,
+    '\npassaggio <div>visibile</div>\n'
+  );
+});
+
+test('buildVisibleProjection hides footnote definition labels but keeps their content', () => {
+  assert.equal(
+    buildVisibleProjection('[^nota]: Contenuto della nota.').text,
+    'Contenuto della nota.'
+  );
 });
 
 test('buildVisibleProjection follows renderer-normalized prose indentation and backslash math', () => {

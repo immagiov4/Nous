@@ -242,7 +242,13 @@ test('annotation ranges protect footnote labels while preserving the visible def
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['[^nota]']);
+  assert.deepEqual(protectedSlices, ['[^nota]', '[^nota]: ']);
+  assert.equal(
+    getMarkdownAnnotationProtectedRanges(content).some(range =>
+      content.slice(range.start, range.end).includes('/contenuto-visibile')
+    ),
+    false
+  );
 });
 
 test('annotation ranges protect dollar math exposed by escaped raw html', () => {

@@ -3,7 +3,11 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { escapeDisallowedRawHtml, projectDisallowedRawHtml } from './html.ts';
+import {
+  escapeDisallowedRawHtml,
+  getAllowedRawHtmlTagRanges,
+  projectDisallowedRawHtml,
+} from './html.ts';
 import {
   getAccidentalPlainTextIndentationRanges,
   projectAccidentalPlainTextIndentation,
@@ -474,6 +478,17 @@ const getReferenceLabelRange = (
     : null;
 };
 
+const getFootnoteDefinitionLabelRange = (
+  node: MarkdownAstNode,
+  nodeRange: MarkdownRange,
+  sourceOffsets: number[]
+): MarkdownRange | null => {
+  const contentStart = node.children?.[0]?.position?.start.offset;
+  if (contentStart === undefined) return nodeRange;
+  const end = sourceOffsets[contentStart] ?? contentStart;
+  return nodeRange.start < end ? { start: nodeRange.start, end } : null;
+};
+
 const isRendererHiddenHtmlSyntax = (source: string): boolean =>
   source.startsWith('<!--') || source.startsWith('<!') || source.startsWith('<?');
 
@@ -532,6 +547,14 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
       if (node.type === 'thematicBreak') analysis.structuralRanges.push(range);
       if (node.type === 'footnoteReference') analysis.structuralRanges.push(range);
+      if (node.type === 'footnoteDefinition') {
+        const labelRange = getFootnoteDefinitionLabelRange(
+          node,
+          range,
+          indentationProjection.sourceOffsets
+        );
+        if (labelRange) analysis.structuralRanges.push(labelRange);
+      }
       if (node.type === 'table') {
         const delimiterRange = getTableDelimiterRange(
           content,
@@ -552,10 +575,13 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       }
       if (node.type === 'html') {
         const source = content.slice(range.start, range.end);
-        if (isRendererHiddenHtmlSyntax(source) || escapeDisallowedRawHtml(source) === source) {
+        if (isRendererHiddenHtmlSyntax(source)) {
           analysis.htmlSyntaxRanges.push(range);
         } else {
-          escapedHtmlContentRanges.push(range);
+          analysis.htmlSyntaxRanges.push(...getAllowedRawHtmlTagRanges(source, range.start));
+          if (escapeDisallowedRawHtml(source) !== source) {
+            escapedHtmlContentRanges.push(range);
+          }
         }
       }
       if (node.type === 'link') {

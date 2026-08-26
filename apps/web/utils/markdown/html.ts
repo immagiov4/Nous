@@ -6,6 +6,18 @@ export interface RawHtmlProjection {
   sourceOffsets: number[];
 }
 
+export interface RawHtmlTagRange {
+  end: number;
+  start: number;
+}
+
+export const getAllowedRawHtmlTagRanges = (value: string, sourceStart = 0): RawHtmlTagRange[] =>
+  Array.from(value.matchAll(RAW_HTML_TAG_REGEX)).flatMap(match => {
+    if (!ALLOWED_RAW_HTML_TAGS.has(match[1].toLowerCase())) return [];
+    const start = sourceStart + match.index;
+    return [{ start, end: start + match[0].length }];
+  });
+
 const escapeHtmlCharacter = (character: string): string => {
   if (character === '&') return '&amp;';
   if (character === '<') return '&lt;';

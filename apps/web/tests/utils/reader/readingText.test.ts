@@ -135,6 +135,10 @@ describe('prepareMarkdownForSpeech', () => {
     );
   });
 
+  test('keeps a word boundary where an inline image is removed', () => {
+    expect(prepareMarkdownForSpeech('prima![freccia](arrow.png)dopo')).toBe('prima dopo');
+  });
+
   test('does not read reference definition destinations', () => {
     expect(
       prepareMarkdownForSpeech(
@@ -255,6 +259,13 @@ describe('prepareMarkdownForSpeech', () => {
     expect(speech).toMatch(/Contenuto della nota/u);
     expect(speech).toMatch(/https:\/\/example\.com/u);
     expect(speech).not.toMatch(/image\.png|Immagine/u);
+    expect(speech).not.toMatch(/\[\^nota\]/u);
+  });
+
+  test('reads visible content inside a multiline mark', () => {
+    expect(prepareMarkdownForSpeech('<mark>\npassaggio visibile\n</mark>')).toBe(
+      'passaggio visibile'
+    );
   });
 
   test('does not read raw HTML syntax hidden by the renderer', () => {

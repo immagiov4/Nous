@@ -422,19 +422,22 @@ export interface ReadableTextElement {
 
 export const prepareMarkdownForSpeech = (content: string): string => {
   const analysis = parseMarkdownAnalysis(content);
+  const imageRanges = mergeOverlappingMarkdownRanges(analysis.imageRanges);
   const rendererHiddenContentStripped = mergeOverlappingMarkdownRanges([
-    ...analysis.imageRanges,
+    ...imageRanges,
     ...analysis.htmlSyntaxRanges,
     ...analysis.referenceLinkLabelRanges,
     ...analysis.referenceDefinitionRanges,
     ...analysis.rendererNormalizedIndentRanges,
+    ...analysis.structuralRanges,
   ])
     .sort((left, right) => right.start - left.start)
-    .reduce(
-      (currentContent, range) =>
-        `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
-      content
-    );
+    .reduce((currentContent, range) => {
+      const replacesVisibleBoundary = imageRanges.some(
+        imageRange => imageRange.start < range.end && imageRange.end > range.start
+      );
+      return `${currentContent.slice(0, range.start)}${replacesVisibleBoundary ? ' ' : ''}${currentContent.slice(range.end)}`;
+    }, content);
   const placeholderStrippedContent = stripCompletePlaceholdersOutsideProtectedMarkdown(
     rendererHiddenContentStripped
   );
