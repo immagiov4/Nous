@@ -114,6 +114,7 @@ const createPostgresProjectStore = (
     begin: ReturnType<typeof vi.fn>;
     json: ReturnType<typeof vi.fn>;
     reserve?: ReturnType<typeof vi.fn>;
+    unsafe?: ReturnType<typeof vi.fn>;
   },
   storage?: {
     delete: ReturnType<typeof vi.fn>;
@@ -127,6 +128,12 @@ const createPostgresProjectStore = (
     queueProjectAssets: vi.fn(async () => []),
   }
 ) => {
+  sqlClient.unsafe = vi.fn((statement: string, values: unknown[] = []) => {
+    const strings = Object.assign([statement], {
+      raw: [statement],
+    }) as unknown as TemplateStringsArray;
+    return sqlClient(strings, ...values);
+  });
   let transactionSql: ReturnType<typeof vi.fn> | undefined;
   const reservedSql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) =>
     (transactionSql ?? sqlClient)(strings, ...values)
@@ -155,6 +162,260 @@ const createPostgresProjectStore = (
 };
 
 describe('PostgresProjectStore', () => {
+  test.each([
+    { legacyIndex: { entries: [{ kind: 'directory' as const, path: 'src' }] }, shape: 'version' },
+    { legacyIndex: undefined, shape: 'index object' },
+    { legacyIndex: null, shape: 'JSON null index' },
+    {
+      legacyIndex: {
+        entries: [{ kind: 'directory' as const, path: 'src' }],
+        version: null,
+      },
+      shape: 'JSON null version',
+    },
+  ])('durably hydrates a legacy archive missing its $shape from retained metadata', async ({
+    legacyIndex,
+  }) => {
+    const retainedEntries = [{ kind: 'directory' as const, path: 'src' }];
+    const archiveVersion = {
+      representationHash: createHash('sha256')
+        .update(JSON.stringify(retainedEntries))
+        .digest('hex'),
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    };
+    const legacySnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          sourceId: archiveVersion.sourceId,
+        },
+        ...(legacyIndex === undefined ? {} : { index: legacyIndex }),
+        kind: 'archive',
+        name: 'source.zip',
+        ref: {
+          byteSize: 100,
+          hash: archiveVersion.sourceHash,
+          id: archiveVersion.sourceId,
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          objectPath: 'users/user-1/projects/project/source.zip',
+        },
+      },
+    } as ProjectSnapshot;
+    let storedSnapshot = legacySnapshot;
+    let repairStatement = '';
+    let repairValues: unknown[] = [];
+    let projectLoadCount = 0;
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+        const statement = strings.join('?');
+        if (statement.includes('join public.projects')) {
+          const revision = projectLoadCount === 0 ? 7 : 8;
+          projectLoadCount += 1;
+          return Promise.resolve([{ document_index: null, revision, snapshot: storedSnapshot }]);
+        }
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve([{ document_index: null, snapshot: storedSnapshot }]);
+        }
+        if (statement.includes('jsonb_to_recordset')) {
+          repairStatement = statement;
+          repairValues = values;
+          storedSnapshot = {
+            ...storedSnapshot,
+            source: {
+              ...storedSnapshot.source,
+              index: {
+                ...(storedSnapshot.source?.index ?? { entries: retainedEntries }),
+                version: archiveVersion,
+              },
+            },
+          } as ProjectSnapshot;
+          return Promise.resolve([]);
+        }
+        if (statement.includes('from public.project_sources source')) {
+          return Promise.resolve([
+            {
+              archive_representation_hash: archiveVersion.representationHash,
+              archive_source_hash: archiveVersion.sourceHash,
+              archive_source_id: archiveVersion.sourceId,
+              byte_size: null,
+              content_kind: null,
+              kind: 'directory',
+              path: 'src',
+              project_id: legacySnapshot.id,
+              preview: null,
+              source_hash: null,
+              source_kind: 'archive',
+              warning_reason: null,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const loaded = await store.loadProjectWithRevision('user-1', legacySnapshot.id);
+    const reloaded = await store.loadProject('user-1', legacySnapshot.id);
+
+    expect(
+      loaded?.snapshot.source?.kind === 'archive' && loaded.snapshot.source.index.version
+    ).toEqual(archiveVersion);
+    expect(loaded?.revision).toBe(8);
+    expect(reloaded?.source?.kind === 'archive' && reloaded.source.index.version).toEqual(
+      archiveVersion
+    );
+    expect(reloaded?.source?.kind === 'archive' && reloaded.source.index.entries).toEqual(
+      retainedEntries
+    );
+    expect(repairValues).toEqual([
+      [
+        {
+          archive_index: { entries: retainedEntries, version: archiveVersion },
+          archive_version: archiveVersion,
+          project_id: legacySnapshot.id,
+          representation_hash: archiveVersion.representationHash,
+          source_hash: archiveVersion.sourceHash,
+          source_id: archiveVersion.sourceId,
+        },
+      ],
+      'user-1',
+      'user-1',
+      'user-1',
+    ]);
+    expect(
+      sqlClient.mock.calls.some(([strings]) => strings.join('?').includes("= 'null'::jsonb"))
+    ).toBe(true);
+    expect(repairStatement).toContain(
+      "nullif(snapshot.snapshot #> '{source,index}', 'null'::jsonb)"
+    );
+  });
+
+  test('reloads a legacy hydration candidate when its retained source was replaced', async () => {
+    const legacySnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          sourceId: 'legacy-source',
+        },
+        kind: 'archive',
+        name: 'legacy.zip',
+        ref: {
+          byteSize: 100,
+          hash: 'a'.repeat(64),
+          id: 'legacy-source',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          objectPath: 'users/user-1/projects/project/legacy.zip',
+        },
+      },
+    } as ProjectSnapshot;
+    const replacementSnapshot = {
+      ...createMultiSourceSnapshot(),
+      source: null,
+      sourceKind: 'learn-mode' as const,
+    };
+    let sourceWasReplaced = false;
+    const statements: string[] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        statements.push(statement);
+        if (statement.includes('from public.project_sources source')) {
+          sourceWasReplaced = true;
+          return Promise.resolve([]);
+        }
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve([
+            {
+              document_index: null,
+              snapshot: sourceWasReplaced ? replacementSnapshot : legacySnapshot,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(store.loadProject('user-1', legacySnapshot.id)).resolves.toEqual(
+      replacementSnapshot
+    );
+    expect(statements).toHaveLength(3);
+    expect(statements.at(-1)).toContain('select snapshot, document_index');
+  });
+
+  test.each([
+    { legacyIndex: { entries: [] }, shape: 'version-only' },
+    { legacyIndex: undefined, shape: 'missing-index' },
+  ])('returns null when a $shape legacy candidate is deleted during discovery', async ({
+    legacyIndex,
+  }) => {
+    const legacySnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          sourceId: 'legacy-source',
+        },
+        ...(legacyIndex ? { index: legacyIndex } : {}),
+        kind: 'archive',
+        name: 'legacy.zip',
+        ref: {
+          byteSize: 100,
+          hash: 'a'.repeat(64),
+          id: 'legacy-source',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          objectPath: 'users/user-1/projects/project/legacy.zip',
+        },
+      },
+    } as ProjectSnapshot;
+    let projectWasDeleted = false;
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        if (statement.includes('from public.project_sources source')) {
+          projectWasDeleted = true;
+          return Promise.resolve([]);
+        }
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve(
+            projectWasDeleted ? [] : [{ document_index: null, snapshot: legacySnapshot }]
+          );
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(store.loadProject('user-1', legacySnapshot.id)).resolves.toBeNull();
+  });
+
   test('reports missing projects consistently for favorite and touch writes', async () => {
     const sqlClient = Object.assign(
       vi.fn(async () => []),
@@ -259,6 +520,225 @@ describe('PostgresProjectStore', () => {
     expect(snapshots.map(snapshot => snapshot.id)).toEqual([firstSnapshot.id, secondSnapshot.id]);
     expect(statements).toHaveLength(1);
     expect(statements[0]).toContain('id = any');
+  });
+
+  test('durably hydrates missing archive indexes in ordered batch project loads', async () => {
+    const retainedEntries = [{ kind: 'directory' as const, path: 'src' }];
+    const archiveVersion = {
+      representationHash: createHash('sha256')
+        .update(JSON.stringify(retainedEntries))
+        .digest('hex'),
+      sourceHash: 'a'.repeat(64),
+      sourceId: 'source-archive',
+    };
+    const legacySnapshot = {
+      ...createMultiSourceSnapshot(),
+      id: 'legacy-archive-project',
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          sourceId: archiveVersion.sourceId,
+        },
+        kind: 'archive',
+        name: 'source.zip',
+        ref: {
+          byteSize: 100,
+          hash: archiveVersion.sourceHash,
+          id: archiveVersion.sourceId,
+          mimeType: 'application/zip',
+          name: 'source.zip',
+          objectPath: 'users/user-1/projects/legacy-archive-project/source.zip',
+        },
+      },
+    } as ProjectSnapshot;
+    const secondLegacySnapshot = {
+      ...legacySnapshot,
+      id: 'second-legacy-archive-project',
+    } as ProjectSnapshot;
+    const staleLegacySnapshot = {
+      ...legacySnapshot,
+      id: 'stale-legacy-archive-project',
+    } as ProjectSnapshot;
+    const staleReplacementSnapshot = {
+      ...createMultiSourceSnapshot(),
+      id: staleLegacySnapshot.id,
+      source: null,
+      sourceKind: 'learn-mode' as const,
+    };
+    const deletedVersionSnapshot = {
+      ...legacySnapshot,
+      id: 'deleted-version-archive-project',
+      source: { ...legacySnapshot.source, index: { entries: [] } },
+    } as ProjectSnapshot;
+    const deletedIndexSnapshot = {
+      ...legacySnapshot,
+      id: 'deleted-index-archive-project',
+    } as ProjectSnapshot;
+    const currentSnapshot = { ...createMultiSourceSnapshot(), id: 'current-project' };
+    const storedSnapshots = new Map(
+      [
+        legacySnapshot,
+        secondLegacySnapshot,
+        staleLegacySnapshot,
+        deletedVersionSnapshot,
+        deletedIndexSnapshot,
+        currentSnapshot,
+      ].map(snapshot => [snapshot.id, snapshot])
+    );
+    const statements: string[] = [];
+    const queryValues: unknown[][] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+        const statement = strings.join('?');
+        statements.push(statement);
+        queryValues.push(values);
+        if (statement.includes('from public.project_sources source')) {
+          storedSnapshots.set(staleLegacySnapshot.id, staleReplacementSnapshot);
+          storedSnapshots.delete(deletedVersionSnapshot.id);
+          storedSnapshots.delete(deletedIndexSnapshot.id);
+          return Promise.resolve(
+            [legacySnapshot.id, secondLegacySnapshot.id].map(projectId => ({
+              archive_representation_hash: archiveVersion.representationHash,
+              archive_source_hash: archiveVersion.sourceHash,
+              archive_source_id: archiveVersion.sourceId,
+              byte_size: null,
+              content_kind: null,
+              kind: 'directory',
+              path: 'src',
+              project_id: projectId,
+              preview: null,
+              source_hash: null,
+              source_kind: 'archive',
+              warning_reason: null,
+            }))
+          );
+        }
+        if (statement.includes('jsonb_to_recordset')) {
+          const repairs = values[0] as Array<{ project_id: string }>;
+          for (const repair of repairs) {
+            const storedSnapshot = storedSnapshots.get(repair.project_id);
+            if (!storedSnapshot) continue;
+            storedSnapshots.set(repair.project_id, {
+              ...storedSnapshot,
+              source: {
+                ...storedSnapshot.source,
+                index: { entries: retainedEntries, version: archiveVersion },
+              },
+            } as ProjectSnapshot);
+          }
+          return Promise.resolve([]);
+        }
+        if (statement.includes('select id, snapshot, document_index')) {
+          const requestedIds = values[1] as string[];
+          return Promise.resolve(
+            [...new Set(requestedIds)].flatMap(id => {
+              const snapshot = storedSnapshots.get(id);
+              return snapshot ? [{ document_index: null, id, snapshot }] : [];
+            })
+          );
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const snapshots = await store.loadProjectsById('user-1', [
+      legacySnapshot.id,
+      currentSnapshot.id,
+      secondLegacySnapshot.id,
+      staleLegacySnapshot.id,
+      deletedVersionSnapshot.id,
+      deletedIndexSnapshot.id,
+      legacySnapshot.id,
+    ]);
+
+    expect(snapshots.map(snapshot => snapshot.id)).toEqual([
+      legacySnapshot.id,
+      currentSnapshot.id,
+      secondLegacySnapshot.id,
+      staleLegacySnapshot.id,
+      legacySnapshot.id,
+    ]);
+    expect(snapshots[0]?.source?.kind === 'archive' && snapshots[0].source.index).toEqual({
+      entries: retainedEntries,
+      version: archiveVersion,
+    });
+    expect(snapshots[1]).toEqual(currentSnapshot);
+    expect(snapshots[2]?.source?.kind === 'archive' && snapshots[2].source.index).toEqual({
+      entries: retainedEntries,
+      version: archiveVersion,
+    });
+    expect(snapshots[3]).toEqual(staleReplacementSnapshot);
+    expect(snapshots[4]).toBe(snapshots[0]);
+    expect(snapshots).not.toContainEqual(
+      expect.objectContaining({ id: deletedVersionSnapshot.id })
+    );
+    expect(snapshots).not.toContainEqual(expect.objectContaining({ id: deletedIndexSnapshot.id }));
+    expect(queryValues[0]).toEqual([
+      'user-1',
+      [
+        legacySnapshot.id,
+        currentSnapshot.id,
+        secondLegacySnapshot.id,
+        staleLegacySnapshot.id,
+        deletedVersionSnapshot.id,
+        deletedIndexSnapshot.id,
+        legacySnapshot.id,
+      ],
+    ]);
+    expect(statements).toHaveLength(4);
+    expect(
+      statements.filter(statement => statement.includes('project_source_entries'))
+    ).toHaveLength(1);
+    expect(statements.filter(statement => statement.includes('jsonb_to_recordset'))).toHaveLength(
+      1
+    );
+    expect(queryValues[2]?.[0]).toEqual([
+      {
+        archive_index: { entries: retainedEntries, version: archiveVersion },
+        archive_version: archiveVersion,
+        project_id: legacySnapshot.id,
+        representation_hash: archiveVersion.representationHash,
+        source_hash: archiveVersion.sourceHash,
+        source_id: archiveVersion.sourceId,
+      },
+      {
+        archive_index: { entries: retainedEntries, version: archiveVersion },
+        archive_version: archiveVersion,
+        project_id: secondLegacySnapshot.id,
+        representation_hash: archiveVersion.representationHash,
+        source_hash: archiveVersion.sourceHash,
+        source_id: archiveVersion.sourceId,
+      },
+    ]);
+    expect(queryValues[2]?.slice(1)).toEqual(['user-1', 'user-1', 'user-1']);
+    expect(queryValues[3]).toEqual([
+      'user-1',
+      [
+        legacySnapshot.id,
+        secondLegacySnapshot.id,
+        staleLegacySnapshot.id,
+        deletedVersionSnapshot.id,
+        deletedIndexSnapshot.id,
+      ],
+    ]);
+    const repairStatement = statements[2] ?? '';
+    expect(repairStatement).toContain('locked_snapshots as materialized');
+    expect(repairStatement.indexOf('locked_snapshots')).toBeLessThan(
+      repairStatement.indexOf('update public.project_sources source')
+    );
+    expect(repairStatement).toContain('order by snapshot.id');
+    expect(repairStatement).toContain('for update of snapshot');
+    expect(repairStatement).toContain(
+      'join locked_snapshots snapshot on snapshot.id = repair.project_id'
+    );
   });
 
   test('repairs every missing library placement with a constant-size transaction', async () => {
@@ -1854,6 +2334,7 @@ describe('PostgresProjectStore', () => {
       )
     ).toBe(false);
 
+    transactionStatements.length = 0;
     const canonicalized = await store.saveProject('user-1', {
       ...second.snapshot,
       source: {
@@ -1878,6 +2359,16 @@ describe('PostgresProjectStore', () => {
     });
     expect(canonicalized.snapshot.source?.ref).toEqual(stored.snapshot.source?.ref);
     expect(canonicalized.snapshot.source?.index).toEqual(stored.snapshot.source?.index);
+    const snapshotLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_snapshots') && statement.includes('for update')
+    );
+    const sourceLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_sources') && statement.includes('for update')
+    );
+    expect(snapshotLockIndex).toBeGreaterThanOrEqual(0);
+    expect(sourceLockIndex).toBeGreaterThan(snapshotLockIndex);
 
     await expect(
       store.saveProject('user-1', {
@@ -2080,6 +2571,7 @@ describe('PostgresProjectStore', () => {
               content_kind: null,
               kind: 'directory',
               path: 'src',
+              project_id: PROJECT_META.id,
               preview: null,
               source_hash: null,
               source_kind: 'archive',
@@ -2093,6 +2585,7 @@ describe('PostgresProjectStore', () => {
               kind: 'file',
               object_path: 'users/user/projects/hash/source/entries/hash',
               path: 'src/index.ts',
+              project_id: PROJECT_META.id,
               preview: 'complete entry',
               source_hash: entryHash,
               source_kind: 'archive',
@@ -2197,6 +2690,7 @@ describe('PostgresProjectStore', () => {
                 content_kind: 'text',
                 kind: 'file',
                 path: 'docs/manual.pdf',
+                project_id: PROJECT_META.id,
                 preview: 'Testo estratto',
                 source_hash: preparedEntryHash,
                 source_kind: 'archive',
@@ -2282,6 +2776,16 @@ describe('PostgresProjectStore', () => {
 
     expect(sqlClient.begin).toHaveBeenCalledTimes(1);
     expect(transactionStatements[0]).toContain('for update');
+    const snapshotLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_snapshots') && statement.includes('for update')
+    );
+    const sourceLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_sources') && statement.includes('for update')
+    );
+    expect(snapshotLockIndex).toBeGreaterThan(0);
+    expect(sourceLockIndex).toBeGreaterThan(snapshotLockIndex);
     expect(
       transactionStatements.filter(statement => statement.includes('select object_path'))
     ).toHaveLength(3);

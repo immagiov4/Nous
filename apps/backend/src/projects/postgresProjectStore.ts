@@ -101,8 +101,44 @@ type PostgresMutationSql = PostgresSql | postgres.TransactionSql;
 type ProjectTransactionSql = postgres.ReservedSql | postgres.TransactionSql;
 type LibraryItem = SiblingItem;
 
+const PROJECT_SOURCE_ARCHIVE_INDEX_PROJECTION_AND_JOIN = `
+  source.representation_hash as archive_representation_hash,
+  source.source_id as archive_source_id,
+  source.source_hash as archive_source_hash,
+  source.source_kind,
+  entry.path,
+  entry.kind,
+  entry.content_kind,
+  entry.source_hash,
+  entry.byte_size,
+  entry.preview,
+  entry.warning_reason
+from public.project_sources source
+left join public.project_source_entries entry
+  on entry.user_id = source.user_id and entry.project_id = source.project_id
+`;
+
 const buildSiblingOrderLockKey = (userId: string, parentFolderId: string | null): string =>
   JSON.stringify(['library-sibling-order', userId, parentFolderId]);
+
+const readLegacySourceArchiveIdentity = (
+  snapshot: unknown
+): { sourceHash: string; sourceId: string } | null => {
+  const source = isRecord(snapshot) && isRecord(snapshot.source) ? snapshot.source : null;
+  const sourceIndex = source && isRecord(source.index) ? source.index : null;
+  const sourceRef = source && isRecord(source.ref) ? source.ref : null;
+  if (
+    source?.kind !== 'archive' ||
+    (Object.hasOwn(source, 'index') && source.index !== null && !sourceIndex) ||
+    sourceIndex?.version ||
+    !sourceRef ||
+    typeof sourceRef.id !== 'string' ||
+    typeof sourceRef.hash !== 'string'
+  ) {
+    return null;
+  }
+  return { sourceHash: sourceRef.hash, sourceId: sourceRef.id };
+};
 
 interface ProjectMetaRow {
   meta: SavedProjectMeta;
@@ -193,6 +229,19 @@ interface ProjectSourceArchiveIndexRow {
   source_hash: string | null;
   source_kind: 'archive' | 'file';
   warning_reason: SourceArchivePdfWarningReason | null;
+}
+
+interface ProjectSourceArchiveIndexByProjectRow extends ProjectSourceArchiveIndexRow {
+  project_id: ProjectId;
+}
+
+interface ProjectSourceArchiveBatchRepair {
+  archive_index: ProjectSourceArchiveIndex;
+  archive_version: ProjectSourceArchiveIndex['version'];
+  project_id: ProjectId;
+  representation_hash: string;
+  source_hash: string;
+  source_id: string;
 }
 
 interface ProjectSourceArchiveStoredFileRow {
@@ -449,7 +498,31 @@ export class PostgresProjectStore implements ProjectStore {
       return null;
     }
 
-    return mergeProjectSnapshotRow(rows[0]);
+    return this.hydrateLegacySourceArchiveVersion(userId, id, rows[0]);
+  }
+
+  private async hydrateLegacySourceArchiveVersion(
+    userId: string,
+    id: ProjectId,
+    row: ProjectSnapshotRow
+  ): Promise<ProjectSnapshot | null> {
+    const sourceIdentity = readLegacySourceArchiveIdentity(row.snapshot);
+    if (!sourceIdentity) {
+      return mergeProjectSnapshotRow(row);
+    }
+
+    const repairs = await this.buildLegacySourceArchiveRepairs(userId, [{ ...row, id }]);
+    if (repairs.length > 0) {
+      await this.repairLegacySourceArchiveVersions(userId, repairs);
+    }
+
+    const currentRows = await this.sql<ProjectSnapshotRow[]>`
+      select snapshot, document_index
+      from public.project_snapshots
+      where user_id = ${userId} and id = ${id}
+      limit 1
+    `;
+    return currentRows[0] ? mergeProjectSnapshotRow(currentRows[0]) : null;
   }
 
   async loadProjectWithRevision(
@@ -466,7 +539,25 @@ export class PostgresProjectStore implements ProjectStore {
     `;
     const row = rows[0];
     if (!row) return null;
-    return { revision: Number(row.revision), snapshot: mergeProjectSnapshotRow(row) };
+    if (!readLegacySourceArchiveIdentity(row.snapshot)) {
+      return { revision: Number(row.revision), snapshot: mergeProjectSnapshotRow(row) };
+    }
+
+    await this.hydrateLegacySourceArchiveVersion(userId, id, row);
+    const currentRows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
+      select project_snapshots.snapshot, project_snapshots.document_index, projects.revision
+      from public.project_snapshots
+      join public.projects
+        on projects.user_id = project_snapshots.user_id and projects.id = project_snapshots.id
+      where project_snapshots.user_id = ${userId} and project_snapshots.id = ${id}
+      limit 1
+    `;
+    const currentRow = currentRows[0];
+    if (!currentRow) return null;
+    return {
+      revision: Number(currentRow.revision),
+      snapshot: mergeProjectSnapshotRow(currentRow),
+    };
   }
 
   async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
@@ -552,25 +643,14 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     id: ProjectId
   ): Promise<ProjectSourceArchiveIndex | null> {
-    const rows = await this.sql<ProjectSourceArchiveIndexRow[]>`
-      select
-        source.representation_hash as archive_representation_hash,
-        source.source_id as archive_source_id,
-        source.source_hash as archive_source_hash,
-        source.source_kind,
-        entry.path,
-        entry.kind,
-        entry.content_kind,
-        entry.source_hash,
-        entry.byte_size,
-        entry.preview,
-        entry.warning_reason
-      from public.project_sources source
-      left join public.project_source_entries entry
-        on entry.user_id = source.user_id and entry.project_id = source.project_id
-      where source.user_id = ${userId} and source.project_id = ${id}
-      order by entry.path
-    `;
+    const rows = await this.sql.unsafe<ProjectSourceArchiveIndexRow[]>(
+      `
+        select ${PROJECT_SOURCE_ARCHIVE_INDEX_PROJECTION_AND_JOIN}
+        where source.user_id = $1 and source.project_id = $2
+        order by entry.path
+      `,
+      [userId, id]
+    );
     const index = this.buildProjectSourceArchiveIndexFromRows(rows);
     if (index && rows[0]?.archive_representation_hash === null) {
       await this.sql`
@@ -584,6 +664,34 @@ export class PostgresProjectStore implements ProjectStore {
       `;
     }
     return index;
+  }
+
+  private async loadProjectSourceArchiveIndexes(
+    userId: string,
+    ids: readonly ProjectId[]
+  ): Promise<Map<ProjectId, ProjectSourceArchiveIndex>> {
+    if (ids.length === 0) return new Map();
+
+    const rows = await this.sql.unsafe<ProjectSourceArchiveIndexByProjectRow[]>(
+      `
+        select source.project_id, ${PROJECT_SOURCE_ARCHIVE_INDEX_PROJECTION_AND_JOIN}
+        where source.user_id = $1 and source.project_id = any($2::text[])
+        order by source.project_id, entry.path
+      `,
+      [userId, ids]
+    );
+    const rowsByProjectId = new Map<ProjectId, ProjectSourceArchiveIndexByProjectRow[]>();
+    for (const row of rows) {
+      const projectRows = rowsByProjectId.get(row.project_id) ?? [];
+      projectRows.push(row);
+      rowsByProjectId.set(row.project_id, projectRows);
+    }
+    const indexes = new Map<ProjectId, ProjectSourceArchiveIndex>();
+    for (const [projectId, projectRows] of rowsByProjectId) {
+      const index = this.buildProjectSourceArchiveIndexFromRows(projectRows);
+      if (index) indexes.set(projectId, index);
+    }
+    return indexes;
   }
 
   async loadProjectSourceArchiveEntry(
@@ -717,11 +825,130 @@ export class PostgresProjectStore implements ProjectStore {
       from public.project_snapshots
       where user_id = ${userId} and id = any(${ids}::text[])
     `;
-    const snapshotsById = new Map(rows.map(row => [row.id, mergeProjectSnapshotRow(row)] as const));
+    const rowsById = new Map(rows.map(row => [row.id, row] as const));
+    const legacyRows = rows.filter(row => readLegacySourceArchiveIdentity(row.snapshot));
+    if (legacyRows.length > 0) {
+      const repairs = await this.buildLegacySourceArchiveRepairs(userId, legacyRows);
+      if (repairs.length > 0) {
+        await this.repairLegacySourceArchiveVersions(userId, repairs);
+      }
+      const currentRows = await this.sql<ProjectSnapshotByIdRow[]>`
+        select id, snapshot, document_index
+        from public.project_snapshots
+        where user_id = ${userId}
+          and id = any(${legacyRows.map(row => row.id)}::text[])
+      `;
+      for (const row of legacyRows) rowsById.delete(row.id);
+      for (const row of currentRows) rowsById.set(row.id, row);
+    }
+    const snapshotsById = new Map(
+      [...rowsById].map(([id, row]) => [id, mergeProjectSnapshotRow(row)] as const)
+    );
     return ids.flatMap(id => {
       const snapshot = snapshotsById.get(id);
       return snapshot ? [snapshot] : [];
     });
+  }
+
+  private async buildLegacySourceArchiveRepairs(
+    userId: string,
+    rows: readonly ProjectSnapshotByIdRow[]
+  ): Promise<ProjectSourceArchiveBatchRepair[]> {
+    const indexesByProjectId = await this.loadProjectSourceArchiveIndexes(
+      userId,
+      rows.map(row => row.id)
+    );
+    return rows.flatMap<ProjectSourceArchiveBatchRepair>(row => {
+      const sourceIdentity = readLegacySourceArchiveIdentity(row.snapshot);
+      const index = indexesByProjectId.get(row.id);
+      if (
+        !sourceIdentity ||
+        sourceIdentity.sourceId !== index?.version.sourceId ||
+        sourceIdentity.sourceHash !== index?.version.sourceHash
+      ) {
+        return [];
+      }
+      return [
+        {
+          archive_index: index,
+          archive_version: index.version,
+          project_id: row.id,
+          representation_hash: index.version.representationHash,
+          source_hash: index.version.sourceHash,
+          source_id: index.version.sourceId,
+        },
+      ];
+    });
+  }
+
+  private async repairLegacySourceArchiveVersions(
+    userId: string,
+    repairs: readonly ProjectSourceArchiveBatchRepair[]
+  ): Promise<void> {
+    await this.sql`
+      with repair_input as (
+        select *
+        from jsonb_to_recordset(${this.sql.json(toPostgresJson(repairs))}::jsonb) as repair(
+          archive_index jsonb,
+          archive_version jsonb,
+          project_id text,
+          representation_hash text,
+          source_hash text,
+          source_id text
+        )
+      ), locked_snapshots as materialized (
+        select snapshot.id
+        from public.project_snapshots snapshot
+        join repair_input repair on repair.project_id = snapshot.id
+        where snapshot.user_id = ${userId}
+          and (
+            snapshot.snapshot #> '{source,index,version}' is null or
+            snapshot.snapshot #> '{source,index,version}' = 'null'::jsonb
+          )
+          and snapshot.snapshot #>> '{source,ref,id}' = repair.source_id
+          and snapshot.snapshot #>> '{source,ref,hash}' = repair.source_hash
+        order by snapshot.id
+        for update of snapshot
+      ), current_sources as (
+        update public.project_sources source
+        set representation_hash = repair.representation_hash
+        from repair_input repair
+        join locked_snapshots snapshot on snapshot.id = repair.project_id
+        where source.user_id = ${userId}
+          and source.project_id = repair.project_id
+          and source.source_kind = 'archive'
+          and source.source_id = repair.source_id
+          and source.source_hash = repair.source_hash
+          and (
+            source.representation_hash is null or
+            source.representation_hash = repair.representation_hash
+          )
+        returning
+          source.project_id,
+          source.representation_hash,
+          source.source_hash,
+          source.source_id
+      )
+      update public.project_snapshots snapshot
+      set snapshot = jsonb_set(
+        snapshot.snapshot,
+        '{source,index}',
+        coalesce(
+          nullif(snapshot.snapshot #> '{source,index}', 'null'::jsonb),
+          repair.archive_index
+        ) ||
+          jsonb_build_object('version', repair.archive_version)
+      )
+      from repair_input repair
+      join locked_snapshots locked_snapshot on locked_snapshot.id = repair.project_id
+      join current_sources source
+        on source.project_id = repair.project_id
+          and source.source_id = repair.source_id
+          and source.source_hash = repair.source_hash
+          and source.representation_hash = repair.representation_hash
+      where snapshot.user_id = ${userId}
+        and snapshot.id = repair.project_id
+    `;
   }
 
   private async writeProjectRevision(
@@ -857,6 +1084,18 @@ export class PostgresProjectStore implements ProjectStore {
         }
 
         let previousSnapshot: ProjectSnapshot | null = null;
+        const lockPreviousSnapshot = async (): Promise<ProjectSnapshot> => {
+          const previousRows = await sql<StoredProjectSnapshotRow[]>`
+            select snapshot, document_index
+            from public.project_snapshots
+            where user_id = ${userId} and id = ${snapshot.id}
+            for update
+          `;
+          if (!previousRows[0]) {
+            throw new Error('Stored project snapshot is missing.');
+          }
+          return mergeProjectSnapshotRow(previousRows[0]);
+        };
         if (existingMeta) {
           const lockedRows = await sql<{ id: string }[]>`
             select id
@@ -865,6 +1104,9 @@ export class PostgresProjectStore implements ProjectStore {
             for update
           `;
           if (!lockedRows[0]) throw new ProjectNotFoundError();
+          if (!sourceWrite && snapshot.source != null) {
+            previousSnapshot = await lockPreviousSnapshot();
+          }
         }
         const snapshotToPersist =
           !sourceWrite && snapshot.source != null
@@ -880,17 +1122,8 @@ export class PostgresProjectStore implements ProjectStore {
           snapshot: snapshotToPersist,
           userId,
         });
-        if (existingMeta) {
-          const previousRows = await sql<StoredProjectSnapshotRow[]>`
-            select snapshot, document_index
-            from public.project_snapshots
-            where user_id = ${userId} and id = ${snapshot.id}
-            for update
-          `;
-          if (!previousRows[0]) {
-            throw new Error('Stored project snapshot is missing.');
-          }
-          previousSnapshot = mergeProjectSnapshotRow(previousRows[0]);
+        if (existingMeta && !previousSnapshot) {
+          previousSnapshot = await lockPreviousSnapshot();
         }
         const sourceObjectPaths = sourceWrite
           ? await this.writePreparedProjectSource(sql, userId, snapshot.id, sourceWrite.prepared)
@@ -1052,6 +1285,12 @@ export class PostgresProjectStore implements ProjectStore {
       await sql`
         select id
         from public.projects
+        where user_id = ${userId} and id = ${id}
+        for update
+      `;
+      await sql`
+        select id
+        from public.project_snapshots
         where user_id = ${userId} and id = ${id}
         for update
       `;

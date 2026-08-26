@@ -54,6 +54,14 @@ When a ZIP archive is uploaded as a project source, the `PostgresProjectStore` p
 
 Sources: [apps/backend/src/projects/postgresProjectStore.ts:1140-1200](../../../apps/backend/src/projects/postgresProjectStore.ts#L1140-L1200), [apps/backend/src/projects/postgresProjectStore.ts:1210-1250](../../../apps/backend/src/projects/postgresProjectStore.ts#L1210-L1250)
 
+### Legacy Snapshot Repair
+
+Project reads repair legacy archive snapshots when `source.index.version` is absent or JSON `null`, including snapshots that omit `source.index` entirely. `PostgresProjectStore` rebuilds missing index metadata from the retained archive rows and writes the repair back to the snapshot. Single-project and batch loaders use the same repair path.
+
+The write is conditional. The snapshot tenant, project, source ID, and source hash must match the retained archive, and the retained representation hash must still be current. A concurrent repair or source replacement makes the update a no-op; the loader then reads the current snapshot instead of returning the stale pre-repair value. `loadProjectWithRevision` also reloads the snapshot and revision together after a repair attempt.
+
+Source: [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts)
+
 ### Database Schema for Sources
 | Table | Description |
 | :--- | :--- |
