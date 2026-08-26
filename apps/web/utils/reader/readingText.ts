@@ -132,7 +132,7 @@ const stripCompletePlaceholdersOutsideProtectedMarkdown = (content: string): str
     if (placeholderRange) {
       normalizedContent += ' ';
       cursor = placeholderRange.end;
-      while (protectedRanges[protectedRangeIndex]?.end <= cursor) {
+      while (protectedRanges[protectedRangeIndex]?.start < cursor) {
         protectedRangeIndex += 1;
       }
       continue;

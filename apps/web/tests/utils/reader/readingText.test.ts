@@ -243,6 +243,12 @@ describe('prepareMarkdownForSpeech', () => {
     );
   });
 
+  test('keeps later inline-code placeholders after a protected range crosses a media token', () => {
+    const input = '{{PDF_IMAGE:id|alt=$x}} tail$ then `{{INLINE_QUIZ:1}}` after';
+
+    expect(prepareMarkdownForSpeech(input)).toBe('tail$ then {{INLINE QUIZ:1}} after');
+  });
+
   test('reads a malformed marker before removing a later complete marker', () => {
     const speech = prepareMarkdownForSpeech(
       'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo'
