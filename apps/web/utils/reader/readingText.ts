@@ -1,6 +1,7 @@
 import {
   getMarkdownProtectedRanges,
   getMarkdownReferenceDefinitionRanges,
+  getMarkdownReferenceLinkLabelRanges,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
 } from '../markdown/codeRanges.ts';
@@ -112,6 +113,13 @@ const stripMarkdownReferenceDefinitions = (content: string): string => {
     content
   );
 };
+
+const stripMarkdownReferenceLinkLabels = (content: string): string =>
+  getMarkdownReferenceLinkLabelRanges(content).reduceRight(
+    (currentContent, range) =>
+      `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
+    content
+  );
 
 const stripPlaceholderToken = (content: string, placeholderPrefix: string): string => {
   let normalizedContent = '';
@@ -397,7 +405,8 @@ export interface ReadableTextElement {
 }
 
 export const prepareMarkdownForSpeech = (content: string): string => {
-  const referenceDefinitionsStripped = stripMarkdownReferenceDefinitions(content);
+  const referenceLabelsStripped = stripMarkdownReferenceLinkLabels(content);
+  const referenceDefinitionsStripped = stripMarkdownReferenceDefinitions(referenceLabelsStripped);
   const placeholderStrippedContent = NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.reduce(
     (currentContent, placeholderPrefix) => stripPlaceholderToken(currentContent, placeholderPrefix),
     referenceDefinitionsStripped

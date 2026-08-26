@@ -164,6 +164,26 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech(input)).toBe('Prima.\n\nDopo.');
   });
 
+  test('does not read full or collapsed reference labels', () => {
+    const input = [
+      '[Testo pieno][destinazione]',
+      '[Testo collassato][]',
+      '',
+      '[destinazione]: /full',
+      '[Testo collassato]: /collapsed',
+    ].join('\n');
+
+    const speech = prepareMarkdownForSpeech(input);
+    expect(speech).not.toMatch(/destinazione|collapsed/u);
+    expect(speech).toMatch(/Testo pieno|Testo collassato/u);
+  });
+
+  test('reads reference-like text inside raw html containers', () => {
+    const speech = prepareMarkdownForSpeech('<div>\n[Testo][ref]\n</div>\n\n[ref]: /hidden');
+
+    expect(speech).toMatch(/Testo.*ref/u);
+  });
+
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {
     const input = ['#  Titolo\tstrano', '', '', '', 'Testo\t con   spazi.'].join('\r\n');
 

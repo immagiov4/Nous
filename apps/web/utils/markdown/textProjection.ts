@@ -5,6 +5,7 @@ import {
   getMarkdownLinkDestinationRanges,
   getMarkdownMathRangeAt,
   getMarkdownReferenceDefinitionRanges,
+  getMarkdownReferenceLinkLabelRanges,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
   projectMarkdownMathRange,
@@ -69,6 +70,7 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
       ...getMarkdownImageRanges(content),
       ...getMarkdownLinkDestinationRanges(content),
       ...getMarkdownReferenceDefinitionRanges(content),
+      ...getMarkdownReferenceLinkLabelRanges(content),
     ].map(range => [range.start, range])
   );
 

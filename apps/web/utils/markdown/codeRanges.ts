@@ -72,6 +72,9 @@ export const findInlineLinkDestinationEnd = (
       ) {
         return -1;
       }
+      if (nextCharacter === '"' || nextCharacter === "'" || nextCharacter === '(') {
+        hasClosedAngleDestination = false;
+      }
       index = nextNonWhitespaceIndex - 1;
       continue;
     }
@@ -468,7 +471,7 @@ const normalizeReferenceLabel = (label: string): string =>
 const MARKDOWN_TAB_COLUMNS = 4;
 const REFERENCE_DEFINITION_MIN_INDENT_COLUMNS = 0;
 const REFERENCE_DEFINITION_MAX_INDENT_COLUMNS = 3;
-const REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS = 1;
+const REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS = 0;
 const REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS = 3;
 const MARKDOWN_RAW_HTML_BLOCK_TAG_PATTERN =
   /^<(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>)/iu;
@@ -495,6 +498,25 @@ const readMarkdownIndent = (line: string): { columns: number; length: number } =
   return { columns, length };
 };
 
+const readMarkdownContainerPrefixLength = (line: string): number => {
+  let length = 0;
+  while (line[length] === '>') {
+    length += 1;
+    if (line[length] === ' ' || line[length] === '\t') length += 1;
+  }
+  const listMarker = line.slice(length).match(/^(?:[-+*]|\d{1,9}[.)])[ \t]+/u)?.[0];
+  return length + (listMarker?.length ?? 0);
+};
+
+const readMarkdownBlockQuotePrefixLength = (line: string): number => {
+  let length = 0;
+  while (line[length] === '>') {
+    length += 1;
+    if (line[length] === ' ' || line[length] === '\t') length += 1;
+  }
+  return length;
+};
+
 const getRawHtmlBlockEnd = (line: string): RegExp | 'blank-line' | null => {
   if (/^<!--/u.test(line)) return /-->/u;
   if (/^<\?/u.test(line)) return /\?>/u;
@@ -509,25 +531,70 @@ const getRawHtmlBlockEnd = (line: string): RegExp | 'blank-line' | null => {
     : null;
 };
 
-export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownRange[] => {
+const getMarkdownRawHtmlBlockRanges = (
+  content: string,
+  codeRanges: MarkdownRange[]
+): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
-  const codeRanges = getMarkdownCodeRanges(content);
-  const titlePattern = /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))$/u;
   let lineStart = 0;
+  let blockStart = -1;
   let rawHtmlBlockEnd: RegExp | 'blank-line' | null = null;
 
   while (lineStart < content.length) {
     const lineBreak = content.indexOf('\n', lineStart);
     const lineEnd = lineBreak === -1 ? content.length : lineBreak;
     const indentation = readMarkdownIndent(content.slice(lineStart, lineEnd));
-    const labelStart = lineStart + indentation.length;
-    const markdownLine = content.slice(labelStart, lineEnd);
+    const indentedLine = content.slice(lineStart + indentation.length, lineEnd);
+    const markdownLine = indentedLine.slice(readMarkdownContainerPrefixLength(indentedLine));
+    const lineOverlapsCode = codeRanges.some(
+      range => range.start < lineEnd && range.end > lineStart
+    );
+
     if (rawHtmlBlockEnd) {
       const blockEnded =
         rawHtmlBlockEnd === 'blank-line'
           ? markdownLine.trim() === ''
           : rawHtmlBlockEnd.test(markdownLine);
-      if (blockEnded) rawHtmlBlockEnd = null;
+      if (blockEnded) {
+        ranges.push({ start: blockStart, end: lineEnd });
+        rawHtmlBlockEnd = null;
+        blockStart = -1;
+      }
+    } else if (
+      !lineOverlapsCode &&
+      indentation.columns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS
+    ) {
+      rawHtmlBlockEnd = getRawHtmlBlockEnd(markdownLine);
+      if (rawHtmlBlockEnd) {
+        blockStart = lineStart;
+        if (rawHtmlBlockEnd !== 'blank-line' && rawHtmlBlockEnd.test(markdownLine)) {
+          ranges.push({ start: blockStart, end: lineEnd });
+          rawHtmlBlockEnd = null;
+          blockStart = -1;
+        }
+      }
+    }
+    lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
+  }
+  if (rawHtmlBlockEnd) ranges.push({ start: blockStart, end: content.length });
+  return ranges;
+};
+
+export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownRange[] => {
+  const ranges: MarkdownRange[] = [];
+  const codeRanges = getMarkdownCodeRanges(content);
+  const rawHtmlRanges = getMarkdownRawHtmlBlockRanges(content, codeRanges);
+  const titlePattern = /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))$/u;
+  let lineStart = 0;
+
+  while (lineStart < content.length) {
+    const lineBreak = content.indexOf('\n', lineStart);
+    const lineEnd = lineBreak === -1 ? content.length : lineBreak;
+    const indentation = readMarkdownIndent(content.slice(lineStart, lineEnd));
+    const indentedLine = content.slice(lineStart + indentation.length, lineEnd);
+    const containerPrefixLength = readMarkdownContainerPrefixLength(indentedLine);
+    const labelStart = lineStart + indentation.length + containerPrefixLength;
+    if (rawHtmlRanges.some(range => range.start < lineEnd && range.end > lineStart)) {
       lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
       continue;
     }
@@ -537,16 +604,6 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
     if (lineOverlapsCode) {
       lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
       continue;
-    }
-    if (indentation.columns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS) {
-      rawHtmlBlockEnd = getRawHtmlBlockEnd(markdownLine);
-      if (rawHtmlBlockEnd) {
-        if (rawHtmlBlockEnd !== 'blank-line' && rawHtmlBlockEnd.test(markdownLine)) {
-          rawHtmlBlockEnd = null;
-        }
-        lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
-        continue;
-      }
     }
     const labelEnd =
       indentation.columns >= REFERENCE_DEFINITION_MIN_INDENT_COLUMNS &&
@@ -571,11 +628,14 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
         const continuationIndent = readMarkdownIndent(
           content.slice(lineBreak + 1, continuationLineEnd)
         );
+        const continuationContainerPrefixLength = readMarkdownBlockQuotePrefixLength(
+          content.slice(lineBreak + 1 + continuationIndent.length, continuationLineEnd)
+        );
         if (
           continuationIndent.columns >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
           continuationIndent.columns <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS
         ) {
-          cursor = lineBreak + 1 + continuationIndent.length;
+          cursor = lineBreak + 1 + continuationIndent.length + continuationContainerPrefixLength;
           destinationLineEnd = continuationLineEnd;
           destinationLineBreak = continuationLineBreak;
           definitionEnd = continuationLineEnd;
@@ -615,10 +675,15 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
         const continuationEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
         const continuation = content.slice(destinationLineBreak + 1, continuationEnd);
         const continuationIndent = readMarkdownIndent(continuation);
+        const continuationContainerPrefixLength = readMarkdownBlockQuotePrefixLength(
+          continuation.slice(continuationIndent.length)
+        );
         if (
           continuationIndent.columns >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
           continuationIndent.columns <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS &&
-          titlePattern.test(continuation.trim())
+          titlePattern.test(
+            continuation.slice(continuationIndent.length + continuationContainerPrefixLength).trim()
+          )
         ) {
           definitionEnd = continuationEnd;
         }
@@ -816,6 +881,46 @@ export const getMarkdownLinkDestinationRanges = (content: string): MarkdownRange
   return ranges;
 };
 
+export const getMarkdownReferenceLinkLabelRanges = (content: string): MarkdownRange[] => {
+  const ranges: MarkdownRange[] = [];
+  const codeRanges = getMarkdownCodeRanges(content);
+  const rawHtmlRanges = getMarkdownRawHtmlBlockRanges(content, codeRanges);
+  const referenceLabels = getMarkdownReferenceLabels(content);
+  let index = 0;
+
+  while (index < content.length) {
+    const labelStart = content.indexOf('[', index);
+    if (labelStart === -1) break;
+    if (
+      content[labelStart - 1] === '!' ||
+      isEscapedCharacter(content, labelStart) ||
+      codeRanges.some(range => range.start < labelStart + 1 && range.end > labelStart) ||
+      rawHtmlRanges.some(range => range.start < labelStart + 1 && range.end > labelStart)
+    ) {
+      index = labelStart + 1;
+      continue;
+    }
+    const labelEnd = findInlineLabelEnd(content, labelStart);
+    const referenceStart = labelEnd + 1;
+    if (labelEnd === -1 || content[referenceStart] !== '[') {
+      index = labelStart + 1;
+      continue;
+    }
+    const referenceEnd = findInlineLabelEnd(content, referenceStart);
+    const visibleLabel = content.slice(labelStart + 1, labelEnd);
+    const referenceLabel =
+      referenceEnd === -1 ? '' : content.slice(referenceStart + 1, referenceEnd) || visibleLabel;
+    if (referenceEnd !== -1 && referenceLabels.has(normalizeReferenceLabel(referenceLabel))) {
+      ranges.push({ start: referenceStart, end: referenceEnd + 1 });
+      index = referenceEnd + 1;
+      continue;
+    }
+    index = labelStart + 1;
+  }
+
+  return ranges;
+};
+
 const getNonAnchorablePlaceholderRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
 
@@ -843,6 +948,7 @@ export const getMarkdownAnnotationProtectedRanges = (content: string): MarkdownR
     ...getMarkdownImageRanges(content),
     ...getMarkdownLinkDestinationRanges(content),
     ...getMarkdownReferenceDefinitionRanges(content),
+    ...getMarkdownReferenceLinkLabelRanges(content),
     ...getMarkdownMathRanges(content),
     ...getNonAnchorablePlaceholderRanges(content),
   ]);

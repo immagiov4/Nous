@@ -53,6 +53,18 @@ test('annotation ranges parse parenthesized ordinary-link titles', () => {
   assert.deepEqual(protectedSlices, ['(image.png (Titolo nascosto))']);
 });
 
+test('annotation ranges parse angle destinations with quoted and parenthesized titles', () => {
+  const content = '[uno](<https://example.com> "Titolo") e ![due](<image.png> (Didascalia))';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, [
+    '(<https://example.com> "Titolo")',
+    '![due](<image.png> (Didascalia))',
+  ]);
+});
+
 test('annotation ranges keep adjacent inline code separate from an image', () => {
   const content = '![diagramma](image.png)`codice inline`';
   const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
@@ -103,6 +115,7 @@ test('annotation ranges preserve empty reference labels and definitions inside r
     '<custom>\n[ref]: image.png',
     '<custom title="a>b">\n[ref]: image.png',
     '</custom bad>\n[ref]: image.png',
+    '> <div>\n> [ref]: image.png\n> </div>',
   ];
 
   contents.forEach(content => {
@@ -144,6 +157,34 @@ test('annotation ranges include definitions with a continued destination', () =>
   assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
     { start: 0, end: content.length },
   ]);
+});
+
+test('annotation ranges include zero-indent and container-scoped reference definitions', () => {
+  const contents = [
+    '![alt][ref]\n\n[ref]:\n/image.png "Titolo"',
+    '> [ref]: /image.png\n>\n> ![alt][ref]',
+    '- [ref]: /image.png\n\n  ![alt][ref]',
+  ];
+
+  contents.forEach(content => {
+    const protectedText = getMarkdownAnnotationProtectedRanges(content)
+      .map(range => content.slice(range.start, range.end))
+      .join('\n');
+    assert.match(protectedText, /\[ref\]:/u);
+    assert.match(protectedText, /!\[alt\]\[ref\]/u);
+  });
+});
+
+test('annotation ranges preserve malformed continuations and missing reference labels', () => {
+  const contents = [
+    '[ref]:\nnot a destination with spaces',
+    '[ref]:\n- /visible-list-destination',
+    '[visibile][mancante]',
+  ];
+
+  contents.forEach(content => {
+    assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+  });
 });
 
 test('annotation ranges treat a leading tab as indented code, not a definition', () => {

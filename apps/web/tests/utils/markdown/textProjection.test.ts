@@ -41,6 +41,24 @@ test('buildVisibleProjection hides reference image alt text and link destination
   assert.match(projection.text, /Testo visibile/);
 });
 
+test('buildVisibleProjection hides full and collapsed reference labels', () => {
+  const content = [
+    '[Testo pieno][destinazione]',
+    '[Testo collassato][]',
+    '',
+    '[destinazione]: /full',
+    '[Testo collassato]: /collapsed',
+  ].join('\n');
+
+  assert.equal(buildVisibleProjection(content).text.trim(), 'Testo pieno\nTesto collassato');
+});
+
+test('buildVisibleProjection preserves reference-like text inside raw html containers', () => {
+  const content = '<div>\n[Testo][ref]\n</div>\n\n[ref]: /hidden';
+
+  assert.match(buildVisibleProjection(content).text, /Testoref/u);
+});
+
 test('buildVisibleProjection preserves malformed image syntax rendered as text', () => {
   const projection = buildVisibleProjection('![testo visibile](destinazione non valida)');
 

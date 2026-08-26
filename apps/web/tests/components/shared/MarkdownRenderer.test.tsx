@@ -996,6 +996,58 @@ describe('MarkdownRenderer', () => {
     expect(container).toHaveTextContent('[malformed-ref]: image.png');
   });
 
+  test('renders continued and container-scoped definitions plus reference links', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '[Testo pieno][full] e [Testo collassato][]',
+          '',
+          '[full]:',
+          '/full "Titolo"',
+          '[Testo collassato]: /collapsed',
+          '',
+          '> [quote]: /quote',
+          '>',
+          '> ![Immagine][quote]',
+          '',
+          '- [list]: /list',
+          '',
+          '  ![Lista][list]',
+        ].join('\n')}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: 'Testo pieno' })).toHaveAttribute('href', '/full');
+    expect(screen.getByRole('link', { name: 'Testo collassato' })).toHaveAttribute(
+      'href',
+      '/collapsed'
+    );
+    expect(container.querySelector('blockquote img')).toHaveAttribute('src', '/quote');
+    expect(container.querySelector('li img')).toHaveAttribute('src', '/list');
+  });
+
+  test('renders angle destinations with titles and preserves malformed counterparts', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '[Valido](<https://example.com/percorso> "Titolo")',
+          '[Valido parentesi](<https://example.com/altro> (Titolo))',
+          '[Visibile](<https://example.com> titolo non valido)',
+          '',
+          '> <div>',
+          '> [ref]: /visibile',
+          '> </div>',
+        ].join('\n')}
+      />
+    );
+
+    expect(screen.getByText('Valido').closest('a')).toBeInTheDocument();
+    expect(screen.getByText('Valido parentesi').closest('a')).toBeInTheDocument();
+    expect(container).not.toHaveTextContent('Titolo');
+    expect(container).toHaveTextContent('[Visibile](<https://example.com> titolo non valido)');
+    expect(container).toHaveTextContent('[ref]: /visibile');
+  });
+
   test('renders markdown tables with semantic cells', () => {
     render(<MarkdownRenderer content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'} />);
 
