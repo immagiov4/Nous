@@ -862,9 +862,8 @@ export class PostgresProjectStore implements ProjectStore {
       const index = indexesByProjectId.get(row.id);
       if (
         !sourceIdentity ||
-        !index ||
-        sourceIdentity.sourceId !== index.version.sourceId ||
-        sourceIdentity.sourceHash !== index.version.sourceHash
+        sourceIdentity.sourceId !== index?.version.sourceId ||
+        sourceIdentity.sourceHash !== index?.version.sourceHash
       ) {
         return [];
       }
