@@ -355,6 +355,60 @@ describe('PostgresProjectStore', () => {
     expect(statements.at(-1)).toContain('select snapshot, document_index');
   });
 
+  test.each([
+    { legacyIndex: { entries: [] }, shape: 'version-only' },
+    { legacyIndex: undefined, shape: 'missing-index' },
+  ])('returns null when a $shape legacy candidate is deleted during discovery', async ({
+    legacyIndex,
+  }) => {
+    const legacySnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          sourceId: 'legacy-source',
+        },
+        ...(legacyIndex ? { index: legacyIndex } : {}),
+        kind: 'archive',
+        name: 'legacy.zip',
+        ref: {
+          byteSize: 100,
+          hash: 'a'.repeat(64),
+          id: 'legacy-source',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          objectPath: 'users/user-1/projects/project/legacy.zip',
+        },
+      },
+    } as ProjectSnapshot;
+    let projectWasDeleted = false;
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        if (statement.includes('from public.project_sources source')) {
+          projectWasDeleted = true;
+          return Promise.resolve([]);
+        }
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve(
+            projectWasDeleted ? [] : [{ document_index: null, snapshot: legacySnapshot }]
+          );
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(store.loadProject('user-1', legacySnapshot.id)).resolves.toBeNull();
+  });
+
   test('reports missing projects consistently for favorite and touch writes', async () => {
     const sqlClient = Object.assign(
       vi.fn(async () => []),
@@ -507,12 +561,25 @@ describe('PostgresProjectStore', () => {
       source: null,
       sourceKind: 'learn-mode' as const,
     };
+    const deletedVersionSnapshot = {
+      ...legacySnapshot,
+      id: 'deleted-version-archive-project',
+      source: { ...legacySnapshot.source, index: { entries: [] } },
+    } as ProjectSnapshot;
+    const deletedIndexSnapshot = {
+      ...legacySnapshot,
+      id: 'deleted-index-archive-project',
+    } as ProjectSnapshot;
     const currentSnapshot = { ...createMultiSourceSnapshot(), id: 'current-project' };
     const storedSnapshots = new Map(
-      [legacySnapshot, secondLegacySnapshot, staleLegacySnapshot, currentSnapshot].map(snapshot => [
-        snapshot.id,
-        snapshot,
-      ])
+      [
+        legacySnapshot,
+        secondLegacySnapshot,
+        staleLegacySnapshot,
+        deletedVersionSnapshot,
+        deletedIndexSnapshot,
+        currentSnapshot,
+      ].map(snapshot => [snapshot.id, snapshot])
     );
     const statements: string[] = [];
     const queryValues: unknown[][] = [];
@@ -523,6 +590,8 @@ describe('PostgresProjectStore', () => {
         queryValues.push(values);
         if (statement.includes('from public.project_sources source')) {
           storedSnapshots.set(staleLegacySnapshot.id, staleReplacementSnapshot);
+          storedSnapshots.delete(deletedVersionSnapshot.id);
+          storedSnapshots.delete(deletedIndexSnapshot.id);
           return Promise.resolve(
             [legacySnapshot.id, secondLegacySnapshot.id].map(projectId => ({
               archive_representation_hash: archiveVersion.representationHash,
@@ -578,6 +647,8 @@ describe('PostgresProjectStore', () => {
       currentSnapshot.id,
       secondLegacySnapshot.id,
       staleLegacySnapshot.id,
+      deletedVersionSnapshot.id,
+      deletedIndexSnapshot.id,
       legacySnapshot.id,
     ]);
 
@@ -599,6 +670,10 @@ describe('PostgresProjectStore', () => {
     });
     expect(snapshots[3]).toEqual(staleReplacementSnapshot);
     expect(snapshots[4]).toBe(snapshots[0]);
+    expect(snapshots).not.toContainEqual(
+      expect.objectContaining({ id: deletedVersionSnapshot.id })
+    );
+    expect(snapshots).not.toContainEqual(expect.objectContaining({ id: deletedIndexSnapshot.id }));
     expect(queryValues[0]).toEqual([
       'user-1',
       [
@@ -606,6 +681,8 @@ describe('PostgresProjectStore', () => {
         currentSnapshot.id,
         secondLegacySnapshot.id,
         staleLegacySnapshot.id,
+        deletedVersionSnapshot.id,
+        deletedIndexSnapshot.id,
         legacySnapshot.id,
       ],
     ]);
@@ -637,7 +714,13 @@ describe('PostgresProjectStore', () => {
     expect(queryValues[2]?.slice(1)).toEqual(['user-1', 'user-1', 'user-1']);
     expect(queryValues[3]).toEqual([
       'user-1',
-      [legacySnapshot.id, secondLegacySnapshot.id, staleLegacySnapshot.id],
+      [
+        legacySnapshot.id,
+        secondLegacySnapshot.id,
+        staleLegacySnapshot.id,
+        deletedVersionSnapshot.id,
+        deletedIndexSnapshot.id,
+      ],
     ]);
     const repairStatement = statements[2] ?? '';
     expect(repairStatement).toContain('locked_snapshots as materialized');

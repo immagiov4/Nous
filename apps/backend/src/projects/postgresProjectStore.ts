@@ -504,7 +504,7 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     id: ProjectId,
     row: ProjectSnapshotRow
-  ): Promise<ProjectSnapshot> {
+  ): Promise<ProjectSnapshot | null> {
     const sourceIdentity = readLegacySourceArchiveIdentity(row.snapshot);
     if (!sourceIdentity) {
       return mergeProjectSnapshotRow(row);
@@ -521,7 +521,7 @@ export class PostgresProjectStore implements ProjectStore {
       where user_id = ${userId} and id = ${id}
       limit 1
     `;
-    return currentRows[0] ? mergeProjectSnapshotRow(currentRows[0]) : mergeProjectSnapshotRow(row);
+    return currentRows[0] ? mergeProjectSnapshotRow(currentRows[0]) : null;
   }
 
   async loadProjectWithRevision(
@@ -837,6 +837,7 @@ export class PostgresProjectStore implements ProjectStore {
         where user_id = ${userId}
           and id = any(${legacyRows.map(row => row.id)}::text[])
       `;
+      for (const row of legacyRows) rowsById.delete(row.id);
       for (const row of currentRows) rowsById.set(row.id, row);
     }
     const snapshotsById = new Map(
