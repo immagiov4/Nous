@@ -2,6 +2,7 @@ import {
   getMarkdownAnnotationProtectedRanges,
   type MarkdownRange,
   normalizeMathSelectionArtifacts,
+  parseMarkdownAnalysis,
 } from '../markdown/codeRanges.ts';
 
 import {
@@ -45,10 +46,11 @@ export const resolveSelectedSegments = ({
     return [];
   }
 
-  const visibleProjection = buildVisibleProjection(content);
-  const looseProjection = buildLooseProjection(content);
+  const analysis = parseMarkdownAnalysis(content);
+  const visibleProjection = buildVisibleProjection(content, analysis);
+  const looseProjection = buildLooseProjection(content, visibleProjection);
   const sourceLooseProjection = buildSourceLooseProjection(content);
-  const protectedRanges = getMarkdownAnnotationProtectedRanges(content);
+  const protectedRanges = getMarkdownAnnotationProtectedRanges(content, analysis);
   const hasSelectionContext = Boolean(contextBefore || contextAfter);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,

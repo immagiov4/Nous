@@ -1,3 +1,10 @@
+import remarkBreaks from 'remark-breaks';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
+import { escapeDisallowedRawHtml } from './html.ts';
+
 export interface MarkdownRange {
   start: number;
   end: number;
@@ -16,106 +23,6 @@ export const NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES = [
 
 const isAsciiAlphaNumeric = (character: string | undefined): boolean =>
   Boolean(character && /[A-Za-z0-9]/u.test(character));
-
-export const findInlineLinkDestinationEnd = (
-  value: string,
-  openingParenthesisIndex: number
-): number => {
-  if (value[openingParenthesisIndex] !== '(') {
-    return -1;
-  }
-
-  let depth = 0;
-  let activeTitleQuote: '"' | "'" | null = null;
-  let hasClosedAngleDestination = false;
-  let hasDestination = false;
-  let isAngleDestination = false;
-
-  for (let index = openingParenthesisIndex; index < value.length; index += 1) {
-    const character = value[index];
-    if (character === '\\') {
-      index += 1;
-      continue;
-    }
-    if (activeTitleQuote) {
-      if (character === activeTitleQuote) activeTitleQuote = null;
-      continue;
-    }
-    if (index === openingParenthesisIndex + 1 && character === '<') {
-      isAngleDestination = true;
-      continue;
-    }
-    if (isAngleDestination) {
-      if (/\s/u.test(character)) {
-        return -1;
-      }
-      if (character === '>') {
-        isAngleDestination = false;
-        hasClosedAngleDestination = true;
-        hasDestination = true;
-      }
-      continue;
-    }
-    if (hasClosedAngleDestination && character !== ')' && !/\s/u.test(character)) {
-      return -1;
-    }
-    if (depth === 1 && /\s/u.test(character)) {
-      const nextNonWhitespaceIndex = value.slice(index).search(/\S/u) + index;
-      const nextCharacter = value[nextNonWhitespaceIndex];
-      if (
-        !hasDestination ||
-        (nextCharacter !== ')' &&
-          nextCharacter !== '"' &&
-          nextCharacter !== "'" &&
-          nextCharacter !== '(')
-      ) {
-        return -1;
-      }
-      if (nextCharacter === '"' || nextCharacter === "'" || nextCharacter === '(') {
-        hasClosedAngleDestination = false;
-      }
-      index = nextNonWhitespaceIndex - 1;
-      continue;
-    }
-    if (depth === 1 && (character === '"' || character === "'") && /\s/u.test(value[index - 1])) {
-      activeTitleQuote = character;
-      continue;
-    }
-    if (character === '(') {
-      depth += 1;
-      if (depth > 1) hasDestination = true;
-      continue;
-    }
-    if (character === ')') {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-    if (depth === 1) hasDestination = true;
-  }
-
-  return -1;
-};
-
-const countRepeatedCharacter = (content: string, index: number, character: string): number => {
-  let cursor = index;
-
-  while (content[cursor] === character) {
-    cursor += 1;
-  }
-
-  return cursor - index;
-};
-
-const findInlineCodeRange = (content: string, startIndex: number): MarkdownRange => {
-  const delimiterLength = countRepeatedCharacter(content, startIndex, '`');
-  const delimiter = '`'.repeat(delimiterLength);
-  const closingIndex = content.indexOf(delimiter, startIndex + delimiterLength);
-
-  return {
-    start: startIndex,
-    end: closingIndex === -1 ? content.length : closingIndex + delimiterLength,
-  };
-};
 
 const isEscapedCharacter = (content: string, index: number) => {
   let slashCount = 0;
@@ -408,640 +315,221 @@ const mergeOverlappingRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
   return mergedRanges;
 };
 
+interface MarkdownAstPosition {
+  end: { offset?: number };
+  start: { offset?: number };
+}
+
+interface MarkdownAstNode {
+  children?: MarkdownAstNode[];
+  position?: MarkdownAstPosition;
+  type: string;
+}
+
+export interface MarkdownAnalysis {
+  codeRanges: MarkdownRange[];
+  htmlSyntaxRanges: MarkdownRange[];
+  imageRanges: MarkdownRange[];
+  linkDestinationRanges: MarkdownRange[];
+  mathRanges: MarkdownRange[];
+  referenceDefinitionRanges: MarkdownRange[];
+  referenceLinkLabelRanges: MarkdownRange[];
+}
+
+const markdownParser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkBreaks);
+
+const rendererParsesImageSource = (source: string): boolean => {
+  const renderedSource = escapeDisallowedRawHtml(source);
+  if (renderedSource === source) return true;
+  const root = markdownParser.parse(renderedSource) as MarkdownAstNode;
+  return (
+    root.children?.some(node =>
+      node.children?.some(child => child.type === 'image' || child.type === 'imageReference')
+    ) ?? false
+  );
+};
+
+const getNodeRange = (node: MarkdownAstNode): MarkdownRange | null => {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  return start === undefined || end === undefined ? null : { start, end };
+};
+
+const expandToLineBounds = (content: string, range: MarkdownRange): MarkdownRange => {
+  const lineStart = content.lastIndexOf('\n', range.start - 1) + 1;
+  const lineBreak = content.indexOf('\n', range.end);
+  return { start: lineStart, end: lineBreak === -1 ? content.length : lineBreak };
+};
+
+const getInlineLinkDestinationRange = (
+  content: string,
+  node: MarkdownAstNode,
+  nodeRange: MarkdownRange
+): MarkdownRange | null => {
+  const lastChildEnd = node.children?.at(-1)?.position?.end.offset ?? nodeRange.start;
+  const destinationStart = content.indexOf('](', lastChildEnd);
+  return destinationStart !== -1 && destinationStart < nodeRange.end
+    ? { start: destinationStart + 1, end: nodeRange.end }
+    : null;
+};
+
+const getReferenceLabelRange = (
+  content: string,
+  node: MarkdownAstNode,
+  nodeRange: MarkdownRange
+): MarkdownRange | null => {
+  const lastChildEnd = node.children?.at(-1)?.position?.end.offset ?? nodeRange.start;
+  const referenceStart = content.indexOf('[', lastChildEnd);
+  return referenceStart !== -1 && referenceStart < nodeRange.end
+    ? { start: referenceStart, end: nodeRange.end }
+    : null;
+};
+
+const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
+  NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.flatMap(prefix => {
+    const ranges: MarkdownRange[] = [];
+    let start = content.indexOf(prefix);
+    while (start !== -1) {
+      const closingIndex = content.indexOf('}}', start + prefix.length);
+      const end = closingIndex === -1 ? content.length : closingIndex + 2;
+      ranges.push({ start, end });
+      start = closingIndex === -1 ? -1 : content.indexOf(prefix, end);
+    }
+    return ranges;
+  });
+
+export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
+  const analysis: MarkdownAnalysis = {
+    codeRanges: [],
+    htmlSyntaxRanges: [],
+    imageRanges: [],
+    linkDestinationRanges: [],
+    mathRanges: [],
+    referenceDefinitionRanges: [],
+    referenceLinkLabelRanges: [],
+  };
+  const root = markdownParser.runSync(markdownParser.parse(content)) as MarkdownAstNode;
+  const visit = (node: MarkdownAstNode): void => {
+    const range = getNodeRange(node);
+    if (range) {
+      if (node.type === 'inlineCode') {
+        analysis.codeRanges.push(range);
+      }
+      if (node.type === 'code') {
+        const blockRange = expandToLineBounds(content, range);
+        analysis.codeRanges.push(blockRange);
+      }
+      if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
+      if (node.type === 'image' || node.type === 'imageReference') {
+        const source = content.slice(range.start, range.end);
+        if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
+          analysis.imageRanges.push(range);
+        }
+      }
+      if (node.type === 'definition') {
+        analysis.referenceDefinitionRanges.push(expandToLineBounds(content, range));
+      }
+      if (node.type === 'html') {
+        const source = content.slice(range.start, range.end);
+        if (escapeDisallowedRawHtml(source) === source) {
+          analysis.htmlSyntaxRanges.push(range);
+        }
+      }
+      if (node.type === 'link') {
+        const source = content.slice(range.start, range.end);
+        if (!(source.startsWith('<') && source.endsWith('>'))) {
+          const destinationRange = getInlineLinkDestinationRange(content, node, range);
+          if (destinationRange) analysis.linkDestinationRanges.push(destinationRange);
+        }
+      }
+      if (node.type === 'linkReference') {
+        const labelRange = getReferenceLabelRange(content, node, range);
+        if (labelRange) analysis.referenceLinkLabelRanges.push(labelRange);
+      }
+    }
+    node.children?.forEach(visit);
+  };
+  visit(root);
+  return analysis;
+};
+
+export const findInlineLinkDestinationEnd = (
+  content: string,
+  openingParenthesisIndex: number
+): number => {
+  const range = parseMarkdownAnalysis(content).linkDestinationRanges.find(
+    candidate => candidate.start === openingParenthesisIndex
+  );
+  if (range) return range.end - 1;
+
+  const syntheticLabel = '[x]';
+  const destinationSource = content.slice(openingParenthesisIndex);
+  const syntheticRange = parseMarkdownAnalysis(
+    `${syntheticLabel}${destinationSource}`
+  ).linkDestinationRanges.at(0);
+  return syntheticRange
+    ? openingParenthesisIndex + syntheticRange.end - syntheticLabel.length - 1
+    : -1;
+};
+
 export const findInlineLabelEnd = (content: string, openingBracketIndex: number): number => {
   let depth = 0;
   for (let index = openingBracketIndex; index < content.length; index += 1) {
-    if (content[index] === '\\') {
-      index += 1;
-      continue;
-    }
-    if (content[index] === '[') depth += 1;
-    if (content[index] === ']') {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
+    if (content[index] === '\\') index += 1;
+    else if (content[index] === '[') depth += 1;
+    else if (content[index] === ']' && --depth === 0) return index;
   }
   return -1;
 };
 
-export const findMarkdownAutolinkEnd = (content: string, openingAngleIndex: number): number => {
-  if (content[openingAngleIndex] !== '<') return -1;
-  const closingAngleIndex = content.indexOf('>', openingAngleIndex + 1);
-  if (closingAngleIndex === -1) return -1;
-  const candidate = content.slice(openingAngleIndex + 1, closingAngleIndex);
-  const isUri = /^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*$/u.test(candidate);
-  const isEmail =
-    /^[^\s<>@]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/u.test(
-      candidate
-    );
-  return isUri || isEmail ? closingAngleIndex : -1;
-};
-
-const normalizeReferenceLabel = (label: string): string =>
-  label.trim().replaceAll(/\s+/gu, ' ').toLowerCase();
-
-const MARKDOWN_TAB_COLUMNS = 4;
-const REFERENCE_DEFINITION_MIN_INDENT_COLUMNS = 0;
-const REFERENCE_DEFINITION_MAX_INDENT_COLUMNS = 3;
-const REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS = 0;
-const REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS = 3;
-const MARKDOWN_RAW_HTML_BLOCK_TAG_PATTERN =
-  /^<(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>)/iu;
-const MARKDOWN_COMPLETE_HTML_TAG_PATTERN =
-  /^(?:<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>|<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ "'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>)[ \t]*$/u;
-const MARKDOWN_MALFORMED_CLOSING_TAG_PATTERN = /^<\/[A-Za-z][^>]*>/u;
-
-export const isMarkdownHtmlTag = (value: string): boolean =>
-  MARKDOWN_COMPLETE_HTML_TAG_PATTERN.test(value) ||
-  /^<!--(?:[\s\S]*?)-->$/u.test(value) ||
-  /^<\?(?:[\s\S]*?)\?>$/u.test(value) ||
-  /^<!\[CDATA\[(?:[\s\S]*?)\]\]>$/u.test(value) ||
-  /^<![A-Z][^>]*>$/u.test(value);
-
-const readMarkdownIndent = (line: string): { columns: number; length: number } => {
-  let columns = 0;
-  let length = 0;
-  while (length < line.length) {
-    if (line[length] === ' ') {
-      columns += 1;
-      length += 1;
-      continue;
-    }
-    if (line[length] === '\t') {
-      columns += MARKDOWN_TAB_COLUMNS - (columns % MARKDOWN_TAB_COLUMNS);
-      length += 1;
-      continue;
-    }
-    break;
-  }
-  return { columns, length };
-};
-
-interface MarkdownLinePrefix {
-  blockQuoteDepth: number;
-  contentIndentationColumns: number;
-  contentOffset: number;
-  contentOffsetBeforeList: number;
-  listContinuationIndentColumns: number | null;
-}
-
-const readMarkdownLinePrefix = (line: string): MarkdownLinePrefix => {
-  let contentOffset = 0;
-  let blockQuoteDepth = 0;
-  let indentation = readMarkdownIndent(line);
-  contentOffset += indentation.length;
-
-  while (line[contentOffset] === '>') {
-    blockQuoteDepth += 1;
-    contentOffset += 1;
-    if (line[contentOffset] === ' ' || line[contentOffset] === '\t') contentOffset += 1;
-    indentation = readMarkdownIndent(line.slice(contentOffset));
-    contentOffset += indentation.length;
-  }
-
-  const listMarker = line.slice(contentOffset).match(/^(?:[-+*]|\d{1,9}[.)])([ \t]+)/u)?.[0] ?? '';
-  const listMarkerColumns = listMarker
-    ? readMarkdownIndent(listMarker.slice(listMarker.search(/[ \t]/u))).columns +
-      listMarker.search(/[ \t]/u)
-    : 0;
-
-  return {
-    blockQuoteDepth,
-    contentIndentationColumns: indentation.columns,
-    contentOffset: contentOffset + listMarker.length,
-    contentOffsetBeforeList: contentOffset,
-    listContinuationIndentColumns: listMarker ? indentation.columns + listMarkerColumns : null,
-  };
-};
-
-const getRawHtmlBlockEnd = (line: string): RegExp | 'blank-line' | null => {
-  if (/^<!--/u.test(line)) return /-->/u;
-  if (/^<\?/u.test(line)) return /\?>/u;
-  if (/^<!\[CDATA\[/u.test(line)) return /\]\]>/u;
-  if (/^<![A-Z]/u.test(line)) return />/u;
-  const rawTag = line.match(/^<(script|pre|style|textarea)(?:\s|>)/iu)?.[1];
-  if (rawTag) return new RegExp(`</${rawTag}\\s*>`, 'iu');
-  return MARKDOWN_RAW_HTML_BLOCK_TAG_PATTERN.test(line) ||
-    MARKDOWN_COMPLETE_HTML_TAG_PATTERN.test(line) ||
-    MARKDOWN_MALFORMED_CLOSING_TAG_PATTERN.test(line)
-    ? 'blank-line'
-    : null;
-};
-
-const getMarkdownRawHtmlBlockRanges = (
+export const getMarkdownReferenceDefinitionRanges = (
   content: string,
-  codeRanges: MarkdownRange[]
-): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  let lineStart = 0;
-  let blockStart = -1;
-  let rawHtmlBlockEnd: RegExp | 'blank-line' | null = null;
+  analysis = parseMarkdownAnalysis(content)
+): MarkdownRange[] => analysis.referenceDefinitionRanges;
 
-  while (lineStart < content.length) {
-    const lineBreak = content.indexOf('\n', lineStart);
-    const lineEnd = lineBreak === -1 ? content.length : lineBreak;
-    const line = content.slice(lineStart, lineEnd);
-    const linePrefix = readMarkdownLinePrefix(line);
-    const markdownLine = line.slice(linePrefix.contentOffset);
-    const lineOverlapsCode = codeRanges.some(
-      range => range.start < lineEnd && range.end > lineStart
-    );
+export const getMarkdownImageRanges = (
+  content: string,
+  analysis = parseMarkdownAnalysis(content)
+): MarkdownRange[] => analysis.imageRanges;
 
-    if (rawHtmlBlockEnd) {
-      const blockEnded =
-        rawHtmlBlockEnd === 'blank-line'
-          ? markdownLine.trim() === ''
-          : rawHtmlBlockEnd.test(markdownLine);
-      if (blockEnded) {
-        ranges.push({ start: blockStart, end: lineEnd });
-        rawHtmlBlockEnd = null;
-        blockStart = -1;
-      }
-    } else if (
-      !lineOverlapsCode &&
-      linePrefix.contentIndentationColumns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS
-    ) {
-      rawHtmlBlockEnd = getRawHtmlBlockEnd(markdownLine);
-      if (rawHtmlBlockEnd) {
-        blockStart = lineStart;
-        if (rawHtmlBlockEnd !== 'blank-line' && rawHtmlBlockEnd.test(markdownLine)) {
-          ranges.push({ start: blockStart, end: lineEnd });
-          rawHtmlBlockEnd = null;
-          blockStart = -1;
-        }
-      }
-    }
-    lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
-  }
-  if (rawHtmlBlockEnd) ranges.push({ start: blockStart, end: content.length });
-  return ranges;
-};
+export const getMarkdownLinkDestinationRanges = (
+  content: string,
+  analysis = parseMarkdownAnalysis(content)
+): MarkdownRange[] => analysis.linkDestinationRanges;
 
-export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  const codeRanges = getMarkdownCodeRanges(content);
-  const rawHtmlRanges = getMarkdownRawHtmlBlockRanges(content, codeRanges);
-  const titlePattern = /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))$/u;
-  let lineStart = 0;
+export const getMarkdownReferenceLinkLabelRanges = (
+  content: string,
+  analysis = parseMarkdownAnalysis(content)
+): MarkdownRange[] => analysis.referenceLinkLabelRanges;
 
-  while (lineStart < content.length) {
-    const lineBreak = content.indexOf('\n', lineStart);
-    const lineEnd = lineBreak === -1 ? content.length : lineBreak;
-    const line = content.slice(lineStart, lineEnd);
-    const linePrefix = readMarkdownLinePrefix(line);
-    const labelStart = lineStart + linePrefix.contentOffset;
-    if (rawHtmlRanges.some(range => range.start < lineEnd && range.end > lineStart)) {
-      lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
-      continue;
-    }
-    const lineOverlapsCode = codeRanges.some(
-      range => range.start < lineEnd && range.end > lineStart
-    );
-    if (lineOverlapsCode) {
-      lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
-      continue;
-    }
-    const labelEnd =
-      linePrefix.contentIndentationColumns >= REFERENCE_DEFINITION_MIN_INDENT_COLUMNS &&
-      linePrefix.contentIndentationColumns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS &&
-      content[labelStart] === '['
-        ? findInlineLabelEnd(content, labelStart)
-        : -1;
-    let cursor = labelEnd + 1;
-    const normalizedLabel =
-      labelEnd === -1 ? '' : normalizeReferenceLabel(content.slice(labelStart + 1, labelEnd));
+export const getMarkdownProtectedRanges = (
+  content: string,
+  analysis = parseMarkdownAnalysis(content)
+): MarkdownRange[] => mergeRanges([...analysis.codeRanges, ...analysis.mathRanges]);
 
-    if (
-      normalizedLabel &&
-      !normalizedLabel.startsWith('^') &&
-      labelEnd !== -1 &&
-      labelEnd < lineEnd &&
-      content[cursor] === ':'
-    ) {
-      cursor += 1;
-      while (cursor < lineEnd && /[ \t]/u.test(content[cursor])) cursor += 1;
-      let destinationLineEnd = lineEnd;
-      let destinationLineBreak = lineBreak;
-      let definitionEnd = lineEnd;
-      if (cursor === lineEnd && lineBreak !== -1) {
-        const continuationLineBreak = content.indexOf('\n', lineBreak + 1);
-        const continuationLineEnd =
-          continuationLineBreak === -1 ? content.length : continuationLineBreak;
-        const continuationLine = content.slice(lineBreak + 1, continuationLineEnd);
-        const continuationPrefix = readMarkdownLinePrefix(continuationLine);
-        const relativeIndentation =
-          continuationPrefix.contentIndentationColumns -
-          (linePrefix.listContinuationIndentColumns ?? 0);
-        if (
-          continuationPrefix.blockQuoteDepth === linePrefix.blockQuoteDepth &&
-          continuationPrefix.listContinuationIndentColumns === null &&
-          relativeIndentation >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
-          relativeIndentation <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS
-        ) {
-          cursor = lineBreak + 1 + continuationPrefix.contentOffset;
-          destinationLineEnd = continuationLineEnd;
-          destinationLineBreak = continuationLineBreak;
-          definitionEnd = continuationLineEnd;
-        }
-      }
-      const destinationStart = cursor;
-      let parenthesisDepth = 0;
-
-      if (content[cursor] === '<') {
-        cursor += 1;
-        while (
-          cursor < destinationLineEnd &&
-          content[cursor] !== '>' &&
-          !/\s/u.test(content[cursor])
-        ) {
-          cursor += content[cursor] === '\\' ? 2 : 1;
-        }
-        cursor = content[cursor] === '>' ? cursor + 1 : destinationStart;
-      } else {
-        while (cursor < destinationLineEnd && !/[ \t]/u.test(content[cursor])) {
-          if (content[cursor] === '\\') {
-            cursor += 2;
-            continue;
-          }
-          if (content[cursor] === '(') parenthesisDepth += 1;
-          if (content[cursor] === ')') parenthesisDepth -= 1;
-          if (parenthesisDepth < 0) break;
-          cursor += 1;
-        }
-        if (parenthesisDepth !== 0) cursor = destinationStart;
-      }
-
-      const hasDestination = cursor > destinationStart;
-      const trailingText = content.slice(cursor, destinationLineEnd).trim();
-      if (hasDestination && !trailingText && destinationLineBreak !== -1) {
-        const nextLineBreak = content.indexOf('\n', destinationLineBreak + 1);
-        const continuationEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
-        const continuation = content.slice(destinationLineBreak + 1, continuationEnd);
-        const continuationPrefix = readMarkdownLinePrefix(continuation);
-        const relativeIndentation =
-          continuationPrefix.contentIndentationColumns -
-          (linePrefix.listContinuationIndentColumns ?? 0);
-        if (
-          continuationPrefix.blockQuoteDepth === linePrefix.blockQuoteDepth &&
-          continuationPrefix.listContinuationIndentColumns === null &&
-          relativeIndentation >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
-          relativeIndentation <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS &&
-          titlePattern.test(continuation.slice(continuationPrefix.contentOffset).trim())
-        ) {
-          definitionEnd = continuationEnd;
-        }
-      }
-
-      if (
-        hasDestination &&
-        (!trailingText || titlePattern.test(trailingText)) &&
-        !codeRanges.some(range => range.start < definitionEnd && range.end > lineStart)
-      ) {
-        ranges.push({ start: lineStart, end: definitionEnd });
-        lineStart = definitionEnd + (content[definitionEnd] === '\n' ? 1 : 0);
-        continue;
-      }
-    }
-
-    lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
-  }
-  return ranges;
-};
-
-const getMarkdownReferenceLabels = (content: string): Set<string> => {
-  const labels = new Set<string>();
-  for (const range of getMarkdownReferenceDefinitionRanges(content)) {
-    const labelStart = content.indexOf('[', range.start);
-    const labelEnd = findInlineLabelEnd(content, labelStart);
-    if (labelEnd !== -1) {
-      labels.add(normalizeReferenceLabel(content.slice(labelStart + 1, labelEnd)));
-    }
-  }
-  return labels;
-};
-
-const getMarkdownFenceRanges = (content: string): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  let lineStart = 0;
-  let activeListIndentColumns: number | null = null;
-  let activeListBlockQuoteDepth = 0;
-  let openingFence: {
-    blockQuoteDepth: number;
-    character: '`' | '~';
-    length: number;
-    listIndentColumns: number | null;
-    start: number;
-  } | null = null;
-
-  while (lineStart < content.length) {
-    const lineBreak = content.indexOf('\n', lineStart);
-    const lineEnd = lineBreak === -1 ? content.length : lineBreak;
-    const line = content.slice(lineStart, lineEnd);
-    const prefix = readMarkdownLinePrefix(line);
-    const syntax = line.slice(openingFence ? prefix.contentOffsetBeforeList : prefix.contentOffset);
-    const isBlankLine = syntax.trim() === '';
-    if (!openingFence) {
-      if (prefix.listContinuationIndentColumns !== null) {
-        activeListIndentColumns = prefix.listContinuationIndentColumns;
-        activeListBlockQuoteDepth = prefix.blockQuoteDepth;
-      } else if (
-        !isBlankLine &&
-        activeListIndentColumns !== null &&
-        (prefix.blockQuoteDepth !== activeListBlockQuoteDepth ||
-          prefix.contentIndentationColumns < activeListIndentColumns)
-      ) {
-        activeListIndentColumns = null;
-      }
-    }
-    const relativeIndentation = prefix.contentIndentationColumns - (activeListIndentColumns ?? 0);
-    const fenceCharacter = syntax[0] === '`' || syntax[0] === '~' ? syntax[0] : null;
-    const fenceLength = fenceCharacter ? countRepeatedCharacter(syntax, 0, fenceCharacter) : 0;
-    const eligibleIndentation =
-      relativeIndentation >= 0 && relativeIndentation <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS;
-    const matchesOpeningContainer = openingFence
-      ? openingFence.blockQuoteDepth === prefix.blockQuoteDepth &&
-        (openingFence.listIndentColumns === null ||
-          isBlankLine ||
-          prefix.contentIndentationColumns >= openingFence.listIndentColumns)
-      : false;
-
-    if (openingFence && !matchesOpeningContainer) {
-      ranges.push({ start: openingFence.start, end: lineStart });
-      openingFence = null;
-    }
-
-    if (openingFence) {
-      const closingRemainder = syntax.slice(fenceLength).trim();
-      if (
-        eligibleIndentation &&
-        matchesOpeningContainer &&
-        fenceCharacter === openingFence.character &&
-        fenceLength >= openingFence.length &&
-        closingRemainder === ''
-      ) {
-        ranges.push({
-          start: openingFence.start,
-          end: lineBreak === -1 ? lineEnd : lineBreak + 1,
-        });
-        openingFence = null;
-      }
-    } else if (eligibleIndentation && fenceCharacter && fenceLength >= 3) {
-      openingFence = {
-        blockQuoteDepth: prefix.blockQuoteDepth,
-        character: fenceCharacter,
-        length: fenceLength,
-        listIndentColumns: activeListIndentColumns,
-        start: lineStart,
-      };
-    }
-
-    lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
-  }
-
-  if (openingFence) ranges.push({ start: openingFence.start, end: content.length });
-  return ranges;
-};
-
-const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
-  const ranges = getMarkdownFenceRanges(content);
-  let index = 0;
-  let fenceIndex = 0;
-
-  while (index < content.length) {
-    while (ranges[fenceIndex] && ranges[fenceIndex].end <= index) fenceIndex += 1;
-    const containingFence = ranges[fenceIndex];
-    if (containingFence?.start <= index) {
-      index = containingFence.end;
-      continue;
-    }
-    const currentCharacter = content[index];
-
-    if (currentCharacter === '`') {
-      const range = findInlineCodeRange(content, index);
-      ranges.push(range);
-      index = range.end;
-      continue;
-    }
-
-    index += 1;
-  }
-
-  return mergeRanges(ranges);
-};
-
-const getMarkdownMathRanges = (content: string): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  const codeRanges = getMarkdownCodeRanges(content);
-  let index = 0;
-  let codeRangeIndex = 0;
-
-  while (index < content.length) {
-    while (codeRanges[codeRangeIndex] && codeRanges[codeRangeIndex].end <= index) {
-      codeRangeIndex += 1;
-    }
-    const containingCode = codeRanges[codeRangeIndex];
-    if (containingCode?.start <= index) {
-      index = containingCode.end;
-      continue;
-    }
-
-    const mathRange = getMarkdownMathRangeAt(content, index);
-    if (mathRange) {
-      ranges.push(mathRange);
-      index = mathRange.end;
-      continue;
-    }
-
-    index += 1;
-  }
-
-  return mergeRanges(ranges);
-};
-
-export const getMarkdownImageRanges = (content: string): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  const codeRanges = getMarkdownCodeRanges(content);
-  const referenceLabels = getMarkdownReferenceLabels(content);
-  let index = 0;
-
-  while (index < content.length) {
-    const imageStart = content.indexOf('![', index);
-    if (imageStart === -1) {
-      break;
-    }
-
-    if (codeRanges.some(range => range.start < imageStart + 2 && range.end > imageStart)) {
-      index = imageStart + 2;
-      continue;
-    }
-
-    if (isEscapedCharacter(content, imageStart)) {
-      index = imageStart + 2;
-      continue;
-    }
-
-    const labelEnd = findInlineLabelEnd(content, imageStart + 1);
-    if (labelEnd === -1) {
-      index = imageStart + 2;
-      continue;
-    }
-
-    const destinationStart = labelEnd + 1;
-    if (content[destinationStart] !== '(') {
-      const altText = content.slice(imageStart + 2, labelEnd);
-      if (content[destinationStart] === '[') {
-        const referenceEnd = findInlineLabelEnd(content, destinationStart);
-        const referenceLabel =
-          referenceEnd === -1 ? '' : content.slice(destinationStart + 1, referenceEnd) || altText;
-        if (referenceEnd !== -1 && referenceLabels.has(normalizeReferenceLabel(referenceLabel))) {
-          ranges.push({ start: imageStart, end: referenceEnd + 1 });
-          index = referenceEnd + 1;
-          continue;
-        }
-      } else if (referenceLabels.has(normalizeReferenceLabel(altText))) {
-        ranges.push({ start: imageStart, end: labelEnd + 1 });
-        index = labelEnd + 1;
-        continue;
-      }
-
-      index = imageStart + 2;
-      continue;
-    }
-
-    const imageEnd = findInlineLinkDestinationEnd(content, destinationStart);
-    if (imageEnd === -1) {
-      index = imageStart + 2;
-      continue;
-    }
-
-    ranges.push({ start: imageStart, end: imageEnd + 1 });
-    index = imageEnd + 1;
-  }
-
-  return ranges;
-};
-
-export const getMarkdownLinkDestinationRanges = (content: string): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  const codeRanges = getMarkdownCodeRanges(content);
-  let index = 0;
-
-  while (index < content.length) {
-    const labelStart = content.indexOf('[', index);
-    if (labelStart === -1) break;
-    if (codeRanges.some(range => range.start < labelStart + 1 && range.end > labelStart)) {
-      index = labelStart + 1;
-      continue;
-    }
-    if (content[labelStart - 1] === '!' || isEscapedCharacter(content, labelStart)) {
-      index = labelStart + 1;
-      continue;
-    }
-    const labelEnd = findInlineLabelEnd(content, labelStart);
-    const destinationStart = labelEnd + 1;
-    if (labelEnd === -1 || content[destinationStart] !== '(') {
-      index = labelStart + 1;
-      continue;
-    }
-    const destinationEnd = findInlineLinkDestinationEnd(content, destinationStart);
-    if (destinationEnd === -1) {
-      index = labelStart + 1;
-      continue;
-    }
-    ranges.push({ start: destinationStart, end: destinationEnd + 1 });
-    index = destinationEnd + 1;
-  }
-
-  return ranges;
-};
-
-export const getMarkdownReferenceLinkLabelRanges = (content: string): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  const codeRanges = getMarkdownCodeRanges(content);
-  const rawHtmlRanges = getMarkdownRawHtmlBlockRanges(content, codeRanges);
-  const referenceLabels = getMarkdownReferenceLabels(content);
-  let index = 0;
-
-  while (index < content.length) {
-    const labelStart = content.indexOf('[', index);
-    if (labelStart === -1) break;
-    if (
-      content[labelStart - 1] === '!' ||
-      isEscapedCharacter(content, labelStart) ||
-      codeRanges.some(range => range.start < labelStart + 1 && range.end > labelStart) ||
-      rawHtmlRanges.some(range => range.start < labelStart + 1 && range.end > labelStart)
-    ) {
-      index = labelStart + 1;
-      continue;
-    }
-    const labelEnd = findInlineLabelEnd(content, labelStart);
-    const referenceStart = labelEnd + 1;
-    if (labelEnd === -1 || content[referenceStart] !== '[') {
-      index = labelStart + 1;
-      continue;
-    }
-    const referenceEnd = findInlineLabelEnd(content, referenceStart);
-    const visibleLabel = content.slice(labelStart + 1, labelEnd);
-    const referenceLabel =
-      referenceEnd === -1 ? '' : content.slice(referenceStart + 1, referenceEnd) || visibleLabel;
-    if (referenceEnd !== -1 && referenceLabels.has(normalizeReferenceLabel(referenceLabel))) {
-      ranges.push({ start: referenceStart, end: referenceEnd + 1 });
-      index = referenceEnd + 1;
-      continue;
-    }
-    index = labelStart + 1;
-  }
-
-  return ranges;
-};
-
-const getNonAnchorablePlaceholderRanges = (content: string): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-
-  NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.forEach(prefix => {
-    let index = content.indexOf(prefix);
-    while (index !== -1) {
-      const placeholderEnd = content.indexOf('}}', index + prefix.length);
-      ranges.push({
-        start: index,
-        end: placeholderEnd === -1 ? content.length : placeholderEnd + 2,
-      });
-      index = placeholderEnd === -1 ? -1 : content.indexOf(prefix, placeholderEnd + 2);
-    }
-  });
-
-  return ranges;
-};
-
-export const getMarkdownProtectedRanges = (content: string): MarkdownRange[] =>
-  mergeRanges([...getMarkdownCodeRanges(content), ...getMarkdownMathRanges(content)]);
-
-export const getMarkdownAnnotationProtectedRanges = (content: string): MarkdownRange[] =>
+export const getMarkdownAnnotationProtectedRanges = (
+  content: string,
+  analysis = parseMarkdownAnalysis(content)
+): MarkdownRange[] =>
   mergeOverlappingRanges([
-    ...getMarkdownCodeRanges(content),
-    ...getMarkdownImageRanges(content),
-    ...getMarkdownLinkDestinationRanges(content),
-    ...getMarkdownReferenceDefinitionRanges(content),
-    ...getMarkdownReferenceLinkLabelRanges(content),
-    ...getMarkdownMathRanges(content),
-    ...getNonAnchorablePlaceholderRanges(content),
+    ...analysis.codeRanges,
+    ...analysis.imageRanges,
+    ...analysis.linkDestinationRanges,
+    ...analysis.referenceDefinitionRanges,
+    ...analysis.referenceLinkLabelRanges,
+    ...analysis.mathRanges,
+    ...collectPlaceholderRanges(content),
   ]);
 
 export const stripHighlightTagsInsideMarkdownCode = (content: string): string => {
-  const ranges = getMarkdownCodeRanges(content);
-  if (ranges.length === 0) {
-    return content;
-  }
-
+  const ranges = parseMarkdownAnalysis(content).codeRanges;
+  if (ranges.length === 0) return content;
+  let result = '';
   let cursor = 0;
-  let updatedContent = '';
-
-  ranges.forEach(range => {
-    updatedContent += content.slice(cursor, range.start);
-    updatedContent += content.slice(range.start, range.end).replaceAll(MARK_TAG_REGEX, '');
+  for (const range of ranges) {
+    result += content.slice(cursor, range.start);
+    result += content.slice(range.start, range.end).replaceAll(MARK_TAG_REGEX, '');
     cursor = range.end;
-  });
-
-  updatedContent += content.slice(cursor);
-  return updatedContent;
+  }
+  return result + content.slice(cursor);
 };

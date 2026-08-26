@@ -155,6 +155,7 @@ describe('prepareMarkdownForSpeech', () => {
   test('removes continued reference destinations and every unsupported viewer token', () => {
     const input = [
       'Prima.',
+      '',
       '[ref]:',
       '  /image.png "Titolo nascosto"',
       '{{VISUAL_SLOT:slot-1|title=Schema nascosto}}',
@@ -210,6 +211,7 @@ describe('prepareMarkdownForSpeech', () => {
 
     expect(speech).toMatch(/<a@b>/u);
     expect(speech).not.toMatch(/segreto-nel-codice/u);
+    expect(prepareMarkdownForSpeech('<https://example.com>')).toBe('<https://example.com>');
   });
 
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {

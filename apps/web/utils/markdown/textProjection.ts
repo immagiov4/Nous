@@ -1,15 +1,14 @@
 import {
   findInlineLabelEnd,
   findInlineLinkDestinationEnd,
-  findMarkdownAutolinkEnd,
   getMarkdownImageRanges,
   getMarkdownLinkDestinationRanges,
-  getMarkdownMathRangeAt,
   getMarkdownReferenceDefinitionRanges,
   getMarkdownReferenceLinkLabelRanges,
-  isMarkdownHtmlTag,
+  type MarkdownAnalysis,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
+  parseMarkdownAnalysis,
   projectMarkdownMathRange,
 } from './codeRanges.ts';
 
@@ -61,18 +60,26 @@ export const normalizeLooseText = (value: string): string =>
     .replaceAll(/\s+/g, ' ')
     .trim();
 
-export const buildVisibleProjection = (content: string): VisibleProjection => {
+export const buildVisibleProjection = (
+  content: string,
+  analysis: MarkdownAnalysis = parseMarkdownAnalysis(content)
+): VisibleProjection => {
   const characters: string[] = [];
   const sourceIndexes: number[] = [];
   let index = 0;
   let atLineStart = true;
   let activeCodeDelimiter: string | null = null;
+  const linkDestinationRangesByStart = new Map(
+    analysis.linkDestinationRanges.map(range => [range.start, range])
+  );
+  const mathRangesByStart = new Map(analysis.mathRanges.map(range => [range.start, range]));
   const hiddenRangesByStart = new Map(
     [
-      ...getMarkdownImageRanges(content),
-      ...getMarkdownLinkDestinationRanges(content),
-      ...getMarkdownReferenceDefinitionRanges(content),
-      ...getMarkdownReferenceLinkLabelRanges(content),
+      ...getMarkdownImageRanges(content, analysis),
+      ...getMarkdownLinkDestinationRanges(content, analysis),
+      ...getMarkdownReferenceDefinitionRanges(content, analysis),
+      ...getMarkdownReferenceLinkLabelRanges(content, analysis),
+      ...analysis.htmlSyntaxRanges,
     ].map(range => [range.start, range])
   );
 
@@ -109,7 +116,7 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
 
     const currentCharacter = content[index];
 
-    const mathRange = getMarkdownMathRangeAt(content, index);
+    const mathRange = mathRangesByStart.get(index);
     if (mathRange) {
       const mathProjection = projectMarkdownMathRange(content, mathRange);
       mathProjection.text.split('').forEach((character, projectionIndex) => {
@@ -152,23 +159,6 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
       continue;
     }
 
-    if (currentCharacter === '<') {
-      const autolinkEnd = findMarkdownAutolinkEnd(content, index);
-      if (autolinkEnd !== -1) {
-        for (let sourceIndex = index + 1; sourceIndex < autolinkEnd; sourceIndex += 1) {
-          pushCharacter(content[sourceIndex], sourceIndex);
-        }
-        atLineStart = false;
-        index = autolinkEnd + 1;
-        continue;
-      }
-      const tagEnd = content.indexOf('>', index);
-      if (tagEnd !== -1 && isMarkdownHtmlTag(content.slice(index, tagEnd + 1))) {
-        index = tagEnd + 1;
-        continue;
-      }
-    }
-
     if (currentCharacter === '!' && content[index + 1] === '[') {
       const labelEnd = findInlineLabelEnd(content, index + 1);
       if (labelEnd !== -1) {
@@ -186,9 +176,9 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
 
     if (currentCharacter === '[' || currentCharacter === ']') {
       if (currentCharacter === ']' && content[index + 1] === '(') {
-        const linkEnd = findInlineLinkDestinationEnd(content, index + 1);
-        if (linkEnd !== -1) {
-          index = linkEnd + 1;
+        const destinationRange = linkDestinationRangesByStart.get(index + 1);
+        if (destinationRange) {
+          index = destinationRange.end;
           continue;
         }
       }
@@ -221,8 +211,10 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
   };
 };
 
-export const buildLooseProjection = (content: string): LooseProjection => {
-  const visibleProjection = buildVisibleProjection(content);
+export const buildLooseProjection = (
+  content: string,
+  visibleProjection: VisibleProjection = buildVisibleProjection(content)
+): LooseProjection => {
   const characters: string[] = [];
   const sourceIndexes: number[] = [];
 

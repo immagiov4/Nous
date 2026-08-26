@@ -1,12 +1,8 @@
 import {
-  findMarkdownAutolinkEnd,
-  getMarkdownImageRanges,
   getMarkdownProtectedRanges,
-  getMarkdownReferenceDefinitionRanges,
-  getMarkdownReferenceLinkLabelRanges,
-  isMarkdownHtmlTag,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
+  parseMarkdownAnalysis,
 } from '../markdown/codeRanges.ts';
 
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
@@ -66,7 +62,7 @@ const PROSE_READABLE_TEXT_SELECTOR = READABLE_TEXT_SELECTOR.split(', ')
   .join(', ');
 const HTML_SPACE_ENTITY = '&nbsp;';
 const HTML_TAGS_TO_DROP_WITH_CONTENT = ['figure', 'picture', 'figcaption'] as const;
-const HTML_TAGS_TO_STRIP = new Set(['mark', 'span']);
+const HTML_TAGS_TO_STRIP = new Set(['mark']);
 
 const rangeContainsLineBreak = (content: string, range: MarkdownRange): boolean =>
   content.slice(range.start, range.end).includes('\n');
@@ -107,29 +103,6 @@ const replaceMarkdownProtectedRanges = (content: string): string => {
   nextContent += content.slice(cursor);
   return nextContent;
 };
-
-const stripMarkdownReferenceDefinitions = (content: string): string => {
-  const ranges = getMarkdownReferenceDefinitionRanges(content);
-  return ranges.reduceRight(
-    (currentContent, range) =>
-      `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
-    content
-  );
-};
-
-const stripMarkdownImages = (content: string): string =>
-  getMarkdownImageRanges(content).reduceRight(
-    (currentContent, range) =>
-      `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
-    content
-  );
-
-const stripMarkdownReferenceLinkLabels = (content: string): string =>
-  getMarkdownReferenceLinkLabelRanges(content).reduceRight(
-    (currentContent, range) =>
-      `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
-    content
-  );
 
 const stripPlaceholderToken = (content: string, placeholderPrefix: string): string => {
   let normalizedContent = '';
@@ -219,19 +192,6 @@ const stripAllowedHtmlTags = (content: string): string => {
       break;
     }
 
-    const autolinkEnd = findMarkdownAutolinkEnd(content, tagStart);
-    if (autolinkEnd === tagEnd) {
-      normalizedContent += content.slice(tagStart + 1, tagEnd);
-      cursor = tagEnd + 1;
-      continue;
-    }
-
-    if (!isMarkdownHtmlTag(content.slice(tagStart, tagEnd + 1))) {
-      normalizedContent += content.slice(tagStart, tagEnd + 1);
-      cursor = tagEnd + 1;
-      continue;
-    }
-
     const rawTag = content.slice(tagStart + 1, tagEnd).trim();
     const normalizedTag = rawTag.startsWith('/') ? rawTag.slice(1).trim() : rawTag;
     const tagName = normalizedTag.split(/[\s/>]/u, 1)[0]?.toLowerCase();
@@ -241,7 +201,7 @@ const stripAllowedHtmlTags = (content: string): string => {
       continue;
     }
 
-    normalizedContent += ' ';
+    normalizedContent += content.slice(tagStart, tagEnd + 1);
     cursor = tagEnd + 1;
   }
 
@@ -428,9 +388,18 @@ export interface ReadableTextElement {
 }
 
 export const prepareMarkdownForSpeech = (content: string): string => {
-  const imagesStripped = stripMarkdownImages(content);
-  const referenceLabelsStripped = stripMarkdownReferenceLinkLabels(imagesStripped);
-  const referenceDefinitionsStripped = stripMarkdownReferenceDefinitions(referenceLabelsStripped);
+  const analysis = parseMarkdownAnalysis(content);
+  const referenceDefinitionsStripped = [
+    ...analysis.imageRanges,
+    ...analysis.referenceLinkLabelRanges,
+    ...analysis.referenceDefinitionRanges,
+  ]
+    .sort((left, right) => right.start - left.start)
+    .reduce(
+      (currentContent, range) =>
+        `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
+      content
+    );
   const placeholderStrippedContent = NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.reduce(
     (currentContent, placeholderPrefix) => stripPlaceholderToken(currentContent, placeholderPrefix),
     referenceDefinitionsStripped

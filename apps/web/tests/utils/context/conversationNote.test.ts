@@ -138,6 +138,12 @@ test('distinguishes visible footnote content from nested fenced code', () => {
     }),
     false
   );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('    contenuto nel codice indentato', {
+      selectedText: 'contenuto nel codice indentato',
+    }),
+    false
+  );
 });
 
 test('does not inherit stale boundary context when the proposed text changes', () => {

@@ -79,6 +79,12 @@ test('buildVisibleProjection follows rendered footnote, autolink, and list-defin
 
 test('buildVisibleProjection preserves malformed email autolink brackets', () => {
   assert.match(buildVisibleProjection('<a@b>').text, /<a@b>/u);
+  assert.equal(buildVisibleProjection('<https://example.com>').text, '<https://example.com>');
+});
+
+test('buildVisibleProjection hides supported mark syntax but preserves escaped raw html', () => {
+  assert.equal(buildVisibleProjection('<mark>visibile</mark>').text, 'visibile');
+  assert.match(buildVisibleProjection('<div>visibile</div>').text, /<div>visibile<\/div>/u);
 });
 
 test('buildVisibleProjection preserves malformed image syntax rendered as text', () => {

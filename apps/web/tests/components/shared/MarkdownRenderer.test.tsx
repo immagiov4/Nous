@@ -1085,6 +1085,7 @@ describe('MarkdownRenderer', () => {
       'href',
       'https://example.com'
     );
+    expect(container).toHaveTextContent('e <https://example.com>.');
     expect(container.querySelector('li img')).toHaveAttribute('src', '/image.png');
     expect(container.querySelector('blockquote code')).toHaveTextContent(
       '[falso]: /visibile-nel-codice'

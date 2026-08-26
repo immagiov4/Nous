@@ -2,6 +2,7 @@ import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../typ
 import {
   getMarkdownAnnotationProtectedRanges,
   type MarkdownRange,
+  parseMarkdownAnalysis,
 } from '../markdown/codeRanges.ts';
 import {
   buildContextRegex,
@@ -47,13 +48,14 @@ const buildAnnotationResolutionContext = (
   content: string,
   boundaryContext?: SectionAnnotationBoundaryContext
 ): AnnotationResolutionContext => {
-  const projection = buildVisibleProjection(content);
+  const analysis = parseMarkdownAnalysis(content);
+  const projection = buildVisibleProjection(content, analysis);
   const contextualProjection = buildSectionAnnotationContextText(projection.text, boundaryContext);
   return {
     contextOffset: contextualProjection.offset,
     contextText: contextualProjection.text,
     projection,
-    protectedRanges: getMarkdownAnnotationProtectedRanges(content),
+    protectedRanges: getMarkdownAnnotationProtectedRanges(content, analysis),
   };
 };
 

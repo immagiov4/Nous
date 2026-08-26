@@ -3,6 +3,7 @@ import { test } from 'vitest';
 import {
   getMarkdownAnnotationProtectedRanges,
   getMarkdownProtectedRanges,
+  getMarkdownReferenceDefinitionRanges,
   normalizeMathSelectionArtifacts,
 } from '../../../utils/markdown/codeRanges.ts';
 
@@ -124,7 +125,7 @@ test('annotation ranges preserve empty reference labels and definitions inside r
 });
 
 test('html-looking fenced code does not hide a following reference definition', () => {
-  const content = '```html\n<div>\n```\n![alt][ref]\n[ref]: /image.png';
+  const content = '```html\n<div>\n```\n![alt][ref]\n\n[ref]: /image.png';
   const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
     content.slice(range.start, range.end)
   );
@@ -190,7 +191,10 @@ test('annotation ranges preserve malformed continuations and missing reference l
 test('annotation ranges treat a leading tab as indented code, not a definition', () => {
   const content = '\t[ref]: /image.png';
 
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+  assert.deepEqual(getMarkdownReferenceDefinitionRanges(content), []);
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
+    { start: 0, end: content.length },
+  ]);
 });
 
 test('annotation ranges preserve footnote content and autolink text', () => {
@@ -208,7 +212,7 @@ test('annotation ranges preserve footnote content and autolink text', () => {
 test('annotation ranges preserve definition-like text indented as quoted code', () => {
   const content = '>     [ref]: /visible-code';
 
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+  assert.deepEqual(getMarkdownReferenceDefinitionRanges(content), []);
 });
 
 test('annotation ranges respect list-relative continuations and nested tilde fences', () => {
