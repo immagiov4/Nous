@@ -63,6 +63,22 @@ export const readGeneratedVisualIdFromArtifactId = (artifactId: string): string 
     : artifactId;
 };
 
+export const resolveGeneratedVisualArtifact = (
+  artifactId: string,
+  visualsById?: Readonly<Record<string, StoredLessonVisual>>
+): StoredLessonVisual | undefined => {
+  const exactMatch = visualsById?.[artifactId];
+  if (exactMatch || !visualsById) return exactMatch;
+
+  let matchedVisual: StoredLessonVisual | undefined;
+  for (const [visualId, visual] of Object.entries(visualsById)) {
+    if (!artifactId.endsWith(`${GENERATED_VISUAL_ARTIFACT_SEGMENT}${visualId}`)) continue;
+    if (matchedVisual) return undefined;
+    matchedVisual = visual;
+  }
+  return matchedVisual;
+};
+
 export const replaceGeneratedVisualPreservingId = ({
   artifactId,
   replacementVisual,

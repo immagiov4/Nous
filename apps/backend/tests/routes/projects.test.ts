@@ -776,6 +776,29 @@ describe('/api/projects', () => {
         targetProjectId: 'restored:project',
       });
     expect(invalidTargetResponse.status).toBe(400);
+
+    const invalidSourceArchive = await createProjectBackupArchive(
+      { project: createSnapshot(' archived-project ', 'Corso non valido') },
+      {
+        invalidArchiveMessage: 'Invalid project backup.',
+        maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+        maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+        maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+      }
+    );
+    const invalidSourceUploadId = '323e4567-e89b-42d3-a456-426614174002';
+    await request(app)
+      .put(`/api/projects/import/chunks/${invalidSourceUploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.from(invalidSourceArchive));
+
+    const invalidSourceResponse = await request(app)
+      .post(`/api/projects/import/chunks/${invalidSourceUploadId}/complete`)
+      .send({
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.backup,
+        targetProjectId: normalizedTargetProjectId,
+      });
+    expect(invalidSourceResponse.status).toBe(400);
   });
 
   test('round-trips every modern course source while snapshots remain byte-free', async () => {

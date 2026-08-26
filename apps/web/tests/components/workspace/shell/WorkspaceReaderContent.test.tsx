@@ -827,6 +827,37 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByRole('button', { name: /Apri Visuale durevole/i })).toBeInTheDocument();
   });
 
+  test('resolves legacy artifact scopes containing the generated visual marker', () => {
+    const visualId = 'lesson-visual:run-id:slot-id';
+    const visual = { ...savedSelectionArtifact.visual, id: visualId };
+
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeSectionGeneratedVisualsById: { [visualId]: visual },
+          currentLessonArtifactPayloads: [],
+          sectionAnnotations: [
+            {
+              artifactRefs: [
+                {
+                  artifactId: `archive:generated-visual:origin:lesson-1:generated-visual:${visualId}`,
+                  kind: 'generated-visual',
+                  title: 'Visuale legacy',
+                },
+              ],
+              createdAt: '2026-05-06T10:00:00.000Z',
+              id: 'annotation-with-legacy-scope',
+              note: '',
+              updatedAt: '2026-05-06T10:00:00.000Z',
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /Apri Visuale legacy/i })).toBeInTheDocument();
+  });
+
   test('keeps saved draft artifacts visible even when they are no longer attached to a note', () => {
     render(
       <WorkspaceReaderContent

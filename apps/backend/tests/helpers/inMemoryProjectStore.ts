@@ -16,6 +16,7 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
 import {
+  assertValidProjectArtifactScope,
   buildImportedProjectAssetIdentity,
   remapProjectAssetReferences,
 } from '@shared/projectBackupAssets';
@@ -469,6 +470,7 @@ export class InMemoryProjectStore implements ProjectStore {
       maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
       maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
     });
+    assertValidProjectArtifactScope(decoded.project);
     const sourceSnapshot = normalizeProjectSnapshot(decoded.project, true);
     const idMap = new Map<string, string>();
     for (const { ref } of decoded.assets) {

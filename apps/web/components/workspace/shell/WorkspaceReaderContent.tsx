@@ -42,7 +42,7 @@ import type {
 } from '../../../types.ts';
 import {
   getGeneratedVisualSourceLabel,
-  readGeneratedVisualIdFromArtifactId,
+  resolveGeneratedVisualArtifact,
 } from '../../../utils/learning/artifacts.ts';
 import {
   materializeSectionAnnotationMarks,
@@ -198,8 +198,10 @@ const resolveAnnotationArtifactPayloads = ({
       return [];
     }
 
-    const visualId = readGeneratedVisualIdFromArtifactId(ref.artifactId);
-    const visual = activeSectionGeneratedVisualsById?.[visualId];
+    const visual = resolveGeneratedVisualArtifact(
+      ref.artifactId,
+      activeSectionGeneratedVisualsById
+    );
     return visual
       ? [
           createFallbackVisualArtifactPayload({

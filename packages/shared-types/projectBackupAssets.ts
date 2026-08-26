@@ -31,6 +31,12 @@ const isUnambiguousArtifactScopeId = (value: unknown): value is string =>
   value === value.trim() &&
   !value.includes(LEARNING_ARTIFACT_ID_SEPARATOR);
 
+export const assertValidProjectArtifactScope = (project: unknown): void => {
+  if (!isRecord(project) || !isUnambiguousArtifactScopeId(project.id)) {
+    throw new InvalidProjectBackupAssetError();
+  }
+};
+
 const readAssetRef = (value: unknown): ProjectAssetRef => {
   if (!isValidProjectAssetRef(value)) {
     throw new InvalidProjectBackupAssetError();
