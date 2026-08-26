@@ -33,7 +33,6 @@ import type {
 export const useWorkspaceDomain = () => {
   const [domainState, setDomainState] = useState(createEmptyWorkspaceDomainState);
   const domainStateRef = useRef(domainState);
-  domainStateRef.current = domainState;
 
   const applyDomainAction = useCallback((action: WorkspaceDomainAction) => {
     const nextState = workspaceDomainReducer(domainStateRef.current, action);
