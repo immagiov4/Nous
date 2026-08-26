@@ -36,6 +36,23 @@ test('annotation ranges parse balanced parentheses in image destinations', () =>
   ]);
 });
 
+test('annotation ranges parse parenthesized image titles', () => {
+  const content = '![schema](image.png (Titolo nascosto))';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
+    { start: 0, end: content.length },
+  ]);
+});
+
+test('annotation ranges parse parenthesized ordinary-link titles', () => {
+  const content = '[schema](image.png (Titolo nascosto))';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['(image.png (Titolo nascosto))']);
+});
+
 test('annotation ranges keep adjacent inline code separate from an image', () => {
   const content = '![diagramma](image.png)`codice inline`';
   const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
@@ -75,6 +92,32 @@ test('annotation ranges preserve malformed definitions and angle destinations', 
   ].join('\n');
 
   assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+});
+
+test('annotation ranges preserve empty reference labels and definitions inside raw html blocks', () => {
+  const contents = [
+    '[]: image.png',
+    '[   ]: image.png',
+    '<div>\n[ref]: image.png\n</div>',
+    '</div>\n[ref]: image.png',
+    '<custom>\n[ref]: image.png',
+    '<custom title="a>b">\n[ref]: image.png',
+    '</custom bad>\n[ref]: image.png',
+  ];
+
+  contents.forEach(content => {
+    assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+  });
+});
+
+test('html-looking fenced code does not hide a following reference definition', () => {
+  const content = '```html\n<div>\n```\n![alt][ref]\n[ref]: /image.png';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.ok(protectedSlices.includes('[ref]: /image.png'));
+  assert.ok(protectedSlices.includes('![alt][ref]'));
 });
 
 test('annotation ranges resolve escaped reference labels', () => {

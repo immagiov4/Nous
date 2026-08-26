@@ -961,6 +961,41 @@ describe('MarkdownRenderer', () => {
     expect(mark).not.toHaveAttribute('onclick');
   });
 
+  test('renders parenthesized image titles and keeps definition-like visible text', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '![schema](image.png (Titolo nascosto))',
+          '[fonte](https://example.com (Titolo link))',
+          '',
+          '[]: image.png',
+          '',
+          '<div>',
+          '[ref]: image.png',
+          '</div>',
+          '',
+          '<custom title="a>b">',
+          '[custom-ref]: image.png',
+          '</custom>',
+          '',
+          '</custom bad>',
+          '[malformed-ref]: image.png',
+        ].join('\n')}
+      />
+    );
+
+    expect(container.querySelector('img')).toHaveAttribute('title', 'Titolo nascosto');
+    expect(screen.getByRole('link', { name: 'fonte' })).toHaveAttribute(
+      'href',
+      'https://example.com'
+    );
+    expect(container).not.toHaveTextContent('Titolo link');
+    expect(screen.getByText('[]: image.png')).toBeInTheDocument();
+    expect(container).toHaveTextContent('[ref]: image.png');
+    expect(container).toHaveTextContent('[custom-ref]: image.png');
+    expect(container).toHaveTextContent('[malformed-ref]: image.png');
+  });
+
   test('renders markdown tables with semantic cells', () => {
     render(<MarkdownRenderer content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'} />);
 

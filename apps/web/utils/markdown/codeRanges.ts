@@ -65,7 +65,10 @@ export const findInlineLinkDestinationEnd = (
       const nextCharacter = value[nextNonWhitespaceIndex];
       if (
         !hasDestination ||
-        (nextCharacter !== ')' && nextCharacter !== '"' && nextCharacter !== "'")
+        (nextCharacter !== ')' &&
+          nextCharacter !== '"' &&
+          nextCharacter !== "'" &&
+          nextCharacter !== '(')
       ) {
         return -1;
       }
@@ -467,6 +470,11 @@ const REFERENCE_DEFINITION_MIN_INDENT_COLUMNS = 0;
 const REFERENCE_DEFINITION_MAX_INDENT_COLUMNS = 3;
 const REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS = 1;
 const REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS = 3;
+const MARKDOWN_RAW_HTML_BLOCK_TAG_PATTERN =
+  /^<(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>)/iu;
+const MARKDOWN_COMPLETE_HTML_TAG_PATTERN =
+  /^(?:<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>|<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ "'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>)[ \t]*$/u;
+const MARKDOWN_MALFORMED_CLOSING_TAG_PATTERN = /^<\/[A-Za-z][^>]*>/u;
 
 const readMarkdownIndent = (line: string): { columns: number; length: number } => {
   let columns = 0;
@@ -487,17 +495,59 @@ const readMarkdownIndent = (line: string): { columns: number; length: number } =
   return { columns, length };
 };
 
+const getRawHtmlBlockEnd = (line: string): RegExp | 'blank-line' | null => {
+  if (/^<!--/u.test(line)) return /-->/u;
+  if (/^<\?/u.test(line)) return /\?>/u;
+  if (/^<!\[CDATA\[/u.test(line)) return /\]\]>/u;
+  if (/^<![A-Z]/u.test(line)) return />/u;
+  const rawTag = line.match(/^<(script|pre|style|textarea)(?:\s|>)/iu)?.[1];
+  if (rawTag) return new RegExp(`</${rawTag}\\s*>`, 'iu');
+  return MARKDOWN_RAW_HTML_BLOCK_TAG_PATTERN.test(line) ||
+    MARKDOWN_COMPLETE_HTML_TAG_PATTERN.test(line) ||
+    MARKDOWN_MALFORMED_CLOSING_TAG_PATTERN.test(line)
+    ? 'blank-line'
+    : null;
+};
+
 export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
   const codeRanges = getMarkdownCodeRanges(content);
   const titlePattern = /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))$/u;
   let lineStart = 0;
+  let rawHtmlBlockEnd: RegExp | 'blank-line' | null = null;
 
   while (lineStart < content.length) {
     const lineBreak = content.indexOf('\n', lineStart);
     const lineEnd = lineBreak === -1 ? content.length : lineBreak;
     const indentation = readMarkdownIndent(content.slice(lineStart, lineEnd));
     const labelStart = lineStart + indentation.length;
+    const markdownLine = content.slice(labelStart, lineEnd);
+    if (rawHtmlBlockEnd) {
+      const blockEnded =
+        rawHtmlBlockEnd === 'blank-line'
+          ? markdownLine.trim() === ''
+          : rawHtmlBlockEnd.test(markdownLine);
+      if (blockEnded) rawHtmlBlockEnd = null;
+      lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
+      continue;
+    }
+    const lineOverlapsCode = codeRanges.some(
+      range => range.start < lineEnd && range.end > lineStart
+    );
+    if (lineOverlapsCode) {
+      lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
+      continue;
+    }
+    if (indentation.columns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS) {
+      rawHtmlBlockEnd = getRawHtmlBlockEnd(markdownLine);
+      if (rawHtmlBlockEnd) {
+        if (rawHtmlBlockEnd !== 'blank-line' && rawHtmlBlockEnd.test(markdownLine)) {
+          rawHtmlBlockEnd = null;
+        }
+        lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
+        continue;
+      }
+    }
     const labelEnd =
       indentation.columns >= REFERENCE_DEFINITION_MIN_INDENT_COLUMNS &&
       indentation.columns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS &&
@@ -505,8 +555,10 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
         ? findInlineLabelEnd(content, labelStart)
         : -1;
     let cursor = labelEnd + 1;
+    const normalizedLabel =
+      labelEnd === -1 ? '' : normalizeReferenceLabel(content.slice(labelStart + 1, labelEnd));
 
-    if (labelEnd !== -1 && labelEnd < lineEnd && content[cursor] === ':') {
+    if (normalizedLabel && labelEnd !== -1 && labelEnd < lineEnd && content[cursor] === ':') {
       cursor += 1;
       while (cursor < lineEnd && /[ \t]/u.test(content[cursor])) cursor += 1;
       let destinationLineEnd = lineEnd;
