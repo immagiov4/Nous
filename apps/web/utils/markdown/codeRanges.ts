@@ -489,6 +489,24 @@ const getFootnoteDefinitionLabelRange = (
   return nodeRange.start < end ? { start: nodeRange.start, end } : null;
 };
 
+const getStructuralRangesForNode = (
+  content: string,
+  node: MarkdownAstNode,
+  nodeRange: MarkdownRange,
+  sourceOffsets: number[]
+): MarkdownRange[] => {
+  if (node.type === 'thematicBreak' || node.type === 'footnoteReference') return [nodeRange];
+  if (node.type === 'footnoteDefinition') {
+    const labelRange = getFootnoteDefinitionLabelRange(node, nodeRange, sourceOffsets);
+    return labelRange ? [labelRange] : [];
+  }
+  if (node.type === 'table') {
+    const delimiterRange = getTableDelimiterRange(content, node, nodeRange, sourceOffsets);
+    return delimiterRange ? [delimiterRange] : [];
+  }
+  return [];
+};
+
 const isRendererHiddenHtmlSyntax = (source: string): boolean =>
   source.startsWith('<!--') || source.startsWith('<!') || source.startsWith('<?');
 
@@ -545,25 +563,9 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         analysis.codeRanges.push(blockRange);
       }
       if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
-      if (node.type === 'thematicBreak') analysis.structuralRanges.push(range);
-      if (node.type === 'footnoteReference') analysis.structuralRanges.push(range);
-      if (node.type === 'footnoteDefinition') {
-        const labelRange = getFootnoteDefinitionLabelRange(
-          node,
-          range,
-          indentationProjection.sourceOffsets
-        );
-        if (labelRange) analysis.structuralRanges.push(labelRange);
-      }
-      if (node.type === 'table') {
-        const delimiterRange = getTableDelimiterRange(
-          content,
-          node,
-          range,
-          indentationProjection.sourceOffsets
-        );
-        if (delimiterRange) analysis.structuralRanges.push(delimiterRange);
-      }
+      analysis.structuralRanges.push(
+        ...getStructuralRangesForNode(content, node, range, indentationProjection.sourceOffsets)
+      );
       if (node.type === 'image' || node.type === 'imageReference') {
         const source = content.slice(range.start, range.end);
         if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
@@ -639,6 +641,11 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         }
       }
       if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
+      if (isInsideEscapedHtml) {
+        analysis.structuralRanges.push(
+          ...getStructuralRangesForNode(content, node, range, htmlSourceOffsets)
+        );
+      }
       if (isInsideEscapedHtml && (node.type === 'image' || node.type === 'imageReference')) {
         const source = content.slice(range.start, range.end);
         if (node.type === 'imageReference' || rendererParsesImageSource(source)) {

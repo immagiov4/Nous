@@ -242,6 +242,14 @@ describe('prepareMarkdownForSpeech', () => {
     expect(speech).not.toMatch(/ref|hidden/u);
   });
 
+  test('does not read footnote labels exposed by escaped raw html', () => {
+    const speech = prepareMarkdownForSpeech('<div>\nTesto[^nota]\n</div>\n\n[^nota]: Corpo');
+
+    expect(speech).toMatch(/Testo/u);
+    expect(speech).toMatch(/Corpo/u);
+    expect(speech).not.toMatch(/\[?\^nota/u);
+  });
+
   test('follows rendered footnote, autolink, and list-definition visibility', () => {
     const speech = prepareMarkdownForSpeech(
       [

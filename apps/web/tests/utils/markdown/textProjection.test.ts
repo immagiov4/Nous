@@ -114,6 +114,14 @@ test('buildVisibleProjection hides reference labels exposed by escaped raw html'
   assert.doesNotMatch(projection, /ref/u);
 });
 
+test('buildVisibleProjection hides footnote labels exposed by escaped raw html', () => {
+  const projection = buildVisibleProjection('<div>\nTesto[^nota]\n</div>\n\n[^nota]: Corpo').text;
+
+  assert.match(projection, /Testo/u);
+  assert.match(projection, /Corpo/u);
+  assert.doesNotMatch(projection, /\[?\^nota/u);
+});
+
 test('buildVisibleProjection follows rendered footnote, autolink, and list-definition visibility', () => {
   const content = [
     'Testo[^nota] e <https://example.com>.',

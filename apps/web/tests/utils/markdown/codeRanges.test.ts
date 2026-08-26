@@ -296,6 +296,15 @@ test('annotation ranges protect reference labels exposed by escaped raw html', (
   assert.deepEqual(protectedSlices, ['[ref]', '[ref]: https://example.com']);
 });
 
+test('annotation ranges protect footnote labels exposed by escaped raw html', () => {
+  const content = '<div>\nTesto[^nota]\n</div>\n\n[^nota]: Corpo';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['[^nota]', '[^nota]: ']);
+});
+
 test('code ranges exposed by escaped raw html stay in source order', () => {
   const content = '<div>\n`<mark>early</mark>`\n</div>\n\n`<mark>later</mark>`';
 
