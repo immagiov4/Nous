@@ -567,15 +567,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (error instanceof LessonSourceUnavailableError) {
         state.setMissingSourceProjectId(projectId);
       }
-      if (isGenerationViewCurrent()) {
-        state.failWorkflow(
-          'loadSection',
-          requestId,
-          error instanceof LessonSourceUnavailableError
-            ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
-            : getErrorMessage(error)
-        );
-      }
+      if (!isGenerationViewCurrent()) return 'ignored-busy';
+      state.failWorkflow(
+        'loadSection',
+        requestId,
+        error instanceof LessonSourceUnavailableError
+          ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
+          : getErrorMessage(error)
+      );
       throw error;
     } finally {
       progressObserver.dispose();

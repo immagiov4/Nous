@@ -4079,6 +4079,35 @@ test('lesson generation reports a terminal failure after workflow invalidation a
   assert.equal(state.internalState.workflowState.loadSection.error, 'Generazione interrotta');
 });
 
+test('detached lesson failure does not notify the project that remains visible', async () => {
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
+  let rejectGeneration: ((error: Error) => void) | undefined;
+  const generationGate = new Promise<never>((_, reject) => {
+    rejectGeneration = reject;
+  });
+  const notify = vi.fn();
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-a' },
+    openRouter: {
+      generateDurableLesson: async () => generationGate,
+    },
+  });
+
+  const selection = harness.controller.openSection(getLessons(plan)[0]).catch(error => {
+    notify(String(error));
+    return 'notified' as const;
+  });
+  harness.projectLibrary.adapter.setCurrentProjectId('project-b');
+  harness.state.adapter.invalidateWorkflows(['loadSection']);
+  rejectGeneration?.(new Error('Generazione A interrotta'));
+
+  assert.equal(await selection, 'ignored-busy');
+  assert.equal(notify.mock.calls.length, 0);
+  assert.equal(harness.state.adapter.isGenerationActive('project-a'), false);
+  assert.equal(harness.projectLibrary.adapter.currentProjectId, 'project-b');
+});
+
 test('lesson generation reattaches while another project owns the pending workflow', async () => {
   const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
   let rejectProjectA: ((error: Error) => void) | undefined;
