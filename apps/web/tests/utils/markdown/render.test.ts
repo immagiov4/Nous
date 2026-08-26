@@ -690,3 +690,12 @@ test('normalizeMarkdownForRendering restores a fence around single-line JSON', (
     ].join('\n')
   );
 });
+
+test('normalizeMarkdownForRendering does not restore a JSON fence around invalid JSON', () => {
+  const input = ['Testo prima.', '', '{ "userId": }', '```', '', 'Testo dopo.'].join('\n');
+  const output = normalizeMarkdownForRendering(input);
+
+  assert.doesNotMatch(output, /```json/u);
+  assert.match(output, /\{ "userId": \}/u);
+  assert.match(output, /Testo dopo\./u);
+});

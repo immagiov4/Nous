@@ -166,6 +166,55 @@ test('rejects task-list checkbox syntax as an annotation anchor', () => {
   );
 });
 
+test('rejects anchors inside code blocks synthesized by the renderer', () => {
+  const content = 'Spiegazione.\n\ncpp while (i < 5) { std::cout << i; }';
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), false);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('La parola while resta nella prosa.', {
+      selectedText: 'while',
+    }),
+    true
+  );
+});
+
+test('rejects renderer-synthesized code after normalized display math', () => {
+  const content = '[x = y + z]\n\ncpp while (i < 5) { std::cout << i; }';
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), false);
+});
+
+test('keeps inline math inside a line classified as renderer-synthesized code', () => {
+  const content = 'cpp printf("$x$");';
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'printf' }), false);
+});
+
+test('maps renderer-synthesized code ranges back through CRLF input', () => {
+  const content = 'Prima.\r\n\r\ncpp while (i < 5) { std::cout << i; }';
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), false);
+});
+
+test('rejects anchors inside JSON whose missing opening fence is restored by the renderer', () => {
+  const content = [
+    'Dati della sessione:',
+    '',
+    '{ "userId": 42, "role": "admin" }',
+    '```',
+    '',
+    'Il ruolo resta visibile nella spiegazione.',
+  ].join('\n');
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'admin' }), false);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, {
+      selectedText: 'ruolo resta visibile',
+    }),
+    true
+  );
+});
+
 test('accepts rendered Markdown character references as anchorable text', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate('Prima A &amp; B dopo.', {

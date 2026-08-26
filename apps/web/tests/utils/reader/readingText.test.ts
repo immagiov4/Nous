@@ -90,6 +90,38 @@ describe('buildReadableBlocks', () => {
 });
 
 describe('prepareMarkdownForSpeech', () => {
+  test('omits code blocks synthesized by the renderer while preserving surrounding prose', () => {
+    expect(
+      prepareMarkdownForSpeech('Prima.\n\ncpp while (i < 5) { std::cout << i; }\n\nDopo.')
+    ).toBe('Prima.\n\nDopo.');
+  });
+
+  test('omits renderer-synthesized code after normalized display math', () => {
+    const input = 'Prima.\n\n[x = y + z]\n\ncpp while (i < 5) { std::cout << i; }\n\nDopo.';
+
+    expect(prepareMarkdownForSpeech(input)).toBe('Prima.\n\nDopo.');
+  });
+
+  test('omits synthesized code containing inline math', () => {
+    expect(prepareMarkdownForSpeech('Prima.\n\ncpp printf("$x$");\n\nDopo.')).toBe(
+      'Prima.\n\nDopo.'
+    );
+  });
+
+  test('omits renderer-synthesized code from CRLF input', () => {
+    expect(
+      prepareMarkdownForSpeech('Prima.\r\n\r\ncpp while (i < 5) { std::cout << i; }\r\n\r\nDopo.')
+    ).toBe('Prima.\n\nDopo.');
+  });
+
+  test('omits JSON whose missing opening fence is restored by the renderer', () => {
+    const input = ['Prima.', '', '{ "userId": 42, "role": "admin" }', '```', '', 'Dopo.'].join(
+      '\n'
+    );
+
+    expect(prepareMarkdownForSpeech(input)).toBe('Prima.\n\nDopo.');
+  });
+
   test('drops media placeholders, code blocks, math, and ignored html while preserving inline code', () => {
     const input = [
       '# Titolo',
