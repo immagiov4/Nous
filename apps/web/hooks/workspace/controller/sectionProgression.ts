@@ -449,6 +449,33 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
 
+    if (!forceRegenerate && currentProjectId !== null && section.parentId === undefined) {
+      const reattachedInMemory = state.reattachSublessonGeneration(currentProjectId, section.id);
+      const hasRetainedSublesson = openRouter.hasDurableSublessonRequest(
+        currentProjectId,
+        section.id
+      );
+      if (reattachedInMemory || hasRetainedSublesson) {
+        stopAudio(true);
+        state.setScreenState(AppState.READING);
+        domain.setActiveSectionId(section.id);
+        void projectLibrary.patchCurrentProject({
+          activeSectionId: section.id,
+          state: AppState.READING,
+        });
+        if (!reattachedInMemory) {
+          void resumeRetainedSublesson(section).catch(error => {
+            pushNousDebugTrace('open-section:parent-sublesson-recovery-failed', {
+              errorMessage: getErrorMessage(error),
+              projectId: currentProjectId,
+              sectionId: section.id,
+            });
+          });
+        }
+        return 'reopened-generating';
+      }
+    }
+
     let ownsGenerationGate = false;
     let ownsForceRegenerationIntent = false;
     if (forceRegenerate) {
@@ -1005,7 +1032,15 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         if (isGenerationWorkflowCurrent()) state.invalidateWorkflows(['createLesson']);
         return { outcome: 'ignored-busy' };
       }
-      if (!applied && !(await hydrateStoredSublesson(result, projectRevision))) {
+      const hydratedSection = findPathNodeById(
+        domain.getDomainState().learningPlan?.modules,
+        result.sectionId
+      );
+      if (
+        !applied &&
+        hydratedSection?.kind !== 'lesson' &&
+        !(await hydrateStoredSublesson(result, projectRevision))
+      ) {
         return { outcome: 'ignored-busy' };
       }
       openGeneratedSublesson(result.sectionId);
