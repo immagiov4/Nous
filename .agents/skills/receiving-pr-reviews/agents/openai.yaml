@@ -1,0 +1,7 @@
+interface:
+  display_name: "Receiving PR Reviews"
+  short_description: "Triage review findings without scope spirals"
+  default_prompt: "Use $receiving-pr-reviews to evaluate the new pull-request review before changing code."
+
+policy:
+  allow_implicit_invocation: false
