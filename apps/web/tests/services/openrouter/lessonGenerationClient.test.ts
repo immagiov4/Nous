@@ -12,6 +12,7 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 }));
 
 const {
+  clearDurableLessonRequestsForProject,
   generateDurableLesson,
   generateDurableSublesson,
   hasDurableLessonRequest,
@@ -90,7 +91,7 @@ const advancePoll = async (): Promise<void> => {
   await vi.advanceTimersByTimeAsync(1_000);
 };
 
-const requestBody = (callIndex: number): { requestKey: string } =>
+const requestBody = (callIndex: number): { forceRegenerate?: boolean; requestKey: string } =>
   JSON.parse(
     String((fetchWithSupabaseAuthMock.mock.calls[callIndex]?.[1] as RequestInit | undefined)?.body)
   ) as { requestKey: string };
@@ -779,6 +780,56 @@ describe('generateDurableLesson', () => {
     );
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
     expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('preserves force regeneration when a retained key has no backend run yet', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1',
+      'pending-force-request'
+    );
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1:force-regenerate',
+      'true'
+    );
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        response({
+          id: 'run-restarted-force',
+          projectId: 'project-1',
+          result: completedResult,
+          sectionId: 'lesson-1',
+          stage: 'verification',
+          status: 'completed',
+        })
+      );
+
+    await generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' });
+
+    expect(requestBody(1).forceRegenerate).toBe(true);
+    expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('clears every retained lesson identity for one deleted project', () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1',
+      'request-1'
+    );
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1:force-regenerate',
+      'true'
+    );
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-2:lesson-1',
+      'request-2'
+    );
+
+    clearDurableLessonRequestsForProject('project-1');
+
+    expect(globalThis.sessionStorage).toHaveLength(1);
+    expect(
+      globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-2:lesson-1')
+    ).toBe('request-2');
   });
 
   test('starts a server-owned sublesson without sending a section id or parent content', async () => {

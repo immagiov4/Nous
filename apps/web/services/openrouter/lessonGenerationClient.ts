@@ -49,6 +49,7 @@ const LESSON_TERMINAL_PHASE_MESSAGES: Readonly<Record<string, string>> = {
     'Non è stato possibile preparare le fonti della lezione di approfondimento. Riprova.',
 };
 const LESSON_REQUEST_KEY_PREFIX = 'nous:lesson-workflow-request:';
+const FORCE_REGENERATION_INTENT_SUFFIX = ':force-regenerate';
 const LESSON_WORKFLOW_FAILURE_KINDS: ReadonlySet<string> = new Set([
   'corrective',
   'operational',
@@ -115,6 +116,60 @@ export interface DurableSublessonFocus {
 
 const getLessonRequestKeyStorageKey = (projectId: string, requestIdentity: string): string =>
   `${LESSON_REQUEST_KEY_PREFIX}${projectId}:${requestIdentity}`;
+
+const getForceRegenerationIntentStorageKey = (requestStorageKey: string): string =>
+  `${requestStorageKey}${FORCE_REGENERATION_INTENT_SUFFIX}`;
+
+const readForceRegenerationIntent = (requestStorageKey: string): boolean => {
+  try {
+    return (
+      globalThis.sessionStorage.getItem(getForceRegenerationIntentStorageKey(requestStorageKey)) ===
+      'true'
+    );
+  } catch {
+    return false;
+  }
+};
+
+const setForceRegenerationIntent = (requestStorageKey: string): void => {
+  try {
+    globalThis.sessionStorage.setItem(
+      getForceRegenerationIntentStorageKey(requestStorageKey),
+      'true'
+    );
+  } catch {
+    // Session storage is optional; the current request still carries the force flag.
+  }
+};
+
+const clearLessonRequestState = (storageKey: string, expectedRequestKey?: string): void => {
+  if (
+    expectedRequestKey !== undefined &&
+    readWorkflowRequestKey(storageKey) !== expectedRequestKey
+  ) {
+    return;
+  }
+  clearWorkflowRequestKey(storageKey);
+  try {
+    globalThis.sessionStorage.removeItem(getForceRegenerationIntentStorageKey(storageKey));
+  } catch {
+    // Session storage is optional.
+  }
+};
+
+export const clearDurableLessonRequestsForProject = (projectId: string): void => {
+  const projectPrefix = `${LESSON_REQUEST_KEY_PREFIX}${projectId}:`;
+  try {
+    for (let index = globalThis.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const storageKey = globalThis.sessionStorage.key(index);
+      if (storageKey?.startsWith(projectPrefix)) {
+        globalThis.sessionStorage.removeItem(storageKey);
+      }
+    }
+  } catch {
+    // Session storage is optional.
+  }
+};
 
 export const hasDurableLessonRequest = (projectId: string, sectionId: string): boolean =>
   readWorkflowRequestKey(getLessonRequestKeyStorageKey(projectId, sectionId)) !== null;
@@ -269,9 +324,12 @@ const runDurableLessonRequest = async ({
   projectId,
   requestIdentity,
 }: DurableLessonRequest): Promise<DurableLessonResult> => {
-  const request = acquireWorkflowRequestKey(
-    getLessonRequestKeyStorageKey(projectId, requestIdentity)
-  );
+  const storageKey = getLessonRequestKeyStorageKey(projectId, requestIdentity);
+  if (endpoint === 'lessons' && requestPayload.forceRegenerate === true) {
+    setForceRegenerationIntent(storageKey);
+  }
+  const request = acquireWorkflowRequestKey(storageKey);
+  const clearRequest = () => clearLessonRequestState(storageKey, request.requestKey);
   const response = await fetchWithSupabaseAuth(
     `${getBackendUrl()}/api/lesson-workflows/${endpoint}`,
     {
@@ -285,7 +343,7 @@ const runDurableLessonRequest = async ({
     response.status !== LESSON_GENERATION_BUSY_STATUS &&
     isDefinitiveWorkflowStartRejection(response)
   ) {
-    request.clear();
+    clearRequest();
   }
   const payload = await readWorkflowJson(response);
   const busyJob =
@@ -298,7 +356,7 @@ const runDurableLessonRequest = async ({
       ? busyJob
       : null;
   if (busyJob && !reattachedBusyJob) {
-    request.clear();
+    clearRequest();
     throw new LessonGenerationBusyError(busyJob.sectionId);
   }
   if (response.status === LESSON_GENERATION_BUSY_STATUS) {
@@ -310,12 +368,12 @@ const runDurableLessonRequest = async ({
     job?.projectId !== projectId ||
     (expectedSectionId !== undefined && job.sectionId !== expectedSectionId)
   ) {
-    if (response.status === LESSON_GENERATION_BUSY_STATUS) request.clear();
+    if (response.status === LESSON_GENERATION_BUSY_STATUS) clearRequest();
     throw new Error(LESSON_GENERATION_ERROR);
   }
 
   const terminalJob = await waitForTerminalRun(job, onProgressStage, onWorkflowSnapshot);
-  request.clear();
+  clearRequest();
   if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);
   try {
     return parseCompletedResult(terminalJob, projectId, expectedSectionId ?? terminalJob.sectionId);
@@ -401,7 +459,7 @@ const resumeRetainedLessonRequest = async ({
   }
 
   const terminalJob = await waitForTerminalRun(recovery.job, onProgressStage, onWorkflowSnapshot);
-  clearWorkflowRequestKey(recovery.storageKey, recovery.requestKey);
+  clearLessonRequestState(recovery.storageKey, recovery.requestKey);
   if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);
   try {
     return parseCompletedResult(terminalJob, projectId, sectionId);
@@ -426,7 +484,7 @@ const retireTerminalRetainedSublessonRequest = async (
   if (retained.job.status === 'queued' || retained.job.status === 'running') {
     throw new LessonGenerationBusyError(retained.job.sectionId);
   }
-  clearWorkflowRequestKey(retained.storageKey, retained.requestKey);
+  clearLessonRequestState(retained.storageKey, retained.requestKey);
 };
 
 export const generateDurableLesson = async ({
@@ -446,6 +504,8 @@ export const generateDurableLesson = async ({
   recovery?: DurableLessonRecovery | null;
   sectionId: string;
 }): Promise<DurableLessonResult> => {
+  const lessonRequestStorageKey = getLessonRequestKeyStorageKey(projectId, sectionId);
+  const retainedForceRegenerate = readForceRegenerationIntent(lessonRequestStorageKey);
   const retainedLessonRequest = await resolveRetainedLessonRequest({
     projectId,
     requestIdentity: sectionId,
@@ -479,7 +539,7 @@ export const generateDurableLesson = async ({
     expectedSectionId: sectionId,
     onProgressStage,
     onWorkflowSnapshot,
-    payload: { forceRegenerate, sectionId },
+    payload: { forceRegenerate: forceRegenerate || retainedForceRegenerate, sectionId },
     projectId,
     requestIdentity: sectionId,
   });

@@ -805,6 +805,7 @@ const createOpenRouterMock = (
       hasReliableSourceContext: true,
     }),
     cancelCourseInterview: async () => {},
+    clearDurableLessonRequestsForProject: () => {},
     createGenerationProgressObserver: ({
       onUpdate,
       operation,
@@ -5834,22 +5835,28 @@ test('goToLibrary returns the UX to library and stops active audio playback', as
 });
 
 test('local deletion clears the deleted project missing-source state', async () => {
-  const { controller, state } = createControllerHarness();
+  const clearDurableLessonRequestsForProject = vi.fn();
+  const { controller, state } = createControllerHarness({
+    openRouter: { clearDurableLessonRequestsForProject },
+  });
   state.adapter.setProjectMissingSource('project-deleted', true);
 
   await controller.deleteProject('project-deleted');
 
   expect(state.adapter.hasMissingSource('project-deleted')).toBe(false);
+  expect(clearDurableLessonRequestsForProject).toHaveBeenCalledWith('project-deleted');
 });
 
 test('remote deletion leaves the deleted course and invalidates every active workflow', () => {
   const plan = buildPlan();
+  const clearDurableLessonRequestsForProject = vi.fn();
   const { controller, domain, projectLibrary, state, stopAudioCalls } = createControllerHarness({
     domain: {
       activeSectionId: 'lesson-1',
       learningPlan: plan,
       source: createProjectSourceFromFile(pdfFile),
     },
+    openRouter: { clearDurableLessonRequestsForProject },
     projectLibrary: { currentProjectId: 'project-deleted' },
   });
   state.adapter.setScreenState(AppState.READING);
@@ -5865,6 +5872,7 @@ test('remote deletion leaves the deleted course and invalidates every active wor
   assert.equal(domain.source, null);
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.equal(state.adapter.hasMissingSource('project-deleted'), false);
+  expect(clearDurableLessonRequestsForProject).toHaveBeenCalledWith('project-deleted');
   assert.deepEqual(stopAudioCalls, [true]);
   for (const workflowId of WORKSPACE_WORKFLOW_IDS) {
     assert.equal(

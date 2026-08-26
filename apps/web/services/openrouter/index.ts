@@ -30,6 +30,7 @@ export type {
 export { createGenerationProgressObserver } from './generationProgress.ts';
 export type { DurableLessonRecovery } from './lessonGenerationClient.ts';
 export {
+  clearDurableLessonRequestsForProject,
   generateDurableLesson,
   generateDurableSublesson,
   hasDurableLessonRequest,
