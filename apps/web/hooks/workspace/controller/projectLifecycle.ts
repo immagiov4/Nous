@@ -666,7 +666,9 @@ export const createProjectLifecycleCommands = (
           nextSection &&
           (!nextSection.content ||
             nextSection.content.length === 0 ||
-            openRouter.hasDurableLessonRequest(projectId, nextSection.id))
+            openRouter.hasDurableLessonRequest(projectId, nextSection.id) ||
+            (nextSection.parentId !== undefined &&
+              openRouter.hasDurableSublessonRequest(projectId, nextSection.parentId)))
         ) {
           void (async () => {
             if (

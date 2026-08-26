@@ -34,6 +34,7 @@ export {
   generateDurableLesson,
   generateDurableSublesson,
   hasDurableLessonRequest,
+  hasDurableSublessonRequest,
   isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
   resolveDurableSublessonRequestForSection,

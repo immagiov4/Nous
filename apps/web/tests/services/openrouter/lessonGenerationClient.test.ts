@@ -17,6 +17,7 @@ const {
   generateDurableLesson,
   generateDurableSublesson,
   hasDurableLessonRequest,
+  hasDurableSublessonRequest,
   isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
   LessonSourceUnavailableError,
@@ -106,6 +107,16 @@ describe('generateDurableLesson', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  test('detects a retained sublesson request by its parent identity', () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'sublesson-request'
+    );
+
+    expect(hasDurableSublessonRequest('project-1', 'lesson-1')).toBe(true);
+    expect(hasDurableSublessonRequest('project-1', 'lesson-2')).toBe(false);
   });
 
   test('starts the durable workflow and polls its short status route to completion', async () => {

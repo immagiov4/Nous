@@ -777,7 +777,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       isGenerationCurrent() && state.isWorkflowCurrent('createLesson', requestId);
     let generatedSectionId: string | null = null;
     const isGenerationViewCurrent = () => {
-      const activeSectionId = projectLibrary.getCurrentActiveSectionId();
+      const activeSectionId = domain.getDomainState().activeSectionId;
       return (
         projectLibrary.getCurrentProjectId() === projectId &&
         (activeSectionId === parentSection.id || activeSectionId === generatedSectionId) &&

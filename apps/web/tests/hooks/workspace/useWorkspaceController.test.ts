@@ -891,6 +891,7 @@ const createOpenRouterMock = (
       warnings: [],
     }),
     hasDurableLessonRequest: () => false,
+    hasDurableSublessonRequest: () => false,
     isDurableSublessonRequestForSection: async () => false,
     resolveDurableSublessonRequestForSection: async () => null,
     repairDurablePdfMapping: async ({
@@ -1876,6 +1877,56 @@ test('openProject resumes a retained regeneration for a populated active lesson'
   await vi.waitFor(() => expect(generateDurableLesson).toHaveBeenCalledOnce());
   await vi.waitFor(() =>
     expect(getLessons(domain.learningPlan)[0]?.content).toBe('# Versione rigenerata')
+  );
+});
+
+test('openProject resumes a retained sublesson request for a populated active lesson', async () => {
+  const deepLesson = buildTestLesson({
+    content: '# Versione provvisoria',
+    id: 'deep-1',
+    parentId: 'lesson-1',
+    title: 'Approfondimento',
+    type: 'deep-dive',
+  });
+  const snapshot = createProjectSnapshot({
+    activeSectionId: deepLesson.id,
+    id: 'project-retained-sublesson',
+    learningPlan: buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' }), deepLesson] }),
+    source: createProjectSourceFromFile(markdownFile),
+    state: AppState.READING,
+  });
+  const recovery = buildLessonRecovery(deepLesson.id);
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Approfondimento completato',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: snapshot.id,
+    quiz: [],
+    sectionId: deepLesson.id,
+    warnings: [],
+  }));
+  const { controller } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: {
+      generateDurableLesson,
+      hasDurableSublessonRequest: (projectId, parentSectionId) =>
+        projectId === snapshot.id && parentSectionId === 'lesson-1',
+      resolveDurableSublessonRequestForSection: async () => recovery,
+    },
+  });
+
+  expect((await controller.openProject(snapshot.id)).outcome).toBe('opened');
+  await vi.waitFor(() =>
+    expect(generateDurableLesson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSectionId: 'lesson-1',
+        projectId: snapshot.id,
+        recovery,
+        sectionId: deepLesson.id,
+      })
+    )
   );
 });
 
@@ -5526,6 +5577,43 @@ test('detached sublesson completion releases the pending workflow', async () => 
   releaseGeneration?.();
 
   expect(await creation).toEqual({ outcome: 'ignored-busy' });
+  expect(harness.state.internalState.workflowState.createLesson.status).toBe('idle');
+});
+
+test('sublesson failure follows synchronous section navigation when the library getter lags', async () => {
+  const parentLesson = buildTestLesson({ id: 'lesson-1' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
+  const plan = buildPlan({ sections: [parentLesson, readyLesson] });
+  let rejectGeneration: ((error: Error) => void) | undefined;
+  let markGenerationStarted: (() => void) | undefined;
+  const generationStarted = new Promise<void>(resolve => {
+    markGenerationStarted = resolve;
+  });
+  const generationGate = new Promise<never>((_, reject) => {
+    rejectGeneration = reject;
+  });
+  const harness = createControllerHarness({
+    domain: { activeSectionId: parentLesson.id, learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateDurableSublesson: async () => {
+        markGenerationStarted?.();
+        return generationGate;
+      },
+    },
+  });
+  harness.projectLibrary.adapter.getCurrentActiveSectionId = () => parentLesson.id;
+
+  const creation = harness.controller.createLessonFromSelection({
+    instructions: 'Approfondisci',
+    selectedText: 'testo',
+  });
+  await generationStarted;
+  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  rejectGeneration?.(new Error('Generazione interrotta'));
+
+  expect(await creation).toEqual({ outcome: 'ignored-busy' });
+  expect(harness.domain.activeSectionId).toBe(readyLesson.id);
   expect(harness.state.internalState.workflowState.createLesson.status).toBe('idle');
 });
 

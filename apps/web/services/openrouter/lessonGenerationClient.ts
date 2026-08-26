@@ -183,6 +183,11 @@ export const hasDurableLessonRequest = (projectId: string, sectionId: string): b
   return readWorkflowRequestKey(storageKey) !== null || readForceRegenerationIntent(storageKey);
 };
 
+export const hasDurableSublessonRequest = (projectId: string, parentSectionId: string): boolean =>
+  readWorkflowRequestKey(
+    getLessonRequestKeyStorageKey(projectId, `sublesson:${parentSectionId}`)
+  ) !== null;
+
 const parseCompletedResult = (
   job: LessonWorkflowSnapshot,
   projectId: string,
