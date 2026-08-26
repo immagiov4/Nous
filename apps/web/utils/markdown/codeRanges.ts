@@ -339,6 +339,7 @@ export interface MarkdownAnalysis {
   referenceDefinitionRanges: MarkdownRange[];
   referenceLinkLabelRanges: MarkdownRange[];
   rendererNormalizedIndentRanges: MarkdownRange[];
+  structuralRanges: MarkdownRange[];
 }
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkBreaks);
@@ -366,6 +367,42 @@ const expandToLineBounds = (content: string, range: MarkdownRange): MarkdownRang
   const lineStart = content.lastIndexOf('\n', range.start - 1) + 1;
   const lineBreak = content.indexOf('\n', range.end);
   return { start: lineStart, end: lineBreak === -1 ? content.length : lineBreak };
+};
+
+const getRawFencedCodeRanges = (content: string): MarkdownRange[] => {
+  const root = markdownParser.runSync(markdownParser.parse(content)) as MarkdownAstNode;
+  const ranges: MarkdownRange[] = [];
+  const visit = (node: MarkdownAstNode): void => {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (node.type === 'code' && start !== undefined && end !== undefined) {
+      const source = content.slice(start, end);
+      if (/^ {0,3}(?:`{3,}|~{3,})/u.test(source)) {
+        ranges.push(expandToLineBounds(content, { start, end }));
+      }
+    }
+    node.children?.forEach(visit);
+  };
+  visit(root);
+  return ranges;
+};
+
+const getTableDelimiterRange = (
+  content: string,
+  node: MarkdownAstNode,
+  nodeRange: MarkdownRange,
+  sourceOffsets: number[]
+): MarkdownRange | null => {
+  const headerRow = node.children?.[0];
+  if (!headerRow) return null;
+  const headerRange = getNodeRange(headerRow, sourceOffsets);
+  if (!headerRange) return null;
+  const headerLineBreak = content.indexOf('\n', headerRange.end);
+  if (headerLineBreak === -1 || headerLineBreak >= nodeRange.end) return null;
+  const start = headerLineBreak + 1;
+  const delimiterLineBreak = content.indexOf('\n', start);
+  const end = delimiterLineBreak === -1 ? nodeRange.end : delimiterLineBreak;
+  return start < end && end <= nodeRange.end ? { start, end } : null;
 };
 
 const getInlineLinkDestinationRange = (
@@ -412,6 +449,7 @@ const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
   });
 
 export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
+  const rawFencedCodeRanges = getRawFencedCodeRanges(content);
   const analysis: MarkdownAnalysis = {
     codeRanges: [],
     htmlSyntaxRanges: [],
@@ -420,9 +458,13 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     mathRanges: [],
     referenceDefinitionRanges: [],
     referenceLinkLabelRanges: [],
-    rendererNormalizedIndentRanges: getAccidentalPlainTextIndentationRanges(content),
+    rendererNormalizedIndentRanges: getAccidentalPlainTextIndentationRanges(
+      content,
+      rawFencedCodeRanges
+    ),
+    structuralRanges: [],
   };
-  const indentationProjection = projectAccidentalPlainTextIndentation(content);
+  const indentationProjection = projectAccidentalPlainTextIndentation(content, rawFencedCodeRanges);
   const root = markdownParser.runSync(
     markdownParser.parse(indentationProjection.content)
   ) as MarkdownAstNode;
@@ -437,6 +479,16 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         analysis.codeRanges.push(blockRange);
       }
       if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
+      if (node.type === 'thematicBreak') analysis.structuralRanges.push(range);
+      if (node.type === 'table') {
+        const delimiterRange = getTableDelimiterRange(
+          content,
+          node,
+          range,
+          indentationProjection.sourceOffsets
+        );
+        if (delimiterRange) analysis.structuralRanges.push(delimiterRange);
+      }
       if (node.type === 'image' || node.type === 'imageReference') {
         const source = content.slice(range.start, range.end);
         if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
@@ -492,7 +544,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     }
     mathCursor += 1;
   }
-  analysis.mathRanges = mergeRanges(analysis.mathRanges);
+  analysis.mathRanges = mergeOverlappingRanges(analysis.mathRanges);
   return analysis;
 };
 
@@ -561,6 +613,7 @@ export const getMarkdownAnnotationProtectedRanges = (
     ...analysis.referenceDefinitionRanges,
     ...analysis.referenceLinkLabelRanges,
     ...analysis.mathRanges,
+    ...analysis.structuralRanges,
     ...collectPlaceholderRanges(content),
   ]);
 

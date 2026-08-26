@@ -285,3 +285,23 @@ test('annotation ranges protect supported backslash math delimiters', () => {
 
   assert.deepEqual(protectedText, [String.raw`\(x + y\)`, String.raw`\[z = 1\]`]);
 });
+
+test('annotation ranges keep renderer indentation normalization outside fenced code', () => {
+  const content = ['~~~md', '    ~~~', 'hidden code', '~~~', 'visible prose'].join('\n');
+  const protectedText = getMarkdownAnnotationProtectedRanges(content)
+    .map(range => content.slice(range.start, range.end))
+    .join('\n');
+
+  assert.match(protectedText, / {4}~~~\nhidden code/u);
+  assert.doesNotMatch(protectedText, /visible prose/u);
+});
+
+test('annotation ranges protect non-text thematic breaks and table delimiters', () => {
+  const content = ['---', '', '| Visible | Text |', '| --- | --- |', '| Cell | Value |'].join('\n');
+  const protectedText = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.ok(protectedText.includes('---'));
+  assert.ok(protectedText.includes('| --- | --- |'));
+});

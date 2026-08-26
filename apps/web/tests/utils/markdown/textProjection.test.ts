@@ -93,6 +93,23 @@ test('buildVisibleProjection follows renderer-normalized prose indentation and b
   assert.equal(buildVisibleProjection(content).text, 'Frase visibile con x + y.');
 });
 
+test('buildVisibleProjection keeps the longest hidden range when starts collide', () => {
+  assert.equal(buildVisibleProjection('\t[ref]: /image.png').text, '');
+});
+
+test('buildVisibleProjection keeps adjacent backslash math expressions separate', () => {
+  assert.equal(buildVisibleProjection(String.raw`\(x\)\(y\)`).text, 'xy');
+});
+
+test('buildVisibleProjection omits non-text block syntax', () => {
+  const content = ['---', '', '| Header |', '| --- |', '| Value |'].join('\n');
+  const projection = buildVisibleProjection(content).text;
+
+  assert.doesNotMatch(projection, /---/u);
+  assert.match(projection, /Header/u);
+  assert.match(projection, /Value/u);
+});
+
 test('buildVisibleProjection projects backslash math inside escaped raw html', () => {
   assert.equal(
     buildVisibleProjection(String.raw`<span>\(visible\)</span>`).text,

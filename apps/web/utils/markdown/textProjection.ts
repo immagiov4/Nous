@@ -38,6 +38,17 @@ const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
 const INLINE_FORMAT_DELIMITERS = ['***', '___', '**', '__', '~~', '*', '_'];
 
+const indexLongestRangeByStart = (ranges: readonly MarkdownRange[]): Map<number, MarkdownRange> => {
+  const rangesByStart = new Map<number, MarkdownRange>();
+  for (const range of ranges) {
+    const currentRange = rangesByStart.get(range.start);
+    if (!currentRange || range.end > currentRange.end) {
+      rangesByStart.set(range.start, range);
+    }
+  }
+  return rangesByStart;
+};
+
 export const escapeRegex = (value: string) =>
   value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 
@@ -69,20 +80,17 @@ export const buildVisibleProjection = (
   let index = 0;
   let atLineStart = true;
   let activeCodeDelimiter: string | null = null;
-  const linkDestinationRangesByStart = new Map(
-    analysis.linkDestinationRanges.map(range => [range.start, range])
-  );
-  const mathRangesByStart = new Map(analysis.mathRanges.map(range => [range.start, range]));
-  const hiddenRangesByStart = new Map(
-    [
-      ...getMarkdownImageRanges(content, analysis),
-      ...getMarkdownLinkDestinationRanges(content, analysis),
-      ...getMarkdownReferenceDefinitionRanges(content, analysis),
-      ...getMarkdownReferenceLinkLabelRanges(content, analysis),
-      ...analysis.htmlSyntaxRanges,
-      ...analysis.rendererNormalizedIndentRanges,
-    ].map(range => [range.start, range])
-  );
+  const linkDestinationRangesByStart = indexLongestRangeByStart(analysis.linkDestinationRanges);
+  const mathRangesByStart = indexLongestRangeByStart(analysis.mathRanges);
+  const hiddenRangesByStart = indexLongestRangeByStart([
+    ...getMarkdownImageRanges(content, analysis),
+    ...getMarkdownLinkDestinationRanges(content, analysis),
+    ...getMarkdownReferenceDefinitionRanges(content, analysis),
+    ...getMarkdownReferenceLinkLabelRanges(content, analysis),
+    ...analysis.htmlSyntaxRanges,
+    ...analysis.rendererNormalizedIndentRanges,
+    ...analysis.structuralRanges,
+  ]);
 
   const pushCharacter = (character: string, sourceIndex: number) => {
     characters.push(character);

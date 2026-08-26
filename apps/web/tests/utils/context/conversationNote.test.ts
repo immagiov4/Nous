@@ -125,6 +125,16 @@ test('rejects candidates found only in a multiline reference definition title', 
   );
 });
 
+test('rejects candidates that name non-text Markdown block syntax', () => {
+  assert.equal(hasAnchorableConversationNoteCandidate('---', { selectedText: '---' }), false);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('| Header |\n| --- |\n| Value |', {
+      selectedText: '| --- |',
+    }),
+    false
+  );
+});
+
 test('distinguishes visible footnote content from nested fenced code', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate('Testo[^nota]\n\n[^nota]: Contenuto visibile', {
