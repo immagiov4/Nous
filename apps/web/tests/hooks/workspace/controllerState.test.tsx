@@ -105,7 +105,7 @@ describe('useWorkspaceControllerState generation ownership', () => {
 
   test('reattaches only the matching active lesson generation', () => {
     const { result } = renderHook(() => useWorkspaceControllerState());
-    const onReattach = vi.fn();
+    const onReattach = vi.fn(() => true);
 
     let exerciseToken: number | null = null;
     act(() => {
