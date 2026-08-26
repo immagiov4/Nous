@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -102,6 +102,14 @@ const openProviderSections = async (user: ReturnType<typeof userEvent.setup>) =>
   for (const provider of ['OpenRouter', 'OpenAI API', 'Codex app-server']) {
     await user.click(screen.getByText(provider, { selector: 'summary span.flex-1' }));
   }
+};
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(resolvePromise => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 };
 
 describe('AdminPanel', () => {
@@ -254,22 +262,16 @@ describe('AdminPanel', () => {
 
   test('does not allow saving model defaults before persisted configuration loads', async () => {
     const user = userEvent.setup();
-    let resolveConfig: ((config: AdminModelConfig) => void) | undefined;
-    vi.mocked(getAdminModelConfig).mockReturnValue(
-      new Promise(resolve => {
-        resolveConfig = resolve;
-      })
-    );
+    const configRequest = createDeferred<AdminModelConfig>();
+    vi.mocked(getAdminModelConfig).mockReturnValue(configRequest.promise);
     render(<AdminPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Configurazione' }));
     expect(screen.getByRole('button', { name: 'Salva modelli' })).toBeDisabled();
     expect(patchAdminModelConfig).not.toHaveBeenCalled();
 
-    resolveConfig?.(defaultModelConfig);
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Salva modelli' })).toBeEnabled()
-    );
+    await act(async () => configRequest.resolve(defaultModelConfig));
+    expect(screen.getByRole('button', { name: 'Salva modelli' })).toBeEnabled();
   });
 
   test('configures artifact models and reasoning independently from lessons', async () => {
@@ -460,12 +462,8 @@ describe('AdminPanel', () => {
 
   test('shows the magic-link destination and prevents duplicate sends while pending', async () => {
     const user = userEvent.setup();
-    let resolveSend: (() => void) | undefined;
-    vi.mocked(sendAdminMagicLink).mockReturnValue(
-      new Promise<'access'>(resolve => {
-        resolveSend = () => resolve('access');
-      })
-    );
+    const sendRequest = createDeferred<'access'>();
+    vi.mocked(sendAdminMagicLink).mockReturnValue(sendRequest.promise);
     render(<AdminPanel />);
 
     const button = await screen.findByRole('button', {
@@ -477,8 +475,8 @@ describe('AdminPanel', () => {
     expect(button).toBeDisabled();
     expect(button).toHaveTextContent('Invio in corso…');
 
-    resolveSend?.();
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    await act(async () => sendRequest.resolve('access'));
+    expect(screen.getByRole('status')).toHaveTextContent(
       'Link di accesso inviato a student@example.com. La password esistente non è stata modificata.'
     );
     expect(button).toBeEnabled();
