@@ -413,6 +413,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       order: 1,
     }),
     currentProjectId: null,
+    getCurrentActiveSectionId: () => null,
     getCurrentProjectId: () => adapter.currentProjectId,
     deleteStoredProject: async projectId => {
       deletedProjectIds.push(projectId);
@@ -903,6 +904,7 @@ const createControllerHarness = (args?: {
   const domain = createDomainAdapter(args?.domain);
   const state = createStateAdapter();
   const projectLibrary = createProjectLibraryAdapter(args?.projectLibrary);
+  projectLibrary.adapter.getCurrentActiveSectionId = () => domain.activeSectionId;
   projectLibrary.setLoadedSnapshot(args?.loadedSnapshot ?? null);
   const stopAudioCalls: boolean[] = [];
   const openRouter = createOpenRouterMock(args?.openRouter);
@@ -4067,6 +4069,11 @@ test.each([
 
   expect((await creation).outcome).toBe(expectedOutcome);
   expect(harness.state.internalState.workflowState.createLesson.status).toBe(expectedStatus);
+  if (!error) {
+    expect(
+      getLessons(harness.domain.learningPlan).some(section => section.id === generatedSection.id)
+    ).toBe(true);
+  }
 });
 
 test('force regeneration re-entry reattaches before reusing populated lesson content', async () => {
@@ -4251,6 +4258,29 @@ test('detached lesson failure does not notify the project that remains visible',
   expect(notify).not.toHaveBeenCalled();
   expect(harness.state.adapter.isGenerationActive('project-a')).toBe(false);
   expect(harness.projectLibrary.adapter.currentProjectId).toBe('project-b');
+});
+
+test('opening a ready lesson detaches the previous lesson generation view', async () => {
+  const generatingLesson = buildTestLesson({ id: 'lesson-a' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-b' });
+  const plan = buildPlan({ sections: [generatingLesson, readyLesson] });
+  let rejectGeneration: ((error: Error) => void) | undefined;
+  const generationGate = new Promise<never>((_, reject) => {
+    rejectGeneration = reject;
+  });
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: { generateDurableLesson: async () => generationGate },
+  });
+
+  const generation = harness.controller.openSection(generatingLesson);
+  await Promise.resolve();
+  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  rejectGeneration?.(new Error('Generazione interrotta'));
+
+  expect(await generation).toBe('ignored-busy');
+  expect(harness.domain.activeSectionId).toBe(readyLesson.id);
 });
 
 test('lesson generation reattaches while another project owns the pending workflow', async () => {

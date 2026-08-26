@@ -492,6 +492,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const isGenerationCurrent = () => state.isGenerationCurrent(projectId, activeGeneration.token);
     const isGenerationViewCurrent = () =>
       projectLibrary.getCurrentProjectId() === projectId &&
+      projectLibrary.getCurrentActiveSectionId() === section.id &&
       isGenerationCurrent() &&
       state.isWorkflowCurrent('loadSection', requestId);
 
@@ -714,10 +715,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       requestId = beginSublessonWorkflow();
     });
     const isGenerationCurrent = () => state.isGenerationCurrent(projectId, generationToken);
-    const isGenerationViewCurrent = () =>
-      projectLibrary.getCurrentProjectId() === projectId &&
-      isGenerationCurrent() &&
-      state.isWorkflowCurrent('createLesson', requestId);
+    let generatedSectionId: string | null = null;
+    const isGenerationViewCurrent = () => {
+      const activeSectionId = projectLibrary.getCurrentActiveSectionId();
+      return (
+        projectLibrary.getCurrentProjectId() === projectId &&
+        (activeSectionId === parentSection.id || activeSectionId === generatedSectionId) &&
+        isGenerationCurrent() &&
+        state.isWorkflowCurrent('createLesson', requestId)
+      );
+    };
     const progressBridge = createGenerationProgressBridge({
       getProgress: () => state.getWorkflowState().createLesson.progress,
       setProgress: progress => state.setWorkflowProgress('createLesson', requestId, progress),
@@ -738,6 +745,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         onProgressStage: progressObserver.setStage,
         onWorkflowSnapshot: snapshot => {
           if (!isGenerationCurrent()) return;
+          generatedSectionId = snapshot.sectionId;
           state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
           if (isGenerationViewCurrent()) progressBridge.updateFromWorkflow(snapshot);
         },
@@ -749,6 +757,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (!isGenerationCurrent()) {
         return { outcome: 'ignored-busy' };
       }
+      generatedSectionId = result.sectionId;
       if (typeof result.projectRevision !== 'number') {
         throw new TypeError(
           'La nuova lezione è stata generata, ma non è stato possibile caricarla.'
@@ -770,13 +779,18 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         if (!isGenerationCurrent() || !isGenerationViewCurrent()) {
           return { outcome: 'ignored-busy' };
         }
-        const createdSection =
-          persisted && persisted.revision >= result.projectRevision
-            ? findPathNodeById(persisted.snapshot.learningPlan?.modules, result.sectionId)
-            : null;
+        if (!persisted || persisted.revision < result.projectRevision) {
+          throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
+        }
+        const createdSection = findPathNodeById(
+          persisted.snapshot.learningPlan?.modules,
+          result.sectionId
+        );
         if (createdSection?.kind !== 'lesson') {
           throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
         }
+        domain.hydrateSnapshot(persisted.snapshot);
+        projectLibrary.completeProjectHydration(persisted);
       }
       if (
         projectLibrary.getCurrentProjectId() === projectId &&

@@ -97,6 +97,7 @@ export interface WorkspaceProjectLibraryAdapter {
   completeProjectHydration: (project: ProjectSnapshotWithRevision) => void;
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;
   currentProjectId: string | null;
+  getCurrentActiveSectionId: () => string | null;
   getCurrentProjectId: () => string | null;
   deleteStoredProject: (projectId: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;

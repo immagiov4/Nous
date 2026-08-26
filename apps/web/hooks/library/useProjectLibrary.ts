@@ -1557,6 +1557,7 @@ export const useProjectLibrary = ({
       return folder;
     },
     currentProjectId,
+    getCurrentActiveSectionId: () => domainStateRef.current.activeSectionId,
     getCurrentProjectId: () => currentProjectIdRef.current,
     deleteStoredProject: async (projectId: string) => {
       await projectRepositoryRef.current.deleteProject(projectId);
