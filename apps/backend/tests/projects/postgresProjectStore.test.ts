@@ -293,6 +293,68 @@ describe('PostgresProjectStore', () => {
     ).toBe(true);
   });
 
+  test('reloads a legacy hydration candidate when its retained source was replaced', async () => {
+    const legacySnapshot = {
+      ...createMultiSourceSnapshot(),
+      sourceKind: 'codebase',
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          sourceId: 'legacy-source',
+        },
+        kind: 'archive',
+        name: 'legacy.zip',
+        ref: {
+          byteSize: 100,
+          hash: 'a'.repeat(64),
+          id: 'legacy-source',
+          mimeType: 'application/zip',
+          name: 'legacy.zip',
+          objectPath: 'users/user-1/projects/project/legacy.zip',
+        },
+      },
+    } as ProjectSnapshot;
+    const replacementSnapshot = {
+      ...createMultiSourceSnapshot(),
+      source: null,
+      sourceKind: 'learn-mode' as const,
+    };
+    let sourceWasReplaced = false;
+    const statements: string[] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        statements.push(statement);
+        if (statement.includes('from public.project_sources source')) {
+          sourceWasReplaced = true;
+          return Promise.resolve([]);
+        }
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve([
+            {
+              document_index: null,
+              snapshot: sourceWasReplaced ? replacementSnapshot : legacySnapshot,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(store.loadProject('user-1', legacySnapshot.id)).resolves.toEqual(
+      replacementSnapshot
+    );
+    expect(statements).toHaveLength(3);
+    expect(statements.at(-1)).toContain('select snapshot, document_index');
+  });
+
   test('reports missing projects consistently for favorite and touch writes', async () => {
     const sqlClient = Object.assign(
       vi.fn(async () => []),
@@ -435,9 +497,19 @@ describe('PostgresProjectStore', () => {
       ...legacySnapshot,
       id: 'second-legacy-archive-project',
     } as ProjectSnapshot;
+    const staleLegacySnapshot = {
+      ...legacySnapshot,
+      id: 'stale-legacy-archive-project',
+    } as ProjectSnapshot;
+    const staleReplacementSnapshot = {
+      ...createMultiSourceSnapshot(),
+      id: staleLegacySnapshot.id,
+      source: null,
+      sourceKind: 'learn-mode' as const,
+    };
     const currentSnapshot = { ...createMultiSourceSnapshot(), id: 'current-project' };
     const storedSnapshots = new Map(
-      [legacySnapshot, secondLegacySnapshot, currentSnapshot].map(snapshot => [
+      [legacySnapshot, secondLegacySnapshot, staleLegacySnapshot, currentSnapshot].map(snapshot => [
         snapshot.id,
         snapshot,
       ])
@@ -450,6 +522,7 @@ describe('PostgresProjectStore', () => {
         statements.push(statement);
         queryValues.push(values);
         if (statement.includes('from public.project_sources source')) {
+          storedSnapshots.set(staleLegacySnapshot.id, staleReplacementSnapshot);
           return Promise.resolve(
             [legacySnapshot.id, secondLegacySnapshot.id].map(projectId => ({
               archive_representation_hash: archiveVersion.representationHash,
@@ -504,6 +577,7 @@ describe('PostgresProjectStore', () => {
       legacySnapshot.id,
       currentSnapshot.id,
       secondLegacySnapshot.id,
+      staleLegacySnapshot.id,
       legacySnapshot.id,
     ]);
 
@@ -511,6 +585,7 @@ describe('PostgresProjectStore', () => {
       legacySnapshot.id,
       currentSnapshot.id,
       secondLegacySnapshot.id,
+      staleLegacySnapshot.id,
       legacySnapshot.id,
     ]);
     expect(snapshots[0]?.source?.kind === 'archive' && snapshots[0].source.index).toEqual({
@@ -522,10 +597,17 @@ describe('PostgresProjectStore', () => {
       entries: retainedEntries,
       version: archiveVersion,
     });
-    expect(snapshots[3]).toBe(snapshots[0]);
+    expect(snapshots[3]).toEqual(staleReplacementSnapshot);
+    expect(snapshots[4]).toBe(snapshots[0]);
     expect(queryValues[0]).toEqual([
       'user-1',
-      [legacySnapshot.id, currentSnapshot.id, secondLegacySnapshot.id, legacySnapshot.id],
+      [
+        legacySnapshot.id,
+        currentSnapshot.id,
+        secondLegacySnapshot.id,
+        staleLegacySnapshot.id,
+        legacySnapshot.id,
+      ],
     ]);
     expect(statements).toHaveLength(4);
     expect(
@@ -553,6 +635,10 @@ describe('PostgresProjectStore', () => {
       },
     ]);
     expect(queryValues[2]?.slice(1)).toEqual(['user-1', 'user-1', 'user-1']);
+    expect(queryValues[3]).toEqual([
+      'user-1',
+      [legacySnapshot.id, secondLegacySnapshot.id, staleLegacySnapshot.id],
+    ]);
     const repairStatement = statements[2] ?? '';
     expect(repairStatement).toContain('locked_snapshots as materialized');
     expect(repairStatement.indexOf('locked_snapshots')).toBeLessThan(
@@ -2158,6 +2244,7 @@ describe('PostgresProjectStore', () => {
       )
     ).toBe(false);
 
+    transactionStatements.length = 0;
     const canonicalized = await store.saveProject('user-1', {
       ...second.snapshot,
       source: {
@@ -2182,6 +2269,16 @@ describe('PostgresProjectStore', () => {
     });
     expect(canonicalized.snapshot.source?.ref).toEqual(stored.snapshot.source?.ref);
     expect(canonicalized.snapshot.source?.index).toEqual(stored.snapshot.source?.index);
+    const snapshotLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_snapshots') && statement.includes('for update')
+    );
+    const sourceLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_sources') && statement.includes('for update')
+    );
+    expect(snapshotLockIndex).toBeGreaterThanOrEqual(0);
+    expect(sourceLockIndex).toBeGreaterThan(snapshotLockIndex);
 
     await expect(
       store.saveProject('user-1', {

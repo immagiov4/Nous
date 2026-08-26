@@ -511,10 +511,9 @@ export class PostgresProjectStore implements ProjectStore {
     }
 
     const repairs = await this.buildLegacySourceArchiveRepairs(userId, [{ ...row, id }]);
-    if (repairs.length === 0) {
-      return mergeProjectSnapshotRow(row);
+    if (repairs.length > 0) {
+      await this.repairLegacySourceArchiveVersions(userId, repairs);
     }
-    await this.repairLegacySourceArchiveVersions(userId, repairs);
 
     const currentRows = await this.sql<ProjectSnapshotRow[]>`
       select snapshot, document_index
@@ -831,14 +830,14 @@ export class PostgresProjectStore implements ProjectStore {
       const repairs = await this.buildLegacySourceArchiveRepairs(userId, legacyRows);
       if (repairs.length > 0) {
         await this.repairLegacySourceArchiveVersions(userId, repairs);
-        const repairedRows = await this.sql<ProjectSnapshotByIdRow[]>`
-          select id, snapshot, document_index
-          from public.project_snapshots
-          where user_id = ${userId}
-            and id = any(${repairs.map(repair => repair.project_id)}::text[])
-        `;
-        for (const row of repairedRows) rowsById.set(row.id, row);
       }
+      const currentRows = await this.sql<ProjectSnapshotByIdRow[]>`
+        select id, snapshot, document_index
+        from public.project_snapshots
+        where user_id = ${userId}
+          and id = any(${legacyRows.map(row => row.id)}::text[])
+      `;
+      for (const row of currentRows) rowsById.set(row.id, row);
     }
     const snapshotsById = new Map(
       [...rowsById].map(([id, row]) => [id, mergeProjectSnapshotRow(row)] as const)
@@ -1081,6 +1080,18 @@ export class PostgresProjectStore implements ProjectStore {
         }
 
         let previousSnapshot: ProjectSnapshot | null = null;
+        const lockPreviousSnapshot = async (): Promise<ProjectSnapshot> => {
+          const previousRows = await sql<StoredProjectSnapshotRow[]>`
+            select snapshot, document_index
+            from public.project_snapshots
+            where user_id = ${userId} and id = ${snapshot.id}
+            for update
+          `;
+          if (!previousRows[0]) {
+            throw new Error('Stored project snapshot is missing.');
+          }
+          return mergeProjectSnapshotRow(previousRows[0]);
+        };
         if (existingMeta) {
           const lockedRows = await sql<{ id: string }[]>`
             select id
@@ -1089,6 +1100,9 @@ export class PostgresProjectStore implements ProjectStore {
             for update
           `;
           if (!lockedRows[0]) throw new ProjectNotFoundError();
+          if (!sourceWrite && snapshot.source != null) {
+            previousSnapshot = await lockPreviousSnapshot();
+          }
         }
         const snapshotToPersist =
           !sourceWrite && snapshot.source != null
@@ -1104,17 +1118,8 @@ export class PostgresProjectStore implements ProjectStore {
           snapshot: snapshotToPersist,
           userId,
         });
-        if (existingMeta) {
-          const previousRows = await sql<StoredProjectSnapshotRow[]>`
-            select snapshot, document_index
-            from public.project_snapshots
-            where user_id = ${userId} and id = ${snapshot.id}
-            for update
-          `;
-          if (!previousRows[0]) {
-            throw new Error('Stored project snapshot is missing.');
-          }
-          previousSnapshot = mergeProjectSnapshotRow(previousRows[0]);
+        if (existingMeta && !previousSnapshot) {
+          previousSnapshot = await lockPreviousSnapshot();
         }
         const sourceObjectPaths = sourceWrite
           ? await this.writePreparedProjectSource(sql, userId, snapshot.id, sourceWrite.prepared)
