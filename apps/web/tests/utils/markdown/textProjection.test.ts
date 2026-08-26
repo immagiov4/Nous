@@ -192,6 +192,8 @@ test('buildVisibleProjection preserves word boundaries around hidden inline cont
 
 test('buildVisibleProjection hides supported mark syntax but preserves escaped raw html', () => {
   assert.equal(buildVisibleProjection('<mark>visibile</mark>').text, 'visibile');
+  assert.equal(buildVisibleProjection('<mark title="1 > 0">visibile</mark>').text, 'visibile');
+  assert.equal(buildVisibleProjection("<mark title='1 > 0'>visibile</mark>").text, 'visibile');
   assert.equal(
     buildVisibleProjection('<mark>\npassaggio visibile\n</mark>').text,
     '\npassaggio visibile\n'
@@ -201,6 +203,21 @@ test('buildVisibleProjection hides supported mark syntax but preserves escaped r
     buildVisibleProjection('<mark>\npassaggio <div>visibile</div>\n</mark>').text,
     '\npassaggio <div>visibile</div>\n'
   );
+});
+
+test('buildVisibleProjection hides Setext underlines but preserves their heading text', () => {
+  const cases = [
+    { source: 'Titolo\n===', visible: /Titolo/u },
+    { source: 'Prima riga\nseconda riga\n===', visible: /Prima riga\nseconda riga/u },
+    { source: '    Titolo\n    ===', visible: /Titolo/u },
+    { source: '\tTitolo\n\t===', visible: /Titolo/u },
+  ];
+
+  for (const testCase of cases) {
+    const projection = buildVisibleProjection(testCase.source).text;
+    assert.match(projection, testCase.visible);
+    assert.doesNotMatch(projection, /=/u);
+  }
 });
 
 test('buildVisibleProjection hides footnote definition labels but keeps their content', () => {

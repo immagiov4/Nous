@@ -430,12 +430,22 @@ test('annotation ranges keep renderer indentation normalization outside fenced c
   assert.doesNotMatch(protectedText, /visible prose/u);
 });
 
-test('annotation ranges protect non-text thematic breaks and table delimiters', () => {
-  const content = ['---', '', '| Visible | Text |', '| --- | --- |', '| Cell | Value |'].join('\n');
+test('annotation ranges protect non-text block syntax', () => {
+  const content = [
+    'Titolo Setext',
+    '===',
+    '',
+    '---',
+    '',
+    '| Visible | Text |',
+    '| --- | --- |',
+    '| Cell | Value |',
+  ].join('\n');
   const protectedText = getMarkdownAnnotationProtectedRanges(content).map(range =>
     content.slice(range.start, range.end)
   );
 
+  assert.ok(protectedText.includes('==='));
   assert.ok(protectedText.includes('---'));
   assert.ok(protectedText.includes('| --- | --- |'));
 });

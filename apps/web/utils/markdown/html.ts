@@ -1,5 +1,8 @@
 const ALLOWED_RAW_HTML_TAGS = new Set(['mark']);
-const RAW_HTML_TAG_REGEX = /<\/?([A-Za-z][A-Za-z0-9-]*)\b[^>]*>/g;
+
+interface RawHtmlTag extends RawHtmlTagRange {
+  name: string;
+}
 
 export interface RawHtmlProjection {
   content: string;
@@ -11,18 +14,50 @@ export interface RawHtmlTagRange {
   start: number;
 }
 
+const getRawHtmlTags = (value: string): RawHtmlTag[] => {
+  const tags: RawHtmlTag[] = [];
+  let start = value.indexOf('<');
+  while (start !== -1) {
+    let cursor = start + 1;
+    if (value[cursor] === '/') cursor += 1;
+    const nameStart = cursor;
+    if (!/[A-Za-z]/u.test(value[cursor] || '')) {
+      start = value.indexOf('<', start + 1);
+      continue;
+    }
+    cursor += 1;
+    while (/[A-Za-z0-9-]/u.test(value[cursor] || '')) cursor += 1;
+    const name = value.slice(nameStart, cursor);
+    let quote: '"' | "'" | null = null;
+    while (cursor < value.length) {
+      const character = value[cursor];
+      if (quote !== null) {
+        if (character === quote) quote = null;
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === '>') {
+        tags.push({ start, end: cursor + 1, name });
+        break;
+      }
+      cursor += 1;
+    }
+    start = value.indexOf('<', Math.max(start + 1, cursor + 1));
+  }
+  return tags;
+};
+
 export const getRawHtmlTagRanges = (value: string, sourceStart = 0): RawHtmlTagRange[] =>
-  Array.from(value.matchAll(RAW_HTML_TAG_REGEX)).flatMap(match => {
-    const start = sourceStart + match.index;
-    return [{ start, end: start + match[0].length }];
-  });
+  getRawHtmlTags(value).map(range => ({
+    start: sourceStart + range.start,
+    end: sourceStart + range.end,
+  }));
 
 export const getAllowedRawHtmlTagRanges = (value: string, sourceStart = 0): RawHtmlTagRange[] =>
-  Array.from(value.matchAll(RAW_HTML_TAG_REGEX)).flatMap(match => {
-    if (!ALLOWED_RAW_HTML_TAGS.has(match[1].toLowerCase())) return [];
-    const start = sourceStart + match.index;
-    return [{ start, end: start + match[0].length }];
-  });
+  getRawHtmlTags(value).flatMap(range =>
+    ALLOWED_RAW_HTML_TAGS.has(range.name.toLowerCase())
+      ? [{ start: sourceStart + range.start, end: sourceStart + range.end }]
+      : []
+  );
 
 const escapeHtmlCharacter = (character: string): string => {
   if (character === '&') return '&amp;';
@@ -47,15 +82,11 @@ export const projectDisallowedRawHtml = (value: string): RawHtmlProjection => {
     }
   };
 
-  for (const match of value.matchAll(RAW_HTML_TAG_REGEX)) {
-    const start = match.index;
+  for (const match of getRawHtmlTags(value)) {
+    const start = match.start;
     appendSource(cursor, start, false);
-    appendSource(
-      start,
-      start + match[0].length,
-      !ALLOWED_RAW_HTML_TAGS.has(match[1].toLowerCase())
-    );
-    cursor = start + match[0].length;
+    appendSource(start, match.end, !ALLOWED_RAW_HTML_TAGS.has(match.name.toLowerCase()));
+    cursor = match.end;
   }
   appendSource(cursor, value.length, false);
   sourceOffsets.push(value.length);

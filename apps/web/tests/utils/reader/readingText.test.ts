@@ -169,6 +169,15 @@ describe('prepareMarkdownForSpeech', () => {
     ).toBe('Prima.\n\nDopo.');
   });
 
+  test('reads Setext heading text without speaking its underline', () => {
+    expect(prepareMarkdownForSpeech('Titolo\n===')).toBe('Titolo');
+    expect(prepareMarkdownForSpeech('Prima riga\nseconda riga\n===')).toBe(
+      'Prima riga\nseconda riga'
+    );
+    expect(prepareMarkdownForSpeech('    Titolo\n    ===')).toBe('Titolo');
+    expect(prepareMarkdownForSpeech('\tTitolo\n\t===')).toBe('Titolo');
+  });
+
   test('removes continued reference destinations and every unsupported viewer token', () => {
     const input = [
       'Prima.',

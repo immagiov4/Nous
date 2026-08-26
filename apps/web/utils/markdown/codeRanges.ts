@@ -437,6 +437,10 @@ const getStructuralRangesForNode = (
   sourceOffsets: number[]
 ): MarkdownRange[] => {
   if (node.type === 'thematicBreak' || node.type === 'footnoteReference') return [nodeRange];
+  if (node.type === 'heading') {
+    const underlineStart = content.lastIndexOf('\n', nodeRange.end - 1) + 1;
+    if (underlineStart > nodeRange.start) return [{ start: underlineStart, end: nodeRange.end }];
+  }
   if (node.type === 'footnoteDefinition') {
     const labelRange = getFootnoteDefinitionLabelRange(node, nodeRange, sourceOffsets);
     return labelRange ? [labelRange] : [];
