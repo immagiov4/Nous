@@ -100,6 +100,23 @@ type PostgresMutationSql = PostgresSql | postgres.TransactionSql;
 type ProjectTransactionSql = postgres.ReservedSql | postgres.TransactionSql;
 type LibraryItem = SiblingItem;
 
+const PROJECT_SOURCE_ARCHIVE_INDEX_PROJECTION_AND_JOIN = `
+  source.representation_hash as archive_representation_hash,
+  source.source_id as archive_source_id,
+  source.source_hash as archive_source_hash,
+  source.source_kind,
+  entry.path,
+  entry.kind,
+  entry.content_kind,
+  entry.source_hash,
+  entry.byte_size,
+  entry.preview,
+  entry.warning_reason
+from public.project_sources source
+left join public.project_source_entries entry
+  on entry.user_id = source.user_id and entry.project_id = source.project_id
+`;
+
 const buildSiblingOrderLockKey = (userId: string, parentFolderId: string | null): string =>
   JSON.stringify(['library-sibling-order', userId, parentFolderId]);
 
@@ -626,25 +643,14 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     id: ProjectId
   ): Promise<ProjectSourceArchiveIndex | null> {
-    const rows = await this.sql<ProjectSourceArchiveIndexRow[]>`
-      select
-        source.representation_hash as archive_representation_hash,
-        source.source_id as archive_source_id,
-        source.source_hash as archive_source_hash,
-        source.source_kind,
-        entry.path,
-        entry.kind,
-        entry.content_kind,
-        entry.source_hash,
-        entry.byte_size,
-        entry.preview,
-        entry.warning_reason
-      from public.project_sources source
-      left join public.project_source_entries entry
-        on entry.user_id = source.user_id and entry.project_id = source.project_id
-      where source.user_id = ${userId} and source.project_id = ${id}
-      order by entry.path
-    `;
+    const rows = await this.sql.unsafe<ProjectSourceArchiveIndexRow[]>(
+      `
+        select ${PROJECT_SOURCE_ARCHIVE_INDEX_PROJECTION_AND_JOIN}
+        where source.user_id = $1 and source.project_id = $2
+        order by entry.path
+      `,
+      [userId, id]
+    );
     const index = this.buildProjectSourceArchiveIndexFromRows(rows);
     if (index && rows[0]?.archive_representation_hash === null) {
       await this.sql`
@@ -666,26 +672,14 @@ export class PostgresProjectStore implements ProjectStore {
   ): Promise<Map<ProjectId, ProjectSourceArchiveIndex>> {
     if (ids.length === 0) return new Map();
 
-    const rows = await this.sql<ProjectSourceArchiveIndexByProjectRow[]>`
-      select
-        source.project_id,
-        source.representation_hash as archive_representation_hash,
-        source.source_id as archive_source_id,
-        source.source_hash as archive_source_hash,
-        source.source_kind,
-        entry.path,
-        entry.kind,
-        entry.content_kind,
-        entry.source_hash,
-        entry.byte_size,
-        entry.preview,
-        entry.warning_reason
-      from public.project_sources source
-      left join public.project_source_entries entry
-        on entry.user_id = source.user_id and entry.project_id = source.project_id
-      where source.user_id = ${userId} and source.project_id = any(${ids}::text[])
-      order by source.project_id, entry.path
-    `;
+    const rows = await this.sql.unsafe<ProjectSourceArchiveIndexByProjectRow[]>(
+      `
+        select source.project_id, ${PROJECT_SOURCE_ARCHIVE_INDEX_PROJECTION_AND_JOIN}
+        where source.user_id = $1 and source.project_id = any($2::text[])
+        order by source.project_id, entry.path
+      `,
+      [userId, ids]
+    );
     const rowsByProjectId = new Map<ProjectId, ProjectSourceArchiveIndexByProjectRow[]>();
     for (const row of rows) {
       const projectRows = rowsByProjectId.get(row.project_id) ?? [];
@@ -859,13 +853,13 @@ export class PostgresProjectStore implements ProjectStore {
     userId: string,
     rows: readonly ProjectSnapshotByIdRow[]
   ): Promise<ProjectSourceArchiveBatchRepair[]> {
-    const indexesById = await this.loadProjectSourceArchiveIndexes(
+    const indexesByProjectId = await this.loadProjectSourceArchiveIndexes(
       userId,
       rows.map(row => row.id)
     );
     return rows.flatMap<ProjectSourceArchiveBatchRepair>(row => {
       const sourceIdentity = readLegacySourceArchiveIdentity(row.snapshot);
-      const index = indexesById.get(row.id);
+      const index = indexesByProjectId.get(row.id);
       if (
         !sourceIdentity ||
         !index ||
@@ -902,10 +896,24 @@ export class PostgresProjectStore implements ProjectStore {
           source_hash text,
           source_id text
         )
+      ), locked_snapshots as materialized (
+        select snapshot.id
+        from public.project_snapshots snapshot
+        join repair_input repair on repair.project_id = snapshot.id
+        where snapshot.user_id = ${userId}
+          and (
+            snapshot.snapshot #> '{source,index,version}' is null or
+            snapshot.snapshot #> '{source,index,version}' = 'null'::jsonb
+          )
+          and snapshot.snapshot #>> '{source,ref,id}' = repair.source_id
+          and snapshot.snapshot #>> '{source,ref,hash}' = repair.source_hash
+        order by snapshot.id
+        for update of snapshot
       ), current_sources as (
         update public.project_sources source
         set representation_hash = repair.representation_hash
         from repair_input repair
+        join locked_snapshots snapshot on snapshot.id = repair.project_id
         where source.user_id = ${userId}
           and source.project_id = repair.project_id
           and source.source_kind = 'archive'
@@ -929,6 +937,7 @@ export class PostgresProjectStore implements ProjectStore {
           jsonb_build_object('version', repair.archive_version)
       )
       from repair_input repair
+      join locked_snapshots locked_snapshot on locked_snapshot.id = repair.project_id
       join current_sources source
         on source.project_id = repair.project_id
           and source.source_id = repair.source_id
@@ -936,12 +945,6 @@ export class PostgresProjectStore implements ProjectStore {
           and source.representation_hash = repair.representation_hash
       where snapshot.user_id = ${userId}
         and snapshot.id = repair.project_id
-        and (
-          snapshot.snapshot #> '{source,index,version}' is null or
-          snapshot.snapshot #> '{source,index,version}' = 'null'::jsonb
-        )
-        and snapshot.snapshot #>> '{source,ref,id}' = repair.source_id
-        and snapshot.snapshot #>> '{source,ref,hash}' = repair.source_hash
     `;
   }
 

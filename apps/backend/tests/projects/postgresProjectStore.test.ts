@@ -113,6 +113,7 @@ const createPostgresProjectStore = (
     begin: ReturnType<typeof vi.fn>;
     json: ReturnType<typeof vi.fn>;
     reserve?: ReturnType<typeof vi.fn>;
+    unsafe?: ReturnType<typeof vi.fn>;
   },
   storage?: {
     delete: ReturnType<typeof vi.fn>;
@@ -126,6 +127,12 @@ const createPostgresProjectStore = (
     queueProjectAssets: vi.fn(async () => []),
   }
 ) => {
+  sqlClient.unsafe = vi.fn((statement: string, values: unknown[] = []) => {
+    const strings = Object.assign([statement], {
+      raw: [statement],
+    }) as unknown as TemplateStringsArray;
+    return sqlClient(strings, ...values);
+  });
   let transactionSql: ReturnType<typeof vi.fn> | undefined;
   const reservedSql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) =>
     (transactionSql ?? sqlClient)(strings, ...values)
@@ -277,6 +284,7 @@ describe('PostgresProjectStore', () => {
           source_id: archiveVersion.sourceId,
         },
       ],
+      'user-1',
       'user-1',
       'user-1',
     ]);
@@ -544,7 +552,17 @@ describe('PostgresProjectStore', () => {
         source_id: archiveVersion.sourceId,
       },
     ]);
-    expect(queryValues[2]?.slice(1)).toEqual(['user-1', 'user-1']);
+    expect(queryValues[2]?.slice(1)).toEqual(['user-1', 'user-1', 'user-1']);
+    const repairStatement = statements[2] ?? '';
+    expect(repairStatement).toContain('locked_snapshots as materialized');
+    expect(repairStatement.indexOf('locked_snapshots')).toBeLessThan(
+      repairStatement.indexOf('update public.project_sources source')
+    );
+    expect(repairStatement).toContain('order by snapshot.id');
+    expect(repairStatement).toContain('for update of snapshot');
+    expect(repairStatement).toContain(
+      'join locked_snapshots snapshot on snapshot.id = repair.project_id'
+    );
   });
 
   test('repairs every missing library placement with a constant-size transaction', async () => {
@@ -2366,6 +2384,7 @@ describe('PostgresProjectStore', () => {
               content_kind: null,
               kind: 'directory',
               path: 'src',
+              project_id: PROJECT_META.id,
               preview: null,
               source_hash: null,
               source_kind: 'archive',
@@ -2379,6 +2398,7 @@ describe('PostgresProjectStore', () => {
               kind: 'file',
               object_path: 'users/user/projects/hash/source/entries/hash',
               path: 'src/index.ts',
+              project_id: PROJECT_META.id,
               preview: 'complete entry',
               source_hash: entryHash,
               source_kind: 'archive',
@@ -2483,6 +2503,7 @@ describe('PostgresProjectStore', () => {
                 content_kind: 'text',
                 kind: 'file',
                 path: 'docs/manual.pdf',
+                project_id: PROJECT_META.id,
                 preview: 'Testo estratto',
                 source_hash: preparedEntryHash,
                 source_kind: 'archive',
