@@ -277,21 +277,29 @@ const runDurableLessonRequest = async ({
   const payload = await readWorkflowJson(response);
   const busyJob =
     response.status === LESSON_GENERATION_BUSY_STATUS ? readWorkflowJob(payload, false) : null;
-  if (busyJob) {
+  const reattachedBusyJob =
+    busyJob &&
+    busyJob.projectId === projectId &&
+    expectedSectionId !== undefined &&
+    busyJob.sectionId === expectedSectionId
+      ? busyJob
+      : null;
+  if (busyJob && !reattachedBusyJob) {
     throw new LessonGenerationBusyError(busyJob.sectionId);
   }
   if (response.status === LESSON_GENERATION_BUSY_STATUS) {
     logBackendFailureCorrelationId(response.headers.get('x-request-id'));
   }
-  const job = readWorkflowJob(payload);
+  const job = reattachedBusyJob ?? readWorkflowJob(payload);
   if (
-    !response.ok ||
+    (!response.ok && !reattachedBusyJob) ||
     job?.projectId !== projectId ||
     (expectedSectionId !== undefined && job.sectionId !== expectedSectionId)
   ) {
     throw new Error(LESSON_GENERATION_ERROR);
   }
 
+  if (endpoint === 'sublessons') request.clear();
   const terminalJob = await waitForTerminalRun(job, onProgressStage, onWorkflowSnapshot);
   request.clear();
   if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);

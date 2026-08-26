@@ -506,6 +506,78 @@ describe('generateDurableLesson', () => {
     );
   });
 
+  test('reattaches when the active project workflow owns the requested section', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        response(
+          {
+            id: 'run-sublesson',
+            projectId: 'project-1',
+            sectionId: 'deep-lesson',
+            stage: 'drafting',
+            status: 'running',
+          },
+          409
+        )
+      )
+      .mockResolvedValueOnce(
+        response({
+          id: 'run-sublesson',
+          projectId: 'project-1',
+          result: { ...completedResult, sectionId: 'deep-lesson' },
+          sectionId: 'deep-lesson',
+          stage: 'verification',
+          status: 'completed',
+        })
+      );
+
+    const lesson = generateDurableLesson({ projectId: 'project-1', sectionId: 'deep-lesson' });
+    const completion = expect(lesson).resolves.toMatchObject({ sectionId: 'deep-lesson' });
+    await advancePoll();
+
+    await completion;
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('does not reattach a matching section from another project', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response(
+        {
+          id: 'run-other-project',
+          projectId: 'project-2',
+          sectionId: 'deep-lesson',
+          stage: 'drafting',
+          status: 'running',
+        },
+        409
+      )
+    );
+
+    await expect(
+      generateDurableLesson({ projectId: 'project-1', sectionId: 'deep-lesson' })
+    ).rejects.toBeInstanceOf(LessonGenerationBusyError);
+  });
+
+  test('propagates a terminal failure from the reattached section workflow', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response(
+        {
+          errorCode: 'lesson_draft_failed',
+          id: 'run-sublesson',
+          projectId: 'project-1',
+          sectionId: 'deep-lesson',
+          stage: 'drafting',
+          status: 'failed',
+        },
+        409
+      )
+    );
+
+    await expect(
+      generateDurableLesson({ projectId: 'project-1', sectionId: 'deep-lesson' })
+    ).rejects.toThrow('Non è stato possibile creare la bozza della lezione. Riprova.');
+  });
+
   test('records a malformed busy response as a backend failure', async () => {
     const correlationId = '48eb116c-a283-440b-b875-a528e5e4f5f1';
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -753,6 +825,10 @@ describe('generateDurableLesson', () => {
     const completion = expect(sublesson).resolves.toMatchObject({
       sectionId: 'sublesson-server-id',
     });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:sublesson:lesson-1')
+    ).toBeNull();
     await advancePoll();
     await advancePoll();
 
