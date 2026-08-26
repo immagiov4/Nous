@@ -803,6 +803,20 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
   ): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
     const { parentSection } = start;
 
+    const projectId = projectLibrary.getCurrentProjectId();
+    if (!projectId) {
+      return {
+        outcome: 'failed',
+        errorMessage: 'Il progetto corrente non è disponibile. Ricaricalo e riprova.',
+      };
+    }
+    if (
+      start.kind === 'recovery' &&
+      state.reattachSublessonGeneration(projectId, parentSection.id)
+    ) {
+      return { outcome: 'ignored-busy' };
+    }
+
     const workflowState = state.getWorkflowState();
     if (
       workflowState.createLesson.status === 'pending' ||
@@ -812,13 +826,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return {
         outcome: 'failed',
         errorMessage: t('Rigenerazione in corso'),
-      };
-    }
-    const projectId = projectLibrary.getCurrentProjectId();
-    if (!projectId) {
-      return {
-        outcome: 'failed',
-        errorMessage: 'Il progetto corrente non è disponibile. Ricaricalo e riprova.',
       };
     }
     const generationToken = state.tryBeginGeneration(projectId, 'lesson');
@@ -833,16 +840,21 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const beginSublessonWorkflow = () =>
       state.beginWorkflow('createLesson', t('Creazione approfondimento...'));
     let requestId = beginSublessonWorkflow();
-    state.setLessonGenerationReattachHandler(projectId, generationToken, () => {
-      if (
-        state.isWorkflowCurrent('createLesson', requestId) &&
-        state.getWorkflowState().createLesson.status === 'pending'
-      ) {
+    state.setLessonGenerationReattachHandler(
+      projectId,
+      generationToken,
+      () => {
+        if (
+          state.isWorkflowCurrent('createLesson', requestId) &&
+          state.getWorkflowState().createLesson.status === 'pending'
+        ) {
+          return true;
+        }
+        requestId = beginSublessonWorkflow();
         return true;
-      }
-      requestId = beginSublessonWorkflow();
-      return true;
-    });
+      },
+      parentSection.id
+    );
     const isGenerationCurrent = () => state.isGenerationCurrent(projectId, generationToken);
     const isGenerationWorkflowCurrent = () =>
       isGenerationCurrent() && state.isWorkflowCurrent('createLesson', requestId);

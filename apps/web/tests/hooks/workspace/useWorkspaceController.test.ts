@@ -573,6 +573,7 @@ const createStateAdapter = () => {
       {
         kind: WorkspaceGenerationKind;
         onReattach?: () => boolean;
+        parentSectionId?: string;
         sectionId: string | null;
         token: number;
       }
@@ -664,6 +665,18 @@ const createStateAdapter = () => {
 
       return activeGeneration.onReattach();
     },
+    reattachSublessonGeneration: (projectId, parentSectionId) => {
+      const activeGeneration = internalState.generationByProject.get(projectId);
+      if (
+        activeGeneration?.kind !== 'lesson' ||
+        activeGeneration.parentSectionId !== parentSectionId ||
+        !activeGeneration.onReattach
+      ) {
+        return false;
+      }
+
+      return activeGeneration.onReattach();
+    },
     resetSessionState: () => {
       internalState.assessmentMessages = [];
       internalState.courseProposal = null;
@@ -687,12 +700,13 @@ const createStateAdapter = () => {
         });
       }
     },
-    setLessonGenerationReattachHandler: (projectId, token, onReattach) => {
+    setLessonGenerationReattachHandler: (projectId, token, onReattach, parentSectionId) => {
       const activeGeneration = internalState.generationByProject.get(projectId);
       if (activeGeneration?.kind === 'lesson' && activeGeneration.token === token) {
         internalState.generationByProject.set(projectId, {
           ...activeGeneration,
           onReattach,
+          parentSectionId,
         });
       }
     },
@@ -5822,36 +5836,54 @@ test('createLessonFromSelection applies detached durable completion without chan
   ]);
 });
 
-test('detached sublesson completion releases the pending workflow', async () => {
-  const parentLesson = buildTestLesson({ id: 'lesson-1' });
-  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
-  const plan = buildPlan({ sections: [parentLesson, readyLesson] });
+test('openProject reattaches an in-memory sublesson before its child is persisted', async () => {
+  const parentLesson = buildTestLesson({ content: '# Lezione', id: 'lesson-1' });
+  const plan = buildPlan({ sections: [parentLesson] });
+  const snapshot = createProjectSnapshot({
+    activeSectionId: parentLesson.id,
+    id: 'project-1',
+    learningPlan: plan,
+    source: createProjectSourceFromFile(markdownFile),
+    state: AppState.READING,
+  });
   let releaseGeneration: (() => void) | undefined;
+  let markGenerationStarted: (() => void) | undefined;
   const generationGate = new Promise<void>(resolve => {
     releaseGeneration = resolve;
   });
+  const generationStarted = new Promise<void>(resolve => {
+    markGenerationStarted = resolve;
+  });
+  const resolveDurableSublessonRequestForParent = vi.fn();
+  const generateDurableSublesson = vi.fn(async input => {
+    input.onWorkflowSnapshot?.(buildLessonRecovery('deep-1').job);
+    markGenerationStarted?.();
+    await generationGate;
+    return {
+      content: '# Approfondimento',
+      contentBlocks: [],
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId: 'project-1',
+      projectRevision: 2,
+      quiz: [],
+      sectionId: 'deep-1',
+      warnings: [],
+    };
+  });
   const harness = createControllerHarness({
     domain: { activeSectionId: parentLesson.id, learningPlan: plan },
+    loadedSnapshot: snapshot,
     projectLibrary: {
       applyPersistedProjectRevision: async () => true,
       currentProjectId: 'project-1',
     },
     openRouter: {
-      generateDurableSublesson: async () => {
-        await generationGate;
-        return {
-          content: '# Approfondimento',
-          contentBlocks: [],
-          generatedVisuals: [],
-          imageRefs: [],
-          learningAids: [],
-          projectId: 'project-1',
-          projectRevision: 2,
-          quiz: [],
-          sectionId: 'deep-1',
-          warnings: [],
-        };
-      },
+      generateDurableSublesson,
+      hasDurableSublessonRequest: (projectId, parentSectionId) =>
+        projectId === snapshot.id && parentSectionId === parentLesson.id,
+      resolveDurableSublessonRequestForParent,
     },
   });
 
@@ -5859,12 +5891,20 @@ test('detached sublesson completion releases the pending workflow', async () => 
     instructions: 'Approfondisci',
     selectedText: 'testo',
   });
-  await Promise.resolve();
-  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  await generationStarted;
+  await harness.controller.goToLibrary();
+  expect((await harness.controller.openProject(snapshot.id)).outcome).toBe('opened');
+  await vi.waitFor(() =>
+    expect(harness.state.internalState.workflowState.createLesson.status).toBe('pending')
+  );
+
+  expect(generateDurableSublesson).toHaveBeenCalledOnce();
+  expect(resolveDurableSublessonRequestForParent).not.toHaveBeenCalled();
+  expect(harness.state.adapter.getGeneratingSectionId(snapshot.id)).toBe('deep-1');
   releaseGeneration?.();
 
-  expect(await creation).toEqual({ outcome: 'ignored-busy' });
-  expect(harness.state.internalState.workflowState.createLesson.status).toBe('idle');
+  expect(await creation).toEqual({ outcome: 'created' });
+  expect(harness.state.adapter.isGenerationActive(snapshot.id)).toBe(false);
 });
 
 test('sublesson failure follows synchronous section navigation when the library getter lags', async () => {

@@ -173,7 +173,8 @@ describe('useWorkspaceControllerState generation ownership', () => {
       result.current.stateAdapter.setLessonGenerationReattachHandler(
         'project-1',
         acquiredLessonToken,
-        onReattach
+        onReattach,
+        'lesson-parent'
       );
     });
     expect(result.current.stateAdapter.reattachLessonGeneration('project-2', 'lesson-1')).toBe(
@@ -185,6 +186,12 @@ describe('useWorkspaceControllerState generation ownership', () => {
     expect(result.current.stateAdapter.reattachLessonGeneration('project-1', 'lesson-1')).toBe(
       true
     );
-    expect(onReattach).toHaveBeenCalledTimes(1);
+    expect(result.current.stateAdapter.reattachLessonGeneration('project-1', 'lesson-parent')).toBe(
+      false
+    );
+    expect(
+      result.current.stateAdapter.reattachSublessonGeneration('project-1', 'lesson-parent')
+    ).toBe(true);
+    expect(onReattach).toHaveBeenCalledTimes(2);
   });
 });

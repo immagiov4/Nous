@@ -31,6 +31,7 @@ export const useWorkspaceControllerState = () => {
       {
         kind: WorkspaceGenerationKind;
         onReattach?: () => boolean;
+        parentSectionId?: string;
         sectionId: string | null;
         token: number;
       }
@@ -159,6 +160,18 @@ export const useWorkspaceControllerState = () => {
 
         return activeGeneration.onReattach();
       },
+      reattachSublessonGeneration: (projectId, parentSectionId) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (
+          activeGeneration?.kind !== 'lesson' ||
+          activeGeneration.parentSectionId !== parentSectionId ||
+          !activeGeneration.onReattach
+        ) {
+          return false;
+        }
+
+        return activeGeneration.onReattach();
+      },
       resetSessionState: () => {
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
@@ -191,7 +204,12 @@ export const useWorkspaceControllerState = () => {
         });
         commitGenerationChange();
       },
-      setLessonGenerationReattachHandler: (projectId, token, onReattach) => {
+      setLessonGenerationReattachHandler: (
+        projectId,
+        token,
+        onReattach,
+        parentSectionId = undefined
+      ) => {
         const activeGeneration = generationByProjectRef.current.get(projectId);
         if (activeGeneration?.kind !== 'lesson' || activeGeneration.token !== token) {
           return;
@@ -200,6 +218,7 @@ export const useWorkspaceControllerState = () => {
         generationByProjectRef.current.set(projectId, {
           ...activeGeneration,
           onReattach,
+          parentSectionId,
         });
       },
       setOpeningProjectId: (projectId: string | null) => {
