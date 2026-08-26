@@ -3,7 +3,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { escapeDisallowedRawHtml } from './html.ts';
+import { escapeDisallowedRawHtml, projectDisallowedRawHtml } from './html.ts';
 import {
   getAccidentalPlainTextIndentationRanges,
   projectAccidentalPlainTextIndentation,
@@ -468,6 +468,10 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     structuralRanges: [],
   };
   const indentationProjection = projectAccidentalPlainTextIndentation(content, rawFencedCodeRanges);
+  const htmlProjection = projectDisallowedRawHtml(indentationProjection.content);
+  const htmlSourceOffsets = htmlProjection.sourceOffsets.map(
+    offset => indentationProjection.sourceOffsets[offset] ?? offset
+  );
   const root = markdownParser.runSync(
     markdownParser.parse(indentationProjection.content)
   ) as MarkdownAstNode;
@@ -533,6 +537,35 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     node.children?.forEach(visit);
   };
   visit(root);
+  const htmlRoot = markdownParser.runSync(
+    markdownParser.parse(htmlProjection.content)
+  ) as MarkdownAstNode;
+  const visitEscapedHtml = (node: MarkdownAstNode): void => {
+    const range = getNodeRange(node, htmlSourceOffsets);
+    if (range) {
+      if (
+        node.type === 'inlineCode' &&
+        !analysis.codeRanges.some(
+          candidate => candidate.start === range.start && candidate.end === range.end
+        )
+      ) {
+        analysis.codeRanges.push(range);
+      }
+      if (node.type === 'code') {
+        const blockRange = expandToLineBounds(content, range);
+        if (
+          !analysis.codeRanges.some(
+            candidate => candidate.start === blockRange.start && candidate.end === blockRange.end
+          )
+        ) {
+          analysis.codeRanges.push(blockRange);
+        }
+      }
+      if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
+    }
+    node.children?.forEach(visitEscapedHtml);
+  };
+  visitEscapedHtml(htmlRoot);
   let mathCursor = 0;
   while (mathCursor < content.length) {
     const mathRange = getMarkdownMathRangeAt(content, mathCursor);

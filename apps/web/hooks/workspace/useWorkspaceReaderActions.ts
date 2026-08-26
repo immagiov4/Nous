@@ -655,6 +655,7 @@ export const useWorkspaceReaderActions = ({
       const trySave = (input: {
         contextAfter?: string;
         contextBefore?: string;
+        preferredSelection?: SaveConversationNoteInput['fallbackSelection'];
         selectedText: string;
         selectedTextStart?: number;
       }) =>
@@ -665,6 +666,7 @@ export const useWorkspaceReaderActions = ({
           contextAfter: input.contextAfter,
           contextBefore: input.contextBefore,
           note,
+          preferredSelection: input.preferredSelection,
           selectedText: input.selectedText,
           selectedTextStart: input.selectedTextStart,
         });
@@ -672,6 +674,7 @@ export const useWorkspaceReaderActions = ({
       const primaryResult = trySave({
         contextAfter,
         contextBefore,
+        preferredSelection: fallbackSelection,
         selectedText,
         selectedTextStart,
       });
@@ -681,6 +684,7 @@ export const useWorkspaceReaderActions = ({
           ? trySave({
               contextAfter: fallbackSelection.contextAfter,
               contextBefore: fallbackSelection.contextBefore,
+              preferredSelection: fallbackSelection,
               selectedText: fallbackSelection.selectedText,
               selectedTextStart: fallbackSelection.selectedTextStart,
             })
@@ -782,6 +786,7 @@ export const useWorkspaceReaderActions = ({
       const resolveMatch = (input: {
         contextAfter?: string;
         contextBefore?: string;
+        preferredSelection?: SaveConversationNoteInput['fallbackSelection'];
         selectedText: string;
         selectedTextStart?: number;
       }) =>
@@ -790,16 +795,24 @@ export const useWorkspaceReaderActions = ({
           content: section.content || (lessonId === activeSectionId ? sectionContent : ''),
           contextAfter: input.contextAfter,
           contextBefore: input.contextBefore,
+          preferredSelection: input.preferredSelection,
           selectedText: input.selectedText,
           selectedTextStart: input.selectedTextStart,
         });
 
       const match =
-        resolveMatch({ contextAfter, contextBefore, selectedText, selectedTextStart }) ||
+        resolveMatch({
+          contextAfter,
+          contextBefore,
+          preferredSelection: fallbackSelection,
+          selectedText,
+          selectedTextStart,
+        }) ||
         (fallbackSelection
           ? resolveMatch({
               contextAfter: fallbackSelection.contextAfter,
               contextBefore: fallbackSelection.contextBefore,
+              preferredSelection: fallbackSelection,
               selectedText: fallbackSelection.selectedText,
               selectedTextStart: fallbackSelection.selectedTextStart,
             })

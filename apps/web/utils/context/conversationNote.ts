@@ -33,9 +33,14 @@ const areAnchorsEqual = (left: ConversationSelectionAnchor, right: ConversationS
 
 export const hasAnchorableConversationNoteCandidate = (
   content: string,
-  candidate: ConversationSelectionAnchor
+  candidate: ConversationSelectionAnchor &
+    Partial<Pick<SaveConversationNoteInput, 'fallbackSelection'>>
 ): boolean => {
-  const segments = resolveSelectedSegments({ content, ...candidate });
+  const segments = resolveSelectedSegments({
+    content,
+    ...candidate,
+    preferredSelection: candidate.fallbackSelection,
+  });
   const selector = createSectionAnnotationSelector(content, segments);
   return (
     selector !== null &&
@@ -74,10 +79,7 @@ export const buildConversationNoteSaveCandidates = ({
     selectedText: primarySelectedText,
   } satisfies ConversationSelectionAnchor;
   const primarySelectionStart =
-    normalizeSelectedTextStart(toolInput.selectedTextStart) ??
-    (haveMatchingTextContext(primaryTextSelection, normalizedAnchor)
-      ? normalizedAnchor.selectedTextStart
-      : undefined);
+    normalizeSelectedTextStart(toolInput.selectedTextStart) ?? normalizedAnchor.selectedTextStart;
   const primarySelection = {
     ...primaryTextSelection,
     ...(primarySelectionStart !== undefined ? { selectedTextStart: primarySelectionStart } : {}),

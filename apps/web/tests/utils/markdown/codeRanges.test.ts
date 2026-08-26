@@ -215,6 +215,33 @@ test('annotation ranges protect footnote labels while preserving the visible def
   assert.deepEqual(protectedSlices, ['[^nota]']);
 });
 
+test('annotation ranges protect dollar math exposed by escaped raw html', () => {
+  const content = '<div>\n$x$\n</div>';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['$x$']);
+});
+
+test('markdown ranges keep inline code distinct from math inside escaped raw html', () => {
+  const content = '<div>`$x$`</div>';
+  const protectedSlices = getMarkdownProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['`$x$`']);
+});
+
+test('markdown ranges protect fenced code exposed by escaped raw html', () => {
+  const content = '<div>\n```\nsecret\n```\n</div>';
+  const protectedSlices = getMarkdownProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['```\nsecret\n```']);
+});
+
 test('annotation ranges preserve autolink text', () => {
   for (const content of ['<https://example.com>', '<a@b>']) {
     assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);

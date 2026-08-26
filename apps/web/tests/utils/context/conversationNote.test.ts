@@ -5,6 +5,8 @@ import {
   buildConversationNoteSaveCandidates,
   hasAnchorableConversationNoteCandidate,
 } from '../../../utils/context/conversationNote.ts';
+import { resolveSelectedSegments } from '../../../utils/learning/sectionAnnotationProjection.ts';
+import { buildVisibleProjection } from '../../../utils/markdown/textProjection.ts';
 
 test('keeps a single candidate when the refined selection matches the original anchor', () => {
   const candidates = buildConversationNoteSaveCandidates({
@@ -175,6 +177,12 @@ test('anchors renderer-normalized prose and rejects backslash-math-only text', (
     }),
     false
   );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('<div>\n$x$\n</div>', {
+      selectedText: 'x',
+    }),
+    false
+  );
 });
 
 test('does not inherit stale boundary context when the proposed text changes', () => {
@@ -197,7 +205,67 @@ test('does not inherit stale boundary context when the proposed text changes', (
     },
     note: 'Nota',
     selectedText: 'passaggio raffinato',
+    selectedTextStart: 10,
   });
+});
+
+test('keeps a refined repeated phrase at the original occurrence', () => {
+  const content =
+    'Il concetto chiave compare qui. Poi il concetto chiave esteso compare nel punto scelto.';
+  const selectedTextStart = content.indexOf('concetto chiave esteso');
+  const candidate = buildConversationNoteSaveCandidates({
+    anchor: {
+      selectedText: 'concetto chiave esteso',
+      selectedTextStart,
+    },
+    toolInput: {
+      note: 'Nota',
+      selectedText: 'concetto chiave',
+    },
+  })[0];
+
+  assert.ok(candidate);
+  assert.equal(candidate.selectedTextStart, selectedTextStart);
+  assert.equal(hasAnchorableConversationNoteCandidate(content, candidate), true);
+  assert.deepEqual(resolveSelectedSegments({ content, ...candidate }), [
+    { start: selectedTextStart, end: selectedTextStart + 'concetto chiave'.length },
+  ]);
+});
+
+test('uses the original occurrence for a refined repeated word', () => {
+  const content =
+    '# Introduzione\n\nIl termine compare qui. Poi il termine esteso compare nel punto scelto.';
+  const sourceStart = content.indexOf('termine esteso');
+  const selectedTextStart = buildVisibleProjection(content).text.indexOf('termine esteso');
+  const candidate = buildConversationNoteSaveCandidates({
+    anchor: { selectedText: 'termine esteso', selectedTextStart },
+    toolInput: { note: 'Nota', selectedText: 'termine' },
+  })[0];
+
+  assert.ok(candidate);
+  assert.deepEqual(resolveSelectedSegments({ content, ...candidate }), [
+    { start: sourceStart, end: sourceStart + 'termine'.length },
+  ]);
+});
+
+test('keeps a refined inner word inside the original selection', () => {
+  const content = 'Il concetto compare qui. Poi il concetto chiave compare nel punto scelto.';
+  const selectedTextStart = content.indexOf('il concetto chiave');
+  const candidate = buildConversationNoteSaveCandidates({
+    anchor: { selectedText: 'il concetto chiave', selectedTextStart },
+    toolInput: { note: 'Nota', selectedText: 'concetto' },
+  })[0];
+
+  assert.ok(candidate);
+  assert.equal(hasAnchorableConversationNoteCandidate(content, candidate), true);
+  assert.deepEqual(
+    resolveSelectedSegments({
+      content,
+      ...candidate,
+      preferredSelection: candidate.fallbackSelection,
+    }),
+    [{ start: selectedTextStart + 3, end: selectedTextStart + 3 + 'concetto'.length }]
+  );
 });
 
 test('adds a fallback candidate with the original anchored selection when the model refines too much', () => {
@@ -228,6 +296,7 @@ test('adds a fallback candidate with the original anchored selection when the mo
       },
       note: 'Riassunto finale',
       selectedText: 'non muta',
+      selectedTextStart: 128,
     },
     {
       contextAfter: 'definisce il comportamento',

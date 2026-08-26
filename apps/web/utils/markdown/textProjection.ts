@@ -285,7 +285,8 @@ export const resolveExactMatch = (
   contextBefore?: string,
   contextAfter?: string,
   requireContextMatch = false,
-  preferredStart?: number
+  preferredStart?: number,
+  preferredRange?: MarkdownRange
 ): TextMatch | undefined => {
   const normalizedSelectionPattern = buildContextRegex(selectedText);
   const exactSelectionRegex = new RegExp(normalizedSelectionPattern, 'gu');
@@ -313,14 +314,25 @@ export const resolveExactMatch = (
     return beforeOk && afterOk;
   });
   const eligibleMatches = requireContextMatch ? contextualMatches : selectionMatches;
+  const matchesInsidePreferredRange = preferredRange
+    ? eligibleMatches.filter(candidate => {
+        const start = candidate.index ?? 0;
+        return start >= preferredRange.start && start + candidate[0].length <= preferredRange.end;
+      })
+    : [];
   const match =
-    preferredStart !== undefined
+    (preferredStart !== undefined
       ? eligibleMatches.find(candidate => candidate.index === preferredStart)
+      : undefined) ??
+    (preferredRange
+      ? matchesInsidePreferredRange.length === 1
+        ? matchesInsidePreferredRange[0]
+        : undefined
       : requireContextMatch
         ? contextualMatches.length === 1
           ? contextualMatches[0]
           : undefined
-        : contextualMatches[0] || selectionMatches[0];
+        : contextualMatches[0] || selectionMatches[0]);
 
   if (!match) {
     return undefined;

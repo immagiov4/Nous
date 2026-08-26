@@ -12,6 +12,7 @@ import {
   updateSectionAnnotationNote,
   upsertSectionAnnotationArtifactRefs,
 } from '../../../utils/learning/sectionAnnotations.ts';
+import { buildVisibleProjection } from '../../../utils/markdown/textProjection.ts';
 
 test('applySectionAnnotation stores a selector without changing the Markdown', () => {
   const content = 'Alpha beta gamma delta.';
@@ -283,6 +284,28 @@ test('applySectionAnnotation uses the visible text offset when text and context 
     materializeSectionAnnotationMarks(content, result?.annotations),
     'Alpha Beta gamma. Alpha <mark data-nous-annotation-id="annotation-second-identical-beta">Beta</mark> gamma.'
   );
+});
+
+test('applySectionAnnotation keeps a refined inner word inside the original visible selection', () => {
+  const content =
+    '# Introduzione\n\nIl concetto compare qui. Poi il concetto chiave compare nel punto scelto.';
+  const projection = buildVisibleProjection(content);
+  const sourceStart = content.indexOf('concetto chiave');
+  const selectedTextStart = projection.text.indexOf('il concetto chiave');
+  const result = applySectionAnnotation({
+    annotations: [],
+    content,
+    preferredSelection: {
+      selectedText: 'il concetto chiave',
+      selectedTextStart,
+    },
+    selectedText: 'concetto',
+    selectedTextStart,
+  });
+
+  assert.equal(result?.annotations[0]?.anchor?.kind, 'selection');
+  assert.equal(result?.annotations[0]?.anchor.selector.start, sourceStart);
+  assert.equal(result?.annotations[0]?.anchor.selector.exact, 'concetto');
 });
 
 test('materialized annotations preserve inline Markdown as one highlight', () => {
@@ -573,6 +596,43 @@ test('findSectionAnnotationForSelection resolves the existing annotation for the
   assert.equal(match.annotation.id, 'annotation-1');
   assert.equal(match.annotation.note, 'Nota esistente');
   assert.equal(match.resolvedText, 'beta gamma');
+});
+
+test('findSectionAnnotationForSelection keeps a refined update inside the original selection', () => {
+  const content =
+    '# Introduzione\n\nIl concetto compare qui. Poi il concetto chiave compare nel punto scelto.';
+  const projection = buildVisibleProjection(content);
+  const firstStart = projection.text.indexOf('concetto');
+  const secondSelectionStart = projection.text.indexOf('il concetto chiave');
+  const first = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-first',
+    selectedText: 'concetto',
+    selectedTextStart: firstStart,
+  });
+  assert.ok(first);
+  const second = applySectionAnnotation({
+    annotations: first.annotations,
+    content,
+    createId: () => 'annotation-second',
+    selectedText: 'il concetto chiave',
+    selectedTextStart: secondSelectionStart,
+  });
+  assert.ok(second);
+
+  const match = findSectionAnnotationForSelection({
+    annotations: second.annotations,
+    content,
+    preferredSelection: {
+      selectedText: 'il concetto chiave',
+      selectedTextStart: secondSelectionStart,
+    },
+    selectedText: 'concetto',
+    selectedTextStart: secondSelectionStart,
+  });
+
+  assert.equal(match?.annotation.id, 'annotation-second');
 });
 
 test('applySectionAnnotation preserves inline math markdown while annotating the surrounding prose', () => {

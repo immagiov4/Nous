@@ -1,14 +1,48 @@
 const ALLOWED_RAW_HTML_TAGS = new Set(['mark']);
+const RAW_HTML_TAG_REGEX = /<\/?([A-Za-z][A-Za-z0-9-]*)\b[^>]*>/g;
 
-const escapeHtml = (value: string): string =>
-  value.replaceAll(/&/g, '&amp;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;');
+export interface RawHtmlProjection {
+  content: string;
+  sourceOffsets: number[];
+}
+
+const escapeHtmlCharacter = (character: string): string => {
+  if (character === '&') return '&amp;';
+  if (character === '<') return '&lt;';
+  if (character === '>') return '&gt;';
+  return character;
+};
 
 export const escapeRegExp = (value: string): string =>
   value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 
+export const projectDisallowedRawHtml = (value: string): RawHtmlProjection => {
+  const characters: string[] = [];
+  const sourceOffsets: number[] = [];
+  let cursor = 0;
+
+  const appendSource = (start: number, end: number, shouldEscape: boolean) => {
+    for (let index = start; index < end; index += 1) {
+      const output = shouldEscape ? escapeHtmlCharacter(value[index]) : value[index];
+      characters.push(...output);
+      sourceOffsets.push(...Array.from({ length: output.length }, () => index));
+    }
+  };
+
+  for (const match of value.matchAll(RAW_HTML_TAG_REGEX)) {
+    const start = match.index;
+    appendSource(cursor, start, false);
+    appendSource(
+      start,
+      start + match[0].length,
+      !ALLOWED_RAW_HTML_TAGS.has(match[1].toLowerCase())
+    );
+    cursor = start + match[0].length;
+  }
+  appendSource(cursor, value.length, false);
+  sourceOffsets.push(value.length);
+  return { content: characters.join(''), sourceOffsets };
+};
+
 export const escapeDisallowedRawHtml = (value: string): string =>
-  value.replaceAll(/<\/?([A-Za-z][A-Za-z0-9-]*)\b[^>]*>/g, match => {
-    const tagNameMatch = match.match(/^<\/?\s*([A-Za-z][A-Za-z0-9-]*)/);
-    const tagName = tagNameMatch?.[1]?.toLowerCase() || '';
-    return ALLOWED_RAW_HTML_TAGS.has(tagName) ? match : escapeHtml(match);
-  });
+  projectDisallowedRawHtml(value).content;

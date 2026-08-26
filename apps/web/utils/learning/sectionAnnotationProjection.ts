@@ -19,10 +19,18 @@ import {
   trimSegmentWhitespace,
 } from '../markdown/textProjection.ts';
 
+export interface PreferredAnnotationSelection {
+  contextAfter?: string;
+  contextBefore?: string;
+  selectedText: string;
+  selectedTextStart?: number;
+}
+
 export interface ResolveSelectedSegmentsOptions {
   content: string;
   contextAfter?: string;
   contextBefore?: string;
+  preferredSelection?: PreferredAnnotationSelection;
   selectedText: string;
   selectedTextStart?: number;
 }
@@ -38,6 +46,7 @@ export const resolveSelectedSegments = ({
   content,
   contextAfter,
   contextBefore,
+  preferredSelection,
   selectedText,
   selectedTextStart,
 }: ResolveSelectedSegmentsOptions): MarkdownRange[] => {
@@ -48,6 +57,26 @@ export const resolveSelectedSegments = ({
 
   const analysis = parseMarkdownAnalysis(content);
   const visibleProjection = buildVisibleProjection(content, analysis);
+  const preferredSelectionMatch = preferredSelection
+    ? resolveExactMatch(
+        visibleProjection.text,
+        normalizeMathSelectionArtifacts(preferredSelection.selectedText).trim(),
+        preferredSelection.contextBefore
+          ? normalizeMathSelectionArtifacts(preferredSelection.contextBefore)
+          : preferredSelection.contextBefore,
+        preferredSelection.contextAfter
+          ? normalizeMathSelectionArtifacts(preferredSelection.contextAfter)
+          : preferredSelection.contextAfter,
+        Boolean(preferredSelection.contextBefore || preferredSelection.contextAfter),
+        preferredSelection.selectedTextStart
+      )
+    : undefined;
+  const preferredRange = preferredSelectionMatch
+    ? {
+        start: preferredSelectionMatch.index,
+        end: preferredSelectionMatch.index + preferredSelectionMatch.text.length,
+      }
+    : undefined;
   const looseProjection = buildLooseProjection(content, visibleProjection);
   const sourceLooseProjection = buildSourceLooseProjection(content);
   const protectedRanges = getMarkdownAnnotationProtectedRanges(content, analysis);
@@ -58,7 +87,8 @@ export const resolveSelectedSegments = ({
     contextBefore ? normalizeMathSelectionArtifacts(contextBefore) : contextBefore,
     contextAfter ? normalizeMathSelectionArtifacts(contextAfter) : contextAfter,
     hasSelectionContext,
-    selectedTextStart
+    selectedTextStart,
+    preferredRange
   );
   const words = trimmedTargetText.match(/[\p{L}\p{N}]+/gu) || [];
 
@@ -84,9 +114,11 @@ export const resolveSelectedSegments = ({
   const fuzzyMatch = visibleProjection.text.match(fuzzyRegex);
   const match = hasSelectionContext
     ? exactMatch
-    : shouldPreferExact
-      ? exactMatch || fuzzyMatch
-      : fuzzyMatch || exactMatch;
+    : selectedTextStart !== undefined && exactMatch
+      ? exactMatch
+      : shouldPreferExact
+        ? exactMatch || fuzzyMatch
+        : fuzzyMatch || exactMatch;
 
   if (hasSelectionContext && !match) {
     return [];

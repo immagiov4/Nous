@@ -232,6 +232,14 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech(String.raw`<span>\(visible\)</span>`)).toBe('<span> </span>');
   });
 
+  test('reads inline code inside escaped raw html without treating its dollars as math', () => {
+    expect(prepareMarkdownForSpeech('<div>`$x$`</div>')).toBe('<div>$x$</div>');
+  });
+
+  test('skips fenced code inside escaped raw html', () => {
+    expect(prepareMarkdownForSpeech('<div>\n```\nsecret\n```\n</div>')).toBe('<div>\n\n</div>');
+  });
+
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {
     const input = ['#  Titolo\tstrano', '', '', '', 'Testo\t con   spazi.'].join('\r\n');
 
