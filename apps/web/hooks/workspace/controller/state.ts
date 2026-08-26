@@ -37,6 +37,7 @@ export const useWorkspaceControllerState = () => {
     >()
   );
   const nextGenerationTokenRef = useRef(0);
+  const nextOpenSectionRequestIdRef = useRef(0);
   const workflowStateRef = useRef(workflowState);
   const screenStateRef = useRef(screenState);
 
@@ -68,6 +69,10 @@ export const useWorkspaceControllerState = () => {
     openingProjectId,
     screenState,
     stateAdapter: {
+      beginOpenSectionRequest: () => {
+        nextOpenSectionRequestIdRef.current += 1;
+        return nextOpenSectionRequestIdRef.current;
+      },
       beginWorkflow: (workflowId: WorkspaceWorkflowId, message?: string) => {
         const currentState = workflowStateRef.current;
         const nextRequestId = currentState[workflowId].requestId + 1;
@@ -123,6 +128,9 @@ export const useWorkspaceControllerState = () => {
       getOpeningProjectId: () => openingProjectIdRef.current,
       getScreenState: () => screenStateRef.current,
       getWorkflowState: () => workflowStateRef.current,
+      invalidateOpenSectionRequests: () => {
+        nextOpenSectionRequestIdRef.current += 1;
+      },
       invalidateWorkflows: workflowIds => {
         const nextState = invalidateWorkspaceWorkflows(workflowStateRef.current, workflowIds);
         commitWorkflowState(nextState);
@@ -132,6 +140,7 @@ export const useWorkspaceControllerState = () => {
         generationByProjectRef.current.get(projectId)?.token === token,
       isLessonGenerationActive: projectId =>
         generationByProjectRef.current.get(projectId)?.kind === 'lesson',
+      isOpenSectionRequestCurrent: requestId => nextOpenSectionRequestIdRef.current === requestId,
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>
         workflowStateRef.current[workflowId].requestId === requestId,
       reattachLessonGeneration: (projectId, sectionId) => {

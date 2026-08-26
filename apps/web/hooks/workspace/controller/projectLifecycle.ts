@@ -427,6 +427,7 @@ export const createProjectLifecycleCommands = (
     projectId: string,
     options: OpenProjectOptions = {}
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }> {
+    state.invalidateOpenSectionRequests();
     const requestId = state.beginWorkflow('openProject', t('Apertura progetto...'));
     if (projectLibrary.getCurrentProjectId() !== projectId) {
       state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);

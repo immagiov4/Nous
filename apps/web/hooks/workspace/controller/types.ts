@@ -177,6 +177,7 @@ export interface WorkspaceProjectLibraryAdapter {
 }
 
 export interface WorkspaceControllerStateAdapter {
+  beginOpenSectionRequest: () => number;
   beginWorkflow: (workflowId: WorkspaceWorkflowId, message?: string) => number;
   failWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, errorMessage: string) => void;
   finishGeneration: (projectId: string | null, token: number) => void;
@@ -187,10 +188,12 @@ export interface WorkspaceControllerStateAdapter {
   getOpeningProjectId: () => string | null;
   getScreenState: () => AppState;
   getWorkflowState: () => WorkspaceWorkflowState;
+  invalidateOpenSectionRequests: () => void;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isGenerationActive: (projectId: string | null) => boolean;
   isGenerationCurrent: (projectId: string | null, token: number) => boolean;
   isLessonGenerationActive: (projectId: string | null) => boolean;
+  isOpenSectionRequestCurrent: (requestId: number) => boolean;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;
   reattachLessonGeneration: (projectId: string | null, sectionId: string) => boolean;
   resetSessionState: () => void;

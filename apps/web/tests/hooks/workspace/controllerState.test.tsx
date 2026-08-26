@@ -4,6 +4,20 @@ import { describe, expect, test, vi } from 'vitest';
 import { useWorkspaceControllerState } from '../../../hooks/workspace/controller/state.ts';
 
 describe('useWorkspaceControllerState generation ownership', () => {
+  test('keeps open-section request ownership across adapter recreation', () => {
+    const { result, rerender } = renderHook(() => useWorkspaceControllerState());
+    const firstAdapter = result.current.stateAdapter;
+    const firstRequestId = firstAdapter.beginOpenSectionRequest();
+
+    rerender();
+    const currentAdapter = result.current.stateAdapter;
+    const currentRequestId = currentAdapter.beginOpenSectionRequest();
+
+    expect(currentAdapter).not.toBe(firstAdapter);
+    expect(firstAdapter.isOpenSectionRequestCurrent(firstRequestId)).toBe(false);
+    expect(currentAdapter.isOpenSectionRequestCurrent(currentRequestId)).toBe(true);
+  });
+
   test('keeps missing-source state independent for each project', () => {
     const { result } = renderHook(() => useWorkspaceControllerState());
 

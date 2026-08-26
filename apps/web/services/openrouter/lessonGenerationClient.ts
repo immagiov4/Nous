@@ -400,6 +400,21 @@ const resumeRetainedSublessonRequest = async ({
   }
 };
 
+const retireTerminalRetainedSublessonRequest = async (
+  projectId: string,
+  parentSectionId: string
+): Promise<void> => {
+  const retained = await resolveRetainedSublessonRequest({ parentSectionId, projectId });
+  if (!retained) return;
+  if (retained.job.projectId !== projectId) {
+    throw new Error(LESSON_GENERATION_ERROR);
+  }
+  if (retained.job.status === 'queued' || retained.job.status === 'running') {
+    throw new LessonGenerationBusyError(retained.job.sectionId);
+  }
+  clearWorkflowRequestKey(retained.storageKey, retained.requestKey);
+};
+
 export const generateDurableLesson = async ({
   forceRegenerate = false,
   onProgressStage,
@@ -451,8 +466,9 @@ export const generateDurableSublesson = async ({
   onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
   parentSectionId: string;
   projectId: string;
-}): Promise<DurableLessonResult> =>
-  runDurableLessonRequest({
+}): Promise<DurableLessonResult> => {
+  await retireTerminalRetainedSublessonRequest(projectId, parentSectionId);
+  return runDurableLessonRequest({
     endpoint: 'sublessons',
     onProgressStage,
     onWorkflowSnapshot,
@@ -467,3 +483,4 @@ export const generateDurableSublesson = async ({
     projectId,
     requestIdentity: `sublesson:${parentSectionId}`,
   });
+};

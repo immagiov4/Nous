@@ -841,6 +841,81 @@ describe('generateDurableLesson', () => {
     expect(globalThis.sessionStorage).toHaveLength(0);
   });
 
+  test('retires a terminal retained request before starting another sublesson', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'terminal-request'
+    );
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        response({
+          id: 'run-terminal',
+          projectId: 'project-1',
+          sectionId: 'old-deep-lesson',
+          stage: 'verification',
+          status: 'failed',
+        })
+      )
+      .mockResolvedValueOnce(
+        response(
+          {
+            id: 'run-new',
+            projectId: 'project-1',
+            result: { ...completedResult, sectionId: 'new-deep-lesson' },
+            sectionId: 'new-deep-lesson',
+            stage: 'verification',
+            status: 'completed',
+          },
+          202
+        )
+      );
+
+    await expect(
+      generateDurableSublesson({
+        instructions: 'Nuovo approfondimento',
+        parentSectionId: 'lesson-1',
+        projectId: 'project-1',
+        selectedText: 'nuovo testo',
+      })
+    ).resolves.toMatchObject({ sectionId: 'new-deep-lesson' });
+
+    expect(requestBody(1).requestKey).not.toBe('terminal-request');
+    expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('keeps an active retained sublesson request instead of replacing it', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'active-request'
+    );
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        id: 'run-active',
+        projectId: 'project-1',
+        sectionId: 'active-deep-lesson',
+        stage: 'drafting',
+        status: 'running',
+      })
+    );
+
+    await expect(
+      generateDurableSublesson({
+        instructions: 'Altro approfondimento',
+        parentSectionId: 'lesson-1',
+        projectId: 'project-1',
+        selectedText: 'altro testo',
+      })
+    ).rejects.toMatchObject({
+      activeSectionId: 'active-deep-lesson',
+      name: 'LessonGenerationBusyError',
+    });
+
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(
+      globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:sublesson:lesson-1')
+    ).toBe('active-request');
+  });
+
   test('resolves a recoverable sublesson with its original request identity', async () => {
     globalThis.sessionStorage.setItem(
       'nous:lesson-workflow-request:project-1:sublesson:lesson-1',

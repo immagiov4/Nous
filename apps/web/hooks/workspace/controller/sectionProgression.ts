@@ -395,6 +395,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     options: OpenSectionOptions = {},
     activeGeneration?: ActiveGeneration
   ): Promise<OpenSectionOutcome> {
+    const openSectionRequestId = state.beginOpenSectionRequest();
     const forceRegenerate = options.forceRegenerate === true;
 
     if (!domain.learningPlan) {
@@ -431,6 +432,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         section.parentId,
         section.id
       ));
+    if (
+      !state.isOpenSectionRequestCurrent(openSectionRequestId) ||
+      projectLibrary.getCurrentProjectId() !== currentProjectId
+    ) {
+      return 'ignored-busy';
+    }
     if (
       !forceRegenerate &&
       section.content?.length &&

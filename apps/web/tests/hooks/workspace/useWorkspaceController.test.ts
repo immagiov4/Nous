@@ -535,12 +535,17 @@ const createStateAdapter = () => {
     >(),
     nextGenerationToken: 0,
     missingSourceProjects: new Set<string>(),
+    nextOpenSectionRequestId: 0,
     openingProjectId: null as string | null,
     screenState: AppState.LIBRARY as AppState,
     workflowState: createWorkspaceWorkflowState(),
   };
 
   const adapter: WorkspaceControllerStateAdapter = {
+    beginOpenSectionRequest: () => {
+      internalState.nextOpenSectionRequestId += 1;
+      return internalState.nextOpenSectionRequestId;
+    },
     beginWorkflow: (workflowId, message) => {
       const nextRequestId = internalState.workflowState[workflowId].requestId + 1;
       internalState.workflowState = {
@@ -583,6 +588,9 @@ const createStateAdapter = () => {
     getOpeningProjectId: () => internalState.openingProjectId,
     getScreenState: () => internalState.screenState,
     getWorkflowState: () => internalState.workflowState,
+    invalidateOpenSectionRequests: () => {
+      internalState.nextOpenSectionRequestId += 1;
+    },
     invalidateWorkflows: workflowIds => {
       internalState.workflowState = invalidateWorkspaceWorkflows(
         internalState.workflowState,
@@ -594,6 +602,7 @@ const createStateAdapter = () => {
       internalState.generationByProject.get(projectId)?.token === token,
     isLessonGenerationActive: projectId =>
       internalState.generationByProject.get(projectId)?.kind === 'lesson',
+    isOpenSectionRequestCurrent: requestId => internalState.nextOpenSectionRequestId === requestId,
     isWorkflowCurrent: (workflowId, requestId) =>
       internalState.workflowState[workflowId].requestId === requestId,
     reattachLessonGeneration: (projectId, sectionId) => {
@@ -998,13 +1007,15 @@ test('openProject hydrates the explicitly requested lesson from a library refere
     learningPlan: buildPlan(),
     state: AppState.READING,
   });
-  const { controller, domain, projectLibrary } = createControllerHarness({
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
     loadedSnapshot: snapshot,
   });
+  const invalidateOpenSectionRequests = vi.spyOn(state.adapter, 'invalidateOpenSectionRequests');
 
   const result = await controller.openProject(snapshot.id, { activeSectionId: 'lesson-2' });
 
   expect(result.outcome).toBe('opened');
+  expect(invalidateOpenSectionRequests).toHaveBeenCalledTimes(1);
   expect(domain.activeSectionId).toBe('lesson-2');
   expect(projectLibrary.savedOverrides.at(-1)?.activeSectionId).toBe('lesson-2');
 });
@@ -3515,6 +3526,84 @@ test('openSection reuses a cached sibling of the retained sublesson request', as
     'lesson-1',
     'deep-2'
   );
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+});
+
+test('openSection ignores a retained-request lookup superseded by newer navigation', async () => {
+  const deepLesson = buildTestLesson({
+    content: '# Approfondimento',
+    id: 'deep-1',
+    parentId: 'lesson-1',
+    title: 'Approfondimento',
+    type: 'deep-dive',
+  });
+  const cachedLesson = buildTestLesson({
+    content: '# Lezione 2',
+    id: 'lesson-2',
+    title: 'Lezione 2',
+  });
+  const plan = buildPlan({
+    sections: [buildTestLesson({ id: 'lesson-1' }), deepLesson, cachedLesson],
+  });
+  let resolveRetainedLookup: ((matches: boolean) => void) | undefined;
+  const isDurableSublessonRequestForSection = vi.fn(
+    () =>
+      new Promise<boolean>(resolve => {
+        resolveRetainedLookup = resolve;
+      })
+  );
+  const generateDurableLesson = vi.fn();
+  const { controller, domain, projectLibrary, recreateController } = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const staleNavigation = controller.openSection(deepLesson);
+  await vi.waitFor(() => expect(resolveRetainedLookup).toBeTypeOf('function'));
+  await expect(recreateController().openSection(cachedLesson)).resolves.toBe('reused-cached');
+  resolveRetainedLookup?.(true);
+
+  await expect(staleNavigation).resolves.toBe('ignored-busy');
+  expect(domain.activeSectionId).toBe('lesson-2');
+  expect(projectLibrary.savedOverrides.at(-1)).toMatchObject({ activeSectionId: 'lesson-2' });
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+});
+
+test('openSection stays stale after project navigation returns to the origin project', async () => {
+  const deepLesson = buildTestLesson({
+    content: '# Approfondimento',
+    id: 'deep-1',
+    parentId: 'lesson-1',
+    title: 'Approfondimento',
+    type: 'deep-dive',
+  });
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' }), deepLesson] });
+  let resolveRetainedLookup: ((matches: boolean) => void) | undefined;
+  const isDurableSublessonRequestForSection = vi.fn(
+    () =>
+      new Promise<boolean>(resolve => {
+        resolveRetainedLookup = resolve;
+      })
+  );
+  const generateDurableLesson = vi.fn();
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const staleNavigation = controller.openSection(deepLesson);
+  await vi.waitFor(() => expect(resolveRetainedLookup).toBeTypeOf('function'));
+  state.adapter.invalidateOpenSectionRequests();
+  projectLibrary.adapter.setCurrentProjectId('project-2');
+  projectLibrary.adapter.setCurrentProjectId('project-1');
+  domain.setActiveSectionId('lesson-1');
+  resolveRetainedLookup?.(true);
+
+  await expect(staleNavigation).resolves.toBe('ignored-busy');
+  expect(domain.activeSectionId).toBe('lesson-1');
+  expect(projectLibrary.savedOverrides).toHaveLength(0);
   expect(generateDurableLesson).not.toHaveBeenCalled();
 });
 
