@@ -189,6 +189,7 @@ export interface WorkspaceControllerStateAdapter {
   getOpeningProjectId: () => string | null;
   getScreenState: () => AppState;
   getWorkflowState: () => WorkspaceWorkflowState;
+  invalidateGeneration: (projectId: string) => void;
   invalidateOpenSectionRequests: () => void;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isGenerationActive: (projectId: string | null) => boolean;

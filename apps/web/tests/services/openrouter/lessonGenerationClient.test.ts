@@ -810,6 +810,15 @@ describe('generateDurableLesson', () => {
     expect(globalThis.sessionStorage).toHaveLength(0);
   });
 
+  test('keeps a force-only retained lesson discoverable across another reload', () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1:force-regenerate',
+      'true'
+    );
+
+    expect(hasDurableLessonRequest('project-1', 'lesson-1')).toBe(true);
+  });
+
   test('clears every retained lesson identity for one deleted project', () => {
     globalThis.sessionStorage.setItem(
       'nous:lesson-workflow-request:project-1:lesson-1',

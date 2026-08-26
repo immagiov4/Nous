@@ -717,6 +717,7 @@ export const createProjectLifecycleCommands = (
 
   async function deleteProject(projectId: string): Promise<void> {
     await projectLibrary.deleteStoredProject(projectId);
+    state.invalidateGeneration(projectId);
     openRouter.clearDurableLessonRequestsForProject(projectId);
     state.setProjectMissingSource(projectId, false);
     if (projectLibrary.currentProjectId === projectId) {
@@ -741,6 +742,7 @@ export const createProjectLifecycleCommands = (
 
   function handleRemoteProjectDeleted(projectId: string, wasActive: boolean): void {
     pushNousDebugTrace('project:remote-deleted', { projectId, wasActive });
+    state.invalidateGeneration(projectId);
     openRouter.clearDurableLessonRequestsForProject(projectId);
     state.setProjectMissingSource(projectId, false);
     if (!wasActive) return;

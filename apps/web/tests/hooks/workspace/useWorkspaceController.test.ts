@@ -632,6 +632,9 @@ const createStateAdapter = () => {
     getOpeningProjectId: () => internalState.openingProjectId,
     getScreenState: () => internalState.screenState,
     getWorkflowState: () => internalState.workflowState,
+    invalidateGeneration: projectId => {
+      internalState.generationByProject.delete(projectId);
+    },
     invalidateOpenSectionRequests: () => {
       internalState.nextOpenSectionRequestId += 1;
     },
@@ -5840,10 +5843,12 @@ test('local deletion clears the deleted project missing-source state', async () 
     openRouter: { clearDurableLessonRequestsForProject },
   });
   state.adapter.setProjectMissingSource('project-deleted', true);
+  state.adapter.tryBeginGeneration('project-deleted', 'lesson');
 
   await controller.deleteProject('project-deleted');
 
   expect(state.adapter.hasMissingSource('project-deleted')).toBe(false);
+  expect(state.adapter.isGenerationActive('project-deleted')).toBe(false);
   expect(clearDurableLessonRequestsForProject).toHaveBeenCalledWith('project-deleted');
 });
 
@@ -5861,6 +5866,7 @@ test('remote deletion leaves the deleted course and invalidates every active wor
   });
   state.adapter.setScreenState(AppState.READING);
   state.adapter.setProjectMissingSource('project-deleted', true);
+  state.adapter.tryBeginGeneration('project-deleted', 'lesson');
   const activeRequests = Object.fromEntries(
     WORKSPACE_WORKFLOW_IDS.map(workflowId => [workflowId, state.adapter.beginWorkflow(workflowId)])
   );
@@ -5872,6 +5878,7 @@ test('remote deletion leaves the deleted course and invalidates every active wor
   assert.equal(domain.source, null);
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.equal(state.adapter.hasMissingSource('project-deleted'), false);
+  assert.equal(state.adapter.isGenerationActive('project-deleted'), false);
   expect(clearDurableLessonRequestsForProject).toHaveBeenCalledWith('project-deleted');
   assert.deepEqual(stopAudioCalls, [true]);
   for (const workflowId of WORKSPACE_WORKFLOW_IDS) {

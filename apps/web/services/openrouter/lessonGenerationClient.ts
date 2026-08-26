@@ -171,8 +171,10 @@ export const clearDurableLessonRequestsForProject = (projectId: string): void =>
   }
 };
 
-export const hasDurableLessonRequest = (projectId: string, sectionId: string): boolean =>
-  readWorkflowRequestKey(getLessonRequestKeyStorageKey(projectId, sectionId)) !== null;
+export const hasDurableLessonRequest = (projectId: string, sectionId: string): boolean => {
+  const storageKey = getLessonRequestKeyStorageKey(projectId, sectionId);
+  return readWorkflowRequestKey(storageKey) !== null || readForceRegenerationIntent(storageKey);
+};
 
 const parseCompletedResult = (
   job: LessonWorkflowSnapshot,

@@ -128,6 +128,10 @@ export const useWorkspaceControllerState = () => {
       getOpeningProjectId: () => openingProjectIdRef.current,
       getScreenState: () => screenStateRef.current,
       getWorkflowState: () => workflowStateRef.current,
+      invalidateGeneration: projectId => {
+        if (!generationByProjectRef.current.delete(projectId)) return;
+        commitGenerationChange();
+      },
       invalidateOpenSectionRequests: () => {
         nextOpenSectionRequestIdRef.current += 1;
       },
