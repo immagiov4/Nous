@@ -99,13 +99,9 @@ test('accepts complete candidates through loose case and accent normalization', 
 
 test('accepts complete candidates through KaTeX selection normalization', () => {
   assert.equal(
-    hasAnchorableConversationNoteCandidate(
-      'Ridurre soprattutto $T_{\\text{cluster}}$ accelera.',
-      {
-        selectedText:
-          'Ridurre soprattutto TclusterT_{\\text{cluster}}Tcluster accelera.',
-      }
-    ),
+    hasAnchorableConversationNoteCandidate('Ridurre soprattutto $T_{\\text{cluster}}$ accelera.', {
+      selectedText: 'Ridurre soprattutto TclusterT_{\\text{cluster}}Tcluster accelera.',
+    }),
     true
   );
 });
