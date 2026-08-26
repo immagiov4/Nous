@@ -1122,6 +1122,26 @@ describe('MarkdownRenderer', () => {
     expect(container).toHaveTextContent('testo-visibile');
   });
 
+  test('normalizes prose indentation and renders backslash math without creating code', () => {
+    const { container } = render(
+      <MarkdownRenderer content={String.raw`    Frase visibile con \(x + y\).`} />
+    );
+
+    expect(container).toHaveTextContent('Frase visibile con');
+    expect(container.querySelector('pre')).not.toBeInTheDocument();
+    expect(container.querySelector('.katex')).toBeInTheDocument();
+  });
+
+  test('renders backslash math inside escaped raw html', () => {
+    const { container } = render(
+      <MarkdownRenderer content={String.raw`<span>\(visible\)</span>`} />
+    );
+
+    expect(container).toHaveTextContent('<span>');
+    expect(container).toHaveTextContent('</span>');
+    expect(container.querySelector('.katex')).toBeInTheDocument();
+  });
+
   test('renders markdown tables with semantic cells', () => {
     render(<MarkdownRenderer content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'} />);
 

@@ -80,6 +80,7 @@ export const buildVisibleProjection = (
       ...getMarkdownReferenceDefinitionRanges(content, analysis),
       ...getMarkdownReferenceLinkLabelRanges(content, analysis),
       ...analysis.htmlSyntaxRanges,
+      ...analysis.rendererNormalizedIndentRanges,
     ].map(range => [range.start, range])
   );
 

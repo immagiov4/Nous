@@ -60,6 +60,23 @@ test('applySectionAnnotation stores a selector without changing the Markdown', (
   );
 });
 
+test('applySectionAnnotation follows renderer-normalized prose indentation', () => {
+  const content = '    Frase visibile normalizzata.';
+  const result = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-indented-prose',
+    now: '2026-08-26T10:00:00.000Z',
+    selectedText: 'Frase visibile normalizzata',
+  });
+
+  assert.ok(result);
+  assert.equal(
+    materializeSectionAnnotationMarks(content, result.annotations),
+    '    <mark data-nous-annotation-id="annotation-indented-prose">Frase visibile normalizzata</mark>.'
+  );
+});
+
 test('detached annotations re-anchor by quote and context after content shifts', () => {
   const created = applySectionAnnotation({
     annotations: [],

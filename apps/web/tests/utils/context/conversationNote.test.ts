@@ -142,6 +142,27 @@ test('distinguishes visible footnote content from nested fenced code', () => {
     hasAnchorableConversationNoteCandidate('    contenuto nel codice indentato', {
       selectedText: 'contenuto nel codice indentato',
     }),
+    true
+  );
+});
+
+test('anchors renderer-normalized prose and rejects backslash-math-only text', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('    Frase visibile normalizzata.', {
+      selectedText: 'Frase visibile normalizzata',
+    }),
+    true
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(String.raw`Formula \(contenuto protetto\).`, {
+      selectedText: 'contenuto protetto',
+    }),
+    false
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(String.raw`<span>\(visible\)</span>`, {
+      selectedText: 'visible',
+    }),
     false
   );
 });

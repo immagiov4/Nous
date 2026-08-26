@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  findInlineLinkDestinationEnd,
   getMarkdownAnnotationProtectedRanges,
   getMarkdownProtectedRanges,
   getMarkdownReferenceDefinitionRanges,
   normalizeMathSelectionArtifacts,
 } from '../../../utils/markdown/codeRanges.ts';
+
+test('synthetic link parsing rejects a later valid destination', () => {
+  const content = '(destinazione non valida) poi [valido](https://example.com)';
+
+  assert.equal(findInlineLinkDestinationEnd(content, 0), -1);
+});
 
 test('normalizeMathSelectionArtifacts projects repeated math-like selection artifacts without regex scanning', () => {
   const normalized = normalizeMathSelectionArtifacts(
@@ -188,10 +195,12 @@ test('annotation ranges preserve malformed continuations and missing reference l
   });
 });
 
-test('annotation ranges treat a leading tab as indented code, not a definition', () => {
+test('annotation ranges follow renderer-normalized tab-indented definitions', () => {
   const content = '\t[ref]: /image.png';
 
-  assert.deepEqual(getMarkdownReferenceDefinitionRanges(content), []);
+  assert.deepEqual(getMarkdownReferenceDefinitionRanges(content), [
+    { start: 0, end: content.length },
+  ]);
   assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
     { start: 0, end: content.length },
   ]);
@@ -266,4 +275,13 @@ test('getMarkdownProtectedRanges keeps code fences, inline code, and math blocks
   assert.ok(protectedSlices.includes('`inline`'));
   assert.ok(protectedSlices.includes('$x_{\\text{foo}}$'));
   assert.ok(protectedSlices.some(slice => slice.includes('const value = 1;')));
+});
+
+test('annotation ranges protect supported backslash math delimiters', () => {
+  const content = String.raw`Prima \(x + y\) e poi \[z = 1\].`;
+  const protectedText = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedText, [String.raw`\(x + y\)`, String.raw`\[z = 1\]`]);
 });

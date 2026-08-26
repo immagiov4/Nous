@@ -3,8 +3,6 @@ import {
   countParenBalance,
   getCodeLanguageLabel,
   inferStandaloneCodeLanguage,
-  isCodeContinuationLine,
-  isOrphanedCodeContinuationLine,
   isStandaloneCodeLine,
   normalizeCodeFenceSpacing,
   parseInlineCodeLead,
@@ -12,31 +10,11 @@ import {
   trimCodeLine,
 } from './codeHeuristics.ts';
 import { escapeDisallowedRawHtml } from './html.ts';
+import { removeAccidentalPlainTextIndentation } from './indentation.ts';
 import {
   getDisplayMathClosingDelimiter,
   normalizeMathMarkdownSegment,
 } from './mathNormalization.ts';
-
-const INDENTED_CODE_BLOCK_PREFIX_REGEX = /^(?: {4,}|\t+)/u;
-
-const removeAccidentalPlainTextIndentation = (segment: string): string =>
-  segment
-    .split('\n')
-    .map(line => {
-      if (!INDENTED_CODE_BLOCK_PREFIX_REGEX.test(line)) {
-        return line;
-      }
-
-      const unindentedLine = line.trimStart();
-      const isOrphanedArgumentLine =
-        /[,)]/u.test(unindentedLine) && isOrphanedCodeContinuationLine(unindentedLine);
-      return isStandaloneCodeLine(unindentedLine) ||
-        isCodeContinuationLine(unindentedLine) ||
-        isOrphanedArgumentLine
-        ? line
-        : unindentedLine;
-    })
-    .join('\n');
 
 export const processMarkdownSegment = (segment: string): string => {
   const lines = normalizeMathMarkdownSegment(removeAccidentalPlainTextIndentation(segment))

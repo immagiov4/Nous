@@ -393,6 +393,7 @@ export const prepareMarkdownForSpeech = (content: string): string => {
     ...analysis.imageRanges,
     ...analysis.referenceLinkLabelRanges,
     ...analysis.referenceDefinitionRanges,
+    ...analysis.rendererNormalizedIndentRanges,
   ]
     .sort((left, right) => right.start - left.start)
     .reduce(

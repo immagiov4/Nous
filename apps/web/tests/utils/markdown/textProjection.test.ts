@@ -87,6 +87,19 @@ test('buildVisibleProjection hides supported mark syntax but preserves escaped r
   assert.match(buildVisibleProjection('<div>visibile</div>').text, /<div>visibile<\/div>/u);
 });
 
+test('buildVisibleProjection follows renderer-normalized prose indentation and backslash math', () => {
+  const content = String.raw`    Frase visibile con \(x + y\).`;
+
+  assert.equal(buildVisibleProjection(content).text, 'Frase visibile con x + y.');
+});
+
+test('buildVisibleProjection projects backslash math inside escaped raw html', () => {
+  assert.equal(
+    buildVisibleProjection(String.raw`<span>\(visible\)</span>`).text,
+    '<span>visible</span>'
+  );
+});
+
 test('buildVisibleProjection preserves malformed image syntax rendered as text', () => {
   const projection = buildVisibleProjection('![testo visibile](destinazione non valida)');
 

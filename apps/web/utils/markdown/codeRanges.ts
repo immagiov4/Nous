@@ -4,6 +4,10 @@ import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { escapeDisallowedRawHtml } from './html.ts';
+import {
+  getAccidentalPlainTextIndentationRanges,
+  projectAccidentalPlainTextIndentation,
+} from './indentation.ts';
 
 export interface MarkdownRange {
   start: number;
@@ -334,6 +338,7 @@ export interface MarkdownAnalysis {
   mathRanges: MarkdownRange[];
   referenceDefinitionRanges: MarkdownRange[];
   referenceLinkLabelRanges: MarkdownRange[];
+  rendererNormalizedIndentRanges: MarkdownRange[];
 }
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkBreaks);
@@ -349,10 +354,12 @@ const rendererParsesImageSource = (source: string): boolean => {
   );
 };
 
-const getNodeRange = (node: MarkdownAstNode): MarkdownRange | null => {
+const getNodeRange = (node: MarkdownAstNode, sourceOffsets: number[]): MarkdownRange | null => {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
-  return start === undefined || end === undefined ? null : { start, end };
+  return start === undefined || end === undefined
+    ? null
+    : { start: sourceOffsets[start] ?? start, end: sourceOffsets[end] ?? end };
 };
 
 const expandToLineBounds = (content: string, range: MarkdownRange): MarkdownRange => {
@@ -364,9 +371,12 @@ const expandToLineBounds = (content: string, range: MarkdownRange): MarkdownRang
 const getInlineLinkDestinationRange = (
   content: string,
   node: MarkdownAstNode,
-  nodeRange: MarkdownRange
+  nodeRange: MarkdownRange,
+  sourceOffsets: number[]
 ): MarkdownRange | null => {
-  const lastChildEnd = node.children?.at(-1)?.position?.end.offset ?? nodeRange.start;
+  const childEnd = node.children?.at(-1)?.position?.end.offset;
+  const lastChildEnd =
+    childEnd === undefined ? nodeRange.start : (sourceOffsets[childEnd] ?? childEnd);
   const destinationStart = content.indexOf('](', lastChildEnd);
   return destinationStart !== -1 && destinationStart < nodeRange.end
     ? { start: destinationStart + 1, end: nodeRange.end }
@@ -376,9 +386,12 @@ const getInlineLinkDestinationRange = (
 const getReferenceLabelRange = (
   content: string,
   node: MarkdownAstNode,
-  nodeRange: MarkdownRange
+  nodeRange: MarkdownRange,
+  sourceOffsets: number[]
 ): MarkdownRange | null => {
-  const lastChildEnd = node.children?.at(-1)?.position?.end.offset ?? nodeRange.start;
+  const childEnd = node.children?.at(-1)?.position?.end.offset;
+  const lastChildEnd =
+    childEnd === undefined ? nodeRange.start : (sourceOffsets[childEnd] ?? childEnd);
   const referenceStart = content.indexOf('[', lastChildEnd);
   return referenceStart !== -1 && referenceStart < nodeRange.end
     ? { start: referenceStart, end: nodeRange.end }
@@ -407,10 +420,14 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     mathRanges: [],
     referenceDefinitionRanges: [],
     referenceLinkLabelRanges: [],
+    rendererNormalizedIndentRanges: getAccidentalPlainTextIndentationRanges(content),
   };
-  const root = markdownParser.runSync(markdownParser.parse(content)) as MarkdownAstNode;
+  const indentationProjection = projectAccidentalPlainTextIndentation(content);
+  const root = markdownParser.runSync(
+    markdownParser.parse(indentationProjection.content)
+  ) as MarkdownAstNode;
   const visit = (node: MarkdownAstNode): void => {
-    const range = getNodeRange(node);
+    const range = getNodeRange(node, indentationProjection.sourceOffsets);
     if (range) {
       if (node.type === 'inlineCode') {
         analysis.codeRanges.push(range);
@@ -438,18 +455,44 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       if (node.type === 'link') {
         const source = content.slice(range.start, range.end);
         if (!(source.startsWith('<') && source.endsWith('>'))) {
-          const destinationRange = getInlineLinkDestinationRange(content, node, range);
+          const destinationRange = getInlineLinkDestinationRange(
+            content,
+            node,
+            range,
+            indentationProjection.sourceOffsets
+          );
           if (destinationRange) analysis.linkDestinationRanges.push(destinationRange);
         }
       }
       if (node.type === 'linkReference') {
-        const labelRange = getReferenceLabelRange(content, node, range);
+        const labelRange = getReferenceLabelRange(
+          content,
+          node,
+          range,
+          indentationProjection.sourceOffsets
+        );
         if (labelRange) analysis.referenceLinkLabelRanges.push(labelRange);
       }
     }
     node.children?.forEach(visit);
   };
   visit(root);
+  let mathCursor = 0;
+  while (mathCursor < content.length) {
+    const mathRange = getMarkdownMathRangeAt(content, mathCursor);
+    if (
+      mathRange &&
+      (content.startsWith(String.raw`\(`, mathRange.start) ||
+        content.startsWith(String.raw`\[`, mathRange.start)) &&
+      !analysis.codeRanges.some(range => range.start < mathRange.end && range.end > mathRange.start)
+    ) {
+      analysis.mathRanges.push(mathRange);
+      mathCursor = mathRange.end;
+      continue;
+    }
+    mathCursor += 1;
+  }
+  analysis.mathRanges = mergeRanges(analysis.mathRanges);
   return analysis;
 };
 
@@ -467,7 +510,7 @@ export const findInlineLinkDestinationEnd = (
   const syntheticRange = parseMarkdownAnalysis(
     `${syntheticLabel}${destinationSource}`
   ).linkDestinationRanges.at(0);
-  return syntheticRange
+  return syntheticRange?.start === syntheticLabel.length
     ? openingParenthesisIndex + syntheticRange.end - syntheticLabel.length - 1
     : -1;
 };

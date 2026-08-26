@@ -214,6 +214,16 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech('<https://example.com>')).toBe('<https://example.com>');
   });
 
+  test('reads renderer-normalized prose and skips protected backslash math', () => {
+    expect(prepareMarkdownForSpeech(String.raw`    Frase visibile con \(x + y\).`)).toBe(
+      'Frase visibile con .'
+    );
+  });
+
+  test('skips protected backslash math inside escaped raw html', () => {
+    expect(prepareMarkdownForSpeech(String.raw`<span>\(visible\)</span>`)).toBe('<span> </span>');
+  });
+
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {
     const input = ['#  Titolo\tstrano', '', '', '', 'Testo\t con   spazi.'].join('\r\n');
 
