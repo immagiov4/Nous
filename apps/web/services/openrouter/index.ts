@@ -28,12 +28,14 @@ export type {
   GenerationStatusReporter,
 } from './generationProgress.ts';
 export { createGenerationProgressObserver } from './generationProgress.ts';
+export type { DurableLessonRecovery } from './lessonGenerationClient.ts';
 export {
   generateDurableLesson,
   generateDurableSublesson,
   hasDurableLessonRequest,
   isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
+  resolveDurableSublessonRequestForSection,
 } from './lessonGenerationClient.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
 export {

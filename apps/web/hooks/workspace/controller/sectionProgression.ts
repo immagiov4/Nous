@@ -424,14 +424,15 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // is running. The user can freely switch between ready lessons.
     const hasPersistedLessonRequest =
       currentProjectId !== null && openRouter.hasDurableLessonRequest(currentProjectId, section.id);
-    const hasPersistedSublessonRequest =
-      currentProjectId !== null &&
-      section.parentId !== undefined &&
-      (await openRouter.isDurableSublessonRequestForSection(
-        currentProjectId,
-        section.parentId,
-        section.id
-      ));
+    const sublessonRecovery =
+      currentProjectId !== null && section.parentId !== undefined
+        ? await openRouter.resolveDurableSublessonRequestForSection(
+            currentProjectId,
+            section.parentId,
+            section.id
+          )
+        : null;
+    const hasPersistedSublessonRequest = Boolean(sublessonRecovery);
     if (
       !state.isOpenSectionRequestCurrent(openSectionRequestId) ||
       projectLibrary.getCurrentProjectId() !== currentProjectId
@@ -512,11 +513,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
     const isGenerationCurrent = () => state.isGenerationCurrent(projectId, activeGeneration.token);
+    const isGenerationWorkflowCurrent = () =>
+      isGenerationCurrent() && state.isWorkflowCurrent('loadSection', requestId);
     const isGenerationViewCurrent = () =>
       projectLibrary.getCurrentProjectId() === projectId &&
       projectLibrary.getCurrentActiveSectionId() === section.id &&
-      isGenerationCurrent() &&
-      state.isWorkflowCurrent('loadSection', requestId);
+      isGenerationWorkflowCurrent();
 
     const progressBridge = createGenerationProgressBridge({
       getProgress: () => state.getWorkflowState().loadSection.progress,
@@ -541,7 +543,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           if (!isGenerationViewCurrent()) return;
           progressBridge.updateFromWorkflow(snapshot);
         },
-        ...(section.parentId ? { parentSectionId: section.parentId } : {}),
+        ...(section.parentId
+          ? { parentSectionId: section.parentId, recovery: sublessonRecovery }
+          : {}),
         projectId,
         sectionId: section.id,
       });
@@ -557,8 +561,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         if (!isGenerationCurrent()) return 'ignored-busy';
         await progressObserver.finish();
         progressObserver.complete();
-        if (isGenerationViewCurrent()) {
-          state.succeedWorkflow('loadSection', requestId);
+        if (isGenerationWorkflowCurrent()) {
+          if (isGenerationViewCurrent()) state.succeedWorkflow('loadSection', requestId);
+          else state.invalidateWorkflows(['loadSection']);
         }
         return 'loaded';
       }
@@ -581,8 +586,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       }
       await progressObserver.finish();
       progressObserver.complete();
-      if (isGenerationViewCurrent()) {
-        state.succeedWorkflow('loadSection', requestId);
+      if (isGenerationWorkflowCurrent()) {
+        if (isGenerationViewCurrent()) state.succeedWorkflow('loadSection', requestId);
+        else state.invalidateWorkflows(['loadSection']);
       }
       return 'loaded';
     } catch (error) {
@@ -590,14 +596,21 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (error instanceof LessonSourceUnavailableError) {
         state.setProjectMissingSource(projectId, true);
       }
-      if (!isGenerationViewCurrent()) return 'ignored-busy';
-      state.failWorkflow(
-        'loadSection',
-        requestId,
-        error instanceof LessonSourceUnavailableError
-          ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
-          : getErrorMessage(error)
-      );
+      const shouldReportToCurrentView = isGenerationViewCurrent();
+      if (isGenerationWorkflowCurrent()) {
+        if (shouldReportToCurrentView) {
+          state.failWorkflow(
+            'loadSection',
+            requestId,
+            error instanceof LessonSourceUnavailableError
+              ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
+              : getErrorMessage(error)
+          );
+        } else {
+          state.invalidateWorkflows(['loadSection']);
+        }
+      }
+      if (!shouldReportToCurrentView) return 'ignored-busy';
       throw error;
     } finally {
       progressObserver.dispose();
@@ -738,14 +751,15 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       requestId = beginSublessonWorkflow();
     });
     const isGenerationCurrent = () => state.isGenerationCurrent(projectId, generationToken);
+    const isGenerationWorkflowCurrent = () =>
+      isGenerationCurrent() && state.isWorkflowCurrent('createLesson', requestId);
     let generatedSectionId: string | null = null;
     const isGenerationViewCurrent = () => {
       const activeSectionId = projectLibrary.getCurrentActiveSectionId();
       return (
         projectLibrary.getCurrentProjectId() === projectId &&
         (activeSectionId === parentSection.id || activeSectionId === generatedSectionId) &&
-        isGenerationCurrent() &&
-        state.isWorkflowCurrent('createLesson', requestId)
+        isGenerationWorkflowCurrent()
       );
     };
     const progressBridge = createGenerationProgressBridge({
@@ -795,6 +809,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         return { outcome: 'ignored-busy' };
       }
       if (!isGenerationViewCurrent()) {
+        if (isGenerationWorkflowCurrent()) {
+          state.invalidateWorkflows(['createLesson']);
+        }
         return { outcome: 'ignored-busy' };
       }
       if (!applied) {
@@ -831,7 +848,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       }
       await progressObserver.finish();
       progressObserver.complete();
-      if (isGenerationViewCurrent()) state.succeedWorkflow('createLesson', requestId);
+      if (isGenerationWorkflowCurrent()) {
+        if (isGenerationViewCurrent()) state.succeedWorkflow('createLesson', requestId);
+        else state.invalidateWorkflows(['createLesson']);
+      }
       return { outcome: 'created' };
     } catch (error) {
       if (!isGenerationCurrent()) {
@@ -840,12 +860,19 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (error instanceof LessonSourceUnavailableError) {
         state.setProjectMissingSource(projectId, true);
       }
-      if (!isGenerationViewCurrent()) return { outcome: 'ignored-busy' };
+      const shouldReportToCurrentView = isGenerationViewCurrent();
       const errorMessage =
         error instanceof LessonSourceUnavailableError
           ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
           : getErrorMessage(error);
-      state.failWorkflow('createLesson', requestId, errorMessage);
+      if (isGenerationWorkflowCurrent()) {
+        if (shouldReportToCurrentView) {
+          state.failWorkflow('createLesson', requestId, errorMessage);
+        } else {
+          state.invalidateWorkflows(['createLesson']);
+        }
+      }
+      if (!shouldReportToCurrentView) return { outcome: 'ignored-busy' };
       return {
         outcome:
           error instanceof LessonSourceUnavailableError ? 'blocked-missing-source' : 'failed',

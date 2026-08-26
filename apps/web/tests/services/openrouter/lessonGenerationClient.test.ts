@@ -18,6 +18,7 @@ const {
   isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
   LessonSourceUnavailableError,
+  resolveDurableSublessonRequestForSection,
 } = await import('../../../services/openrouter/lessonGenerationClient.ts');
 
 const completedResult = {
@@ -744,6 +745,42 @@ describe('generateDurableLesson', () => {
     expect(requestBody(1).requestKey).not.toBe(requestBody(0).requestKey);
   });
 
+  test('resumes a retained ordinary lesson without replaying its force flag', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1',
+      'forced-regeneration-request'
+    );
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        id: 'run-retained-lesson',
+        projectId: 'project-1',
+        result: completedResult,
+        sectionId: 'lesson-1',
+        stage: 'verification',
+        status: 'completed',
+      })
+    );
+
+    await expect(
+      generateDurableLesson({
+        forceRegenerate: false,
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+      })
+    ).resolves.toMatchObject(completedResult);
+
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
+      'http://localhost:3301/api/lesson-workflows/requests/resolve',
+      expect.objectContaining({
+        body: JSON.stringify({ requestKey: 'forced-regeneration-request' }),
+        method: 'POST',
+      }),
+      { expectedStatuses: [404] }
+    );
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
   test('starts a server-owned sublesson without sending a section id or parent content', async () => {
     const sublessonResult = {
       ...completedResult,
@@ -946,6 +983,40 @@ describe('generateDurableLesson', () => {
       }),
       { expectedStatuses: [404] }
     );
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('reuses a resolved sublesson snapshot without a second resolver request', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'sublesson-request'
+    );
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        id: 'run-sublesson',
+        projectId: 'project-1',
+        result: { ...completedResult, sectionId: 'deep-lesson' },
+        sectionId: 'deep-lesson',
+        stage: 'verification',
+        status: 'completed',
+      })
+    );
+
+    const recovery = await resolveDurableSublessonRequestForSection(
+      'project-1',
+      'lesson-1',
+      'deep-lesson'
+    );
+    expect(recovery).not.toBeNull();
+    if (!recovery) throw new Error('Expected retained sublesson recovery');
+    await generateDurableLesson({
+      parentSectionId: 'lesson-1',
+      projectId: 'project-1',
+      recovery,
+      sectionId: 'deep-lesson',
+    });
+
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
     expect(globalThis.sessionStorage).toHaveLength(0);
   });

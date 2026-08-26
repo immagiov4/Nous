@@ -13,6 +13,7 @@ import {
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import {
+  type DurableLessonRecovery,
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
   LessonGenerationBusyError,
   LessonSourceUnavailableError,
@@ -164,6 +165,24 @@ const createReadyIndex = (): PdfTextIndex => ({
     },
   ],
 });
+
+const buildLessonRecovery = (
+  sectionId: string,
+  overrides: Partial<DurableLessonRecovery> = {}
+): DurableLessonRecovery =>
+  ({
+    job: {
+      id: `run-${sectionId}`,
+      projectId: 'project-1',
+      retrying: false,
+      sectionId,
+      stage: 'drafting',
+      status: 'running',
+    },
+    requestKey: `request-${sectionId}`,
+    storageKey: `storage-${sectionId}`,
+    ...overrides,
+  }) as DurableLessonRecovery;
 
 const createLargeReadyIndex = (): PdfTextIndex => ({
   kind: 'pdf-text-index',
@@ -844,6 +863,7 @@ const createOpenRouterMock = (
     }),
     hasDurableLessonRequest: () => false,
     isDurableSublessonRequestForSection: async () => false,
+    resolveDurableSublessonRequestForSection: async () => null,
     repairDurablePdfMapping: async ({
       projectId,
     }: Parameters<
@@ -1791,6 +1811,43 @@ test('openProject resolves immediately while loading an empty stored section in 
 
   assert.equal(outcome, 'opened');
   assert.equal(domain.activeSectionId, 'lesson-empty');
+});
+
+test('openProject resumes a retained regeneration for a populated active lesson', async () => {
+  const snapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-retained-regeneration',
+    learningPlan: buildPlan({
+      sections: [buildTestLesson({ content: '# Versione precedente', id: 'lesson-1' })],
+    }),
+    source: createProjectSourceFromFile(markdownFile),
+    state: AppState.READING,
+  });
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Versione rigenerata',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: snapshot.id,
+    quiz: [],
+    sectionId: 'lesson-1',
+    warnings: [],
+  }));
+  const { controller, domain } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: {
+      generateDurableLesson,
+      hasDurableLessonRequest: (projectId, sectionId) =>
+        projectId === snapshot.id && sectionId === 'lesson-1',
+    },
+  });
+
+  assert.equal((await controller.openProject(snapshot.id)).outcome, 'opened');
+  await vi.waitFor(() => expect(generateDurableLesson).toHaveBeenCalledOnce());
+  await vi.waitFor(() =>
+    expect(getLessons(domain.learningPlan)[0]?.content).toBe('# Versione rigenerata')
+  );
 });
 
 test('openProject does not download detached PDF bytes when the active lesson is cached', async () => {
@@ -3468,17 +3525,18 @@ test('openSection transfers a persisted sublesson request to its recoverable sec
     sectionId: 'deep-1',
     warnings: [],
   }));
-  const isDurableSublessonRequestForSection = vi.fn(async () => true);
+  const recovery = buildLessonRecovery('deep-1');
+  const resolveDurableSublessonRequestForSection = vi.fn(async () => recovery);
   const { controller } = createControllerHarness({
     domain: { learningPlan: plan },
-    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
+    openRouter: { generateDurableLesson, resolveDurableSublessonRequestForSection },
     projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const outcome = await controller.openSection(deepLesson);
 
   expect(outcome).toBe('loaded');
-  expect(isDurableSublessonRequestForSection).toHaveBeenCalledWith(
+  expect(resolveDurableSublessonRequestForSection).toHaveBeenCalledWith(
     'project-1',
     'lesson-1',
     'deep-1'
@@ -3487,6 +3545,7 @@ test('openSection transfers a persisted sublesson request to its recoverable sec
     expect.objectContaining({
       parentSectionId: 'lesson-1',
       projectId: 'project-1',
+      recovery,
       sectionId: 'deep-1',
     })
   );
@@ -3511,17 +3570,17 @@ test('openSection reuses a cached sibling of the retained sublesson request', as
     sections: [buildTestLesson({ id: 'lesson-1' }), retainedDeepLesson, cachedSibling],
   });
   const generateDurableLesson = vi.fn();
-  const isDurableSublessonRequestForSection = vi.fn(async () => false);
+  const resolveDurableSublessonRequestForSection = vi.fn(async () => null);
   const { controller } = createControllerHarness({
     domain: { learningPlan: plan },
-    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
+    openRouter: { generateDurableLesson, resolveDurableSublessonRequestForSection },
     projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const outcome = await controller.openSection(cachedSibling);
 
   expect(outcome).toBe('reused-cached');
-  expect(isDurableSublessonRequestForSection).toHaveBeenCalledWith(
+  expect(resolveDurableSublessonRequestForSection).toHaveBeenCalledWith(
     'project-1',
     'lesson-1',
     'deep-2'
@@ -3545,24 +3604,24 @@ test('openSection ignores a retained-request lookup superseded by newer navigati
   const plan = buildPlan({
     sections: [buildTestLesson({ id: 'lesson-1' }), deepLesson, cachedLesson],
   });
-  let resolveRetainedLookup: ((matches: boolean) => void) | undefined;
-  const isDurableSublessonRequestForSection = vi.fn(
+  let resolveRetainedLookup: ((recovery: DurableLessonRecovery | null) => void) | undefined;
+  const resolveDurableSublessonRequestForSection = vi.fn(
     () =>
-      new Promise<boolean>(resolve => {
+      new Promise<DurableLessonRecovery | null>(resolve => {
         resolveRetainedLookup = resolve;
       })
   );
   const generateDurableLesson = vi.fn();
   const { controller, domain, projectLibrary, recreateController } = createControllerHarness({
     domain: { learningPlan: plan },
-    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
+    openRouter: { generateDurableLesson, resolveDurableSublessonRequestForSection },
     projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const staleNavigation = controller.openSection(deepLesson);
   await vi.waitFor(() => expect(resolveRetainedLookup).toBeTypeOf('function'));
   await expect(recreateController().openSection(cachedLesson)).resolves.toBe('reused-cached');
-  resolveRetainedLookup?.(true);
+  resolveRetainedLookup?.(buildLessonRecovery('deep-1'));
 
   await expect(staleNavigation).resolves.toBe('ignored-busy');
   expect(domain.activeSectionId).toBe('lesson-2');
@@ -3579,17 +3638,17 @@ test('openSection stays stale after project navigation returns to the origin pro
     type: 'deep-dive',
   });
   const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' }), deepLesson] });
-  let resolveRetainedLookup: ((matches: boolean) => void) | undefined;
-  const isDurableSublessonRequestForSection = vi.fn(
+  let resolveRetainedLookup: ((recovery: DurableLessonRecovery | null) => void) | undefined;
+  const resolveDurableSublessonRequestForSection = vi.fn(
     () =>
-      new Promise<boolean>(resolve => {
+      new Promise<DurableLessonRecovery | null>(resolve => {
         resolveRetainedLookup = resolve;
       })
   );
   const generateDurableLesson = vi.fn();
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     domain: { learningPlan: plan },
-    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
+    openRouter: { generateDurableLesson, resolveDurableSublessonRequestForSection },
     projectLibrary: { currentProjectId: 'project-1' },
   });
 
@@ -3599,7 +3658,7 @@ test('openSection stays stale after project navigation returns to the origin pro
   projectLibrary.adapter.setCurrentProjectId('project-2');
   projectLibrary.adapter.setCurrentProjectId('project-1');
   domain.setActiveSectionId('lesson-1');
-  resolveRetainedLookup?.(true);
+  resolveRetainedLookup?.(buildLessonRecovery('deep-1'));
 
   await expect(staleNavigation).resolves.toBe('ignored-busy');
   expect(domain.activeSectionId).toBe('lesson-1');
@@ -4491,6 +4550,45 @@ test('opening a ready lesson detaches the previous lesson generation view', asyn
 
   expect(await generation).toBe('ignored-busy');
   expect(harness.domain.activeSectionId).toBe(readyLesson.id);
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('idle');
+});
+
+test('detached lesson completion releases the pending workflow', async () => {
+  const generatingLesson = buildTestLesson({ id: 'lesson-a' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-b' });
+  const plan = buildPlan({ sections: [generatingLesson, readyLesson] });
+  let releaseGeneration: (() => void) | undefined;
+  const generationGate = new Promise<void>(resolve => {
+    releaseGeneration = resolve;
+  });
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateDurableLesson: async () => {
+        await generationGate;
+        return {
+          content: '# Generata',
+          contentBlocks: [],
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          projectId: 'project-1',
+          quiz: [],
+          sectionId: generatingLesson.id,
+          warnings: [],
+        };
+      },
+    },
+  });
+
+  const generation = harness.controller.openSection(generatingLesson);
+  await Promise.resolve();
+  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  releaseGeneration?.();
+
+  expect(await generation).toBe('loaded');
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('idle');
 });
 
 test('lesson generation reattaches while another project owns the pending workflow', async () => {
@@ -5074,6 +5172,51 @@ test('createLessonFromSelection applies detached durable completion without chan
   assert.deepEqual(applyPersistedProjectRevision.mock.calls, [
     [{ projectId: 'project-1', revision: 2 }],
   ]);
+});
+
+test('detached sublesson completion releases the pending workflow', async () => {
+  const parentLesson = buildTestLesson({ id: 'lesson-1' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
+  const plan = buildPlan({ sections: [parentLesson, readyLesson] });
+  let releaseGeneration: (() => void) | undefined;
+  const generationGate = new Promise<void>(resolve => {
+    releaseGeneration = resolve;
+  });
+  const harness = createControllerHarness({
+    domain: { activeSectionId: parentLesson.id, learningPlan: plan },
+    projectLibrary: {
+      applyPersistedProjectRevision: async () => true,
+      currentProjectId: 'project-1',
+    },
+    openRouter: {
+      generateDurableSublesson: async () => {
+        await generationGate;
+        return {
+          content: '# Approfondimento',
+          contentBlocks: [],
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          projectId: 'project-1',
+          projectRevision: 2,
+          quiz: [],
+          sectionId: 'deep-1',
+          warnings: [],
+        };
+      },
+    },
+  });
+
+  const creation = harness.controller.createLessonFromSelection({
+    instructions: 'Approfondisci',
+    selectedText: 'testo',
+  });
+  await Promise.resolve();
+  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  releaseGeneration?.();
+
+  expect(await creation).toEqual({ outcome: 'ignored-busy' });
+  expect(harness.state.internalState.workflowState.createLesson.status).toBe('idle');
 });
 
 test('createLessonFromSelection hydrates and opens the authoritative durable sublesson', async () => {

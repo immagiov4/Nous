@@ -325,20 +325,20 @@ const runDurableLessonRequest = async ({
   }
 };
 
-interface RetainedSublessonRequest {
+export interface DurableLessonRecovery {
   job: LessonWorkflowSnapshot;
   requestKey: string;
   storageKey: string;
 }
 
-const resolveRetainedSublessonRequest = async ({
-  parentSectionId,
+const resolveRetainedLessonRequest = async ({
   projectId,
+  requestIdentity,
 }: {
-  parentSectionId: string;
   projectId: string;
-}): Promise<RetainedSublessonRequest | null> => {
-  const storageKey = getLessonRequestKeyStorageKey(projectId, `sublesson:${parentSectionId}`);
+  requestIdentity: string;
+}): Promise<DurableLessonRecovery | null> => {
+  const storageKey = getLessonRequestKeyStorageKey(projectId, requestIdentity);
   const requestKey = readWorkflowRequestKey(storageKey);
   if (!requestKey) return null;
 
@@ -362,35 +362,46 @@ const resolveRetainedSublessonRequest = async ({
   return { job, requestKey, storageKey };
 };
 
+export const resolveDurableSublessonRequestForSection = async (
+  projectId: string,
+  parentSectionId: string,
+  sectionId: string
+): Promise<DurableLessonRecovery | null> => {
+  const retained = await resolveRetainedLessonRequest({
+    projectId,
+    requestIdentity: `sublesson:${parentSectionId}`,
+  });
+  return retained?.job.projectId === projectId && retained.job.sectionId === sectionId
+    ? retained
+    : null;
+};
+
 export const isDurableSublessonRequestForSection = async (
   projectId: string,
   parentSectionId: string,
   sectionId: string
-): Promise<boolean> => {
-  const retained = await resolveRetainedSublessonRequest({ parentSectionId, projectId });
-  return retained?.job.projectId === projectId && retained.job.sectionId === sectionId;
-};
+): Promise<boolean> =>
+  (await resolveDurableSublessonRequestForSection(projectId, parentSectionId, sectionId)) !== null;
 
-const resumeRetainedSublessonRequest = async ({
+const resumeRetainedLessonRequest = async ({
   onProgressStage,
   onWorkflowSnapshot,
-  parentSectionId,
   projectId,
+  recovery,
   sectionId,
 }: {
   onProgressStage?: (stage: LessonWorkflowStage) => void;
   onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
-  parentSectionId: string;
   projectId: string;
+  recovery: DurableLessonRecovery;
   sectionId: string;
-}): Promise<DurableLessonResult | null> => {
-  const retained = await resolveRetainedSublessonRequest({ parentSectionId, projectId });
-  if (!retained || retained.job.projectId !== projectId || retained.job.sectionId !== sectionId) {
-    return null;
+}): Promise<DurableLessonResult> => {
+  if (recovery.job.projectId !== projectId || recovery.job.sectionId !== sectionId) {
+    throw new Error(LESSON_GENERATION_ERROR);
   }
 
-  const terminalJob = await waitForTerminalRun(retained.job, onProgressStage, onWorkflowSnapshot);
-  clearWorkflowRequestKey(retained.storageKey, retained.requestKey);
+  const terminalJob = await waitForTerminalRun(recovery.job, onProgressStage, onWorkflowSnapshot);
+  clearWorkflowRequestKey(recovery.storageKey, recovery.requestKey);
   if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);
   try {
     return parseCompletedResult(terminalJob, projectId, sectionId);
@@ -404,7 +415,10 @@ const retireTerminalRetainedSublessonRequest = async (
   projectId: string,
   parentSectionId: string
 ): Promise<void> => {
-  const retained = await resolveRetainedSublessonRequest({ parentSectionId, projectId });
+  const retained = await resolveRetainedLessonRequest({
+    projectId,
+    requestIdentity: `sublesson:${parentSectionId}`,
+  });
   if (!retained) return;
   if (retained.job.projectId !== projectId) {
     throw new Error(LESSON_GENERATION_ERROR);
@@ -421,6 +435,7 @@ export const generateDurableLesson = async ({
   onWorkflowSnapshot,
   parentSectionId,
   projectId,
+  recovery,
   sectionId,
 }: {
   forceRegenerate?: boolean;
@@ -428,17 +443,36 @@ export const generateDurableLesson = async ({
   onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
   parentSectionId?: string;
   projectId: string;
+  recovery?: DurableLessonRecovery | null;
   sectionId: string;
 }): Promise<DurableLessonResult> => {
-  if (parentSectionId) {
-    const retainedResult = await resumeRetainedSublessonRequest({
+  const retainedLessonRequest = await resolveRetainedLessonRequest({
+    projectId,
+    requestIdentity: sectionId,
+  });
+  if (retainedLessonRequest) {
+    return resumeRetainedLessonRequest({
       onProgressStage,
       onWorkflowSnapshot,
-      parentSectionId,
       projectId,
+      recovery: retainedLessonRequest,
       sectionId,
     });
-    if (retainedResult) return retainedResult;
+  }
+  if (parentSectionId) {
+    const sublessonRecovery =
+      recovery === undefined
+        ? await resolveDurableSublessonRequestForSection(projectId, parentSectionId, sectionId)
+        : recovery;
+    if (sublessonRecovery) {
+      return resumeRetainedLessonRequest({
+        onProgressStage,
+        onWorkflowSnapshot,
+        projectId,
+        recovery: sublessonRecovery,
+        sectionId,
+      });
+    }
   }
   return runDurableLessonRequest({
     endpoint: 'lessons',

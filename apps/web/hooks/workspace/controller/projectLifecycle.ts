@@ -664,7 +664,9 @@ export const createProjectLifecycleCommands = (
             preparedSnapshot.documentIndex
           ) &&
           nextSection &&
-          (!nextSection.content || nextSection.content.length === 0)
+          (!nextSection.content ||
+            nextSection.content.length === 0 ||
+            openRouter.hasDurableLessonRequest(projectId, nextSection.id))
         ) {
           void (async () => {
             if (
