@@ -361,7 +361,10 @@ const collectBareParenMathRanges = (
   return ranges;
 };
 
-const collectLineNormalizedMathRanges = (segment: string): MarkdownMathRange[] => {
+const collectLineNormalizedMathRanges = (
+  segment: string,
+  delimitedRanges: MarkdownMathRange[]
+): MarkdownMathRange[] => {
   const lines = segment.split('\n');
   const lineStarts = getLineStartOffsets(lines);
   const ranges: MarkdownMathRange[] = [];
@@ -377,11 +380,28 @@ const collectLineNormalizedMathRanges = (segment: string): MarkdownMathRange[] =
       continue;
     }
 
-    if (normalizeBareDisplayMathLine(lines[index])) {
-      const leadingWhitespace = lines[index].length - lines[index].trimStart().length;
+    const lineStart = lineStarts[index];
+    const lineEnd = lineStart + lines[index].length;
+    let plainStart = lineStart;
+    const lineDelimitedRanges = delimitedRanges.filter(
+      range => range.start < lineEnd && range.end > lineStart
+    );
+    for (const delimitedRange of lineDelimitedRanges) {
+      const plainEnd = Math.min(delimitedRange.start, lineEnd);
+      const plainText = segment.slice(plainStart, plainEnd);
+      if (normalizeBareDisplayMathLine(plainText)) {
+        ranges.push({
+          start: plainStart + plainText.length - plainText.trimStart().length,
+          end: plainEnd - (plainText.length - plainText.trimEnd().length),
+        });
+      }
+      plainStart = Math.max(plainStart, delimitedRange.end);
+    }
+    const trailingPlainText = segment.slice(plainStart, lineEnd);
+    if (normalizeBareDisplayMathLine(trailingPlainText)) {
       ranges.push({
-        start: lineStarts[index] + leadingWhitespace,
-        end: lineStarts[index] + lines[index].trimEnd().length,
+        start: plainStart + trailingPlainText.length - trailingPlainText.trimStart().length,
+        end: lineEnd - (trailingPlainText.length - trailingPlainText.trimEnd().length),
       });
     }
   }
@@ -403,7 +423,7 @@ export const getRenderedMathSourceRanges = (segment: string): MarkdownMathRange[
   return mergeMathRanges([
     ...delimitedRanges,
     ...collectBareParenMathRanges(segment, delimitedRanges),
-    ...collectLineNormalizedMathRanges(segment),
+    ...collectLineNormalizedMathRanges(segment, delimitedRanges),
   ]);
 };
 

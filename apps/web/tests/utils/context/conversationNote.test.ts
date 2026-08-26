@@ -254,6 +254,15 @@ test('rejects text rendered from renderer-normalized bare math', () => {
   );
 });
 
+test('keeps visible prose beside delimited inline math anchorable', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(String.raw`x = $\frac{a}{b}$`, {
+      selectedText: 'x =',
+    }),
+    true
+  );
+});
+
 test('accepts complete candidates through KaTeX selection normalization', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate('Ridurre soprattutto $T_{\\text{cluster}}$ accelera.', {

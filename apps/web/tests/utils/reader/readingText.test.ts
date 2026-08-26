@@ -376,6 +376,10 @@ describe('prepareMarkdownForSpeech', () => {
     );
   });
 
+  test('reads visible prose beside delimited inline math', () => {
+    expect(prepareMarkdownForSpeech(String.raw`x = $\frac{a}{b}$`)).toBe('x =');
+  });
+
   test('skips protected backslash math inside escaped raw html', () => {
     expect(prepareMarkdownForSpeech(String.raw`<span>\(visible\)</span>`)).toBe('<span> </span>');
   });
