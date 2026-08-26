@@ -3991,9 +3991,6 @@ test.each([
     title: 'Approfondimento',
     type: 'deep-dive',
   });
-  const generatedPlan = buildPlan({
-    sections: [buildTestLesson({ id: 'lesson-1' }), generatedSection],
-  });
   let settleGeneration: (() => void) | undefined;
   let markStarted: (() => void) | undefined;
   const generationGate = new Promise<void>(resolve => {
@@ -4039,15 +4036,8 @@ test.each([
       },
     },
   });
+  // Hydration updates the next React render, while this command retains the previous domain snapshot.
   harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
-    harness.domain.hydrateSnapshot(
-      createProjectSnapshot({
-        activeSectionId: generatedSection.id,
-        id: 'project-1',
-        learningPlan: generatedPlan,
-        state: AppState.READING,
-      })
-    );
     return true;
   };
 
