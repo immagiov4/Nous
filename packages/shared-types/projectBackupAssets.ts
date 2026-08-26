@@ -158,11 +158,16 @@ const isProjectScopedAnnotationArtifactRef = (
 
 const readAnnotationArtifactProjectId = (
   artifactRef: Record<string, unknown> & { artifactId: string; kind: LearningArtifactKind },
-  lessonId: string
+  lessonIds: readonly string[]
 ): string | null => {
-  const namespaceSeparator = `:${lessonId}:${artifactRef.kind}:`;
-  const namespaceEnd = artifactRef.artifactId.indexOf(namespaceSeparator);
-  return namespaceEnd > 0 ? artifactRef.artifactId.slice(0, namespaceEnd) : null;
+  const projectIds = new Set(
+    lessonIds.flatMap(lessonId => {
+      const namespaceSeparator = `:${lessonId}:${artifactRef.kind}:`;
+      const namespaceEnd = artifactRef.artifactId.indexOf(namespaceSeparator);
+      return namespaceEnd > 0 ? [artifactRef.artifactId.slice(0, namespaceEnd)] : [];
+    })
+  );
+  return projectIds.size === 1 ? ([...projectIds][0] ?? null) : null;
 };
 
 const remapAnnotationArtifactReferences = (
@@ -170,14 +175,18 @@ const remapAnnotationArtifactReferences = (
   sourceProjectId: string,
   targetProjectId: string
 ): void => {
-  for (const section of readProjectSections(project)) {
-    if (typeof section.id !== 'string' || !Array.isArray(section.annotations)) continue;
+  const sections = readProjectSections(project);
+  const lessonIds = sections.flatMap(section =>
+    typeof section.id === 'string' ? [section.id] : []
+  );
+  for (const section of sections) {
+    if (!Array.isArray(section.annotations)) continue;
     for (const annotation of section.annotations) {
       if (!isRecord(annotation) || !Array.isArray(annotation.artifactRefs)) continue;
       for (const artifactRef of annotation.artifactRefs) {
         if (
           !isProjectScopedAnnotationArtifactRef(artifactRef) ||
-          readAnnotationArtifactProjectId(artifactRef, section.id) !== sourceProjectId
+          readAnnotationArtifactProjectId(artifactRef, lessonIds) !== sourceProjectId
         ) {
           continue;
         }
