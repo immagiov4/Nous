@@ -1,4 +1,4 @@
-export const LEARNING_ARTIFACT_KINDS = ['future-asset', 'generated-visual', 'pdf-image'] as const;
+const LEARNING_ARTIFACT_KINDS = ['future-asset', 'generated-visual', 'pdf-image'] as const;
 
 export type LearningArtifactKind = (typeof LEARNING_ARTIFACT_KINDS)[number];
 
