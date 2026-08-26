@@ -1,6 +1,7 @@
 import {
   buildLearningArtifactId,
   isLearningArtifactKind,
+  LEARNING_ARTIFACT_ID_SEPARATOR,
   type LearningArtifactKind,
 } from './learningArtifact';
 import {
@@ -23,6 +24,11 @@ export class InvalidProjectBackupAssetError extends Error {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isUnambiguousArtifactScopeId = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  Boolean(value.trim()) &&
+  !value.includes(LEARNING_ARTIFACT_ID_SEPARATOR);
 
 const readAssetRef = (value: unknown): ProjectAssetRef => {
   if (!isValidProjectAssetRef(value)) {
@@ -197,6 +203,9 @@ const buildOwnedAnnotationArtifactIdMap = (
   );
   for (const section of readProjectSections(project)) {
     if (typeof section.id !== 'string') continue;
+    if (!isUnambiguousArtifactScopeId(section.id)) {
+      throw new InvalidProjectBackupAssetError();
+    }
     if (Array.isArray(section.generatedVisuals)) {
       for (const visual of section.generatedVisuals) {
         if (!isRecord(visual) || typeof visual.id !== 'string') continue;
@@ -263,10 +272,8 @@ export const remapProjectAssetReferences = <T>(
   const remappedProject: Record<string, unknown> = remapped;
   if (targetProjectId !== undefined) {
     if (
-      typeof remappedProject.id !== 'string' ||
-      !remappedProject.id.trim() ||
-      typeof targetProjectId !== 'string' ||
-      !targetProjectId.trim()
+      !isUnambiguousArtifactScopeId(remappedProject.id) ||
+      !isUnambiguousArtifactScopeId(targetProjectId)
     ) {
       throw new InvalidProjectBackupAssetError();
     }

@@ -40,7 +40,10 @@ import type {
   SectionAnnotation,
   StoredLessonVisual,
 } from '../../../types.ts';
-import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
+import {
+  getGeneratedVisualSourceLabel,
+  readGeneratedVisualIdFromArtifactId,
+} from '../../../utils/learning/artifacts.ts';
 import {
   materializeSectionAnnotationMarks,
   type SectionAnnotationBoundaryContext,
@@ -195,7 +198,7 @@ const resolveAnnotationArtifactPayloads = ({
       return [];
     }
 
-    const visualId = ref.artifactId.split(':').pop() || '';
+    const visualId = readGeneratedVisualIdFromArtifactId(ref.artifactId);
     const visual = activeSectionGeneratedVisualsById?.[visualId];
     return visual
       ? [

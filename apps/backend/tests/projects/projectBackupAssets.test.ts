@@ -72,7 +72,7 @@ const projectWithArtifactAnnotations = () => ({
   documentAssets: {
     usedImages: [{ id: 'image-1' }],
   },
-  id: 'source:project',
+  id: 'source-project',
   learningPlan: {
     modules: [
       {
@@ -86,27 +86,27 @@ const projectWithArtifactAnnotations = () => ({
                 anchor: { kind: 'lesson' },
                 artifactRefs: [
                   {
-                    artifactId: 'source:project:lesson-1:generated-visual:visual-1',
+                    artifactId: 'source-project:lesson-1:generated-visual:visual-1',
                     kind: 'generated-visual',
                     title: 'Generated visual',
                   },
                   {
-                    artifactId: 'source:project:lesson-1:pdf-image:image-1',
+                    artifactId: 'source-project:lesson-1:pdf-image:image-1',
                     kind: 'pdf-image',
                     title: 'PDF image',
                   },
                   {
-                    artifactId: 'source:project:lesson-1:future-asset:asset-1',
+                    artifactId: 'source-project:lesson-1:future-asset:asset-1',
                     kind: 'future-asset',
                     title: 'Future asset',
                   },
                   {
-                    artifactId: 'source:project:lesson-2:generated-visual:visual-2',
+                    artifactId: 'source-project:lesson-2:generated-visual:visual-2',
                     kind: 'generated-visual',
                     title: 'Visual from another lesson',
                   },
                   {
-                    artifactId: 'source:project:foreign:lesson-1:generated-visual:foreign-1',
+                    artifactId: 'source-project-foreign:lesson-1:generated-visual:foreign-1',
                     kind: 'generated-visual',
                     title: 'Foreign project with shared prefix',
                   },
@@ -219,7 +219,7 @@ describe('project backup asset references', () => {
           title: 'PDF image',
         },
         {
-          artifactId: 'source:project:lesson-1:future-asset:asset-1',
+          artifactId: 'source-project:lesson-1:future-asset:asset-1',
           kind: 'future-asset',
           title: 'Future asset',
         },
@@ -229,7 +229,7 @@ describe('project backup asset references', () => {
           title: 'Visual from another lesson',
         },
         {
-          artifactId: 'source:project:foreign:lesson-1:generated-visual:foreign-1',
+          artifactId: 'source-project-foreign:lesson-1:generated-visual:foreign-1',
           kind: 'generated-visual',
           title: 'Foreign project with shared prefix',
         },
@@ -260,13 +260,42 @@ describe('project backup asset references', () => {
     ).toThrow(InvalidProjectBackupAssetError);
   });
 
+  test('rejects ambiguous project and lesson scope IDs while allowing separators in artifact IDs', () => {
+    const ambiguousProject = projectWithArtifactAnnotations();
+    ambiguousProject.id = 'source:project';
+    expect(() =>
+      remapProjectAssetReferences(ambiguousProject, new Map(), 'imported-project')
+    ).toThrow(InvalidProjectBackupAssetError);
+
+    const ambiguousLesson = projectWithArtifactAnnotations();
+    const lesson = ambiguousLesson.learningPlan.modules[0]?.children[0];
+    if (lesson) lesson.id = 'lesson:1';
+    expect(() =>
+      remapProjectAssetReferences(ambiguousLesson, new Map(), 'imported-project')
+    ).toThrow(InvalidProjectBackupAssetError);
+
+    const source = projectWithArtifactAnnotations();
+    const visual = source.learningPlan.modules[0]?.children[0]?.generatedVisuals[0];
+    const artifactRef =
+      source.learningPlan.modules[0]?.children[0]?.annotations[0]?.artifactRefs[0];
+    if (visual && artifactRef) {
+      visual.id = 'lesson-visual:run-id:slot-id';
+      artifactRef.artifactId =
+        'source-project:lesson-1:generated-visual:lesson-visual:run-id:slot-id';
+    }
+    const remapped = remapProjectAssetReferences(source, new Map(), 'imported-project');
+    expect(
+      remapped.learningPlan.modules[0]?.children[0]?.annotations[0]?.artifactRefs[0]?.artifactId
+    ).toBe('imported-project:lesson-1:generated-visual:lesson-visual:run-id:slot-id');
+  });
+
   test('remaps owned artifacts across many lessons without deriving namespaces from references', () => {
     const lessons = Array.from({ length: 48 }, (_, index) => ({
       annotations: [
         {
           artifactRefs: [
             {
-              artifactId: `source:project:lesson-${index}:generated-visual:visual-${index}`,
+              artifactId: `source-project:lesson-${index}:generated-visual:visual-${index}`,
               kind: 'generated-visual',
             },
           ],
@@ -277,7 +306,7 @@ describe('project backup asset references', () => {
     }));
 
     const remapped = remapProjectAssetReferences(
-      { id: 'source:project', learningPlan: { sections: lessons } },
+      { id: 'source-project', learningPlan: { sections: lessons } },
       new Map(),
       'imported-project'
     );
