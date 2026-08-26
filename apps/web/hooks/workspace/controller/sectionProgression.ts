@@ -844,13 +844,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       projectId,
       generationToken,
       () => {
-        if (
+        const isWorkflowStillPending =
           state.isWorkflowCurrent('createLesson', requestId) &&
-          state.getWorkflowState().createLesson.status === 'pending'
-        ) {
-          return true;
+          state.getWorkflowState().createLesson.status === 'pending';
+        if (!isWorkflowStillPending) {
+          requestId = beginSublessonWorkflow();
         }
-        requestId = beginSublessonWorkflow();
         return true;
       },
       parentSection.id
@@ -878,7 +877,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       subject: parentSection.title,
     });
 
-    try {
+    const onWorkflowSnapshot = (snapshot: LessonWorkflowSnapshot) => {
+      if (!isGenerationCurrent()) return;
+      generatedSectionId = snapshot.sectionId;
+      state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
+      if (isGenerationViewCurrent()) progressBridge.updateFromWorkflow(snapshot);
+    };
+
+    const generateSublessonResult = async (): Promise<DurableLessonResult | null> => {
       if (start.kind === 'new') {
         const persistedProject = await projectLibrary.patchCurrentProject(
           { activeSectionId: parentSection.id, state: AppState.READING },
@@ -887,40 +893,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         if (!persistedProject) {
           throw new Error(t('Non sono riuscito a salvare la lezione da generare. Riprova.'));
         }
-        if (!isGenerationCurrent()) return { outcome: 'ignored-busy' };
-      }
-      const recovery =
-        start.kind === 'recovery'
-          ? await openRouter.resolveDurableSublessonRequestForParent(projectId, parentSection.id)
-          : null;
-      if (!isGenerationCurrent()) return { outcome: 'ignored-busy' };
-      if (start.kind === 'recovery' && !recovery) {
-        if (isGenerationWorkflowCurrent()) state.invalidateWorkflows(['createLesson']);
-        return { outcome: 'ignored-busy' };
-      }
-      if (recovery) {
-        generatedSectionId = recovery.job.sectionId;
-        state.setGeneratingSectionId(projectId, generationToken, recovery.job.sectionId);
-      }
-      const onWorkflowSnapshot = (snapshot: LessonWorkflowSnapshot) => {
-        if (!isGenerationCurrent()) return;
-        generatedSectionId = snapshot.sectionId;
-        state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
-        if (isGenerationViewCurrent()) progressBridge.updateFromWorkflow(snapshot);
-      };
-      let result: DurableLessonResult;
-      if (start.kind === 'recovery') {
-        if (!recovery) return { outcome: 'ignored-busy' };
-        result = await openRouter.generateDurableLesson({
-          onProgressStage: progressObserver.setStage,
-          onWorkflowSnapshot,
-          parentSectionId: parentSection.id,
-          projectId,
-          recovery,
-          sectionId: recovery.job.sectionId,
-        });
-      } else {
-        result = await openRouter.generateDurableSublesson({
+        if (!isGenerationCurrent()) return null;
+        return openRouter.generateDurableSublesson({
           annotationNote: start.focus.annotationNote,
           contextAfter: start.focus.contextAfter,
           contextBefore: start.focus.contextBefore,
@@ -933,16 +907,86 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         });
       }
 
-      if (!isGenerationCurrent()) {
-        return { outcome: 'ignored-busy' };
+      const recovery = await openRouter.resolveDurableSublessonRequestForParent(
+        projectId,
+        parentSection.id
+      );
+      if (!isGenerationCurrent()) return null;
+      if (!recovery) {
+        if (isGenerationWorkflowCurrent()) state.invalidateWorkflows(['createLesson']);
+        return null;
       }
-      generatedSectionId = result.sectionId;
-      if (typeof result.projectRevision !== 'number') {
-        throw new TypeError(
-          'La nuova lezione è stata generata, ma non è stato possibile caricarla.'
-        );
-      }
+      generatedSectionId = recovery.job.sectionId;
+      state.setGeneratingSectionId(projectId, generationToken, recovery.job.sectionId);
+      return openRouter.generateDurableLesson({
+        onProgressStage: progressObserver.setStage,
+        onWorkflowSnapshot,
+        parentSectionId: parentSection.id,
+        projectId,
+        recovery,
+        sectionId: recovery.job.sectionId,
+      });
+    };
 
+    const preserveVisibleSection = (
+      activeSectionBeforeApply: string | null,
+      shouldPreserveVisibleSection: boolean
+    ) => {
+      if (
+        !shouldPreserveVisibleSection ||
+        activeSectionBeforeApply === null ||
+        projectLibrary.getCurrentProjectId() !== projectId ||
+        domain.getDomainState().activeSectionId === activeSectionBeforeApply
+      ) {
+        return;
+      }
+      domain.setActiveSectionId(activeSectionBeforeApply);
+      void projectLibrary.patchCurrentProject(
+        { activeSectionId: activeSectionBeforeApply, state: AppState.READING },
+        projectId
+      );
+    };
+
+    const hydrateStoredSublesson = async (
+      result: DurableLessonResult,
+      projectRevision: number
+    ): Promise<boolean> => {
+      const persisted = await projectLibrary.loadStoredProjectWithRevision(projectId);
+      if (!isGenerationCurrent() || !isGenerationViewCurrent()) return false;
+      if (!persisted || persisted.revision < projectRevision) {
+        throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
+      }
+      const createdSection = findPathNodeById(
+        persisted.snapshot.learningPlan?.modules,
+        result.sectionId
+      );
+      if (createdSection?.kind !== 'lesson') {
+        throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
+      }
+      domain.hydrateSnapshot(persisted.snapshot);
+      projectLibrary.completeProjectHydration(persisted);
+      return true;
+    };
+
+    const openGeneratedSublesson = (sectionId: string) => {
+      if (
+        projectLibrary.getCurrentProjectId() !== projectId ||
+        domain.activeSectionId === sectionId
+      ) {
+        return;
+      }
+      stopAudio(true);
+      domain.setActiveSectionId(sectionId);
+      void projectLibrary.patchCurrentProject(
+        { activeSectionId: sectionId, state: AppState.READING },
+        projectId
+      );
+    };
+
+    const applySublessonResult = async (
+      result: DurableLessonResult,
+      projectRevision: number
+    ): Promise<{ outcome: CreateLessonOutcome }> => {
       const activeSectionBeforeApply = domain.getDomainState().activeSectionId;
       const shouldPreserveVisibleSection =
         activeSectionBeforeApply !== null &&
@@ -950,60 +994,18 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         activeSectionBeforeApply !== generatedSectionId;
       const applied = await projectLibrary.applyPersistedProjectRevision({
         projectId,
-        revision: result.projectRevision,
+        revision: projectRevision,
       });
-      if (!isGenerationCurrent()) {
-        return { outcome: 'ignored-busy' };
-      }
-      if (
-        shouldPreserveVisibleSection &&
-        projectLibrary.getCurrentProjectId() === projectId &&
-        domain.getDomainState().activeSectionId !== activeSectionBeforeApply
-      ) {
-        domain.setActiveSectionId(activeSectionBeforeApply);
-        void projectLibrary.patchCurrentProject(
-          { activeSectionId: activeSectionBeforeApply, state: AppState.READING },
-          projectId
-        );
-      }
+      if (!isGenerationCurrent()) return { outcome: 'ignored-busy' };
+      preserveVisibleSection(activeSectionBeforeApply, shouldPreserveVisibleSection);
       if (!isGenerationViewCurrent()) {
-        if (isGenerationWorkflowCurrent()) {
-          state.invalidateWorkflows(['createLesson']);
-        }
+        if (isGenerationWorkflowCurrent()) state.invalidateWorkflows(['createLesson']);
         return { outcome: 'ignored-busy' };
       }
-      if (!applied) {
-        const persisted = await projectLibrary.loadStoredProjectWithRevision(projectId);
-        if (!isGenerationCurrent() || !isGenerationViewCurrent()) {
-          return { outcome: 'ignored-busy' };
-        }
-        if (!persisted || persisted.revision < result.projectRevision) {
-          throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
-        }
-        const createdSection = findPathNodeById(
-          persisted.snapshot.learningPlan?.modules,
-          result.sectionId
-        );
-        if (createdSection?.kind !== 'lesson') {
-          throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
-        }
-        domain.hydrateSnapshot(persisted.snapshot);
-        projectLibrary.completeProjectHydration(persisted);
+      if (!applied && !(await hydrateStoredSublesson(result, projectRevision))) {
+        return { outcome: 'ignored-busy' };
       }
-      if (
-        projectLibrary.getCurrentProjectId() === projectId &&
-        domain.activeSectionId !== result.sectionId
-      ) {
-        stopAudio(true);
-        domain.setActiveSectionId(result.sectionId);
-        void projectLibrary.patchCurrentProject(
-          {
-            activeSectionId: result.sectionId,
-            state: AppState.READING,
-          },
-          projectId
-        );
-      }
+      openGeneratedSublesson(result.sectionId);
       await progressObserver.finish();
       progressObserver.complete();
       if (isGenerationWorkflowCurrent()) {
@@ -1011,10 +1013,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         else state.invalidateWorkflows(['createLesson']);
       }
       return { outcome: 'created' };
-    } catch (error) {
-      if (!isGenerationCurrent()) {
-        return { outcome: 'ignored-busy' };
-      }
+    };
+
+    const settleSublessonFailure = (
+      error: unknown
+    ): { errorMessage?: string; outcome: CreateLessonOutcome } => {
+      if (!isGenerationCurrent()) return { outcome: 'ignored-busy' };
       if (error instanceof LessonSourceUnavailableError) {
         state.setProjectMissingSource(projectId, true);
       }
@@ -1024,11 +1028,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
           : getErrorMessage(error);
       if (isGenerationWorkflowCurrent()) {
-        if (shouldReportToCurrentView) {
-          state.failWorkflow('createLesson', requestId, errorMessage);
-        } else {
-          state.invalidateWorkflows(['createLesson']);
-        }
+        if (shouldReportToCurrentView) state.failWorkflow('createLesson', requestId, errorMessage);
+        else state.invalidateWorkflows(['createLesson']);
       }
       if (!shouldReportToCurrentView) return { outcome: 'ignored-busy' };
       return {
@@ -1036,6 +1037,21 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           error instanceof LessonSourceUnavailableError ? 'blocked-missing-source' : 'failed',
         errorMessage,
       };
+    };
+
+    try {
+      const result = await generateSublessonResult();
+      if (!result || !isGenerationCurrent()) return { outcome: 'ignored-busy' };
+      generatedSectionId = result.sectionId;
+      const projectRevision = result.projectRevision;
+      if (typeof projectRevision !== 'number') {
+        throw new TypeError(
+          'La nuova lezione è stata generata, ma non è stato possibile caricarla.'
+        );
+      }
+      return await applySublessonResult(result, projectRevision);
+    } catch (error) {
+      return settleSublessonFailure(error);
     } finally {
       progressObserver.dispose();
       state.finishGeneration(activeGeneration.projectId, activeGeneration.token);

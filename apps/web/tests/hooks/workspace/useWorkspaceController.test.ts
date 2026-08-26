@@ -5828,10 +5828,10 @@ test('createLessonFromSelection applies detached durable completion without chan
   );
   releaseGeneration?.();
 
-  assert.deepEqual(await creation, { outcome: 'ignored-busy' });
-  assert.equal(harness.domain.activeSectionId, 'project-2-lesson');
-  assert.equal(harness.domain.learningPlan?.modules[0]?.children[0]?.id, 'project-2-lesson');
-  assert.deepEqual(applyPersistedProjectRevision.mock.calls, [
+  expect(await creation).toEqual({ outcome: 'ignored-busy' });
+  expect(harness.domain.activeSectionId).toBe('project-2-lesson');
+  expect(harness.domain.learningPlan?.modules[0]?.children[0]?.id).toBe('project-2-lesson');
+  expect(applyPersistedProjectRevision.mock.calls).toEqual([
     [{ projectId: 'project-1', revision: 2 }],
   ]);
 });

@@ -347,6 +347,17 @@ interface DurableLessonRequest {
   requestIdentity: string;
 }
 
+const getMatchingBusyJob = (
+  busyJob: LessonWorkflowSnapshot | null,
+  projectId: string,
+  expectedSectionId: string | undefined
+): LessonWorkflowSnapshot | null =>
+  busyJob?.projectId === projectId &&
+  expectedSectionId !== undefined &&
+  busyJob.sectionId === expectedSectionId
+    ? busyJob
+    : null;
+
 const runDurableLessonRequest = async ({
   endpoint,
   expectedSectionId,
@@ -380,13 +391,7 @@ const runDurableLessonRequest = async ({
   const payload = await readWorkflowJson(response);
   const busyJob =
     response.status === LESSON_GENERATION_BUSY_STATUS ? readWorkflowJob(payload, false) : null;
-  const reattachedBusyJob =
-    busyJob &&
-    busyJob.projectId === projectId &&
-    expectedSectionId !== undefined &&
-    busyJob.sectionId === expectedSectionId
-      ? busyJob
-      : null;
+  const reattachedBusyJob = getMatchingBusyJob(busyJob, projectId, expectedSectionId);
   if (busyJob && !reattachedBusyJob) {
     clearRequest();
     throw new LessonGenerationBusyError(busyJob.sectionId);
@@ -565,10 +570,14 @@ export const generateDurableLesson = async ({
     clearLessonRequestState(retainedLessonRequest.storageKey, retainedLessonRequest.requestKey);
   }
   if (parentSectionId) {
-    const sublessonRecovery =
-      recovery === undefined
-        ? await resolveDurableSublessonRequestForSection(projectId, parentSectionId, sectionId)
-        : recovery;
+    let sublessonRecovery = recovery;
+    if (sublessonRecovery === undefined) {
+      sublessonRecovery = await resolveDurableSublessonRequestForSection(
+        projectId,
+        parentSectionId,
+        sectionId
+      );
+    }
     if (sublessonRecovery) {
       return resumeRetainedLessonRequest({
         onProgressStage,
