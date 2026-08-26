@@ -164,6 +164,7 @@ describe('PostgresProjectStore', () => {
   test.each([
     { legacyIndex: { entries: [{ kind: 'directory' as const, path: 'src' }] }, shape: 'version' },
     { legacyIndex: undefined, shape: 'index object' },
+    { legacyIndex: null, shape: 'JSON null index' },
     {
       legacyIndex: {
         entries: [{ kind: 'directory' as const, path: 'src' }],
@@ -192,7 +193,7 @@ describe('PostgresProjectStore', () => {
           name: 'source.zip',
           sourceId: archiveVersion.sourceId,
         },
-        ...(legacyIndex ? { index: legacyIndex } : {}),
+        ...(legacyIndex === undefined ? {} : { index: legacyIndex }),
         kind: 'archive',
         name: 'source.zip',
         ref: {

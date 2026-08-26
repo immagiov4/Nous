@@ -128,7 +128,7 @@ const readLegacySourceArchiveIdentity = (
   const sourceRef = source && isRecord(source.ref) ? source.ref : null;
   if (
     source?.kind !== 'archive' ||
-    (Object.hasOwn(source, 'index') && !sourceIndex) ||
+    (Object.hasOwn(source, 'index') && source.index !== null && !sourceIndex) ||
     sourceIndex?.version ||
     !sourceRef ||
     typeof sourceRef.id !== 'string' ||
