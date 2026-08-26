@@ -11,12 +11,14 @@ import { getBackendUrl } from './config.ts';
 import {
   acquireWorkflowRequestKey,
   assertWorkflowPollResponse,
+  clearWorkflowRequestKey,
   isDefinitiveWorkflowStartRejection,
   isWorkflowSnapshotEnvelope,
   logMalformedWorkflowSnapshotCorrelationId,
   pollWorkflow,
   readWorkflowJson,
   readWorkflowPollJson,
+  readWorkflowRequestKey,
   resolveWorkflowFailureMessage,
 } from './workflowClientTransport.ts';
 
@@ -110,6 +112,12 @@ export interface DurableSublessonFocus {
   instructions: string;
   selectedText: string;
 }
+
+const getLessonRequestKeyStorageKey = (projectId: string, requestIdentity: string): string =>
+  `${LESSON_REQUEST_KEY_PREFIX}${projectId}:${requestIdentity}`;
+
+export const hasDurableLessonRequest = (projectId: string, sectionId: string): boolean =>
+  readWorkflowRequestKey(getLessonRequestKeyStorageKey(projectId, sectionId)) !== null;
 
 const parseCompletedResult = (
   job: LessonWorkflowSnapshot,
@@ -250,6 +258,7 @@ interface DurableLessonRequest {
   payload: Record<string, unknown>;
   projectId: string;
   requestIdentity: string;
+  supersededRequestIdentity?: string;
 }
 
 const runDurableLessonRequest = async ({
@@ -260,10 +269,14 @@ const runDurableLessonRequest = async ({
   payload: requestPayload,
   projectId,
   requestIdentity,
+  supersededRequestIdentity,
 }: DurableLessonRequest): Promise<DurableLessonResult> => {
   const request = acquireWorkflowRequestKey(
-    `${LESSON_REQUEST_KEY_PREFIX}${projectId}:${requestIdentity}`
+    getLessonRequestKeyStorageKey(projectId, requestIdentity)
   );
+  if (supersededRequestIdentity) {
+    clearWorkflowRequestKey(getLessonRequestKeyStorageKey(projectId, supersededRequestIdentity));
+  }
   const response = await fetchWithSupabaseAuth(
     `${getBackendUrl()}/api/lesson-workflows/${endpoint}`,
     {
@@ -273,7 +286,12 @@ const runDurableLessonRequest = async ({
     },
     { expectedStatuses: [LESSON_GENERATION_BUSY_STATUS] }
   );
-  if (isDefinitiveWorkflowStartRejection(response)) request.clear();
+  if (
+    response.status !== LESSON_GENERATION_BUSY_STATUS &&
+    isDefinitiveWorkflowStartRejection(response)
+  ) {
+    request.clear();
+  }
   const payload = await readWorkflowJson(response);
   const busyJob =
     response.status === LESSON_GENERATION_BUSY_STATUS ? readWorkflowJob(payload, false) : null;
@@ -285,6 +303,7 @@ const runDurableLessonRequest = async ({
       ? busyJob
       : null;
   if (busyJob && !reattachedBusyJob) {
+    request.clear();
     throw new LessonGenerationBusyError(busyJob.sectionId);
   }
   if (response.status === LESSON_GENERATION_BUSY_STATUS) {
@@ -296,10 +315,10 @@ const runDurableLessonRequest = async ({
     job?.projectId !== projectId ||
     (expectedSectionId !== undefined && job.sectionId !== expectedSectionId)
   ) {
+    if (response.status === LESSON_GENERATION_BUSY_STATUS) request.clear();
     throw new Error(LESSON_GENERATION_ERROR);
   }
 
-  if (endpoint === 'sublessons') request.clear();
   const terminalJob = await waitForTerminalRun(job, onProgressStage, onWorkflowSnapshot);
   request.clear();
   if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);
@@ -315,12 +334,14 @@ export const generateDurableLesson = async ({
   forceRegenerate = false,
   onProgressStage,
   onWorkflowSnapshot,
+  parentSectionId,
   projectId,
   sectionId,
 }: {
   forceRegenerate?: boolean;
   onProgressStage?: (stage: LessonWorkflowStage) => void;
   onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
+  parentSectionId?: string;
   projectId: string;
   sectionId: string;
 }): Promise<DurableLessonResult> =>
@@ -332,6 +353,7 @@ export const generateDurableLesson = async ({
     payload: { forceRegenerate, sectionId },
     projectId,
     requestIdentity: sectionId,
+    ...(parentSectionId ? { supersededRequestIdentity: `sublesson:${parentSectionId}` } : {}),
   });
 
 export const generateDurableSublesson = async ({

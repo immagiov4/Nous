@@ -31,6 +31,7 @@ export { createGenerationProgressObserver } from './generationProgress.ts';
 export {
   generateDurableLesson,
   generateDurableSublesson,
+  hasDurableLessonRequest,
   LessonGenerationBusyError,
 } from './lessonGenerationClient.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';

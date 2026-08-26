@@ -833,6 +833,7 @@ const createOpenRouterMock = (
       sectionId: 'deep-1',
       warnings: [],
     }),
+    hasDurableLessonRequest: () => false,
     repairDurablePdfMapping: async ({
       projectId,
     }: Parameters<
@@ -3395,6 +3396,81 @@ test('openSection reuses cached lessons and only generates when content is missi
   assert.equal(loadedOutcome, 'loaded');
   assert.equal(generateSectionCalls, 1);
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Generata');
+});
+
+test('openSection resumes a persisted lesson request instead of reusing stale cached content', async () => {
+  const plan = buildPlan({
+    sections: [
+      buildTestLesson({
+        content: '# Versione precedente',
+        id: 'lesson-1',
+        title: 'Lezione 1',
+      }),
+    ],
+  });
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Versione rigenerata',
+    contentBlocks: [{ markdown: '# Versione rigenerata', type: 'markdown' as const }],
+    documentAssets: null,
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    quiz: [],
+    sectionId: 'lesson-1',
+    warnings: [],
+  }));
+  const hasDurableLessonRequest = vi.fn(() => true);
+  const { controller, domain } = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson, hasDurableLessonRequest },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const outcome = await controller.openSection(getLessons(plan)[0]);
+
+  expect(outcome).toBe('loaded');
+  expect(hasDurableLessonRequest).toHaveBeenCalledWith('project-1', 'lesson-1');
+  expect(generateDurableLesson).toHaveBeenCalledTimes(1);
+  expect(getLessons(domain.learningPlan)[0]?.content).toBe('# Versione rigenerata');
+});
+
+test('openSection transfers a persisted sublesson request to its recoverable section', async () => {
+  const deepLesson = buildTestLesson({
+    id: 'deep-1',
+    parentId: 'lesson-1',
+    title: 'Approfondimento',
+    type: 'deep-dive',
+  });
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' }), deepLesson] });
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Approfondimento',
+    contentBlocks: [{ markdown: '# Approfondimento', type: 'markdown' as const }],
+    documentAssets: null,
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    quiz: [],
+    sectionId: 'deep-1',
+    warnings: [],
+  }));
+  const { controller } = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const outcome = await controller.openSection(deepLesson);
+
+  expect(outcome).toBe('loaded');
+  expect(generateDurableLesson).toHaveBeenCalledWith(
+    expect.objectContaining({
+      parentSectionId: 'lesson-1',
+      projectId: 'project-1',
+      sectionId: 'deep-1',
+    })
+  );
 });
 
 test('openSection delegates production lesson work to the durable backend job', async () => {

@@ -421,7 +421,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     // Sections with content navigate immediately — even if another generation
     // is running. The user can freely switch between ready lessons.
-    if (!forceRegenerate && section.content?.length) {
+    const hasPersistedLessonRequest =
+      currentProjectId !== null && openRouter.hasDurableLessonRequest(currentProjectId, section.id);
+    if (!forceRegenerate && section.content?.length && !hasPersistedLessonRequest) {
       stopAudio(true);
       domain.setActiveSectionId(section.id);
       void projectLibrary.patchCurrentProject({
@@ -519,6 +521,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           if (!isGenerationViewCurrent()) return;
           progressBridge.updateFromWorkflow(snapshot);
         },
+        ...(section.parentId ? { parentSectionId: section.parentId } : {}),
         projectId,
         sectionId: section.id,
       });
