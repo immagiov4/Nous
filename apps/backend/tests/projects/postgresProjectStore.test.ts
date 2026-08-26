@@ -2686,6 +2686,16 @@ describe('PostgresProjectStore', () => {
 
     expect(sqlClient.begin).toHaveBeenCalledTimes(1);
     expect(transactionStatements[0]).toContain('for update');
+    const snapshotLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_snapshots') && statement.includes('for update')
+    );
+    const sourceLockIndex = transactionStatements.findIndex(
+      statement =>
+        statement.includes('from public.project_sources') && statement.includes('for update')
+    );
+    expect(snapshotLockIndex).toBeGreaterThan(0);
+    expect(sourceLockIndex).toBeGreaterThan(snapshotLockIndex);
     expect(
       transactionStatements.filter(statement => statement.includes('select object_path'))
     ).toHaveLength(3);

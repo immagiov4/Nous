@@ -1284,6 +1284,12 @@ export class PostgresProjectStore implements ProjectStore {
         where user_id = ${userId} and id = ${id}
         for update
       `;
+      await sql`
+        select id
+        from public.project_snapshots
+        where user_id = ${userId} and id = ${id}
+        for update
+      `;
       const sourceRows = await sql<ProjectSourceObjectPathRow[]>`
         select object_path
         from public.project_sources
