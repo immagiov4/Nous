@@ -12,6 +12,7 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 }));
 
 const {
+  clearAllDurableLessonRequests,
   clearDurableLessonRequestsForProject,
   generateDurableLesson,
   generateDurableSublesson,
@@ -839,6 +840,23 @@ describe('generateDurableLesson', () => {
     expect(
       globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-2:lesson-1')
     ).toBe('request-2');
+  });
+
+  test('clears retained lesson identities when the account session ends', () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1',
+      'request-1'
+    );
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-2:lesson-2:force-regenerate',
+      'true'
+    );
+    globalThis.sessionStorage.setItem('unrelated-session-state', 'keep');
+
+    clearAllDurableLessonRequests();
+
+    expect(globalThis.sessionStorage).toHaveLength(1);
+    expect(globalThis.sessionStorage.getItem('unrelated-session-state')).toBe('keep');
   });
 
   test('starts a server-owned sublesson without sending a section id or parent content', async () => {

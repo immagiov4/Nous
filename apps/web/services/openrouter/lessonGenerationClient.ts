@@ -157,18 +157,25 @@ const clearLessonRequestState = (storageKey: string, expectedRequestKey?: string
   }
 };
 
-export const clearDurableLessonRequestsForProject = (projectId: string): void => {
-  const projectPrefix = `${LESSON_REQUEST_KEY_PREFIX}${projectId}:`;
+const clearDurableLessonRequestStorage = (prefix: string): void => {
   try {
     for (let index = globalThis.sessionStorage.length - 1; index >= 0; index -= 1) {
       const storageKey = globalThis.sessionStorage.key(index);
-      if (storageKey?.startsWith(projectPrefix)) {
+      if (storageKey?.startsWith(prefix)) {
         globalThis.sessionStorage.removeItem(storageKey);
       }
     }
   } catch {
     // Session storage is optional.
   }
+};
+
+export const clearAllDurableLessonRequests = (): void => {
+  clearDurableLessonRequestStorage(LESSON_REQUEST_KEY_PREFIX);
+};
+
+export const clearDurableLessonRequestsForProject = (projectId: string): void => {
+  clearDurableLessonRequestStorage(`${LESSON_REQUEST_KEY_PREFIX}${projectId}:`);
 };
 
 export const hasDurableLessonRequest = (projectId: string, sectionId: string): boolean => {

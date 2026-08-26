@@ -61,6 +61,28 @@ test('keeps the public landing available to signed-in testers at /landing', () =
   expect(screen.queryByText('Area autenticata')).toBeNull();
 });
 
+test('AuthGate clears retained lesson requests when it mounts without a session', async () => {
+  globalThis.sessionStorage.setItem(
+    'nous:lesson-workflow-request:project-1:lesson-1:force-regenerate',
+    'true'
+  );
+
+  render(
+    <AuthGate>
+      <p>Area autenticata</p>
+    </AuthGate>
+  );
+
+  expect(screen.getByRole('button', { name: 'Accedi' })).toBeInTheDocument();
+  await waitFor(() =>
+    expect(
+      globalThis.sessionStorage.getItem(
+        'nous:lesson-workflow-request:project-1:lesson-1:force-regenerate'
+      )
+    ).toBeNull()
+  );
+});
+
 test('AuthGate refreshes an expired stored session without requiring another login', async () => {
   saveSupabaseSession({
     accessToken: 'expired-token',
@@ -100,10 +122,51 @@ test('AuthGate reacts when the current tab clears the session', async () => {
   );
   expect(screen.getByText('Area autenticata')).toBeInTheDocument();
   expect(fetchMock).not.toHaveBeenCalled();
+  globalThis.sessionStorage.setItem(
+    'nous:lesson-workflow-request:project-1:lesson-1:force-regenerate',
+    'true'
+  );
+  globalThis.sessionStorage.setItem('unrelated-session-state', 'keep');
 
   act(() => clearSupabaseSession());
 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Accedi' })).toBeInTheDocument());
+  expect(
+    globalThis.sessionStorage.getItem(
+      'nous:lesson-workflow-request:project-1:lesson-1:force-regenerate'
+    )
+  ).toBeNull();
+  expect(globalThis.sessionStorage.getItem('unrelated-session-state')).toBe('keep');
+  globalThis.sessionStorage.removeItem('unrelated-session-state');
+});
+
+test('AuthGate clears retained lesson requests when the account changes', async () => {
+  saveSupabaseSession({
+    accessToken: 'old-access-token',
+    user: { id: 'old-user' },
+  });
+  render(
+    <AuthGate>
+      <p>Area autenticata</p>
+    </AuthGate>
+  );
+  globalThis.sessionStorage.setItem(
+    'nous:lesson-workflow-request:project-1:lesson-1',
+    'old-account-request'
+  );
+
+  act(() => {
+    saveSupabaseSession({
+      accessToken: 'new-access-token',
+      user: { id: 'new-user' },
+    });
+  });
+
+  await waitFor(() =>
+    expect(
+      globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:lesson-1')
+    ).toBeNull()
+  );
 });
 
 test('AuthGate synchronizes logout events received from another tab', async () => {
@@ -118,6 +181,10 @@ test('AuthGate synchronizes logout events received from another tab', async () =
     </AuthGate>
   );
   expect(screen.getByText('Area autenticata')).toBeInTheDocument();
+  globalThis.sessionStorage.setItem(
+    'nous:lesson-workflow-request:project-1:lesson-1',
+    'cross-tab-request'
+  );
 
   act(() => {
     globalThis.localStorage.removeItem('nousSupabaseSession');
@@ -125,13 +192,21 @@ test('AuthGate synchronizes logout events received from another tab', async () =
   });
 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Accedi' })).toBeInTheDocument());
+  expect(
+    globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:lesson-1')
+  ).toBeNull();
 });
 
 test('an invalid callback never renders the stored account and shows a stable error', async () => {
   saveSupabaseSession({
     accessToken: 'old-account-token',
     expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: 'old-user' },
   });
+  globalThis.sessionStorage.setItem(
+    'nous:lesson-workflow-request:project-1:lesson-1',
+    'old-account-request'
+  );
   globalThis.history.replaceState(
     {},
     '',
@@ -151,6 +226,11 @@ test('an invalid callback never renders the stored account and shows a stable er
     'Il link non è valido o è scaduto. Richiedine uno nuovo.'
   );
   await waitFor(() => expect(globalThis.location.hash).toBe(''));
+  await waitFor(() =>
+    expect(
+      globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:lesson-1')
+    ).toBeNull()
+  );
   expect(screen.queryByText('Area autenticata')).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
 });
@@ -158,6 +238,11 @@ test('an invalid callback never renders the stored account and shows a stable er
 test('a pre-marked magic-link callback forces password setup before opening the app', async () => {
   const inviteToken = createAccessToken({ passwordSetupRequired: true, userId: 'invited-user' });
   const completedToken = createAccessToken({ userId: 'invited-user' });
+  saveSupabaseSession({ accessToken: 'old-account-token', user: { id: 'old-user' } });
+  globalThis.sessionStorage.setItem(
+    'nous:lesson-workflow-request:project-1:lesson-1',
+    'old-account-request'
+  );
   globalThis.history.replaceState(
     {},
     '',
@@ -180,6 +265,11 @@ test('a pre-marked magic-link callback forces password setup before opening the 
 
   expect(screen.getByRole('heading', { name: 'Completa il tuo account' })).toBeInTheDocument();
   expect(screen.queryByText('Area autenticata')).toBeNull();
+  await waitFor(() =>
+    expect(
+      globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:lesson-1')
+    ).toBeNull()
+  );
   await waitFor(() => expect(globalThis.location.hash).toBe(''));
   fireEvent.change(screen.getByLabelText('Nuova password'), {
     target: { value: 'password-one' },
