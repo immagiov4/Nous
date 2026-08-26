@@ -932,7 +932,10 @@ export class PostgresProjectStore implements ProjectStore {
       set snapshot = jsonb_set(
         snapshot.snapshot,
         '{source,index}',
-        coalesce(snapshot.snapshot #> '{source,index}', repair.archive_index) ||
+        coalesce(
+          nullif(snapshot.snapshot #> '{source,index}', 'null'::jsonb),
+          repair.archive_index
+        ) ||
           jsonb_build_object('version', repair.archive_version)
       )
       from repair_input repair

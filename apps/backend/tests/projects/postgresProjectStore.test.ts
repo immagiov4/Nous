@@ -207,6 +207,7 @@ describe('PostgresProjectStore', () => {
       },
     } as ProjectSnapshot;
     let storedSnapshot = legacySnapshot;
+    let repairStatement = '';
     let repairValues: unknown[] = [];
     let projectLoadCount = 0;
     const sqlClient = Object.assign(
@@ -221,6 +222,7 @@ describe('PostgresProjectStore', () => {
           return Promise.resolve([{ document_index: null, snapshot: storedSnapshot }]);
         }
         if (statement.includes('jsonb_to_recordset')) {
+          repairStatement = statement;
           repairValues = values;
           storedSnapshot = {
             ...storedSnapshot,
@@ -292,6 +294,9 @@ describe('PostgresProjectStore', () => {
     expect(
       sqlClient.mock.calls.some(([strings]) => strings.join('?').includes("= 'null'::jsonb"))
     ).toBe(true);
+    expect(repairStatement).toContain(
+      "nullif(snapshot.snapshot #> '{source,index}', 'null'::jsonb)"
+    );
   });
 
   test('reloads a legacy hydration candidate when its retained source was replaced', async () => {
