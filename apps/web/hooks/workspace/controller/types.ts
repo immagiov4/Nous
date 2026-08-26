@@ -209,7 +209,7 @@ export interface WorkspaceControllerStateAdapter {
   setLessonGenerationReattachHandler: (
     projectId: string | null,
     token: number,
-    onReattach: () => void
+    onReattach: () => boolean
   ) => void;
   setProjectMissingSource: (projectId: string, missing: boolean) => void;
   setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;

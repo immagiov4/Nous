@@ -30,7 +30,7 @@ export const useWorkspaceControllerState = () => {
       string | null,
       {
         kind: WorkspaceGenerationKind;
-        onReattach?: () => void;
+        onReattach?: () => boolean;
         sectionId: string | null;
         token: number;
       }
@@ -157,8 +157,7 @@ export const useWorkspaceControllerState = () => {
           return false;
         }
 
-        activeGeneration.onReattach();
-        return true;
+        return activeGeneration.onReattach();
       },
       resetSessionState: () => {
         setAssessmentMessages([]);

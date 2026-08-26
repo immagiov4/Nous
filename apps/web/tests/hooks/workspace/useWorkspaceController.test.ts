@@ -572,7 +572,7 @@ const createStateAdapter = () => {
       string | null,
       {
         kind: WorkspaceGenerationKind;
-        onReattach?: () => void;
+        onReattach?: () => boolean;
         sectionId: string | null;
         token: number;
       }
@@ -662,8 +662,7 @@ const createStateAdapter = () => {
         return false;
       }
 
-      activeGeneration.onReattach();
-      return true;
+      return activeGeneration.onReattach();
     },
     resetSessionState: () => {
       internalState.assessmentMessages = [];
@@ -4126,6 +4125,113 @@ test('openSection persists its generation target before starting durable work', 
   expect(generateDurableLesson).toHaveBeenCalledTimes(1);
 });
 
+test('a superseded generation target does not reclaim the visible lesson after persistence', async () => {
+  const generatingLesson = buildTestLesson({ id: 'lesson-1' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
+  let finishPersistence: ((value: SavedProjectMeta | null) => void) | undefined;
+  const patchCurrentProject = vi.fn((overrides?: Partial<ProjectSnapshot>) =>
+    overrides?.activeSectionId === generatingLesson.id
+      ? new Promise<SavedProjectMeta | null>(resolve => {
+          finishPersistence = resolve;
+        })
+      : Promise.resolve(buildMeta('project-1'))
+  );
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Generata',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    quiz: [],
+    sectionId: generatingLesson.id,
+    warnings: [],
+  }));
+  const harness = createControllerHarness({
+    domain: { learningPlan: buildPlan({ sections: [generatingLesson, readyLesson] }) },
+    openRouter: { generateDurableLesson },
+    projectLibrary: { currentProjectId: 'project-1', patchCurrentProject },
+  });
+
+  const opening = harness.controller.openSection(generatingLesson);
+  await vi.waitFor(() => expect(patchCurrentProject).toHaveBeenCalledOnce());
+  expect(await harness.controller.openSection(generatingLesson)).toBe('ignored-busy');
+  expect(harness.domain.activeSectionId).toBeNull();
+  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  finishPersistence?.(buildMeta('project-1'));
+
+  await expect(opening).resolves.toBe('loaded');
+  expect(generateDurableLesson).toHaveBeenCalledOnce();
+  expect(harness.domain.activeSectionId).toBe(readyLesson.id);
+});
+
+test('a repeated click keeps the pending generation target current until persistence finishes', async () => {
+  const lesson = buildTestLesson({ id: 'lesson-1' });
+  let finishPersistence: ((value: SavedProjectMeta | null) => void) | undefined;
+  const patchCurrentProject = vi.fn(
+    () =>
+      new Promise<SavedProjectMeta | null>(resolve => {
+        finishPersistence = resolve;
+      })
+  );
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Generata',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    quiz: [],
+    sectionId: lesson.id,
+    warnings: [],
+  }));
+  const harness = createControllerHarness({
+    domain: { learningPlan: buildPlan({ sections: [lesson] }) },
+    openRouter: { generateDurableLesson },
+    projectLibrary: { currentProjectId: 'project-1', patchCurrentProject },
+  });
+
+  const opening = harness.controller.openSection(lesson);
+  await vi.waitFor(() => expect(patchCurrentProject).toHaveBeenCalledOnce());
+  expect(await harness.controller.openSection(lesson)).toBe('ignored-busy');
+  expect(harness.domain.activeSectionId).toBeNull();
+
+  finishPersistence?.(buildMeta('project-1'));
+  await expect(opening).resolves.toBe('loaded');
+  expect(generateDurableLesson).toHaveBeenCalledOnce();
+  expect(harness.domain.activeSectionId).toBe(lesson.id);
+  expect(harness.state.adapter.isGenerationActive('project-1')).toBe(false);
+});
+
+test('a superseded persistence failure is not reported over the visible lesson', async () => {
+  const generatingLesson = buildTestLesson({ id: 'lesson-1' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
+  let finishPersistence: ((value: SavedProjectMeta | null) => void) | undefined;
+  const patchCurrentProject = vi.fn((overrides?: Partial<ProjectSnapshot>) =>
+    overrides?.activeSectionId === generatingLesson.id
+      ? new Promise<SavedProjectMeta | null>(resolve => {
+          finishPersistence = resolve;
+        })
+      : Promise.resolve(buildMeta('project-1'))
+  );
+  const generateDurableLesson = vi.fn();
+  const harness = createControllerHarness({
+    domain: { learningPlan: buildPlan({ sections: [generatingLesson, readyLesson] }) },
+    openRouter: { generateDurableLesson },
+    projectLibrary: { currentProjectId: 'project-1', patchCurrentProject },
+  });
+
+  const opening = harness.controller.openSection(generatingLesson);
+  await vi.waitFor(() => expect(patchCurrentProject).toHaveBeenCalledOnce());
+  expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+  finishPersistence?.(null);
+
+  await expect(opening).resolves.toBe('ignored-busy');
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+  expect(harness.domain.activeSectionId).toBe(readyLesson.id);
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('idle');
+});
+
 test('openSection does not start durable work when its generation target was not saved', async () => {
   const lesson = buildTestLesson({ id: 'lesson-1' });
   const generateDurableLesson = vi.fn();
@@ -4142,6 +4248,7 @@ test('openSection does not start durable work when its generation target was not
     'I could not save the lesson to generate. Try again.'
   );
   expect(generateDurableLesson).not.toHaveBeenCalled();
+  expect(harness.domain.activeSectionId).toBeNull();
   expect(harness.state.internalState.workflowState.loadSection.status).toBe('failed');
 });
 
@@ -5129,9 +5236,11 @@ test('overlapping project generations keep their terminal results when they reso
   const lesson = getLessons(plan)[0];
 
   const projectAGeneration = harness.controller.openSection(lesson);
+  await vi.waitFor(() => expect(generationResolvers.has('project-a')).toBe(true));
   harness.state.adapter.invalidateWorkflows(['loadSection']);
   harness.projectLibrary.adapter.setCurrentProjectId('project-b');
   const projectBGeneration = harness.controller.openSection(lesson);
+  await vi.waitFor(() => expect(generationResolvers.has('project-b')).toBe(true));
 
   harness.projectLibrary.adapter.setCurrentProjectId('project-a');
   expect(await harness.controller.openSection(lesson)).toBe('reopened-generating');
@@ -5710,6 +5819,76 @@ test('sublesson failure follows synchronous section navigation when the library 
   expect(harness.state.internalState.workflowState.createLesson.status).toBe('idle');
 });
 
+test('createLessonFromSelection persists its parent before starting durable work', async () => {
+  const parentLesson = buildTestLesson({ content: '# Lezione', id: 'lesson-1' });
+  let finishPersistence: ((value: SavedProjectMeta | null) => void) | undefined;
+  const patchCurrentProject = vi.fn(
+    () =>
+      new Promise<SavedProjectMeta | null>(resolve => {
+        finishPersistence = resolve;
+      })
+  );
+  const generateDurableSublesson = vi.fn(async () => ({
+    content: '# Approfondimento',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    projectRevision: 2,
+    quiz: [],
+    sectionId: 'deep-1',
+    warnings: [],
+  }));
+  const harness = createControllerHarness({
+    domain: {
+      activeSectionId: parentLesson.id,
+      learningPlan: buildPlan({ sections: [parentLesson] }),
+    },
+    openRouter: { generateDurableSublesson },
+    projectLibrary: { currentProjectId: 'project-1', patchCurrentProject },
+  });
+
+  const creation = harness.controller.createLessonFromSelection({
+    instructions: 'Approfondisci',
+    selectedText: 'testo',
+  });
+  await vi.waitFor(() => expect(patchCurrentProject).toHaveBeenCalledOnce());
+  expect(generateDurableSublesson).not.toHaveBeenCalled();
+
+  finishPersistence?.(buildMeta('project-1'));
+  await expect(creation).resolves.toEqual({ outcome: 'created' });
+  expect(generateDurableSublesson).toHaveBeenCalledOnce();
+});
+
+test('createLessonFromSelection does not start when its parent selection was not saved', async () => {
+  const parentLesson = buildTestLesson({ content: '# Lezione', id: 'lesson-1' });
+  const generateDurableSublesson = vi.fn();
+  const harness = createControllerHarness({
+    domain: {
+      activeSectionId: parentLesson.id,
+      learningPlan: buildPlan({ sections: [parentLesson] }),
+    },
+    openRouter: { generateDurableSublesson },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      patchCurrentProject: async () => null,
+    },
+  });
+
+  const result = await harness.controller.createLessonFromSelection({
+    instructions: 'Approfondisci',
+    selectedText: 'testo',
+  });
+
+  expect(result).toEqual({
+    errorMessage: 'I could not save the lesson to generate. Try again.',
+    outcome: 'failed',
+  });
+  expect(generateDurableSublesson).not.toHaveBeenCalled();
+  expect(harness.state.adapter.isGenerationActive('project-1')).toBe(false);
+});
+
 test('createLessonFromSelection hydrates and opens the authoritative durable sublesson', async () => {
   const basePlan = buildPlan({
     sections: [
@@ -5886,7 +6065,9 @@ test('createLessonFromSelection leaves local state untouched when durable genera
     getLessons(domain.learningPlan).map(section => section.id),
     ['lesson-1', 'lesson-2']
   );
-  assert.equal(projectLibrary.savedOverrides.length, 0);
+  assert.deepEqual(projectLibrary.savedOverrides, [
+    { activeSectionId: 'lesson-1', state: AppState.READING },
+  ]);
   assert.equal(state.internalState.workflowState.createLesson.status, 'failed');
 });
 
