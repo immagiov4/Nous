@@ -204,6 +204,14 @@ describe('prepareMarkdownForSpeech', () => {
     expect(speech).not.toMatch(/image\.png|Immagine/u);
   });
 
+  test('does not read raw HTML syntax hidden by the renderer', () => {
+    const speech = prepareMarkdownForSpeech(
+      'Prima <!-- <script>istruzione interna</script> --> dopo.\n\n<!doctype html>'
+    );
+
+    expect(speech).toBe('Prima dopo.');
+  });
+
   test('preserves malformed email autolinks and skips list-indented fenced code', () => {
     const speech = prepareMarkdownForSpeech(
       ['<a@b>', '- Voce', '', '    ~~~md', '    segreto-nel-codice', '    ~~~'].join('\n')

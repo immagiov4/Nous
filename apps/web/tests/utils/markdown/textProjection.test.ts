@@ -70,11 +70,19 @@ test('buildVisibleProjection follows rendered footnote, autolink, and list-defin
     '',
     '  ![Immagine][ref]',
   ].join('\n');
-  const projection = buildVisibleProjection(content).text;
+  const projection = buildVisibleProjection(content);
+  const footnoteReferenceStart = content.indexOf('[^nota]');
 
-  assert.match(projection, /Contenuto della nota/u);
-  assert.match(projection, /https:\/\/example\.com/u);
-  assert.doesNotMatch(projection, /image\.png|Immagine/u);
+  assert.match(projection.text, /Contenuto della nota/u);
+  assert.match(projection.text, /https:\/\/example\.com/u);
+  assert.doesNotMatch(projection.text, /image\.png|Immagine/u);
+  assert.equal(
+    projection.sourceIndexes.some(
+      sourceIndex =>
+        sourceIndex >= footnoteReferenceStart && sourceIndex < footnoteReferenceStart + 7
+    ),
+    false
+  );
 });
 
 test('buildVisibleProjection preserves malformed email autolink brackets', () => {

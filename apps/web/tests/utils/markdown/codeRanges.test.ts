@@ -206,16 +206,19 @@ test('annotation ranges follow renderer-normalized tab-indented definitions', ()
   ]);
 });
 
-test('annotation ranges preserve footnote content and autolink text', () => {
-  const contents = [
-    'Testo[^nota]\n\n[^nota]: /contenuto-visibile',
-    '<https://example.com>',
-    '<a@b>',
-  ];
+test('annotation ranges protect footnote labels while preserving the visible definition body', () => {
+  const content = 'Testo[^nota]\n\n[^nota]: /contenuto-visibile';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
 
-  contents.forEach(content => {
+  assert.deepEqual(protectedSlices, ['[^nota]']);
+});
+
+test('annotation ranges preserve autolink text', () => {
+  for (const content of ['<https://example.com>', '<a@b>']) {
     assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
-  });
+  }
 });
 
 test('annotation ranges preserve definition-like text indented as quoted code', () => {

@@ -389,8 +389,9 @@ export interface ReadableTextElement {
 
 export const prepareMarkdownForSpeech = (content: string): string => {
   const analysis = parseMarkdownAnalysis(content);
-  const referenceDefinitionsStripped = [
+  const rendererHiddenContentStripped = [
     ...analysis.imageRanges,
+    ...analysis.htmlSyntaxRanges,
     ...analysis.referenceLinkLabelRanges,
     ...analysis.referenceDefinitionRanges,
     ...analysis.rendererNormalizedIndentRanges,
@@ -403,7 +404,7 @@ export const prepareMarkdownForSpeech = (content: string): string => {
     );
   const placeholderStrippedContent = NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.reduce(
     (currentContent, placeholderPrefix) => stripPlaceholderToken(currentContent, placeholderPrefix),
-    referenceDefinitionsStripped
+    rendererHiddenContentStripped
   );
   const markdownProtectedContent = replaceMarkdownProtectedRanges(placeholderStrippedContent);
   const htmlContentRemoved = HTML_TAGS_TO_DROP_WITH_CONTENT.reduce(

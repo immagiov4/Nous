@@ -435,6 +435,9 @@ const getReferenceLabelRange = (
     : null;
 };
 
+const isRendererHiddenHtmlSyntax = (source: string): boolean =>
+  source.startsWith('<!--') || source.startsWith('<!') || source.startsWith('<?');
+
 const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.flatMap(prefix => {
     const ranges: MarkdownRange[] = [];
@@ -480,6 +483,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       }
       if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
       if (node.type === 'thematicBreak') analysis.structuralRanges.push(range);
+      if (node.type === 'footnoteReference') analysis.structuralRanges.push(range);
       if (node.type === 'table') {
         const delimiterRange = getTableDelimiterRange(
           content,
@@ -500,7 +504,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       }
       if (node.type === 'html') {
         const source = content.slice(range.start, range.end);
-        if (escapeDisallowedRawHtml(source) === source) {
+        if (isRendererHiddenHtmlSyntax(source) || escapeDisallowedRawHtml(source) === source) {
           analysis.htmlSyntaxRanges.push(range);
         }
       }
