@@ -13,6 +13,7 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 
 const {
   clearAllDurableLessonRequests,
+  clearDurableLessonForceRegenerationIntent,
   clearDurableLessonRequestsForProject,
   generateDurableLesson,
   generateDurableSublesson,
@@ -23,6 +24,7 @@ const {
   LessonSourceUnavailableError,
   resolveDurableSublessonRequestForParent,
   resolveDurableSublessonRequestForSection,
+  retainDurableLessonForceRegenerationIntent,
 } = await import('../../../services/openrouter/lessonGenerationClient.ts');
 
 const completedResult = {
@@ -118,6 +120,14 @@ describe('generateDurableLesson', () => {
 
     expect(hasDurableSublessonRequest('project-1', 'lesson-1')).toBe(true);
     expect(hasDurableSublessonRequest('project-1', 'lesson-2')).toBe(false);
+  });
+
+  test('retains and clears force-regeneration intent before a workflow key exists', () => {
+    retainDurableLessonForceRegenerationIntent('project-1', 'lesson-1');
+
+    expect(hasDurableLessonRequest('project-1', 'lesson-1')).toBe(true);
+    clearDurableLessonForceRegenerationIntent('project-1', 'lesson-1');
+    expect(hasDurableLessonRequest('project-1', 'lesson-1')).toBe(false);
   });
 
   test('starts the durable workflow and polls its short status route to completion', async () => {

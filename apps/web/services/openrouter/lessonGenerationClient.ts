@@ -142,6 +142,14 @@ const setForceRegenerationIntent = (requestStorageKey: string): void => {
   }
 };
 
+const clearForceRegenerationIntent = (requestStorageKey: string): void => {
+  try {
+    globalThis.sessionStorage.removeItem(getForceRegenerationIntentStorageKey(requestStorageKey));
+  } catch {
+    // Session storage is optional.
+  }
+};
+
 const clearLessonRequestState = (storageKey: string, expectedRequestKey?: string): void => {
   if (
     expectedRequestKey !== undefined &&
@@ -150,11 +158,7 @@ const clearLessonRequestState = (storageKey: string, expectedRequestKey?: string
     return;
   }
   clearWorkflowRequestKey(storageKey);
-  try {
-    globalThis.sessionStorage.removeItem(getForceRegenerationIntentStorageKey(storageKey));
-  } catch {
-    // Session storage is optional.
-  }
+  clearForceRegenerationIntent(storageKey);
 };
 
 const clearDurableLessonRequestStorage = (prefix: string): void => {
@@ -181,6 +185,20 @@ export const clearDurableLessonRequestsForProject = (projectId: string): void =>
 export const hasDurableLessonRequest = (projectId: string, sectionId: string): boolean => {
   const storageKey = getLessonRequestKeyStorageKey(projectId, sectionId);
   return readWorkflowRequestKey(storageKey) !== null || readForceRegenerationIntent(storageKey);
+};
+
+export const retainDurableLessonForceRegenerationIntent = (
+  projectId: string,
+  sectionId: string
+): void => {
+  setForceRegenerationIntent(getLessonRequestKeyStorageKey(projectId, sectionId));
+};
+
+export const clearDurableLessonForceRegenerationIntent = (
+  projectId: string,
+  sectionId: string
+): void => {
+  clearForceRegenerationIntent(getLessonRequestKeyStorageKey(projectId, sectionId));
 };
 
 export const hasDurableSublessonRequest = (projectId: string, parentSectionId: string): boolean =>

@@ -424,20 +424,54 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // shares this gate so workflow invalidation and command recreation cannot open a race.
     const workflowState = state.getWorkflowState();
     const currentProjectId = projectLibrary.getCurrentProjectId();
-    if (
+    const isBlockingGeneration =
+      workflowState.loadSection.status === 'pending' ||
+      workflowState.createLesson.status === 'pending' ||
+      workflowState.generateExercise.status === 'pending' ||
+      (!options.allowWhileBlocking && selectIsBlocking(workflowState));
+    const hasMatchingActiveGeneration =
       state.isLessonGenerationActive(currentProjectId) &&
-      state.getGeneratingSectionId(currentProjectId) === section.id &&
-      state.reattachLessonGeneration(currentProjectId, section.id)
-    ) {
-      stopAudio(true);
-      state.setScreenState(AppState.READING);
-      domain.setActiveSectionId(section.id);
-      void projectLibrary.patchCurrentProject({
-        activeSectionId: section.id,
-        state: AppState.READING,
-      });
-      return 'reopened-generating';
+      state.getGeneratingSectionId(currentProjectId) === section.id;
+    if (hasMatchingActiveGeneration) {
+      if (state.reattachLessonGeneration(currentProjectId, section.id)) {
+        stopAudio(true);
+        state.setScreenState(AppState.READING);
+        domain.setActiveSectionId(section.id);
+        void projectLibrary.patchCurrentProject({
+          activeSectionId: section.id,
+          state: AppState.READING,
+        });
+        return 'reopened-generating';
+      }
+      return 'ignored-busy';
     }
+
+    let ownsGenerationGate = false;
+    let ownsForceRegenerationIntent = false;
+    if (forceRegenerate) {
+      if (currentProjectId === null || isBlockingGeneration) return 'ignored-busy';
+      const token = state.tryBeginGeneration(currentProjectId, 'lesson');
+      if (token === null) return 'ignored-busy';
+      activeGeneration = { projectId: currentProjectId, token };
+      ownsGenerationGate = true;
+      state.setGeneratingSectionId(currentProjectId, token, section.id);
+      state.setLessonGenerationReattachHandler(currentProjectId, token, () => {
+        openSectionRequestId = state.beginOpenSectionRequest();
+        return false;
+      });
+      openRouter.retainDurableLessonForceRegenerationIntent(currentProjectId, section.id);
+      ownsForceRegenerationIntent = true;
+    }
+    const abandonForceRegenerationIntent = () => {
+      if (!ownsForceRegenerationIntent || currentProjectId === null) return;
+      openRouter.clearDurableLessonForceRegenerationIntent(currentProjectId, section.id);
+      ownsForceRegenerationIntent = false;
+    };
+    const abandonEarlyGeneration = () => {
+      if (!ownsGenerationGate || !activeGeneration) return;
+      state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
+      ownsGenerationGate = false;
+    };
 
     // Sections with content navigate immediately — even if another generation
     // is running. The user can freely switch between ready lessons.
@@ -453,6 +487,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         );
       } catch (error) {
         if (forceRegenerate || !section.content?.length || hasPersistedLessonRequest) {
+          abandonForceRegenerationIntent();
+          abandonEarlyGeneration();
           throw error;
         }
         pushNousDebugTrace('open-section:cached-recovery-lookup-failed', {
@@ -467,6 +503,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       !state.isOpenSectionRequestCurrent(openSectionRequestId) ||
       projectLibrary.getCurrentProjectId() !== currentProjectId
     ) {
+      abandonForceRegenerationIntent();
+      abandonEarlyGeneration();
       return 'ignored-busy';
     }
     if (
@@ -485,26 +523,21 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'reused-cached';
     }
 
-    const isLoadingSection = workflowState.loadSection.status === 'pending';
-    const isCreatingLesson = workflowState.createLesson.status === 'pending';
-    const isGeneratingExercises = workflowState.generateExercise.status === 'pending';
-    if (
-      isLoadingSection ||
-      isCreatingLesson ||
-      isGeneratingExercises ||
-      (!options.allowWhileBlocking && selectIsBlocking(workflowState))
-    ) {
+    if (isBlockingGeneration) {
+      abandonForceRegenerationIntent();
+      abandonEarlyGeneration();
       return 'ignored-busy';
     }
 
-    const ownsGenerationGate = activeGeneration === undefined;
     if (!activeGeneration) {
       const projectId = projectLibrary.getCurrentProjectId();
       const token = state.tryBeginGeneration(projectId, 'lesson');
       if (token === null) {
+        abandonForceRegenerationIntent();
         return 'ignored-busy';
       }
       activeGeneration = { projectId, token };
+      ownsGenerationGate = true;
     }
 
     state.setGeneratingSectionId(activeGeneration.projectId, activeGeneration.token, section.id);
@@ -519,6 +552,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const projectId = activeGeneration.projectId;
     if (!projectId) {
+      abandonForceRegenerationIntent();
       if (ownsGenerationGate) state.finishGeneration(projectId, activeGeneration.token);
       return 'ignored-busy';
     }
@@ -574,9 +608,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         throw new Error(t('Non sono riuscito a salvare la lezione da generare. Riprova.'));
       }
       didPersistGenerationTarget = true;
-      if (!isGenerationCurrent()) return 'ignored-busy';
+      if (!isGenerationCurrent()) {
+        abandonForceRegenerationIntent();
+        return 'ignored-busy';
+      }
       if (isOpenSectionNavigationCurrent()) domain.setActiveSectionId(section.id);
-      const result = await openRouter.generateDurableLesson({
+      const generation = openRouter.generateDurableLesson({
         forceRegenerate,
         onProgressStage: progressObserver.setStage,
         onWorkflowSnapshot: snapshot => {
@@ -589,6 +626,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         projectId,
         sectionId: section.id,
       });
+      ownsForceRegenerationIntent = false;
+      const result = await generation;
       if (!isGenerationCurrent()) return 'ignored-busy';
 
       if (
@@ -632,6 +671,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       }
       return 'loaded';
     } catch (error) {
+      abandonForceRegenerationIntent();
       if (!isGenerationCurrent()) return 'ignored-busy';
       if (error instanceof LessonSourceUnavailableError) {
         state.setProjectMissingSource(projectId, true);

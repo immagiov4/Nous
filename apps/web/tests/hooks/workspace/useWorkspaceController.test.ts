@@ -807,6 +807,7 @@ const createOpenRouterMock = (
       hasReliableSourceContext: true,
     }),
     cancelCourseInterview: async () => {},
+    clearDurableLessonForceRegenerationIntent: () => {},
     clearDurableLessonRequestsForProject: () => {},
     createGenerationProgressObserver: ({
       onUpdate,
@@ -903,6 +904,7 @@ const createOpenRouterMock = (
       projectRevision: 1,
       repaired: false,
     }),
+    retainDurableLessonForceRegenerationIntent: () => {},
     getActiveCourseInterview: async () => null,
     resumeActiveDurableCourse: async () => null,
     sendCourseInterviewAnswer: async (
@@ -4125,6 +4127,51 @@ test('openSection persists its generation target before starting durable work', 
   expect(generateDurableLesson).toHaveBeenCalledTimes(1);
 });
 
+test('force regeneration retains its durable intent before sublesson recovery lookup', async () => {
+  const lesson = buildTestLesson({ content: '# Esistente', id: 'deep-1', parentId: 'lesson-1' });
+  let finishRecovery: ((value: null) => void) | undefined;
+  const resolveDurableSublessonRequestForSection = vi.fn(
+    () =>
+      new Promise<null>(resolve => {
+        finishRecovery = resolve;
+      })
+  );
+  const retainDurableLessonForceRegenerationIntent = vi.fn();
+  const clearDurableLessonForceRegenerationIntent = vi.fn();
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Rigenerata',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    quiz: [],
+    sectionId: lesson.id,
+    warnings: [],
+  }));
+  const harness = createControllerHarness({
+    domain: { activeSectionId: lesson.id, learningPlan: buildPlan({ sections: [lesson] }) },
+    openRouter: {
+      clearDurableLessonForceRegenerationIntent,
+      generateDurableLesson,
+      resolveDurableSublessonRequestForSection,
+      retainDurableLessonForceRegenerationIntent,
+    },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const regeneration = harness.controller.regenerateActiveSection();
+  expect(retainDurableLessonForceRegenerationIntent).toHaveBeenCalledWith('project-1', lesson.id);
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+  await expect(harness.controller.regenerateActiveSection()).resolves.toBe('ignored-busy');
+  expect(retainDurableLessonForceRegenerationIntent).toHaveBeenCalledTimes(1);
+  expect(clearDurableLessonForceRegenerationIntent).not.toHaveBeenCalled();
+
+  finishRecovery?.(null);
+  await expect(regeneration).resolves.toBe('loaded');
+  expect(clearDurableLessonForceRegenerationIntent).not.toHaveBeenCalled();
+});
+
 test('a superseded generation target does not reclaim the visible lesson after persistence', async () => {
   const generatingLesson = buildTestLesson({ id: 'lesson-1' });
   const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
@@ -4250,6 +4297,32 @@ test('openSection does not start durable work when its generation target was not
   expect(generateDurableLesson).not.toHaveBeenCalled();
   expect(harness.domain.activeSectionId).toBeNull();
   expect(harness.state.internalState.workflowState.loadSection.status).toBe('failed');
+});
+
+test('force regeneration clears its retained intent when target persistence fails', async () => {
+  const lesson = buildTestLesson({ content: '# Esistente', id: 'lesson-1' });
+  const retainDurableLessonForceRegenerationIntent = vi.fn();
+  const clearDurableLessonForceRegenerationIntent = vi.fn();
+  const generateDurableLesson = vi.fn();
+  const harness = createControllerHarness({
+    domain: { activeSectionId: lesson.id, learningPlan: buildPlan({ sections: [lesson] }) },
+    openRouter: {
+      clearDurableLessonForceRegenerationIntent,
+      generateDurableLesson,
+      retainDurableLessonForceRegenerationIntent,
+    },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      patchCurrentProject: async () => null,
+    },
+  });
+
+  await expect(harness.controller.regenerateActiveSection()).rejects.toThrow(
+    'I could not save the lesson to generate. Try again.'
+  );
+  expect(retainDurableLessonForceRegenerationIntent).toHaveBeenCalledWith('project-1', lesson.id);
+  expect(clearDurableLessonForceRegenerationIntent).toHaveBeenCalledWith('project-1', lesson.id);
+  expect(generateDurableLesson).not.toHaveBeenCalled();
 });
 
 test('a completed lesson request cannot report over a newer active lesson', async () => {
