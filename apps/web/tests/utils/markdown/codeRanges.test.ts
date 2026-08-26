@@ -193,6 +193,60 @@ test('annotation ranges treat a leading tab as indented code, not a definition',
   assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
 });
 
+test('annotation ranges preserve footnote content and autolink text', () => {
+  const contents = [
+    'Testo[^nota]\n\n[^nota]: /contenuto-visibile',
+    '<https://example.com>',
+    '<a@b>',
+  ];
+
+  contents.forEach(content => {
+    assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+  });
+});
+
+test('annotation ranges preserve definition-like text indented as quoted code', () => {
+  const content = '>     [ref]: /visible-code';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+});
+
+test('annotation ranges respect list-relative continuations and nested tilde fences', () => {
+  const content = [
+    '- [ref]:',
+    '    /image.png',
+    '',
+    '  ![Immagine][ref]',
+    '',
+    '> ~~~md',
+    '> [falso]: /visibile-nel-codice',
+    '> ~~~',
+    '',
+    '> - [nested]:',
+    '>     /nested.png',
+    '>',
+    '>   ![Nested][nested]',
+    '',
+    '- Voce',
+    '',
+    '    ~~~md',
+    '    - literal list marker',
+    '    [lista]: /visibile-nel-codice',
+    '    ~~~',
+  ].join('\n');
+  const protectedText = getMarkdownAnnotationProtectedRanges(content)
+    .map(range => content.slice(range.start, range.end))
+    .join('\n');
+
+  assert.match(protectedText, /- \[ref\]:\n {4}\/image\.png/u);
+  assert.match(protectedText, /> ~~~md\n> \[falso\]: \/visibile-nel-codice\n> ~~~/u);
+  assert.match(protectedText, /> - \[nested\]:\n> {5}\/nested\.png/u);
+  assert.match(
+    protectedText,
+    / {4}~~~md\n {4}- literal list marker\n {4}\[lista\]: \/visibile-nel-codice\n {4}~~~/u
+  );
+});
+
 test('getMarkdownProtectedRanges keeps code fences, inline code, and math blocks protected', () => {
   const content = [
     'Testo introduttivo.',

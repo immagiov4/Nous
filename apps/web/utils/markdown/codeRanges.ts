@@ -14,7 +14,6 @@ export const NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES = [
   '{{VISUAL_SLOT:',
 ] as const;
 
-const isLineStart = (content: string, index: number) => index === 0 || content[index - 1] === '\n';
 const isAsciiAlphaNumeric = (character: string | undefined): boolean =>
   Boolean(character && /[A-Za-z0-9]/u.test(character));
 
@@ -105,46 +104,6 @@ const countRepeatedCharacter = (content: string, index: number, character: strin
   }
 
   return cursor - index;
-};
-
-const findFenceRange = (
-  content: string,
-  startIndex: number,
-  fenceCharacter: '`' | '~'
-): MarkdownRange => {
-  const fenceLength = countRepeatedCharacter(content, startIndex, fenceCharacter);
-  const openingLineEnd = content.indexOf('\n', startIndex);
-
-  if (openingLineEnd === -1) {
-    return { start: startIndex, end: content.length };
-  }
-
-  let cursor = openingLineEnd + 1;
-
-  while (cursor < content.length) {
-    if (isLineStart(content, cursor) && content[cursor] === fenceCharacter) {
-      const closingFenceLength = countRepeatedCharacter(content, cursor, fenceCharacter);
-      if (closingFenceLength >= fenceLength) {
-        let closingLineEnd = cursor + closingFenceLength;
-        while (closingLineEnd < content.length && content[closingLineEnd] !== '\n') {
-          closingLineEnd += 1;
-        }
-
-        return {
-          start: startIndex,
-          end: closingLineEnd < content.length ? closingLineEnd + 1 : closingLineEnd,
-        };
-      }
-    }
-
-    const nextNewline = content.indexOf('\n', cursor);
-    if (nextNewline === -1) {
-      break;
-    }
-    cursor = nextNewline + 1;
-  }
-
-  return { start: startIndex, end: content.length };
 };
 
 const findInlineCodeRange = (content: string, startIndex: number): MarkdownRange => {
@@ -465,6 +424,19 @@ export const findInlineLabelEnd = (content: string, openingBracketIndex: number)
   return -1;
 };
 
+export const findMarkdownAutolinkEnd = (content: string, openingAngleIndex: number): number => {
+  if (content[openingAngleIndex] !== '<') return -1;
+  const closingAngleIndex = content.indexOf('>', openingAngleIndex + 1);
+  if (closingAngleIndex === -1) return -1;
+  const candidate = content.slice(openingAngleIndex + 1, closingAngleIndex);
+  const isUri = /^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*$/u.test(candidate);
+  const isEmail =
+    /^[^\s<>@]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/u.test(
+      candidate
+    );
+  return isUri || isEmail ? closingAngleIndex : -1;
+};
+
 const normalizeReferenceLabel = (label: string): string =>
   label.trim().replaceAll(/\s+/gu, ' ').toLowerCase();
 
@@ -478,6 +450,13 @@ const MARKDOWN_RAW_HTML_BLOCK_TAG_PATTERN =
 const MARKDOWN_COMPLETE_HTML_TAG_PATTERN =
   /^(?:<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>|<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ "'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>)[ \t]*$/u;
 const MARKDOWN_MALFORMED_CLOSING_TAG_PATTERN = /^<\/[A-Za-z][^>]*>/u;
+
+export const isMarkdownHtmlTag = (value: string): boolean =>
+  MARKDOWN_COMPLETE_HTML_TAG_PATTERN.test(value) ||
+  /^<!--(?:[\s\S]*?)-->$/u.test(value) ||
+  /^<\?(?:[\s\S]*?)\?>$/u.test(value) ||
+  /^<!\[CDATA\[(?:[\s\S]*?)\]\]>$/u.test(value) ||
+  /^<![A-Z][^>]*>$/u.test(value);
 
 const readMarkdownIndent = (line: string): { columns: number; length: number } => {
   let columns = 0;
@@ -498,23 +477,41 @@ const readMarkdownIndent = (line: string): { columns: number; length: number } =
   return { columns, length };
 };
 
-const readMarkdownContainerPrefixLength = (line: string): number => {
-  let length = 0;
-  while (line[length] === '>') {
-    length += 1;
-    if (line[length] === ' ' || line[length] === '\t') length += 1;
-  }
-  const listMarker = line.slice(length).match(/^(?:[-+*]|\d{1,9}[.)])[ \t]+/u)?.[0];
-  return length + (listMarker?.length ?? 0);
-};
+interface MarkdownLinePrefix {
+  blockQuoteDepth: number;
+  contentIndentationColumns: number;
+  contentOffset: number;
+  contentOffsetBeforeList: number;
+  listContinuationIndentColumns: number | null;
+}
 
-const readMarkdownBlockQuotePrefixLength = (line: string): number => {
-  let length = 0;
-  while (line[length] === '>') {
-    length += 1;
-    if (line[length] === ' ' || line[length] === '\t') length += 1;
+const readMarkdownLinePrefix = (line: string): MarkdownLinePrefix => {
+  let contentOffset = 0;
+  let blockQuoteDepth = 0;
+  let indentation = readMarkdownIndent(line);
+  contentOffset += indentation.length;
+
+  while (line[contentOffset] === '>') {
+    blockQuoteDepth += 1;
+    contentOffset += 1;
+    if (line[contentOffset] === ' ' || line[contentOffset] === '\t') contentOffset += 1;
+    indentation = readMarkdownIndent(line.slice(contentOffset));
+    contentOffset += indentation.length;
   }
-  return length;
+
+  const listMarker = line.slice(contentOffset).match(/^(?:[-+*]|\d{1,9}[.)])([ \t]+)/u)?.[0] ?? '';
+  const listMarkerColumns = listMarker
+    ? readMarkdownIndent(listMarker.slice(listMarker.search(/[ \t]/u))).columns +
+      listMarker.search(/[ \t]/u)
+    : 0;
+
+  return {
+    blockQuoteDepth,
+    contentIndentationColumns: indentation.columns,
+    contentOffset: contentOffset + listMarker.length,
+    contentOffsetBeforeList: contentOffset,
+    listContinuationIndentColumns: listMarker ? indentation.columns + listMarkerColumns : null,
+  };
 };
 
 const getRawHtmlBlockEnd = (line: string): RegExp | 'blank-line' | null => {
@@ -543,9 +540,9 @@ const getMarkdownRawHtmlBlockRanges = (
   while (lineStart < content.length) {
     const lineBreak = content.indexOf('\n', lineStart);
     const lineEnd = lineBreak === -1 ? content.length : lineBreak;
-    const indentation = readMarkdownIndent(content.slice(lineStart, lineEnd));
-    const indentedLine = content.slice(lineStart + indentation.length, lineEnd);
-    const markdownLine = indentedLine.slice(readMarkdownContainerPrefixLength(indentedLine));
+    const line = content.slice(lineStart, lineEnd);
+    const linePrefix = readMarkdownLinePrefix(line);
+    const markdownLine = line.slice(linePrefix.contentOffset);
     const lineOverlapsCode = codeRanges.some(
       range => range.start < lineEnd && range.end > lineStart
     );
@@ -562,7 +559,7 @@ const getMarkdownRawHtmlBlockRanges = (
       }
     } else if (
       !lineOverlapsCode &&
-      indentation.columns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS
+      linePrefix.contentIndentationColumns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS
     ) {
       rawHtmlBlockEnd = getRawHtmlBlockEnd(markdownLine);
       if (rawHtmlBlockEnd) {
@@ -590,10 +587,9 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
   while (lineStart < content.length) {
     const lineBreak = content.indexOf('\n', lineStart);
     const lineEnd = lineBreak === -1 ? content.length : lineBreak;
-    const indentation = readMarkdownIndent(content.slice(lineStart, lineEnd));
-    const indentedLine = content.slice(lineStart + indentation.length, lineEnd);
-    const containerPrefixLength = readMarkdownContainerPrefixLength(indentedLine);
-    const labelStart = lineStart + indentation.length + containerPrefixLength;
+    const line = content.slice(lineStart, lineEnd);
+    const linePrefix = readMarkdownLinePrefix(line);
+    const labelStart = lineStart + linePrefix.contentOffset;
     if (rawHtmlRanges.some(range => range.start < lineEnd && range.end > lineStart)) {
       lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
       continue;
@@ -606,8 +602,8 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
       continue;
     }
     const labelEnd =
-      indentation.columns >= REFERENCE_DEFINITION_MIN_INDENT_COLUMNS &&
-      indentation.columns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS &&
+      linePrefix.contentIndentationColumns >= REFERENCE_DEFINITION_MIN_INDENT_COLUMNS &&
+      linePrefix.contentIndentationColumns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS &&
       content[labelStart] === '['
         ? findInlineLabelEnd(content, labelStart)
         : -1;
@@ -615,7 +611,13 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
     const normalizedLabel =
       labelEnd === -1 ? '' : normalizeReferenceLabel(content.slice(labelStart + 1, labelEnd));
 
-    if (normalizedLabel && labelEnd !== -1 && labelEnd < lineEnd && content[cursor] === ':') {
+    if (
+      normalizedLabel &&
+      !normalizedLabel.startsWith('^') &&
+      labelEnd !== -1 &&
+      labelEnd < lineEnd &&
+      content[cursor] === ':'
+    ) {
       cursor += 1;
       while (cursor < lineEnd && /[ \t]/u.test(content[cursor])) cursor += 1;
       let destinationLineEnd = lineEnd;
@@ -625,17 +627,18 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
         const continuationLineBreak = content.indexOf('\n', lineBreak + 1);
         const continuationLineEnd =
           continuationLineBreak === -1 ? content.length : continuationLineBreak;
-        const continuationIndent = readMarkdownIndent(
-          content.slice(lineBreak + 1, continuationLineEnd)
-        );
-        const continuationContainerPrefixLength = readMarkdownBlockQuotePrefixLength(
-          content.slice(lineBreak + 1 + continuationIndent.length, continuationLineEnd)
-        );
+        const continuationLine = content.slice(lineBreak + 1, continuationLineEnd);
+        const continuationPrefix = readMarkdownLinePrefix(continuationLine);
+        const relativeIndentation =
+          continuationPrefix.contentIndentationColumns -
+          (linePrefix.listContinuationIndentColumns ?? 0);
         if (
-          continuationIndent.columns >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
-          continuationIndent.columns <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS
+          continuationPrefix.blockQuoteDepth === linePrefix.blockQuoteDepth &&
+          continuationPrefix.listContinuationIndentColumns === null &&
+          relativeIndentation >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
+          relativeIndentation <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS
         ) {
-          cursor = lineBreak + 1 + continuationIndent.length + continuationContainerPrefixLength;
+          cursor = lineBreak + 1 + continuationPrefix.contentOffset;
           destinationLineEnd = continuationLineEnd;
           destinationLineBreak = continuationLineBreak;
           definitionEnd = continuationLineEnd;
@@ -674,16 +677,16 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
         const nextLineBreak = content.indexOf('\n', destinationLineBreak + 1);
         const continuationEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
         const continuation = content.slice(destinationLineBreak + 1, continuationEnd);
-        const continuationIndent = readMarkdownIndent(continuation);
-        const continuationContainerPrefixLength = readMarkdownBlockQuotePrefixLength(
-          continuation.slice(continuationIndent.length)
-        );
+        const continuationPrefix = readMarkdownLinePrefix(continuation);
+        const relativeIndentation =
+          continuationPrefix.contentIndentationColumns -
+          (linePrefix.listContinuationIndentColumns ?? 0);
         if (
-          continuationIndent.columns >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
-          continuationIndent.columns <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS &&
-          titlePattern.test(
-            continuation.slice(continuationIndent.length + continuationContainerPrefixLength).trim()
-          )
+          continuationPrefix.blockQuoteDepth === linePrefix.blockQuoteDepth &&
+          continuationPrefix.listContinuationIndentColumns === null &&
+          relativeIndentation >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
+          relativeIndentation <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS &&
+          titlePattern.test(continuation.slice(continuationPrefix.contentOffset).trim())
         ) {
           definitionEnd = continuationEnd;
         }
@@ -717,23 +720,101 @@ const getMarkdownReferenceLabels = (content: string): Set<string> => {
   return labels;
 };
 
-const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
+const getMarkdownFenceRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
+  let lineStart = 0;
+  let activeListIndentColumns: number | null = null;
+  let activeListBlockQuoteDepth = 0;
+  let openingFence: {
+    blockQuoteDepth: number;
+    character: '`' | '~';
+    length: number;
+    listIndentColumns: number | null;
+    start: number;
+  } | null = null;
+
+  while (lineStart < content.length) {
+    const lineBreak = content.indexOf('\n', lineStart);
+    const lineEnd = lineBreak === -1 ? content.length : lineBreak;
+    const line = content.slice(lineStart, lineEnd);
+    const prefix = readMarkdownLinePrefix(line);
+    const syntax = line.slice(openingFence ? prefix.contentOffsetBeforeList : prefix.contentOffset);
+    const isBlankLine = syntax.trim() === '';
+    if (!openingFence) {
+      if (prefix.listContinuationIndentColumns !== null) {
+        activeListIndentColumns = prefix.listContinuationIndentColumns;
+        activeListBlockQuoteDepth = prefix.blockQuoteDepth;
+      } else if (
+        !isBlankLine &&
+        activeListIndentColumns !== null &&
+        (prefix.blockQuoteDepth !== activeListBlockQuoteDepth ||
+          prefix.contentIndentationColumns < activeListIndentColumns)
+      ) {
+        activeListIndentColumns = null;
+      }
+    }
+    const relativeIndentation = prefix.contentIndentationColumns - (activeListIndentColumns ?? 0);
+    const fenceCharacter = syntax[0] === '`' || syntax[0] === '~' ? syntax[0] : null;
+    const fenceLength = fenceCharacter ? countRepeatedCharacter(syntax, 0, fenceCharacter) : 0;
+    const eligibleIndentation =
+      relativeIndentation >= 0 && relativeIndentation <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS;
+    const matchesOpeningContainer = openingFence
+      ? openingFence.blockQuoteDepth === prefix.blockQuoteDepth &&
+        (openingFence.listIndentColumns === null ||
+          isBlankLine ||
+          prefix.contentIndentationColumns >= openingFence.listIndentColumns)
+      : false;
+
+    if (openingFence && !matchesOpeningContainer) {
+      ranges.push({ start: openingFence.start, end: lineStart });
+      openingFence = null;
+    }
+
+    if (openingFence) {
+      const closingRemainder = syntax.slice(fenceLength).trim();
+      if (
+        eligibleIndentation &&
+        matchesOpeningContainer &&
+        fenceCharacter === openingFence.character &&
+        fenceLength >= openingFence.length &&
+        closingRemainder === ''
+      ) {
+        ranges.push({
+          start: openingFence.start,
+          end: lineBreak === -1 ? lineEnd : lineBreak + 1,
+        });
+        openingFence = null;
+      }
+    } else if (eligibleIndentation && fenceCharacter && fenceLength >= 3) {
+      openingFence = {
+        blockQuoteDepth: prefix.blockQuoteDepth,
+        character: fenceCharacter,
+        length: fenceLength,
+        listIndentColumns: activeListIndentColumns,
+        start: lineStart,
+      };
+    }
+
+    lineStart = lineBreak === -1 ? content.length : lineBreak + 1;
+  }
+
+  if (openingFence) ranges.push({ start: openingFence.start, end: content.length });
+  return ranges;
+};
+
+const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
+  const ranges = getMarkdownFenceRanges(content);
   let index = 0;
+  let fenceIndex = 0;
 
   while (index < content.length) {
-    const currentCharacter = content[index];
-
-    if (
-      (currentCharacter === '`' || currentCharacter === '~') &&
-      isLineStart(content, index) &&
-      countRepeatedCharacter(content, index, currentCharacter) >= 3
-    ) {
-      const range = findFenceRange(content, index, currentCharacter);
-      ranges.push(range);
-      index = range.end;
+    while (ranges[fenceIndex] && ranges[fenceIndex].end <= index) fenceIndex += 1;
+    const containingFence = ranges[fenceIndex];
+    if (containingFence?.start <= index) {
+      index = containingFence.end;
       continue;
     }
+    const currentCharacter = content[index];
 
     if (currentCharacter === '`') {
       const range = findInlineCodeRange(content, index);
@@ -750,24 +831,17 @@ const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
 
 const getMarkdownMathRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
+  const codeRanges = getMarkdownCodeRanges(content);
   let index = 0;
+  let codeRangeIndex = 0;
 
   while (index < content.length) {
-    const currentCharacter = content[index];
-
-    if (
-      (currentCharacter === '`' || currentCharacter === '~') &&
-      isLineStart(content, index) &&
-      countRepeatedCharacter(content, index, currentCharacter) >= 3
-    ) {
-      const range = findFenceRange(content, index, currentCharacter);
-      index = range.end;
-      continue;
+    while (codeRanges[codeRangeIndex] && codeRanges[codeRangeIndex].end <= index) {
+      codeRangeIndex += 1;
     }
-
-    if (currentCharacter === '`') {
-      const range = findInlineCodeRange(content, index);
-      index = range.end;
+    const containingCode = codeRanges[codeRangeIndex];
+    if (containingCode?.start <= index) {
+      index = containingCode.end;
       continue;
     }
 

@@ -1048,6 +1048,79 @@ describe('MarkdownRenderer', () => {
     expect(container).toHaveTextContent('[ref]: /visibile');
   });
 
+  test('renders footnotes, autolinks, list-continuation definitions, and nested tilde fences', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          'Testo[^nota] e <https://example.com>.',
+          '',
+          '[^nota]: Contenuto della nota.',
+          '',
+          '- [ref]:',
+          '    /image.png',
+          '',
+          '  ![Immagine][ref]',
+          '',
+          '> ~~~md',
+          '> [falso]: /visibile-nel-codice',
+          '> ~~~',
+          '',
+          '> - [nested]:',
+          '>     /nested.png',
+          '>',
+          '>   ![Nested][nested]',
+          '',
+          '- Voce',
+          '',
+          '    ~~~md',
+          '    - literal list marker',
+          '    [lista]: /visibile-nel-codice',
+          '    ~~~',
+        ].join('\n')}
+      />
+    );
+
+    expect(container).toHaveTextContent('Contenuto della nota.');
+    expect(screen.getByRole('link', { name: 'https://example.com' })).toHaveAttribute(
+      'href',
+      'https://example.com'
+    );
+    expect(container.querySelector('li img')).toHaveAttribute('src', '/image.png');
+    expect(container.querySelector('blockquote code')).toHaveTextContent(
+      '[falso]: /visibile-nel-codice'
+    );
+    expect(container.querySelector('blockquote li img')).toHaveAttribute('src', '/nested.png');
+    expect(
+      Array.from(container.querySelectorAll('code')).some(code =>
+        code.textContent?.includes('[lista]: /visibile-nel-codice')
+      )
+    ).toBe(true);
+  });
+
+  test('keeps malformed footnotes, autolinks, continuations, and tilde markers visible', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '[^nota] /nota-visibile',
+          '<https:// example.com>',
+          '<a@b>',
+          '[ref]:',
+          '- /destinazione-visibile',
+          '> ~~md',
+          '> testo-visibile',
+          '> ~~',
+        ].join('\n')}
+      />
+    );
+
+    expect(container).toHaveTextContent('[^nota] /nota-visibile');
+    expect(container).toHaveTextContent('<https:// example.com>');
+    expect(container).toHaveTextContent('<a@b>');
+    expect(container).toHaveTextContent('/destinazione-visibile');
+    expect(container).toHaveTextContent('~~md');
+    expect(container).toHaveTextContent('testo-visibile');
+  });
+
   test('renders markdown tables with semantic cells', () => {
     render(<MarkdownRenderer content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'} />);
 

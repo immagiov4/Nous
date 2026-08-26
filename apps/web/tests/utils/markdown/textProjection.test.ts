@@ -59,6 +59,28 @@ test('buildVisibleProjection preserves reference-like text inside raw html conta
   assert.match(buildVisibleProjection(content).text, /Testoref/u);
 });
 
+test('buildVisibleProjection follows rendered footnote, autolink, and list-definition visibility', () => {
+  const content = [
+    'Testo[^nota] e <https://example.com>.',
+    '',
+    '[^nota]: Contenuto della nota.',
+    '',
+    '- [ref]:',
+    '    /image.png',
+    '',
+    '  ![Immagine][ref]',
+  ].join('\n');
+  const projection = buildVisibleProjection(content).text;
+
+  assert.match(projection, /Contenuto della nota/u);
+  assert.match(projection, /https:\/\/example\.com/u);
+  assert.doesNotMatch(projection, /image\.png|Immagine/u);
+});
+
+test('buildVisibleProjection preserves malformed email autolink brackets', () => {
+  assert.match(buildVisibleProjection('<a@b>').text, /<a@b>/u);
+});
+
 test('buildVisibleProjection preserves malformed image syntax rendered as text', () => {
   const projection = buildVisibleProjection('![testo visibile](destinazione non valida)');
 

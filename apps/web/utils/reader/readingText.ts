@@ -1,7 +1,10 @@
 import {
+  findMarkdownAutolinkEnd,
+  getMarkdownImageRanges,
   getMarkdownProtectedRanges,
   getMarkdownReferenceDefinitionRanges,
   getMarkdownReferenceLinkLabelRanges,
+  isMarkdownHtmlTag,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
 } from '../markdown/codeRanges.ts';
@@ -114,6 +117,13 @@ const stripMarkdownReferenceDefinitions = (content: string): string => {
   );
 };
 
+const stripMarkdownImages = (content: string): string =>
+  getMarkdownImageRanges(content).reduceRight(
+    (currentContent, range) =>
+      `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
+    content
+  );
+
 const stripMarkdownReferenceLinkLabels = (content: string): string =>
   getMarkdownReferenceLinkLabelRanges(content).reduceRight(
     (currentContent, range) =>
@@ -207,6 +217,19 @@ const stripAllowedHtmlTags = (content: string): string => {
     if (tagEnd === -1) {
       normalizedContent += content.slice(tagStart);
       break;
+    }
+
+    const autolinkEnd = findMarkdownAutolinkEnd(content, tagStart);
+    if (autolinkEnd === tagEnd) {
+      normalizedContent += content.slice(tagStart + 1, tagEnd);
+      cursor = tagEnd + 1;
+      continue;
+    }
+
+    if (!isMarkdownHtmlTag(content.slice(tagStart, tagEnd + 1))) {
+      normalizedContent += content.slice(tagStart, tagEnd + 1);
+      cursor = tagEnd + 1;
+      continue;
     }
 
     const rawTag = content.slice(tagStart + 1, tagEnd).trim();
@@ -405,7 +428,8 @@ export interface ReadableTextElement {
 }
 
 export const prepareMarkdownForSpeech = (content: string): string => {
-  const referenceLabelsStripped = stripMarkdownReferenceLinkLabels(content);
+  const imagesStripped = stripMarkdownImages(content);
+  const referenceLabelsStripped = stripMarkdownReferenceLinkLabels(imagesStripped);
   const referenceDefinitionsStripped = stripMarkdownReferenceDefinitions(referenceLabelsStripped);
   const placeholderStrippedContent = NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.reduce(
     (currentContent, placeholderPrefix) => stripPlaceholderToken(currentContent, placeholderPrefix),

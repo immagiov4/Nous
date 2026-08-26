@@ -184,6 +184,34 @@ describe('prepareMarkdownForSpeech', () => {
     expect(speech).toMatch(/Testo.*ref/u);
   });
 
+  test('follows rendered footnote, autolink, and list-definition visibility', () => {
+    const speech = prepareMarkdownForSpeech(
+      [
+        'Testo[^nota] e <https://example.com>.',
+        '',
+        '[^nota]: Contenuto della nota.',
+        '',
+        '- [ref]:',
+        '    /image.png',
+        '',
+        '  ![Immagine][ref]',
+      ].join('\n')
+    );
+
+    expect(speech).toMatch(/Contenuto della nota/u);
+    expect(speech).toMatch(/https:\/\/example\.com/u);
+    expect(speech).not.toMatch(/image\.png|Immagine/u);
+  });
+
+  test('preserves malformed email autolinks and skips list-indented fenced code', () => {
+    const speech = prepareMarkdownForSpeech(
+      ['<a@b>', '- Voce', '', '    ~~~md', '    segreto-nel-codice', '    ~~~'].join('\n')
+    );
+
+    expect(speech).toMatch(/<a@b>/u);
+    expect(speech).not.toMatch(/segreto-nel-codice/u);
+  });
+
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {
     const input = ['#  Titolo\tstrano', '', '', '', 'Testo\t con   spazi.'].join('\r\n');
 

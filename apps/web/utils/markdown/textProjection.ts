@@ -1,11 +1,13 @@
 import {
   findInlineLabelEnd,
   findInlineLinkDestinationEnd,
+  findMarkdownAutolinkEnd,
   getMarkdownImageRanges,
   getMarkdownLinkDestinationRanges,
   getMarkdownMathRangeAt,
   getMarkdownReferenceDefinitionRanges,
   getMarkdownReferenceLinkLabelRanges,
+  isMarkdownHtmlTag,
   type MarkdownRange,
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
   projectMarkdownMathRange,
@@ -94,7 +96,9 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
     }
 
     if (atLineStart) {
-      const blockMarkerMatch = content.slice(index).match(/^\s{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)\s+/u);
+      const blockMarkerMatch = content
+        .slice(index)
+        .match(/^[ \t]{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)[ \t]+/u);
 
       if (blockMarkerMatch) {
         index += blockMarkerMatch[0].length;
@@ -149,8 +153,17 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
     }
 
     if (currentCharacter === '<') {
+      const autolinkEnd = findMarkdownAutolinkEnd(content, index);
+      if (autolinkEnd !== -1) {
+        for (let sourceIndex = index + 1; sourceIndex < autolinkEnd; sourceIndex += 1) {
+          pushCharacter(content[sourceIndex], sourceIndex);
+        }
+        atLineStart = false;
+        index = autolinkEnd + 1;
+        continue;
+      }
       const tagEnd = content.indexOf('>', index);
-      if (tagEnd !== -1) {
+      if (tagEnd !== -1 && isMarkdownHtmlTag(content.slice(index, tagEnd + 1))) {
         index = tagEnd + 1;
         continue;
       }

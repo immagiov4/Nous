@@ -125,6 +125,21 @@ test('rejects candidates found only in a multiline reference definition title', 
   );
 });
 
+test('distinguishes visible footnote content from nested fenced code', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Testo[^nota]\n\n[^nota]: Contenuto visibile', {
+      selectedText: 'Contenuto visibile',
+    }),
+    true
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('> ~~~md\n> [falso]: /contenuto-nel-codice\n> ~~~', {
+      selectedText: 'contenuto nel codice',
+    }),
+    false
+  );
+});
+
 test('does not inherit stale boundary context when the proposed text changes', () => {
   const candidates = buildConversationNoteSaveCandidates({
     anchor: {
