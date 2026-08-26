@@ -783,6 +783,43 @@ describe('generateDurableLesson', () => {
     expect(globalThis.sessionStorage).toHaveLength(0);
   });
 
+  test('starts a new forced run instead of replaying a terminal retained lesson', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:lesson-1',
+      'terminal-request'
+    );
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        response({
+          id: 'run-terminal',
+          projectId: 'project-1',
+          result: completedResult,
+          sectionId: 'lesson-1',
+          stage: 'verification',
+          status: 'completed',
+        })
+      )
+      .mockResolvedValueOnce(
+        response({
+          id: 'run-forced',
+          projectId: 'project-1',
+          result: completedResult,
+          sectionId: 'lesson-1',
+          stage: 'verification',
+          status: 'completed',
+        })
+      );
+
+    await generateDurableLesson({
+      forceRegenerate: true,
+      projectId: 'project-1',
+      sectionId: 'lesson-1',
+    });
+
+    expect(requestBody(1)).toMatchObject({ forceRegenerate: true });
+    expect(requestBody(1).requestKey).not.toBe('terminal-request');
+  });
+
   test('preserves force regeneration when a retained key has no backend run yet', async () => {
     globalThis.sessionStorage.setItem(
       'nous:lesson-workflow-request:project-1:lesson-1',

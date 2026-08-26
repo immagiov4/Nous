@@ -520,13 +520,20 @@ export const generateDurableLesson = async ({
     requestIdentity: sectionId,
   });
   if (retainedLessonRequest) {
-    return resumeRetainedLessonRequest({
-      onProgressStage,
-      onWorkflowSnapshot,
-      projectId,
-      recovery: retainedLessonRequest,
-      sectionId,
-    });
+    if (
+      !forceRegenerate ||
+      retainedLessonRequest.job.status === 'queued' ||
+      retainedLessonRequest.job.status === 'running'
+    ) {
+      return resumeRetainedLessonRequest({
+        onProgressStage,
+        onWorkflowSnapshot,
+        projectId,
+        recovery: retainedLessonRequest,
+        sectionId,
+      });
+    }
+    clearLessonRequestState(retainedLessonRequest.storageKey, retainedLessonRequest.requestKey);
   }
   if (parentSectionId) {
     const sublessonRecovery =

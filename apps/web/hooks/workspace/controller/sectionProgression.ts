@@ -517,14 +517,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     state.setScreenState(AppState.READING);
     domain.setActiveSectionId(section.id);
 
-    void projectLibrary.patchCurrentProject(
-      {
-        activeSectionId: section.id,
-        state: AppState.READING,
-      },
-      activeGeneration.projectId
-    );
-
     const projectId = activeGeneration.projectId;
     if (!projectId) {
       if (ownsGenerationGate) state.finishGeneration(projectId, activeGeneration.token);
@@ -536,7 +528,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const isGenerationViewCurrent = () =>
       state.getScreenState() === AppState.READING &&
       projectLibrary.getCurrentProjectId() === projectId &&
-      projectLibrary.getCurrentActiveSectionId() === section.id &&
+      domain.getDomainState().activeSectionId === section.id &&
       isGenerationWorkflowCurrent();
 
     const progressBridge = createGenerationProgressBridge({
@@ -555,6 +547,17 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
     );
     try {
+      const persistedProject = await projectLibrary.patchCurrentProject(
+        {
+          activeSectionId: section.id,
+          state: AppState.READING,
+        },
+        projectId
+      );
+      if (!persistedProject) {
+        throw new Error(t('Non sono riuscito a salvare la lezione da generare. Riprova.'));
+      }
+      if (!isGenerationCurrent()) return 'ignored-busy';
       const result = await openRouter.generateDurableLesson({
         forceRegenerate,
         onProgressStage: progressObserver.setStage,

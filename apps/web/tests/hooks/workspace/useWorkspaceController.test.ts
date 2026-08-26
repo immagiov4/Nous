@@ -3946,6 +3946,91 @@ test('openSection delegates production lesson work to the durable backend job', 
   ]);
 });
 
+test('openSection persists its generation target before starting durable work', async () => {
+  const lesson = buildTestLesson({ id: 'lesson-1' });
+  const plan = buildPlan({ sections: [lesson] });
+  let finishPersistence: ((value: SavedProjectMeta | null) => void) | undefined;
+  const patchCurrentProject = vi.fn(
+    () =>
+      new Promise<SavedProjectMeta | null>(resolve => {
+        finishPersistence = resolve;
+      })
+  );
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Lezione durevole',
+    contentBlocks: [],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    quiz: [],
+    sectionId: lesson.id,
+    warnings: [],
+  }));
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson },
+    projectLibrary: { currentProjectId: 'project-1', patchCurrentProject },
+  });
+
+  const opening = harness.controller.openSection(lesson);
+  await vi.waitFor(() => expect(patchCurrentProject).toHaveBeenCalledTimes(1));
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+
+  finishPersistence?.(buildMeta('project-1'));
+  await expect(opening).resolves.toBe('loaded');
+  expect(generateDurableLesson).toHaveBeenCalledTimes(1);
+});
+
+test('openSection does not start durable work when its generation target was not saved', async () => {
+  const lesson = buildTestLesson({ id: 'lesson-1' });
+  const generateDurableLesson = vi.fn();
+  const harness = createControllerHarness({
+    domain: { learningPlan: buildPlan({ sections: [lesson] }) },
+    openRouter: { generateDurableLesson },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      patchCurrentProject: async () => null,
+    },
+  });
+
+  await expect(harness.controller.openSection(lesson)).rejects.toThrow(
+    'I could not save the lesson to generate. Try again.'
+  );
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('failed');
+});
+
+test('a completed lesson request cannot report over a newer active lesson', async () => {
+  const generatingLesson = buildTestLesson({ id: 'lesson-1' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
+  const plan = buildPlan({ sections: [generatingLesson, readyLesson] });
+  let rejectGeneration: ((error: Error) => void) | undefined;
+  const generateDurableLesson = vi.fn(
+    () =>
+      new Promise<never>((_resolve, reject) => {
+        rejectGeneration = reject;
+      })
+  );
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      getCurrentActiveSectionId: () => generatingLesson.id,
+    },
+  });
+
+  const generation = harness.controller.openSection(generatingLesson);
+  await vi.waitFor(() => expect(generateDurableLesson).toHaveBeenCalledTimes(1));
+  await expect(harness.controller.openSection(readyLesson)).resolves.toBe('reused-cached');
+
+  rejectGeneration?.(new Error('late failure'));
+  await expect(generation).resolves.toBe('ignored-busy');
+  expect(harness.domain.activeSectionId).toBe(readyLesson.id);
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('idle');
+});
+
 test('openSection exposes a durable busy error instead of silently ignoring it', async () => {
   const plan = buildPlan({
     sections: [
