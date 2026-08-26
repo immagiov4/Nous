@@ -1,4 +1,4 @@
-import { getMarkdownMathRangeAt } from './codeRanges.ts';
+import { getMarkdownMathRangeAt, type MarkdownMathRange } from './mathSyntax.ts';
 
 const WORD_LIKE_MATH_SCRIPT_LABEL_REGEX = /^[A-Za-z][A-Za-z0-9-]{2,}(?:\s+[A-Za-z0-9-]+)*$/;
 const LIKELY_DISPLAY_MATH_CONTENT_REGEX =
@@ -49,44 +49,41 @@ const hasLatexCommand = (value: string): boolean => {
   return false;
 };
 
+interface BareParenMathCandidate {
+  body: string;
+  end: number;
+}
+
+const readBareParenMathCandidate = (
+  plainText: string,
+  start: number
+): BareParenMathCandidate | null => {
+  if (plainText[start] !== '(') return null;
+
+  let closingIndex = start + 1;
+  while (closingIndex < plainText.length && plainText[closingIndex] !== ')') {
+    if (plainText[closingIndex] === '\n' || plainText[closingIndex] === '(') return null;
+    closingIndex += 1;
+  }
+
+  if (closingIndex >= plainText.length || plainText[closingIndex] !== ')') return null;
+  const body = plainText.slice(start + 1, closingIndex);
+  return hasLatexCommand(body) ? { body, end: closingIndex + 1 } : null;
+};
+
 const normalizeBareParenInlineMathInPlainText = (plainText: string): string => {
   let normalizedText = '';
   let cursor = 0;
 
   while (cursor < plainText.length) {
-    if (plainText[cursor] !== '(') {
+    const candidate = readBareParenMathCandidate(plainText, cursor);
+    if (!candidate) {
       normalizedText += plainText[cursor];
       cursor += 1;
       continue;
     }
-
-    let closingIndex = cursor + 1;
-    let isValidCandidate = true;
-
-    while (closingIndex < plainText.length && plainText[closingIndex] !== ')') {
-      if (plainText[closingIndex] === '\n' || plainText[closingIndex] === '(') {
-        isValidCandidate = false;
-        break;
-      }
-
-      closingIndex += 1;
-    }
-
-    if (!isValidCandidate || closingIndex >= plainText.length || plainText[closingIndex] !== ')') {
-      normalizedText += plainText[cursor];
-      cursor += 1;
-      continue;
-    }
-
-    const body = plainText.slice(cursor + 1, closingIndex);
-    if (!hasLatexCommand(body)) {
-      normalizedText += plainText.slice(cursor, closingIndex + 1);
-      cursor = closingIndex + 1;
-      continue;
-    }
-
-    normalizedText += `$${body}$`;
-    cursor = closingIndex + 1;
+    normalizedText += `$${candidate.body}$`;
+    cursor = candidate.end;
   }
 
   return normalizedText;
@@ -230,6 +227,7 @@ const normalizeBareDisplayMath = (segment: string): string =>
 
 interface OrphanedBracketMathCandidate {
   body: string;
+  lastIndex: number;
   nextIndex: number;
 }
 
@@ -263,6 +261,7 @@ const readMultilineBracketMathCandidate = (
 
   return {
     body: bodyLines.join('\n'),
+    lastIndex: closingIndex,
     nextIndex: getNextLineIndex(lines, closingIndex),
   };
 };
@@ -278,6 +277,7 @@ const readSingleLineBracketMathCandidate = (
 
   return {
     body: line.slice(1, -1),
+    lastIndex: startIndex,
     nextIndex: getNextLineIndex(lines, startIndex),
   };
 };
@@ -308,6 +308,123 @@ const normalizeOrphanedBracketDisplayMath = (segment: string): string => {
   }
 
   return normalizedLines.join('\n');
+};
+
+const getLineStartOffsets = (lines: string[]): number[] => {
+  const offsets: number[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    offsets.push(offset);
+    offset += line.length + 1;
+  }
+  return offsets;
+};
+
+const collectDelimitedMathRanges = (segment: string): MarkdownMathRange[] => {
+  const ranges: MarkdownMathRange[] = [];
+  let cursor = 0;
+  while (cursor < segment.length) {
+    const range = getMarkdownMathRangeAt(segment, cursor);
+    if (range) {
+      ranges.push(range);
+      cursor = range.end;
+    } else {
+      cursor += 1;
+    }
+  }
+  return ranges;
+};
+
+const collectBareParenMathRanges = (
+  segment: string,
+  delimitedRanges: MarkdownMathRange[]
+): MarkdownMathRange[] => {
+  const ranges: MarkdownMathRange[] = [];
+  let cursor = 0;
+  let delimitedIndex = 0;
+
+  while (cursor < segment.length) {
+    const delimitedRange = delimitedRanges[delimitedIndex];
+    if (delimitedRange && cursor >= delimitedRange.start) {
+      cursor = delimitedRange.end;
+      delimitedIndex += 1;
+      continue;
+    }
+    const candidate = readBareParenMathCandidate(segment, cursor);
+    if (candidate && (!delimitedRange || candidate.end <= delimitedRange.start)) {
+      ranges.push({ start: cursor, end: candidate.end });
+      cursor = candidate.end;
+      continue;
+    }
+    cursor += 1;
+  }
+  return ranges;
+};
+
+const collectLineNormalizedMathRanges = (
+  segment: string,
+  delimitedRanges: MarkdownMathRange[]
+): MarkdownMathRange[] => {
+  const lines = segment.split('\n');
+  const lineStarts = getLineStartOffsets(lines);
+  const ranges: MarkdownMathRange[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const orphanedCandidate = readOrphanedBracketMathCandidate(lines, index);
+    if (orphanedCandidate && buildDisplayMathReplacement(orphanedCandidate.body)) {
+      ranges.push({
+        start: lineStarts[index],
+        end: lineStarts[orphanedCandidate.lastIndex] + lines[orphanedCandidate.lastIndex].length,
+      });
+      index = orphanedCandidate.nextIndex - 1;
+      continue;
+    }
+
+    const lineStart = lineStarts[index];
+    const lineEnd = lineStart + lines[index].length;
+    let plainStart = lineStart;
+    const lineDelimitedRanges = delimitedRanges.filter(
+      range => range.start < lineEnd && range.end > lineStart
+    );
+    for (const delimitedRange of lineDelimitedRanges) {
+      const plainEnd = Math.min(delimitedRange.start, lineEnd);
+      const plainText = segment.slice(plainStart, plainEnd);
+      if (normalizeBareDisplayMathLine(plainText)) {
+        ranges.push({
+          start: plainStart + plainText.length - plainText.trimStart().length,
+          end: plainEnd - (plainText.length - plainText.trimEnd().length),
+        });
+      }
+      plainStart = Math.max(plainStart, delimitedRange.end);
+    }
+    const trailingPlainText = segment.slice(plainStart, lineEnd);
+    if (normalizeBareDisplayMathLine(trailingPlainText)) {
+      ranges.push({
+        start: plainStart + trailingPlainText.length - trailingPlainText.trimStart().length,
+        end: lineEnd - (trailingPlainText.length - trailingPlainText.trimEnd().length),
+      });
+    }
+  }
+  return ranges;
+};
+
+const mergeMathRanges = (ranges: MarkdownMathRange[]): MarkdownMathRange[] => {
+  const merged: MarkdownMathRange[] = [];
+  for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
+    const previous = merged.at(-1);
+    if (previous && range.start < previous.end) previous.end = Math.max(previous.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
+};
+
+export const getRenderedMathSourceRanges = (segment: string): MarkdownMathRange[] => {
+  const delimitedRanges = collectDelimitedMathRanges(segment);
+  return mergeMathRanges([
+    ...delimitedRanges,
+    ...collectBareParenMathRanges(segment, delimitedRanges),
+    ...collectLineNormalizedMathRanges(segment, delimitedRanges),
+  ]);
 };
 
 export const getDisplayMathClosingDelimiter = (line: string): '$$' | '\\]' | null => {

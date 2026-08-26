@@ -13,7 +13,11 @@ import {
   mergeRanges,
   sortAnnotationsByDocumentOrder,
 } from './sectionAnnotationMarkup.ts';
-import { normalizeWhitespace, resolveSelectedSegments } from './sectionAnnotationProjection.ts';
+import {
+  normalizeWhitespace,
+  type PreferredAnnotationSelection,
+  resolveSelectedSegments,
+} from './sectionAnnotationProjection.ts';
 
 export const NOTE_MERGE_SEPARATOR = '\n\n---\n\n';
 
@@ -27,6 +31,7 @@ interface ApplySectionAnnotationOptions {
   note?: string;
   now?: string;
   preferredAnnotationId?: string;
+  preferredSelection?: PreferredAnnotationSelection;
   selectedText: string;
   selectedTextStart?: number;
 }
@@ -93,6 +98,7 @@ export const findSectionAnnotationForSelection = ({
   content,
   contextAfter,
   contextBefore,
+  preferredSelection,
   selectedText,
   selectedTextStart,
 }: Pick<
@@ -101,6 +107,7 @@ export const findSectionAnnotationForSelection = ({
   | 'content'
   | 'contextAfter'
   | 'contextBefore'
+  | 'preferredSelection'
   | 'selectedText'
   | 'selectedTextStart'
 >): FindSectionAnnotationForSelectionResult | null => {
@@ -108,6 +115,7 @@ export const findSectionAnnotationForSelection = ({
     content,
     contextAfter,
     contextBefore,
+    preferredSelection,
     selectedText,
     selectedTextStart,
   });
@@ -175,6 +183,7 @@ export const applySectionAnnotation = ({
   note = '',
   now = timestampIso(),
   preferredAnnotationId,
+  preferredSelection,
   selectedText,
   selectedTextStart,
 }: ApplySectionAnnotationOptions): ApplySectionAnnotationResult | null => {
@@ -182,6 +191,7 @@ export const applySectionAnnotation = ({
     content,
     contextAfter,
     contextBefore,
+    preferredSelection,
     selectedText,
     selectedTextStart,
   });

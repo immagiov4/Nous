@@ -1,8 +1,19 @@
+import { decodeString } from 'micromark-util-decode-string';
 import {
-  getMarkdownMathRangeAt,
+  findInlineLabelEnd,
+  findInlineLinkDestinationEnd,
+  getMarkdownImageRanges,
+  getMarkdownLinkDestinationRanges,
+  getMarkdownReferenceDefinitionRanges,
+  getMarkdownReferenceLinkLabelRanges,
+  isMarkdownPlaceholderLiteralInsideCode,
+  type MarkdownAnalysis,
   type MarkdownRange,
+  parseMarkdownAnalysis,
   projectMarkdownMathRange,
+  readCompleteMarkdownPlaceholderRange,
 } from './codeRanges.ts';
+import { getRawHtmlTagRanges } from './html.ts';
 
 /**
  * Shared text-projection helpers used by highlight-selection and
@@ -12,6 +23,8 @@ import {
  */
 
 export interface VisibleProjection {
+  insertedBoundarySourceIndexes: number[];
+  sourceEnds: number[];
   sourceIndexes: number[];
   text: string;
 }
@@ -22,6 +35,7 @@ export interface TextMatch {
 }
 
 export interface LooseProjection {
+  sourceEnds: number[];
   sourceIndexes: number[];
   text: string;
 }
@@ -29,51 +43,38 @@ export interface LooseProjection {
 const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
 const INLINE_FORMAT_DELIMITERS = ['***', '___', '**', '__', '~~', '*', '_'];
+const CHARACTER_REFERENCE_AT_START_REGEX =
+  /^&(?:#(?:\d{1,7}|[xX][\dA-Fa-f]{1,6})|[A-Za-z][A-Za-z0-9]{1,31});/u;
+const WORD_BOUNDARY_CHARACTER_REGEX = /^[\p{L}\p{N}]$/u;
 
-const findInlineLinkDestinationEnd = (value: string, openingParenthesisIndex: number): number => {
-  if (value[openingParenthesisIndex] !== '(') {
-    return -1;
-  }
-
-  let depth = 0;
-  let activeTitleQuote: '"' | "'" | null = null;
-
-  for (let index = openingParenthesisIndex; index < value.length; index += 1) {
-    const character = value[index];
-
-    if (character === '\\') {
-      index += 1;
-      continue;
-    }
-
-    if (activeTitleQuote) {
-      if (character === activeTitleQuote) {
-        activeTitleQuote = null;
-      }
-      continue;
-    }
-
-    if (depth === 1 && (character === '"' || character === "'") && /\s/u.test(value[index - 1])) {
-      activeTitleQuote = character;
-      continue;
-    }
-
-    if (character === '(') {
-      depth += 1;
-      continue;
-    }
-
-    if (character !== ')') {
-      continue;
-    }
-
-    depth -= 1;
-    if (depth === 0) {
-      return index;
+export const getHiddenInlineBoundaryRanges = (
+  content: string,
+  analysis: MarkdownAnalysis
+): MarkdownRange[] => {
+  const ranges = [...getMarkdownImageRanges(content, analysis), ...analysis.inlineBoundaryRanges]
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+    .map(range => ({ ...range }));
+  const merged: MarkdownRange[] = [];
+  for (const range of ranges) {
+    const previous = merged.at(-1);
+    if (previous && range.start <= previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push(range);
     }
   }
+  return merged;
+};
 
-  return -1;
+const indexLongestRangeByStart = (ranges: readonly MarkdownRange[]): Map<number, MarkdownRange> => {
+  const rangesByStart = new Map<number, MarkdownRange>();
+  for (const range of ranges) {
+    const currentRange = rangesByStart.get(range.start);
+    if (!currentRange || range.end > currentRange.end) {
+      rangesByStart.set(range.start, range);
+    }
+  }
+  return rangesByStart;
 };
 
 export const escapeRegex = (value: string) =>
@@ -98,32 +99,69 @@ export const normalizeLooseText = (value: string): string =>
     .replaceAll(/\s+/g, ' ')
     .trim();
 
-export const buildVisibleProjection = (content: string): VisibleProjection => {
+export const buildVisibleProjection = (
+  content: string,
+  analysis: MarkdownAnalysis = parseMarkdownAnalysis(content)
+): VisibleProjection => {
   const characters: string[] = [];
+  const insertedBoundarySourceIndexes: number[] = [];
+  const sourceEnds: number[] = [];
   const sourceIndexes: number[] = [];
   let index = 0;
   let atLineStart = true;
   let activeCodeDelimiter: string | null = null;
+  let pendingBoundarySourceIndex: number | null = null;
+  const linkDestinationRangesByStart = indexLongestRangeByStart(analysis.linkDestinationRanges);
+  const mathRangesByStart = indexLongestRangeByStart(analysis.mathRanges);
+  const hiddenRangesByStart = indexLongestRangeByStart([
+    ...getMarkdownImageRanges(content, analysis),
+    ...getMarkdownLinkDestinationRanges(content, analysis),
+    ...getMarkdownReferenceDefinitionRanges(content, analysis),
+    ...getMarkdownReferenceLinkLabelRanges(content, analysis),
+    ...analysis.htmlSyntaxRanges,
+    ...analysis.rendererNormalizedIndentRanges,
+    ...analysis.structuralRanges,
+  ]);
+  const boundaryRangesByStart = indexLongestRangeByStart(
+    getHiddenInlineBoundaryRanges(content, analysis)
+  );
+  const rawHtmlTagRanges = getRawHtmlTagRanges(content);
 
-  const pushCharacter = (character: string, sourceIndex: number) => {
+  const pushCharacter = (character: string, sourceIndex: number, sourceEnd = sourceIndex + 1) => {
+    if (pendingBoundarySourceIndex !== null) {
+      if (
+        WORD_BOUNDARY_CHARACTER_REGEX.test(characters.at(-1) ?? '') &&
+        WORD_BOUNDARY_CHARACTER_REGEX.test(character)
+      ) {
+        characters.push(' ');
+        insertedBoundarySourceIndexes.push(pendingBoundarySourceIndex);
+        sourceIndexes.push(pendingBoundarySourceIndex);
+        sourceEnds.push(pendingBoundarySourceIndex);
+      }
+      pendingBoundarySourceIndex = null;
+    }
     characters.push(character);
     sourceIndexes.push(sourceIndex);
+    sourceEnds.push(sourceEnd);
   };
 
   while (index < content.length) {
-    if (
-      content.startsWith('{{PDF_IMAGE:', index) ||
-      content.startsWith('{{VISUAL_EXAMPLE:', index) ||
-      content.startsWith('{{YOUTUBE_CLIP_SOURCE:', index) ||
-      content.startsWith('{{INLINE_QUIZ:', index)
-    ) {
-      const placeholderEnd = content.indexOf('}}', index);
-      index = placeholderEnd === -1 ? content.length : placeholderEnd + 2;
+    const hiddenRange = hiddenRangesByStart.get(index);
+    if (hiddenRange) {
+      const boundaryRange = boundaryRangesByStart.get(index);
+      if (boundaryRange) {
+        pendingBoundarySourceIndex =
+          boundaryRange.end < content.length
+            ? boundaryRange.end
+            : Math.max(0, boundaryRange.start - 1);
+      }
+      index = Math.max(hiddenRange.end, boundaryRange?.end ?? hiddenRange.end);
       continue;
     }
-
     if (atLineStart) {
-      const blockMarkerMatch = content.slice(index).match(/^\s{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)\s+/u);
+      const blockMarkerMatch = content
+        .slice(index)
+        .match(/^[ \t]{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)[ \t]+/u);
 
       if (blockMarkerMatch) {
         index += blockMarkerMatch[0].length;
@@ -134,7 +172,7 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
 
     const currentCharacter = content[index];
 
-    const mathRange = getMarkdownMathRangeAt(content, index);
+    const mathRange = mathRangesByStart.get(index);
     if (mathRange) {
       const mathProjection = projectMarkdownMathRange(content, mathRange);
       mathProjection.text.split('').forEach((character, projectionIndex) => {
@@ -164,6 +202,15 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
         continue;
       }
 
+      const placeholderRange = readCompleteMarkdownPlaceholderRange(content, index);
+      if (
+        placeholderRange &&
+        !isMarkdownPlaceholderLiteralInsideCode(content, placeholderRange.start)
+      ) {
+        index = placeholderRange.end;
+        continue;
+      }
+
       pushCharacter(currentCharacter, index);
       atLineStart = false;
       index += 1;
@@ -177,27 +224,51 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
       continue;
     }
 
-    if (currentCharacter === '<') {
-      const tagEnd = content.indexOf('>', index);
-      if (tagEnd !== -1) {
-        index = tagEnd + 1;
-        continue;
+    const placeholderRange = readCompleteMarkdownPlaceholderRange(content, index);
+    if (placeholderRange) {
+      index = placeholderRange.end;
+      continue;
+    }
+
+    if (currentCharacter === '&') {
+      const reference = content.slice(index).match(CHARACTER_REFERENCE_AT_START_REGEX)?.[0];
+      const referenceEnd = reference ? index + reference.length : index;
+      const isOutsideRawHtmlTag =
+        reference !== undefined &&
+        !rawHtmlTagRanges.some(range => index >= range.start && referenceEnd <= range.end);
+      if (reference && isOutsideRawHtmlTag) {
+        const decodedReference = decodeString(reference);
+        if (decodedReference !== reference) {
+          for (let decodedIndex = 0; decodedIndex < decodedReference.length; decodedIndex += 1) {
+            pushCharacter(decodedReference[decodedIndex], index, referenceEnd);
+          }
+          atLineStart = false;
+          index = referenceEnd;
+          continue;
+        }
       }
     }
 
     if (currentCharacter === '!' && content[index + 1] === '[') {
-      const imageEnd = content.indexOf(')', index + 2);
-      if (imageEnd !== -1) {
-        index = imageEnd + 1;
+      const labelEnd = findInlineLabelEnd(content, index + 1);
+      if (labelEnd !== -1) {
+        content
+          .slice(index, labelEnd + 1)
+          .split('')
+          .forEach((character, offset) => {
+            pushCharacter(character, index + offset);
+          });
+        atLineStart = false;
+        index = labelEnd + 1;
         continue;
       }
     }
 
     if (currentCharacter === '[' || currentCharacter === ']') {
       if (currentCharacter === ']' && content[index + 1] === '(') {
-        const linkEnd = findInlineLinkDestinationEnd(content, index + 1);
-        if (linkEnd !== -1) {
-          index = linkEnd + 1;
+        const destinationRange = linkDestinationRangesByStart.get(index + 1);
+        if (destinationRange) {
+          index = destinationRange.end;
           continue;
         }
       }
@@ -225,14 +296,19 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
   }
 
   return {
+    insertedBoundarySourceIndexes,
+    sourceEnds,
     text: characters.join(''),
     sourceIndexes,
   };
 };
 
-export const buildLooseProjection = (content: string): LooseProjection => {
-  const visibleProjection = buildVisibleProjection(content);
+export const buildLooseProjection = (
+  content: string,
+  visibleProjection: VisibleProjection = buildVisibleProjection(content)
+): LooseProjection => {
   const characters: string[] = [];
+  const sourceEnds: number[] = [];
   const sourceIndexes: number[] = [];
 
   visibleProjection.text.split('').forEach((character, index) => {
@@ -240,6 +316,7 @@ export const buildLooseProjection = (content: string): LooseProjection => {
     if (/^[\p{L}\p{N}]$/u.test(normalizedCharacter)) {
       characters.push(normalizedCharacter);
       sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+      sourceEnds.push(visibleProjection.sourceEnds[index]);
       return;
     }
 
@@ -247,6 +324,7 @@ export const buildLooseProjection = (content: string): LooseProjection => {
       if (characters.at(-1) !== ' ') {
         characters.push(' ');
         sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+        sourceEnds.push(visibleProjection.sourceEnds[index]);
       }
       return;
     }
@@ -254,10 +332,12 @@ export const buildLooseProjection = (content: string): LooseProjection => {
     if (characters.at(-1) !== ' ') {
       characters.push(' ');
       sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+      sourceEnds.push(visibleProjection.sourceEnds[index]);
     }
   });
 
   return {
+    sourceEnds,
     text: characters.join('').trim(),
     sourceIndexes,
   };
@@ -265,6 +345,7 @@ export const buildLooseProjection = (content: string): LooseProjection => {
 
 export const buildSourceLooseProjection = (content: string): LooseProjection => {
   const characters: string[] = [];
+  const sourceEnds: number[] = [];
   const sourceIndexes: number[] = [];
 
   content.split('').forEach((character, index) => {
@@ -272,16 +353,19 @@ export const buildSourceLooseProjection = (content: string): LooseProjection => 
     if (/^[\p{L}\p{N}]$/u.test(normalizedCharacter)) {
       characters.push(normalizedCharacter);
       sourceIndexes.push(index);
+      sourceEnds.push(index + 1);
       return;
     }
 
     if (characters.at(-1) !== ' ') {
       characters.push(' ');
       sourceIndexes.push(index);
+      sourceEnds.push(index + 1);
     }
   });
 
   return {
+    sourceEnds,
     text: characters.join('').trim(),
     sourceIndexes,
   };
@@ -293,7 +377,8 @@ export const resolveExactMatch = (
   contextBefore?: string,
   contextAfter?: string,
   requireContextMatch = false,
-  preferredStart?: number
+  preferredStart?: number,
+  preferredRange?: MarkdownRange
 ): TextMatch | undefined => {
   const normalizedSelectionPattern = buildContextRegex(selectedText);
   const exactSelectionRegex = new RegExp(normalizedSelectionPattern, 'gu');
@@ -321,14 +406,25 @@ export const resolveExactMatch = (
     return beforeOk && afterOk;
   });
   const eligibleMatches = requireContextMatch ? contextualMatches : selectionMatches;
+  const matchesInsidePreferredRange = preferredRange
+    ? eligibleMatches.filter(candidate => {
+        const start = candidate.index ?? 0;
+        return start >= preferredRange.start && start + candidate[0].length <= preferredRange.end;
+      })
+    : [];
   const match =
-    preferredStart !== undefined
+    (preferredStart !== undefined
       ? eligibleMatches.find(candidate => candidate.index === preferredStart)
+      : undefined) ??
+    (preferredRange
+      ? matchesInsidePreferredRange.length === 1
+        ? matchesInsidePreferredRange[0]
+        : undefined
       : requireContextMatch
         ? contextualMatches.length === 1
           ? contextualMatches[0]
           : undefined
-        : contextualMatches[0] || selectionMatches[0];
+        : contextualMatches[0] || selectionMatches[0]);
 
   if (!match) {
     return undefined;
@@ -350,22 +446,18 @@ export const buildSourceSegments = (
   }
 
   const segments: MarkdownRange[] = [];
-  let segmentStart = projection.sourceIndexes[matchStart];
-  let previousSourceIndex = segmentStart;
+  for (let index = matchStart; index < matchStart + matchLength; index += 1) {
+    const start = projection.sourceIndexes[index];
+    const end = projection.sourceEnds[index] ?? start + 1;
+    if (end <= start) continue;
 
-  for (let index = matchStart + 1; index < matchStart + matchLength; index += 1) {
-    const currentSourceIndex = projection.sourceIndexes[index];
-    if (currentSourceIndex === previousSourceIndex + 1) {
-      previousSourceIndex = currentSourceIndex;
+    const previous = segments.at(-1);
+    if (previous && start <= previous.end) {
+      previous.end = Math.max(previous.end, end);
       continue;
     }
-
-    segments.push({ start: segmentStart, end: previousSourceIndex + 1 });
-    segmentStart = currentSourceIndex;
-    previousSourceIndex = currentSourceIndex;
+    segments.push({ start, end });
   }
-
-  segments.push({ start: segmentStart, end: previousSourceIndex + 1 });
   return segments;
 };
 
@@ -441,6 +533,9 @@ const excludeProtectedRanges = (
 
   return fragments;
 };
+
+const markdownRangesOverlap = (left: MarkdownRange, right: MarkdownRange): boolean =>
+  left.start < right.end && left.end > right.start;
 
 interface InlineMarkdownSyntaxBalance {
   formatDelimiterCounts: Map<string, number>;
@@ -556,14 +651,9 @@ const expandInlineMarkdownEnd = (content: string, end: number): number => {
 const canBridgeInlineMarkdownGap = (
   content: string,
   left: MarkdownRange,
-  right: MarkdownRange,
-  protectedRanges: MarkdownRange[]
+  right: MarkdownRange
 ): boolean => {
   const gap = { start: left.end, end: right.start };
-  if (overlapsProtectedRange(gap, protectedRanges)) {
-    return false;
-  }
-
   return parseInlineMarkdownSyntax(content.slice(gap.start, gap.end), {
     formatDelimiterCounts: new Map(),
     linkDepth: 0,
@@ -601,8 +691,7 @@ const mergeInlineMarkdownRun = (content: string, segments: MarkdownRange[]): Mar
 
 const mergeInlineMarkdownSegments = (
   content: string,
-  segments: MarkdownRange[],
-  protectedRanges: MarkdownRange[]
+  segments: MarkdownRange[]
 ): MarkdownRange[] => {
   if (segments.length === 0) {
     return [];
@@ -615,7 +704,7 @@ const mergeInlineMarkdownSegments = (
     const currentSegment = segments[index];
     const previousSegment = currentRun.at(-1) as MarkdownRange;
 
-    if (canBridgeInlineMarkdownGap(content, previousSegment, currentSegment, protectedRanges)) {
+    if (canBridgeInlineMarkdownGap(content, previousSegment, currentSegment)) {
       currentRun.push(currentSegment);
       continue;
     }
@@ -631,7 +720,7 @@ export const buildMarkableSegments = (
   segments: MarkdownRange[],
   protectedRanges: MarkdownRange[]
 ): MarkdownRange[] =>
-  mergeInlineMarkdownSegments(content, segments, protectedRanges)
+  mergeInlineMarkdownSegments(content, segments)
     .flatMap(segment => splitSegmentOnParagraphBreaks(content, segment))
     .flatMap(segment => {
       const trimmedSegment = trimSegmentWhitespace(content, segment);
@@ -639,7 +728,16 @@ export const buildMarkableSegments = (
         return [];
       }
 
-      return excludeProtectedRanges(trimmedSegment, protectedRanges)
+      const exclusionRanges = protectedRanges.filter(protectedRange => {
+        const selectedSourceOverlapsRange = segments.some(sourceSegment =>
+          markdownRangesOverlap(sourceSegment, protectedRange)
+        );
+        const expandedSegmentContainsRange =
+          trimmedSegment.start <= protectedRange.start && trimmedSegment.end >= protectedRange.end;
+        return selectedSourceOverlapsRange || !expandedSegmentContainsRange;
+      });
+
+      return excludeProtectedRanges(trimmedSegment, exclusionRanges)
         .map(fragment => trimSegmentWhitespace(content, fragment))
         .filter((fragment): fragment is MarkdownRange => Boolean(fragment));
     });
@@ -648,6 +746,4 @@ export const overlapsProtectedRange = (
   segment: MarkdownRange,
   protectedRanges: MarkdownRange[]
 ): boolean =>
-  protectedRanges.some(
-    protectedRange => protectedRange.start < segment.end && protectedRange.end > segment.start
-  );
+  protectedRanges.some(protectedRange => markdownRangesOverlap(segment, protectedRange));

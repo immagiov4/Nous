@@ -5,9 +5,10 @@ import type {
   LessonYouTubeClipsBlock,
   QuizQuestion,
 } from '../../types.ts';
+import { readCompleteMarkdownPlaceholderRange } from '../markdown/codeRanges.ts';
 
 const STRUCTURAL_MARKER =
-  /\{\{(?:INLINE_QUIZ|YOUTUBE_CLIP_SOURCE|VISUAL_SLOT|VISUAL_EXAMPLE):[^}]+}}/g;
+  /\{\{(?:INLINE_QUIZ|YOUTUBE_CLIP_SOURCE|VISUAL_SLOT|VISUAL_EXAMPLE):[^{}]+}}/g;
 const INLINE_QUIZ_PREFIX = '{{INLINE_QUIZ:';
 const YOUTUBE_CLIP_PREFIX = '{{YOUTUBE_CLIP_SOURCE:';
 const VISUAL_SLOT_PREFIX = '{{VISUAL_SLOT:';
@@ -21,6 +22,7 @@ export const legacyMarkdownToLessonContentBlocks = (
   let cursor = 0;
   for (const match of content.matchAll(STRUCTURAL_MARKER)) {
     const index = match.index ?? 0;
+    if (!readCompleteMarkdownPlaceholderRange(content, index)) continue;
     const markdown = content.slice(cursor, index).trim();
     if (markdown) blocks.push({ markdown, type: 'markdown' });
     appendLegacyMarkerBlock(blocks, match[0], quiz);

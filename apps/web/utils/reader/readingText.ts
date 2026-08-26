@@ -1,5 +1,15 @@
-import { getMarkdownProtectedRanges, type MarkdownRange } from '../markdown/codeRanges.ts';
-import { stripPdfImagePlaceholders } from '../pdf/imagePlaceholders.ts';
+import {
+  getMarkdownProtectedRanges,
+  isMarkdownPlaceholderLiteralInsideCode,
+  type MarkdownRange,
+  mergeOverlappingMarkdownRanges,
+  parseMarkdownAnalysis,
+  readCompleteMarkdownPlaceholderRange,
+} from '../markdown/codeRanges.ts';
+import {
+  buildVisibleProjection,
+  getHiddenInlineBoundaryRanges,
+} from '../markdown/textProjection.ts';
 
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
 
@@ -56,11 +66,9 @@ const READABLE_TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, li, blockquote';
 const PROSE_READABLE_TEXT_SELECTOR = READABLE_TEXT_SELECTOR.split(', ')
   .map(selector => `.prose ${selector}`)
   .join(', ');
-const VISUAL_EXAMPLE_PLACEHOLDER_PREFIX = '{{VISUAL_EXAMPLE:';
-const YOUTUBE_CLIP_PLACEHOLDER_PREFIX = '{{YOUTUBE_CLIP_SOURCE:';
 const HTML_SPACE_ENTITY = '&nbsp;';
 const HTML_TAGS_TO_DROP_WITH_CONTENT = ['figure', 'picture', 'figcaption'] as const;
-const HTML_TAGS_TO_STRIP = new Set(['mark', 'span']);
+const HTML_TAGS_TO_STRIP = new Set(['mark']);
 
 const rangeContainsLineBreak = (content: string, range: MarkdownRange): boolean =>
   content.slice(range.start, range.end).includes('\n');
@@ -102,21 +110,61 @@ const replaceMarkdownProtectedRanges = (content: string): string => {
   return nextContent;
 };
 
-const stripPlaceholderToken = (content: string, placeholderPrefix: string): string => {
+const stripCompletePlaceholdersOutsideProtectedMarkdown = (content: string): string => {
+  const protectedRanges = getMarkdownProtectedRanges(content);
+  let normalizedContent = '';
+  let cursor = 0;
+  let protectedRangeIndex = 0;
+
+  while (cursor < content.length) {
+    const protectedRange = protectedRanges[protectedRangeIndex];
+    if (protectedRange?.start === cursor) {
+      const protectedContent = content.slice(protectedRange.start, protectedRange.end);
+      normalizedContent += rangeContainsLineBreak(content, protectedRange)
+        ? protectedContent
+        : stripCompletePlaceholders(protectedContent, true);
+      cursor = protectedRange.end;
+      protectedRangeIndex += 1;
+      continue;
+    }
+
+    const placeholderRange = readCompleteMarkdownPlaceholderRange(content, cursor);
+    if (placeholderRange) {
+      normalizedContent += ' ';
+      cursor = placeholderRange.end;
+      while (protectedRanges[protectedRangeIndex]?.start < cursor) {
+        protectedRangeIndex += 1;
+      }
+      continue;
+    }
+
+    normalizedContent += content[cursor];
+    cursor += 1;
+  }
+
+  return normalizedContent;
+};
+
+const stripCompletePlaceholders = (content: string, preserveCodeLiterals: boolean): string => {
   let normalizedContent = '';
   let cursor = 0;
 
   while (cursor < content.length) {
-    const tokenIndex = content.indexOf(placeholderPrefix, cursor);
-    if (tokenIndex === -1) {
-      normalizedContent += content.slice(cursor);
-      break;
+    const placeholderRange = readCompleteMarkdownPlaceholderRange(content, cursor);
+    if (
+      placeholderRange &&
+      !(
+        preserveCodeLiterals &&
+        isMarkdownPlaceholderLiteralInsideCode(content, placeholderRange.start)
+      )
+    ) {
+      normalizedContent += ' ';
+      cursor = placeholderRange.end;
+      continue;
     }
 
-    normalizedContent += content.slice(cursor, tokenIndex);
-    const tokenEnd = content.indexOf('}}', tokenIndex + placeholderPrefix.length);
-    normalizedContent += ' ';
-    cursor = tokenEnd === -1 ? content.length : tokenEnd + 2;
+    normalizedContent += content[cursor];
+    cursor += 1;
   }
 
   return normalizedContent;
@@ -199,7 +247,7 @@ const stripAllowedHtmlTags = (content: string): string => {
       continue;
     }
 
-    normalizedContent += ' ';
+    normalizedContent += content.slice(tagStart, tagEnd + 1);
     cursor = tagEnd + 1;
   }
 
@@ -386,9 +434,33 @@ export interface ReadableTextElement {
 }
 
 export const prepareMarkdownForSpeech = (content: string): string => {
-  const placeholderStrippedContent = stripPlaceholderToken(
-    stripPlaceholderToken(stripPdfImagePlaceholders(content), VISUAL_EXAMPLE_PLACEHOLDER_PREFIX),
-    YOUTUBE_CLIP_PLACEHOLDER_PREFIX
+  const analysis = parseMarkdownAnalysis(content);
+  const separatorRanges = getHiddenInlineBoundaryRanges(content, analysis);
+  const { insertedBoundarySourceIndexes } = buildVisibleProjection(content, analysis);
+  const rendererHiddenContentStripped = mergeOverlappingMarkdownRanges([
+    ...separatorRanges,
+    ...analysis.htmlSyntaxRanges,
+    ...analysis.referenceLinkLabelRanges,
+    ...analysis.referenceDefinitionRanges,
+    ...analysis.rendererNormalizedIndentRanges,
+    ...analysis.structuralRanges,
+  ])
+    .sort((left, right) => right.start - left.start)
+    .reduce((currentContent, range) => {
+      const replacesVisibleBoundary = separatorRanges.some(
+        separatorRange => separatorRange.start < range.end && separatorRange.end > range.start
+      );
+      const separator =
+        replacesVisibleBoundary &&
+        insertedBoundarySourceIndexes.some(
+          sourceIndex => sourceIndex >= range.start && sourceIndex <= range.end
+        )
+          ? ' '
+          : '';
+      return `${currentContent.slice(0, range.start)}${separator}${currentContent.slice(range.end)}`;
+    }, content);
+  const placeholderStrippedContent = stripCompletePlaceholdersOutsideProtectedMarkdown(
+    rendererHiddenContentStripped
   );
   const markdownProtectedContent = replaceMarkdownProtectedRanges(placeholderStrippedContent);
   const htmlContentRemoved = HTML_TAGS_TO_DROP_WITH_CONTENT.reduce(

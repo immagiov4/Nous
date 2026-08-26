@@ -1,7 +1,8 @@
 import {
-  getMarkdownProtectedRanges,
+  getMarkdownAnnotationProtectedRanges,
   type MarkdownRange,
   normalizeMathSelectionArtifacts,
+  parseMarkdownAnalysis,
 } from '../markdown/codeRanges.ts';
 
 import {
@@ -13,25 +14,48 @@ import {
   buildVisibleProjection,
   escapeRegex,
   normalizeLooseText,
+  normalizeWhitespace,
   overlapsProtectedRange,
   resolveExactMatch,
   trimSegmentWhitespace,
 } from '../markdown/textProjection.ts';
 
-export interface ResolveSelectedSegmentsOptions {
-  content: string;
+export interface PreferredAnnotationSelection {
   contextAfter?: string;
   contextBefore?: string;
   selectedText: string;
   selectedTextStart?: number;
 }
 
+export interface ResolveSelectedSegmentsOptions {
+  content: string;
+  contextAfter?: string;
+  contextBefore?: string;
+  preferredSelection?: PreferredAnnotationSelection;
+  selectedText: string;
+  selectedTextStart?: number;
+}
+
 export { normalizeWhitespace } from '../markdown/textProjection.ts';
+
+export const normalizeSectionAnnotationSelectionText = (value: string): string => {
+  const mathNormalizedText = normalizeMathSelectionArtifacts(value).trim();
+  return normalizeWhitespace(
+    mathNormalizedText
+      .normalize('NFD')
+      .replaceAll(/[\u0300-\u036f]/g, '')
+      .replaceAll(/[\u2018\u2019]/g, "'")
+      .replaceAll(/[\u201C\u201D]/g, '"')
+      .replaceAll(/[\u2010-\u2015\u2212]/g, '-')
+      .toLowerCase()
+  );
+};
 
 export const resolveSelectedSegments = ({
   content,
   contextAfter,
   contextBefore,
+  preferredSelection,
   selectedText,
   selectedTextStart,
 }: ResolveSelectedSegmentsOptions): MarkdownRange[] => {
@@ -40,10 +64,31 @@ export const resolveSelectedSegments = ({
     return [];
   }
 
-  const visibleProjection = buildVisibleProjection(content);
-  const looseProjection = buildLooseProjection(content);
+  const analysis = parseMarkdownAnalysis(content);
+  const visibleProjection = buildVisibleProjection(content, analysis);
+  const preferredSelectionMatch = preferredSelection
+    ? resolveExactMatch(
+        visibleProjection.text,
+        normalizeMathSelectionArtifacts(preferredSelection.selectedText).trim(),
+        preferredSelection.contextBefore
+          ? normalizeMathSelectionArtifacts(preferredSelection.contextBefore)
+          : preferredSelection.contextBefore,
+        preferredSelection.contextAfter
+          ? normalizeMathSelectionArtifacts(preferredSelection.contextAfter)
+          : preferredSelection.contextAfter,
+        Boolean(preferredSelection.contextBefore || preferredSelection.contextAfter),
+        preferredSelection.selectedTextStart
+      )
+    : undefined;
+  const preferredRange = preferredSelectionMatch
+    ? {
+        start: preferredSelectionMatch.index,
+        end: preferredSelectionMatch.index + preferredSelectionMatch.text.length,
+      }
+    : undefined;
+  const looseProjection = buildLooseProjection(content, visibleProjection);
   const sourceLooseProjection = buildSourceLooseProjection(content);
-  const protectedRanges = getMarkdownProtectedRanges(content);
+  const protectedRanges = getMarkdownAnnotationProtectedRanges(content, analysis);
   const hasSelectionContext = Boolean(contextBefore || contextAfter);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
@@ -51,7 +96,8 @@ export const resolveSelectedSegments = ({
     contextBefore ? normalizeMathSelectionArtifacts(contextBefore) : contextBefore,
     contextAfter ? normalizeMathSelectionArtifacts(contextAfter) : contextAfter,
     hasSelectionContext,
-    selectedTextStart
+    selectedTextStart,
+    preferredRange
   );
   const words = trimmedTargetText.match(/[\p{L}\p{N}]+/gu) || [];
 
@@ -77,9 +123,11 @@ export const resolveSelectedSegments = ({
   const fuzzyMatch = visibleProjection.text.match(fuzzyRegex);
   const match = hasSelectionContext
     ? exactMatch
-    : shouldPreferExact
-      ? exactMatch || fuzzyMatch
-      : fuzzyMatch || exactMatch;
+    : selectedTextStart !== undefined && exactMatch
+      ? exactMatch
+      : shouldPreferExact
+        ? exactMatch || fuzzyMatch
+        : fuzzyMatch || exactMatch;
 
   if (hasSelectionContext && !match) {
     return [];

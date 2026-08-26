@@ -44,7 +44,10 @@ import type {
   LearningSection,
   StoredLessonVisual,
 } from '../../../types.ts';
-import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
+import {
+  buildConversationNoteSaveCandidates,
+  hasAnchorableConversationNoteCandidate,
+} from '../../../utils/context/conversationNote.ts';
 import {
   buildGeneratedVisualLearningArtifactPayload,
   filterLearningArtifactPayloads,
@@ -612,6 +615,36 @@ function ContextAnswerPanelSession({
     sendAutomaticallyWhen: ({ messages }) => shouldContinueContextResponse(messages),
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
+        return;
+      }
+      if (toolCall.toolName === 'requestAddToNotes') {
+        const noteInput = isRequestAddToNotesInput(toolCall.input) ? toolCall.input : null;
+        const currentState = contextRequestStateStore.read();
+        const primaryCandidate = noteInput
+          ? buildConversationNoteSaveCandidates({
+              anchor: selectionAnchorRef.current,
+              toolInput: {
+                note: noteInput.noteDraft,
+                selectedText: noteInput.selectedTextDraft,
+              },
+            })[0]
+          : null;
+
+        const hasAnchorableProposal = Boolean(
+          primaryCandidate &&
+            hasAnchorableConversationNoteCandidate(
+              currentState.lessonContent || '',
+              primaryCandidate
+            )
+        );
+
+        if (noteInput && !hasAnchorableProposal) {
+          void addToolOutput({
+            tool: 'requestAddToNotes',
+            toolCallId: toolCall.toolCallId,
+            output: { approved: false, mode: 'none', saved: false },
+          });
+        }
         return;
       }
       if (toolCall.toolName === 'getCurrentLessonArtifacts') {

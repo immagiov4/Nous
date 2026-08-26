@@ -1286,6 +1286,144 @@ describe('ContextAnswerPanel', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  test('rejects an unanchorable note proposal before showing an approval request', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: {
+            noteDraft: string;
+            rationale: string;
+            selectedTextDraft: string;
+          };
+          toolCallId: string;
+          toolName: string;
+        };
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            noteDraft: 'Nota su un artefatto.',
+            rationale: 'Il testo compare nel viewer.',
+            selectedTextDraft: 'Testo presente solo nell artefatto',
+          },
+          toolCallId: 'tool-unanchorable-note',
+          toolName: 'requestAddToNotes',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'requestAddToNotes',
+      toolCallId: 'tool-unanchorable-note',
+      output: { approved: false, mode: 'none', saved: false },
+    });
+  });
+
+  test('uses the original selection when the proposed note anchor is blank', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          lessonContent: 'La selezione originale appartiene alla lezione.',
+          selectedText: 'selezione originale',
+        })}
+      />
+    );
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: { noteDraft: string; rationale: string; selectedTextDraft: string };
+          toolCallId: string;
+          toolName: string;
+        };
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            noteDraft: 'Nota sulla selezione.',
+            rationale: 'Conserva il passaggio utile.',
+            selectedTextDraft: '   ',
+          },
+          toolCallId: 'tool-blank-anchor-note',
+          toolName: 'requestAddToNotes',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+  });
+
+  test('accepts a refined anchor without applying the original selection context', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          contextAfter: 'vecchio dopo',
+          contextBefore: 'vecchio prima',
+          lessonContent: 'Il passaggio raffinato appartiene alla lezione.',
+          selectedText: 'passaggio originale',
+        })}
+      />
+    );
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: { noteDraft: string; rationale: string; selectedTextDraft: string };
+          toolCallId: string;
+          toolName: string;
+        };
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            noteDraft: 'Nota raffinata.',
+            rationale: 'Il nuovo passaggio è più preciso.',
+            selectedTextDraft: 'passaggio raffinato',
+          },
+          toolCallId: 'tool-refined-note',
+          toolName: 'requestAddToNotes',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+  });
+
   test('reveals retrieved material after the answer and opens an exact note target', async () => {
     const user = userEvent.setup();
     const onOpenLibraryReference = vi.fn();

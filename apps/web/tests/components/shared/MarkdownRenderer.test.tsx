@@ -961,6 +961,187 @@ describe('MarkdownRenderer', () => {
     expect(mark).not.toHaveAttribute('onclick');
   });
 
+  test('renders parenthesized image titles and keeps definition-like visible text', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '![schema](image.png (Titolo nascosto))',
+          '[fonte](https://example.com (Titolo link))',
+          '',
+          '[]: image.png',
+          '',
+          '<div>',
+          '[ref]: image.png',
+          '</div>',
+          '',
+          '<custom title="a>b">',
+          '[custom-ref]: image.png',
+          '</custom>',
+          '',
+          '</custom bad>',
+          '[malformed-ref]: image.png',
+        ].join('\n')}
+      />
+    );
+
+    expect(container.querySelector('img')).toHaveAttribute('title', 'Titolo nascosto');
+    expect(screen.getByRole('link', { name: 'fonte' })).toHaveAttribute(
+      'href',
+      'https://example.com'
+    );
+    expect(container).not.toHaveTextContent('Titolo link');
+    expect(screen.getByText('[]: image.png')).toBeInTheDocument();
+    expect(container).toHaveTextContent('[ref]: image.png');
+    expect(container).toHaveTextContent('[custom-ref]: image.png');
+    expect(container).toHaveTextContent('[malformed-ref]: image.png');
+  });
+
+  test('renders continued and container-scoped definitions plus reference links', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '[Testo pieno][full] e [Testo collassato][]',
+          '',
+          '[full]:',
+          '/full "Titolo"',
+          '[Testo collassato]: /collapsed',
+          '',
+          '> [quote]: /quote',
+          '>',
+          '> ![Immagine][quote]',
+          '',
+          '- [list]: /list',
+          '',
+          '  ![Lista][list]',
+        ].join('\n')}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: 'Testo pieno' })).toHaveAttribute('href', '/full');
+    expect(screen.getByRole('link', { name: 'Testo collassato' })).toHaveAttribute(
+      'href',
+      '/collapsed'
+    );
+    expect(container.querySelector('blockquote img')).toHaveAttribute('src', '/quote');
+    expect(container.querySelector('li img')).toHaveAttribute('src', '/list');
+  });
+
+  test('renders angle destinations with titles and preserves malformed counterparts', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '[Valido](<https://example.com/percorso> "Titolo")',
+          '[Valido parentesi](<https://example.com/altro> (Titolo))',
+          '[Visibile](<https://example.com> titolo non valido)',
+          '',
+          '> <div>',
+          '> [ref]: /visibile',
+          '> </div>',
+        ].join('\n')}
+      />
+    );
+
+    expect(screen.getByText('Valido').closest('a')).toBeInTheDocument();
+    expect(screen.getByText('Valido parentesi').closest('a')).toBeInTheDocument();
+    expect(container).not.toHaveTextContent('Titolo');
+    expect(container).toHaveTextContent('[Visibile](<https://example.com> titolo non valido)');
+    expect(container).toHaveTextContent('[ref]: /visibile');
+  });
+
+  test('renders footnotes, autolinks, list-continuation definitions, and nested tilde fences', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          'Testo[^nota] e <https://example.com>.',
+          '',
+          '[^nota]: Contenuto della nota.',
+          '',
+          '- [ref]:',
+          '    /image.png',
+          '',
+          '  ![Immagine][ref]',
+          '',
+          '> ~~~md',
+          '> [falso]: /visibile-nel-codice',
+          '> ~~~',
+          '',
+          '> - [nested]:',
+          '>     /nested.png',
+          '>',
+          '>   ![Nested][nested]',
+          '',
+          '- Voce',
+          '',
+          '    ~~~md',
+          '    - literal list marker',
+          '    [lista]: /visibile-nel-codice',
+          '    ~~~',
+        ].join('\n')}
+      />
+    );
+
+    expect(container).toHaveTextContent('Contenuto della nota.');
+    expect(screen.getByRole('link', { name: 'https://example.com' })).toHaveAttribute(
+      'href',
+      'https://example.com'
+    );
+    expect(container).toHaveTextContent('e <https://example.com>.');
+    expect(container.querySelector('li img')).toHaveAttribute('src', '/image.png');
+    expect(container.querySelector('blockquote code')).toHaveTextContent(
+      '[falso]: /visibile-nel-codice'
+    );
+    expect(container.querySelector('blockquote li img')).toHaveAttribute('src', '/nested.png');
+    expect(
+      Array.from(container.querySelectorAll('code')).some(code =>
+        code.textContent?.includes('[lista]: /visibile-nel-codice')
+      )
+    ).toBe(true);
+  });
+
+  test('keeps malformed footnotes, autolinks, continuations, and tilde markers visible', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '[^nota] /nota-visibile',
+          '<https:// example.com>',
+          '<a@b>',
+          '[ref]:',
+          '- /destinazione-visibile',
+          '> ~~md',
+          '> testo-visibile',
+          '> ~~',
+        ].join('\n')}
+      />
+    );
+
+    expect(container).toHaveTextContent('[^nota] /nota-visibile');
+    expect(container).toHaveTextContent('<https:// example.com>');
+    expect(container).toHaveTextContent('<a@b>');
+    expect(container).toHaveTextContent('/destinazione-visibile');
+    expect(container).toHaveTextContent('~~md');
+    expect(container).toHaveTextContent('testo-visibile');
+  });
+
+  test('normalizes prose indentation and renders backslash math without creating code', () => {
+    const { container } = render(
+      <MarkdownRenderer content={String.raw`    Frase visibile con \(x + y\).`} />
+    );
+
+    expect(container).toHaveTextContent('Frase visibile con');
+    expect(container.querySelector('pre')).not.toBeInTheDocument();
+    expect(container.querySelector('.katex')).toBeInTheDocument();
+  });
+
+  test('renders backslash math inside escaped raw html', () => {
+    const { container } = render(
+      <MarkdownRenderer content={String.raw`<span>\(visible\)</span>`} />
+    );
+
+    expect(container).toHaveTextContent('<span>');
+    expect(container).toHaveTextContent('</span>');
+    expect(container.querySelector('.katex')).toBeInTheDocument();
+  });
+
   test('renders markdown tables with semantic cells', () => {
     render(<MarkdownRenderer content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'} />);
 

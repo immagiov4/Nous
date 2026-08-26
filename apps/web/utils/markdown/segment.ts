@@ -3,8 +3,6 @@ import {
   countParenBalance,
   getCodeLanguageLabel,
   inferStandaloneCodeLanguage,
-  isCodeContinuationLine,
-  isOrphanedCodeContinuationLine,
   isStandaloneCodeLine,
   normalizeCodeFenceSpacing,
   parseInlineCodeLead,
@@ -12,37 +10,44 @@ import {
   trimCodeLine,
 } from './codeHeuristics.ts';
 import { escapeDisallowedRawHtml } from './html.ts';
+import { removeAccidentalPlainTextIndentation } from './indentation.ts';
 import {
   getDisplayMathClosingDelimiter,
   normalizeMathMarkdownSegment,
 } from './mathNormalization.ts';
 
-const INDENTED_CODE_BLOCK_PREFIX_REGEX = /^(?: {4,}|\t+)/u;
+export interface MarkdownSegmentSourceRange {
+  end: number;
+  start: number;
+}
 
-const removeAccidentalPlainTextIndentation = (segment: string): string =>
-  segment
-    .split('\n')
-    .map(line => {
-      if (!INDENTED_CODE_BLOCK_PREFIX_REGEX.test(line)) {
-        return line;
-      }
+export interface MarkdownSegmentRenderingPlan {
+  markdown: string;
+  synthesizedCodeRanges: MarkdownSegmentSourceRange[];
+}
 
-      const unindentedLine = line.trimStart();
-      const isOrphanedArgumentLine =
-        /[,)]/u.test(unindentedLine) && isOrphanedCodeContinuationLine(unindentedLine);
-      return isStandaloneCodeLine(unindentedLine) ||
-        isCodeContinuationLine(unindentedLine) ||
-        isOrphanedArgumentLine
-        ? line
-        : unindentedLine;
-    })
-    .join('\n');
-
-export const processMarkdownSegment = (segment: string): string => {
+export const planMarkdownSegmentRendering = (segment: string): MarkdownSegmentRenderingPlan => {
+  const sourceLines = segment.split('\n');
   const lines = normalizeMathMarkdownSegment(removeAccidentalPlainTextIndentation(segment))
     .replaceAll(/\r/g, '')
     .split('\n');
   const output: string[] = [];
+  const synthesizedCodeRanges: MarkdownSegmentSourceRange[] = [];
+  const lineStarts: number[] = [];
+  let nextLineStart = 0;
+  for (const line of sourceLines) {
+    lineStarts.push(nextLineStart);
+    nextLineStart += line.length + 1;
+  }
+  const recordSynthesizedCodeRange = (startIndex: number, endIndex: number) => {
+    const sourceEndLine = sourceLines[endIndex] ?? '';
+    synthesizedCodeRanges.push({
+      start: lineStarts[startIndex] ?? 0,
+      end:
+        (lineStarts[endIndex] ?? 0) +
+        (sourceEndLine.endsWith('\r') ? sourceEndLine.length - 1 : sourceEndLine.length),
+    });
+  };
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -69,6 +74,7 @@ export const processMarkdownSegment = (segment: string): string => {
     if (languageOnlyLine && index + 1 < lines.length) {
       const { codeLines, lastIndex } = collectCodeContinuationLines(lines, index + 1);
       if (codeLines.length > 0) {
+        recordSynthesizedCodeRange(index, lastIndex);
         output.push(
           ...normalizeCodeFenceSpacing([`\`\`\`${languageOnlyLine}`, ...codeLines, '```'])
         );
@@ -85,6 +91,7 @@ export const processMarkdownSegment = (segment: string): string => {
         countParenBalance(inlineCodeLead.code)
       );
       if (codeLines.length > 0) {
+        recordSynthesizedCodeRange(index, lastIndex);
         output.push(
           ...normalizeCodeFenceSpacing([
             `\`\`\`${inlineCodeLead.language}`,
@@ -100,6 +107,7 @@ export const processMarkdownSegment = (segment: string): string => {
 
     const transformedSingleLineCode = transformSingleLineCodeBlock(line);
     if (transformedSingleLineCode) {
+      recordSynthesizedCodeRange(index, index);
       output.push(...normalizeCodeFenceSpacing(transformedSingleLineCode));
       continue;
     }
@@ -112,6 +120,7 @@ export const processMarkdownSegment = (segment: string): string => {
         countParenBalance(line)
       );
       codeLines.push(...continuationLines);
+      recordSynthesizedCodeRange(index, lastIndex);
 
       output.push(
         ...normalizeCodeFenceSpacing([
@@ -130,5 +139,8 @@ export const processMarkdownSegment = (segment: string): string => {
     );
   }
 
-  return output.join('\n');
+  return { markdown: output.join('\n'), synthesizedCodeRanges };
 };
+
+export const processMarkdownSegment = (segment: string): string =>
+  planMarkdownSegmentRendering(segment).markdown;

@@ -11,6 +11,7 @@ import type {
   ProjectSnapshot,
   StoredLessonVisual,
 } from '../../types.ts';
+import { readCompleteMarkdownPlaceholderRange } from '../markdown/codeRanges.ts';
 import { getStoredLessonVisualKind } from '../visuals/storedLessonVisual.ts';
 import { flattenLessons } from './pathNodes.ts';
 
@@ -29,8 +30,8 @@ interface FilterLearningArtifactPayloadsOptions {
   query?: string;
 }
 
-const PDF_IMAGE_PLACEHOLDER_REGEX = /\{\{PDF_IMAGE:([^|}]+)(?:\|[^}]*)?\}\}/g;
-const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|}]+)(?:\|[^}]*)?\}\}/g;
+const PDF_IMAGE_PLACEHOLDER_REGEX = /\{\{PDF_IMAGE:([^|{}]+)(?:\|[^{}]*)?\}\}/g;
+const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|{}]+)(?:\|[^{}]*)?\}\}/g;
 const DEFAULT_MAX_ARTIFACT_RESULTS = 24;
 const GENERATED_VISUAL_FALLBACK_ORDER = 1_000_000;
 const GENERATED_VISUAL_ARTIFACT_SEGMENT = ':generated-visual:';
@@ -111,11 +112,13 @@ const readPlaceholderOrder = (content: string) => {
   VISUAL_EXAMPLE_PLACEHOLDER_REGEX.lastIndex = 0;
 
   for (const match of content.matchAll(PDF_IMAGE_PLACEHOLDER_REGEX)) {
-    orderByKey.set(`pdf-image:${match[1]}`, match.index ?? Number.MAX_SAFE_INTEGER);
+    if (!readCompleteMarkdownPlaceholderRange(content, match.index ?? -1)) continue;
+    orderByKey.set(`pdf-image:${match[1]?.trim()}`, match.index ?? Number.MAX_SAFE_INTEGER);
   }
 
   for (const match of content.matchAll(VISUAL_EXAMPLE_PLACEHOLDER_REGEX)) {
-    orderByKey.set(`generated-visual:${match[1]}`, match.index ?? Number.MAX_SAFE_INTEGER);
+    if (!readCompleteMarkdownPlaceholderRange(content, match.index ?? -1)) continue;
+    orderByKey.set(`generated-visual:${match[1]?.trim()}`, match.index ?? Number.MAX_SAFE_INTEGER);
   }
 
   return orderByKey;

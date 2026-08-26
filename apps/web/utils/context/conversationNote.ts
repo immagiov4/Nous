@@ -3,6 +3,11 @@ import type {
   SaveConversationNoteInput,
   SaveConversationNoteToolInput,
 } from '../../components/workspace/shell/types.ts';
+import { createSectionAnnotationSelector } from '../learning/sectionAnnotationAnchors.ts';
+import {
+  normalizeSectionAnnotationSelectionText,
+  resolveSelectedSegments,
+} from '../learning/sectionAnnotationProjection.ts';
 
 const normalizeOptionalText = (value: string | undefined) => {
   const trimmedValue = value?.trim();
@@ -26,6 +31,24 @@ const areAnchorsEqual = (left: ConversationSelectionAnchor, right: ConversationS
   normalizeSelectedTextStart(left.selectedTextStart) ===
     normalizeSelectedTextStart(right.selectedTextStart);
 
+export const hasAnchorableConversationNoteCandidate = (
+  content: string,
+  candidate: ConversationSelectionAnchor &
+    Partial<Pick<SaveConversationNoteInput, 'fallbackSelection'>>
+): boolean => {
+  const segments = resolveSelectedSegments({
+    content,
+    ...candidate,
+    preferredSelection: candidate.fallbackSelection,
+  });
+  const selector = createSectionAnnotationSelector(content, segments);
+  return (
+    selector !== null &&
+    normalizeSectionAnnotationSelectionText(selector.exact) ===
+      normalizeSectionAnnotationSelectionText(candidate.selectedText)
+  );
+};
+
 export const buildConversationNoteSaveCandidates = ({
   anchor,
   toolInput,
@@ -41,16 +64,22 @@ export const buildConversationNoteSaveCandidates = ({
     ...(normalizedAnchorStart !== undefined ? { selectedTextStart: normalizedAnchorStart } : {}),
   } satisfies ConversationSelectionAnchor;
 
+  const primarySelectedText =
+    normalizeRequiredText(toolInput.selectedText) || normalizedAnchor.selectedText;
+  const canReuseAnchorContext = primarySelectedText === normalizedAnchor.selectedText;
+  const primaryContextAfter =
+    normalizeOptionalText(toolInput.contextAfter) ||
+    (canReuseAnchorContext ? normalizedAnchor.contextAfter : undefined);
+  const primaryContextBefore =
+    normalizeOptionalText(toolInput.contextBefore) ||
+    (canReuseAnchorContext ? normalizedAnchor.contextBefore : undefined);
   const primaryTextSelection = {
-    contextAfter: normalizeOptionalText(toolInput.contextAfter) || normalizedAnchor.contextAfter,
-    contextBefore: normalizeOptionalText(toolInput.contextBefore) || normalizedAnchor.contextBefore,
-    selectedText: normalizeRequiredText(toolInput.selectedText) || normalizedAnchor.selectedText,
+    ...(primaryContextAfter ? { contextAfter: primaryContextAfter } : {}),
+    ...(primaryContextBefore ? { contextBefore: primaryContextBefore } : {}),
+    selectedText: primarySelectedText,
   } satisfies ConversationSelectionAnchor;
   const primarySelectionStart =
-    normalizeSelectedTextStart(toolInput.selectedTextStart) ??
-    (haveMatchingTextContext(primaryTextSelection, normalizedAnchor)
-      ? normalizedAnchor.selectedTextStart
-      : undefined);
+    normalizeSelectedTextStart(toolInput.selectedTextStart) ?? normalizedAnchor.selectedTextStart;
   const primarySelection = {
     ...primaryTextSelection,
     ...(primarySelectionStart !== undefined ? { selectedTextStart: primarySelectionStart } : {}),

@@ -1,5 +1,9 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
-import { getMarkdownProtectedRanges, type MarkdownRange } from '../markdown/codeRanges.ts';
+import {
+  getMarkdownAnnotationProtectedRanges,
+  type MarkdownRange,
+  parseMarkdownAnalysis,
+} from '../markdown/codeRanges.ts';
 import {
   buildContextRegex,
   buildMarkableSegments,
@@ -44,13 +48,14 @@ const buildAnnotationResolutionContext = (
   content: string,
   boundaryContext?: SectionAnnotationBoundaryContext
 ): AnnotationResolutionContext => {
-  const projection = buildVisibleProjection(content);
+  const analysis = parseMarkdownAnalysis(content);
+  const projection = buildVisibleProjection(content, analysis);
   const contextualProjection = buildSectionAnnotationContextText(projection.text, boundaryContext);
   return {
     contextOffset: contextualProjection.offset,
     contextText: contextualProjection.text,
     projection,
-    protectedRanges: getMarkdownProtectedRanges(content),
+    protectedRanges: getMarkdownAnnotationProtectedRanges(content, analysis),
   };
 };
 
@@ -65,8 +70,15 @@ const getProjectionRange = (
   range: MarkdownRange
 ): { end: number; start: number; text: string } | null => {
   const includedIndexes = projection.sourceIndexes
-    .map((sourceIndex, projectionIndex) => ({ projectionIndex, sourceIndex }))
-    .filter(({ sourceIndex }) => sourceIndex >= range.start && sourceIndex < range.end)
+    .map((sourceIndex, projectionIndex) => ({
+      projectionIndex,
+      sourceEnd: projection.sourceEnds[projectionIndex] ?? sourceIndex + 1,
+      sourceIndex,
+    }))
+    .filter(
+      ({ sourceEnd, sourceIndex }) =>
+        sourceEnd > sourceIndex && sourceIndex < range.end && sourceEnd > range.start
+    )
     .map(({ projectionIndex }) => projectionIndex);
 
   const start = includedIndexes[0];

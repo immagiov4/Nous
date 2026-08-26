@@ -207,6 +207,54 @@ describe('learning artifacts', () => {
     });
   });
 
+  test('ignores malformed placeholder options when ordering artifacts', () => {
+    const snapshot = buildSnapshot(
+      buildTestLearningPlan([
+        buildTestLesson({
+          id: 'lesson-1',
+          title: 'Modello relazionale',
+          description: 'Relazioni e vincoli',
+          content: '{{PDF_IMAGE:pdf-img-2|foo=bar}}\n\nTesto della lezione.',
+          imageRefs: [
+            { assetId: 'pdf-img-2', alt: 'Dipendenze funzionali' },
+            { assetId: 'pdf-img-1', alt: 'Schema ER' },
+          ],
+        }),
+      ])
+    );
+
+    const artifacts = collectLearningArtifactPayloads({ snapshot });
+
+    expect(artifacts.map(artifact => artifact.summary.id)).toEqual([
+      'project-1:lesson-1:pdf-image:pdf-img-1',
+      'project-1:lesson-1:pdf-image:pdf-img-2',
+    ]);
+  });
+
+  test('orders artifacts from placeholders with padded IDs', () => {
+    const snapshot = buildSnapshot(
+      buildTestLearningPlan([
+        buildTestLesson({
+          id: 'lesson-1',
+          title: 'Modello relazionale',
+          description: 'Relazioni e vincoli',
+          content: '{{PDF_IMAGE: pdf-img-2 }}\n\nTesto della lezione.',
+          imageRefs: [
+            { assetId: 'pdf-img-1', alt: 'Schema ER' },
+            { assetId: 'pdf-img-2', alt: 'Dipendenze funzionali' },
+          ],
+        }),
+      ])
+    );
+
+    const artifacts = collectLearningArtifactPayloads({ snapshot });
+
+    expect(artifacts.map(artifact => artifact.summary.id)).toEqual([
+      'project-1:lesson-1:pdf-image:pdf-img-2',
+      'project-1:lesson-1:pdf-image:pdf-img-1',
+    ]);
+  });
+
   test('filters artifacts by lesson and searchable visual or image context', () => {
     const snapshot = buildSnapshot(
       buildTestLearningPlan(

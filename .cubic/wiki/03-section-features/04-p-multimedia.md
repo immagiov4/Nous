@@ -32,7 +32,7 @@ Before text is sent to the TTS provider, it undergoes rigorous cleaning to remov
 
 *  **Placeholder Removal**: Strips tokens for PDF images, visual examples, and YouTube clips.
 *  **Markdown Normalization**: Removes formatting markers (`*`, `_`, `~`), list markers, and converts links to their text labels.
-*  **HTML Stripping**: Drops specific tags like `figure`, `picture`, and `figcaption` while preserving content in tags like `mark` or `span`.
+*  **HTML Stripping**: Drops non-speech figures and images, removes renderer-hidden comments and declarations, and strips supported `mark` tags while keeping their visible text. Unsupported tags remain literal because the lesson renderer escapes and displays them.
 *  **Whitespace Collapsing**: Collapses multiple newlines and tabs into a clean, speech-friendly format.
 
 Sources: `[apps/web/utils/reader/readingText.ts:316-339](../../../apps/web/utils/reader/readingText.ts#L316-L339)`, `[apps/web/hooks/reader/useTtsPlayer.ts:187-236](../../../apps/web/hooks/reader/useTtsPlayer.ts#L187-L236)`

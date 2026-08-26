@@ -8,6 +8,7 @@ import type {
   UserProfile,
 } from '../../../types.ts';
 import { flattenPathNodes } from '../../../utils/learning/pathNodes.ts';
+import { readCompleteMarkdownPlaceholderRange } from '../../../utils/markdown/codeRanges.ts';
 import { stripInlineQuizMarkers } from '../../../utils/reader/inlineQuiz.ts';
 import { clipText } from '../../../utils/text.ts';
 import { MEDIUM_REASONING_CONFIG, MODEL_REASONING, teacherInstruction } from '../config.ts';
@@ -70,7 +71,12 @@ const EXERCISE_BRIEF_RESPONSE_SCHEMA = {
     required: ['briefMarkdown', 'groundingSources', 'plannerNotes'],
   },
 } as const;
-const VISUAL_PLACEHOLDER_REGEX = /\{\{(?:PDF_IMAGE|VISUAL_EXAMPLE):[^}]+}}/g;
+const VISUAL_PLACEHOLDER_REGEX = /\{\{(?:PDF_IMAGE|VISUAL_EXAMPLE):[^{}]+}}/g;
+
+const stripVisualPlaceholders = (content: string): string =>
+  content.replaceAll(VISUAL_PLACEHOLDER_REGEX, (placeholder, offset: number) =>
+    readCompleteMarkdownPlaceholderRange(content, offset) ? '' : placeholder
+  );
 
 const asString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
@@ -140,7 +146,7 @@ const getFocusLessons = (plan: LearningPlan, exerciseId: string): LessonNode[] =
 };
 
 const stripGeneratedLessonPlaceholders = (content: string): string =>
-  stripInlineQuizMarkers(content).replaceAll(VISUAL_PLACEHOLDER_REGEX, '').trim();
+  stripVisualPlaceholders(stripInlineQuizMarkers(content)).trim();
 
 const formatFocusLessons = (lessons: LessonNode[]): string =>
   lessons

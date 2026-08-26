@@ -37,6 +37,23 @@ test('replaces known PDF image placeholders with figure HTML', () => {
   assert.match(rendered, /Figura 1/);
 });
 
+test('preserves a malformed PDF marker before replacing a later complete marker', () => {
+  const rendered = replacePdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:bozza poi {{PDF_IMAGE:pdf-img-001}} dopo',
+    { 'pdf-img-001': asset }
+  );
+
+  assert.match(rendered, /\{\{PDF_IMAGE:bozza poi/u);
+  assert.match(rendered, /data-pdf-asset-id="pdf-img-001"/u);
+  assert.match(rendered, /dopo/u);
+});
+
+test('preserves PDF placeholders with unknown options', () => {
+  const content = 'Prima {{PDF_IMAGE:pdf-img-001|foo=bar}} dopo';
+
+  assert.equal(replacePdfImagePlaceholders(content, { 'pdf-img-001': asset }), content);
+});
+
 test('drops orphan placeholders without throwing', () => {
   const rendered = replacePdfImagePlaceholders(
     'Testo\n\n{{PDF_IMAGE:pdf-img-404|alt=Mancante}}\n\nAltro',
@@ -101,4 +118,22 @@ test('restores legacy standalone PDF images into placeholders', () => {
   );
 
   assert.match(restored, /\{\{PDF_IMAGE:pdf-img-001\|alt=Diagramma\}\}/);
+});
+
+test('normalizes persisted placeholders whose text contains a legacy opening brace', () => {
+  const restored = restoreLegacyPdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {A|caption=Insieme {A}} dopo'
+  );
+
+  assert.equal(restored, 'Prima {{PDF_IMAGE:pdf-img-001|alt=Set  A|caption=Insieme  A}} dopo');
+  assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
+});
+
+test('does not let an incomplete legacy marker consume the next complete placeholder', () => {
+  const restored = restoreLegacyPdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:bozza|alt=Set {A poi {{PDF_IMAGE:pdf-img-001}} dopo'
+  );
+
+  assert.match(restored, /\{\{PDF_IMAGE:bozza\|alt=Set \{A poi/u);
+  assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
 });
