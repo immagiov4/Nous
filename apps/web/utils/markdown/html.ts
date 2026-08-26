@@ -29,6 +29,7 @@ const getRawHtmlTags = (value: string): RawHtmlTag[] => {
     while (/[A-Za-z0-9-]/u.test(value[cursor] || '')) cursor += 1;
     const name = value.slice(nameStart, cursor);
     let quote: '"' | "'" | null = null;
+    let tagEnd: number | null = null;
     while (cursor < value.length) {
       const character = value[cursor];
       if (quote !== null) {
@@ -36,12 +37,13 @@ const getRawHtmlTags = (value: string): RawHtmlTag[] => {
       } else if (character === '"' || character === "'") {
         quote = character;
       } else if (character === '>') {
-        tags.push({ start, end: cursor + 1, name });
+        tagEnd = cursor + 1;
+        tags.push({ start, end: tagEnd, name });
         break;
       }
       cursor += 1;
     }
-    start = value.indexOf('<', Math.max(start + 1, cursor + 1));
+    start = value.indexOf('<', tagEnd ?? start + 1);
   }
   return tags;
 };

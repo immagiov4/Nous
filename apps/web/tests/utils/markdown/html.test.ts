@@ -26,3 +26,12 @@ test('leaves incomplete tag-like text unchanged', () => {
 
   assert.equal(projectDisallowedRawHtml(source).content, source);
 });
+
+test('continues escaping tags after an incomplete quoted candidate', () => {
+  const source = '<mark title="broken\n\n<iframe src="video">content</iframe>';
+
+  assert.equal(
+    projectDisallowedRawHtml(source).content,
+    '<mark title="broken\n\n&lt;iframe src="video"&gt;content&lt;/iframe&gt;'
+  );
+});
