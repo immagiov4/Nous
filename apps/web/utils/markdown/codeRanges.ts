@@ -306,6 +306,7 @@ interface MarkdownAstPosition {
 }
 
 interface MarkdownAstNode {
+  checked?: boolean | null;
   children?: MarkdownAstNode[];
   position?: MarkdownAstPosition;
   type: string;
@@ -437,6 +438,15 @@ const getStructuralRangesForNode = (
   sourceOffsets: number[]
 ): MarkdownRange[] => {
   if (node.type === 'thematicBreak' || node.type === 'footnoteReference') return [nodeRange];
+  if (node.type === 'listItem' && node.checked !== null && node.checked !== undefined) {
+    const lineEnd = content.indexOf('\n', nodeRange.start);
+    const firstLineEnd = lineEnd === -1 ? nodeRange.end : Math.min(lineEnd, nodeRange.end);
+    const taskMarker = /\[[ xX]\]/u.exec(content.slice(nodeRange.start, firstLineEnd));
+    if (taskMarker) {
+      const markerStart = nodeRange.start + taskMarker.index;
+      return [{ start: markerStart, end: markerStart + taskMarker[0].length }];
+    }
+  }
   if (node.type === 'heading') {
     const underlineStart = content.lastIndexOf('\n', nodeRange.end - 1) + 1;
     if (underlineStart > nodeRange.start) return [{ start: underlineStart, end: nodeRange.end }];

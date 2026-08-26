@@ -132,6 +132,40 @@ test('accepts complete candidates through loose case and accent normalization', 
   );
 });
 
+test('keeps meaningful operators when validating the complete anchor text', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Formula A/B valida', { selectedText: 'A+B' }),
+    false
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('La cache – non il database', {
+      selectedText: 'La cache - non il database',
+    }),
+    true
+  );
+});
+
+test('rejects task-list checkbox syntax as an annotation anchor', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('- [x] Completato', { selectedText: 'x' }),
+    false
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('- [ ] Da completare', {
+      selectedText: 'Da completare',
+    }),
+    true
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('1. [X] Completato', { selectedText: 'X' }),
+    false
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('- [x]\n  Continuazione', { selectedText: 'x' }),
+    false
+  );
+});
+
 test('accepts rendered Markdown character references as anchorable text', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate('Prima A &amp; B dopo.', {

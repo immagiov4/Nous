@@ -14,6 +14,7 @@ import {
   buildVisibleProjection,
   escapeRegex,
   normalizeLooseText,
+  normalizeWhitespace,
   overlapsProtectedRange,
   resolveExactMatch,
   trimSegmentWhitespace,
@@ -39,7 +40,15 @@ export { normalizeWhitespace } from '../markdown/textProjection.ts';
 
 export const normalizeSectionAnnotationSelectionText = (value: string): string => {
   const mathNormalizedText = normalizeMathSelectionArtifacts(value).trim();
-  return normalizeLooseText(mathNormalizedText) || mathNormalizedText;
+  return normalizeWhitespace(
+    mathNormalizedText
+      .normalize('NFD')
+      .replaceAll(/[\u0300-\u036f]/g, '')
+      .replaceAll(/[\u2018\u2019]/g, "'")
+      .replaceAll(/[\u201C\u201D]/g, '"')
+      .replaceAll(/[\u2010-\u2015\u2212]/g, '-')
+      .toLowerCase()
+  );
 };
 
 export const resolveSelectedSegments = ({
