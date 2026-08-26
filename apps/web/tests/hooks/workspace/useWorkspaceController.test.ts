@@ -3906,6 +3906,39 @@ test('openSection ignores a retained-request lookup superseded by newer navigati
   expect(generateDurableLesson).not.toHaveBeenCalled();
 });
 
+test('openSection rechecks blocking workflows after a retained-request lookup', async () => {
+  const deepLesson = buildTestLesson({
+    content: '# Approfondimento',
+    id: 'deep-1',
+    parentId: 'lesson-1',
+    title: 'Approfondimento',
+    type: 'deep-dive',
+  });
+  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' }), deepLesson] });
+  let resolveRetainedLookup: ((recovery: DurableLessonRecovery | null) => void) | undefined;
+  const resolveDurableSublessonRequestForSection = vi.fn(
+    () =>
+      new Promise<DurableLessonRecovery | null>(resolve => {
+        resolveRetainedLookup = resolve;
+      })
+  );
+  const generateDurableLesson = vi.fn();
+  const { controller, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson, resolveDurableSublessonRequestForSection },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const navigation = controller.openSection(deepLesson);
+  await vi.waitFor(() => expect(resolveRetainedLookup).toBeTypeOf('function'));
+  state.adapter.beginWorkflow('generateExercise');
+  resolveRetainedLookup?.(buildLessonRecovery('deep-1'));
+
+  await expect(navigation).resolves.toBe('ignored-busy');
+  expect(generateDurableLesson).not.toHaveBeenCalled();
+  expect(state.adapter.isGenerationActive('project-1')).toBe(false);
+});
+
 test('openExercise supersedes an in-flight retained sublesson lookup', async () => {
   const deepLesson = buildTestLesson({
     content: '# Approfondimento',

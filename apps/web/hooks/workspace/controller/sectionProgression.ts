@@ -422,13 +422,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     // Ready lessons remain navigable, but every new lesson or sublesson generation
     // shares this gate so workflow invalidation and command recreation cannot open a race.
-    const workflowState = state.getWorkflowState();
     const currentProjectId = projectLibrary.getCurrentProjectId();
-    const isBlockingGeneration =
-      workflowState.loadSection.status === 'pending' ||
-      workflowState.createLesson.status === 'pending' ||
-      workflowState.generateExercise.status === 'pending' ||
-      (!options.allowWhileBlocking && selectIsBlocking(workflowState));
+    const isGenerationBlocked = () => {
+      const workflowState = state.getWorkflowState();
+      return (
+        workflowState.loadSection.status === 'pending' ||
+        workflowState.createLesson.status === 'pending' ||
+        workflowState.generateExercise.status === 'pending' ||
+        (!options.allowWhileBlocking && selectIsBlocking(workflowState))
+      );
+    };
     const hasMatchingActiveGeneration =
       state.isLessonGenerationActive(currentProjectId) &&
       state.getGeneratingSectionId(currentProjectId) === section.id;
@@ -449,7 +452,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     let ownsGenerationGate = false;
     let ownsForceRegenerationIntent = false;
     if (forceRegenerate) {
-      if (currentProjectId === null || isBlockingGeneration) return 'ignored-busy';
+      if (currentProjectId === null || isGenerationBlocked()) return 'ignored-busy';
       const token = state.tryBeginGeneration(currentProjectId, 'lesson');
       if (token === null) return 'ignored-busy';
       activeGeneration = { projectId: currentProjectId, token };
@@ -523,7 +526,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'reused-cached';
     }
 
-    if (isBlockingGeneration) {
+    if (isGenerationBlocked()) {
       abandonForceRegenerationIntent();
       abandonEarlyGeneration();
       return 'ignored-busy';
