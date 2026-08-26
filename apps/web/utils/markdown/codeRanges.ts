@@ -644,6 +644,13 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         htmlRange => range.start >= htmlRange.start && range.end <= htmlRange.end
       );
       if (
+        isInsideEscapedHtml &&
+        node.type === 'html' &&
+        isRendererHiddenHtmlSyntax(content.slice(range.start, range.end))
+      ) {
+        analysis.htmlSyntaxRanges.push(range);
+      }
+      if (
         node.type === 'inlineCode' &&
         !analysis.codeRanges.some(
           candidate => candidate.start === range.start && candidate.end === range.end

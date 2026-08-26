@@ -233,6 +233,16 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech('Prima {{VISUAL_SLOT:   }} dopo')).toBe('Prima dopo');
   });
 
+  test('does not read complete media placeholders containing protected Markdown', () => {
+    expect(prepareMarkdownForSpeech('Prima {{PDF_IMAGE:id|alt=$x$}} dopo')).toBe('Prima dopo');
+    expect(prepareMarkdownForSpeech('Prima {{PDF_IMAGE:id|caption=`formula`}} dopo')).toBe(
+      'Prima dopo'
+    );
+    expect(prepareMarkdownForSpeech('Prima {{VISUAL_EXAMPLE:id|title=$x$}} dopo')).toBe(
+      'Prima dopo'
+    );
+  });
+
   test('reads a malformed marker before removing a later complete marker', () => {
     const speech = prepareMarkdownForSpeech(
       'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo'
@@ -336,6 +346,12 @@ describe('prepareMarkdownForSpeech', () => {
     );
 
     expect(speech).toBe('Prima dopo.');
+  });
+
+  test('does not read hidden HTML syntax inside escaped raw HTML', () => {
+    const speech = prepareMarkdownForSpeech('<script>\n\n<!-- internal -->\n\n</script>');
+
+    expect(speech).toBe('<script>\n\n</script>');
   });
 
   test('preserves malformed email autolinks and skips list-indented fenced code', () => {

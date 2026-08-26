@@ -236,6 +236,15 @@ test('accepts rendered Markdown character references as anchorable text', () => 
   );
 });
 
+test('rejects anchors inside hidden HTML nested in escaped raw HTML', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('<script>\n\n<!-- internal -->\n\n</script>', {
+      selectedText: 'internal',
+    }),
+    false
+  );
+});
+
 test('rejects text rendered from renderer-normalized bare math', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate(String.raw`Prima (\text{velocity}) dopo.`, {

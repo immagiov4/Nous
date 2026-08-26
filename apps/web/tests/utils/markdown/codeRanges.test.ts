@@ -6,6 +6,7 @@ import {
   getMarkdownProtectedRanges,
   getMarkdownReferenceDefinitionRanges,
   normalizeMathSelectionArtifacts,
+  parseMarkdownAnalysis,
   stripHighlightTagsInsideMarkdownCode,
 } from '../../../utils/markdown/codeRanges.ts';
 
@@ -258,6 +259,15 @@ test('annotation ranges protect dollar math exposed by escaped raw html', () => 
   );
 
   assert.deepEqual(protectedSlices, ['$x$']);
+});
+
+test('analysis hides renderer-hidden HTML inside escaped raw HTML', () => {
+  const content = '<script>\n\n<!-- internal -->\n\n</script>';
+  const hiddenSlices = parseMarkdownAnalysis(content).htmlSyntaxRanges.map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(hiddenSlices, ['<!-- internal -->']);
 });
 
 test('annotation ranges reuse every renderer-normalized math form', () => {

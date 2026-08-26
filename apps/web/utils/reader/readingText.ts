@@ -128,9 +128,18 @@ const stripCompletePlaceholdersOutsideProtectedMarkdown = (content: string): str
       continue;
     }
 
-    const unprotectedEnd = protectedRange?.start ?? content.length;
-    normalizedContent += stripCompletePlaceholders(content.slice(cursor, unprotectedEnd), false);
-    cursor = unprotectedEnd;
+    const placeholderRange = readCompleteMarkdownPlaceholderRange(content, cursor);
+    if (placeholderRange) {
+      normalizedContent += ' ';
+      cursor = placeholderRange.end;
+      while (protectedRanges[protectedRangeIndex]?.end <= cursor) {
+        protectedRangeIndex += 1;
+      }
+      continue;
+    }
+
+    normalizedContent += content[cursor];
+    cursor += 1;
   }
 
   return normalizedContent;
