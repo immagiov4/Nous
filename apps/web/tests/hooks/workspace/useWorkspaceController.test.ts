@@ -4024,22 +4024,22 @@ test('lesson generation remains navigable after workflow invalidation until the 
   state.adapter.invalidateWorkflows(['loadSection']);
 
   const whileInvalidatedRequestSettles = await controller.openSection(getLessons(plan)[0]);
-  assert.equal(whileInvalidatedRequestSettles, 'reopened-generating');
-  assert.equal(generationCalls, 1);
-  assert.equal(state.adapter.isLessonGenerationActive('project-1'), true);
-  assert.equal(state.adapter.getGeneratingSectionId('project-1'), 'lesson-1');
+  expect(whileInvalidatedRequestSettles).toBe('reopened-generating');
+  expect(generationCalls).toBe(1);
+  expect(state.adapter.isLessonGenerationActive('project-1')).toBe(true);
+  expect(state.adapter.getGeneratingSectionId('project-1')).toBe('lesson-1');
 
   releaseGeneration?.();
 
-  assert.equal(await invalidatedGeneration, 'loaded');
-  assert.equal(disposeProgressObserver.mock.calls.length, 1);
-  assert.equal(state.internalState.workflowState.loadSection.status, 'succeeded');
-  assert.equal(state.adapter.isLessonGenerationActive('project-1'), false);
-  assert.equal(state.adapter.getGeneratingSectionId('project-1'), null);
+  expect(await invalidatedGeneration).toBe('loaded');
+  expect(disposeProgressObserver).toHaveBeenCalledTimes(1);
+  expect(state.internalState.workflowState.loadSection.status).toBe('succeeded');
+  expect(state.adapter.isLessonGenerationActive('project-1')).toBe(false);
+  expect(state.adapter.getGeneratingSectionId('project-1')).toBeNull();
 
   const retried = await controller.openSection(getLessons(plan)[0]);
-  assert.equal(retried, 'loaded');
-  assert.equal(generationCalls, 2);
+  expect(retried).toBe('loaded');
+  expect(generationCalls).toBe(2);
 });
 
 test('lesson generation reports a terminal failure after workflow invalidation and re-entry', async () => {
@@ -4070,13 +4070,13 @@ test('lesson generation reports a terminal failure after workflow invalidation a
   await generationStarted;
   state.adapter.invalidateWorkflows(['loadSection']);
 
-  assert.equal(await controller.openSection(getLessons(plan)[0]), 'reopened-generating');
+  expect(await controller.openSection(getLessons(plan)[0])).toBe('reopened-generating');
   rejectGeneration?.(new Error('Generazione interrotta'));
 
-  await assert.rejects(invalidatedGeneration, /Generazione interrotta/);
-  assert.equal(generateDurableLesson.mock.calls.length, 1);
-  assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
-  assert.equal(state.internalState.workflowState.loadSection.error, 'Generazione interrotta');
+  await expect(invalidatedGeneration).rejects.toThrow('Generazione interrotta');
+  expect(generateDurableLesson).toHaveBeenCalledTimes(1);
+  expect(state.internalState.workflowState.loadSection.status).toBe('failed');
+  expect(state.internalState.workflowState.loadSection.error).toBe('Generazione interrotta');
 });
 
 test('detached lesson failure does not notify the project that remains visible', async () => {
@@ -4102,10 +4102,10 @@ test('detached lesson failure does not notify the project that remains visible',
   harness.state.adapter.invalidateWorkflows(['loadSection']);
   rejectGeneration?.(new Error('Generazione A interrotta'));
 
-  assert.equal(await selection, 'ignored-busy');
-  assert.equal(notify.mock.calls.length, 0);
-  assert.equal(harness.state.adapter.isGenerationActive('project-a'), false);
-  assert.equal(harness.projectLibrary.adapter.currentProjectId, 'project-b');
+  expect(await selection).toBe('ignored-busy');
+  expect(notify).not.toHaveBeenCalled();
+  expect(harness.state.adapter.isGenerationActive('project-a')).toBe(false);
+  expect(harness.projectLibrary.adapter.currentProjectId).toBe('project-b');
 });
 
 test('lesson generation reattaches while another project owns the pending workflow', async () => {
@@ -4148,22 +4148,21 @@ test('lesson generation reattaches while another project owns the pending workfl
   await Promise.resolve();
 
   harness.projectLibrary.adapter.setCurrentProjectId('project-a');
-  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+  expect(await harness.controller.openSection(lesson)).toBe('reopened-generating');
   rejectProjectA?.(new Error('Generazione A interrotta'));
 
-  await assert.rejects(projectAGeneration, /Generazione A interrotta/);
-  assert.equal(harness.state.internalState.workflowState.loadSection.status, 'failed');
-  assert.equal(
-    harness.state.internalState.workflowState.loadSection.error,
+  await expect(projectAGeneration).rejects.toThrow('Generazione A interrotta');
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('failed');
+  expect(harness.state.internalState.workflowState.loadSection.error).toBe(
     'Generazione A interrotta'
   );
 
   harness.projectLibrary.adapter.setCurrentProjectId('project-b');
-  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+  expect(await harness.controller.openSection(lesson)).toBe('reopened-generating');
   resolveProjectB?.();
-  assert.equal(await projectBGeneration, 'loaded');
-  assert.equal(generateDurableLesson.mock.calls.length, 2);
-  assert.equal(harness.state.internalState.workflowState.loadSection.status, 'succeeded');
+  expect(await projectBGeneration).toBe('loaded');
+  expect(generateDurableLesson).toHaveBeenCalledTimes(2);
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('succeeded');
 });
 
 test('overlapping project generations keep their terminal results when they resolve out of order', async () => {
@@ -4198,15 +4197,15 @@ test('overlapping project generations keep their terminal results when they reso
   const projectBGeneration = harness.controller.openSection(lesson);
 
   harness.projectLibrary.adapter.setCurrentProjectId('project-a');
-  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+  expect(await harness.controller.openSection(lesson)).toBe('reopened-generating');
   harness.projectLibrary.adapter.setCurrentProjectId('project-b');
-  assert.equal(await harness.controller.openSection(lesson), 'reopened-generating');
+  expect(await harness.controller.openSection(lesson)).toBe('reopened-generating');
 
   generationResolvers.get('project-a')?.();
-  assert.equal(await projectAGeneration, 'loaded');
+  expect(await projectAGeneration).toBe('loaded');
   generationResolvers.get('project-b')?.();
-  assert.equal(await projectBGeneration, 'loaded');
-  assert.equal(generateDurableLesson.mock.calls.length, 2);
+  expect(await projectBGeneration).toBe('loaded');
+  expect(generateDurableLesson).toHaveBeenCalledTimes(2);
 });
 
 test('an active lesson generation blocks exercise brief and placement generation after workflow invalidation', async () => {
