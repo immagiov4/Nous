@@ -659,7 +659,6 @@ export const createProjectLifecycleCommands = (
         const hydratedPdfFile =
           preparedSnapshot.source?.kind === 'pdf' ? preparedSnapshot.source.file : null;
         const hasRetainedParentSublessonRequest =
-          !requestedSection &&
           nextSection !== null &&
           Boolean(nextSection.content?.length) &&
           openRouter.hasDurableSublessonRequest(projectId, nextSection.id);

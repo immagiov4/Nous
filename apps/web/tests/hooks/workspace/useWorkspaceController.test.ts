@@ -1932,7 +1932,12 @@ test('openProject resumes a retained sublesson request for a populated active le
   );
 });
 
-test('openProject resumes a retained sublesson before its child is persisted', async () => {
+test.each([
+  { label: 'the persisted active section', openExplicitSection: false },
+  { label: 'an explicitly requested section', openExplicitSection: true },
+])('openProject resumes a retained sublesson before its child is persisted from $label', async ({
+  openExplicitSection,
+}) => {
   const rootLesson = buildTestLesson({ content: '# Radice', id: 'lesson-root' });
   const parentLesson = buildTestLesson({
     content: '# Approfondimento padre',
@@ -2002,7 +2007,14 @@ test('openProject resumes a retained sublesson before its child is persisted', a
     },
   });
 
-  expect((await harness.controller.openProject(snapshot.id)).outcome).toBe('opened');
+  expect(
+    (
+      await harness.controller.openProject(
+        snapshot.id,
+        openExplicitSection ? { activeSectionId: parentLesson.id } : undefined
+      )
+    ).outcome
+  ).toBe('opened');
   await vi.waitFor(() => expect(resolveDurableSublessonRequestForParent).toHaveBeenCalledOnce());
   expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
   resolveRecovery?.(recovery);
