@@ -258,6 +258,10 @@ describe('project backup asset references', () => {
         42 as unknown as string
       )
     ).toThrow(InvalidProjectBackupAssetError);
+
+    expect(() =>
+      remapProjectAssetReferences(projectWithArtifactAnnotations(), new Map(), ' imported-project ')
+    ).toThrow(InvalidProjectBackupAssetError);
   });
 
   test('rejects ambiguous project and lesson scope IDs while allowing separators in artifact IDs', () => {

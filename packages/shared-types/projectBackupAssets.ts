@@ -27,7 +27,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isUnambiguousArtifactScopeId = (value: unknown): value is string =>
   typeof value === 'string' &&
-  Boolean(value.trim()) &&
+  Boolean(value) &&
+  value === value.trim() &&
   !value.includes(LEARNING_ARTIFACT_ID_SEPARATOR);
 
 const readAssetRef = (value: unknown): ProjectAssetRef => {
