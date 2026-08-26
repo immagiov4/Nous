@@ -8,6 +8,14 @@ import {
 } from './projectAsset';
 
 const PROJECT_ASSET_IMPORT_ID_VERSION = 'project-asset-import-v1';
+const PROJECT_SCOPED_ANNOTATION_ARTIFACT_KINDS = [
+  'future-asset',
+  'generated-visual',
+  'pdf-image',
+] as const;
+
+type ProjectScopedAnnotationArtifactKind =
+  (typeof PROJECT_SCOPED_ANNOTATION_ARTIFACT_KINDS)[number];
 
 export class InvalidProjectBackupAssetError extends Error {
   constructor() {
@@ -148,15 +156,21 @@ const remapDocumentAssetReferences = (
   }
 };
 
+const isProjectScopedAnnotationArtifactKind = (
+  value: unknown
+): value is ProjectScopedAnnotationArtifactKind =>
+  PROJECT_SCOPED_ANNOTATION_ARTIFACT_KINDS.some(kind => kind === value);
+
 const isProjectScopedAnnotationArtifactRef = (
   value: unknown,
   sourcePrefix: string
-): value is Record<string, unknown> & { artifactId: string; kind: string } =>
+): value is Record<string, unknown> & {
+  artifactId: string;
+  kind: ProjectScopedAnnotationArtifactKind;
+} =>
   isRecord(value) &&
   typeof value.artifactId === 'string' &&
-  (value.kind === 'future-asset' ||
-    value.kind === 'generated-visual' ||
-    value.kind === 'pdf-image') &&
+  isProjectScopedAnnotationArtifactKind(value.kind) &&
   value.artifactId.startsWith(sourcePrefix) &&
   value.artifactId.includes(`:${value.kind}:`);
 
