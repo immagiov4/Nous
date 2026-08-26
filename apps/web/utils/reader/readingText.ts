@@ -2,6 +2,7 @@ import {
   getMarkdownProtectedRanges,
   isMarkdownPlaceholderLiteralInsideCode,
   type MarkdownRange,
+  mergeOverlappingMarkdownRanges,
   parseMarkdownAnalysis,
   readCompleteMarkdownPlaceholderRange,
 } from '../markdown/codeRanges.ts';
@@ -421,13 +422,13 @@ export interface ReadableTextElement {
 
 export const prepareMarkdownForSpeech = (content: string): string => {
   const analysis = parseMarkdownAnalysis(content);
-  const rendererHiddenContentStripped = [
+  const rendererHiddenContentStripped = mergeOverlappingMarkdownRanges([
     ...analysis.imageRanges,
     ...analysis.htmlSyntaxRanges,
     ...analysis.referenceLinkLabelRanges,
     ...analysis.referenceDefinitionRanges,
     ...analysis.rendererNormalizedIndentRanges,
-  ]
+  ])
     .sort((left, right) => right.start - left.start)
     .reduce(
       (currentContent, range) =>

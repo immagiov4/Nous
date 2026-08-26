@@ -341,7 +341,7 @@ const mergeRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
   return mergedRanges;
 };
 
-const mergeOverlappingRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
+export const mergeOverlappingMarkdownRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
   const mergedRanges: MarkdownRange[] = [];
 
   for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
@@ -368,6 +368,7 @@ interface MarkdownAstNode {
 }
 
 export interface MarkdownAnalysis {
+  annotationOnlyRanges: MarkdownRange[];
   codeRanges: MarkdownRange[];
   htmlSyntaxRanges: MarkdownRange[];
   imageRanges: MarkdownRange[];
@@ -475,6 +476,9 @@ const getReferenceLabelRange = (
 const isRendererHiddenHtmlSyntax = (source: string): boolean =>
   source.startsWith('<!--') || source.startsWith('<!') || source.startsWith('<?');
 
+const isUriAutolinkSource = (source: string): boolean =>
+  /^<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>]*>$/u.test(source);
+
 const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
   NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.flatMap(prefix => {
     const ranges: MarkdownRange[] = [];
@@ -490,6 +494,7 @@ const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
 export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
   const rawFencedCodeRanges = getRawFencedCodeRanges(content);
   const analysis: MarkdownAnalysis = {
+    annotationOnlyRanges: [],
     codeRanges: [],
     htmlSyntaxRanges: [],
     imageRanges: [],
@@ -553,7 +558,9 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       }
       if (node.type === 'link') {
         const source = content.slice(range.start, range.end);
-        if (!(source.startsWith('<') && source.endsWith('>'))) {
+        if (isUriAutolinkSource(source)) {
+          analysis.annotationOnlyRanges.push(range);
+        } else if (!(source.startsWith('<') && source.endsWith('>'))) {
           const destinationRange = getInlineLinkDestinationRange(
             content,
             node,
@@ -612,7 +619,9 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       }
       if (isInsideEscapedHtml && node.type === 'link') {
         const source = content.slice(range.start, range.end);
-        if (!(source.startsWith('<') && source.endsWith('>'))) {
+        if (isUriAutolinkSource(source)) {
+          analysis.annotationOnlyRanges.push(range);
+        } else if (!(source.startsWith('<') && source.endsWith('>'))) {
           const destinationRange = getInlineLinkDestinationRange(
             content,
             node,
@@ -646,7 +655,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     mathCursor += 1;
   }
   analysis.codeRanges.sort((left, right) => left.start - right.start || left.end - right.end);
-  analysis.mathRanges = mergeOverlappingRanges(analysis.mathRanges);
+  analysis.mathRanges = mergeOverlappingMarkdownRanges(analysis.mathRanges);
   return analysis;
 };
 
@@ -708,7 +717,8 @@ export const getMarkdownAnnotationProtectedRanges = (
   content: string,
   analysis = parseMarkdownAnalysis(content)
 ): MarkdownRange[] =>
-  mergeOverlappingRanges([
+  mergeOverlappingMarkdownRanges([
+    ...analysis.annotationOnlyRanges,
     ...analysis.codeRanges,
     ...analysis.imageRanges,
     ...analysis.linkDestinationRanges,

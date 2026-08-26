@@ -227,6 +227,10 @@ describe('prepareMarkdownForSpeech', () => {
     expect(speech).toMatch(/Testo pieno|Testo collassato/u);
   });
 
+  test('keeps prose after overlapping hidden definition ranges', () => {
+    expect(prepareMarkdownForSpeech('- [ref]:\n    /image.png\n\nDopo.')).toBe('Dopo.');
+  });
+
   test('does not read reference labels exposed by escaped raw html', () => {
     const speech = prepareMarkdownForSpeech('<div>\n[Testo][ref]\n</div>\n\n[ref]: /hidden');
 

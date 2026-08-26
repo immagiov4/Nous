@@ -108,6 +108,15 @@ test('rejects candidates that resolve only a visible fragment around protected t
   );
 });
 
+test('rejects note proposals that would insert markup inside an autolink', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Consulta <https://example.com> per i dettagli.', {
+      selectedText: 'https://example.com',
+    }),
+    false
+  );
+});
+
 test('accepts complete candidates through loose case and accent normalization', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate('Il Caffè resume il concetto.', {
