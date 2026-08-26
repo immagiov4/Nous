@@ -15,6 +15,7 @@ const {
   generateDurableLesson,
   generateDurableSublesson,
   hasDurableLessonRequest,
+  isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
   LessonSourceUnavailableError,
 } = await import('../../../services/openrouter/lessonGenerationClient.ts');
@@ -840,7 +841,7 @@ describe('generateDurableLesson', () => {
     expect(globalThis.sessionStorage).toHaveLength(0);
   });
 
-  test('transfers a recoverable sublesson request to the generated section identity', async () => {
+  test('resolves a recoverable sublesson with its original request identity', async () => {
     globalThis.sessionStorage.setItem(
       'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
       'sublesson-request'
@@ -862,6 +863,67 @@ describe('generateDurableLesson', () => {
       sectionId: 'deep-lesson',
     });
 
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
+      'http://localhost:3301/api/lesson-workflows/requests/resolve',
+      expect.objectContaining({
+        body: JSON.stringify({ requestKey: 'sublesson-request' }),
+        method: 'POST',
+      }),
+      { expectedStatuses: [404] }
+    );
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
     expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('replays a terminal sublesson failure without starting ordinary generation', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'sublesson-request'
+    );
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        errorCode: 'lesson_source_unavailable',
+        id: 'run-sublesson',
+        projectId: 'project-1',
+        sectionId: 'deep-lesson',
+        stage: 'sources',
+        status: 'failed',
+      })
+    );
+
+    await expect(
+      generateDurableLesson({
+        parentSectionId: 'lesson-1',
+        projectId: 'project-1',
+        sectionId: 'deep-lesson',
+      })
+    ).rejects.toBeInstanceOf(LessonSourceUnavailableError);
+
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('does not assign a retained sublesson request to a sibling section', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'sublesson-request'
+    );
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response({
+        id: 'run-sublesson',
+        projectId: 'project-1',
+        sectionId: 'deep-lesson-a',
+        stage: 'drafting',
+        status: 'running',
+      })
+    );
+
+    await expect(
+      isDurableSublessonRequestForSection('project-1', 'lesson-1', 'deep-lesson-b')
+    ).resolves.toBe(false);
+
+    expect(
+      globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:sublesson:lesson-1')
+    ).toBe('sublesson-request');
   });
 });

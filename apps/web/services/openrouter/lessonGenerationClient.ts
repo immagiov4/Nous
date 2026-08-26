@@ -258,7 +258,6 @@ interface DurableLessonRequest {
   payload: Record<string, unknown>;
   projectId: string;
   requestIdentity: string;
-  supersededRequestIdentity?: string;
 }
 
 const runDurableLessonRequest = async ({
@@ -269,14 +268,10 @@ const runDurableLessonRequest = async ({
   payload: requestPayload,
   projectId,
   requestIdentity,
-  supersededRequestIdentity,
 }: DurableLessonRequest): Promise<DurableLessonResult> => {
   const request = acquireWorkflowRequestKey(
     getLessonRequestKeyStorageKey(projectId, requestIdentity)
   );
-  if (supersededRequestIdentity) {
-    clearWorkflowRequestKey(getLessonRequestKeyStorageKey(projectId, supersededRequestIdentity));
-  }
   const response = await fetchWithSupabaseAuth(
     `${getBackendUrl()}/api/lesson-workflows/${endpoint}`,
     {
@@ -330,6 +325,81 @@ const runDurableLessonRequest = async ({
   }
 };
 
+interface RetainedSublessonRequest {
+  job: LessonWorkflowSnapshot;
+  requestKey: string;
+  storageKey: string;
+}
+
+const resolveRetainedSublessonRequest = async ({
+  parentSectionId,
+  projectId,
+}: {
+  parentSectionId: string;
+  projectId: string;
+}): Promise<RetainedSublessonRequest | null> => {
+  const storageKey = getLessonRequestKeyStorageKey(projectId, `sublesson:${parentSectionId}`);
+  const requestKey = readWorkflowRequestKey(storageKey);
+  if (!requestKey) return null;
+
+  const response = await fetchWithSupabaseAuth(
+    `${getBackendUrl()}/api/lesson-workflows/requests/resolve`,
+    {
+      body: JSON.stringify({ requestKey }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    },
+    { expectedStatuses: [404] }
+  );
+  if (response.status === 404) {
+    clearWorkflowRequestKey(storageKey, requestKey);
+    return null;
+  }
+  const job = readWorkflowJob(await readWorkflowJson(response));
+  if (!response.ok || !job) {
+    throw new Error(LESSON_GENERATION_ERROR);
+  }
+  return { job, requestKey, storageKey };
+};
+
+export const isDurableSublessonRequestForSection = async (
+  projectId: string,
+  parentSectionId: string,
+  sectionId: string
+): Promise<boolean> => {
+  const retained = await resolveRetainedSublessonRequest({ parentSectionId, projectId });
+  return retained?.job.projectId === projectId && retained.job.sectionId === sectionId;
+};
+
+const resumeRetainedSublessonRequest = async ({
+  onProgressStage,
+  onWorkflowSnapshot,
+  parentSectionId,
+  projectId,
+  sectionId,
+}: {
+  onProgressStage?: (stage: LessonWorkflowStage) => void;
+  onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
+  parentSectionId: string;
+  projectId: string;
+  sectionId: string;
+}): Promise<DurableLessonResult | null> => {
+  const retained = await resolveRetainedSublessonRequest({ parentSectionId, projectId });
+  if (!retained || retained.job.projectId !== projectId || retained.job.sectionId !== sectionId) {
+    return null;
+  }
+
+  const terminalJob = await waitForTerminalRun(retained.job, onProgressStage, onWorkflowSnapshot);
+  clearWorkflowRequestKey(retained.storageKey, retained.requestKey);
+  if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);
+  try {
+    return parseCompletedResult(terminalJob, projectId, sectionId);
+  } catch (error) {
+    logBackendFailureCorrelationId(terminalJob.correlationId);
+    throw error;
+  }
+};
+
 export const generateDurableLesson = async ({
   forceRegenerate = false,
   onProgressStage,
@@ -344,8 +414,18 @@ export const generateDurableLesson = async ({
   parentSectionId?: string;
   projectId: string;
   sectionId: string;
-}): Promise<DurableLessonResult> =>
-  runDurableLessonRequest({
+}): Promise<DurableLessonResult> => {
+  if (parentSectionId) {
+    const retainedResult = await resumeRetainedSublessonRequest({
+      onProgressStage,
+      onWorkflowSnapshot,
+      parentSectionId,
+      projectId,
+      sectionId,
+    });
+    if (retainedResult) return retainedResult;
+  }
+  return runDurableLessonRequest({
     endpoint: 'lessons',
     expectedSectionId: sectionId,
     onProgressStage,
@@ -353,8 +433,8 @@ export const generateDurableLesson = async ({
     payload: { forceRegenerate, sectionId },
     projectId,
     requestIdentity: sectionId,
-    ...(parentSectionId ? { supersededRequestIdentity: `sublesson:${parentSectionId}` } : {}),
   });
+};
 
 export const generateDurableSublesson = async ({
   annotationNote,

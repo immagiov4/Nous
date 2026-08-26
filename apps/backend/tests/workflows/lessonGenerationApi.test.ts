@@ -89,6 +89,7 @@ const dependencies = (overrides: Record<string, unknown> = {}) => ({
   projectReader: { loadProject: vi.fn().mockResolvedValue(project) },
   runReader: {
     getRun: vi.fn().mockResolvedValue(run()),
+    getRunByRequestKey: vi.fn().mockResolvedValue(run()),
     getRunState: vi
       .fn()
       .mockResolvedValue(state([{ definitionId: 'draft-lesson', status: 'running' }])),
@@ -100,6 +101,23 @@ const dependencies = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('lesson generation workflow API', () => {
+  test('loads a workflow by its original request key', async () => {
+    const input = dependencies();
+    const api = createLessonGenerationApi(input);
+
+    const snapshot = await api.getByRequestKey({
+      requestKey: 'request-1',
+      userId: 'user-1',
+    });
+
+    expect(input.runReader.getRunByRequestKey).toHaveBeenCalledWith({
+      requestKey: 'request-1',
+      userId: 'user-1',
+      workflowId: 'lesson-generation',
+    });
+    expect(snapshot).toMatchObject({ id: 'run-1', projectId: 'project-1' });
+  });
+
   test('starts one validated lesson and forwards the authenticated provider selection', async () => {
     const input = dependencies();
     const api = createLessonGenerationApi(input);

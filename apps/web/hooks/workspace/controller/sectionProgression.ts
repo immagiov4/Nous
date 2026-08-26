@@ -423,7 +423,20 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // is running. The user can freely switch between ready lessons.
     const hasPersistedLessonRequest =
       currentProjectId !== null && openRouter.hasDurableLessonRequest(currentProjectId, section.id);
-    if (!forceRegenerate && section.content?.length && !hasPersistedLessonRequest) {
+    const hasPersistedSublessonRequest =
+      currentProjectId !== null &&
+      section.parentId !== undefined &&
+      (await openRouter.isDurableSublessonRequestForSection(
+        currentProjectId,
+        section.parentId,
+        section.id
+      ));
+    if (
+      !forceRegenerate &&
+      section.content?.length &&
+      !hasPersistedLessonRequest &&
+      !hasPersistedSublessonRequest
+    ) {
       stopAudio(true);
       domain.setActiveSectionId(section.id);
       void projectLibrary.patchCurrentProject({

@@ -834,6 +834,7 @@ const createOpenRouterMock = (
       warnings: [],
     }),
     hasDurableLessonRequest: () => false,
+    isDurableSublessonRequestForSection: async () => false,
     repairDurablePdfMapping: async ({
       projectId,
     }: Parameters<
@@ -3437,6 +3438,7 @@ test('openSection resumes a persisted lesson request instead of reusing stale ca
 
 test('openSection transfers a persisted sublesson request to its recoverable section', async () => {
   const deepLesson = buildTestLesson({
+    content: '# Versione provvisoria',
     id: 'deep-1',
     parentId: 'lesson-1',
     title: 'Approfondimento',
@@ -3455,15 +3457,21 @@ test('openSection transfers a persisted sublesson request to its recoverable sec
     sectionId: 'deep-1',
     warnings: [],
   }));
+  const isDurableSublessonRequestForSection = vi.fn(async () => true);
   const { controller } = createControllerHarness({
     domain: { learningPlan: plan },
-    openRouter: { generateDurableLesson },
+    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
     projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const outcome = await controller.openSection(deepLesson);
 
   expect(outcome).toBe('loaded');
+  expect(isDurableSublessonRequestForSection).toHaveBeenCalledWith(
+    'project-1',
+    'lesson-1',
+    'deep-1'
+  );
   expect(generateDurableLesson).toHaveBeenCalledWith(
     expect.objectContaining({
       parentSectionId: 'lesson-1',
@@ -3471,6 +3479,43 @@ test('openSection transfers a persisted sublesson request to its recoverable sec
       sectionId: 'deep-1',
     })
   );
+});
+
+test('openSection reuses a cached sibling of the retained sublesson request', async () => {
+  const retainedDeepLesson = buildTestLesson({
+    content: '# Approfondimento A',
+    id: 'deep-1',
+    parentId: 'lesson-1',
+    title: 'Approfondimento A',
+    type: 'deep-dive',
+  });
+  const cachedSibling = buildTestLesson({
+    content: '# Approfondimento B',
+    id: 'deep-2',
+    parentId: 'lesson-1',
+    title: 'Approfondimento B',
+    type: 'deep-dive',
+  });
+  const plan = buildPlan({
+    sections: [buildTestLesson({ id: 'lesson-1' }), retainedDeepLesson, cachedSibling],
+  });
+  const generateDurableLesson = vi.fn();
+  const isDurableSublessonRequestForSection = vi.fn(async () => false);
+  const { controller } = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson, isDurableSublessonRequestForSection },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const outcome = await controller.openSection(cachedSibling);
+
+  expect(outcome).toBe('reused-cached');
+  expect(isDurableSublessonRequestForSection).toHaveBeenCalledWith(
+    'project-1',
+    'lesson-1',
+    'deep-2'
+  );
+  expect(generateDurableLesson).not.toHaveBeenCalled();
 });
 
 test('openSection delegates production lesson work to the durable backend job', async () => {
