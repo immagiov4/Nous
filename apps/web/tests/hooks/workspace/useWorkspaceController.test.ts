@@ -3974,93 +3974,98 @@ test('sublesson generation releases its gate after an error', async () => {
 
 test.each([
   { error: null, expectedOutcome: 'created', expectedStatus: 'succeeded' },
-  { error: new Error('Approfondimento interrotto'), expectedOutcome: 'failed', expectedStatus: 'failed' },
-] as const)(
-  'sublesson re-entry restores progress and terminal $expectedStatus state',
-  async ({ error, expectedOutcome, expectedStatus }) => {
-    const plan = buildPlan();
-    const generatedSection = buildTestLesson({
-      content: '# Approfondimento',
-      id: 'deep-reattach',
-      parentId: 'lesson-1',
-      title: 'Approfondimento',
-      type: 'deep-dive',
-    });
-    const generatedPlan = buildPlan({
-      sections: [buildTestLesson({ id: 'lesson-1' }), generatedSection],
-    });
-    let settleGeneration: (() => void) | undefined;
-    let markStarted: (() => void) | undefined;
-    const generationGate = new Promise<void>(resolve => {
-      settleGeneration = resolve;
-    });
-    const started = new Promise<void>(resolve => {
-      markStarted = resolve;
-    });
-    const harness = createControllerHarness({
-      domain: {
-        activeSectionId: 'lesson-1',
-        learningPlan: plan,
-        source: createProjectSourceFromFile(pdfFile),
+  {
+    error: new Error('Approfondimento interrotto'),
+    expectedOutcome: 'failed',
+    expectedStatus: 'failed',
+  },
+] as const)('sublesson re-entry restores progress and terminal $expectedStatus state', async ({
+  error,
+  expectedOutcome,
+  expectedStatus,
+}) => {
+  const plan = buildPlan();
+  const generatedSection = buildTestLesson({
+    content: '# Approfondimento',
+    id: 'deep-reattach',
+    parentId: 'lesson-1',
+    title: 'Approfondimento',
+    type: 'deep-dive',
+  });
+  const generatedPlan = buildPlan({
+    sections: [buildTestLesson({ id: 'lesson-1' }), generatedSection],
+  });
+  let settleGeneration: (() => void) | undefined;
+  let markStarted: (() => void) | undefined;
+  const generationGate = new Promise<void>(resolve => {
+    settleGeneration = resolve;
+  });
+  const started = new Promise<void>(resolve => {
+    markStarted = resolve;
+  });
+  const harness = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateDurableSublesson: async input => {
+        input.onWorkflowSnapshot?.({
+          createdAt: '2026-08-26T00:00:00.000Z',
+          id: 'sublesson-run',
+          projectId: input.projectId,
+          retrying: false,
+          sectionId: generatedSection.id,
+          stage: 'drafting',
+          status: 'running',
+          updatedAt: '2026-08-26T00:00:01.000Z',
+        });
+        markStarted?.();
+        await generationGate;
+        if (error) throw error;
+        return {
+          content: generatedSection.content ?? '',
+          contentBlocks: [],
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          projectId: input.projectId,
+          projectRevision: 2,
+          quiz: [],
+          sectionId: generatedSection.id,
+          warnings: [],
+        };
       },
-      projectLibrary: { currentProjectId: 'project-1' },
-      openRouter: {
-        generateDurableSublesson: async input => {
-          input.onWorkflowSnapshot?.({
-            createdAt: '2026-08-26T00:00:00.000Z',
-            id: 'sublesson-run',
-            projectId: input.projectId,
-            retrying: false,
-            sectionId: generatedSection.id,
-            stage: 'drafting',
-            status: 'running',
-            updatedAt: '2026-08-26T00:00:01.000Z',
-          });
-          markStarted?.();
-          await generationGate;
-          if (error) throw error;
-          return {
-            content: generatedSection.content ?? '',
-            contentBlocks: [],
-            generatedVisuals: [],
-            imageRefs: [],
-            learningAids: [],
-            projectId: input.projectId,
-            projectRevision: 2,
-            quiz: [],
-            sectionId: generatedSection.id,
-            warnings: [],
-          };
-        },
-      },
-    });
-    harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
-      harness.domain.hydrateSnapshot(
-        createProjectSnapshot({
-          activeSectionId: generatedSection.id,
-          id: 'project-1',
-          learningPlan: generatedPlan,
-          state: AppState.READING,
-        })
-      );
-      return true;
-    };
+    },
+  });
+  harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
+    harness.domain.hydrateSnapshot(
+      createProjectSnapshot({
+        activeSectionId: generatedSection.id,
+        id: 'project-1',
+        learningPlan: generatedPlan,
+        state: AppState.READING,
+      })
+    );
+    return true;
+  };
 
-    const creation = harness.controller.createLessonFromSelection({
-      instructions: 'Approfondisci',
-      selectedText: 'testo',
-    });
-    await started;
-    harness.state.adapter.invalidateWorkflows(['createLesson']);
+  const creation = harness.controller.createLessonFromSelection({
+    instructions: 'Approfondisci',
+    selectedText: 'testo',
+  });
+  await started;
+  harness.state.adapter.invalidateWorkflows(['createLesson']);
 
-    expect(await harness.controller.openSection(generatedSection)).toBe('reopened-generating');
-    expect(harness.state.internalState.workflowState.createLesson.status).toBe('pending');
-    settleGeneration?.();
+  expect(await harness.controller.openSection(generatedSection)).toBe('reopened-generating');
+  expect(harness.state.internalState.workflowState.createLesson.status).toBe('pending');
+  settleGeneration?.();
 
-    expect((await creation).outcome).toBe(expectedOutcome);
-    expect(harness.state.internalState.workflowState.createLesson.status).toBe(expectedStatus);
-  }
-);
+  expect((await creation).outcome).toBe(expectedOutcome);
+  expect(harness.state.internalState.workflowState.createLesson.status).toBe(expectedStatus);
+});
 
 test('force regeneration re-entry reattaches before reusing populated lesson content', async () => {
   const lesson = buildTestLesson({ content: '# Contenuto precedente', id: 'lesson-1' });
