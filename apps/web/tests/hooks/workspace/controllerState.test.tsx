@@ -17,6 +17,17 @@ describe('useWorkspaceControllerState generation ownership', () => {
     expect(result.current.stateAdapter.hasMissingSource('project-b')).toBe(false);
   });
 
+  test('preserves project missing-source state when resetting the current view', () => {
+    const { result } = renderHook(() => useWorkspaceControllerState());
+
+    act(() => {
+      result.current.stateAdapter.setProjectMissingSource('project-a', true);
+      result.current.stateAdapter.resetSessionState();
+    });
+
+    expect(result.current.stateAdapter.hasMissingSource('project-a')).toBe(true);
+  });
+
   test('persists across rerenders and ignores stale exercise updates after lesson ownership changes', () => {
     const { result } = renderHook(() => useWorkspaceControllerState());
     const firstAdapter = result.current.stateAdapter;

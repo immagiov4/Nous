@@ -154,7 +154,6 @@ export const useWorkspaceControllerState = () => {
         courseProposalRef.current = null;
         openingProjectIdRef.current = null;
         setOpeningProjectId(null);
-        setMissingSourceProjects(new Set());
       },
       setAssessmentMessages: nextMessages => {
         setAssessmentMessages(currentMessages => {
