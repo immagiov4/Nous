@@ -1,4 +1,10 @@
 import {
+  buildLearningArtifactId,
+  isLearningArtifactKind,
+  LEARNING_ARTIFACT_ID_SEPARATOR,
+  type LearningArtifactKind,
+} from './learningArtifact';
+import {
   buildProjectAssetPlaceholder,
   isProjectAssetId,
   isValidProjectAssetRef,
@@ -18,6 +24,18 @@ export class InvalidProjectBackupAssetError extends Error {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isUnambiguousArtifactScopeId = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  Boolean(value) &&
+  value === value.trim() &&
+  !value.includes(LEARNING_ARTIFACT_ID_SEPARATOR);
+
+export const assertValidProjectArtifactScope = (project: unknown): void => {
+  if (!isRecord(project) || !isUnambiguousArtifactScopeId(project.id)) {
+    throw new InvalidProjectBackupAssetError();
+  }
+};
 
 const readAssetRef = (value: unknown): ProjectAssetRef => {
   if (!isValidProjectAssetRef(value)) {
@@ -148,22 +166,149 @@ const remapDocumentAssetReferences = (
   }
 };
 
+const isProjectScopedAnnotationArtifactRef = (
+  value: unknown
+): value is Record<string, unknown> & {
+  artifactId: string;
+  kind: LearningArtifactKind;
+} => isRecord(value) && typeof value.artifactId === 'string' && isLearningArtifactKind(value.kind);
+
+const addOwnedArtifactId = ({
+  artifactId,
+  artifactIds,
+  kind,
+  lessonId,
+  sourceProjectId,
+  targetProjectId,
+}: {
+  artifactId: string;
+  artifactIds: Map<string, string>;
+  kind: LearningArtifactKind;
+  lessonId: string;
+  sourceProjectId: string;
+  targetProjectId: string;
+}): void => {
+  const identity = { artifactId, kind, lessonId };
+  artifactIds.set(
+    buildLearningArtifactId({ ...identity, projectId: sourceProjectId }),
+    buildLearningArtifactId({ ...identity, projectId: targetProjectId })
+  );
+};
+
+interface OwnedArtifactScope {
+  artifactIds: Map<string, string>;
+  lessonId: string;
+  sourceProjectId: string;
+  targetProjectId: string;
+}
+
+const addGeneratedVisualArtifactIds = (
+  section: Record<string, unknown>,
+  scope: OwnedArtifactScope
+): void => {
+  if (!Array.isArray(section.generatedVisuals)) return;
+  for (const visual of section.generatedVisuals) {
+    if (!isRecord(visual) || typeof visual.id !== 'string') continue;
+    addOwnedArtifactId({ ...scope, artifactId: visual.id, kind: 'generated-visual' });
+  }
+};
+
+const addPdfImageArtifactIds = (
+  section: Record<string, unknown>,
+  pdfImageIds: ReadonlySet<string>,
+  scope: OwnedArtifactScope
+): void => {
+  if (!Array.isArray(section.imageRefs)) return;
+  for (const imageRef of section.imageRefs) {
+    if (
+      !isRecord(imageRef) ||
+      typeof imageRef.assetId !== 'string' ||
+      !pdfImageIds.has(imageRef.assetId)
+    ) {
+      continue;
+    }
+    addOwnedArtifactId({ ...scope, artifactId: imageRef.assetId, kind: 'pdf-image' });
+  }
+};
+
+const buildOwnedAnnotationArtifactIdMap = (
+  project: Record<string, unknown>,
+  sourceProjectId: string,
+  targetProjectId: string
+): ReadonlyMap<string, string> => {
+  const artifactIds = new Map<string, string>();
+  const pdfImageIds = new Set(
+    isRecord(project.documentAssets) && Array.isArray(project.documentAssets.usedImages)
+      ? project.documentAssets.usedImages.flatMap(image =>
+          isRecord(image) && typeof image.id === 'string' ? [image.id] : []
+        )
+      : []
+  );
+  for (const section of readProjectSections(project)) {
+    if (section.kind === 'exercise') continue;
+    if (typeof section.id !== 'string') continue;
+    if (!isUnambiguousArtifactScopeId(section.id)) {
+      throw new InvalidProjectBackupAssetError();
+    }
+    const scope = {
+      artifactIds,
+      lessonId: section.id,
+      sourceProjectId,
+      targetProjectId,
+    };
+    addGeneratedVisualArtifactIds(section, scope);
+    addPdfImageArtifactIds(section, pdfImageIds, scope);
+  }
+  return artifactIds;
+};
+
+const remapAnnotationArtifactReferences = (
+  project: Record<string, unknown>,
+  sourceProjectId: string,
+  targetProjectId: string
+): void => {
+  const sections = readProjectSections(project);
+  const artifactIds = buildOwnedAnnotationArtifactIdMap(project, sourceProjectId, targetProjectId);
+  for (const section of sections) {
+    if (!Array.isArray(section.annotations)) continue;
+    for (const annotation of section.annotations) {
+      if (!isRecord(annotation) || !Array.isArray(annotation.artifactRefs)) continue;
+      for (const artifactRef of annotation.artifactRefs) {
+        if (!isProjectScopedAnnotationArtifactRef(artifactRef)) continue;
+        artifactRef.artifactId = artifactIds.get(artifactRef.artifactId) ?? artifactRef.artifactId;
+      }
+    }
+  }
+};
+
 export const remapProjectAssetReferences = <T>(
   project: T,
-  idMap: ReadonlyMap<string, string>
+  idMap: ReadonlyMap<string, string>,
+  targetProjectId?: string
 ): T => {
   collectProjectAssetReferences(project);
   const remapped = structuredClone(project);
   if (!isRecord(remapped)) throw new InvalidProjectBackupAssetError();
-  for (const section of readProjectSections(remapped)) {
+  const remappedProject: Record<string, unknown> = remapped;
+  if (targetProjectId !== undefined) {
+    if (
+      !isUnambiguousArtifactScopeId(remappedProject.id) ||
+      !isUnambiguousArtifactScopeId(targetProjectId)
+    ) {
+      throw new InvalidProjectBackupAssetError();
+    }
+    remapAnnotationArtifactReferences(remappedProject, remappedProject.id, targetProjectId);
+    remappedProject.id = targetProjectId;
+  }
+  for (const section of readProjectSections(remappedProject)) {
     if (!Array.isArray(section.generatedVisuals)) continue;
     for (const visual of section.generatedVisuals) {
       if (!isRecord(visual)) continue;
       remapVisual(visual, idMap);
     }
   }
-  remapDocumentAssetReferences(remapped, idMap);
-  collectProjectAssetReferences(remapped);
+  remapDocumentAssetReferences(remappedProject, idMap);
+  collectProjectAssetReferences(remappedProject);
   return remapped as T;
 };
 

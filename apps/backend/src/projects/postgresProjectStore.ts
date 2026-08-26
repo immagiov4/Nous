@@ -19,6 +19,7 @@ import {
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
+import { assertValidProjectArtifactScope } from '@shared/projectBackupAssets';
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 import postgres from 'postgres';
@@ -1124,6 +1125,7 @@ export class PostgresProjectStore implements ProjectStore {
       maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
       maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
     });
+    assertValidProjectArtifactScope(decoded.project);
     const prepared = await this.projectAssetImporter.prepare({
       assets: decoded.assets,
       projectId: targetProjectId,

@@ -1,3 +1,5 @@
+import { buildLearningArtifactId } from '@shared/learningArtifact';
+
 import { groupSectionsIntoModules } from '../../services/learning/groupSectionsIntoModules.ts';
 import type {
   LearningArtifactRenderPayload,
@@ -54,23 +56,27 @@ export const getGeneratedVisualSourceLabel = (visual: StoredLessonVisual): strin
   return kind === 'html' ? 'Interattivo' : 'Visuale';
 };
 
-const buildArtifactId = ({
-  artifactId,
-  kind,
-  lessonId,
-  projectId,
-}: {
-  artifactId: string;
-  kind: LearningArtifactSummary['kind'];
-  lessonId: string;
-  projectId: string;
-}) => `${projectId}:${lessonId}:${kind}:${artifactId}`;
-
 export const readGeneratedVisualIdFromArtifactId = (artifactId: string): string => {
   const segmentIndex = artifactId.indexOf(GENERATED_VISUAL_ARTIFACT_SEGMENT);
   return segmentIndex >= 0
     ? artifactId.slice(segmentIndex + GENERATED_VISUAL_ARTIFACT_SEGMENT.length)
     : artifactId;
+};
+
+export const resolveGeneratedVisualArtifact = (
+  artifactId: string,
+  visualsById?: Readonly<Record<string, StoredLessonVisual>>
+): StoredLessonVisual | undefined => {
+  const exactMatch = visualsById?.[artifactId];
+  if (exactMatch || !visualsById) return exactMatch;
+
+  let matchedVisual: StoredLessonVisual | undefined;
+  for (const [visualId, visual] of Object.entries(visualsById)) {
+    if (!artifactId.endsWith(`${GENERATED_VISUAL_ARTIFACT_SEGMENT}${visualId}`)) continue;
+    if (matchedVisual) return undefined;
+    matchedVisual = visual;
+  }
+  return matchedVisual;
 };
 
 export const replaceGeneratedVisualPreservingId = ({
@@ -151,7 +157,7 @@ const buildPdfImagePayload = ({
     .filter(Boolean)
     .join(' '),
   summary: {
-    id: buildArtifactId({
+    id: buildLearningArtifactId({
       artifactId: asset.id,
       kind: 'pdf-image',
       lessonId: lesson.id,
@@ -190,7 +196,7 @@ export const buildGeneratedVisualLearningArtifactPayload = ({
     .join(' '),
   summary: {
     createdAt: visual.createdAt,
-    id: buildArtifactId({
+    id: buildLearningArtifactId({
       artifactId: visual.id,
       kind: 'generated-visual',
       lessonId: lesson.id,

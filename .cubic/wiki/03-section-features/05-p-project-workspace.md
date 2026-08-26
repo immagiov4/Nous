@@ -14,6 +14,8 @@ The following files were used as context for generating this wiki page:
 - [apps/web/services/projects/courseSources.ts](../../../apps/web/services/projects/courseSources.ts)
 - [apps/backend/tests/helpers/inMemoryProjectStore.ts](../../../apps/backend/tests/helpers/inMemoryProjectStore.ts)
 - [apps/backend/tests/projects/postgresProjectStore.test.ts](../../../apps/backend/tests/projects/postgresProjectStore.test.ts)
+- [packages/shared-types/learningArtifact.ts](../../../packages/shared-types/learningArtifact.ts)
+- [packages/shared-types/projectBackupAssets.ts](../../../packages/shared-types/projectBackupAssets.ts)
 
 </details>
 
@@ -115,6 +117,18 @@ export const normalizeStoredProject = (data: unknown): ProjectSnapshot => {
 ```
 
 Sources: [apps/web/services/projects/projectSnapshot.ts:600-630](../../../apps/web/services/projects/projectSnapshot.ts#L600-L630)
+
+### Archive Import Identity Remapping
+
+Project archive imports may restore a snapshot under a new project ID. The import boundary clones
+the snapshot and builds an artifact-ID lookup from the generated visuals and PDF images owned by
+the snapshot. It replaces matching annotation references with destination-project IDs while
+preserving annotation note text and other metadata. References absent from that owned-artifact
+lookup remain unchanged, including foreign and unknown references. `future-asset` is a supported
+annotation kind, but snapshots do not yet persist an authoritative inventory for it, so imports
+preserve those references rather than inferring ownership from the concatenated ID.
+
+Sources: [packages/shared-types/learningArtifact.ts:1-18](../../../packages/shared-types/learningArtifact.ts#L1-L18), [packages/shared-types/projectBackupAssets.ts:152-264](../../../packages/shared-types/projectBackupAssets.ts#L152-L264), [apps/backend/src/projects/projectAssetImport.ts:105-137](../../../apps/backend/src/projects/projectAssetImport.ts#L105-L137)
 
 ### Storage Backend (PostgreSQL)
 In production, `PostgresProjectStore` manages atomicity using database transactions. It ensures that source bytes are stored in immutable object storage while metadata is kept in Postgres. A failure in the metadata transaction triggers a cleanup of the orphaned binary objects in storage.

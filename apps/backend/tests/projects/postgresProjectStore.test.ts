@@ -5,6 +5,7 @@ import {
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
+import { InvalidProjectBackupAssetError } from '@shared/projectBackupAssets';
 import JSZip from 'jszip';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -2470,6 +2471,32 @@ describe('PostgresProjectStore', () => {
       '[Projects] Failed to release imported project asset locks.',
       expect.objectContaining({ projectId: 'import-target' })
     );
+  });
+
+  test('rejects a noncanonical archived project id before preparing imported assets', async () => {
+    const snapshot = { ...createMultiSourceSnapshot(), id: ' archived-project ' };
+    const archive = await createProjectBackupArchive(
+      { project: snapshot },
+      {
+        invalidArchiveMessage: 'Invalid project backup.',
+        maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+        maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+        maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+      }
+    );
+    const importer = { prepare: vi.fn() };
+    const store = new PostgresProjectStore(
+      undefined,
+      Object.assign(vi.fn(), { begin: vi.fn(), json: vi.fn() }) as never,
+      undefined,
+      undefined,
+      importer as never
+    );
+
+    await expect(
+      store.importProjectArchive('user-1', archive, 'import-target')
+    ).rejects.toBeInstanceOf(InvalidProjectBackupAssetError);
+    expect(importer.prepare).not.toHaveBeenCalled();
   });
 
   test('rolls back before writing the snapshot when the expected revision lost a race', async () => {

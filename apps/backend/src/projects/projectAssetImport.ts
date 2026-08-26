@@ -110,8 +110,7 @@ export class PostgresProjectAssetImporter {
     snapshot: ProjectSnapshot;
     userId: string;
   }): Promise<PreparedProjectAssetImport> {
-    const destinationSnapshot = { ...input.snapshot, id: input.projectId };
-    const sourceRefs = collectValidatedArchiveReferences(destinationSnapshot, input.assets);
+    const sourceRefs = collectValidatedArchiveReferences(input.snapshot, input.assets);
     const idMap = new Map<string, string>();
     const descriptors: ImportedProjectAssetDescriptor[] = [];
     const bytesBySourceId = new Map(input.assets.map(asset => [asset.ref.id, asset.bytes]));
@@ -132,7 +131,7 @@ export class PostgresProjectAssetImporter {
         objectPath: identity.objectPath,
       });
     }
-    const snapshot = remapProjectAssetReferences(destinationSnapshot, idMap);
+    const snapshot = remapProjectAssetReferences(input.snapshot, idMap, input.projectId);
     if (descriptors.length === 0) {
       return { assets: [], release: async () => {}, snapshot };
     }

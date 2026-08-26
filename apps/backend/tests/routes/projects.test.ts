@@ -642,7 +642,64 @@ describe('/api/projects', () => {
   test('imports a self-contained project backup with an explicit binary payload kind', async () => {
     const app = createApp();
     const uploadId = '323e4567-e89b-42d3-a456-426614174000';
-    const targetProjectId = 'restored-project';
+    const targetProjectId = '  restored-project  ';
+    const normalizedTargetProjectId = targetProjectId.trim();
+    const archivedSnapshot = createSnapshot('archived-project', 'Corso ripristinato');
+    archivedSnapshot.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      parsedAt: '2026-04-26T09:20:00.000Z',
+      usedImages: [
+        {
+          dataUrl: 'data:image/png;base64,aW1hZ2U=',
+          id: 'image-1',
+          mimeType: 'image/png',
+          sourceOrder: 0,
+          textAfter: '',
+          textBefore: '',
+        },
+      ],
+    };
+    archivedSnapshot.learningPlan.sections[0] = {
+      ...archivedSnapshot.learningPlan.sections[0],
+      generatedVisuals: [
+        {
+          code: '<svg />',
+          createdAt: '2026-04-26T09:20:00.000Z',
+          id: 'visual-1',
+          kind: 'svg',
+          title: 'Visuale generato',
+        },
+      ],
+      id: 'lesson-1',
+      imageRefs: [{ alt: 'Immagine PDF', assetId: 'image-1' }],
+      annotations: [
+        {
+          anchor: { kind: 'lesson' },
+          artifactRefs: [
+            {
+              artifactId: 'archived-project:lesson-1:generated-visual:visual-1',
+              kind: 'generated-visual',
+              title: 'Visuale generato',
+            },
+            {
+              artifactId: 'archived-project:lesson-1:pdf-image:image-1',
+              kind: 'pdf-image',
+              title: 'Immagine PDF',
+            },
+            {
+              artifactId: 'archived-project:lesson-1:future-asset:asset-1',
+              kind: 'future-asset',
+              title: 'Artefatto futuro',
+            },
+          ],
+          createdAt: '2026-04-26T09:30:00.000Z',
+          id: 'annotation-1',
+          note: 'Questa nota deve restare invariata.',
+          updatedAt: '2026-04-26T09:30:00.000Z',
+        },
+      ],
+    };
     const backupBytes = await createProjectBackupArchive(
       {
         cover: {
@@ -650,7 +707,7 @@ describe('/api/projects', () => {
           mimeType: 'image/png',
           name: 'cover.png',
         },
-        project: createSnapshot('archived-project', 'Corso ripristinato'),
+        project: archivedSnapshot,
       },
       {
         invalidArchiveMessage: 'Invalid project backup.',
@@ -672,15 +729,76 @@ describe('/api/projects', () => {
 
     expect(completionResponse.status).toBe(200);
     expect(completionResponse.body.snapshot).toMatchObject({
-      id: targetProjectId,
+      id: normalizedTargetProjectId,
       learningPlan: { title: 'Corso ripristinato' },
     });
-    const coverResponse = await request(app).get(`/api/projects/projects/${targetProjectId}/cover`);
+    expect(completionResponse.body.snapshot.learningPlan.sections[0].annotations[0]).toMatchObject({
+      artifactRefs: [
+        {
+          artifactId: `${normalizedTargetProjectId}:lesson-1:generated-visual:visual-1`,
+          kind: 'generated-visual',
+        },
+        {
+          artifactId: `${normalizedTargetProjectId}:lesson-1:pdf-image:image-1`,
+          kind: 'pdf-image',
+        },
+        {
+          artifactId: 'archived-project:lesson-1:future-asset:asset-1',
+          kind: 'future-asset',
+        },
+      ],
+      note: 'Questa nota deve restare invariata.',
+    });
+    const storedResponse = await request(app).get(
+      `/api/projects/projects/${normalizedTargetProjectId}`
+    );
+    expect(storedResponse.body.project.id).toBe(normalizedTargetProjectId);
+    const coverResponse = await request(app).get(
+      `/api/projects/projects/${normalizedTargetProjectId}/cover`
+    );
     expect(coverResponse.body.cover).toEqual({
       data: Buffer.from('cover bytes').toString('base64'),
       mimeType: 'image/png',
       name: 'cover.png',
     });
+
+    const invalidTargetUploadId = '323e4567-e89b-42d3-a456-426614174001';
+    const invalidTargetChunkResponse = await request(app)
+      .put(`/api/projects/import/chunks/${invalidTargetUploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.from(backupBytes));
+    expect(invalidTargetChunkResponse.status).toBe(202);
+
+    const invalidTargetResponse = await request(app)
+      .post(`/api/projects/import/chunks/${invalidTargetUploadId}/complete`)
+      .send({
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.backup,
+        targetProjectId: 'restored:project',
+      });
+    expect(invalidTargetResponse.status).toBe(400);
+
+    const invalidSourceArchive = await createProjectBackupArchive(
+      { project: createSnapshot(' archived-project ', 'Corso non valido') },
+      {
+        invalidArchiveMessage: 'Invalid project backup.',
+        maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+        maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+        maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+      }
+    );
+    const invalidSourceUploadId = '323e4567-e89b-42d3-a456-426614174002';
+    await request(app)
+      .put(`/api/projects/import/chunks/${invalidSourceUploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.from(invalidSourceArchive));
+
+    const invalidSourceResponse = await request(app)
+      .post(`/api/projects/import/chunks/${invalidSourceUploadId}/complete`)
+      .send({
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.backup,
+        targetProjectId: normalizedTargetProjectId,
+      });
+    expect(invalidSourceResponse.status).toBe(400);
   });
 
   test('round-trips every modern course source while snapshots remain byte-free', async () => {
