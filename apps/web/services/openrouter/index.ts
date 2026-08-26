@@ -28,10 +28,19 @@ export type {
   GenerationStatusReporter,
 } from './generationProgress.ts';
 export { createGenerationProgressObserver } from './generationProgress.ts';
+export type { DurableLessonRecovery } from './lessonGenerationClient.ts';
 export {
+  clearDurableLessonForceRegenerationIntent,
+  clearDurableLessonRequestsForProject,
   generateDurableLesson,
   generateDurableSublesson,
+  hasDurableLessonRequest,
+  hasDurableSublessonRequest,
+  isDurableSublessonRequestForSection,
   LessonGenerationBusyError,
+  resolveDurableSublessonRequestForParent,
+  resolveDurableSublessonRequestForSection,
+  retainDurableLessonForceRegenerationIntent,
 } from './lessonGenerationClient.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
 export {

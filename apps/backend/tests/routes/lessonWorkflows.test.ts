@@ -19,6 +19,7 @@ const job = {
 
 const createApi = (): LessonGenerationApi => ({
   get: vi.fn().mockResolvedValue(job),
+  getByRequestKey: vi.fn().mockResolvedValue(job),
   start: vi.fn().mockResolvedValue({ busy: false, created: true, job }),
   startSublesson: vi.fn().mockResolvedValue({ busy: false, created: true, job }),
 });
@@ -208,6 +209,23 @@ describe('lesson workflow routes', () => {
     });
     expect(JSON.stringify(response.body)).not.toContain('nodes');
     expect(JSON.stringify(response.body)).not.toContain('details');
+  });
+
+  test('resolves a durable snapshot through its original request key', async () => {
+    const api = createApi();
+    vi.mocked(api.getByRequestKey).mockResolvedValue({ ...job, status: 'failed' });
+
+    const response = await request(createApp({ lessonGenerationApi: api }))
+      .post('/api/lesson-workflows/requests/resolve')
+      .send({ requestKey: 'request-sublesson-1' });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(api.getByRequestKey).toHaveBeenCalledWith({
+      requestKey: 'request-sublesson-1',
+      userId: 'local-user',
+    });
+    expect(response.body).toEqual({ job: { ...job, status: 'failed' }, success: true });
   });
 
   test('returns not found for an unknown run', async () => {

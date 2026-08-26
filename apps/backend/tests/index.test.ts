@@ -161,6 +161,7 @@ describe('request lifecycle observability', () => {
     const internalMessage = 'Database transaction lost.';
     const lessonGenerationApi = {
       get: vi.fn(),
+      getByRequestKey: vi.fn(),
       start: vi.fn().mockRejectedValue(new Error(internalMessage)),
       startSublesson: vi.fn(),
     } satisfies LessonGenerationApi;

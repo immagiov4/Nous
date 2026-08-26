@@ -18,7 +18,9 @@ export const useWorkspaceControllerState = () => {
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
     createWorkspaceWorkflowState
   );
-  const [missingSourceProjectId, setMissingSourceProjectId] = useState<string | null>(null);
+  const [missingSourceProjects, setMissingSourceProjects] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const [, commitGenerationChange] = useReducer(currentRevision => currentRevision + 1, 0);
 
   const assessmentMessagesRef = useRef(assessmentMessages);
@@ -26,10 +28,17 @@ export const useWorkspaceControllerState = () => {
   const generationByProjectRef = useRef(
     new Map<
       string | null,
-      { kind: WorkspaceGenerationKind; sectionId: string | null; token: number }
+      {
+        kind: WorkspaceGenerationKind;
+        onReattach?: () => boolean;
+        parentSectionId?: string;
+        sectionId: string | null;
+        token: number;
+      }
     >()
   );
   const nextGenerationTokenRef = useRef(0);
+  const nextOpenSectionRequestIdRef = useRef(0);
   const workflowStateRef = useRef(workflowState);
   const screenStateRef = useRef(screenState);
 
@@ -61,6 +70,10 @@ export const useWorkspaceControllerState = () => {
     openingProjectId,
     screenState,
     stateAdapter: {
+      beginOpenSectionRequest: () => {
+        nextOpenSectionRequestIdRef.current += 1;
+        return nextOpenSectionRequestIdRef.current;
+      },
       beginWorkflow: (workflowId: WorkspaceWorkflowId, message?: string) => {
         const currentState = workflowStateRef.current;
         const nextRequestId = currentState[workflowId].requestId + 1;
@@ -112,18 +125,53 @@ export const useWorkspaceControllerState = () => {
       getCourseProposal: () => courseProposalRef.current,
       getGeneratingSectionId: projectId =>
         generationByProjectRef.current.get(projectId)?.sectionId ?? null,
+      hasMissingSource: projectId => projectId !== null && missingSourceProjects.has(projectId),
       getOpeningProjectId: () => openingProjectIdRef.current,
       getScreenState: () => screenStateRef.current,
       getWorkflowState: () => workflowStateRef.current,
+      invalidateGeneration: projectId => {
+        if (!generationByProjectRef.current.delete(projectId)) return;
+        commitGenerationChange();
+      },
+      invalidateOpenSectionRequests: () => {
+        nextOpenSectionRequestIdRef.current += 1;
+      },
       invalidateWorkflows: workflowIds => {
         const nextState = invalidateWorkspaceWorkflows(workflowStateRef.current, workflowIds);
         commitWorkflowState(nextState);
       },
       isGenerationActive: projectId => generationByProjectRef.current.has(projectId),
+      isGenerationCurrent: (projectId, token) =>
+        generationByProjectRef.current.get(projectId)?.token === token,
       isLessonGenerationActive: projectId =>
         generationByProjectRef.current.get(projectId)?.kind === 'lesson',
+      isOpenSectionRequestCurrent: requestId => nextOpenSectionRequestIdRef.current === requestId,
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>
         workflowStateRef.current[workflowId].requestId === requestId,
+      reattachLessonGeneration: (projectId, sectionId) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (
+          activeGeneration?.kind !== 'lesson' ||
+          activeGeneration.sectionId !== sectionId ||
+          !activeGeneration.onReattach
+        ) {
+          return false;
+        }
+
+        return activeGeneration.onReattach();
+      },
+      reattachSublessonGeneration: (projectId, parentSectionId) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (
+          activeGeneration?.kind !== 'lesson' ||
+          activeGeneration.parentSectionId !== parentSectionId ||
+          !activeGeneration.onReattach
+        ) {
+          return false;
+        }
+
+        return activeGeneration.onReattach();
+      },
       resetSessionState: () => {
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
@@ -131,7 +179,6 @@ export const useWorkspaceControllerState = () => {
         courseProposalRef.current = null;
         openingProjectIdRef.current = null;
         setOpeningProjectId(null);
-        setMissingSourceProjectId(null);
       },
       setAssessmentMessages: nextMessages => {
         setAssessmentMessages(currentMessages => {
@@ -157,11 +204,37 @@ export const useWorkspaceControllerState = () => {
         });
         commitGenerationChange();
       },
+      setLessonGenerationReattachHandler: (
+        projectId,
+        token,
+        onReattach,
+        parentSectionId = undefined
+      ) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (activeGeneration?.kind !== 'lesson' || activeGeneration.token !== token) {
+          return;
+        }
+
+        generationByProjectRef.current.set(projectId, {
+          ...activeGeneration,
+          onReattach,
+          parentSectionId,
+        });
+      },
       setOpeningProjectId: (projectId: string | null) => {
         openingProjectIdRef.current = projectId;
         setOpeningProjectId(projectId);
       },
-      setMissingSourceProjectId,
+      setProjectMissingSource: (projectId, missing) => {
+        setMissingSourceProjects(currentProjects => {
+          if (currentProjects.has(projectId) === missing) return currentProjects;
+
+          const nextProjects = new Set(currentProjects);
+          if (missing) nextProjects.add(projectId);
+          else nextProjects.delete(projectId);
+          return nextProjects;
+        });
+      },
       setScreenState,
       setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => {
         const currentState = workflowStateRef.current;
@@ -248,7 +321,7 @@ export const useWorkspaceControllerState = () => {
         return token;
       },
     } satisfies WorkspaceControllerStateAdapter,
-    missingSourceProjectId,
+    missingSourceProjects,
     workflowState,
   };
 };

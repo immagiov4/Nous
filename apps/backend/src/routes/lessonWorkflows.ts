@@ -30,6 +30,7 @@ const startSublessonBodySchema = z
   })
   .strict();
 const runParametersSchema = z.object({ runId: z.string().trim().min(1) });
+const requestLookupBodySchema = z.object({ requestKey: z.string().trim().min(1) }).strict();
 
 const INVALID_REQUEST_RESPONSE = {
   code: 'lesson_generation_request_invalid',
@@ -122,6 +123,26 @@ export const createLessonWorkflowRouter = (api: LessonGenerationApi): Router => 
 
       const user = getCurrentUser(request);
       const job = await api.get({ runId: parameters.data.runId, userId: user.id });
+      if (!job) {
+        return response.status(404).json({
+          code: 'lesson_generation_run_not_found',
+          error: 'Generazione non trovata.',
+          success: false,
+        });
+      }
+      return response.json({ job, success: true });
+    })
+  );
+
+  router.post(
+    '/requests/resolve',
+    asyncRoute(async (request, response) => {
+      response.set('Cache-Control', LESSON_WORKFLOW_CACHE_CONTROL);
+      const body = requestLookupBodySchema.safeParse(request.body);
+      if (!body.success) return response.status(400).json(INVALID_REQUEST_RESPONSE);
+
+      const user = getCurrentUser(request);
+      const job = await api.getByRequestKey({ requestKey: body.data.requestKey, userId: user.id });
       if (!job) {
         return response.status(404).json({
           code: 'lesson_generation_run_not_found',

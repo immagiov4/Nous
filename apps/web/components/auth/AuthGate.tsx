@@ -1,4 +1,4 @@
-import { type ReactNode, type SyntheticEvent, useEffect, useState } from 'react';
+import { type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   completeSupabasePasswordSetup,
@@ -7,6 +7,7 @@ import {
   isLocalAuthBypassEnabled,
   isSupabaseAuthEnabled,
   readSupabaseAuthCallbackFromUrl,
+  readSupabaseSession,
   refreshSupabaseSession,
   SUPABASE_SESSION_REFRESH_RETRY_MS,
   SupabasePasswordSetupError,
@@ -17,6 +18,7 @@ import {
   signInWithPassword,
   subscribeToSupabaseSession,
 } from '../../services/auth/supabaseAuth.ts';
+import { clearAllDurableLessonRequests } from '../../services/openrouter/lessonGenerationClient.ts';
 import LandingPage from '../marketing/LandingPage.tsx';
 
 interface AuthGateProps {
@@ -305,8 +307,27 @@ const readInitialAuthGateState = (): AuthGateState => {
 };
 
 export default function AuthGate({ children }: AuthGateProps) {
+  const [initialPreviousSession] = useState(() =>
+    isSupabaseAuthEnabled() ? readSupabaseSession() : null
+  );
   const [authState, setAuthState] = useState<AuthGateState>(readInitialAuthGateState);
   const { callbackError, session } = authState;
+  const previousSessionRef = useRef(initialPreviousSession);
+
+  useEffect(() => {
+    const previousSession = previousSessionRef.current;
+    const previousUserId = previousSession?.user?.id;
+    const currentUserId = session?.user?.id;
+    const sessionBoundary = previousSession === null || session === null;
+    const accountChanged =
+      previousUserId !== undefined &&
+      currentUserId !== undefined &&
+      previousUserId !== currentUserId;
+    if (isSupabaseAuthEnabled() && (sessionBoundary || accountChanged)) {
+      clearAllDurableLessonRequests();
+    }
+    previousSessionRef.current = session;
+  }, [session]);
 
   useEffect(() => {
     if (!isSupabaseAuthEnabled()) {

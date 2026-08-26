@@ -55,6 +55,7 @@ import type {
 
 interface ProjectLifecycleDependencies {
   openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
+  resumeRetainedSublesson: (parentSection: LessonNode) => Promise<unknown>;
   resumePlanGeneration: (projectId: string) => Promise<'not-found' | 'resumed'>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
   startLearnAssessment: () => Promise<void>;
@@ -102,6 +103,7 @@ export const createProjectLifecycleCommands = (
   context: WorkspaceControllerContext,
   {
     openSection,
+    resumeRetainedSublesson,
     resumePlanGeneration,
     startAssessment,
     startLearnAssessment,
@@ -313,6 +315,7 @@ export const createProjectLifecycleCommands = (
           throw error;
         }
         state.invalidateWorkflows([...REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE]);
+        state.setProjectMissingSource(reattachProjectId, false);
         state.resetSessionState();
         projectLibrary.setProjectHydrated(true);
         state.succeedWorkflow('attachSource', requestId);
@@ -426,6 +429,7 @@ export const createProjectLifecycleCommands = (
     projectId: string,
     options: OpenProjectOptions = {}
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }> {
+    state.invalidateOpenSectionRequests();
     const requestId = state.beginWorkflow('openProject', t('Apertura progetto...'));
     if (projectLibrary.getCurrentProjectId() !== projectId) {
       state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
@@ -654,7 +658,31 @@ export const createProjectLifecycleCommands = (
         }
         const hydratedPdfFile =
           preparedSnapshot.source?.kind === 'pdf' ? preparedSnapshot.source.file : null;
+        const hasRetainedParentSublessonRequest =
+          nextSection !== null &&
+          Boolean(nextSection.content?.length) &&
+          openRouter.hasDurableSublessonRequest(projectId, nextSection.id);
+        if (hasRetainedParentSublessonRequest && nextSection) {
+          void (async () => {
+            if (
+              projectLibrary.getCurrentProjectId() !== projectId ||
+              domain.getDomainState().activeSectionId !== nextSection.id ||
+              !state.isWorkflowCurrent('openProject', requestId)
+            ) {
+              return;
+            }
+            await resumeRetainedSublesson(nextSection);
+          })().catch(error => {
+            pushNousDebugTrace('open-project:background-sublesson-recovery-failed', {
+              errorMessage: getErrorMessage(error),
+              projectId,
+              requestId,
+              sectionId: nextSection.id,
+            });
+          });
+        }
         if (
+          !hasRetainedParentSublessonRequest &&
           !requestedSection &&
           !needsPdfProjectHydration(
             hydratedPdfFile,
@@ -662,7 +690,11 @@ export const createProjectLifecycleCommands = (
             preparedSnapshot.documentIndex
           ) &&
           nextSection &&
-          (!nextSection.content || nextSection.content.length === 0)
+          (!nextSection.content ||
+            nextSection.content.length === 0 ||
+            openRouter.hasDurableLessonRequest(projectId, nextSection.id) ||
+            (nextSection.parentId !== undefined &&
+              openRouter.hasDurableSublessonRequest(projectId, nextSection.parentId)))
         ) {
           void (async () => {
             if (
@@ -713,6 +745,9 @@ export const createProjectLifecycleCommands = (
 
   async function deleteProject(projectId: string): Promise<void> {
     await projectLibrary.deleteStoredProject(projectId);
+    state.invalidateGeneration(projectId);
+    openRouter.clearDurableLessonRequestsForProject(projectId);
+    state.setProjectMissingSource(projectId, false);
     if (projectLibrary.currentProjectId === projectId) {
       stopAudio(true);
       projectLibrary.setProjectHydrated(false);
@@ -733,8 +768,13 @@ export const createProjectLifecycleCommands = (
     pushNousDebugTrace('open-project:cancelled', { projectId });
   }
 
-  function handleRemoteProjectDeleted(projectId: string): void {
-    pushNousDebugTrace('project:remote-deleted', { projectId });
+  function handleRemoteProjectDeleted(projectId: string, wasActive: boolean): void {
+    pushNousDebugTrace('project:remote-deleted', { projectId, wasActive });
+    state.invalidateGeneration(projectId);
+    openRouter.clearDurableLessonRequestsForProject(projectId);
+    state.setProjectMissingSource(projectId, false);
+    if (!wasActive) return;
+
     stopAudio(true);
     projectLibrary.setProjectHydrated(false);
     projectLibrary.setCurrentProjectId(null);

@@ -52,6 +52,11 @@ interface LessonGenerationProjectReader {
 
 interface LessonGenerationRunReader {
   getRun(input: { runId: string; userId: string }): Promise<WorkflowRun | null>;
+  getRunByRequestKey(input: {
+    requestKey: string;
+    userId: string;
+    workflowId: string;
+  }): Promise<WorkflowRun | null>;
   getRunState(input: { runId: string; userId: string }): Promise<WorkflowRunState | null>;
 }
 
@@ -64,6 +69,10 @@ interface LessonGenerationApiDependencies {
 
 export interface LessonGenerationApi {
   get(input: { runId: string; userId: string }): Promise<LessonWorkflowSnapshot | null>;
+  getByRequestKey(input: {
+    requestKey: string;
+    userId: string;
+  }): Promise<LessonWorkflowSnapshot | null>;
   start(input: ExistingLessonGenerationStartRequest): Promise<{
     busy: boolean;
     created: boolean;
@@ -88,6 +97,7 @@ const rejectUnavailableRuntime = (): Promise<never> =>
 
 export const unavailableLessonGenerationApi: LessonGenerationApi = {
   get: rejectUnavailableRuntime,
+  getByRequestKey: rejectUnavailableRuntime,
   start: rejectUnavailableRuntime,
   startSublesson: rejectUnavailableRuntime,
 };
@@ -214,6 +224,18 @@ export const createLessonGenerationApi = (
     async get(input) {
       const state = await dependencies.runReader.getRunState(input);
       const run = state ? await dependencies.runReader.getRun(input) : null;
+      if (!run || !state || run.workflowId !== LESSON_GENERATION_WORKFLOW_ID) return null;
+      return createSnapshot(run, state);
+    },
+
+    async getByRequestKey(input) {
+      const resolvedRun = await dependencies.runReader.getRunByRequestKey({
+        ...input,
+        workflowId: LESSON_GENERATION_WORKFLOW_ID,
+      });
+      const request = resolvedRun ? { runId: resolvedRun.id, userId: input.userId } : null;
+      const state = request ? await dependencies.runReader.getRunState(request) : null;
+      const run = request && state ? await dependencies.runReader.getRun(request) : null;
       if (!run || !state || run.workflowId !== LESSON_GENERATION_WORKFLOW_ID) return null;
       return createSnapshot(run, state);
     },

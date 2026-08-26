@@ -8,12 +8,13 @@ export const createWorkspaceController = (
   args: CreateWorkspaceControllerArgs
 ): WorkspaceControllerCommands => {
   const context = createWorkspaceControllerContext(args);
-  const sectionCommands = createSectionCommands(context);
+  const { resumeRetainedSublesson, ...sectionCommands } = createSectionCommands(context);
   const assessmentCommands = createAssessmentPlanningCommands(context, {
     openSection: sectionCommands.openSection,
   });
   const projectLifecycleCommands = createProjectLifecycleCommands(context, {
     openSection: sectionCommands.openSection,
+    resumeRetainedSublesson,
     resumePlanGeneration: assessmentCommands.resumePlanGeneration,
     startAssessment: assessmentCommands.startAssessment,
     startLearnAssessment: assessmentCommands.startLearnAssessment,

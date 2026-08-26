@@ -59,6 +59,7 @@ export interface WorkspaceDomainControllerAdapter {
   domainState: WorkspaceDomainState;
   file: FileData | null;
   generationNotes: string;
+  getDomainState: () => WorkspaceDomainState;
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
   isLearnMode: boolean;
   learningPlan: LearningPlan | null;
@@ -97,6 +98,7 @@ export interface WorkspaceProjectLibraryAdapter {
   completeProjectHydration: (project: ProjectSnapshotWithRevision) => void;
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;
   currentProjectId: string | null;
+  getCurrentActiveSectionId: () => string | null;
   getCurrentProjectId: () => string | null;
   deleteStoredProject: (projectId: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
@@ -176,19 +178,27 @@ export interface WorkspaceProjectLibraryAdapter {
 }
 
 export interface WorkspaceControllerStateAdapter {
+  beginOpenSectionRequest: () => number;
   beginWorkflow: (workflowId: WorkspaceWorkflowId, message?: string) => number;
   failWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, errorMessage: string) => void;
   finishGeneration: (projectId: string | null, token: number) => void;
   getAssessmentMessages: () => Message[];
   getCourseProposal: () => UserProfile | null;
   getGeneratingSectionId: (projectId: string | null) => string | null;
+  hasMissingSource: (projectId: string | null) => boolean;
   getOpeningProjectId: () => string | null;
   getScreenState: () => AppState;
   getWorkflowState: () => WorkspaceWorkflowState;
+  invalidateGeneration: (projectId: string) => void;
+  invalidateOpenSectionRequests: () => void;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isGenerationActive: (projectId: string | null) => boolean;
+  isGenerationCurrent: (projectId: string | null, token: number) => boolean;
   isLessonGenerationActive: (projectId: string | null) => boolean;
+  isOpenSectionRequestCurrent: (requestId: number) => boolean;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;
+  reattachLessonGeneration: (projectId: string | null, sectionId: string) => boolean;
+  reattachSublessonGeneration: (projectId: string | null, parentSectionId: string) => boolean;
   resetSessionState: () => void;
   setAssessmentMessages: (
     nextMessages: Message[] | ((previousMessages: Message[]) => Message[])
@@ -197,7 +207,13 @@ export interface WorkspaceControllerStateAdapter {
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
   setGeneratingSectionId: (projectId: string | null, token: number, sectionId: string) => void;
-  setMissingSourceProjectId: (projectId: string | null) => void;
+  setLessonGenerationReattachHandler: (
+    projectId: string | null,
+    token: number,
+    onReattach: () => boolean,
+    parentSectionId?: string
+  ) => void;
+  setProjectMissingSource: (projectId: string, missing: boolean) => void;
   setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
   setWorkflowReasoning: (
     workflowId: WorkspaceWorkflowId,
@@ -275,7 +291,7 @@ export interface WorkspaceControllerCommands {
   deleteProject: (projectId: string) => Promise<void>;
   exportProject: (projectId?: string) => Promise<void>;
   goToLibrary: () => Promise<void>;
-  handleRemoteProjectDeleted: (projectId: string) => void;
+  handleRemoteProjectDeleted: (projectId: string, wasActive: boolean) => void;
   handleSourceUpload: (
     selectedFiles: File | File[],
     options?: { mode?: 'new-project' | 'reattach-source' }

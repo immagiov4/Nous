@@ -56,10 +56,7 @@ export const useWorkspaceController = ({
     loadStoredProjectSourceById: projectLibrary.loadStoredProjectSourceById,
     needsSourceFile:
       domain.needsSourceFile ||
-      Boolean(
-        controllerState.missingSourceProjectId &&
-          controllerState.missingSourceProjectId === projectLibrary.currentProjectId
-      ),
+      controllerState.stateAdapter.hasMissingSource(projectLibrary.currentProjectId),
     openingProjectId: controllerState.openingProjectId,
     patchSectionLessonContent: projectLibrary.patchSectionLessonContent,
     patchSectionAnnotations: projectLibrary.patchSectionAnnotations,

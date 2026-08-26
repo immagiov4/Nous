@@ -57,14 +57,14 @@ export const loadProjectSourceFile = async (
       return null;
     }
     if (storedSources.length !== source.sources.length) {
-      context.state.setMissingSourceProjectId(projectId);
+      context.state.setProjectMissingSource(projectId, true);
       return null;
     }
     const hydratedSource = attachStoredSources(
       source,
       storedSources.map(stored => stored.file)
     );
-    context.state.setMissingSourceProjectId(null);
+    context.state.setProjectMissingSource(projectId, false);
     context.domain.setSource(hydratedSource);
     return getProjectSourceFile(hydratedSource);
   }
@@ -74,11 +74,11 @@ export const loadProjectSourceFile = async (
     return null;
   }
   if (!loadedFile) {
-    context.state.setMissingSourceProjectId(projectId);
+    context.state.setProjectMissingSource(projectId, true);
     return null;
   }
 
-  context.state.setMissingSourceProjectId(null);
+  context.state.setProjectMissingSource(projectId, false);
   context.domain.setSource(attachStoredPrimarySource(source, loadedFile));
   return loadedFile;
 };
