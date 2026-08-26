@@ -1,8 +1,9 @@
 import {
   getMarkdownProtectedRanges,
+  isMarkdownPlaceholderLiteralInsideCode,
   type MarkdownRange,
-  NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
   parseMarkdownAnalysis,
+  readCompleteMarkdownPlaceholderRange,
 } from '../markdown/codeRanges.ts';
 
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
@@ -104,21 +105,52 @@ const replaceMarkdownProtectedRanges = (content: string): string => {
   return nextContent;
 };
 
-const stripPlaceholderToken = (content: string, placeholderPrefix: string): string => {
+const stripCompletePlaceholdersOutsideProtectedMarkdown = (content: string): string => {
+  const protectedRanges = getMarkdownProtectedRanges(content);
+  let normalizedContent = '';
+  let cursor = 0;
+  let protectedRangeIndex = 0;
+
+  while (cursor < content.length) {
+    const protectedRange = protectedRanges[protectedRangeIndex];
+    if (protectedRange?.start === cursor) {
+      const protectedContent = content.slice(protectedRange.start, protectedRange.end);
+      normalizedContent += rangeContainsLineBreak(content, protectedRange)
+        ? protectedContent
+        : stripCompletePlaceholders(protectedContent, true);
+      cursor = protectedRange.end;
+      protectedRangeIndex += 1;
+      continue;
+    }
+
+    const unprotectedEnd = protectedRange?.start ?? content.length;
+    normalizedContent += stripCompletePlaceholders(content.slice(cursor, unprotectedEnd), false);
+    cursor = unprotectedEnd;
+  }
+
+  return normalizedContent;
+};
+
+const stripCompletePlaceholders = (content: string, preserveCodeLiterals: boolean): string => {
   let normalizedContent = '';
   let cursor = 0;
 
   while (cursor < content.length) {
-    const tokenIndex = content.indexOf(placeholderPrefix, cursor);
-    if (tokenIndex === -1) {
-      normalizedContent += content.slice(cursor);
-      break;
+    const placeholderRange = readCompleteMarkdownPlaceholderRange(content, cursor);
+    if (
+      placeholderRange &&
+      !(
+        preserveCodeLiterals &&
+        isMarkdownPlaceholderLiteralInsideCode(content, placeholderRange.start)
+      )
+    ) {
+      normalizedContent += ' ';
+      cursor = placeholderRange.end;
+      continue;
     }
 
-    normalizedContent += content.slice(cursor, tokenIndex);
-    const tokenEnd = content.indexOf('}}', tokenIndex + placeholderPrefix.length);
-    normalizedContent += ' ';
-    cursor = tokenEnd === -1 ? content.length : tokenEnd + 2;
+    normalizedContent += content[cursor];
+    cursor += 1;
   }
 
   return normalizedContent;
@@ -402,8 +434,7 @@ export const prepareMarkdownForSpeech = (content: string): string => {
         `${currentContent.slice(0, range.start)}${currentContent.slice(range.end)}`,
       content
     );
-  const placeholderStrippedContent = NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.reduce(
-    (currentContent, placeholderPrefix) => stripPlaceholderToken(currentContent, placeholderPrefix),
+  const placeholderStrippedContent = stripCompletePlaceholdersOutsideProtectedMarkdown(
     rendererHiddenContentStripped
   );
   const markdownProtectedContent = replaceMarkdownProtectedRanges(placeholderStrippedContent);

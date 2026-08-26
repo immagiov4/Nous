@@ -6,8 +6,8 @@ import type {
 } from '../../types';
 
 const PDF_IMAGE_PLACEHOLDER_REGEX =
-  /\{\{PDF_IMAGE:([^|}]+)(?:\|alt=([^|}]*))?(?:\|caption=([^}]*))?\}\}/g;
-const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|}]+)(?:\|title=([^}]*))?\}\}/g;
+  /\{\{PDF_IMAGE:([^|{}]+)(?:\|alt=([^|{}]*))?(?:\|caption=([^{}]*))?\}\}/g;
+const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|{}]+)(?:\|title=([^{}]*))?\}\}/g;
 const LEGACY_PDF_FIGURE_REGEX =
   /<figure\b[\s\S]*?<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>[\s\S]*?<\/figure>/gi;
 const LEGACY_PDF_IMAGE_REGEX = /<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>/gi;
@@ -28,7 +28,7 @@ const decodeHtml = (value: string): string =>
     .replaceAll('&gt;', '>')
     .replaceAll('&amp;', '&');
 
-const escapePlaceholderValue = (value: string): string => value.replaceAll(/[|}]/g, ' ').trim();
+const escapePlaceholderValue = (value: string): string => value.replaceAll(/[|{}]/g, ' ').trim();
 
 const extractAttribute = (tag: string, attributeName: string): string | undefined => {
   const attributeRegex = new RegExp(String.raw`${attributeName}=(["'])([\s\S]*?)\1`, 'i');

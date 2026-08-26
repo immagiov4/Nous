@@ -25,6 +25,43 @@ export const NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES = [
   '{{VISUAL_SLOT:',
 ] as const;
 
+const isValidMarkdownPlaceholderPayload = (prefix: string, payload: string): boolean => {
+  switch (prefix) {
+    case '{{PDF_IMAGE:':
+      return /^[^|{}]+(?:\|alt=[^|{}]*)?(?:\|caption=[^{}]*)?$/u.test(payload);
+    case '{{VISUAL_EXAMPLE:':
+      return /^[^|{}]+(?:\|title=[^{}]*)?$/u.test(payload);
+    case '{{YOUTUBE_CLIP_SOURCE:':
+      return /^\d+(?:\|START:\d+\|END:\d+)?$/u.test(payload);
+    case '{{INLINE_QUIZ:':
+      return /^\d+$/u.test(payload);
+    case '{{VISUAL_SLOT:':
+      return /^[^{}]+$/u.test(payload);
+    default:
+      return false;
+  }
+};
+
+export const readCompleteMarkdownPlaceholderRange = (
+  content: string,
+  start: number
+): MarkdownRange | null => {
+  const prefix = NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.find(candidate =>
+    content.startsWith(candidate, start)
+  );
+  if (!prefix) return null;
+
+  const closingIndex = content.indexOf('}}', start + prefix.length);
+  if (closingIndex === -1) return null;
+  const payload = content.slice(start + prefix.length, closingIndex);
+  return isValidMarkdownPlaceholderPayload(prefix, payload)
+    ? { start, end: closingIndex + 2 }
+    : null;
+};
+
+export const isMarkdownPlaceholderLiteralInsideCode = (content: string, start: number): boolean =>
+  content.startsWith('{{INLINE_QUIZ:', start);
+
 const isAsciiAlphaNumeric = (character: string | undefined): boolean =>
   Boolean(character && /[A-Za-z0-9]/u.test(character));
 
@@ -443,10 +480,9 @@ const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
     const ranges: MarkdownRange[] = [];
     let start = content.indexOf(prefix);
     while (start !== -1) {
-      const closingIndex = content.indexOf('}}', start + prefix.length);
-      const end = closingIndex === -1 ? content.length : closingIndex + 2;
-      ranges.push({ start, end });
-      start = closingIndex === -1 ? -1 : content.indexOf(prefix, end);
+      const range = readCompleteMarkdownPlaceholderRange(content, start);
+      if (range) ranges.push(range);
+      start = content.indexOf(prefix, range?.end ?? start + prefix.length);
     }
     return ranges;
   });

@@ -32,6 +32,35 @@ test('annotation ranges ignore malformed image openers before ordinary links', (
   assert.deepEqual(protectedSlices, ['(https://example.com)']);
 });
 
+test('annotation ranges leave incomplete placeholder-like text anchorable', () => {
+  const content = 'Testo prima {{VISUAL_SLOT:bozza testo dopo';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+});
+
+test('annotation ranges protect closed placeholders with whitespace payloads', () => {
+  const content = '{{VISUAL_SLOT:   }}';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
+    { start: 0, end: content.length },
+  ]);
+});
+
+test('annotation ranges preserve a malformed marker before a complete marker', () => {
+  const content = 'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['{{VISUAL_SLOT:slot-1}}']);
+});
+
+test('annotation ranges leave placeholders with unknown options anchorable', () => {
+  const content = '{{PDF_IMAGE:asset-1|foo=bar}}';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+});
+
 test('annotation ranges parse balanced parentheses in image destinations', () => {
   const content =
     'Prima ![diagramma](https://example.com/image_(large).png) e ![schema](<schema.png> ) dopo.';

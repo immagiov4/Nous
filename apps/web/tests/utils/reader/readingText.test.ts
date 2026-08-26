@@ -165,6 +165,54 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech(input)).toBe('Prima.\n\nDopo.');
   });
 
+  test('reads incomplete placeholder-like text that the reader displays', () => {
+    const input = 'Testo prima {{VISUAL_SLOT:bozza testo dopo';
+
+    expect(prepareMarkdownForSpeech(input)).toMatch(/bozza testo dopo/u);
+  });
+
+  test('does not read closed placeholders with whitespace payloads', () => {
+    expect(prepareMarkdownForSpeech('Prima {{VISUAL_SLOT:   }} dopo')).toBe('Prima dopo');
+  });
+
+  test('reads a malformed marker before removing a later complete marker', () => {
+    const speech = prepareMarkdownForSpeech(
+      'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo'
+    );
+
+    expect(speech).toMatch(/bozza poi/u);
+    expect(speech).not.toMatch(/slot-1/u);
+  });
+
+  test('reads a malformed PDF marker before removing a later complete marker', () => {
+    const speech = prepareMarkdownForSpeech(
+      'Prima {{PDF_IMAGE:bozza poi {{PDF_IMAGE:asset-1}} dopo'
+    );
+
+    expect(speech).toMatch(/bozza poi/u);
+    expect(speech).not.toMatch(/asset-1/u);
+  });
+
+  test('reads placeholders with unknown options that the reader displays', () => {
+    const speech = prepareMarkdownForSpeech('Prima {{PDF_IMAGE:asset-1|foo=bar}} dopo');
+
+    expect(speech).toMatch(/foo=bar/u);
+  });
+
+  test('reads complete placeholders shown as inline code', () => {
+    expect(prepareMarkdownForSpeech('Mostra `{{INLINE_QUIZ:0}}` come sintassi.')).toBe(
+      'Mostra {{INLINE QUIZ:0}} come sintassi.'
+    );
+  });
+
+  test('does not read inline-code placeholders consumed by media renderers', () => {
+    expect(
+      prepareMarkdownForSpeech(
+        'Mostra `{{PDF_IMAGE:missing}}` e `{{VISUAL_SLOT:slot-1}}` come sintassi.'
+      )
+    ).toBe('Mostra e come sintassi.');
+  });
+
   test('does not read full or collapsed reference labels', () => {
     const input = [
       '[Testo pieno][destinazione]',

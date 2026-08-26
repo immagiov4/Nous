@@ -65,19 +65,37 @@ test('rejects note proposals whose text is absent or only belongs to an image', 
 
 test('rejects note proposals whose text exists only in an unsupported viewer placeholder', () => {
   const placeholders = [
-    '{{PDF_IMAGE:asset-1|alt=Schema durevole}}',
-    '{{VISUAL_EXAMPLE:visual-1|title=Schema durevole}}',
-    '{{YOUTUBE_CLIP_SOURCE:1|title=Schema durevole}}',
-    '{{INLINE_QUIZ:Schema durevole}}',
-    '{{VISUAL_SLOT:slot-1|title=Schema durevole}}',
+    {
+      content: '{{PDF_IMAGE:asset-1|alt=Schema durevole}}',
+      selectedText: 'Schema durevole',
+    },
+    {
+      content: '{{VISUAL_EXAMPLE:visual-1|title=Schema durevole}}',
+      selectedText: 'Schema durevole',
+    },
+    {
+      content: '{{YOUTUBE_CLIP_SOURCE:1|START:10|END:20}}',
+      selectedText: 'START',
+    },
+    { content: '{{INLINE_QUIZ:1}}', selectedText: '1' },
+    {
+      content: '{{VISUAL_SLOT:slot-1|title=Schema durevole}}',
+      selectedText: 'Schema durevole',
+    },
   ];
 
-  placeholders.forEach(content => {
-    assert.equal(
-      hasAnchorableConversationNoteCandidate(content, { selectedText: 'Schema durevole' }),
-      false
-    );
+  placeholders.forEach(({ content, selectedText }) => {
+    assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText }), false);
   });
+});
+
+test('accepts note proposals inside malformed placeholder-like text shown by the reader', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('{{PDF_IMAGE:asset-1|foo=bar}}', {
+      selectedText: 'foo=bar',
+    }),
+    true
+  );
 });
 
 test('rejects candidates that resolve only a visible fragment around protected text', () => {

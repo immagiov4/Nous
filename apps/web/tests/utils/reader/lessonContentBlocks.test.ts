@@ -89,6 +89,26 @@ test('normalizes legacy markers only when loading old content', () => {
   ]);
 });
 
+test('keeps a malformed marker as markdown before converting a later complete marker', () => {
+  const blocks = legacyMarkdownToLessonContentBlocks(
+    'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo'
+  );
+
+  assert.deepEqual(blocks, [
+    { type: 'markdown', markdown: 'Prima {{VISUAL_SLOT:bozza poi' },
+    { type: 'generated-visual', slotId: 'slot-1' },
+    { type: 'markdown', markdown: 'dopo' },
+  ]);
+});
+
+test('keeps visual placeholders with unknown options as markdown', () => {
+  const marker = '{{VISUAL_EXAMPLE:visual-1|foo=bar}}';
+
+  assert.deepEqual(legacyMarkdownToLessonContentBlocks(marker), [
+    { type: 'markdown', markdown: marker },
+  ]);
+});
+
 test('persists failed visual plans and maps partial success by slot id', () => {
   const plans = [
     {

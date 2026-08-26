@@ -32,6 +32,59 @@ test('buildVisibleProjection excludes inline quiz markers while preserving sourc
   assert.equal(projection.sourceIndexes[projectedSecondParagraphOffset], secondParagraphOffset);
 });
 
+test('buildVisibleProjection preserves incomplete placeholder-like text', () => {
+  const content = 'Testo prima {{VISUAL_SLOT:bozza testo dopo';
+  const projection = buildVisibleProjection(content);
+
+  assert.match(projection.text, /bozza testo dopo/u);
+  assert.equal(projection.sourceIndexes.at(-1), content.length - 1);
+});
+
+test('buildVisibleProjection hides closed placeholders with whitespace payloads', () => {
+  const projection = buildVisibleProjection('Prima {{VISUAL_SLOT:   }} dopo').text;
+
+  assert.doesNotMatch(projection, /VISUAL_SLOT/u);
+  assert.match(projection, /Prima\s+dopo/u);
+});
+
+test('buildVisibleProjection preserves a malformed marker before a complete marker', () => {
+  const projection = buildVisibleProjection(
+    'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo'
+  ).text;
+
+  assert.match(projection, /bozza poi/u);
+  assert.doesNotMatch(projection, /slot-1/u);
+});
+
+test('buildVisibleProjection preserves a malformed PDF marker before a complete marker', () => {
+  const projection = buildVisibleProjection(
+    'Prima {{PDF_IMAGE:bozza poi {{PDF_IMAGE:asset-1}} dopo'
+  ).text;
+
+  assert.match(projection, /bozza poi/u);
+  assert.doesNotMatch(projection, /asset-1/u);
+});
+
+test('buildVisibleProjection preserves placeholders with unknown options', () => {
+  const projection = buildVisibleProjection('Prima {{PDF_IMAGE:asset-1|foo=bar}} dopo').text;
+
+  assert.match(projection, /foo=bar/u);
+});
+
+test('buildVisibleProjection preserves complete placeholders shown as inline code', () => {
+  const projection = buildVisibleProjection('Mostra `{{INLINE_QUIZ:0}}` come sintassi.');
+
+  assert.equal(projection.text, 'Mostra {{INLINE_QUIZ:0}} come sintassi.');
+});
+
+test('buildVisibleProjection hides inline-code placeholders consumed by media renderers', () => {
+  const projection = buildVisibleProjection(
+    'Mostra `{{PDF_IMAGE:missing}}` e `{{VISUAL_SLOT:slot-1}}` come sintassi.'
+  );
+
+  assert.equal(projection.text, 'Mostra  e  come sintassi.');
+});
+
 test('buildVisibleProjection hides reference image alt text and link destinations', () => {
   const projection = buildVisibleProjection(
     '![Schema nascosto][schema] Testo [visibile](https://example.com/nascosto).\n\n[schema]: image.png'

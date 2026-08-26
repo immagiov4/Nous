@@ -5,11 +5,12 @@ import {
   getMarkdownLinkDestinationRanges,
   getMarkdownReferenceDefinitionRanges,
   getMarkdownReferenceLinkLabelRanges,
+  isMarkdownPlaceholderLiteralInsideCode,
   type MarkdownAnalysis,
   type MarkdownRange,
-  NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
   parseMarkdownAnalysis,
   projectMarkdownMathRange,
+  readCompleteMarkdownPlaceholderRange,
 } from './codeRanges.ts';
 
 /**
@@ -103,14 +104,6 @@ export const buildVisibleProjection = (
       index = hiddenRange.end;
       continue;
     }
-    if (
-      NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.some(prefix => content.startsWith(prefix, index))
-    ) {
-      const placeholderEnd = content.indexOf('}}', index);
-      index = placeholderEnd === -1 ? content.length : placeholderEnd + 2;
-      continue;
-    }
-
     if (atLineStart) {
       const blockMarkerMatch = content
         .slice(index)
@@ -155,6 +148,15 @@ export const buildVisibleProjection = (
         continue;
       }
 
+      const placeholderRange = readCompleteMarkdownPlaceholderRange(content, index);
+      if (
+        placeholderRange &&
+        !isMarkdownPlaceholderLiteralInsideCode(content, placeholderRange.start)
+      ) {
+        index = placeholderRange.end;
+        continue;
+      }
+
       pushCharacter(currentCharacter, index);
       atLineStart = false;
       index += 1;
@@ -165,6 +167,12 @@ export const buildVisibleProjection = (
       const delimiterLength = content.slice(index).match(/^`+/u)?.[0].length ?? 1;
       activeCodeDelimiter = '`'.repeat(delimiterLength);
       index += delimiterLength;
+      continue;
+    }
+
+    const placeholderRange = readCompleteMarkdownPlaceholderRange(content, index);
+    if (placeholderRange) {
+      index = placeholderRange.end;
       continue;
     }
 
