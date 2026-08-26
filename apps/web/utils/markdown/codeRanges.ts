@@ -472,6 +472,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
   const htmlSourceOffsets = htmlProjection.sourceOffsets.map(
     offset => indentationProjection.sourceOffsets[offset] ?? offset
   );
+  const escapedHtmlContentRanges: MarkdownRange[] = [];
   const root = markdownParser.runSync(
     markdownParser.parse(indentationProjection.content)
   ) as MarkdownAstNode;
@@ -510,6 +511,8 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         const source = content.slice(range.start, range.end);
         if (isRendererHiddenHtmlSyntax(source) || escapeDisallowedRawHtml(source) === source) {
           analysis.htmlSyntaxRanges.push(range);
+        } else {
+          escapedHtmlContentRanges.push(range);
         }
       }
       if (node.type === 'link') {
@@ -543,6 +546,9 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
   const visitEscapedHtml = (node: MarkdownAstNode): void => {
     const range = getNodeRange(node, htmlSourceOffsets);
     if (range) {
+      const isInsideEscapedHtml = escapedHtmlContentRanges.some(
+        htmlRange => range.start >= htmlRange.start && range.end <= htmlRange.end
+      );
       if (
         node.type === 'inlineCode' &&
         !analysis.codeRanges.some(
@@ -562,6 +568,28 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         }
       }
       if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
+      if (isInsideEscapedHtml && (node.type === 'image' || node.type === 'imageReference')) {
+        const source = content.slice(range.start, range.end);
+        if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
+          analysis.imageRanges.push(range);
+        }
+      }
+      if (isInsideEscapedHtml && node.type === 'link') {
+        const source = content.slice(range.start, range.end);
+        if (!(source.startsWith('<') && source.endsWith('>'))) {
+          const destinationRange = getInlineLinkDestinationRange(
+            content,
+            node,
+            range,
+            htmlSourceOffsets
+          );
+          if (destinationRange) analysis.linkDestinationRanges.push(destinationRange);
+        }
+      }
+      if (isInsideEscapedHtml && node.type === 'linkReference') {
+        const labelRange = getReferenceLabelRange(content, node, range, htmlSourceOffsets);
+        if (labelRange) analysis.referenceLinkLabelRanges.push(labelRange);
+      }
     }
     node.children?.forEach(visitEscapedHtml);
   };
@@ -581,6 +609,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     }
     mathCursor += 1;
   }
+  analysis.codeRanges.sort((left, right) => left.start - right.start || left.end - right.end);
   analysis.mathRanges = mergeOverlappingRanges(analysis.mathRanges);
   return analysis;
 };

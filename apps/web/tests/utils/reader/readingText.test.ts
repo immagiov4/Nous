@@ -179,10 +179,11 @@ describe('prepareMarkdownForSpeech', () => {
     expect(speech).toMatch(/Testo pieno|Testo collassato/u);
   });
 
-  test('reads reference-like text inside raw html containers', () => {
+  test('does not read reference labels exposed by escaped raw html', () => {
     const speech = prepareMarkdownForSpeech('<div>\n[Testo][ref]\n</div>\n\n[ref]: /hidden');
 
-    expect(speech).toMatch(/Testo.*ref/u);
+    expect(speech).toMatch(/Testo/u);
+    expect(speech).not.toMatch(/ref|hidden/u);
   });
 
   test('follows rendered footnote, autolink, and list-definition visibility', () => {

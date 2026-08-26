@@ -53,10 +53,12 @@ test('buildVisibleProjection hides full and collapsed reference labels', () => {
   assert.equal(buildVisibleProjection(content).text.trim(), 'Testo pieno\nTesto collassato');
 });
 
-test('buildVisibleProjection preserves reference-like text inside raw html containers', () => {
+test('buildVisibleProjection hides reference labels exposed by escaped raw html', () => {
   const content = '<div>\n[Testo][ref]\n</div>\n\n[ref]: /hidden';
+  const projection = buildVisibleProjection(content).text;
 
-  assert.match(buildVisibleProjection(content).text, /Testoref/u);
+  assert.match(projection, /Testo/u);
+  assert.doesNotMatch(projection, /ref/u);
 });
 
 test('buildVisibleProjection follows rendered footnote, autolink, and list-definition visibility', () => {

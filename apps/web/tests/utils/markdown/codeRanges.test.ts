@@ -6,6 +6,7 @@ import {
   getMarkdownProtectedRanges,
   getMarkdownReferenceDefinitionRanges,
   normalizeMathSelectionArtifacts,
+  stripHighlightTagsInsideMarkdownCode,
 } from '../../../utils/markdown/codeRanges.ts';
 
 test('synthetic link parsing rejects a later valid destination', () => {
@@ -240,6 +241,30 @@ test('markdown ranges protect fenced code exposed by escaped raw html', () => {
   );
 
   assert.deepEqual(protectedSlices, ['```\nsecret\n```']);
+});
+
+test('annotation ranges protect images and link destinations exposed by escaped raw html', () => {
+  const content = '<div>\n![Schema](image.png) and [docs](https://example.com/hidden)\n</div>';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['![Schema](image.png)', '(https://example.com/hidden)']);
+});
+
+test('annotation ranges protect reference labels exposed by escaped raw html', () => {
+  const content = '<div>\n[docs][ref]\n\n[ref]: https://example.com\n</div>';
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(protectedSlices, ['[ref]', '[ref]: https://example.com']);
+});
+
+test('code ranges exposed by escaped raw html stay in source order', () => {
+  const content = '<div>\n`<mark>early</mark>`\n</div>\n\n`<mark>later</mark>`';
+
+  assert.equal(stripHighlightTagsInsideMarkdownCode(content), '<div>\n`early`\n</div>\n\n`later`');
 });
 
 test('annotation ranges preserve autolink text', () => {
