@@ -630,15 +630,13 @@ function ContextAnswerPanelSession({
             })[0]
           : null;
 
-        const hasAnchorableProposal =
-          Boolean(noteInput?.selectedTextDraft.trim()) &&
-          Boolean(
-            primaryCandidate &&
-              hasAnchorableConversationNoteCandidate(
-                currentState.lessonContent || '',
-                primaryCandidate
-              )
-          );
+        const hasAnchorableProposal = Boolean(
+          primaryCandidate &&
+            hasAnchorableConversationNoteCandidate(
+              currentState.lessonContent || '',
+              primaryCandidate
+            )
+        );
 
         if (noteInput && !hasAnchorableProposal) {
           void addToolOutput({

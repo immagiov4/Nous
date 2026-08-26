@@ -1332,6 +1332,51 @@ describe('ContextAnswerPanel', () => {
     });
   });
 
+  test('uses the original selection when the proposed note anchor is blank', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          lessonContent: 'La selezione originale appartiene alla lezione.',
+          selectedText: 'selezione originale',
+        })}
+      />
+    );
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: { noteDraft: string; rationale: string; selectedTextDraft: string };
+          toolCallId: string;
+          toolName: string;
+        };
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            noteDraft: 'Nota sulla selezione.',
+            rationale: 'Conserva il passaggio utile.',
+            selectedTextDraft: '   ',
+          },
+          toolCallId: 'tool-blank-anchor-note',
+          toolName: 'requestAddToNotes',
+        },
+      });
+    });
+
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+  });
+
   test('accepts a refined anchor without applying the original selection context', async () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
