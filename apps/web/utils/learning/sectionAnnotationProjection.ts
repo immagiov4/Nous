@@ -28,6 +28,11 @@ export interface ResolveSelectedSegmentsOptions {
 
 export { normalizeWhitespace } from '../markdown/textProjection.ts';
 
+export const normalizeSectionAnnotationSelectionText = (value: string): string => {
+  const mathNormalizedText = normalizeMathSelectionArtifacts(value).trim();
+  return normalizeLooseText(mathNormalizedText) || mathNormalizedText;
+};
+
 export const resolveSelectedSegments = ({
   content,
   contextAfter,

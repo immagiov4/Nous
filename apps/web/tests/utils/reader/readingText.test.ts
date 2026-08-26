@@ -152,6 +152,18 @@ describe('prepareMarkdownForSpeech', () => {
     ).toBe('Prima.\n\nDopo.');
   });
 
+  test('removes continued reference destinations and every unsupported viewer token', () => {
+    const input = [
+      'Prima.',
+      '[ref]:',
+      '  /image.png "Titolo nascosto"',
+      '{{VISUAL_SLOT:slot-1|title=Schema nascosto}}',
+      'Dopo.',
+    ].join('\n');
+
+    expect(prepareMarkdownForSpeech(input)).toBe('Prima.\n\nDopo.');
+  });
+
   test('collapses noisy inline whitespace while preserving paragraph breaks', () => {
     const input = ['#  Titolo\tstrano', '', '', '', 'Testo\t con   spazi.'].join('\r\n');
 

@@ -88,6 +88,28 @@ test('rejects candidates that resolve only a visible fragment around protected t
   );
 });
 
+test('accepts complete candidates through loose case and accent normalization', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Il Caffè resume il concetto.', {
+      selectedText: 'CAFFE RESUME',
+    }),
+    true
+  );
+});
+
+test('accepts complete candidates through KaTeX selection normalization', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(
+      'Ridurre soprattutto $T_{\\text{cluster}}$ accelera.',
+      {
+        selectedText:
+          'Ridurre soprattutto TclusterT_{\\text{cluster}}Tcluster accelera.',
+      }
+    ),
+    true
+  );
+});
+
 test('rejects candidates found only in a reference definition', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate(

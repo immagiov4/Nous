@@ -462,6 +462,31 @@ export const findInlineLabelEnd = (content: string, openingBracketIndex: number)
 const normalizeReferenceLabel = (label: string): string =>
   label.trim().replaceAll(/\s+/gu, ' ').toLowerCase();
 
+const MARKDOWN_TAB_COLUMNS = 4;
+const REFERENCE_DEFINITION_MIN_INDENT_COLUMNS = 0;
+const REFERENCE_DEFINITION_MAX_INDENT_COLUMNS = 3;
+const REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS = 1;
+const REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS = 3;
+
+const readMarkdownIndent = (line: string): { columns: number; length: number } => {
+  let columns = 0;
+  let length = 0;
+  while (length < line.length) {
+    if (line[length] === ' ') {
+      columns += 1;
+      length += 1;
+      continue;
+    }
+    if (line[length] === '\t') {
+      columns += MARKDOWN_TAB_COLUMNS - (columns % MARKDOWN_TAB_COLUMNS);
+      length += 1;
+      continue;
+    }
+    break;
+  }
+  return { columns, length };
+};
+
 export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
   const codeRanges = getMarkdownCodeRanges(content);
@@ -471,10 +496,12 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
   while (lineStart < content.length) {
     const lineBreak = content.indexOf('\n', lineStart);
     const lineEnd = lineBreak === -1 ? content.length : lineBreak;
-    const indentationLength = content.slice(lineStart, lineEnd).match(/^[ \t]*/u)?.[0].length ?? 0;
-    const labelStart = lineStart + indentationLength;
+    const indentation = readMarkdownIndent(content.slice(lineStart, lineEnd));
+    const labelStart = lineStart + indentation.length;
     const labelEnd =
-      indentationLength <= 3 && content[labelStart] === '['
+      indentation.columns >= REFERENCE_DEFINITION_MIN_INDENT_COLUMNS &&
+      indentation.columns <= REFERENCE_DEFINITION_MAX_INDENT_COLUMNS &&
+      content[labelStart] === '['
         ? findInlineLabelEnd(content, labelStart)
         : -1;
     let cursor = labelEnd + 1;
@@ -482,17 +509,41 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
     if (labelEnd !== -1 && labelEnd < lineEnd && content[cursor] === ':') {
       cursor += 1;
       while (cursor < lineEnd && /[ \t]/u.test(content[cursor])) cursor += 1;
+      let destinationLineEnd = lineEnd;
+      let destinationLineBreak = lineBreak;
+      let definitionEnd = lineEnd;
+      if (cursor === lineEnd && lineBreak !== -1) {
+        const continuationLineBreak = content.indexOf('\n', lineBreak + 1);
+        const continuationLineEnd =
+          continuationLineBreak === -1 ? content.length : continuationLineBreak;
+        const continuationIndent = readMarkdownIndent(
+          content.slice(lineBreak + 1, continuationLineEnd)
+        );
+        if (
+          continuationIndent.columns >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
+          continuationIndent.columns <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS
+        ) {
+          cursor = lineBreak + 1 + continuationIndent.length;
+          destinationLineEnd = continuationLineEnd;
+          destinationLineBreak = continuationLineBreak;
+          definitionEnd = continuationLineEnd;
+        }
+      }
       const destinationStart = cursor;
       let parenthesisDepth = 0;
 
       if (content[cursor] === '<') {
         cursor += 1;
-        while (cursor < lineEnd && content[cursor] !== '>' && !/\s/u.test(content[cursor])) {
+        while (
+          cursor < destinationLineEnd &&
+          content[cursor] !== '>' &&
+          !/\s/u.test(content[cursor])
+        ) {
           cursor += content[cursor] === '\\' ? 2 : 1;
         }
         cursor = content[cursor] === '>' ? cursor + 1 : destinationStart;
       } else {
-        while (cursor < lineEnd && !/[ \t]/u.test(content[cursor])) {
+        while (cursor < destinationLineEnd && !/[ \t]/u.test(content[cursor])) {
           if (content[cursor] === '\\') {
             cursor += 2;
             continue;
@@ -506,16 +557,15 @@ export const getMarkdownReferenceDefinitionRanges = (content: string): MarkdownR
       }
 
       const hasDestination = cursor > destinationStart;
-      const trailingText = content.slice(cursor, lineEnd).trim();
-      let definitionEnd = lineEnd;
-      if (hasDestination && !trailingText && lineBreak !== -1) {
-        const nextLineBreak = content.indexOf('\n', lineBreak + 1);
+      const trailingText = content.slice(cursor, destinationLineEnd).trim();
+      if (hasDestination && !trailingText && destinationLineBreak !== -1) {
+        const nextLineBreak = content.indexOf('\n', destinationLineBreak + 1);
         const continuationEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
-        const continuation = content.slice(lineBreak + 1, continuationEnd);
-        const continuationIndent = continuation.match(/^[ \t]*/u)?.[0].length ?? 0;
+        const continuation = content.slice(destinationLineBreak + 1, continuationEnd);
+        const continuationIndent = readMarkdownIndent(continuation);
         if (
-          continuationIndent >= 1 &&
-          continuationIndent <= 3 &&
+          continuationIndent.columns >= REFERENCE_CONTINUATION_MIN_INDENT_COLUMNS &&
+          continuationIndent.columns <= REFERENCE_CONTINUATION_MAX_INDENT_COLUMNS &&
           titlePattern.test(continuation.trim())
         ) {
           definitionEnd = continuationEnd;

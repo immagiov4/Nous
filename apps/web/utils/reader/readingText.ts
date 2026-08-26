@@ -2,8 +2,8 @@ import {
   getMarkdownProtectedRanges,
   getMarkdownReferenceDefinitionRanges,
   type MarkdownRange,
+  NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES,
 } from '../markdown/codeRanges.ts';
-import { stripPdfImagePlaceholders } from '../pdf/imagePlaceholders.ts';
 
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
 
@@ -60,8 +60,6 @@ const READABLE_TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, li, blockquote';
 const PROSE_READABLE_TEXT_SELECTOR = READABLE_TEXT_SELECTOR.split(', ')
   .map(selector => `.prose ${selector}`)
   .join(', ');
-const VISUAL_EXAMPLE_PLACEHOLDER_PREFIX = '{{VISUAL_EXAMPLE:';
-const YOUTUBE_CLIP_PLACEHOLDER_PREFIX = '{{YOUTUBE_CLIP_SOURCE:';
 const HTML_SPACE_ENTITY = '&nbsp;';
 const HTML_TAGS_TO_DROP_WITH_CONTENT = ['figure', 'picture', 'figcaption'] as const;
 const HTML_TAGS_TO_STRIP = new Set(['mark', 'span']);
@@ -400,12 +398,9 @@ export interface ReadableTextElement {
 
 export const prepareMarkdownForSpeech = (content: string): string => {
   const referenceDefinitionsStripped = stripMarkdownReferenceDefinitions(content);
-  const placeholderStrippedContent = stripPlaceholderToken(
-    stripPlaceholderToken(
-      stripPdfImagePlaceholders(referenceDefinitionsStripped),
-      VISUAL_EXAMPLE_PLACEHOLDER_PREFIX
-    ),
-    YOUTUBE_CLIP_PLACEHOLDER_PREFIX
+  const placeholderStrippedContent = NON_ANCHORABLE_MARKDOWN_PLACEHOLDER_PREFIXES.reduce(
+    (currentContent, placeholderPrefix) => stripPlaceholderToken(currentContent, placeholderPrefix),
+    referenceDefinitionsStripped
   );
   const markdownProtectedContent = replaceMarkdownProtectedRanges(placeholderStrippedContent);
   const htmlContentRemoved = HTML_TAGS_TO_DROP_WITH_CONTENT.reduce(

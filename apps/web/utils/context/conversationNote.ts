@@ -4,8 +4,10 @@ import type {
   SaveConversationNoteToolInput,
 } from '../../components/workspace/shell/types.ts';
 import { createSectionAnnotationSelector } from '../learning/sectionAnnotationAnchors.ts';
-import { resolveSelectedSegments } from '../learning/sectionAnnotationProjection.ts';
-import { normalizeWhitespace } from '../markdown/textProjection.ts';
+import {
+  normalizeSectionAnnotationSelectionText,
+  resolveSelectedSegments,
+} from '../learning/sectionAnnotationProjection.ts';
 
 const normalizeOptionalText = (value: string | undefined) => {
   const trimmedValue = value?.trim();
@@ -37,7 +39,8 @@ export const hasAnchorableConversationNoteCandidate = (
   const selector = createSectionAnnotationSelector(content, segments);
   return (
     selector !== null &&
-    normalizeWhitespace(selector.exact) === normalizeWhitespace(candidate.selectedText)
+    normalizeSectionAnnotationSelectionText(selector.exact) ===
+      normalizeSectionAnnotationSelectionText(candidate.selectedText)
   );
 };
 

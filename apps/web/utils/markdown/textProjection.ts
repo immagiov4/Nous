@@ -630,6 +630,4 @@ export const overlapsProtectedRange = (
   segment: MarkdownRange,
   protectedRanges: MarkdownRange[]
 ): boolean =>
-  protectedRanges.some(
-    protectedRange => protectedRange.start < segment.end && protectedRange.end > segment.start
-  );
+  protectedRanges.some(protectedRange => markdownRangesOverlap(segment, protectedRange));

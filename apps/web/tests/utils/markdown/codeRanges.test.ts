@@ -95,6 +95,20 @@ test('annotation ranges include complete multiline reference definitions', () =>
   assert.deepEqual(protectedSlices, [content]);
 });
 
+test('annotation ranges include definitions with a continued destination', () => {
+  const content = '[ref]:\n  /image.png "Titolo nascosto"';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
+    { start: 0, end: content.length },
+  ]);
+});
+
+test('annotation ranges treat a leading tab as indented code, not a definition', () => {
+  const content = '\t[ref]: /image.png';
+
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+});
+
 test('getMarkdownProtectedRanges keeps code fences, inline code, and math blocks protected', () => {
   const content = [
     'Testo introduttivo.',
