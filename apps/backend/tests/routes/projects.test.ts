@@ -644,9 +644,34 @@ describe('/api/projects', () => {
     const uploadId = '323e4567-e89b-42d3-a456-426614174000';
     const targetProjectId = 'restored-project';
     const archivedSnapshot = createSnapshot('archived-project', 'Corso ripristinato');
+    archivedSnapshot.documentAssets = {
+      imageCount: 1,
+      kind: 'pdf',
+      parsedAt: '2026-04-26T09:20:00.000Z',
+      usedImages: [
+        {
+          dataUrl: 'data:image/png;base64,aW1hZ2U=',
+          id: 'image-1',
+          mimeType: 'image/png',
+          sourceOrder: 0,
+          textAfter: '',
+          textBefore: '',
+        },
+      ],
+    };
     archivedSnapshot.learningPlan.sections[0] = {
       ...archivedSnapshot.learningPlan.sections[0],
+      generatedVisuals: [
+        {
+          code: '<svg />',
+          createdAt: '2026-04-26T09:20:00.000Z',
+          id: 'visual-1',
+          kind: 'svg',
+          title: 'Visuale generato',
+        },
+      ],
       id: 'lesson-1',
+      imageRefs: [{ alt: 'Immagine PDF', assetId: 'image-1' }],
       annotations: [
         {
           anchor: { kind: 'lesson' },
@@ -717,7 +742,7 @@ describe('/api/projects', () => {
           kind: 'pdf-image',
         },
         {
-          artifactId: `${targetProjectId}:lesson-1:future-asset:asset-1`,
+          artifactId: 'archived-project:lesson-1:future-asset:asset-1',
           kind: 'future-asset',
         },
       ],

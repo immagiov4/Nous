@@ -69,6 +69,9 @@ const projectWithAssets = () => ({
 });
 
 const projectWithArtifactAnnotations = () => ({
+  documentAssets: {
+    usedImages: [{ id: 'image-1' }],
+  },
   id: 'source:project',
   learningPlan: {
     modules: [
@@ -76,6 +79,8 @@ const projectWithArtifactAnnotations = () => ({
         children: [
           {
             id: 'lesson-1',
+            generatedVisuals: [{ id: 'visual-1' }],
+            imageRefs: [{ assetId: 'image-1' }],
             annotations: [
               {
                 anchor: { kind: 'lesson' },
@@ -121,7 +126,7 @@ const projectWithArtifactAnnotations = () => ({
               },
             ],
           },
-          { id: 'lesson-2' },
+          { generatedVisuals: [{ id: 'visual-2' }], id: 'lesson-2' },
         ],
       },
     ],
@@ -214,7 +219,7 @@ describe('project backup asset references', () => {
           title: 'PDF image',
         },
         {
-          artifactId: 'imported-project:lesson-1:future-asset:asset-1',
+          artifactId: 'source:project:lesson-1:future-asset:asset-1',
           kind: 'future-asset',
           title: 'Future asset',
         },
@@ -253,6 +258,37 @@ describe('project backup asset references', () => {
         42 as unknown as string
       )
     ).toThrow(InvalidProjectBackupAssetError);
+  });
+
+  test('remaps owned artifacts across many lessons without deriving namespaces from references', () => {
+    const lessons = Array.from({ length: 48 }, (_, index) => ({
+      annotations: [
+        {
+          artifactRefs: [
+            {
+              artifactId: `source:project:lesson-${index}:generated-visual:visual-${index}`,
+              kind: 'generated-visual',
+            },
+          ],
+        },
+      ],
+      generatedVisuals: [{ id: `visual-${index}` }],
+      id: `lesson-${index}`,
+    }));
+
+    const remapped = remapProjectAssetReferences(
+      { id: 'source:project', learningPlan: { sections: lessons } },
+      new Map(),
+      'imported-project'
+    );
+
+    expect(
+      remapped.learningPlan.sections.map(
+        lesson => lesson.annotations[0]?.artifactRefs[0]?.artifactId
+      )
+    ).toEqual(
+      lessons.map((_, index) => `imported-project:lesson-${index}:generated-visual:visual-${index}`)
+    );
   });
 
   test('rejects HTML whose declared assets and placeholders disagree', () => {

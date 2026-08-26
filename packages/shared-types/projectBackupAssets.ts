@@ -1,4 +1,8 @@
-import { isLearningArtifactKind, type LearningArtifactKind } from './learningArtifact';
+import {
+  buildLearningArtifactId,
+  isLearningArtifactKind,
+  type LearningArtifactKind,
+} from './learningArtifact';
 import {
   buildProjectAssetPlaceholder,
   isProjectAssetId,
@@ -156,18 +160,77 @@ const isProjectScopedAnnotationArtifactRef = (
   kind: LearningArtifactKind;
 } => isRecord(value) && typeof value.artifactId === 'string' && isLearningArtifactKind(value.kind);
 
-const readAnnotationArtifactProjectId = (
-  artifactRef: Record<string, unknown> & { artifactId: string; kind: LearningArtifactKind },
-  lessonIds: readonly string[]
-): string | null => {
-  const projectIds = new Set(
-    lessonIds.flatMap(lessonId => {
-      const namespaceSeparator = `:${lessonId}:${artifactRef.kind}:`;
-      const namespaceEnd = artifactRef.artifactId.indexOf(namespaceSeparator);
-      return namespaceEnd > 0 ? [artifactRef.artifactId.slice(0, namespaceEnd)] : [];
-    })
+const addOwnedArtifactId = ({
+  artifactId,
+  artifactIds,
+  kind,
+  lessonId,
+  sourceProjectId,
+  targetProjectId,
+}: {
+  artifactId: string;
+  artifactIds: Map<string, string>;
+  kind: LearningArtifactKind;
+  lessonId: string;
+  sourceProjectId: string;
+  targetProjectId: string;
+}): void => {
+  const identity = { artifactId, kind, lessonId };
+  artifactIds.set(
+    buildLearningArtifactId({ ...identity, projectId: sourceProjectId }),
+    buildLearningArtifactId({ ...identity, projectId: targetProjectId })
   );
-  return projectIds.size === 1 ? ([...projectIds][0] ?? null) : null;
+};
+
+const buildOwnedAnnotationArtifactIdMap = (
+  project: Record<string, unknown>,
+  sourceProjectId: string,
+  targetProjectId: string
+): ReadonlyMap<string, string> => {
+  const artifactIds = new Map<string, string>();
+  const pdfImageIds = new Set(
+    isRecord(project.documentAssets) && Array.isArray(project.documentAssets.usedImages)
+      ? project.documentAssets.usedImages.flatMap(image =>
+          isRecord(image) && typeof image.id === 'string' ? [image.id] : []
+        )
+      : []
+  );
+  for (const section of readProjectSections(project)) {
+    if (typeof section.id !== 'string') continue;
+    if (Array.isArray(section.generatedVisuals)) {
+      for (const visual of section.generatedVisuals) {
+        if (!isRecord(visual) || typeof visual.id !== 'string') continue;
+        addOwnedArtifactId({
+          artifactId: visual.id,
+          artifactIds,
+          kind: 'generated-visual',
+          lessonId: section.id,
+          sourceProjectId,
+          targetProjectId,
+        });
+      }
+    }
+    if (Array.isArray(section.imageRefs)) {
+      for (const imageRef of section.imageRefs) {
+        if (
+          !isRecord(imageRef) ||
+          typeof imageRef.assetId !== 'string' ||
+          !pdfImageIds.has(imageRef.assetId)
+        ) {
+          continue;
+        }
+        addOwnedArtifactId({
+          artifactId: imageRef.assetId,
+          artifactIds,
+          kind: 'pdf-image',
+          lessonId: section.id,
+          sourceProjectId,
+          targetProjectId,
+        });
+      }
+    }
+  }
+  return artifactIds;
 };
 
 const remapAnnotationArtifactReferences = (
@@ -176,22 +239,14 @@ const remapAnnotationArtifactReferences = (
   targetProjectId: string
 ): void => {
   const sections = readProjectSections(project);
-  const lessonIds = sections.flatMap(section =>
-    typeof section.id === 'string' ? [section.id] : []
-  );
+  const artifactIds = buildOwnedAnnotationArtifactIdMap(project, sourceProjectId, targetProjectId);
   for (const section of sections) {
     if (!Array.isArray(section.annotations)) continue;
     for (const annotation of section.annotations) {
       if (!isRecord(annotation) || !Array.isArray(annotation.artifactRefs)) continue;
       for (const artifactRef of annotation.artifactRefs) {
-        if (
-          !isProjectScopedAnnotationArtifactRef(artifactRef) ||
-          readAnnotationArtifactProjectId(artifactRef, lessonIds) !== sourceProjectId
-        ) {
-          continue;
-        }
-        const namespaceLength = sourceProjectId.length;
-        artifactRef.artifactId = `${targetProjectId}${artifactRef.artifactId.slice(namespaceLength)}`;
+        if (!isProjectScopedAnnotationArtifactRef(artifactRef)) continue;
+        artifactRef.artifactId = artifactIds.get(artifactRef.artifactId) ?? artifactRef.artifactId;
       }
     }
   }
