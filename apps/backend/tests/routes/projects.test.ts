@@ -642,7 +642,8 @@ describe('/api/projects', () => {
   test('imports a self-contained project backup with an explicit binary payload kind', async () => {
     const app = createApp();
     const uploadId = '323e4567-e89b-42d3-a456-426614174000';
-    const targetProjectId = 'restored-project';
+    const targetProjectId = '  restored-project  ';
+    const normalizedTargetProjectId = targetProjectId.trim();
     const archivedSnapshot = createSnapshot('archived-project', 'Corso ripristinato');
     archivedSnapshot.documentAssets = {
       imageCount: 1,
@@ -728,17 +729,17 @@ describe('/api/projects', () => {
 
     expect(completionResponse.status).toBe(200);
     expect(completionResponse.body.snapshot).toMatchObject({
-      id: targetProjectId,
+      id: normalizedTargetProjectId,
       learningPlan: { title: 'Corso ripristinato' },
     });
     expect(completionResponse.body.snapshot.learningPlan.sections[0].annotations[0]).toMatchObject({
       artifactRefs: [
         {
-          artifactId: `${targetProjectId}:lesson-1:generated-visual:visual-1`,
+          artifactId: `${normalizedTargetProjectId}:lesson-1:generated-visual:visual-1`,
           kind: 'generated-visual',
         },
         {
-          artifactId: `${targetProjectId}:lesson-1:pdf-image:image-1`,
+          artifactId: `${normalizedTargetProjectId}:lesson-1:pdf-image:image-1`,
           kind: 'pdf-image',
         },
         {
@@ -748,7 +749,13 @@ describe('/api/projects', () => {
       ],
       note: 'Questa nota deve restare invariata.',
     });
-    const coverResponse = await request(app).get(`/api/projects/projects/${targetProjectId}/cover`);
+    const storedResponse = await request(app).get(
+      `/api/projects/projects/${normalizedTargetProjectId}`
+    );
+    expect(storedResponse.body.project.id).toBe(normalizedTargetProjectId);
+    const coverResponse = await request(app).get(
+      `/api/projects/projects/${normalizedTargetProjectId}/cover`
+    );
     expect(coverResponse.body.cover).toEqual({
       data: Buffer.from('cover bytes').toString('base64'),
       mimeType: 'image/png',

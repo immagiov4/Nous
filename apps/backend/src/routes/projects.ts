@@ -313,10 +313,14 @@ const importBinaryProjectUpload = async (input: {
   userId: string;
 }) => {
   if (input.body.payloadKind === PROJECT_IMPORT_BINARY_KIND.backup) {
-    if (typeof input.body.targetProjectId !== 'string' || !input.body.targetProjectId.trim()) {
+    if (typeof input.body.targetProjectId !== 'string') {
       throw new ProjectImportInputError('Identificativo del progetto importato non valido.');
     }
-    return input.store.importProjectArchive(input.userId, input.bytes, input.body.targetProjectId);
+    const targetProjectId = input.body.targetProjectId.trim();
+    if (!targetProjectId) {
+      throw new ProjectImportInputError('Identificativo del progetto importato non valido.');
+    }
+    return input.store.importProjectArchive(input.userId, input.bytes, targetProjectId);
   }
   if (input.body.payloadKind !== PROJECT_IMPORT_BINARY_KIND.sourceArchive) {
     throw new ProjectImportInputError('Tipo di backup binario mancante o non valido.');
