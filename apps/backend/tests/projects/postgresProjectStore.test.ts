@@ -212,7 +212,7 @@ describe('PostgresProjectStore', () => {
         if (statement.includes('select snapshot, document_index')) {
           return Promise.resolve([{ document_index: null, snapshot: storedSnapshot }]);
         }
-        if (statement.includes('set snapshot = jsonb_set')) {
+        if (statement.includes('jsonb_to_recordset')) {
           repairValues = values;
           storedSnapshot = {
             ...storedSnapshot,
@@ -236,6 +236,7 @@ describe('PostgresProjectStore', () => {
               content_kind: null,
               kind: 'directory',
               path: 'src',
+              project_id: legacySnapshot.id,
               preview: null,
               source_hash: null,
               source_kind: 'archive',
@@ -266,17 +267,18 @@ describe('PostgresProjectStore', () => {
       retainedEntries
     );
     expect(repairValues).toEqual([
-      { entries: retainedEntries, version: archiveVersion },
-      archiveVersion,
+      [
+        {
+          archive_index: { entries: retainedEntries, version: archiveVersion },
+          archive_version: archiveVersion,
+          project_id: legacySnapshot.id,
+          representation_hash: archiveVersion.representationHash,
+          source_hash: archiveVersion.sourceHash,
+          source_id: archiveVersion.sourceId,
+        },
+      ],
       'user-1',
-      legacySnapshot.id,
-      archiveVersion.sourceId,
-      archiveVersion.sourceHash,
       'user-1',
-      legacySnapshot.id,
-      archiveVersion.sourceId,
-      archiveVersion.sourceHash,
-      archiveVersion.representationHash,
     ]);
     expect(
       sqlClient.mock.calls.some(([strings]) => strings.join('?').includes("= 'null'::jsonb"))
@@ -421,32 +423,27 @@ describe('PostgresProjectStore', () => {
         },
       },
     } as ProjectSnapshot;
+    const secondLegacySnapshot = {
+      ...legacySnapshot,
+      id: 'second-legacy-archive-project',
+    } as ProjectSnapshot;
     const currentSnapshot = { ...createMultiSourceSnapshot(), id: 'current-project' };
-    let storedLegacySnapshot = legacySnapshot;
+    const storedSnapshots = new Map(
+      [legacySnapshot, secondLegacySnapshot, currentSnapshot].map(snapshot => [
+        snapshot.id,
+        snapshot,
+      ])
+    );
+    const statements: string[] = [];
     const queryValues: unknown[][] = [];
     const sqlClient = Object.assign(
       vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
         const statement = strings.join('?');
+        statements.push(statement);
         queryValues.push(values);
-        if (statement.includes('id = any')) {
-          return Promise.resolve([
-            { document_index: null, id: currentSnapshot.id, snapshot: currentSnapshot },
-            { document_index: null, id: legacySnapshot.id, snapshot: storedLegacySnapshot },
-          ]);
-        }
-        if (statement.includes('set snapshot = jsonb_set')) {
-          storedLegacySnapshot = {
-            ...storedLegacySnapshot,
-            source: {
-              ...storedLegacySnapshot.source,
-              index: { entries: retainedEntries, version: archiveVersion },
-            },
-          } as ProjectSnapshot;
-          return Promise.resolve([{ document_index: null, snapshot: storedLegacySnapshot }]);
-        }
         if (statement.includes('from public.project_sources source')) {
-          return Promise.resolve([
-            {
+          return Promise.resolve(
+            [legacySnapshot.id, secondLegacySnapshot.id].map(projectId => ({
               archive_representation_hash: archiveVersion.representationHash,
               archive_source_hash: archiveVersion.sourceHash,
               archive_source_id: archiveVersion.sourceId,
@@ -454,12 +451,37 @@ describe('PostgresProjectStore', () => {
               content_kind: null,
               kind: 'directory',
               path: 'src',
+              project_id: projectId,
               preview: null,
               source_hash: null,
               source_kind: 'archive',
               warning_reason: null,
-            },
-          ]);
+            }))
+          );
+        }
+        if (statement.includes('jsonb_to_recordset')) {
+          const repairs = values[0] as Array<{ project_id: string }>;
+          for (const repair of repairs) {
+            const storedSnapshot = storedSnapshots.get(repair.project_id);
+            if (!storedSnapshot) continue;
+            storedSnapshots.set(repair.project_id, {
+              ...storedSnapshot,
+              source: {
+                ...storedSnapshot.source,
+                index: { entries: retainedEntries, version: archiveVersion },
+              },
+            } as ProjectSnapshot);
+          }
+          return Promise.resolve([]);
+        }
+        if (statement.includes('select id, snapshot, document_index')) {
+          const requestedIds = values[1] as string[];
+          return Promise.resolve(
+            [...new Set(requestedIds)].flatMap(id => {
+              const snapshot = storedSnapshots.get(id);
+              return snapshot ? [{ document_index: null, id, snapshot }] : [];
+            })
+          );
         }
         return Promise.resolve([]);
       }),
@@ -473,32 +495,56 @@ describe('PostgresProjectStore', () => {
     const snapshots = await store.loadProjectsById('user-1', [
       legacySnapshot.id,
       currentSnapshot.id,
+      secondLegacySnapshot.id,
       legacySnapshot.id,
     ]);
 
     expect(snapshots.map(snapshot => snapshot.id)).toEqual([
       legacySnapshot.id,
       currentSnapshot.id,
+      secondLegacySnapshot.id,
       legacySnapshot.id,
     ]);
     expect(snapshots[0]?.source?.kind === 'archive' && snapshots[0].source.index).toEqual({
       entries: retainedEntries,
       version: archiveVersion,
     });
+    expect(snapshots[1]).toEqual(currentSnapshot);
+    expect(snapshots[2]?.source?.kind === 'archive' && snapshots[2].source.index).toEqual({
+      entries: retainedEntries,
+      version: archiveVersion,
+    });
+    expect(snapshots[3]).toBe(snapshots[0]);
     expect(queryValues[0]).toEqual([
       'user-1',
-      [legacySnapshot.id, currentSnapshot.id, legacySnapshot.id],
+      [legacySnapshot.id, currentSnapshot.id, secondLegacySnapshot.id, legacySnapshot.id],
     ]);
+    expect(statements).toHaveLength(4);
     expect(
-      queryValues.some(
-        values =>
-          values.includes('user-1') &&
-          values.includes(legacySnapshot.id) &&
-          values.includes(archiveVersion.sourceId) &&
-          values.includes(archiveVersion.sourceHash) &&
-          values.includes(archiveVersion.representationHash)
-      )
-    ).toBe(true);
+      statements.filter(statement => statement.includes('project_source_entries'))
+    ).toHaveLength(1);
+    expect(statements.filter(statement => statement.includes('jsonb_to_recordset'))).toHaveLength(
+      1
+    );
+    expect(queryValues[2]?.[0]).toEqual([
+      {
+        archive_index: { entries: retainedEntries, version: archiveVersion },
+        archive_version: archiveVersion,
+        project_id: legacySnapshot.id,
+        representation_hash: archiveVersion.representationHash,
+        source_hash: archiveVersion.sourceHash,
+        source_id: archiveVersion.sourceId,
+      },
+      {
+        archive_index: { entries: retainedEntries, version: archiveVersion },
+        archive_version: archiveVersion,
+        project_id: secondLegacySnapshot.id,
+        representation_hash: archiveVersion.representationHash,
+        source_hash: archiveVersion.sourceHash,
+        source_id: archiveVersion.sourceId,
+      },
+    ]);
+    expect(queryValues[2]?.slice(1)).toEqual(['user-1', 'user-1']);
   });
 
   test('repairs every missing library placement with a constant-size transaction', async () => {

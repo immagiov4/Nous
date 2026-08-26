@@ -213,6 +213,19 @@ interface ProjectSourceArchiveIndexRow {
   warning_reason: SourceArchivePdfWarningReason | null;
 }
 
+interface ProjectSourceArchiveIndexByProjectRow extends ProjectSourceArchiveIndexRow {
+  project_id: ProjectId;
+}
+
+interface ProjectSourceArchiveBatchRepair {
+  archive_index: ProjectSourceArchiveIndex;
+  archive_version: ProjectSourceArchiveIndex['version'];
+  project_id: ProjectId;
+  representation_hash: string;
+  source_hash: string;
+  source_id: string;
+}
+
 interface ProjectSourceArchiveStoredFileRow {
   byte_size: number;
   content_kind: 'binary' | 'text';
@@ -480,49 +493,11 @@ export class PostgresProjectStore implements ProjectStore {
       return mergeProjectSnapshotRow(row);
     }
 
-    const index = await this.loadProjectSourceArchiveIndex(userId, id);
-    if (
-      !index ||
-      sourceIdentity.sourceId !== index.version.sourceId ||
-      sourceIdentity.sourceHash !== index.version.sourceHash
-    ) {
+    const repairs = await this.buildLegacySourceArchiveRepairs(userId, [{ ...row, id }]);
+    if (repairs.length === 0) {
       return mergeProjectSnapshotRow(row);
     }
-
-    const repairedRows = await this.sql<ProjectSnapshotRow[]>`
-      update public.project_snapshots
-      set snapshot = jsonb_set(
-        snapshot,
-        '{source,index}',
-        coalesce(
-          snapshot #> '{source,index}',
-          ${this.sql.json(toPostgresJson(index))}
-        ) ||
-          jsonb_build_object('version', ${this.sql.json(toPostgresJson(index.version))})
-      )
-      where user_id = ${userId}
-        and id = ${id}
-        and (
-          snapshot #> '{source,index,version}' is null or
-          snapshot #> '{source,index,version}' = 'null'::jsonb
-        )
-        and snapshot #>> '{source,ref,id}' = ${index.version.sourceId}
-        and snapshot #>> '{source,ref,hash}' = ${index.version.sourceHash}
-        and exists (
-          select 1
-          from public.project_sources source
-          where source.user_id = ${userId}
-            and source.project_id = ${id}
-            and source.source_kind = 'archive'
-            and source.source_id = ${index.version.sourceId}
-            and source.source_hash = ${index.version.sourceHash}
-            and source.representation_hash = ${index.version.representationHash}
-        )
-      returning snapshot, document_index
-    `;
-    if (repairedRows[0]) {
-      return mergeProjectSnapshotRow(repairedRows[0]);
-    }
+    await this.repairLegacySourceArchiveVersions(userId, repairs);
 
     const currentRows = await this.sql<ProjectSnapshotRow[]>`
       select snapshot, document_index
@@ -685,6 +660,46 @@ export class PostgresProjectStore implements ProjectStore {
     return index;
   }
 
+  private async loadProjectSourceArchiveIndexes(
+    userId: string,
+    ids: readonly ProjectId[]
+  ): Promise<Map<ProjectId, ProjectSourceArchiveIndex>> {
+    if (ids.length === 0) return new Map();
+
+    const rows = await this.sql<ProjectSourceArchiveIndexByProjectRow[]>`
+      select
+        source.project_id,
+        source.representation_hash as archive_representation_hash,
+        source.source_id as archive_source_id,
+        source.source_hash as archive_source_hash,
+        source.source_kind,
+        entry.path,
+        entry.kind,
+        entry.content_kind,
+        entry.source_hash,
+        entry.byte_size,
+        entry.preview,
+        entry.warning_reason
+      from public.project_sources source
+      left join public.project_source_entries entry
+        on entry.user_id = source.user_id and entry.project_id = source.project_id
+      where source.user_id = ${userId} and source.project_id = any(${ids}::text[])
+      order by source.project_id, entry.path
+    `;
+    const rowsByProjectId = new Map<ProjectId, ProjectSourceArchiveIndexByProjectRow[]>();
+    for (const row of rows) {
+      const projectRows = rowsByProjectId.get(row.project_id) ?? [];
+      projectRows.push(row);
+      rowsByProjectId.set(row.project_id, projectRows);
+    }
+    const indexes = new Map<ProjectId, ProjectSourceArchiveIndex>();
+    for (const [projectId, projectRows] of rowsByProjectId) {
+      const index = this.buildProjectSourceArchiveIndexFromRows(projectRows);
+      if (index) indexes.set(projectId, index);
+    }
+    return indexes;
+  }
+
   async loadProjectSourceArchiveEntry(
     userId: string,
     id: ProjectId,
@@ -816,14 +831,118 @@ export class PostgresProjectStore implements ProjectStore {
       from public.project_snapshots
       where user_id = ${userId} and id = any(${ids}::text[])
     `;
-    const snapshotsById = new Map<ProjectId, ProjectSnapshot>();
-    for (const row of rows) {
-      snapshotsById.set(row.id, await this.hydrateLegacySourceArchiveVersion(userId, row.id, row));
+    const rowsById = new Map(rows.map(row => [row.id, row] as const));
+    const legacyRows = rows.filter(row => readLegacySourceArchiveIdentity(row.snapshot));
+    if (legacyRows.length > 0) {
+      const repairs = await this.buildLegacySourceArchiveRepairs(userId, legacyRows);
+      if (repairs.length > 0) {
+        await this.repairLegacySourceArchiveVersions(userId, repairs);
+        const repairedRows = await this.sql<ProjectSnapshotByIdRow[]>`
+          select id, snapshot, document_index
+          from public.project_snapshots
+          where user_id = ${userId}
+            and id = any(${repairs.map(repair => repair.project_id)}::text[])
+        `;
+        for (const row of repairedRows) rowsById.set(row.id, row);
+      }
     }
+    const snapshotsById = new Map(
+      [...rowsById].map(([id, row]) => [id, mergeProjectSnapshotRow(row)] as const)
+    );
     return ids.flatMap(id => {
       const snapshot = snapshotsById.get(id);
       return snapshot ? [snapshot] : [];
     });
+  }
+
+  private async buildLegacySourceArchiveRepairs(
+    userId: string,
+    rows: readonly ProjectSnapshotByIdRow[]
+  ): Promise<ProjectSourceArchiveBatchRepair[]> {
+    const indexesById = await this.loadProjectSourceArchiveIndexes(
+      userId,
+      rows.map(row => row.id)
+    );
+    return rows.flatMap<ProjectSourceArchiveBatchRepair>(row => {
+      const sourceIdentity = readLegacySourceArchiveIdentity(row.snapshot);
+      const index = indexesById.get(row.id);
+      if (
+        !sourceIdentity ||
+        !index ||
+        sourceIdentity.sourceId !== index.version.sourceId ||
+        sourceIdentity.sourceHash !== index.version.sourceHash
+      ) {
+        return [];
+      }
+      return [
+        {
+          archive_index: index,
+          archive_version: index.version,
+          project_id: row.id,
+          representation_hash: index.version.representationHash,
+          source_hash: index.version.sourceHash,
+          source_id: index.version.sourceId,
+        },
+      ];
+    });
+  }
+
+  private async repairLegacySourceArchiveVersions(
+    userId: string,
+    repairs: readonly ProjectSourceArchiveBatchRepair[]
+  ): Promise<void> {
+    await this.sql`
+      with repair_input as (
+        select *
+        from jsonb_to_recordset(${this.sql.json(toPostgresJson(repairs))}::jsonb) as repair(
+          archive_index jsonb,
+          archive_version jsonb,
+          project_id text,
+          representation_hash text,
+          source_hash text,
+          source_id text
+        )
+      ), current_sources as (
+        update public.project_sources source
+        set representation_hash = repair.representation_hash
+        from repair_input repair
+        where source.user_id = ${userId}
+          and source.project_id = repair.project_id
+          and source.source_kind = 'archive'
+          and source.source_id = repair.source_id
+          and source.source_hash = repair.source_hash
+          and (
+            source.representation_hash is null or
+            source.representation_hash = repair.representation_hash
+          )
+        returning
+          source.project_id,
+          source.representation_hash,
+          source.source_hash,
+          source.source_id
+      )
+      update public.project_snapshots snapshot
+      set snapshot = jsonb_set(
+        snapshot.snapshot,
+        '{source,index}',
+        coalesce(snapshot.snapshot #> '{source,index}', repair.archive_index) ||
+          jsonb_build_object('version', repair.archive_version)
+      )
+      from repair_input repair
+      join current_sources source
+        on source.project_id = repair.project_id
+          and source.source_id = repair.source_id
+          and source.source_hash = repair.source_hash
+          and source.representation_hash = repair.representation_hash
+      where snapshot.user_id = ${userId}
+        and snapshot.id = repair.project_id
+        and (
+          snapshot.snapshot #> '{source,index,version}' is null or
+          snapshot.snapshot #> '{source,index,version}' = 'null'::jsonb
+        )
+        and snapshot.snapshot #>> '{source,ref,id}' = repair.source_id
+        and snapshot.snapshot #>> '{source,ref,hash}' = repair.source_hash
+    `;
   }
 
   private async writeProjectRevision(
