@@ -755,7 +755,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         );
       }
 
-      const applied = await projectLibrary.applyPersistedProjectRevision({
+      await projectLibrary.applyPersistedProjectRevision({
         projectId,
         revision: result.projectRevision,
       });
@@ -765,7 +765,15 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (!isGenerationViewCurrent()) {
         return { outcome: 'ignored-busy' };
       }
-      if (!applied) {
+      const persisted = await projectLibrary.loadStoredProjectWithRevision(projectId);
+      if (!isGenerationCurrent() || !isGenerationViewCurrent()) {
+        return { outcome: 'ignored-busy' };
+      }
+      const createdSection =
+        persisted && persisted.revision >= result.projectRevision
+          ? findPathNodeById(persisted.snapshot.learningPlan?.modules, result.sectionId)
+          : null;
+      if (createdSection?.kind !== 'lesson') {
         throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
       }
       if (

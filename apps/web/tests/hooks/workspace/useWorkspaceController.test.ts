@@ -3956,6 +3956,16 @@ test('sublesson generation releases its gate after an error', async () => {
     );
     return true;
   };
+  harness.projectLibrary.adapter.loadStoredProjectWithRevision = async () => ({
+    // A queued write may advance the durable project beyond the generation's revision.
+    revision: 3,
+    snapshot: createProjectSnapshot({
+      activeSectionId: 'deep-after-error',
+      id: 'project-1',
+      learningPlan: generatedPlan,
+      state: AppState.READING,
+    }),
+  });
 
   const failed = await harness.controller.createLessonFromSelection({
     instructions: 'Approfondisci',
@@ -3990,6 +4000,9 @@ test.each([
     parentId: 'lesson-1',
     title: 'Approfondimento',
     type: 'deep-dive',
+  });
+  const generatedPlan = buildPlan({
+    sections: [buildTestLesson({ id: 'lesson-1' }), generatedSection],
   });
   let settleGeneration: (() => void) | undefined;
   let markStarted: (() => void) | undefined;
@@ -4040,6 +4053,16 @@ test.each([
   harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
     return true;
   };
+  harness.projectLibrary.adapter.loadStoredProjectWithRevision = async () => ({
+    // Re-entry must accept the section from a newer authoritative revision.
+    revision: 3,
+    snapshot: createProjectSnapshot({
+      activeSectionId: generatedSection.id,
+      id: 'project-1',
+      learningPlan: generatedPlan,
+      state: AppState.READING,
+    }),
+  });
 
   const creation = harness.controller.createLessonFromSelection({
     instructions: 'Approfondisci',
@@ -4916,6 +4939,17 @@ test('createLessonFromSelection hydrates and opens the authoritative durable sub
     );
     return true;
   };
+  harness.projectLibrary.adapter.loadStoredProjectWithRevision = async () => ({
+    revision: 8,
+    snapshot: createProjectSnapshot({
+      activeSectionId: 'deep-server',
+      documentIndex: createReadyIndex(),
+      id: 'project-1',
+      learningPlan: generatedPlan,
+      source: createProjectSourceFromFile(pdfFile),
+      state: AppState.READING,
+    }),
+  });
 
   const result = await harness.controller.createLessonFromSelection({
     annotationNote: 'Nota',
