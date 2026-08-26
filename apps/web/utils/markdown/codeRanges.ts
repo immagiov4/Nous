@@ -365,6 +365,7 @@ interface MarkdownAstNode {
   children?: MarkdownAstNode[];
   position?: MarkdownAstPosition;
   type: string;
+  url?: string;
 }
 
 export interface MarkdownAnalysis {
@@ -476,7 +477,8 @@ const getReferenceLabelRange = (
 const isRendererHiddenHtmlSyntax = (source: string): boolean =>
   source.startsWith('<!--') || source.startsWith('<!') || source.startsWith('<?');
 
-const isUriAutolinkSource = (source: string): boolean =>
+const isAnnotationUnsafeAutolink = (node: MarkdownAstNode, source: string): boolean =>
+  (source.startsWith('<') && source.endsWith('>') && node.url?.startsWith('mailto:')) ||
   /^<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>]*>$/u.test(source);
 
 const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
@@ -558,7 +560,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       }
       if (node.type === 'link') {
         const source = content.slice(range.start, range.end);
-        if (isUriAutolinkSource(source)) {
+        if (isAnnotationUnsafeAutolink(node, source)) {
           analysis.annotationOnlyRanges.push(range);
         } else if (!(source.startsWith('<') && source.endsWith('>'))) {
           const destinationRange = getInlineLinkDestinationRange(
@@ -619,7 +621,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       }
       if (isInsideEscapedHtml && node.type === 'link') {
         const source = content.slice(range.start, range.end);
-        if (isUriAutolinkSource(source)) {
+        if (isAnnotationUnsafeAutolink(node, source)) {
           analysis.annotationOnlyRanges.push(range);
         } else if (!(source.startsWith('<') && source.endsWith('>'))) {
           const destinationRange = getInlineLinkDestinationRange(

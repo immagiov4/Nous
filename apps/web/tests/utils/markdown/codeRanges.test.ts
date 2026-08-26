@@ -296,11 +296,13 @@ test('code ranges exposed by escaped raw html stay in source order', () => {
   assert.equal(stripHighlightTagsInsideMarkdownCode(content), '<div>\n`early`\n</div>\n\n`later`');
 });
 
-test('annotation ranges protect valid autolinks but preserve malformed email-like text', () => {
+test('annotation ranges protect URI and email autolinks', () => {
   assert.deepEqual(getMarkdownAnnotationProtectedRanges('<https://example.com>'), [
     { start: 0, end: 21 },
   ]);
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges('<a@b>'), []);
+  assert.deepEqual(getMarkdownAnnotationProtectedRanges('<reader@example.com>'), [
+    { start: 0, end: 20 },
+  ]);
 });
 
 test('annotation ranges preserve definition-like text indented as quoted code', () => {

@@ -115,6 +115,12 @@ test('rejects note proposals that would insert markup inside an autolink', () =>
     }),
     false
   );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Scrivi a <reader@example.com>.', {
+      selectedText: 'reader@example.com',
+    }),
+    false
+  );
 });
 
 test('accepts complete candidates through loose case and accent normalization', () => {
