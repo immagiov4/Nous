@@ -118,6 +118,38 @@ describe('lesson generation workflow API', () => {
     expect(snapshot).toMatchObject({ id: 'run-1', projectId: 'project-1' });
   });
 
+  test('refetches a workflow that completes while its request key is being resolved', async () => {
+    const result = {
+      content: 'Lezione pronta',
+      contentBlocks: [{ markdown: 'Lezione pronta', type: 'markdown' }],
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId: 'project-1',
+      quiz: [],
+      sectionId: 'lesson-1',
+      warnings: [],
+    };
+    const input = dependencies({
+      runReader: {
+        getRun: vi.fn().mockResolvedValue(run({ output: result, status: 'completed' })),
+        getRunByRequestKey: vi.fn().mockResolvedValue(run()),
+        getRunState: vi.fn().mockResolvedValue(state([], 'completed')),
+      },
+    });
+
+    await expect(
+      createLessonGenerationApi(input).getByRequestKey({
+        requestKey: 'request-1',
+        userId: 'user-1',
+      })
+    ).resolves.toMatchObject({ result, status: 'completed' });
+    expect(input.runReader.getRun).toHaveBeenCalledWith({
+      runId: 'run-1',
+      userId: 'user-1',
+    });
+  });
+
   test('starts one validated lesson and forwards the authenticated provider selection', async () => {
     const input = dependencies();
     const api = createLessonGenerationApi(input);

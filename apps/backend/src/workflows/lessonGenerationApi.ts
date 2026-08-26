@@ -229,13 +229,13 @@ export const createLessonGenerationApi = (
     },
 
     async getByRequestKey(input) {
-      const run = await dependencies.runReader.getRunByRequestKey({
+      const resolvedRun = await dependencies.runReader.getRunByRequestKey({
         ...input,
         workflowId: LESSON_GENERATION_WORKFLOW_ID,
       });
-      const state = run
-        ? await dependencies.runReader.getRunState({ runId: run.id, userId: input.userId })
-        : null;
+      const request = resolvedRun ? { runId: resolvedRun.id, userId: input.userId } : null;
+      const state = request ? await dependencies.runReader.getRunState(request) : null;
+      const run = request && state ? await dependencies.runReader.getRun(request) : null;
       if (!run || !state || run.workflowId !== LESSON_GENERATION_WORKFLOW_ID) return null;
       return createSnapshot(run, state);
     },

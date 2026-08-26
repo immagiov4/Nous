@@ -84,6 +84,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       ? openRouter.getExercisePrerequisiteGaps(learningPlan, exercise.id)
       : [];
     if (!needsBrief || !learningPlan || gaps.length > 0) {
+      state.invalidateOpenSectionRequests();
       stopAudio(true);
       domain.setActiveSectionId(exercise.id);
       void projectLibrary.patchCurrentProject({
@@ -110,6 +111,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     try {
+      state.invalidateOpenSectionRequests();
       stopAudio(true);
       domain.setActiveSectionId(exercise.id);
       void projectLibrary.patchCurrentProject({
@@ -412,6 +414,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       state.reattachLessonGeneration(currentProjectId, section.id)
     ) {
       stopAudio(true);
+      state.setScreenState(AppState.READING);
       domain.setActiveSectionId(section.id);
       void projectLibrary.patchCurrentProject({
         activeSectionId: section.id,
@@ -446,6 +449,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       !hasPersistedSublessonRequest
     ) {
       stopAudio(true);
+      state.setScreenState(AppState.READING);
       domain.setActiveSectionId(section.id);
       void projectLibrary.patchCurrentProject({
         activeSectionId: section.id,
@@ -497,6 +501,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       }
     );
     stopAudio(true);
+    state.setScreenState(AppState.READING);
     domain.setActiveSectionId(section.id);
 
     void projectLibrary.patchCurrentProject(
@@ -516,6 +521,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const isGenerationWorkflowCurrent = () =>
       isGenerationCurrent() && state.isWorkflowCurrent('loadSection', requestId);
     const isGenerationViewCurrent = () =>
+      state.getScreenState() === AppState.READING &&
       projectLibrary.getCurrentProjectId() === projectId &&
       projectLibrary.getCurrentActiveSectionId() === section.id &&
       isGenerationWorkflowCurrent();
@@ -940,6 +946,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
   async function goToLibrary(): Promise<void> {
     stopAudio(true);
+    state.invalidateOpenSectionRequests();
     state.invalidateWorkflows(READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN);
     state.resetSessionState();
     state.setScreenState(AppState.LIBRARY);
