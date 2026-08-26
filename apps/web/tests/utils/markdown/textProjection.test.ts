@@ -153,6 +153,43 @@ test('buildVisibleProjection preserves malformed email autolink brackets', () =>
   assert.equal(buildVisibleProjection('<https://example.com>').text, '<https://example.com>');
 });
 
+test('buildVisibleProjection decodes CommonMark character references outside code', () => {
+  const content = 'A &amp; B, &#38; C, &#x26; D, &not-a-reference; e `&amp;`';
+  const projection = buildVisibleProjection(content);
+
+  assert.equal(projection.text, 'A & B, & C, & D, &not-a-reference; e &amp;');
+  const firstAmpersand = projection.text.indexOf('&');
+  assert.equal(projection.sourceIndexes[firstAmpersand], content.indexOf('&amp;'));
+  assert.equal(projection.sourceEnds[firstAmpersand], content.indexOf('&amp;') + '&amp;'.length);
+});
+
+test('buildVisibleProjection decodes references in raw html bodies but not escaped tag syntax', () => {
+  assert.equal(buildVisibleProjection('<mark>\nA &amp; B\n</mark>').text, '\nA & B\n');
+  assert.equal(
+    buildVisibleProjection('<div title="A &amp; B">\nA &amp; B\n</div>').text,
+    '<div title="A &amp; B">\nA & B\n</div>'
+  );
+});
+
+test('buildVisibleProjection preserves word boundaries around hidden inline content', () => {
+  assert.equal(
+    buildVisibleProjection('prima[^nota]dopo\n\n[^nota]: nota').text,
+    'prima dopo\n\nnota'
+  );
+  assert.equal(buildVisibleProjection('prima![figura](image.png)dopo').text, 'prima dopo');
+  assert.equal(buildVisibleProjection('prima[^nota].\n\n[^nota]: nota').text, 'prima.\n\nnota');
+  assert.equal(
+    buildVisibleProjection('prima[^uno][^due]dopo\n\n[^uno]: uno\n[^due]: due').text,
+    'prima dopo\n\nuno\ndue'
+  );
+  assert.equal(buildVisibleProjection('prima![figura](image.png)**dopo**').text, 'prima dopo');
+  assert.equal(buildVisibleProjection('**prima**![figura](image.png)dopo').text, 'prima dopo');
+  assert.equal(
+    buildVisibleProjection('prima[^nota]*dopo*\n\n[^nota]: nota').text,
+    'prima dopo\n\nnota'
+  );
+});
+
 test('buildVisibleProjection hides supported mark syntax but preserves escaped raw html', () => {
   assert.equal(buildVisibleProjection('<mark>visibile</mark>').text, 'visibile');
   assert.equal(

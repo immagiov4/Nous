@@ -78,6 +78,60 @@ test('applySectionAnnotation follows renderer-normalized prose indentation', () 
   );
 });
 
+test('applySectionAnnotation preserves a complete Markdown character reference', () => {
+  const content = 'Prima A &amp; B dopo.';
+  const result = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-entity',
+    selectedText: 'A & B',
+  });
+
+  assert.ok(result);
+  assert.equal(
+    materializeSectionAnnotationMarks(content, result.annotations),
+    'Prima <mark data-nous-annotation-id="annotation-entity">A &amp; B</mark> dopo.'
+  );
+});
+
+test('applySectionAnnotation does not insert markup inside renderer-normalized bare math', () => {
+  const result = applySectionAnnotation({
+    annotations: [],
+    content: String.raw`Prima (\text{velocity}) dopo.`,
+    selectedText: 'velocity',
+  });
+
+  assert.equal(result, null);
+});
+
+test('materialized annotations skip hidden boundaries and preserve adjacent emphasis', () => {
+  const imageContent = 'prima![figura](image.png)**dopo**';
+  const imageResult = applySectionAnnotation({
+    annotations: [],
+    content: imageContent,
+    createId: () => 'annotation-image-boundary',
+    selectedText: 'prima dopo',
+  });
+  assert.ok(imageResult);
+  assert.equal(
+    materializeSectionAnnotationMarks(imageContent, imageResult.annotations),
+    '<mark data-nous-annotation-id="annotation-image-boundary">prima</mark>![figura](image.png)<mark data-nous-annotation-id="annotation-image-boundary">**dopo**</mark>'
+  );
+
+  const footnoteContent = 'prima[^nota]*dopo*\n\n[^nota]: nota';
+  const footnoteResult = applySectionAnnotation({
+    annotations: [],
+    content: footnoteContent,
+    createId: () => 'annotation-footnote-boundary',
+    selectedText: 'prima dopo',
+  });
+  assert.ok(footnoteResult);
+  assert.equal(
+    materializeSectionAnnotationMarks(footnoteContent, footnoteResult.annotations),
+    '<mark data-nous-annotation-id="annotation-footnote-boundary">prima</mark>[^nota]<mark data-nous-annotation-id="annotation-footnote-boundary">*dopo*</mark>\n\n[^nota]: nota'
+  );
+});
+
 test('detached annotations re-anchor by quote and context after content shifts', () => {
   const created = applySectionAnnotation({
     annotations: [],

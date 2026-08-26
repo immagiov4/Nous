@@ -260,6 +260,38 @@ test('annotation ranges protect dollar math exposed by escaped raw html', () => 
   assert.deepEqual(protectedSlices, ['$x$']);
 });
 
+test('annotation ranges reuse every renderer-normalized math form', () => {
+  const content = [
+    String.raw`Parentesi (\text{velocity}) visibile.`,
+    String.raw`x = \frac{a}{b}`,
+    '[y_1 = z^2]',
+  ].join('\n');
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.ok(protectedSlices.includes(String.raw`(\text{velocity})`));
+  assert.ok(protectedSlices.includes(String.raw`x = \frac{a}{b}`));
+  assert.ok(protectedSlices.includes('[y_1 = z^2]'));
+});
+
+test('annotation ranges leave prose lookalikes anchorable and bare math inside code alone', () => {
+  const content = [
+    '(nota testuale)',
+    '[nota editoriale]',
+    '```md',
+    String.raw`(\text{code})`,
+    '```',
+  ].join('\n');
+  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.ok(!protectedSlices.includes('(nota testuale)'));
+  assert.ok(!protectedSlices.includes('[nota editoriale]'));
+  assert.ok(!protectedSlices.includes(String.raw`(\text{code})`));
+});
+
 test('markdown ranges keep inline code distinct from math inside escaped raw html', () => {
   const content = '<div>`$x$`</div>';
   const protectedSlices = getMarkdownProtectedRanges(content).map(range =>

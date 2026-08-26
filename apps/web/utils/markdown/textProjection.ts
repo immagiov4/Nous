@@ -1,3 +1,4 @@
+import { decodeString } from 'micromark-util-decode-string';
 import {
   findInlineLabelEnd,
   findInlineLinkDestinationEnd,
@@ -12,6 +13,7 @@ import {
   projectMarkdownMathRange,
   readCompleteMarkdownPlaceholderRange,
 } from './codeRanges.ts';
+import { getRawHtmlTagRanges } from './html.ts';
 
 /**
  * Shared text-projection helpers used by highlight-selection and
@@ -21,6 +23,8 @@ import {
  */
 
 export interface VisibleProjection {
+  insertedBoundarySourceIndexes: number[];
+  sourceEnds: number[];
   sourceIndexes: number[];
   text: string;
 }
@@ -31,6 +35,7 @@ export interface TextMatch {
 }
 
 export interface LooseProjection {
+  sourceEnds: number[];
   sourceIndexes: number[];
   text: string;
 }
@@ -38,6 +43,28 @@ export interface LooseProjection {
 const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
 const INLINE_FORMAT_DELIMITERS = ['***', '___', '**', '__', '~~', '*', '_'];
+const CHARACTER_REFERENCE_AT_START_REGEX =
+  /^&(?:#(?:\d{1,7}|[xX][\dA-Fa-f]{1,6})|[A-Za-z][A-Za-z0-9]{1,31});/u;
+const WORD_BOUNDARY_CHARACTER_REGEX = /^[\p{L}\p{N}]$/u;
+
+export const getHiddenInlineBoundaryRanges = (
+  content: string,
+  analysis: MarkdownAnalysis
+): MarkdownRange[] => {
+  const ranges = [...getMarkdownImageRanges(content, analysis), ...analysis.inlineBoundaryRanges]
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+    .map(range => ({ ...range }));
+  const merged: MarkdownRange[] = [];
+  for (const range of ranges) {
+    const previous = merged.at(-1);
+    if (previous && range.start <= previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push(range);
+    }
+  }
+  return merged;
+};
 
 const indexLongestRangeByStart = (ranges: readonly MarkdownRange[]): Map<number, MarkdownRange> => {
   const rangesByStart = new Map<number, MarkdownRange>();
@@ -77,10 +104,13 @@ export const buildVisibleProjection = (
   analysis: MarkdownAnalysis = parseMarkdownAnalysis(content)
 ): VisibleProjection => {
   const characters: string[] = [];
+  const insertedBoundarySourceIndexes: number[] = [];
+  const sourceEnds: number[] = [];
   const sourceIndexes: number[] = [];
   let index = 0;
   let atLineStart = true;
   let activeCodeDelimiter: string | null = null;
+  let pendingBoundarySourceIndex: number | null = null;
   const linkDestinationRangesByStart = indexLongestRangeByStart(analysis.linkDestinationRanges);
   const mathRangesByStart = indexLongestRangeByStart(analysis.mathRanges);
   const hiddenRangesByStart = indexLongestRangeByStart([
@@ -92,16 +122,40 @@ export const buildVisibleProjection = (
     ...analysis.rendererNormalizedIndentRanges,
     ...analysis.structuralRanges,
   ]);
+  const boundaryRangesByStart = indexLongestRangeByStart(
+    getHiddenInlineBoundaryRanges(content, analysis)
+  );
+  const rawHtmlTagRanges = getRawHtmlTagRanges(content);
 
-  const pushCharacter = (character: string, sourceIndex: number) => {
+  const pushCharacter = (character: string, sourceIndex: number, sourceEnd = sourceIndex + 1) => {
+    if (pendingBoundarySourceIndex !== null) {
+      if (
+        WORD_BOUNDARY_CHARACTER_REGEX.test(characters.at(-1) ?? '') &&
+        WORD_BOUNDARY_CHARACTER_REGEX.test(character)
+      ) {
+        characters.push(' ');
+        insertedBoundarySourceIndexes.push(pendingBoundarySourceIndex);
+        sourceIndexes.push(pendingBoundarySourceIndex);
+        sourceEnds.push(pendingBoundarySourceIndex);
+      }
+      pendingBoundarySourceIndex = null;
+    }
     characters.push(character);
     sourceIndexes.push(sourceIndex);
+    sourceEnds.push(sourceEnd);
   };
 
   while (index < content.length) {
     const hiddenRange = hiddenRangesByStart.get(index);
     if (hiddenRange) {
-      index = hiddenRange.end;
+      const boundaryRange = boundaryRangesByStart.get(index);
+      if (boundaryRange) {
+        pendingBoundarySourceIndex =
+          boundaryRange.end < content.length
+            ? boundaryRange.end
+            : Math.max(0, boundaryRange.start - 1);
+      }
+      index = Math.max(hiddenRange.end, boundaryRange?.end ?? hiddenRange.end);
       continue;
     }
     if (atLineStart) {
@@ -176,6 +230,25 @@ export const buildVisibleProjection = (
       continue;
     }
 
+    if (currentCharacter === '&') {
+      const reference = content.slice(index).match(CHARACTER_REFERENCE_AT_START_REGEX)?.[0];
+      const referenceEnd = reference ? index + reference.length : index;
+      const isOutsideRawHtmlTag =
+        reference !== undefined &&
+        !rawHtmlTagRanges.some(range => index >= range.start && referenceEnd <= range.end);
+      if (reference && isOutsideRawHtmlTag) {
+        const decodedReference = decodeString(reference);
+        if (decodedReference !== reference) {
+          for (let decodedIndex = 0; decodedIndex < decodedReference.length; decodedIndex += 1) {
+            pushCharacter(decodedReference[decodedIndex], index, referenceEnd);
+          }
+          atLineStart = false;
+          index = referenceEnd;
+          continue;
+        }
+      }
+    }
+
     if (currentCharacter === '!' && content[index + 1] === '[') {
       const labelEnd = findInlineLabelEnd(content, index + 1);
       if (labelEnd !== -1) {
@@ -223,6 +296,8 @@ export const buildVisibleProjection = (
   }
 
   return {
+    insertedBoundarySourceIndexes,
+    sourceEnds,
     text: characters.join(''),
     sourceIndexes,
   };
@@ -233,6 +308,7 @@ export const buildLooseProjection = (
   visibleProjection: VisibleProjection = buildVisibleProjection(content)
 ): LooseProjection => {
   const characters: string[] = [];
+  const sourceEnds: number[] = [];
   const sourceIndexes: number[] = [];
 
   visibleProjection.text.split('').forEach((character, index) => {
@@ -240,6 +316,7 @@ export const buildLooseProjection = (
     if (/^[\p{L}\p{N}]$/u.test(normalizedCharacter)) {
       characters.push(normalizedCharacter);
       sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+      sourceEnds.push(visibleProjection.sourceEnds[index]);
       return;
     }
 
@@ -247,6 +324,7 @@ export const buildLooseProjection = (
       if (characters.at(-1) !== ' ') {
         characters.push(' ');
         sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+        sourceEnds.push(visibleProjection.sourceEnds[index]);
       }
       return;
     }
@@ -254,10 +332,12 @@ export const buildLooseProjection = (
     if (characters.at(-1) !== ' ') {
       characters.push(' ');
       sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+      sourceEnds.push(visibleProjection.sourceEnds[index]);
     }
   });
 
   return {
+    sourceEnds,
     text: characters.join('').trim(),
     sourceIndexes,
   };
@@ -265,6 +345,7 @@ export const buildLooseProjection = (
 
 export const buildSourceLooseProjection = (content: string): LooseProjection => {
   const characters: string[] = [];
+  const sourceEnds: number[] = [];
   const sourceIndexes: number[] = [];
 
   content.split('').forEach((character, index) => {
@@ -272,16 +353,19 @@ export const buildSourceLooseProjection = (content: string): LooseProjection => 
     if (/^[\p{L}\p{N}]$/u.test(normalizedCharacter)) {
       characters.push(normalizedCharacter);
       sourceIndexes.push(index);
+      sourceEnds.push(index + 1);
       return;
     }
 
     if (characters.at(-1) !== ' ') {
       characters.push(' ');
       sourceIndexes.push(index);
+      sourceEnds.push(index + 1);
     }
   });
 
   return {
+    sourceEnds,
     text: characters.join('').trim(),
     sourceIndexes,
   };
@@ -362,22 +446,18 @@ export const buildSourceSegments = (
   }
 
   const segments: MarkdownRange[] = [];
-  let segmentStart = projection.sourceIndexes[matchStart];
-  let previousSourceIndex = segmentStart;
+  for (let index = matchStart; index < matchStart + matchLength; index += 1) {
+    const start = projection.sourceIndexes[index];
+    const end = projection.sourceEnds[index] ?? start + 1;
+    if (end <= start) continue;
 
-  for (let index = matchStart + 1; index < matchStart + matchLength; index += 1) {
-    const currentSourceIndex = projection.sourceIndexes[index];
-    if (currentSourceIndex === previousSourceIndex + 1) {
-      previousSourceIndex = currentSourceIndex;
+    const previous = segments.at(-1);
+    if (previous && start <= previous.end) {
+      previous.end = Math.max(previous.end, end);
       continue;
     }
-
-    segments.push({ start: segmentStart, end: previousSourceIndex + 1 });
-    segmentStart = currentSourceIndex;
-    previousSourceIndex = currentSourceIndex;
+    segments.push({ start, end });
   }
-
-  segments.push({ start: segmentStart, end: previousSourceIndex + 1 });
   return segments;
 };
 

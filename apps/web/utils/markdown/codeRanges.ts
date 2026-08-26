@@ -12,6 +12,9 @@ import {
   getAccidentalPlainTextIndentationRanges,
   projectAccidentalPlainTextIndentation,
 } from './indentation.ts';
+import { getRenderedMathSourceRanges } from './mathNormalization.ts';
+
+export { getMarkdownMathRangeAt } from './mathSyntax.ts';
 
 export interface MarkdownRange {
   start: number;
@@ -69,80 +72,6 @@ export const isMarkdownPlaceholderLiteralInsideCode = (content: string, start: n
 const isAsciiAlphaNumeric = (character: string | undefined): boolean =>
   Boolean(character && /[A-Za-z0-9]/u.test(character));
 
-const isEscapedCharacter = (content: string, index: number) => {
-  let slashCount = 0;
-  let cursor = index - 1;
-
-  while (cursor >= 0 && content[cursor] === '\\') {
-    slashCount += 1;
-    cursor -= 1;
-  }
-
-  return slashCount % 2 === 1;
-};
-
-const findDelimitedMathRange = (
-  content: string,
-  startIndex: number,
-  openDelimiter: '$' | '$$' | '\\(' | '\\[',
-  closeDelimiter: '$' | '$$' | '\\)' | '\\]',
-  allowNewlines: boolean
-): MarkdownRange | null => {
-  let cursor = startIndex + openDelimiter.length;
-
-  while (cursor < content.length) {
-    if (!allowNewlines && content[cursor] === '\n') {
-      return null;
-    }
-
-    if (content.startsWith(closeDelimiter, cursor) && !isEscapedCharacter(content, cursor)) {
-      return {
-        start: startIndex,
-        end: cursor + closeDelimiter.length,
-      };
-    }
-
-    cursor += 1;
-  }
-
-  return null;
-};
-
-export const getMarkdownMathRangeAt = (
-  content: string,
-  startIndex: number
-): MarkdownRange | null => {
-  if (content[startIndex] === '$' && !isEscapedCharacter(content, startIndex)) {
-    if (content[startIndex + 1] === '$') {
-      return findDelimitedMathRange(content, startIndex, '$$', '$$', true);
-    }
-
-    return findDelimitedMathRange(content, startIndex, '$', '$', false);
-  }
-
-  if (content.startsWith(String.raw`\(`, startIndex) && !isEscapedCharacter(content, startIndex)) {
-    return findDelimitedMathRange(
-      content,
-      startIndex,
-      String.raw`\(` as '\\(',
-      String.raw`\)` as '\\)',
-      false
-    );
-  }
-
-  if (content.startsWith(String.raw`\[`, startIndex) && !isEscapedCharacter(content, startIndex)) {
-    return findDelimitedMathRange(
-      content,
-      startIndex,
-      String.raw`\[` as '\\[',
-      String.raw`\]` as '\\]',
-      true
-    );
-  }
-
-  return null;
-};
-
 const getMarkdownMathInnerRange = (content: string, range: MarkdownRange): MarkdownRange => {
   if (content.startsWith('$$', range.start)) {
     return { start: range.start + 2, end: Math.max(range.start + 2, range.end - 2) };
@@ -152,7 +81,18 @@ const getMarkdownMathInnerRange = (content: string, range: MarkdownRange): Markd
     return { start: range.start + 1, end: Math.max(range.start + 1, range.end - 1) };
   }
 
-  return { start: range.start + 2, end: Math.max(range.start + 2, range.end - 2) };
+  if (
+    content.startsWith(String.raw`\(`, range.start) ||
+    content.startsWith(String.raw`\[`, range.start)
+  ) {
+    return { start: range.start + 2, end: Math.max(range.start + 2, range.end - 2) };
+  }
+
+  if (content[range.start] === '(' || content[range.start] === '[') {
+    return { start: range.start + 1, end: Math.max(range.start + 1, range.end - 1) };
+  }
+
+  return range;
 };
 
 export const projectMarkdownMathRange = (
@@ -377,6 +317,7 @@ export interface MarkdownAnalysis {
   codeRanges: MarkdownRange[];
   htmlSyntaxRanges: MarkdownRange[];
   imageRanges: MarkdownRange[];
+  inlineBoundaryRanges: MarkdownRange[];
   linkDestinationRanges: MarkdownRange[];
   mathRanges: MarkdownRange[];
   referenceDefinitionRanges: MarkdownRange[];
@@ -533,6 +474,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     codeRanges: [],
     htmlSyntaxRanges: [],
     imageRanges: [],
+    inlineBoundaryRanges: [],
     linkDestinationRanges: [],
     mathRanges: [],
     referenceDefinitionRanges: [],
@@ -566,6 +508,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       analysis.structuralRanges.push(
         ...getStructuralRangesForNode(content, node, range, indentationProjection.sourceOffsets)
       );
+      if (node.type === 'footnoteReference') analysis.inlineBoundaryRanges.push(range);
       if (node.type === 'image' || node.type === 'imageReference') {
         const source = content.slice(range.start, range.end);
         if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
@@ -645,6 +588,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         analysis.structuralRanges.push(
           ...getStructuralRangesForNode(content, node, range, htmlSourceOffsets)
         );
+        if (node.type === 'footnoteReference') analysis.inlineBoundaryRanges.push(range);
       }
       if (isInsideEscapedHtml && (node.type === 'image' || node.type === 'imageReference')) {
         const source = content.slice(range.start, range.end);
@@ -674,21 +618,14 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     node.children?.forEach(visitEscapedHtml);
   };
   visitEscapedHtml(htmlRoot);
-  let mathCursor = 0;
-  while (mathCursor < content.length) {
-    const mathRange = getMarkdownMathRangeAt(content, mathCursor);
-    if (
-      mathRange &&
-      (content.startsWith(String.raw`\(`, mathRange.start) ||
-        content.startsWith(String.raw`\[`, mathRange.start)) &&
-      !analysis.codeRanges.some(range => range.start < mathRange.end && range.end > mathRange.start)
-    ) {
-      analysis.mathRanges.push(mathRange);
-      mathCursor = mathRange.end;
-      continue;
-    }
-    mathCursor += 1;
-  }
+  analysis.mathRanges.push(
+    ...getRenderedMathSourceRanges(content).filter(
+      mathRange =>
+        !analysis.codeRanges.some(
+          codeRange => codeRange.start < mathRange.end && codeRange.end > mathRange.start
+        )
+    )
+  );
   analysis.codeRanges.sort((left, right) => left.start - right.start || left.end - right.end);
   analysis.mathRanges = mergeOverlappingMarkdownRanges(analysis.mathRanges);
   return analysis;

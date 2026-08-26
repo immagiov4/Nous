@@ -70,8 +70,15 @@ const getProjectionRange = (
   range: MarkdownRange
 ): { end: number; start: number; text: string } | null => {
   const includedIndexes = projection.sourceIndexes
-    .map((sourceIndex, projectionIndex) => ({ projectionIndex, sourceIndex }))
-    .filter(({ sourceIndex }) => sourceIndex >= range.start && sourceIndex < range.end)
+    .map((sourceIndex, projectionIndex) => ({
+      projectionIndex,
+      sourceEnd: projection.sourceEnds[projectionIndex] ?? sourceIndex + 1,
+      sourceIndex,
+    }))
+    .filter(
+      ({ sourceEnd, sourceIndex }) =>
+        sourceEnd > sourceIndex && sourceIndex < range.end && sourceEnd > range.start
+    )
     .map(({ projectionIndex }) => projectionIndex);
 
   const start = includedIndexes[0];

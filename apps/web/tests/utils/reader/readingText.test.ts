@@ -139,6 +139,19 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech('prima![freccia](arrow.png)dopo')).toBe('prima dopo');
   });
 
+  test('keeps a word boundary where an inline footnote reference is removed', () => {
+    expect(prepareMarkdownForSpeech('prima[^nota]dopo\n\n[^nota]: nota')).toBe(
+      'prima dopo\n\nnota'
+    );
+    expect(prepareMarkdownForSpeech('prima[^nota].\n\n[^nota]: nota')).toBe('prima.\n\nnota');
+    expect(prepareMarkdownForSpeech('prima[^uno][^due]dopo\n\n[^uno]: uno\n[^due]: due')).toBe(
+      'prima dopo\n\nuno\ndue'
+    );
+    expect(prepareMarkdownForSpeech('prima[^nota]*dopo*\n\n[^nota]: nota')).toBe(
+      'prima dopo\n\nnota'
+    );
+  });
+
   test('does not read reference definition destinations', () => {
     expect(
       prepareMarkdownForSpeech(

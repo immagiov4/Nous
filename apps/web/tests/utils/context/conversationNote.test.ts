@@ -132,6 +132,36 @@ test('accepts complete candidates through loose case and accent normalization', 
   );
 });
 
+test('accepts rendered Markdown character references as anchorable text', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Prima A &amp; B dopo.', {
+      selectedText: 'A & B',
+    }),
+    true
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('<mark>\nA &amp; B\n</mark>', {
+      selectedText: 'A & B',
+    }),
+    true
+  );
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('<div>\nA &amp; B\n</div>', {
+      selectedText: 'A & B',
+    }),
+    true
+  );
+});
+
+test('rejects text rendered from renderer-normalized bare math', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(String.raw`Prima (\text{velocity}) dopo.`, {
+      selectedText: 'velocity',
+    }),
+    false
+  );
+});
+
 test('accepts complete candidates through KaTeX selection normalization', () => {
   assert.equal(
     hasAnchorableConversationNoteCandidate('Ridurre soprattutto $T_{\\text{cluster}}$ accelera.', {

@@ -6,6 +6,10 @@ import {
   parseMarkdownAnalysis,
   readCompleteMarkdownPlaceholderRange,
 } from '../markdown/codeRanges.ts';
+import {
+  buildVisibleProjection,
+  getHiddenInlineBoundaryRanges,
+} from '../markdown/textProjection.ts';
 
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
 
@@ -422,9 +426,10 @@ export interface ReadableTextElement {
 
 export const prepareMarkdownForSpeech = (content: string): string => {
   const analysis = parseMarkdownAnalysis(content);
-  const imageRanges = mergeOverlappingMarkdownRanges(analysis.imageRanges);
+  const separatorRanges = getHiddenInlineBoundaryRanges(content, analysis);
+  const { insertedBoundarySourceIndexes } = buildVisibleProjection(content, analysis);
   const rendererHiddenContentStripped = mergeOverlappingMarkdownRanges([
-    ...imageRanges,
+    ...separatorRanges,
     ...analysis.htmlSyntaxRanges,
     ...analysis.referenceLinkLabelRanges,
     ...analysis.referenceDefinitionRanges,
@@ -433,10 +438,17 @@ export const prepareMarkdownForSpeech = (content: string): string => {
   ])
     .sort((left, right) => right.start - left.start)
     .reduce((currentContent, range) => {
-      const replacesVisibleBoundary = imageRanges.some(
-        imageRange => imageRange.start < range.end && imageRange.end > range.start
+      const replacesVisibleBoundary = separatorRanges.some(
+        separatorRange => separatorRange.start < range.end && separatorRange.end > range.start
       );
-      return `${currentContent.slice(0, range.start)}${replacesVisibleBoundary ? ' ' : ''}${currentContent.slice(range.end)}`;
+      const separator =
+        replacesVisibleBoundary &&
+        insertedBoundarySourceIndexes.some(
+          sourceIndex => sourceIndex >= range.start && sourceIndex <= range.end
+        )
+          ? ' '
+          : '';
+      return `${currentContent.slice(0, range.start)}${separator}${currentContent.slice(range.end)}`;
     }, content);
   const placeholderStrippedContent = stripCompletePlaceholdersOutsideProtectedMarkdown(
     rendererHiddenContentStripped
