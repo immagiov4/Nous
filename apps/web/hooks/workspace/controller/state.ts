@@ -18,7 +18,9 @@ export const useWorkspaceControllerState = () => {
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
     createWorkspaceWorkflowState
   );
-  const [missingSourceProjectId, setMissingSourceProjectId] = useState<string | null>(null);
+  const [missingSourceProjects, setMissingSourceProjects] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const [, commitGenerationChange] = useReducer(currentRevision => currentRevision + 1, 0);
 
   const assessmentMessagesRef = useRef(assessmentMessages);
@@ -117,6 +119,7 @@ export const useWorkspaceControllerState = () => {
       getCourseProposal: () => courseProposalRef.current,
       getGeneratingSectionId: projectId =>
         generationByProjectRef.current.get(projectId)?.sectionId ?? null,
+      hasMissingSource: projectId => projectId !== null && missingSourceProjects.has(projectId),
       getOpeningProjectId: () => openingProjectIdRef.current,
       getScreenState: () => screenStateRef.current,
       getWorkflowState: () => workflowStateRef.current,
@@ -151,7 +154,7 @@ export const useWorkspaceControllerState = () => {
         courseProposalRef.current = null;
         openingProjectIdRef.current = null;
         setOpeningProjectId(null);
-        setMissingSourceProjectId(null);
+        setMissingSourceProjects(new Set());
       },
       setAssessmentMessages: nextMessages => {
         setAssessmentMessages(currentMessages => {
@@ -192,7 +195,16 @@ export const useWorkspaceControllerState = () => {
         openingProjectIdRef.current = projectId;
         setOpeningProjectId(projectId);
       },
-      setMissingSourceProjectId,
+      setProjectMissingSource: (projectId, missing) => {
+        setMissingSourceProjects(currentProjects => {
+          if (currentProjects.has(projectId) === missing) return currentProjects;
+
+          const nextProjects = new Set(currentProjects);
+          if (missing) nextProjects.add(projectId);
+          else nextProjects.delete(projectId);
+          return nextProjects;
+        });
+      },
       setScreenState,
       setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => {
         const currentState = workflowStateRef.current;
@@ -279,7 +291,7 @@ export const useWorkspaceControllerState = () => {
         return token;
       },
     } satisfies WorkspaceControllerStateAdapter,
-    missingSourceProjectId,
+    missingSourceProjects,
     workflowState,
   };
 };

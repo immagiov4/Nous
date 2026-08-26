@@ -4,6 +4,19 @@ import { describe, expect, test, vi } from 'vitest';
 import { useWorkspaceControllerState } from '../../../hooks/workspace/controller/state.ts';
 
 describe('useWorkspaceControllerState generation ownership', () => {
+  test('keeps missing-source state independent for each project', () => {
+    const { result } = renderHook(() => useWorkspaceControllerState());
+
+    act(() => {
+      result.current.stateAdapter.setProjectMissingSource('project-a', true);
+      result.current.stateAdapter.setProjectMissingSource('project-b', true);
+      result.current.stateAdapter.setProjectMissingSource('project-b', false);
+    });
+
+    expect(result.current.stateAdapter.hasMissingSource('project-a')).toBe(true);
+    expect(result.current.stateAdapter.hasMissingSource('project-b')).toBe(false);
+  });
+
   test('persists across rerenders and ignores stale exercise updates after lesson ownership changes', () => {
     const { result } = renderHook(() => useWorkspaceControllerState());
     const firstAdapter = result.current.stateAdapter;

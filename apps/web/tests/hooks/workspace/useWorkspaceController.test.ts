@@ -533,7 +533,7 @@ const createStateAdapter = () => {
       }
     >(),
     nextGenerationToken: 0,
-    missingSourceProjectId: null as string | null,
+    missingSourceProjects: new Set<string>(),
     openingProjectId: null as string | null,
     screenState: AppState.LIBRARY as AppState,
     workflowState: createWorkspaceWorkflowState(),
@@ -577,6 +577,8 @@ const createStateAdapter = () => {
     getCourseProposal: () => internalState.courseProposal,
     getGeneratingSectionId: projectId =>
       internalState.generationByProject.get(projectId)?.sectionId ?? null,
+    hasMissingSource: projectId =>
+      projectId !== null && internalState.missingSourceProjects.has(projectId),
     getOpeningProjectId: () => internalState.openingProjectId,
     getScreenState: () => internalState.screenState,
     getWorkflowState: () => internalState.workflowState,
@@ -610,7 +612,7 @@ const createStateAdapter = () => {
       internalState.assessmentMessages = [];
       internalState.courseProposal = null;
       internalState.openingProjectId = null;
-      internalState.missingSourceProjectId = null;
+      internalState.missingSourceProjects.clear();
     },
     setAssessmentMessages: nextMessages => {
       internalState.assessmentMessages =
@@ -642,8 +644,9 @@ const createStateAdapter = () => {
     setOpeningProjectId: projectId => {
       internalState.openingProjectId = projectId;
     },
-    setMissingSourceProjectId: projectId => {
-      internalState.missingSourceProjectId = projectId;
+    setProjectMissingSource: (projectId, missing) => {
+      if (missing) internalState.missingSourceProjects.add(projectId);
+      else internalState.missingSourceProjects.delete(projectId);
     },
     setScreenState: screenState => {
       internalState.screenState = screenState;
@@ -2040,7 +2043,7 @@ test('handleSourceUpload reattach clears transient session state and invalidates
 
   state.internalState.assessmentMessages = [{ role: 'model', text: 'Vecchia chat' }];
   state.internalState.openingProjectId = 'project-opening';
-  state.internalState.missingSourceProjectId = 'project-reattach';
+  state.internalState.missingSourceProjects.add('project-reattach');
   const staleLoadSectionRequestId = state.adapter.beginWorkflow(
     'loadSection',
     'Analisi contenuti...'
@@ -2056,7 +2059,7 @@ test('handleSourceUpload reattach clears transient session state and invalidates
   assert.equal(projectLibrary.savedOverrides[0]?.source?.kind, 'pdf');
   assert.deepEqual(state.internalState.assessmentMessages, []);
   assert.equal(state.internalState.openingProjectId, null);
-  assert.equal(state.internalState.missingSourceProjectId, null);
+  assert.equal(state.internalState.missingSourceProjects.has('project-reattach'), false);
   assert.equal(state.internalState.workflowState.loadSection.status, 'idle');
   assert.equal(state.adapter.isWorkflowCurrent('loadSection', staleLoadSectionRequestId), false);
   assert.equal(state.internalState.workflowState.attachSource.status, 'succeeded');
@@ -3546,7 +3549,7 @@ test('openSection marks a missing durable source for reattachment', async () => 
   });
 
   await assert.rejects(controller.openSection(getLessons(plan)[0]), sourceError);
-  assert.equal(state.internalState.missingSourceProjectId, 'project-1');
+  assert.equal(state.internalState.missingSourceProjects.has('project-1'), true);
   assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
   assert.equal(
     state.internalState.workflowState.loadSection.error,
@@ -3969,6 +3972,141 @@ test('sublesson generation releases its gate after an error', async () => {
   assert.equal(sublessonCalls, 2);
 });
 
+test.each([
+  { error: null, expectedOutcome: 'created', expectedStatus: 'succeeded' },
+  { error: new Error('Approfondimento interrotto'), expectedOutcome: 'failed', expectedStatus: 'failed' },
+] as const)(
+  'sublesson re-entry restores progress and terminal $expectedStatus state',
+  async ({ error, expectedOutcome, expectedStatus }) => {
+    const plan = buildPlan();
+    const generatedSection = buildTestLesson({
+      content: '# Approfondimento',
+      id: 'deep-reattach',
+      parentId: 'lesson-1',
+      title: 'Approfondimento',
+      type: 'deep-dive',
+    });
+    const generatedPlan = buildPlan({
+      sections: [buildTestLesson({ id: 'lesson-1' }), generatedSection],
+    });
+    let settleGeneration: (() => void) | undefined;
+    let markStarted: (() => void) | undefined;
+    const generationGate = new Promise<void>(resolve => {
+      settleGeneration = resolve;
+    });
+    const started = new Promise<void>(resolve => {
+      markStarted = resolve;
+    });
+    const harness = createControllerHarness({
+      domain: {
+        activeSectionId: 'lesson-1',
+        learningPlan: plan,
+        source: createProjectSourceFromFile(pdfFile),
+      },
+      projectLibrary: { currentProjectId: 'project-1' },
+      openRouter: {
+        generateDurableSublesson: async input => {
+          input.onWorkflowSnapshot?.({
+            createdAt: '2026-08-26T00:00:00.000Z',
+            id: 'sublesson-run',
+            projectId: input.projectId,
+            retrying: false,
+            sectionId: generatedSection.id,
+            stage: 'drafting',
+            status: 'running',
+            updatedAt: '2026-08-26T00:00:01.000Z',
+          });
+          markStarted?.();
+          await generationGate;
+          if (error) throw error;
+          return {
+            content: generatedSection.content ?? '',
+            contentBlocks: [],
+            generatedVisuals: [],
+            imageRefs: [],
+            learningAids: [],
+            projectId: input.projectId,
+            projectRevision: 2,
+            quiz: [],
+            sectionId: generatedSection.id,
+            warnings: [],
+          };
+        },
+      },
+    });
+    harness.projectLibrary.adapter.applyPersistedProjectRevision = async () => {
+      harness.domain.hydrateSnapshot(
+        createProjectSnapshot({
+          activeSectionId: generatedSection.id,
+          id: 'project-1',
+          learningPlan: generatedPlan,
+          state: AppState.READING,
+        })
+      );
+      return true;
+    };
+
+    const creation = harness.controller.createLessonFromSelection({
+      instructions: 'Approfondisci',
+      selectedText: 'testo',
+    });
+    await started;
+    harness.state.adapter.invalidateWorkflows(['createLesson']);
+
+    expect(await harness.controller.openSection(generatedSection)).toBe('reopened-generating');
+    expect(harness.state.internalState.workflowState.createLesson.status).toBe('pending');
+    settleGeneration?.();
+
+    expect((await creation).outcome).toBe(expectedOutcome);
+    expect(harness.state.internalState.workflowState.createLesson.status).toBe(expectedStatus);
+  }
+);
+
+test('force regeneration re-entry reattaches before reusing populated lesson content', async () => {
+  const lesson = buildTestLesson({ content: '# Contenuto precedente', id: 'lesson-1' });
+  const plan = buildPlan({ sections: [lesson] });
+  let releaseGeneration: (() => void) | undefined;
+  let markStarted: (() => void) | undefined;
+  const generationGate = new Promise<void>(resolve => {
+    releaseGeneration = resolve;
+  });
+  const started = new Promise<void>(resolve => {
+    markStarted = resolve;
+  });
+  const generateDurableLesson = vi.fn(async () => {
+    markStarted?.();
+    await generationGate;
+    return {
+      content: '# Contenuto rigenerato',
+      contentBlocks: [],
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId: 'project-1',
+      quiz: [],
+      sectionId: lesson.id,
+      warnings: [],
+    };
+  });
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    openRouter: { generateDurableLesson },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+
+  const regeneration = harness.controller.openSection(lesson, { forceRegenerate: true });
+  await started;
+  harness.state.adapter.invalidateWorkflows(['loadSection']);
+
+  expect(await harness.controller.openSection(lesson, { forceRegenerate: true })).toBe(
+    'reopened-generating'
+  );
+  expect(generateDurableLesson).toHaveBeenCalledTimes(1);
+  releaseGeneration?.();
+  expect(await regeneration).toBe('loaded');
+  expect(harness.state.internalState.workflowState.loadSection.status).toBe('succeeded');
+});
+
 test('lesson generation remains navigable after workflow invalidation until the provider call settles', async () => {
   const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
   let generationCalls = 0;
@@ -4206,6 +4344,37 @@ test('overlapping project generations keep their terminal results when they reso
   generationResolvers.get('project-b')?.();
   expect(await projectBGeneration).toBe('loaded');
   expect(generateDurableLesson).toHaveBeenCalledTimes(2);
+});
+
+test('out-of-order detached missing-source failures retain every affected project', async () => {
+  const lesson = buildTestLesson({ id: 'lesson-1' });
+  const plan = buildPlan({ sections: [lesson] });
+  const rejectGenerationByProject = new Map<string, (error: Error) => void>();
+  const harness = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-a' },
+    openRouter: {
+      generateDurableLesson: input =>
+        new Promise((_, reject) => {
+          rejectGenerationByProject.set(input.projectId, reject);
+        }),
+    },
+  });
+
+  const projectAGeneration = harness.controller.openSection(lesson);
+  await Promise.resolve();
+  harness.projectLibrary.adapter.setCurrentProjectId('project-b');
+  harness.state.adapter.invalidateWorkflows(['loadSection']);
+  const projectBGeneration = harness.controller.openSection(lesson);
+  await Promise.resolve();
+
+  rejectGenerationByProject.get('project-b')?.(new LessonSourceUnavailableError());
+  await expect(projectBGeneration).rejects.toBeInstanceOf(LessonSourceUnavailableError);
+  rejectGenerationByProject.get('project-a')?.(new LessonSourceUnavailableError());
+  expect(await projectAGeneration).toBe('ignored-busy');
+
+  expect(harness.state.adapter.hasMissingSource('project-a')).toBe(true);
+  expect(harness.state.adapter.hasMissingSource('project-b')).toBe(true);
 });
 
 test('an active lesson generation blocks exercise brief and placement generation after workflow invalidation', async () => {
@@ -4590,7 +4759,7 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
   assert.deepEqual(await repair, { outcome: 'repaired' });
 });
 
-test('createLessonFromSelection ignores durable completion after another project is opened', async () => {
+test('createLessonFromSelection applies detached durable completion without changing the open project', async () => {
   const firstPlan = buildPlan();
   const secondPlan = buildPlan({
     sections: [buildTestLesson({ id: 'project-2-lesson', title: 'Secondo progetto' })],
@@ -4655,7 +4824,9 @@ test('createLessonFromSelection ignores durable completion after another project
   assert.deepEqual(await creation, { outcome: 'ignored-busy' });
   assert.equal(harness.domain.activeSectionId, 'project-2-lesson');
   assert.equal(harness.domain.learningPlan?.modules[0]?.children[0]?.id, 'project-2-lesson');
-  assert.equal(applyPersistedProjectRevision.mock.calls.length, 0);
+  assert.deepEqual(applyPersistedProjectRevision.mock.calls, [
+    [{ projectId: 'project-1', revision: 2 }],
+  ]);
 });
 
 test('createLessonFromSelection hydrates and opens the authoritative durable sublesson', async () => {

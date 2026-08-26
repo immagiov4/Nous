@@ -182,6 +182,7 @@ export interface WorkspaceControllerStateAdapter {
   getAssessmentMessages: () => Message[];
   getCourseProposal: () => UserProfile | null;
   getGeneratingSectionId: (projectId: string | null) => string | null;
+  hasMissingSource: (projectId: string | null) => boolean;
   getOpeningProjectId: () => string | null;
   getScreenState: () => AppState;
   getWorkflowState: () => WorkspaceWorkflowState;
@@ -204,7 +205,7 @@ export interface WorkspaceControllerStateAdapter {
     token: number,
     onReattach: () => void
   ) => void;
-  setMissingSourceProjectId: (projectId: string | null) => void;
+  setProjectMissingSource: (projectId: string, missing: boolean) => void;
   setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
   setWorkflowReasoning: (
     workflowId: WorkspaceWorkflowId,
