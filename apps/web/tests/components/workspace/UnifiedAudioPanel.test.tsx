@@ -199,6 +199,36 @@ describe('UnifiedAudioPanel', () => {
     expect(screen.getByRole('button', { name: 'Chiudi menu audio' })).toBeInTheDocument();
   });
 
+  test('dismisses the playback-speed picker when keyboard focus leaves or Escape is pressed', async () => {
+    const user = userEvent.setup();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel()}
+      />
+    );
+
+    const speedPickerTrigger = screen.getByRole('button', { name: '1x' });
+    await user.click(speedPickerTrigger);
+    await user.tab();
+    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
+
+    await user.click(speedPickerTrigger);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
+    expect(speedPickerTrigger).toHaveFocus();
+  });
+
   test('does not restore the playback-speed picker when a controlled panel reopens', async () => {
     const user = userEvent.setup();
     const props = {

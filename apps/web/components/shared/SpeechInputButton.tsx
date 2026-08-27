@@ -10,6 +10,8 @@ import {
 
 const MAX_SPEECH_RECORDING_MS = 90_000;
 const TEMPORARY_ERROR_DISMISS_MS = 8_000;
+const VIEWPORT_ERROR_ALERT_BOTTOM =
+  'calc(max(1rem, env(safe-area-inset-bottom, 0px)) + var(--keyboard-inset, 0px))';
 
 const RECORDING_FORMATS: ReadonlyArray<{
   format: SttAudioFormat;
@@ -298,9 +300,10 @@ export default function SpeechInputButton({
       role="alert"
       aria-label={speechInputError.message}
       data-nous-context-menu-portal={errorPresentation === 'viewport' || undefined}
+      style={errorPresentation === 'viewport' ? { bottom: VIEWPORT_ERROR_ALERT_BOTTOM } : undefined}
       className={`${
         errorPresentation === 'viewport'
-          ? 'fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[70] w-auto'
+          ? 'fixed inset-x-4 z-[70] w-auto'
           : 'absolute bottom-[calc(100%+0.6rem)] right-0 z-30 w-64'
       } flex items-start gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs leading-5 text-red-700 shadow-lg dark:border-red-900/70 dark:bg-stone-800 dark:text-red-200`}
     >

@@ -159,6 +159,9 @@ describe('SpeechInputButton', () => {
     });
     expect(container).not.toContainElement(alert);
     expect(alert).toHaveAttribute('data-nous-context-menu-portal');
+    expect(alert.style.bottom).toBe(
+      'calc(max(1rem, env(safe-area-inset-bottom, 0px)) + var(--keyboard-inset, 0px))'
+    );
     await user.click(screen.getByRole('button', { name: 'Chiudi avviso microfono' }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });

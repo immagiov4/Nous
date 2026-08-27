@@ -175,17 +175,42 @@ const PlaybackSpeedPicker = ({ onSpeedChange, playbackRate }: PlaybackSpeedPicke
       return;
     }
 
+    const isWithinSpeedPicker = (target: EventTarget | null) =>
+      target instanceof Node &&
+      (Boolean(buttonRef.current?.contains(target)) ||
+        Boolean(pickerRef.current?.contains(target)));
+
     const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (buttonRef.current?.contains(target) || pickerRef.current?.contains(target)) {
+      if (isWithinSpeedPicker(event.target)) {
         return;
       }
 
       setIsOpen(false);
     };
 
+    const handleFocusIn = (event: FocusEvent) => {
+      if (!isWithinSpeedPicker(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      setIsOpen(false);
+      buttonRef.current?.focus();
+    };
+
     document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen]);
 
   return (
