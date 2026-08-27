@@ -11,3 +11,16 @@ test('classifies the active course interview as assessment while rendered in the
     })
   ).toBe('assessment');
 });
+
+test.each([
+  AppState.PLANNING,
+  AppState.READING,
+])('classifies completed interview history from %s by the current screen', screenState => {
+  expect(
+    getFeedbackProductSurface({
+      hasContextAnswer: false,
+      isAssessmentActive: true,
+      screenState,
+    })
+  ).toBe(screenState === AppState.PLANNING ? 'planning' : 'reader');
+});

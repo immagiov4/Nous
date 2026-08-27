@@ -27,7 +27,12 @@ export const getFeedbackProductSurface = ({
   isAssessmentActive: boolean;
   screenState: AppState;
 }): FeedbackProductSurface => {
-  if (isAssessmentActive || screenState === AppState.ASSESSMENT) return 'assessment';
+  if (
+    screenState === AppState.ASSESSMENT ||
+    (screenState === AppState.LIBRARY && isAssessmentActive)
+  ) {
+    return 'assessment';
+  }
   if (screenState === AppState.PLANNING) return 'planning';
   if (screenState === AppState.READING) return hasContextAnswer ? 'contextual-chat' : 'reader';
   return globalThis.location.pathname === '/' ? 'home' : 'library';

@@ -102,6 +102,9 @@ export const LibraryScreenContainer = ({
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const visibleHomeChatMode = assessmentMessages.length > 0 ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
+  const currentProjectRevision = savedProjects.find(
+    project => project.id === controller.currentProjectId
+  )?.revision;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = sortSourceFiles(Array.from(event.target.files || []));
@@ -209,9 +212,25 @@ export const LibraryScreenContainer = ({
     });
   };
 
-  const handlePageChange = useCallback((page: NewHomePage) => {
-    setFeedbackProductContext({ surface: page });
-  }, []);
+  const handlePageChange = useCallback(
+    (page: NewHomePage) => {
+      setFeedbackProductContext({
+        ...(controller.currentProjectId
+          ? {
+              project: {
+                id: controller.currentProjectId,
+                ...(currentProjectRevision === undefined
+                  ? {}
+                  : { revision: currentProjectRevision }),
+              },
+            }
+          : {}),
+        ...(controller.activeSection ? { section: { id: controller.activeSection.id } } : {}),
+        surface: page,
+      });
+    },
+    [controller.activeSection, controller.currentProjectId, currentProjectRevision]
+  );
 
   return (
     <>

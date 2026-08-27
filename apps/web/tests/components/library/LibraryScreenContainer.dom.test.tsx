@@ -5,21 +5,34 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { LibraryScreenContainer } from '../../../components/library/LibraryScreenContainer.tsx';
+import {
+  clearFeedbackDiagnostics,
+  getFeedbackDiagnosticsSnapshot,
+  recordFeedbackWorkflowSnapshot,
+  setFeedbackProductContext,
+} from '../../../services/feedback/browserDiagnostics.ts';
 
 vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
   NewHomeView: ({
     chatProps,
+    onPageChange,
   }: {
     chatProps: {
       assessmentComplete: boolean;
       homeChatMode: string;
       pendingFileNames?: string[];
     };
+    onPageChange: (page: 'home' | 'library') => void;
   }) => (
-    <div data-testid="new-home-surface">
-      {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
-      {chatProps.pendingFileNames?.join(',')}
-    </div>
+    <>
+      <div data-testid="new-home-surface">
+        {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
+        {chatProps.pendingFileNames?.join(',')}
+      </div>
+      <button type="button" onClick={() => onPageChange('library')}>
+        Apri libreria
+      </button>
+    </>
   ),
 }));
 
@@ -64,6 +77,7 @@ const buildProps = () =>
 
 afterEach(() => {
   cleanup();
+  clearFeedbackDiagnostics();
   globalThis.history.replaceState({}, '', '/');
 });
 
@@ -114,5 +128,38 @@ describe('LibraryScreenContainer route fallback', () => {
     render(<LibraryScreenContainer {...props} />);
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:true');
+  });
+
+  test('preserves retained project, section, and workflow context across home page changes', () => {
+    setFeedbackProductContext({
+      project: { id: 'project-12345678', revision: 7 },
+      section: { id: 'section-12345678' },
+      surface: 'reader',
+    });
+    recordFeedbackWorkflowSnapshot({
+      operation: 'load-section',
+      projectId: 'project-12345678',
+      runId: '123e4567-e89b-42d3-a456-426614174000',
+      sectionId: 'section-12345678',
+      status: 'completed',
+    });
+    const props = buildProps();
+    props.controller.activeSection = { id: 'section-12345678' } as never;
+    props.controller.currentProjectId = 'project-12345678';
+    props.controller.savedProjects = [{ id: 'project-12345678', revision: 7 }] as never;
+
+    render(<LibraryScreenContainer {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Apri libreria' }));
+
+    expect(getFeedbackDiagnosticsSnapshot().productContext).toMatchObject({
+      project: { id: 'project-12345678', revision: 7 },
+      section: { id: 'section-12345678' },
+      surface: 'library',
+      workflow: {
+        operation: 'load-section',
+        runId: '123e4567-e89b-42d3-a456-426614174000',
+        status: 'completed',
+      },
+    });
   });
 });
