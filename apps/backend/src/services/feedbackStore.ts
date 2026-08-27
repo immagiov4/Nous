@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { FeedbackProductContext } from '@shared/feedbackDiagnosticsContract';
 import postgres from 'postgres';
 
 type PostgresSql = ReturnType<typeof postgres>;
@@ -37,6 +38,7 @@ export interface FeedbackDiagnostics {
   consoleEntries?: FeedbackConsoleEntry[];
   correlationIds?: string[];
   pageUrl?: string;
+  productContext?: FeedbackProductContext;
   requestId?: string;
   userAgent?: string;
 }

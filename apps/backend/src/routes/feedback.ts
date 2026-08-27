@@ -1,3 +1,15 @@
+import {
+  FEEDBACK_BREADCRUMB_OPERATIONS,
+  FEEDBACK_PRODUCT_SURFACES,
+  FEEDBACK_WORKFLOW_OPERATIONS,
+  FEEDBACK_WORKFLOW_STATUSES,
+  type FeedbackBreadcrumb,
+  type FeedbackProductContext,
+  type FeedbackProductReference,
+  type FeedbackProductSurface,
+  type FeedbackWorkflowSnapshot,
+  MAX_FEEDBACK_BREADCRUMB_ENTRIES,
+} from '@shared/feedbackDiagnosticsContract';
 import { type NextFunction, type Request, type Response, Router } from 'express';
 
 import { getCurrentUser } from '../auth/currentUser.js';
@@ -38,6 +50,10 @@ const ADMIN_REQUIRED_MESSAGE = 'Permessi di amministratore richiesti.';
 const GITHUB_NOT_CONFIGURED_MESSAGE = 'La sincronizzazione GitHub non è configurata.';
 const ROUTE_ID_PATTERN =
   /^(?:\d+|[0-9a-f]{8}-[0-9a-f-]{27,}|(?:course|lesson|module|project|section|user)[-_][a-z0-9_-]{8,})$/i;
+const FEEDBACK_PRODUCT_SURFACE_SET = new Set<FeedbackProductSurface>(FEEDBACK_PRODUCT_SURFACES);
+const FEEDBACK_BREADCRUMB_OPERATION_SET = new Set(FEEDBACK_BREADCRUMB_OPERATIONS);
+const FEEDBACK_WORKFLOW_OPERATION_SET = new Set(FEEDBACK_WORKFLOW_OPERATIONS);
+const FEEDBACK_WORKFLOW_STATUS_SET = new Set(FEEDBACK_WORKFLOW_STATUSES);
 
 interface ParsedFeedbackInput {
   category: FeedbackCategory;
@@ -124,6 +140,120 @@ const sanitizeCorrelationIds = (value: unknown): string[] | undefined => {
   return ids.length > 0 ? ids : undefined;
 };
 
+const sanitizeProductId = (value: unknown): string | undefined => {
+  const id = readOptionalString(value);
+  if (!id || !ROUTE_ID_PATTERN.test(id)) {
+    return undefined;
+  }
+  return sanitizeDiagnosticText(id, MAX_CORRELATION_ID_LENGTH);
+};
+
+const sanitizeProductReference = (value: unknown): FeedbackProductReference | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const id = sanitizeProductId(value.id);
+  if (!id) {
+    return undefined;
+  }
+  const revision =
+    typeof value.revision === 'number' &&
+    Number.isSafeInteger(value.revision) &&
+    value.revision >= 0
+      ? value.revision
+      : undefined;
+  return {
+    id,
+    ...(revision === undefined ? {} : { revision }),
+  };
+};
+
+const sanitizeProductWorkflow = (value: unknown): FeedbackWorkflowSnapshot | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const operation = value.operation;
+  const runId = sanitizeProductId(value.runId);
+  const status = value.status;
+  if (
+    typeof operation !== 'string' ||
+    !FEEDBACK_WORKFLOW_OPERATION_SET.has(operation as FeedbackWorkflowSnapshot['operation']) ||
+    !runId ||
+    typeof status !== 'string' ||
+    !FEEDBACK_WORKFLOW_STATUS_SET.has(status as FeedbackWorkflowSnapshot['status'])
+  ) {
+    return undefined;
+  }
+  return {
+    operation: operation as FeedbackWorkflowSnapshot['operation'],
+    runId,
+    status: status as FeedbackWorkflowSnapshot['status'],
+  };
+};
+
+const sanitizeProductBreadcrumbs = (value: unknown): FeedbackBreadcrumb[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const breadcrumbs = value.slice(-MAX_FEEDBACK_BREADCRUMB_ENTRIES).flatMap(entry => {
+    if (!isRecord(entry)) {
+      return [];
+    }
+    const operation = entry.operation;
+    const surface = entry.surface;
+    if (
+      typeof operation !== 'string' ||
+      !FEEDBACK_BREADCRUMB_OPERATION_SET.has(operation as FeedbackBreadcrumb['operation']) ||
+      typeof surface !== 'string' ||
+      !FEEDBACK_PRODUCT_SURFACE_SET.has(surface as FeedbackProductSurface)
+    ) {
+      return [];
+    }
+    const timestamp = sanitizeTimestamp(entry.timestamp);
+    if (!timestamp) {
+      return [];
+    }
+    const projectId = sanitizeProductId(entry.projectId);
+    const sectionId = sanitizeProductId(entry.sectionId);
+    return [
+      {
+        operation: operation as FeedbackBreadcrumb['operation'],
+        ...(projectId ? { projectId } : {}),
+        ...(sectionId ? { sectionId } : {}),
+        surface: surface as FeedbackProductSurface,
+        timestamp,
+      },
+    ];
+  });
+  return breadcrumbs.length > 0 ? breadcrumbs : undefined;
+};
+
+const sanitizeProductContext = (value: unknown): FeedbackProductContext | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const project = sanitizeProductReference(value.project);
+  const section = sanitizeProductReference(value.section);
+  const surface = value.surface;
+  const workflow = sanitizeProductWorkflow(value.workflow);
+  const breadcrumbs = sanitizeProductBreadcrumbs(value.breadcrumbs);
+  const sanitizedSurface =
+    typeof surface === 'string' &&
+    FEEDBACK_PRODUCT_SURFACE_SET.has(surface as FeedbackProductSurface)
+      ? (surface as FeedbackProductSurface)
+      : undefined;
+  if (!project && !section && !sanitizedSurface && !workflow && !breadcrumbs) {
+    return undefined;
+  }
+  return {
+    ...(breadcrumbs ? { breadcrumbs } : {}),
+    ...(project ? { project } : {}),
+    ...(section ? { section } : {}),
+    ...(sanitizedSurface ? { surface: sanitizedSurface } : {}),
+    ...(workflow ? { workflow } : {}),
+  };
+};
+
 const sanitizeDiagnostics = (value: unknown, request: Request): FeedbackDiagnostics => {
   const diagnostics = isRecord(value) ? value : {};
   const pageUrl = sanitizeUrl(diagnostics.pageUrl);
@@ -135,12 +265,14 @@ const sanitizeDiagnostics = (value: unknown, request: Request): FeedbackDiagnost
   const userAgent = sanitizeDiagnosticText(request.get('user-agent') || '', 300) || undefined;
   const correlationIds = sanitizeCorrelationIds(diagnostics.correlationIds);
   const consoleEntries = sanitizeConsoleEntries(diagnostics.consoleEntries);
+  const productContext = sanitizeProductContext(diagnostics.productContext);
 
   return {
     ...(appVersion ? { appVersion } : {}),
     ...(consoleEntries ? { consoleEntries } : {}),
     ...(correlationIds ? { correlationIds } : {}),
     ...(pageUrl ? { pageUrl } : {}),
+    ...(productContext ? { productContext } : {}),
     ...(requestId ? { requestId } : {}),
     ...(userAgent ? { userAgent } : {}),
   };
@@ -307,7 +439,7 @@ const parseFeedbackInput = (body: unknown, request: Request): ParsedFeedbackInpu
     category,
     ...(clientRequestId ? { clientRequestId } : {}),
     description,
-    diagnostics: category === 'bug' ? sanitizeDiagnostics(body.diagnostics, request) : {},
+    diagnostics: sanitizeDiagnostics(body.diagnostics, request),
     ...(screenshot ? { screenshot } : {}),
     ...(title ? { title } : {}),
   };

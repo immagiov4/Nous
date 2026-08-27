@@ -1,3 +1,4 @@
+import type { FeedbackProductSurface } from '@shared/feedbackDiagnosticsContract';
 import { useEffect } from 'react';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
 import LoadingScreen from '../components/shared/LoadingScreen';
@@ -12,9 +13,23 @@ import { useWorkspaceFileActions } from '../hooks/workspace/useWorkspaceFileActi
 import { useWorkspaceNavigation } from '../hooks/workspace/useWorkspaceNavigation.ts';
 import { useWorkspaceReaderState } from '../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../i18n/uiMessages.ts';
+import { setFeedbackProductContext } from '../services/feedback/browserDiagnostics.ts';
 import { selectBlockingProgress, selectBlockingReasoning } from '../services/workspace/workflow.ts';
 import { AppState } from '../types';
 import { useAppDialogs } from './useAppDialogs.tsx';
+
+const getFeedbackProductSurface = ({
+  hasContextAnswer,
+  screenState,
+}: {
+  hasContextAnswer: boolean;
+  screenState: AppState;
+}): FeedbackProductSurface => {
+  if (screenState === AppState.ASSESSMENT) return 'assessment';
+  if (screenState === AppState.PLANNING) return 'planning';
+  if (screenState === AppState.READING) return hasContextAnswer ? 'contextual-chat' : 'reader';
+  return globalThis.location.pathname === '/' ? 'home' : 'library';
+};
 
 const AppContent = () => {
   const { appOverlays, notify, requestConfirmation } = useAppDialogs();
@@ -58,6 +73,40 @@ const AppContent = () => {
 
   const { isLibraryLoading, openingProjectId, savedProjects, screenState, workflowState } =
     controller;
+
+  const currentProject = savedProjects.find(project => project.id === controller.currentProjectId);
+
+  useEffect(() => {
+    setFeedbackProductContext({
+      ...(controller.currentProjectId
+        ? {
+            project: {
+              id: controller.currentProjectId,
+              ...(currentProject?.revision === undefined
+                ? {}
+                : { revision: currentProject.revision }),
+            },
+          }
+        : {}),
+      ...(controller.activeSection
+        ? {
+            section: {
+              id: controller.activeSection.id,
+            },
+          }
+        : {}),
+      surface: getFeedbackProductSurface({
+        hasContextAnswer: Boolean(readerState.readerContext.contextAnswer),
+        screenState,
+      }),
+    });
+  }, [
+    controller.activeSection,
+    controller.currentProjectId,
+    currentProject?.revision,
+    readerState.readerContext.contextAnswer,
+    screenState,
+  ]);
 
   useEffect(() => {
     const syncState = projectLibrary.projectSyncState;

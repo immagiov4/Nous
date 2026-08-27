@@ -1,3 +1,12 @@
+import {
+  type FeedbackBreadcrumb,
+  type FeedbackProductContext,
+  type FeedbackProductSurface,
+  type FeedbackWorkflowOperation,
+  type FeedbackWorkflowStatus,
+  MAX_FEEDBACK_BREADCRUMB_ENTRIES,
+} from '@shared/feedbackDiagnosticsContract';
+
 export type FeedbackConsoleLevel = 'debug' | 'error' | 'info' | 'warn';
 
 export interface FeedbackConsoleEntry {
@@ -10,6 +19,7 @@ export interface FeedbackDiagnosticsSnapshot {
   consoleEntries: FeedbackConsoleEntry[];
   correlationIds?: string[];
   pageUrl: string;
+  productContext?: FeedbackProductContext;
 }
 
 const MAX_CONSOLE_ENTRIES = 80;
@@ -28,6 +38,8 @@ const CORRELATION_ID_PATTERN =
 const EXACT_CORRELATION_ID_PATTERN = new RegExp(`^(?:${CORRELATION_ID_PATTERN.source})$`, 'iu');
 
 const entries: FeedbackConsoleEntry[] = [];
+const productBreadcrumbs: FeedbackBreadcrumb[] = [];
+let productContext: Omit<FeedbackProductContext, 'breadcrumbs'> = {};
 let initialized = false;
 
 const sanitizeUrl = (value: string): string => {
@@ -75,6 +87,96 @@ const appendEntry = (level: FeedbackConsoleLevel, message: string) => {
   }
 };
 
+const appendProductBreadcrumb = (breadcrumb: FeedbackBreadcrumb): void => {
+  productBreadcrumbs.push(breadcrumb);
+  if (productBreadcrumbs.length > MAX_FEEDBACK_BREADCRUMB_ENTRIES) {
+    productBreadcrumbs.splice(0, productBreadcrumbs.length - MAX_FEEDBACK_BREADCRUMB_ENTRIES);
+  }
+};
+
+const recordProductBreadcrumb = (
+  operation: FeedbackBreadcrumb['operation'],
+  surface: FeedbackProductSurface,
+  context: Pick<FeedbackProductContext, 'project' | 'section'>
+): void => {
+  appendProductBreadcrumb({
+    operation,
+    ...(context.project ? { projectId: context.project.id } : {}),
+    ...(context.section ? { sectionId: context.section.id } : {}),
+    surface,
+    timestamp: new Date().toISOString(),
+  });
+};
+
+const sanitizeProductReference = (
+  reference: FeedbackProductContext['project'] | FeedbackProductContext['section'] | undefined
+): FeedbackProductContext['project'] | FeedbackProductContext['section'] | undefined => {
+  if (!reference) return undefined;
+
+  const id = reference.id.trim();
+  if (!id) return undefined;
+
+  return {
+    id,
+    ...(reference.revision === undefined ? {} : { revision: reference.revision }),
+  };
+};
+
+export const setFeedbackProductContext = (
+  nextContext: Omit<FeedbackProductContext, 'breadcrumbs' | 'workflow'>
+): void => {
+  const project = sanitizeProductReference(nextContext.project);
+  const section = sanitizeProductReference(nextContext.section);
+  const surface = nextContext.surface;
+  const previous = productContext;
+
+  if (surface && surface !== previous.surface) {
+    recordProductBreadcrumb('visited-surface', surface, { project, section });
+  }
+  if (project && project.id !== previous.project?.id && surface) {
+    recordProductBreadcrumb('opened-project', surface, { project, section });
+  }
+  if (section && section.id !== previous.section?.id && surface) {
+    recordProductBreadcrumb('opened-section', surface, { project, section });
+  }
+
+  productContext = {
+    ...(project ? { project } : {}),
+    ...(section ? { section } : {}),
+    ...(surface ? { surface } : {}),
+    ...(previous.workflow &&
+    previous.project?.id === project?.id &&
+    previous.section?.id === section?.id
+      ? { workflow: previous.workflow }
+      : {}),
+  };
+};
+
+export const recordFeedbackWorkflowSnapshot = ({
+  operation,
+  projectId,
+  runId,
+  status,
+}: {
+  operation: FeedbackWorkflowOperation;
+  projectId: string;
+  runId: string;
+  status: FeedbackWorkflowStatus;
+}): void => {
+  if (productContext.project?.id !== projectId || !productContext.surface) return;
+
+  const workflow = { operation, runId: runId.trim(), status };
+  const previousWorkflow = productContext.workflow;
+  if (
+    previousWorkflow?.operation !== workflow.operation ||
+    previousWorkflow.runId !== workflow.runId ||
+    previousWorkflow.status !== workflow.status
+  ) {
+    recordProductBreadcrumb('updated-workflow', productContext.surface, productContext);
+  }
+  productContext = { ...productContext, workflow };
+};
+
 const getCorrelationIds = (consoleEntries: FeedbackConsoleEntry[]): string[] | undefined => {
   const ids = new Set<string>();
   for (let entryIndex = consoleEntries.length - 1; entryIndex >= 0; entryIndex -= 1) {
@@ -98,11 +200,21 @@ export const getFeedbackDiagnosticsSnapshot = (): FeedbackDiagnosticsSnapshot =>
     consoleEntries,
     correlationIds: getCorrelationIds(consoleEntries),
     pageUrl: sanitizeUrl(globalThis.location.href),
+    ...(productContext.surface
+      ? {
+          productContext: {
+            ...productContext,
+            breadcrumbs: productBreadcrumbs.map(breadcrumb => ({ ...breadcrumb })),
+          },
+        }
+      : {}),
   };
 };
 
 export const clearFeedbackDiagnostics = (): void => {
   entries.length = 0;
+  productBreadcrumbs.length = 0;
+  productContext = {};
 };
 
 export const logBackendFailureCorrelationId = (value: unknown): void => {

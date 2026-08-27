@@ -11,6 +11,7 @@ import type {
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
+import { recordFeedbackWorkflowSnapshot } from '../../../services/feedback/browserDiagnostics.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
@@ -254,6 +255,12 @@ export const createAssessmentPlanningCommands = (
         onProgressStage: feedback.progressObserver.setStage,
         onWorkflowSnapshot: snapshot => {
           if (!state.isWorkflowCurrent('generatePlan', requestId)) return;
+          recordFeedbackWorkflowSnapshot({
+            operation: 'generate-course',
+            projectId: snapshot.projectId,
+            runId: snapshot.id,
+            status: snapshot.status,
+          });
           feedback.progressBridge.updateFromWorkflow(snapshot);
         },
       });
