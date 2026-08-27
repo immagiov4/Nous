@@ -63,6 +63,13 @@ describe('lesson research model response contract', () => {
       },
     },
     {
+      expectedPath: 'sources[0].title',
+      response: {
+        ...validResearchResponse,
+        sources: [{ ...validResearchResponse.sources[0], title: ' \t\n ' }],
+      },
+    },
+    {
       expectedPath: 'sources[0].url',
       response: {
         ...validResearchResponse,
@@ -78,7 +85,7 @@ describe('lesson research model response contract', () => {
         ],
       },
     },
-  ])('rejects an empty identifier at $expectedPath', async ({ expectedPath, response }) => {
+  ])('rejects an unusable identifier at $expectedPath', async ({ expectedPath, response }) => {
     runCodexAppServerTurn.mockResolvedValue(JSON.stringify(response));
 
     await expect(generateResearchSummary(generationInput())).rejects.toMatchObject({
@@ -90,13 +97,13 @@ describe('lesson research model response contract', () => {
         sources: {
           items: {
             properties: {
-              title: { minLength: 1 },
-              url: { minLength: 1 },
+              title: { minLength: 1, pattern: '\\S' },
+              url: { minLength: 1, pattern: '\\S' },
             },
           },
         },
         youtubeCandidateDecisions: {
-          items: { properties: { url: { minLength: 1 } } },
+          items: { properties: { url: { minLength: 1, pattern: '\\S' } } },
         },
       },
     });

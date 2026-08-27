@@ -2,7 +2,7 @@ import * as z from 'zod';
 
 import type { LessonResearchSummary } from './lessonGenerationTypes.js';
 
-const ResearchIdentifierSchema = z.string().min(1);
+const ResearchIdentifierSchema = z.string().min(1).regex(/\S/);
 
 export const YouTubeCandidateDecisionSchema = z.object({
   decision: z.enum(['rejected', 'selected-source']),
