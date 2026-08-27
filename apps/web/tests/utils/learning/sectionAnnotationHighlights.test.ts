@@ -48,6 +48,8 @@ test('falls back to highlight geometry when the caret point is outside a native 
   range.setStart(text, 0);
   range.setEnd(text, text.data.length);
   const rect = new DOMRect(10, 20, 120, 18);
+  const pointerXWithinRange = 50;
+  const pointerYWithinRange = 25;
   range.getClientRects = () => [rect] as unknown as DOMRectList;
   const caretPositionFromPointDescriptor = Object.getOwnPropertyDescriptor(
     document,
@@ -74,8 +76,8 @@ test('falls back to highlight geometry when the caret point is outside a native 
             selectedText: text.data,
           },
         ],
-        50,
-        25
+        pointerXWithinRange,
+        pointerYWithinRange
       )
     ).toMatchObject({ annotationId: 'annotation-native', rect, selectedText: text.data });
   } finally {

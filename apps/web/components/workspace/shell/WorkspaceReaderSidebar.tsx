@@ -446,10 +446,9 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                         const hasAnotherGeneratingSection =
                           generatingSectionId !== null && generatingSectionId !== section.id;
                         const isLessonLoading =
-                          !hasAnotherGeneratingSection &&
-                          (pendingSectionId === section.id ||
-                            (isActive && isActiveSectionLoading) ||
-                            isCachedLessonLoading);
+                          pendingSectionId === section.id ||
+                          (!hasAnotherGeneratingSection &&
+                            ((isActive && isActiveSectionLoading) || isCachedLessonLoading));
                         // Disabled only when a different section is being
                         // generated — otherwise all sections are clickable
                         // (to start generation or navigate).

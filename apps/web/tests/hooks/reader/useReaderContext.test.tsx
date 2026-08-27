@@ -86,6 +86,8 @@ test('keeps a mobile selection menu open when an interaction ends inside its por
   document.body.append(container);
   const portalElement = document.createElement('button');
   portalElement.dataset.nousContextMenuPortal = '';
+  const portalChild = document.createElement('span');
+  portalElement.append(portalChild);
   document.body.append(portalElement);
   const contentRef = { current: container };
   const selection = buildSelection(container, textNode, 'beta');
@@ -101,8 +103,8 @@ test('keeps a mobile selection menu open when an interaction ends inside its por
   try {
     act(() => {
       result.current.openContextMenuFromSelection(selection, 'mobile-sheet');
-      portalElement.dispatchEvent(new Event('pointerup', { bubbles: true }));
-      vi.advanceTimersByTime(100);
+      portalChild.dispatchEvent(new Event('pointerup', { bubbles: true }));
+      vi.runOnlyPendingTimers();
     });
 
     assert.equal(result.current.contextMenu.visible, true);

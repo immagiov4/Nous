@@ -1,6 +1,5 @@
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { QuizQuestion } from '../../../types.ts';
-import { getActivePauseExerciseLabel } from '../../../utils/learning/activePause.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
 interface WorkspaceReaderInlineQuestionProps {
@@ -48,7 +47,6 @@ export default function WorkspaceReaderInlineQuestion({
   const selectedOption = isAnswered ? question.options[selectedIndex] : '';
   const correctOption = question.options[question.correctIndex] || '';
   const answeredCorrectly = selectedIndex === question.correctIndex;
-  const exerciseLabel = getActivePauseExerciseLabel(question);
 
   return (
     <section
@@ -61,8 +59,7 @@ export default function WorkspaceReaderInlineQuestion({
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <span className="rounded-full bg-orange-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-          {t('Pausa attiva {questionNumber} - {exerciseLabel}', {
-            exerciseLabel,
+          {t('Pausa attiva {questionNumber}', {
             questionNumber: questionIndex + 1,
           })}
         </span>
@@ -120,7 +117,7 @@ export default function WorkspaceReaderInlineQuestion({
               // biome-ignore lint/suspicious/noArrayIndexKey: generated options have no IDs and may contain duplicate text; their order is immutable for the lifetime of this quiz.
               key={`${questionIndex}-${optionIndex}`}
               onClick={() => onSelectQuizAnswer(questionIndex, optionIndex)}
-              className={`relative flex w-full items-baseline rounded-xl border p-4 text-left text-base transition-all ${getQuizOptionClassName(
+              className={`relative block w-full overflow-hidden rounded-xl border p-4 text-left text-base transition-all ${getQuizOptionClassName(
                 {
                   correctIndex: question.correctIndex,
                   isAnswered,
@@ -129,16 +126,16 @@ export default function WorkspaceReaderInlineQuestion({
                 }
               )}`}
             >
-              <span className="absolute -left-3 top-3 flex size-7 items-center justify-center rounded-full border border-stone-300 bg-white text-xs font-bold text-stone-600 shadow-sm dark:border-stone-600 dark:bg-zinc-900 dark:text-stone-300">
-                {String.fromCharCode(65 + optionIndex)}.
+              <span className="float-left -ml-4 -mt-4 mb-1 mr-2 flex size-8 items-center justify-center rounded-br-2xl bg-stone-100/80 text-xs font-semibold text-stone-500 dark:bg-zinc-700/70 dark:text-stone-400">
+                {String.fromCharCode(65 + optionIndex)}
               </span>
-              <span className="min-w-0 flex-1">
+              <div className="min-w-0">
                 <MarkdownRenderer
                   content={option}
                   isDarkMode={isDarkMode}
                   className="prose-sm max-w-none [&_p]:!my-0"
                 />
-              </span>
+              </div>
             </button>
           ))}
         </div>

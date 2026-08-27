@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
 
 import WorkspaceReaderInlineQuestion from '../../../../components/workspace/shell/WorkspaceReaderInlineQuestion.tsx';
 
-test('overlays option labels without changing keyboard answer selection', async () => {
+test('keeps pointer and keyboard answer selection working through option labels', async () => {
   const user = userEvent.setup();
   const onSelectQuizAnswer = vi.fn();
   render(
@@ -25,16 +25,8 @@ test('overlays option labels without changing keyboard answer selection', async 
     />
   );
 
-  const firstOption = screen.getByRole('button', { name: /A\.Prima risposta/ });
-  const optionLabel = firstOption.querySelector('span');
-  expect(firstOption.className.split(/\s+/u).some(className => className.startsWith('pl-'))).toBe(
-    false
-  );
-  expect(optionLabel).toHaveClass('absolute');
-  expect(optionLabel).toHaveClass('rounded-full', 'border', 'bg-white', 'dark:bg-zinc-900');
-  if (!optionLabel) {
-    throw new Error('Quiz option label is missing.');
-  }
+  const firstOption = screen.getByRole('button', { name: /A Prima risposta/ });
+  const optionLabel = within(firstOption).getByText('A');
   await user.tab();
   expect(firstOption).toHaveFocus();
   await user.keyboard(' ');

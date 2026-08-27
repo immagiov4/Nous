@@ -1150,8 +1150,7 @@ const ENGLISH_UI_MESSAGES = {
   'La tua scelta': 'Your choice',
   'Non sono riuscito a generare un artefatto visuale utile per questa richiesta.':
     'I could not generate a useful visual artifact for this request.',
-  'Pausa attiva {questionNumber} - {exerciseLabel}':
-    'Active pause {questionNumber} - {exerciseLabel}',
+  'Pausa attiva {questionNumber}': 'Active pause {questionNumber}',
   'Risposta corretta': 'Correct answer',
   'Rimuovi {artifactTitle} dalla nota': 'Remove {artifactTitle} from the note',
   'Rimuovi dalla nota': 'Remove from note',

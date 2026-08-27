@@ -75,6 +75,9 @@ const YOUTUBE_PLAYER_STATE = {
   PAUSED: 2,
   BUFFERING: 3,
 } as const;
+const PLAYBACK_RATE_MIN = 0.8;
+const PLAYBACK_RATE_MAX = 1.6;
+const PLAYBACK_RATE_STEP = 0.05;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -152,6 +155,11 @@ const formatPlaybackRateLabel = (value: number): string => {
   return trimmedFraction ? `${integerPart}.${trimmedFraction}` : integerPart;
 };
 
+const normalizePlaybackRate = (value: number): number => {
+  const stepsPerUnit = 1 / PLAYBACK_RATE_STEP;
+  return Math.round(value * stepsPerUnit) / stepsPerUnit;
+};
+
 interface PlaybackSpeedPickerProps {
   readonly onSpeedChange: (speed: number) => void;
   readonly playbackRate: number;
@@ -209,9 +217,9 @@ const PlaybackSpeedPicker = ({ onSpeedChange, playbackRate }: PlaybackSpeedPicke
           <input
             type="range"
             aria-label={t('Velocita')}
-            min="0.8"
-            max="1.6"
-            step="0.05"
+            min={PLAYBACK_RATE_MIN}
+            max={PLAYBACK_RATE_MAX}
+            step={PLAYBACK_RATE_STEP}
             value={playbackRate}
             onChange={event => onSpeedChange(Number.parseFloat(event.target.value))}
             className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
@@ -271,7 +279,7 @@ const UnifiedAudioPanel = ({
 
   const ttsDisabled = !tts.ttsConnected || !tts.sectionContent;
   const { isTextPickerActive, onSetTextPickerActive } = tts;
-  const normalizedPlaybackRate = Math.round(tts.playbackRate * 20) / 20;
+  const normalizedPlaybackRate = normalizePlaybackRate(tts.playbackRate);
   const requestedVideoId = useMemo(() => {
     return extractYouTubeVideoId(musicUrl);
   }, [musicUrl]);

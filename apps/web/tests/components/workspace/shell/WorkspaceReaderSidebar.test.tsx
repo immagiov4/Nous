@@ -247,6 +247,10 @@ describe('WorkspaceReaderSidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Lezione pronta' }));
     expect(onSelectSection).toHaveBeenCalledWith(expect.objectContaining({ id: 'section-2' }));
+    expect(screen.getByRole('button', { name: 'Lezione pronta' })).toHaveAttribute(
+      'aria-busy',
+      'true'
+    );
     rerender(
       <WorkspaceReaderSidebar
         {...buildProps({
