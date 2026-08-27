@@ -3312,6 +3312,12 @@ test('startHomeChat reports each unusable source while continuing with valid mat
 });
 
 test('submitAssessment sends the durable user-answer signal and applies the proposal', async () => {
+  vi.stubGlobal('location', new URL('https://nous.test/'));
+  feedbackDiagnostics.clearFeedbackDiagnostics();
+  feedbackDiagnostics.setFeedbackProductContext({
+    project: { id: 'learn-project' },
+    surface: 'assessment',
+  });
   const sendCourseInterviewAnswer = vi.fn(
     async (
       _input: Parameters<
@@ -3340,6 +3346,13 @@ test('submitAssessment sends the durable user-answer signal and applies the prop
     text: 'Fammi imparare TypeScript',
     waitId: 'answer-wait',
   });
+  assert.deepEqual(feedbackDiagnostics.getFeedbackDiagnosticsSnapshot().productContext?.workflow, {
+    operation: 'assessment-interview',
+    runId: 'interview-run',
+    status: 'waiting',
+  });
+  feedbackDiagnostics.clearFeedbackDiagnostics();
+  vi.unstubAllGlobals();
 });
 
 test('submitAssessment sends add-details when the durable proposal awaits a decision', async () => {

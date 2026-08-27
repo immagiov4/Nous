@@ -16,16 +16,20 @@ const PRODUCT_SURFACE_LABELS: Record<FeedbackProductSurface, () => string> = {
 };
 
 const WORKFLOW_OPERATION_LABELS: Record<FeedbackWorkflowOperation, () => string> = {
+  'assessment-interview': () => t('Intervista di valutazione'),
   'create-lesson': () => t('Creazione lezione'),
   'generate-course': () => t('Generazione corso'),
   'load-section': () => t('Caricamento lezione'),
 };
 
 const WORKFLOW_STATUS_LABELS: Record<FeedbackWorkflowStatus, () => string> = {
+  cancelled: () => t('Annullato'),
   completed: () => t('Completato'),
+  expired: () => t('Scaduto'),
   failed: () => t('Non riuscito'),
   queued: () => t('In coda'),
   running: () => t('In corso'),
+  waiting: () => t('In attesa'),
 };
 
 const BREADCRUMB_OPERATION_LABELS: Record<FeedbackBreadcrumbOperation, () => string> = {

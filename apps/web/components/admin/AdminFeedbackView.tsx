@@ -234,6 +234,9 @@ function FeedbackDiagnostics({ report }: { report: AdminFeedbackReport }) {
               {diagnostics.productContext.project ? (
                 <p>
                   {t('Corso')}: {diagnostics.productContext.project.id}
+                  {diagnostics.productContext.project.revision === undefined
+                    ? ''
+                    : ` · ${t('Revisione')} ${diagnostics.productContext.project.revision}`}
                 </p>
               ) : null}
               {diagnostics.productContext.section ? (

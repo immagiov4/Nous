@@ -254,15 +254,13 @@ const sanitizeProductContext = (value: unknown): FeedbackProductContext | undefi
   };
 };
 
-const sanitizeDiagnostics = (value: unknown, request: Request): FeedbackDiagnostics => {
+const sanitizeDiagnostics = (value: unknown): FeedbackDiagnostics => {
   const diagnostics = isRecord(value) ? value : {};
   const pageUrl = sanitizeUrl(diagnostics.pageUrl);
   const appVersion =
     typeof diagnostics.appVersion === 'string'
       ? sanitizeDiagnosticText(diagnostics.appVersion, 64)
       : undefined;
-  const requestId = sanitizeDiagnosticText(request.get('x-request-id') || '', 128) || undefined;
-  const userAgent = sanitizeDiagnosticText(request.get('user-agent') || '', 300) || undefined;
   const correlationIds = sanitizeCorrelationIds(diagnostics.correlationIds);
   const consoleEntries = sanitizeConsoleEntries(diagnostics.consoleEntries);
   const productContext = sanitizeProductContext(diagnostics.productContext);
@@ -273,8 +271,6 @@ const sanitizeDiagnostics = (value: unknown, request: Request): FeedbackDiagnost
     ...(correlationIds ? { correlationIds } : {}),
     ...(pageUrl ? { pageUrl } : {}),
     ...(productContext ? { productContext } : {}),
-    ...(requestId ? { requestId } : {}),
-    ...(userAgent ? { userAgent } : {}),
   };
 };
 
@@ -399,7 +395,7 @@ const parseScreenshot = (value: unknown): FeedbackScreenshot | null | undefined 
   return { bytes, mimeType: match[1] as FeedbackScreenshot['mimeType'] };
 };
 
-const parseFeedbackInput = (body: unknown, request: Request): ParsedFeedbackInput | null => {
+const parseFeedbackInput = (body: unknown): ParsedFeedbackInput | null => {
   if (!isRecord(body) || !FEEDBACK_CATEGORIES.has(body.category as FeedbackCategory)) {
     return null;
   }
@@ -439,7 +435,7 @@ const parseFeedbackInput = (body: unknown, request: Request): ParsedFeedbackInpu
     category,
     ...(clientRequestId ? { clientRequestId } : {}),
     description,
-    diagnostics: isRecord(body.diagnostics) ? sanitizeDiagnostics(body.diagnostics, request) : {},
+    diagnostics: isRecord(body.diagnostics) ? sanitizeDiagnostics(body.diagnostics) : {},
     ...(screenshot ? { screenshot } : {}),
     ...(title ? { title } : {}),
   };
@@ -467,7 +463,7 @@ const requireAdminUser = (request: Request, response: Response, next: NextFuncti
 const router = Router();
 
 router.post('/', async (request: Request, response: Response) => {
-  const input = parseFeedbackInput(request.body, request);
+  const input = parseFeedbackInput(request.body);
   if (!input) {
     response.status(400).json({ success: false, error: INVALID_FEEDBACK_MESSAGE });
     return;

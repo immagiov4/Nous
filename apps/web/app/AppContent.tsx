@@ -18,14 +18,16 @@ import { selectBlockingProgress, selectBlockingReasoning } from '../services/wor
 import { AppState } from '../types';
 import { useAppDialogs } from './useAppDialogs.tsx';
 
-const getFeedbackProductSurface = ({
+export const getFeedbackProductSurface = ({
   hasContextAnswer,
+  isAssessmentActive,
   screenState,
 }: {
   hasContextAnswer: boolean;
+  isAssessmentActive: boolean;
   screenState: AppState;
 }): FeedbackProductSurface => {
-  if (screenState === AppState.ASSESSMENT) return 'assessment';
+  if (isAssessmentActive || screenState === AppState.ASSESSMENT) return 'assessment';
   if (screenState === AppState.PLANNING) return 'planning';
   if (screenState === AppState.READING) return hasContextAnswer ? 'contextual-chat' : 'reader';
   return globalThis.location.pathname === '/' ? 'home' : 'library';
@@ -97,15 +99,19 @@ const AppContent = () => {
         : {}),
       surface: getFeedbackProductSurface({
         hasContextAnswer: Boolean(readerState.readerContext.contextAnswer),
+        isAssessmentActive:
+          controller.assessmentMessages.length > 0 || workflowState.assessment.status === 'pending',
         screenState,
       }),
     });
   }, [
     controller.activeSection,
     controller.currentProjectId,
+    controller.assessmentMessages.length,
     currentProject?.revision,
     readerState.readerContext.contextAnswer,
     screenState,
+    workflowState.assessment.status,
   ]);
 
   useEffect(() => {

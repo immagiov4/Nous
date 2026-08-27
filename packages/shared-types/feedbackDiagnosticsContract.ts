@@ -19,6 +19,7 @@ export const FEEDBACK_BREADCRUMB_OPERATIONS = [
 export type FeedbackBreadcrumbOperation = (typeof FEEDBACK_BREADCRUMB_OPERATIONS)[number];
 
 export const FEEDBACK_WORKFLOW_OPERATIONS = [
+  'assessment-interview',
   'create-lesson',
   'generate-course',
   'load-section',
@@ -26,7 +27,15 @@ export const FEEDBACK_WORKFLOW_OPERATIONS = [
 
 export type FeedbackWorkflowOperation = (typeof FEEDBACK_WORKFLOW_OPERATIONS)[number];
 
-export const FEEDBACK_WORKFLOW_STATUSES = ['completed', 'failed', 'queued', 'running'] as const;
+export const FEEDBACK_WORKFLOW_STATUSES = [
+  'cancelled',
+  'completed',
+  'expired',
+  'failed',
+  'queued',
+  'running',
+  'waiting',
+] as const;
 
 export type FeedbackWorkflowStatus = (typeof FEEDBACK_WORKFLOW_STATUSES)[number];
 

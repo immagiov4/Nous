@@ -182,6 +182,11 @@ test('AuthGate clears retained lesson requests when the account changes', async 
 });
 
 test('password login clears diagnostics before exposing the authenticated app', async () => {
+  let firstAuthenticatedSnapshot: ReturnType<typeof getFeedbackDiagnosticsSnapshot> | undefined;
+  const AuthenticatedContent = () => {
+    firstAuthenticatedSnapshot ??= getFeedbackDiagnosticsSnapshot();
+    return <p>Area autenticata</p>;
+  };
   setFeedbackProductContext({
     project: { id: 'previous-project' },
     section: { id: 'previous-section' },
@@ -200,7 +205,7 @@ test('password login clears diagnostics before exposing the authenticated app', 
 
   render(
     <AuthGate>
-      <p>Area autenticata</p>
+      <AuthenticatedContent />
     </AuthGate>
   );
   fireEvent.click(screen.getByRole('button', { name: 'Accedi' }));
@@ -211,7 +216,7 @@ test('password login clears diagnostics before exposing the authenticated app', 
   fireEvent.submit(loginForm as HTMLFormElement);
 
   await waitFor(() => expect(screen.getByText('Area autenticata')).toBeInTheDocument());
-  expect(getFeedbackDiagnosticsSnapshot().productContext).toBeUndefined();
+  expect(firstAuthenticatedSnapshot?.productContext).toBeUndefined();
 });
 
 test('AuthGate synchronizes logout events received from another tab', async () => {

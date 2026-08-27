@@ -207,12 +207,13 @@ describe('/api/feedback', () => {
             status: 'failed',
           },
         },
-        userAgent: 'Nous test browser',
       },
       screenshot: { bytes: webpBytes, mimeType: 'image/webp' },
     });
     expect(storedInput.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(storedInput.diagnostics.productContext?.breadcrumbs).toHaveLength(25);
+    expect(storedInput.diagnostics).not.toHaveProperty('requestId');
+    expect(storedInput.diagnostics).not.toHaveProperty('userAgent');
     expect(JSON.stringify(storedInput.diagnostics.productContext)).not.toContain('private lesson');
     expect(JSON.stringify(storedInput.diagnostics.productContext)).not.toContain('private course');
     expect(store.markSubmitted).not.toHaveBeenCalled();

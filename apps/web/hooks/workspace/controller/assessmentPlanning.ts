@@ -80,6 +80,12 @@ export const createAssessmentPlanningCommands = (
   const { domain, openRouter, projectLibrary, state } = context;
 
   const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
+    recordFeedbackWorkflowSnapshot({
+      operation: 'assessment-interview',
+      projectId: snapshot.projectId,
+      runId: snapshot.runId,
+      status: snapshot.status,
+    });
     state.setAssessmentMessages([...snapshot.messages]);
     state.setCourseProposal(
       snapshot.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL ? snapshot.proposal : null

@@ -588,7 +588,7 @@ describe('AdminPanel', () => {
                   timestamp: '2026-07-16T10:00:00Z',
                 },
               ],
-              project: { id: 'project-12345678' },
+              project: { id: 'project-12345678', revision: 7 },
               section: { id: 'section-12345678' },
               surface: 'reader',
               workflow: {
@@ -619,6 +619,7 @@ describe('AdminPanel', () => {
     expect(screen.getByText('request-123')).toBeInTheDocument();
     expect(screen.getByText('Contesto prodotto')).toBeInTheDocument();
     expect(screen.getAllByText(/project-12345678/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/project-12345678 · Revisione 7/)).toBeInTheDocument();
     expect(screen.getByText(/workflow-12345678/)).toHaveTextContent('Caricamento lezione');
     await user.click(screen.getByText(/Log della console/));
     expect(screen.getByText(/save failed/)).toBeInTheDocument();
