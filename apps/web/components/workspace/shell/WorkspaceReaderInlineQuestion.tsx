@@ -120,7 +120,7 @@ export default function WorkspaceReaderInlineQuestion({
               // biome-ignore lint/suspicious/noArrayIndexKey: generated options have no IDs and may contain duplicate text; their order is immutable for the lifetime of this quiz.
               key={`${questionIndex}-${optionIndex}`}
               onClick={() => onSelectQuizAnswer(questionIndex, optionIndex)}
-              className={`relative flex w-full items-baseline gap-2 rounded-xl border p-4 pl-12 text-left text-base transition-all ${getQuizOptionClassName(
+              className={`relative flex w-full items-baseline rounded-xl border p-4 text-left text-base transition-all ${getQuizOptionClassName(
                 {
                   correctIndex: question.correctIndex,
                   isAnswered,
@@ -129,7 +129,7 @@ export default function WorkspaceReaderInlineQuestion({
                 }
               )}`}
             >
-              <span className="absolute left-4 top-4 font-bold opacity-40">
+              <span className="absolute -left-3 top-3 flex size-7 items-center justify-center rounded-full border border-stone-300 bg-white text-xs font-bold text-stone-600 shadow-sm dark:border-stone-600 dark:bg-zinc-900 dark:text-stone-300">
                 {String.fromCharCode(65 + optionIndex)}.
               </span>
               <span className="min-w-0 flex-1">

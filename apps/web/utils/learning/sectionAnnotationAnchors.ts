@@ -230,6 +230,23 @@ export const resolveSectionAnnotationSegments = (
   );
 };
 
+export const resolveSectionAnnotationSegmentEntries = (
+  content: string,
+  annotations: SectionAnnotation[],
+  boundaryContext?: SectionAnnotationBoundaryContext
+) => {
+  const selectionAnnotations = annotations.filter(isSelectionAnnotation);
+  if (selectionAnnotations.length === 0) {
+    return [];
+  }
+
+  const context = buildAnnotationResolutionContext(content, boundaryContext);
+  return selectionAnnotations.map(annotation => ({
+    annotation,
+    segments: resolveSectionAnnotationSegmentsWithContext(content, annotation, context),
+  }));
+};
+
 export const getSectionAnnotationText = (content: string, annotation: SectionAnnotation): string =>
   isSelectionAnnotation(annotation) &&
   resolveSectionAnnotationSegments(content, annotation).length > 0
@@ -242,17 +259,16 @@ export const materializeSectionAnnotationMarks = (
   boundaryContext?: SectionAnnotationBoundaryContext
 ): string => {
   const acceptedRanges: MarkdownRange[] = [];
-  const selectionAnnotations = (annotations || []).filter(isSelectionAnnotation);
-  if (selectionAnnotations.length === 0) {
+  const resolvedEntries = resolveSectionAnnotationSegmentEntries(
+    content,
+    annotations || [],
+    boundaryContext
+  );
+  if (resolvedEntries.length === 0) {
     return content;
   }
 
-  const context = buildAnnotationResolutionContext(content, boundaryContext);
-  const resolvedAnnotations = selectionAnnotations
-    .map(annotation => ({
-      annotation,
-      segments: resolveSectionAnnotationSegmentsWithContext(content, annotation, context),
-    }))
+  const resolvedAnnotations = resolvedEntries
     .filter(candidate => candidate.segments.length > 0)
     .sort((left, right) => left.segments[0].start - right.segments[0].start)
     .filter(candidate => {

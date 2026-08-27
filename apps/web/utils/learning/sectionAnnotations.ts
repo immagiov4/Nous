@@ -4,8 +4,7 @@ import { timestampIso } from '../time.ts';
 import {
   createSectionAnnotationSelector,
   getSectionAnnotationText as getAnchoredAnnotationText,
-  isSelectionAnnotation,
-  resolveSectionAnnotationSegments,
+  resolveSectionAnnotationSegmentEntries,
 } from './sectionAnnotationAnchors.ts';
 import {
   annotationSegmentsOverlap,
@@ -124,12 +123,11 @@ export const findSectionAnnotationForSelection = ({
   }
 
   const normalizedSelectedText = normalizeWhitespace(selectedText);
-  const matches = (annotations || [])
-    .filter(isSelectionAnnotation)
-    .map(annotation => ({
+  const matches = resolveSectionAnnotationSegmentEntries(content, annotations || [])
+    .map(({ annotation, segments }) => ({
       annotation,
       resolvedText: annotation.anchor.selector.exact,
-      segments: resolveSectionAnnotationSegments(content, annotation),
+      segments,
     }))
     .map(candidate => ({
       ...candidate,
@@ -199,13 +197,10 @@ export const applySectionAnnotation = ({
     return null;
   }
 
-  const anchoredAnnotations = (annotations || [])
-    .filter(isSelectionAnnotation)
-    .map(annotation => ({
-      annotation,
-      segments: resolveSectionAnnotationSegments(content, annotation),
-    }))
-    .filter(candidate => candidate.segments.length > 0);
+  const anchoredAnnotations = resolveSectionAnnotationSegmentEntries(
+    content,
+    annotations || []
+  ).filter(candidate => candidate.segments.length > 0);
   const absorbedAnnotations = anchoredAnnotations.filter(candidate =>
     candidate.segments.some(existingSegment =>
       selectedSegments.some(selectedSegment =>

@@ -27,7 +27,11 @@ test('overlays option labels without changing keyboard answer selection', async 
 
   const firstOption = screen.getByRole('button', { name: /A\.Prima risposta/ });
   const optionLabel = firstOption.querySelector('span');
+  expect(firstOption.className.split(/\s+/u).some(className => className.startsWith('pl-'))).toBe(
+    false
+  );
   expect(optionLabel).toHaveClass('absolute');
+  expect(optionLabel).toHaveClass('rounded-full', 'border', 'bg-white', 'dark:bg-zinc-900');
   if (!optionLabel) {
     throw new Error('Quiz option label is missing.');
   }
