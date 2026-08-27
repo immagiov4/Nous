@@ -152,6 +152,75 @@ const formatPlaybackRateLabel = (value: number): string => {
   return trimmedFraction ? `${integerPart}.${trimmedFraction}` : integerPart;
 };
 
+interface PlaybackSpeedPickerProps {
+  readonly onSpeedChange: (speed: number) => void;
+  readonly playbackRate: number;
+}
+
+const PlaybackSpeedPicker = ({ onSpeedChange, playbackRate }: PlaybackSpeedPickerProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || pickerRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [isOpen]);
+
+  return (
+    <>
+      <div className="inline-flex items-center">
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={() => setIsOpen(current => !current)}
+          className="flex cursor-pointer items-center border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-r-xl dark:text-zinc-300 dark:hover:bg-white/10 dark:focus-visible:ring-zinc-500"
+          aria-expanded={isOpen}
+        >
+          <span className="inline-block tabular-nums">
+            {formatPlaybackRateLabel(playbackRate)}x
+          </span>
+        </button>
+      </div>
+      {isOpen ? (
+        <div
+          ref={pickerRef}
+          className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-44 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.42)]"
+        >
+          <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
+            <span>{t('Velocita')}</span>
+            <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
+              {formatPlaybackRateLabel(playbackRate)}x
+            </span>
+          </div>
+          <input
+            type="range"
+            min="0.8"
+            max="1.6"
+            step="0.05"
+            value={playbackRate}
+            onChange={event => onSpeedChange(Number.parseFloat(event.target.value))}
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
+          />
+        </div>
+      ) : null}
+    </>
+  );
+};
+
 const UnifiedAudioPanel = ({
   isMobileViewport = false,
   isOpen: isOpenProp,
@@ -181,7 +250,6 @@ const UnifiedAudioPanel = ({
   );
   const [playerErrorVideoId, setPlayerErrorVideoId] = useState<string | null>(null);
   const [readyVideoId, setReadyVideoId] = useState<string | null>(null);
-  const [isSpeedPickerOpen, setIsSpeedPickerOpen] = useState(false);
   // Lazy-mount the YouTube iframe + API only after the user actually starts the music.
   // Otherwise every project with a saved musicUrl loads the YT API and keeps a hidden
   // iframe alive — that alone consumes ~30% of the tab's CPU on tracking/heartbeat loops.
@@ -191,8 +259,6 @@ const UnifiedAudioPanel = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const playerRef = useRef<YouTubePlayerInstance | null>(null);
-  const speedPickerButtonRef = useRef<HTMLButtonElement>(null);
-  const speedPickerRef = useRef<HTMLDivElement>(null);
   const hasUserActivatedPlayer = hasUserActivatedPlayerLocal || isMusicPlaying;
 
   const presets = [
@@ -424,34 +490,6 @@ const UnifiedAudioPanel = ({
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [isOpen, isTextPickerActive, onToggle]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      if (isSpeedPickerOpen) {
-        setIsSpeedPickerOpen(false);
-      }
-      return;
-    }
-
-    if (!isSpeedPickerOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        speedPickerButtonRef.current?.contains(target) ||
-        speedPickerRef.current?.contains(target)
-      ) {
-        return;
-      }
-
-      setIsSpeedPickerOpen(false);
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [isOpen, isSpeedPickerOpen]);
-
   const handleRetry = () => {
     setPlayerErrorVideoId(null);
     const currentUrl = musicUrl;
@@ -669,43 +707,10 @@ const UnifiedAudioPanel = ({
 
                       <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600" />
 
-                      <div className="inline-flex items-center">
-                        <button
-                          ref={speedPickerButtonRef}
-                          type="button"
-                          onClick={() => setIsSpeedPickerOpen(current => !current)}
-                          className="flex cursor-pointer items-center border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-r-xl dark:text-zinc-300 dark:hover:bg-white/10 dark:focus-visible:ring-zinc-500"
-                          aria-expanded={isSpeedPickerOpen}
-                        >
-                          <span className="inline-block tabular-nums">
-                            {formatPlaybackRateLabel(normalizedPlaybackRate)}x
-                          </span>
-                        </button>
-                      </div>
-                      {isSpeedPickerOpen ? (
-                        <div
-                          ref={speedPickerRef}
-                          className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-44 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.42)]"
-                        >
-                          <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
-                            <span>{t('Velocita')}</span>
-                            <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
-                              {formatPlaybackRateLabel(normalizedPlaybackRate)}x
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0.8"
-                            max="1.6"
-                            step="0.05"
-                            value={normalizedPlaybackRate}
-                            onChange={event =>
-                              tts.onSpeedChange(Number.parseFloat(event.target.value))
-                            }
-                            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
-                          />
-                        </div>
-                      ) : null}
+                      <PlaybackSpeedPicker
+                        onSpeedChange={tts.onSpeedChange}
+                        playbackRate={normalizedPlaybackRate}
+                      />
                     </div>
 
                     <div className="flex items-center gap-3">
