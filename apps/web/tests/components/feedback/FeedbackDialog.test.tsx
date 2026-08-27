@@ -125,6 +125,9 @@ describe('FeedbackDialog', () => {
     expect(screen.getByText('Contesto prodotto')).toBeInTheDocument();
     expect(screen.getAllByText(/project-12345678/)).toHaveLength(2);
     expect(screen.getByText(/123e4567-e89b-42d3-a456-426614174000/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Lettore/)).toHaveLength(2);
+    expect(screen.getByText(/Caricamento lezione/)).toBeInTheDocument();
+    expect(screen.queryByText(/load-section/)).toBeNull();
     await user.click(screen.getByRole('checkbox', { name: /Allega diagnostica tecnica/ }));
     await user.type(
       screen.getByRole('textbox', { name: 'Descrizione' }),
@@ -146,6 +149,44 @@ describe('FeedbackDialog', () => {
         screenshot: undefined,
       })
     );
+  });
+
+  test('submits the exact diagnostics snapshot shown after consent', async () => {
+    const user = userEvent.setup();
+    const initialSnapshot = {
+      consoleEntries: [],
+      pageUrl: 'https://nous.test/initial',
+    };
+    const consentedSnapshot = {
+      consoleEntries: [],
+      pageUrl: 'https://nous.test/consented',
+      productContext: { surface: 'library' as const },
+    };
+    getFeedbackDiagnosticsSnapshotMock
+      .mockReset()
+      .mockReturnValueOnce(initialSnapshot)
+      .mockReturnValueOnce(consentedSnapshot)
+      .mockReturnValue({
+        consoleEntries: [{ level: 'error', message: 'later', timestamp: 'later' }],
+        pageUrl: 'https://nous.test/later',
+      });
+    submitFeedbackMock.mockResolvedValue({ id: '45', status: 'pending' });
+    render(<FeedbackDialog onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('checkbox', { name: /Allega diagnostica tecnica/ }));
+    expect(screen.getByText('https://nous.test/consented')).toBeInTheDocument();
+    await user.type(
+      screen.getByRole('textbox', { name: 'Descrizione' }),
+      'Controllo lo snapshot consentito.'
+    );
+    await user.click(screen.getByRole('button', { name: 'Invia segnalazione' }));
+
+    await waitFor(() =>
+      expect(submitFeedbackMock).toHaveBeenCalledWith(
+        expect.objectContaining({ diagnostics: consentedSnapshot })
+      )
+    );
+    expect(getFeedbackDiagnosticsSnapshotMock).toHaveBeenCalledTimes(2);
   });
 
   test('does not block submission when optional screenshot capture fails', async () => {

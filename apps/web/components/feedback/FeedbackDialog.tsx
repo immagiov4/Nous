@@ -1,7 +1,13 @@
+import type {
+  FeedbackBreadcrumbOperation,
+  FeedbackProductSurface,
+  FeedbackWorkflowOperation,
+  FeedbackWorkflowStatus,
+} from '@shared/feedbackDiagnosticsContract';
 import { Bug, Camera, CheckCircle2, Lightbulb, LoaderCircle, Send, Trash2, X } from 'lucide-react';
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { translateUiMessage as t, type UiMessage } from '../../i18n/uiMessages.ts';
 import {
   type FeedbackDiagnosticsSnapshot,
   getFeedbackDiagnosticsSnapshot,
@@ -25,6 +31,35 @@ interface FeedbackDialogProps {
 const MIN_DESCRIPTION_LENGTH = 10;
 const FOCUSABLE_CONTROL_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+const PRODUCT_SURFACE_LABELS: Record<FeedbackProductSurface, UiMessage> = {
+  assessment: 'Valutazione iniziale',
+  'contextual-chat': 'Chat contestuale',
+  home: 'Home',
+  library: 'Libreria',
+  planning: 'Pianificazione',
+  reader: 'Lettore',
+};
+
+const WORKFLOW_OPERATION_LABELS: Record<FeedbackWorkflowOperation, UiMessage> = {
+  'create-lesson': 'Creazione lezione',
+  'generate-course': 'Generazione corso',
+  'load-section': 'Caricamento lezione',
+};
+
+const WORKFLOW_STATUS_LABELS: Record<FeedbackWorkflowStatus, UiMessage> = {
+  completed: 'Completato',
+  failed: 'Non riuscito',
+  queued: 'In coda',
+  running: 'In corso',
+};
+
+const BREADCRUMB_OPERATION_LABELS: Record<FeedbackBreadcrumbOperation, UiMessage> = {
+  'opened-project': 'Corso aperto',
+  'opened-section': 'Lezione aperta',
+  'updated-workflow': 'Attività aggiornata',
+  'visited-surface': 'Area visitata',
+};
 
 interface FeedbackTitleProps {
   readonly titleRef: RefObject<HTMLHeadingElement | null>;
@@ -182,7 +217,6 @@ function FeedbackDiagnostics({
   includeDiagnostics: boolean;
   onChange: (checked: boolean) => void;
 }) {
-  const latestConsoleEntries = diagnostics.consoleEntries.slice(-5);
   const productContext = diagnostics.productContext;
 
   return (
@@ -233,13 +267,14 @@ function FeedbackDiagnostics({
               ) : null}
               {productContext.surface ? (
                 <li>
-                  {t('Area')}: {productContext.surface}
+                  {t('Area')}: {t(PRODUCT_SURFACE_LABELS[productContext.surface])}
                 </li>
               ) : null}
               {productContext.workflow ? (
                 <li>
-                  {t('Workflow')}: {productContext.workflow.operation} (
-                  {productContext.workflow.status}) · {productContext.workflow.runId}
+                  {t('Attività')}: {t(WORKFLOW_OPERATION_LABELS[productContext.workflow.operation])}{' '}
+                  ({t(WORKFLOW_STATUS_LABELS[productContext.workflow.status])}) ·{' '}
+                  {productContext.workflow.runId}
                 </li>
               ) : null}
             </ul>
@@ -249,7 +284,8 @@ function FeedbackDiagnostics({
                   <li
                     key={`${breadcrumb.timestamp}-${breadcrumb.operation}-${breadcrumb.projectId || ''}-${breadcrumb.sectionId || ''}`}
                   >
-                    {breadcrumb.operation} · {breadcrumb.surface}
+                    {t(BREADCRUMB_OPERATION_LABELS[breadcrumb.operation])} ·{' '}
+                    {t(PRODUCT_SURFACE_LABELS[breadcrumb.surface])}
                     {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
                     {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
                     {breadcrumb.timestamp}
@@ -259,9 +295,9 @@ function FeedbackDiagnostics({
             ) : null}
           </div>
         ) : null}
-        {latestConsoleEntries.length > 0 ? (
+        {diagnostics.consoleEntries.length > 0 ? (
           <ul className="mt-2 space-y-1 font-mono">
-            {latestConsoleEntries.map(entry => (
+            {diagnostics.consoleEntries.map(entry => (
               <li key={`${entry.timestamp}-${entry.level}`} className="break-words">
                 [{entry.level}] {entry.message}
               </li>
@@ -544,9 +580,7 @@ export default function FeedbackDialog({ onClose }: FeedbackDialogProps) {
     setIsSubmitting(true);
     setErrorMessage('');
     try {
-      const submittedDiagnostics = includeDiagnostics
-        ? getFeedbackDiagnosticsSnapshot()
-        : undefined;
+      const submittedDiagnostics = includeDiagnostics ? diagnostics : undefined;
       const feedback = await submitFeedback({
         category,
         description: trimmedDescription,

@@ -108,6 +108,40 @@ describe('NewHomeView library interactions', () => {
     globalThis.matchMedia = originalMatchMedia;
   });
 
+  test('reports home and library page changes to its owner', async () => {
+    const user = userEvent.setup();
+    const onPageChange = vi.fn();
+    render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onPageChange={onPageChange}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    expect(onPageChange).toHaveBeenLastCalledWith('home');
+    await user.click(screen.getAllByRole('button', { name: 'Libreria' })[0]);
+    expect(onPageChange).toHaveBeenLastCalledWith('library');
+  });
+
   test.each([
     { isPhoneViewport: true, visibleResumeCourseCount: 1 },
     { isPhoneViewport: false, visibleResumeCourseCount: 3 },

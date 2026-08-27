@@ -5,6 +5,11 @@ import { beforeEach, expect, test, vi } from 'vitest';
 
 import AuthGate from '../../../components/auth/AuthGate.tsx';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
+import {
+  clearFeedbackDiagnostics,
+  getFeedbackDiagnosticsSnapshot,
+  setFeedbackProductContext,
+} from '../../../services/feedback/browserDiagnostics.ts';
 
 const fetchMock = vi.fn();
 
@@ -36,6 +41,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   clearSupabaseSession();
+  clearFeedbackDiagnostics();
 });
 
 test('keeps the public landing available to signed-in testers at /landing', () => {
@@ -154,6 +160,11 @@ test('AuthGate clears retained lesson requests when the account changes', async 
     'nous:lesson-workflow-request:project-1:lesson-1',
     'old-account-request'
   );
+  setFeedbackProductContext({
+    project: { id: 'project-1' },
+    section: { id: 'lesson-1' },
+    surface: 'reader',
+  });
 
   act(() => {
     saveSupabaseSession({
@@ -167,6 +178,7 @@ test('AuthGate clears retained lesson requests when the account changes', async 
       globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:lesson-1')
     ).toBeNull()
   );
+  expect(getFeedbackDiagnosticsSnapshot().productContext).toBeUndefined();
 });
 
 test('AuthGate synchronizes logout events received from another tab', async () => {

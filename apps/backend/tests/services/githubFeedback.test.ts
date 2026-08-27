@@ -72,6 +72,35 @@ describe('GithubFeedbackPublisher', () => {
     expect(body.body).not.toContain('server-only-token');
   });
 
+  test('keeps product context visible when noisy console diagnostics are truncated', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ html_url: 'https://github.com/example/nous-reader/issues/64', number: 64 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new GithubFeedbackPublisher().publish({
+      ...REPORT,
+      diagnostics: {
+        consoleEntries: Array.from({ length: 50 }, (_, index) => ({
+          level: 'error' as const,
+          message: `${index}-${'x'.repeat(1_000)}`,
+          timestamp: '2026-07-16T10:00:00.000Z',
+        })),
+        productContext: {
+          project: { id: 'project-1' },
+          section: { id: 'lesson-1' },
+          surface: 'reader',
+        },
+      },
+    });
+
+    const options = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(options.body as string) as { body: string };
+    expect(body.body).toContain('&quot;productContext&quot;');
+    expect(body.body).toContain('&quot;project-1&quot;');
+    expect(body.body).toContain('…[troncato]');
+  });
+
   test('reconciles a previous GitHub success before retrying creation', async () => {
     const existingIssueBody = `**Feedback ID:** \`${buildFeedbackMarker(REPORT.id)}\``;
     const fetchMock = vi.fn(async () =>

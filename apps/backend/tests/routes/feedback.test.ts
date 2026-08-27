@@ -314,6 +314,47 @@ describe('/api/feedback', () => {
     expect(storedInput).not.toHaveProperty('screenshot');
   });
 
+  test('does not derive diagnostics when the client omitted the consented payload', async () => {
+    const { service, store } = createService();
+    setFeedbackServiceForTesting(service);
+
+    const response = await request(createApp())
+      .post('/api/feedback')
+      .set('Authorization', `Bearer ${createToken()}`)
+      .set('User-Agent', 'Nous test browser')
+      .send({ category: 'enhancement', description: 'Aggiungere una scorciatoia.' });
+
+    expect(response.status).toBe(201);
+    expect(store.create.mock.calls[0]?.[0].diagnostics).toEqual({});
+  });
+
+  test('preserves valid short product identifiers', async () => {
+    const { service, store } = createService();
+    setFeedbackServiceForTesting(service);
+
+    const response = await request(createApp())
+      .post('/api/feedback')
+      .set('Authorization', `Bearer ${createToken()}`)
+      .send({
+        category: 'bug',
+        description: 'La lezione non si apre.',
+        diagnostics: {
+          productContext: {
+            project: { id: 'project-1' },
+            section: { id: 'lesson-1' },
+            surface: 'reader',
+          },
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(store.create.mock.calls[0]?.[0].diagnostics.productContext).toMatchObject({
+      project: { id: 'project-1' },
+      section: { id: 'lesson-1' },
+      surface: 'reader',
+    });
+  });
+
   test('keeps a persisted report pending when asynchronous GitHub delivery fails', async () => {
     const { publisher, service, store } = createService({ publisherConfigured: true });
     publisher.publish.mockRejectedValue(new Error('network secret'));

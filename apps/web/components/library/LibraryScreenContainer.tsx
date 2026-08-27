@@ -7,10 +7,11 @@ import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceN
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
+import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
-import { NewHomeView } from '../newHome/NewHomeView.tsx';
+import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -208,6 +209,10 @@ export const LibraryScreenContainer = ({
     });
   };
 
+  const handlePageChange = useCallback((page: NewHomePage) => {
+    setFeedbackProductContext({ surface: page });
+  }, []);
+
   return (
     <>
       <input
@@ -287,6 +292,7 @@ export const LibraryScreenContainer = ({
         onOpenProject={projectId => {
           void navigation.handleOpenProject(projectId, { source: 'library' });
         }}
+        onPageChange={handlePageChange}
         openingProjectId={openingProjectId}
         onRenameFolder={projectLibrary.renameFolder}
         onRenameProject={handleRenameProject}

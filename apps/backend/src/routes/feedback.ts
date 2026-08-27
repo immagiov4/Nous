@@ -49,7 +49,7 @@ const RATE_LIMIT_MESSAGE = 'Hai inviato troppe segnalazioni. Riprova più tardi.
 const ADMIN_REQUIRED_MESSAGE = 'Permessi di amministratore richiesti.';
 const GITHUB_NOT_CONFIGURED_MESSAGE = 'La sincronizzazione GitHub non è configurata.';
 const ROUTE_ID_PATTERN =
-  /^(?:\d+|[0-9a-f]{8}-[0-9a-f-]{27,}|(?:course|lesson|module|project|section|user)[-_][a-z0-9_-]{8,})$/i;
+  /^(?:\d+|[0-9a-f]{8}-[0-9a-f-]{27,}|(?:course|lesson|module|project|section|user)[-_][a-z0-9_-]+)$/i;
 const FEEDBACK_PRODUCT_SURFACE_SET = new Set<FeedbackProductSurface>(FEEDBACK_PRODUCT_SURFACES);
 const FEEDBACK_BREADCRUMB_OPERATION_SET = new Set(FEEDBACK_BREADCRUMB_OPERATIONS);
 const FEEDBACK_WORKFLOW_OPERATION_SET = new Set(FEEDBACK_WORKFLOW_OPERATIONS);
@@ -439,7 +439,7 @@ const parseFeedbackInput = (body: unknown, request: Request): ParsedFeedbackInpu
     category,
     ...(clientRequestId ? { clientRequestId } : {}),
     description,
-    diagnostics: sanitizeDiagnostics(body.diagnostics, request),
+    diagnostics: isRecord(body.diagnostics) ? sanitizeDiagnostics(body.diagnostics, request) : {},
     ...(screenshot ? { screenshot } : {}),
     ...(title ? { title } : {}),
   };
