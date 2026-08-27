@@ -110,6 +110,8 @@ const timeoutFailure = (): StepFailure => ({
   message: 'The workflow step exceeded its execution timeout.',
 });
 
+const INVALID_OUTPUT_FEEDBACK = 'Return an output that matches the declared schema.';
+
 const invalidOutputFailure = (issue?: SanitizedZodIssue): StepFailure => ({
   code: 'workflow_step_output_invalid',
   ...(issue
@@ -117,9 +119,9 @@ const invalidOutputFailure = (issue?: SanitizedZodIssue): StepFailure => ({
         details: {
           validationIssue: { code: issue.code, path: [...issue.path] },
         },
-        feedback: `Return an output that matches the declared schema. Correct ${formatValidationPath(issue.path)} (${issue.code}).`,
+        feedback: `${INVALID_OUTPUT_FEEDBACK} Correct ${formatValidationPath(issue.path)} (${issue.code}).`,
       }
-    : { feedback: 'Return an output that matches the declared schema.' }),
+    : { feedback: INVALID_OUTPUT_FEEDBACK }),
   kind: 'corrective',
   message: 'The workflow step returned an invalid output.',
 });

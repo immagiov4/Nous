@@ -3,9 +3,18 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateResearchSummary } from '../../src/services/lessonGenerationModel.js';
 
-const { runCodexAppServerTurn } = vi.hoisted(() => ({
+const { createConfiguredTextModel, generateText, runCodexAppServerTurn } = vi.hoisted(() => ({
+  createConfiguredTextModel: vi.fn(),
+  generateText: vi.fn(),
   runCodexAppServerTurn: vi.fn(),
 }));
+
+vi.mock('ai', async importOriginal => ({
+  ...(await importOriginal<typeof import('ai')>()),
+  generateText,
+}));
+
+vi.mock('../../src/services/aiSdkTextModel.js', () => ({ createConfiguredTextModel }));
 
 vi.mock('../../src/services/codexAppServer.js', () => ({ runCodexAppServerTurn }));
 
@@ -32,8 +41,8 @@ const validResearchResponse = {
   ],
 };
 
-const generationInput = () => ({
-  config: { ...getGlobalModelConfig(), aiProvider: 'codex' as const },
+const generationInput = (aiProvider: 'codex' | 'openrouter' = 'codex') => ({
+  config: { ...getGlobalModelConfig(), aiProvider },
   coverageGaps: ['Integrare il contesto disponibile.'],
   description: 'Descrizione',
   imageCandidates: [],
@@ -51,6 +60,9 @@ const generationInput = () => ({
 
 describe('lesson research model response contract', () => {
   beforeEach(() => {
+    createConfiguredTextModel.mockReset();
+    createConfiguredTextModel.mockReturnValue({ model: 'model', providerOptions: {} });
+    generateText.mockReset();
     runCodexAppServerTurn.mockReset();
   });
 
@@ -85,6 +97,10 @@ describe('lesson research model response contract', () => {
         ],
       },
     },
+    {
+      expectedPath: 'youtubeCandidateDecisions',
+      response: { ...validResearchResponse, youtubeCandidateDecisions: undefined },
+    },
   ])('rejects an unusable identifier at $expectedPath', async ({ expectedPath, response }) => {
     runCodexAppServerTurn.mockResolvedValue(JSON.stringify(response));
 
@@ -106,7 +122,23 @@ describe('lesson research model response contract', () => {
           items: { properties: { url: { minLength: 1, pattern: '\\S' } } },
         },
       },
+      required: expect.arrayContaining(['youtubeCandidateDecisions']),
     });
+  });
+
+  test('validates configured text-model output at the same boundary', async () => {
+    generateText.mockResolvedValue({
+      output: {
+        ...validResearchResponse,
+        sources: [{ ...validResearchResponse.sources[0], title: '   ' }],
+      },
+    });
+
+    await expect(generateResearchSummary(generationInput('openrouter'))).rejects.toMatchObject({
+      code: 'lesson_research_output_invalid',
+      feedback: expect.stringContaining('sources[0].title'),
+    });
+    expect(createConfiguredTextModel).toHaveBeenCalledOnce();
   });
 
   test('returns a valid research response unchanged', async () => {
