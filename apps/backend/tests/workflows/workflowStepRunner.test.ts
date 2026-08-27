@@ -1141,7 +1141,7 @@ describe('single workflow step runner', () => {
     expect(store.steps.recordFailure).not.toHaveBeenCalled();
   });
 
-  test('persists one bounded validation issue and returns its field path as retry feedback', async () => {
+  test('persists one bounded validation issue and propagates the exhausted failure', async () => {
     const ResearchState = z.object({
       research: z.object({
         summary: z.object({
@@ -1169,13 +1169,19 @@ describe('single workflow step runner', () => {
     }).current;
     const recordFailure = vi.fn(async () => ({ status: 'failed' as const, transientEvents: [] }));
 
-    await runWorkflowStepClaim({
-      claim: makeClaim(registered, { nodeInstanceId: 'work' }),
+    const result = await runWorkflowStepClaim({
+      claim: makeClaim(registered, { attemptNumber: 3, nodeInstanceId: 'work' }),
       registry,
       services: {},
       store: makeStore({ recordFailure }),
     });
 
+    expect(result).toEqual({
+      failure: recordFailure.mock.calls[0]?.[0].failure,
+      status: 'failure-recorded',
+      transientEvents: [],
+    });
+    expect(recordFailure.mock.calls[0]?.[0].claim.attemptNumber).toBe(3);
     expect(recordFailure.mock.calls[0]?.[0].failure).toEqual({
       code: 'workflow_step_output_invalid',
       details: {

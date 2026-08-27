@@ -14,6 +14,8 @@ import {
 import {
   type LessonAidsState,
   LessonAidsStateSchema,
+  type LessonDraftState,
+  LessonDraftStateSchema,
   type LessonPersistenceState,
   LessonPersistenceStateSchema,
   type LessonResearchState,
@@ -22,6 +24,8 @@ import {
   type LessonVisualsState,
   LessonVisualsStateSchema,
   type LessonYouTubeSearchState,
+  type LessonYouTubeState,
+  LessonYouTubeStateSchema,
   type SublessonPlanState,
   SublessonPlanStateSchema,
   type SublessonReadyState,
@@ -332,6 +336,116 @@ describe('lesson generation workflow', () => {
         youtubeSearchOutcome: { discoveredVideoCount: 1 },
       })
     ).toBe('finalize');
+  });
+
+  test('advances a valid research result from research-lesson to draft-lesson', async () => {
+    const youtubeState: LessonYouTubeState = LessonYouTubeStateSchema.parse({
+      discoveredYoutubeSources: [],
+      documentAssetOwners: [],
+      documentSourceHash: null,
+      existingDossierJson: null,
+      existingSources: [],
+      lessonInputData: {
+        description: 'Comunicazione a messaggi senza orologio globale.',
+        imageCandidates: [],
+        instructionPacks: [],
+        language: 'Italiano',
+        pedagogicalContext: '',
+        previousLessonTitles: ['Unita di calcolo'],
+        sectionTitle: 'Relazione happens-before',
+        sourceContext: 'Estratti originali selezionati.',
+      },
+      originalSources: [],
+      pdfImages: [],
+      request: aidsState.request,
+      requiresCoverageAssessment: false,
+      research: { context: '', youtube: null },
+      sourceFingerprint: aidsState.sourceFingerprint,
+      stage: 'youtube',
+      targetFingerprint: aidsState.targetFingerprint,
+      warnings: [],
+      youtubePlanning: {
+        courseTitle: 'Fondamenti dei sistemi distribuiti',
+        keyConcepts: ['happens-before'],
+      },
+    });
+    const validSummary = {
+      avoidOversimplifying: [],
+      controversies: [],
+      difficultSteps: [],
+      factualSummary: 'La relazione happens-before descrive un ordine causale parziale.',
+      keyExamples: [],
+      recentDevelopments: [],
+      sources: [
+        {
+          note: 'Definizione di riferimento',
+          title: 'Distributed Systems Reference',
+          url: 'https://example.com/distributed-systems',
+        },
+      ],
+      youtubeCandidateDecisions: [],
+    };
+    const researchLesson = vi.fn(async ({ input }) =>
+      LessonResearchStateSchema.parse({
+        ...input,
+        lessonSources: [],
+        research: { context: '{}', summary: validSummary, youtube: null },
+        stage: 'research',
+      })
+    );
+    const draftLesson = vi.fn(async ({ input }) =>
+      LessonDraftStateSchema.parse({
+        ...input,
+        draft: {
+          contentBlocks: [{ markdown: '## Relazione happens-before', type: 'markdown' }],
+          generatedVisuals: [],
+          imageRefs: [],
+        },
+        stage: 'draft',
+      })
+    );
+    const services = makeServices({ draftLesson, researchLesson });
+    const researchStep = findNode('research-lesson') as StepDefinition<
+      LessonYouTubeState,
+      LessonResearchState,
+      LessonGenerationWorkflowConfig,
+      LessonGenerationWorkflowServices
+    >;
+    const draftStep = findNode('draft-lesson') as StepDefinition<
+      LessonResearchState,
+      LessonDraftState,
+      LessonGenerationWorkflowConfig,
+      LessonGenerationWorkflowServices
+    >;
+
+    const researchOutput = await researchStep.run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'research-lesson', runId: 'run-1' },
+      idempotencyKey: 'research-key',
+      input: youtubeState,
+      retryFeedback: '',
+      services,
+      signal: new AbortController().signal,
+    });
+    const draftOutput = await draftStep.run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'draft-lesson', runId: 'run-1' },
+      idempotencyKey: 'draft-key',
+      input: researchOutput,
+      retryFeedback: '',
+      services,
+      signal: new AbortController().signal,
+    });
+
+    expect(researchOutput).toMatchObject({
+      research: { summary: validSummary },
+      stage: 'research',
+    });
+    expect(draftOutput).toMatchObject({ stage: 'draft' });
+    expect(researchLesson).toHaveBeenCalledOnce();
+    expect(draftLesson).toHaveBeenCalledOnce();
   });
 
   test('commits a planned sublesson before compacting into the unchanged lesson pipeline', async () => {

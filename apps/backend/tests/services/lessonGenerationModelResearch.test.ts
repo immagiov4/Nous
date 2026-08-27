@@ -63,6 +63,13 @@ describe('lesson research model response contract', () => {
       },
     },
     {
+      expectedPath: 'sources[0].url',
+      response: {
+        ...validResearchResponse,
+        sources: [{ ...validResearchResponse.sources[0], url: '' }],
+      },
+    },
+    {
       expectedPath: 'youtubeCandidateDecisions[0].url',
       response: {
         ...validResearchResponse,
@@ -93,5 +100,13 @@ describe('lesson research model response contract', () => {
         },
       },
     });
+  });
+
+  test('returns a valid research response unchanged', async () => {
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(validResearchResponse));
+
+    await expect(generateResearchSummary(generationInput())).resolves.toEqual(
+      validResearchResponse
+    );
   });
 });

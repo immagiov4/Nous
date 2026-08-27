@@ -3,6 +3,10 @@ import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
 import type { ProjectAssetRef, ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
+import { YouTubeCandidateDecisionSchema } from '../services/lessonResearchContract.js';
+
+export { LessonResearchSummarySchema } from '../services/lessonResearchContract.js';
+
 const SHA256_HEX_LENGTH = 64;
 export const Sha256HexSchema = z.string().length(SHA256_HEX_LENGTH);
 export const LessonIdentifierSchema = z.string().min(1);
@@ -54,29 +58,6 @@ export const YouTubeResearchOutcomeSchema = z.object({
   discoveredVideoCount: z.number().int().nonnegative(),
   rationale: z.string(),
   videoCandidates: z.array(YouTubeVideoEvidenceSchema),
-});
-
-const YouTubeCandidateDecisionSchema = z.object({
-  decision: z.enum(['rejected', 'selected-source']),
-  reason: z.string(),
-  url: LessonIdentifierSchema,
-});
-
-export const LessonResearchSummarySchema = z.object({
-  avoidOversimplifying: z.array(z.string()),
-  controversies: z.array(z.string()),
-  difficultSteps: z.array(z.string()),
-  factualSummary: z.string(),
-  keyExamples: z.array(z.string()),
-  recentDevelopments: z.array(z.string()),
-  sources: z.array(
-    z.object({
-      note: z.string(),
-      title: LessonIdentifierSchema,
-      url: LessonIdentifierSchema,
-    })
-  ),
-  youtubeCandidateDecisions: z.array(YouTubeCandidateDecisionSchema).optional(),
 });
 
 export const LessonResearchDossierSchema = z.object({

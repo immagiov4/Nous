@@ -251,9 +251,16 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
     const first = await claimNextStep(store, definition, 'corrective-worker');
     if (!first) throw new Error('Expected the first workflow claim.');
     const correctiveFailure = retryCorrective({
-      code: 'candidate_rejected',
-      feedback: 'Correct the rejected candidate.',
-      message: 'The candidate requires correction.',
+      code: 'workflow_step_output_invalid',
+      details: {
+        validationIssue: {
+          code: 'too_small',
+          path: ['research', 'summary', 'sources', 0, 'title'],
+        },
+      },
+      feedback:
+        'Return an output that matches the declared schema. Correct research.summary.sources[0].title (too_small).',
+      message: 'The workflow step returned an invalid output.',
     }).failure;
     await store.steps.recordFailure({ claim: first, definition, failure: correctiveFailure });
 
