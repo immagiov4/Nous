@@ -225,10 +225,13 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   }, [lessonContextMenu]);
 
   useEffect(() => {
-    if (pendingSectionId === activeSectionId && !isActiveSectionLoading) {
+    if (
+      pendingSectionId === activeSectionId &&
+      (!isActiveSectionLoading || generatingSectionId !== activeSectionId)
+    ) {
       setPendingSectionId(null);
     }
-  }, [activeSectionId, isActiveSectionLoading, pendingSectionId]);
+  }, [activeSectionId, generatingSectionId, isActiveSectionLoading, pendingSectionId]);
 
   const handleLessonContextMenu = (
     event: ReactMouseEvent<HTMLButtonElement>,
@@ -440,10 +443,13 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                         const isFirstTimeGeneration =
                           isGenerationInProgress && !hasGeneratedContent;
                         const isCachedLessonLoading = isGenerationInProgress && hasGeneratedContent;
+                        const hasAnotherGeneratingSection =
+                          generatingSectionId !== null && generatingSectionId !== section.id;
                         const isLessonLoading =
-                          pendingSectionId === section.id ||
-                          (isActive && isActiveSectionLoading) ||
-                          isCachedLessonLoading;
+                          !hasAnotherGeneratingSection &&
+                          (pendingSectionId === section.id ||
+                            (isActive && isActiveSectionLoading) ||
+                            isCachedLessonLoading);
                         // Disabled only when a different section is being
                         // generated — otherwise all sections are clickable
                         // (to start generation or navigate).

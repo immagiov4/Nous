@@ -1011,6 +1011,7 @@ const ContextMenu = ({
             <div className={isLessonMode ? 'mr-1.5' : ''}>
               <SpeechInputButton
                 disabled={isLoading}
+                errorPresentation={isMobileSheet ? 'viewport' : 'inline'}
                 onTranscription={handleSpeechTranscription}
                 variant="compact"
               />
@@ -1121,6 +1122,7 @@ const ContextMenu = ({
           <div className={isLessonMode ? 'mr-1.5' : ''}>
             <SpeechInputButton
               disabled={isLoading}
+              errorPresentation="viewport"
               onTranscription={handleSpeechTranscription}
               variant="compact"
             />

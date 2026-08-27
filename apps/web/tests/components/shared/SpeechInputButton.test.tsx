@@ -143,6 +143,25 @@ describe('SpeechInputButton', () => {
     ).toBeInTheDocument();
   });
 
+  test('keeps a mobile-context permission alert outside an overflow-hidden container', async () => {
+    const user = userEvent.setup();
+    getUserMedia.mockRejectedValue(new DOMException('Denied', 'NotAllowedError'));
+    const { container } = render(
+      <div className="overflow-hidden">
+        <SpeechInputButton errorPresentation="viewport" onTranscription={vi.fn()} />
+      </div>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+
+    const alert = await screen.findByRole('alert', {
+      name: 'Permesso microfono negato. Abilitalo nelle impostazioni del browser.',
+    });
+    expect(container).not.toContainElement(alert);
+    await user.click(screen.getByRole('button', { name: 'Chiudi avviso microfono' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   test('lets the user dismiss an error and replaces it on the next attempt', async () => {
     const user = userEvent.setup();
     getUserMedia

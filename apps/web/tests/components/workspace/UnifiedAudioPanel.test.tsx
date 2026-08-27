@@ -173,6 +173,31 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
+  test('closes only the playback-speed picker when another audio control receives a pointer event', async () => {
+    const user = userEvent.setup();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '1x' }));
+    expect(screen.getByText('Velocita')).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole('combobox', { name: 'Parte da leggere' }));
+
+    expect(screen.queryByText('Velocita')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chiudi menu audio' })).toBeInTheDocument();
+  });
+
   test('keeps the iframe lazy until the user starts background audio', async () => {
     const user = userEvent.setup();
     const { container } = render(

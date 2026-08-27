@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
-import { resolveSectionAnnotationHighlightTarget } from '../../../utils/learning/sectionAnnotationHighlights.ts';
+import {
+  findSectionAnnotationHighlightHit,
+  resolveSectionAnnotationHighlightTarget,
+} from '../../../utils/learning/sectionAnnotationHighlights.ts';
 
 test('resolves a native annotation highlight by id for programmatic navigation', () => {
   const element = document.createElement('p');
@@ -33,5 +36,42 @@ test('resolves a native annotation highlight by id for programmatic navigation',
     rect,
     selectedText: text.data,
   });
+  element.remove();
+});
+
+test('falls back to highlight geometry when the caret point is outside a native range', () => {
+  const element = document.createElement('p');
+  const text = document.createTextNode('Evidenziazione nativa');
+  element.append(text);
+  document.body.append(element);
+  const range = document.createRange();
+  range.setStart(text, 0);
+  range.setEnd(text, text.data.length);
+  const rect = new DOMRect(10, 20, 120, 18);
+  range.getClientRects = () => [rect] as unknown as DOMRectList;
+  Object.defineProperty(document, 'caretPositionFromPoint', {
+    configurable: true,
+    value: vi.fn(() => ({
+      offset: text.data.length + 1,
+      offsetNode: text,
+    })),
+  });
+
+  expect(
+    findSectionAnnotationHighlightHit(
+      [
+        {
+          annotationId: 'annotation-native',
+          hasAttachedNote: false,
+          rangeGroups: [[range]],
+          ranges: [range],
+          selectedText: text.data,
+        },
+      ],
+      50,
+      25
+    )
+  ).toMatchObject({ annotationId: 'annotation-native', rect, selectedText: text.data });
+
   element.remove();
 });

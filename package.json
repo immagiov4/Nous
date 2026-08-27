@@ -64,7 +64,6 @@
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",
     "@resvg/resvg-js": "^2.6.2",
-    "@types/react-syntax-highlighter": "^15.5.13",
     "acorn": "^8.16.0",
     "ai": "^6.0.137",
     "concurrently": "^9.2.1",
@@ -94,6 +93,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@types/bun": "1.4.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.14",

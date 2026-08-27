@@ -1852,7 +1852,7 @@ const SourceLibraryPage = ({
             return (
               <div
                 key={group.id}
-                className="border-b border-stone-100 last:border-b-0 dark:border-white/8"
+                className="border-b border-stone-100 last:border-b-0 dark:border-stone-700"
               >
                 <button
                   type="button"
@@ -1907,7 +1907,7 @@ const SourceLibraryPage = ({
                               })
                               .finally(() => setOpeningItemId(null));
                           }}
-                          className="flex w-full items-center gap-4 border-t border-stone-100 px-5 py-4 pl-9 text-left transition-colors hover:bg-[#fbf8f3] disabled:cursor-not-allowed disabled:opacity-55 dark:border-white/8 dark:hover:bg-white/[0.04]"
+                          className="flex w-full items-center gap-4 border-t border-stone-100 px-5 py-4 pl-9 text-left transition-colors hover:bg-[#fbf8f3] disabled:cursor-not-allowed disabled:opacity-55 dark:border-stone-700 dark:hover:bg-white/[0.04]"
                         >
                           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500 dark:bg-white/5 dark:text-stone-300">
                             <Icon className="h-5 w-5" />

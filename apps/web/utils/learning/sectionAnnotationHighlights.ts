@@ -380,6 +380,15 @@ const getCaretPoint = (x: number, y: number): { node: Node; offset: number } | n
   return range ? { node: range.startContainer, offset: range.startOffset } : null;
 };
 
+const isCaretPointWithinRange = (range: Range, point: { node: Node; offset: number }): boolean => {
+  try {
+    return range.isPointInRange(point.node, point.offset);
+  } catch {
+    // Browser caret APIs can return an offset outside the range boundary.
+    return false;
+  }
+};
+
 export const findSectionAnnotationHighlightHit = (
   entries: SectionAnnotationHighlightEntry[],
   x: number,
@@ -389,7 +398,7 @@ export const findSectionAnnotationHighlightHit = (
 
   for (const entry of entries) {
     const range = point
-      ? entry.ranges.find(candidate => candidate.isPointInRange(point.node, point.offset))
+      ? entry.ranges.find(candidate => isCaretPointWithinRange(candidate, point))
       : undefined;
     if (range) {
       return {

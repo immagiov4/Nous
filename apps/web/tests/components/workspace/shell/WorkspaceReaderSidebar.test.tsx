@@ -206,6 +206,88 @@ describe('WorkspaceReaderSidebar', () => {
     expect(activeLesson.querySelector('.text-gray-700')).not.toBeNull();
   });
 
+  test('keeps a ready lesson idle after navigating away from another lesson generation', () => {
+    const { rerender } = render(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          activeSectionId: 'section-1',
+          generatingSectionId: 'section-1',
+          isSectionLoading: true,
+          sidebarGroups: [
+            {
+              id: 'module-1',
+              sectionDepthById: { 'section-1': 0, 'section-2': 0 },
+              title: 'Modulo 1',
+              sections: [
+                {
+                  kind: 'lesson',
+                  id: 'section-1',
+                  title: 'Lezione in generazione',
+                  description: 'Descrizione',
+                  isCompleted: false,
+                  type: 'core',
+                },
+                {
+                  kind: 'lesson',
+                  id: 'section-2',
+                  title: 'Lezione pronta',
+                  description: 'Descrizione',
+                  content: 'Contenuto già disponibile',
+                  isCompleted: false,
+                  type: 'core',
+                },
+              ],
+            },
+          ],
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lezione pronta' }));
+    rerender(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          activeSectionId: 'section-2',
+          generatingSectionId: 'section-1',
+          isSectionLoading: true,
+          sidebarGroups: [
+            {
+              id: 'module-1',
+              sectionDepthById: { 'section-1': 0, 'section-2': 0 },
+              title: 'Modulo 1',
+              sections: [
+                {
+                  kind: 'lesson',
+                  id: 'section-1',
+                  title: 'Lezione in generazione',
+                  description: 'Descrizione',
+                  isCompleted: false,
+                  type: 'core',
+                },
+                {
+                  kind: 'lesson',
+                  id: 'section-2',
+                  title: 'Lezione pronta',
+                  description: 'Descrizione',
+                  content: 'Contenuto già disponibile',
+                  isCompleted: false,
+                  type: 'core',
+                },
+              ],
+            },
+          ],
+        })}
+      />
+    );
+
+    const readyLesson = screen.getByRole('button', { name: 'Lezione pronta' });
+    expect(readyLesson).not.toHaveAttribute('aria-busy');
+    expect(readyLesson.querySelector('.animate-spin')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Lezione in generazione' }).querySelector('.animate-spin')
+    ).not.toBeNull();
+  });
+
   test('reserves orange lesson status feedback for first-time generation', () => {
     const { rerender } = render(
       <WorkspaceReaderSidebar {...buildProps({ generatingSectionId: 'section-1' })} />
