@@ -181,6 +181,39 @@ test('AuthGate clears retained lesson requests when the account changes', async 
   expect(getFeedbackDiagnosticsSnapshot().productContext).toBeUndefined();
 });
 
+test('password login clears diagnostics before exposing the authenticated app', async () => {
+  setFeedbackProductContext({
+    project: { id: 'previous-project' },
+    section: { id: 'previous-section' },
+    surface: 'reader',
+  });
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        access_token: createAccessToken({ userId: 'new-user' }),
+        expires_in: 3600,
+        refresh_token: 'new-refresh-token',
+      }),
+      { status: 200 }
+    )
+  );
+
+  render(
+    <AuthGate>
+      <p>Area autenticata</p>
+    </AuthGate>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Accedi' }));
+  fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new-user@example.com' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
+  const loginForm = screen.getByLabelText('Password').closest('form');
+  expect(loginForm).not.toBeNull();
+  fireEvent.submit(loginForm as HTMLFormElement);
+
+  await waitFor(() => expect(screen.getByText('Area autenticata')).toBeInTheDocument());
+  expect(getFeedbackDiagnosticsSnapshot().productContext).toBeUndefined();
+});
+
 test('AuthGate synchronizes logout events received from another tab', async () => {
   saveSupabaseSession({
     accessToken: 'access-token',

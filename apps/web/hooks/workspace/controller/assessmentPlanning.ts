@@ -259,6 +259,7 @@ export const createAssessmentPlanningCommands = (
             operation: 'generate-course',
             projectId: snapshot.projectId,
             runId: snapshot.id,
+            sectionId: snapshot.result?.firstSectionId,
             status: snapshot.status,
           });
           feedback.progressBridge.updateFromWorkflow(snapshot);

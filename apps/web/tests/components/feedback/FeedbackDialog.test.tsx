@@ -41,6 +41,7 @@ describe('FeedbackDialog', () => {
       consoleEntries: [
         { level: 'error', message: '[Nous] errore recente', timestamp: '2026-07-16T10:00:00Z' },
       ],
+      correlationIds: ['123e4567-e89b-42d3-a456-426614174000'],
       pageUrl: 'https://nous.test/library',
       productContext: {
         breadcrumbs: [
@@ -85,6 +86,7 @@ describe('FeedbackDialog', () => {
               timestamp: '2026-07-16T10:00:00Z',
             },
           ],
+          correlationIds: ['123e4567-e89b-42d3-a456-426614174000'],
           pageUrl: 'https://nous.test/library',
           productContext: {
             breadcrumbs: [
@@ -123,8 +125,11 @@ describe('FeedbackDialog', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Aggiungi uno screenshot' })).toBeNull();
     expect(screen.getByText('Contesto prodotto')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Codici assistenza.*123e4567-e89b-42d3-a456-426614174000/)
+    ).toBeInTheDocument();
     expect(screen.getAllByText(/project-12345678/)).toHaveLength(2);
-    expect(screen.getByText(/123e4567-e89b-42d3-a456-426614174000/)).toBeInTheDocument();
+    expect(screen.getAllByText(/123e4567-e89b-42d3-a456-426614174000/)).toHaveLength(2);
     expect(screen.getAllByText(/Lettore/)).toHaveLength(2);
     expect(screen.getByText(/Caricamento lezione/)).toBeInTheDocument();
     expect(screen.queryByText(/load-section/)).toBeNull();

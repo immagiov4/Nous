@@ -1,3 +1,4 @@
+import type { FeedbackProductContext } from '@shared/feedbackDiagnosticsContract';
 import type { YouTubeTranscriptSegment } from '@shared/youtubeTranscript';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
@@ -65,6 +66,7 @@ export interface AdminFeedbackDiagnostics {
   consoleEntries?: AdminFeedbackConsoleEntry[];
   correlationIds?: string[];
   pageUrl?: string;
+  productContext?: FeedbackProductContext;
   requestId?: string;
   userAgent?: string;
 }

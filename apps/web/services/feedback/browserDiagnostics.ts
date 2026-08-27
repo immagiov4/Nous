@@ -40,6 +40,7 @@ const EXACT_CORRELATION_ID_PATTERN = new RegExp(`^(?:${CORRELATION_ID_PATTERN.so
 const entries: FeedbackConsoleEntry[] = [];
 const productBreadcrumbs: FeedbackBreadcrumb[] = [];
 let productContext: Omit<FeedbackProductContext, 'breadcrumbs'> = {};
+let workflowSectionId: string | undefined;
 let initialized = false;
 
 const sanitizeUrl = (value: string): string => {
@@ -129,6 +130,10 @@ export const setFeedbackProductContext = (
   const section = sanitizeProductReference(nextContext.section);
   const surface = nextContext.surface;
   const previous = productContext;
+  const preservesWorkflow =
+    previous.workflow !== undefined &&
+    previous.project?.id === project?.id &&
+    (previous.section?.id === section?.id || workflowSectionId === section?.id);
 
   if (surface && surface !== previous.surface) {
     recordProductBreadcrumb('visited-surface', surface, { project, section });
@@ -144,28 +149,28 @@ export const setFeedbackProductContext = (
     ...(project ? { project } : {}),
     ...(section ? { section } : {}),
     ...(surface ? { surface } : {}),
-    ...(previous.workflow &&
-    previous.project?.id === project?.id &&
-    previous.section?.id === section?.id
-      ? { workflow: previous.workflow }
-      : {}),
+    ...(preservesWorkflow ? { workflow: previous.workflow } : {}),
   };
+  if (!preservesWorkflow) workflowSectionId = undefined;
 };
 
 export const recordFeedbackWorkflowSnapshot = ({
   operation,
   projectId,
   runId,
+  sectionId,
   status,
 }: {
   operation: FeedbackWorkflowOperation;
   projectId: string;
   runId: string;
+  sectionId?: string;
   status: FeedbackWorkflowStatus;
 }): void => {
   if (productContext.project?.id !== projectId || !productContext.surface) return;
 
   const workflow = { operation, runId: runId.trim(), status };
+  workflowSectionId = sectionId?.trim() || undefined;
   const previousWorkflow = productContext.workflow;
   if (
     previousWorkflow?.operation !== workflow.operation ||
@@ -215,6 +220,7 @@ export const clearFeedbackDiagnostics = (): void => {
   entries.length = 0;
   productBreadcrumbs.length = 0;
   productContext = {};
+  workflowSectionId = undefined;
 };
 
 export const logBackendFailureCorrelationId = (value: unknown): void => {

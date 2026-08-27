@@ -263,6 +263,7 @@ const ENGLISH_UI_MESSAGES = {
   'Anteprima diagnostica ({entryCount} log)': 'Diagnostics preview ({entryCount} logs)',
   'Nessun log recente disponibile.': 'No recent logs available.',
   'Contesto prodotto': 'Product context',
+  'Codici assistenza': 'Support codes',
   Revisione: 'Revision',
   Area: 'Area',
   Attività: 'Activity',

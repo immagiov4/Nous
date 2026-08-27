@@ -147,6 +147,7 @@ describe('browser feedback diagnostics', () => {
       operation: 'load-section',
       projectId: 'project-12345678',
       runId: '123e4567-e89b-42d3-a456-426614174000',
+      sectionId: 'section-00000027',
       status: 'failed',
     });
 
@@ -181,6 +182,7 @@ describe('browser feedback diagnostics', () => {
       operation: 'load-section',
       projectId: 'project-12345678',
       runId: '123e4567-e89b-42d3-a456-426614174000',
+      sectionId: 'section-00000001',
       status: 'failed',
     });
     setFeedbackProductContext({
@@ -189,6 +191,39 @@ describe('browser feedback diagnostics', () => {
       surface: 'reader',
     });
 
+    expect(getFeedbackDiagnosticsSnapshot().productContext).not.toHaveProperty('workflow');
+  });
+
+  test('preserves a workflow while navigation opens its generated section', () => {
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-parent' },
+      surface: 'reader',
+    });
+    recordFeedbackWorkflowSnapshot({
+      operation: 'create-lesson',
+      projectId: 'project-12345678',
+      runId: '123e4567-e89b-42d3-a456-426614174000',
+      sectionId: 'section-generated',
+      status: 'completed',
+    });
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-generated' },
+      surface: 'reader',
+    });
+
+    expect(getFeedbackDiagnosticsSnapshot().productContext?.workflow).toMatchObject({
+      operation: 'create-lesson',
+      runId: '123e4567-e89b-42d3-a456-426614174000',
+      status: 'completed',
+    });
+
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-unrelated' },
+      surface: 'reader',
+    });
     expect(getFeedbackDiagnosticsSnapshot().productContext).not.toHaveProperty('workflow');
   });
 

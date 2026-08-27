@@ -653,6 +653,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             operation: 'load-section',
             projectId: snapshot.projectId,
             runId: snapshot.id,
+            sectionId: snapshot.sectionId,
             status: snapshot.status,
           });
           progressBridge.updateFromWorkflow(snapshot);
@@ -923,6 +924,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         operation: 'create-lesson',
         projectId: snapshot.projectId,
         runId: snapshot.id,
+        sectionId: snapshot.sectionId,
         status: snapshot.status,
       });
       progressBridge.updateFromWorkflow(snapshot);

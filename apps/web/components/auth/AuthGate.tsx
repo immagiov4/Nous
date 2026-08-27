@@ -446,7 +446,10 @@ export default function AuthGate({ children }: AuthGateProps) {
         loginPanel={
           <PasswordSetupPanel
             action={passwordSetupAction}
-            onSessionExpired={() => setAuthState({ callbackError: true, session: null })}
+            onSessionExpired={() => {
+              clearAccountScopedStateForSession(null);
+              setAuthState({ callbackError: true, session: null });
+            }}
           />
         }
       />
@@ -479,9 +482,10 @@ export default function AuthGate({ children }: AuthGateProps) {
       loginPanel={
         <LoginPanel
           callbackError={callbackError}
-          onAuthenticated={nextSession =>
-            setAuthState({ callbackError: false, session: nextSession })
-          }
+          onAuthenticated={nextSession => {
+            clearAccountScopedStateForSession(nextSession);
+            setAuthState({ callbackError: false, session: nextSession });
+          }}
         />
       }
     />
