@@ -297,6 +297,7 @@ export default function SpeechInputButton({
     <div
       role="alert"
       aria-label={speechInputError.message}
+      data-nous-context-menu-portal={errorPresentation === 'viewport' || undefined}
       className={`${
         errorPresentation === 'viewport'
           ? 'fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[70] w-auto'

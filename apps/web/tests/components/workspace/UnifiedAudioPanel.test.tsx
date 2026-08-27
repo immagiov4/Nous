@@ -198,6 +198,29 @@ describe('UnifiedAudioPanel', () => {
     expect(screen.getByRole('button', { name: 'Chiudi menu audio' })).toBeInTheDocument();
   });
 
+  test('does not restore the playback-speed picker when a controlled panel reopens', async () => {
+    const user = userEvent.setup();
+    const props = {
+      initialTab: 'voce' as const,
+      isMusicPlaying: false,
+      musicUrl: '',
+      musicVolume: 60,
+      setIsMusicPlaying: () => {},
+      setMusicUrl: () => {},
+      setMusicVolume: () => {},
+      tts: buildTtsModel(),
+    };
+    const { rerender } = render(<UnifiedAudioPanel {...props} isOpen />);
+
+    await user.click(screen.getByRole('button', { name: '1x' }));
+    expect(screen.getByText('Velocita')).toBeInTheDocument();
+
+    rerender(<UnifiedAudioPanel {...props} isOpen={false} />);
+    rerender(<UnifiedAudioPanel {...props} isOpen />);
+
+    expect(screen.queryByText('Velocita')).not.toBeInTheDocument();
+  });
+
   test('keeps the iframe lazy until the user starts background audio', async () => {
     const user = userEvent.setup();
     const { container } = render(

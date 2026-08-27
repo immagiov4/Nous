@@ -49,29 +49,41 @@ test('falls back to highlight geometry when the caret point is outside a native 
   range.setEnd(text, text.data.length);
   const rect = new DOMRect(10, 20, 120, 18);
   range.getClientRects = () => [rect] as unknown as DOMRectList;
-  Object.defineProperty(document, 'caretPositionFromPoint', {
-    configurable: true,
-    value: vi.fn(() => ({
-      offset: text.data.length + 1,
-      offsetNode: text,
-    })),
-  });
+  const caretPositionFromPointDescriptor = Object.getOwnPropertyDescriptor(
+    document,
+    'caretPositionFromPoint'
+  );
 
-  expect(
-    findSectionAnnotationHighlightHit(
-      [
-        {
-          annotationId: 'annotation-native',
-          hasAttachedNote: false,
-          rangeGroups: [[range]],
-          ranges: [range],
-          selectedText: text.data,
-        },
-      ],
-      50,
-      25
-    )
-  ).toMatchObject({ annotationId: 'annotation-native', rect, selectedText: text.data });
+  try {
+    Object.defineProperty(document, 'caretPositionFromPoint', {
+      configurable: true,
+      value: vi.fn(() => ({
+        offset: text.data.length + 1,
+        offsetNode: text,
+      })),
+    });
 
-  element.remove();
+    expect(
+      findSectionAnnotationHighlightHit(
+        [
+          {
+            annotationId: 'annotation-native',
+            hasAttachedNote: false,
+            rangeGroups: [[range]],
+            ranges: [range],
+            selectedText: text.data,
+          },
+        ],
+        50,
+        25
+      )
+    ).toMatchObject({ annotationId: 'annotation-native', rect, selectedText: text.data });
+  } finally {
+    if (caretPositionFromPointDescriptor) {
+      Object.defineProperty(document, 'caretPositionFromPoint', caretPositionFromPointDescriptor);
+    } else {
+      Reflect.deleteProperty(document, 'caretPositionFromPoint');
+    }
+    element.remove();
+  }
 });

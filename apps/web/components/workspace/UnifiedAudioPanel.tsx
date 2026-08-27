@@ -425,7 +425,14 @@ const UnifiedAudioPanel = ({
   }, [isOpen, isTextPickerActive, onToggle]);
 
   useEffect(() => {
-    if (!isOpen || !isSpeedPickerOpen) {
+    if (!isOpen) {
+      if (isSpeedPickerOpen) {
+        setIsSpeedPickerOpen(false);
+      }
+      return;
+    }
+
+    if (!isSpeedPickerOpen) {
       return;
     }
 

@@ -207,12 +207,14 @@ describe('WorkspaceReaderSidebar', () => {
   });
 
   test('keeps a ready lesson idle after navigating away from another lesson generation', () => {
+    const onSelectSection = vi.fn();
     const { rerender } = render(
       <WorkspaceReaderSidebar
         {...buildProps({
           activeSectionId: 'section-1',
           generatingSectionId: 'section-1',
           isSectionLoading: true,
+          onSelectSection,
           sidebarGroups: [
             {
               id: 'module-1',
@@ -244,6 +246,7 @@ describe('WorkspaceReaderSidebar', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Lezione pronta' }));
+    expect(onSelectSection).toHaveBeenCalledWith(expect.objectContaining({ id: 'section-2' }));
     rerender(
       <WorkspaceReaderSidebar
         {...buildProps({

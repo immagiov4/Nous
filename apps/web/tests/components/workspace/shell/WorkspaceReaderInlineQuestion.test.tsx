@@ -26,9 +26,17 @@ test('overlays option labels without changing keyboard answer selection', async 
   );
 
   const firstOption = screen.getByRole('button', { name: /A\.Prima risposta/ });
-  expect(firstOption.querySelector('span')).toHaveClass('absolute');
+  const optionLabel = firstOption.querySelector('span');
+  expect(optionLabel).toHaveClass('absolute');
+  if (!optionLabel) {
+    throw new Error('Quiz option label is missing.');
+  }
   await user.tab();
   expect(firstOption).toHaveFocus();
   await user.keyboard(' ');
+  expect(onSelectQuizAnswer).toHaveBeenCalledWith(0, 0);
+
+  onSelectQuizAnswer.mockClear();
+  await user.click(optionLabel);
   expect(onSelectQuizAnswer).toHaveBeenCalledWith(0, 0);
 });
