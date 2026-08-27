@@ -7,7 +7,6 @@
       "dependencies": {
         "@ai-sdk/react": "^3.0.139",
         "@resvg/resvg-js": "^2.6.2",
-        "@types/react-syntax-highlighter": "^15.5.13",
         "acorn": "^8.16.0",
         "ai": "^6.0.137",
         "concurrently": "^9.2.1",
@@ -41,6 +40,7 @@
         "@types/node": "^22.14.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
+        "@types/react-syntax-highlighter": "^15.5.13",
         "@types/supertest": "^7.2.0",
         "@typescript-eslint/parser": "^8.59.4",
         "@typescript/native-preview": "^7.0.0-dev.20260510.1",

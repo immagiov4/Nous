@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
-import { resolveSectionAnnotationHighlightTarget } from '../../../utils/learning/sectionAnnotationHighlights.ts';
+import {
+  findSectionAnnotationHighlightHit,
+  resolveSectionAnnotationHighlightTarget,
+} from '../../../utils/learning/sectionAnnotationHighlights.ts';
 
 test('resolves a native annotation highlight by id for programmatic navigation', () => {
   const element = document.createElement('p');
@@ -34,4 +37,55 @@ test('resolves a native annotation highlight by id for programmatic navigation',
     selectedText: text.data,
   });
   element.remove();
+});
+
+test('falls back to highlight geometry when the caret point is outside a native range', () => {
+  const element = document.createElement('p');
+  const text = document.createTextNode('Evidenziazione nativa');
+  element.append(text);
+  document.body.append(element);
+  const range = document.createRange();
+  range.setStart(text, 0);
+  range.setEnd(text, text.data.length);
+  const rect = new DOMRect(10, 20, 120, 18);
+  const pointerXWithinRange = 50;
+  const pointerYWithinRange = 25;
+  range.getClientRects = () => [rect] as unknown as DOMRectList;
+  const caretPositionFromPointDescriptor = Object.getOwnPropertyDescriptor(
+    document,
+    'caretPositionFromPoint'
+  );
+
+  try {
+    Object.defineProperty(document, 'caretPositionFromPoint', {
+      configurable: true,
+      value: vi.fn(() => ({
+        offset: text.data.length + 1,
+        offsetNode: text,
+      })),
+    });
+
+    expect(
+      findSectionAnnotationHighlightHit(
+        [
+          {
+            annotationId: 'annotation-native',
+            hasAttachedNote: false,
+            rangeGroups: [[range]],
+            ranges: [range],
+            selectedText: text.data,
+          },
+        ],
+        pointerXWithinRange,
+        pointerYWithinRange
+      )
+    ).toMatchObject({ annotationId: 'annotation-native', rect, selectedText: text.data });
+  } finally {
+    if (caretPositionFromPointDescriptor) {
+      Object.defineProperty(document, 'caretPositionFromPoint', caretPositionFromPointDescriptor);
+    } else {
+      Reflect.deleteProperty(document, 'caretPositionFromPoint');
+    }
+    element.remove();
+  }
 });

@@ -120,7 +120,8 @@ describe('WorkspaceReaderContent', () => {
   test('renders inline quiz cards inside the reading column in focus mode', () => {
     render(<WorkspaceReaderContent {...buildProps({ isFocusMode: true })} />);
 
-    expect(screen.getByText(/Pausa attiva 1 - Previsione/i)).toBeInTheDocument();
+    expect(screen.getByText('Pausa attiva 1')).toBeInTheDocument();
+    expect(screen.queryByText('Previsione')).not.toBeInTheDocument();
     expect(screen.queryByTestId('reader-quiz-column')).toBeNull();
     expect(screen.getByText('Prosegui')).toHaveAttribute('aria-disabled', 'true');
   });

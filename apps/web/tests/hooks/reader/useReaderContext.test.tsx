@@ -78,6 +78,44 @@ test('mobile selection sync does not close an already-open selection menu for th
   assert.equal(result.current.contextMenu.selectedText, 'beta');
 });
 
+test('keeps a mobile selection menu open when an interaction ends inside its portal', () => {
+  vi.useFakeTimers();
+  const container = document.createElement('div');
+  const textNode = document.createTextNode('Alpha beta gamma delta');
+  container.append(textNode);
+  document.body.append(container);
+  const portalElement = document.createElement('button');
+  portalElement.dataset.nousContextMenuPortal = '';
+  const portalChild = document.createElement('span');
+  portalElement.append(portalChild);
+  document.body.append(portalElement);
+  const contentRef = { current: container };
+  const selection = buildSelection(container, textNode, 'beta');
+  const { result, unmount } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: true,
+      sectionContent: 'Alpha beta gamma delta',
+    })
+  );
+
+  try {
+    act(() => {
+      result.current.openContextMenuFromSelection(selection, 'mobile-sheet');
+      portalChild.dispatchEvent(new Event('pointerup', { bubbles: true }));
+      vi.runOnlyPendingTimers();
+    });
+
+    assert.equal(result.current.contextMenu.visible, true);
+  } finally {
+    unmount();
+    portalElement.remove();
+    container.remove();
+    vi.useRealTimers();
+  }
+});
+
 test('opening a context answer atomically closes the selection menu and cancels pending sync', () => {
   vi.useFakeTimers();
   const container = document.createElement('div');

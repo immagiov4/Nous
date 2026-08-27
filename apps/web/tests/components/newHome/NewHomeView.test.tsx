@@ -663,7 +663,10 @@ describe('NewHomeView library interactions', () => {
 
     await user.click(sourceFolder);
     expect(sourceFolder).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: /dispensa.pdf/ })).toBeInTheDocument();
+    const source = screen.getByRole('button', { name: /dispensa.pdf/ });
+    expect(source).toBeInTheDocument();
+    expect(source).toHaveClass('dark:border-stone-700');
+    expect(sourceFolder.parentElement).toHaveClass('dark:border-stone-700');
   });
 
   test('shows and opens the original ZIP for an existing codebase course', async () => {

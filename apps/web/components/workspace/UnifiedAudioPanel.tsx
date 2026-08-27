@@ -75,6 +75,9 @@ const YOUTUBE_PLAYER_STATE = {
   PAUSED: 2,
   BUFFERING: 3,
 } as const;
+const PLAYBACK_RATE_MIN = 0.8;
+const PLAYBACK_RATE_MAX = 1.6;
+const PLAYBACK_RATE_STEP = 0.05;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -152,6 +155,106 @@ const formatPlaybackRateLabel = (value: number): string => {
   return trimmedFraction ? `${integerPart}.${trimmedFraction}` : integerPart;
 };
 
+const normalizePlaybackRate = (value: number): number => {
+  const stepsPerUnit = 1 / PLAYBACK_RATE_STEP;
+  return Math.round(value * stepsPerUnit) / stepsPerUnit;
+};
+
+interface PlaybackSpeedPickerProps {
+  readonly onSpeedChange: (speed: number) => void;
+  readonly playbackRate: number;
+}
+
+const PlaybackSpeedPicker = ({ onSpeedChange, playbackRate }: PlaybackSpeedPickerProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const isWithinSpeedPicker = (target: EventTarget | null) =>
+      target instanceof Node &&
+      (Boolean(buttonRef.current?.contains(target)) ||
+        Boolean(pickerRef.current?.contains(target)));
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (isWithinSpeedPicker(event.target)) {
+        return;
+      }
+
+      setIsOpen(false);
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (!isWithinSpeedPicker(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      setIsOpen(false);
+      buttonRef.current?.focus();
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  return (
+    <>
+      <div className="inline-flex items-center">
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={() => setIsOpen(current => !current)}
+          className="flex cursor-pointer items-center border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-r-xl dark:text-zinc-300 dark:hover:bg-white/10 dark:focus-visible:ring-zinc-500"
+          aria-expanded={isOpen}
+        >
+          <span className="inline-block tabular-nums">
+            {formatPlaybackRateLabel(playbackRate)}x
+          </span>
+        </button>
+      </div>
+      {isOpen ? (
+        <div
+          ref={pickerRef}
+          className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-44 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.42)]"
+        >
+          <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
+            <span>{t('Velocita')}</span>
+            <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
+              {formatPlaybackRateLabel(playbackRate)}x
+            </span>
+          </div>
+          <input
+            type="range"
+            aria-label={t('Velocita')}
+            min={PLAYBACK_RATE_MIN}
+            max={PLAYBACK_RATE_MAX}
+            step={PLAYBACK_RATE_STEP}
+            value={playbackRate}
+            onChange={event => onSpeedChange(Number.parseFloat(event.target.value))}
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
+          />
+        </div>
+      ) : null}
+    </>
+  );
+};
+
 const UnifiedAudioPanel = ({
   isMobileViewport = false,
   isOpen: isOpenProp,
@@ -181,7 +284,6 @@ const UnifiedAudioPanel = ({
   );
   const [playerErrorVideoId, setPlayerErrorVideoId] = useState<string | null>(null);
   const [readyVideoId, setReadyVideoId] = useState<string | null>(null);
-  const [isSpeedPickerOpen, setIsSpeedPickerOpen] = useState(false);
   // Lazy-mount the YouTube iframe + API only after the user actually starts the music.
   // Otherwise every project with a saved musicUrl loads the YT API and keeps a hidden
   // iframe alive — that alone consumes ~30% of the tab's CPU on tracking/heartbeat loops.
@@ -202,7 +304,7 @@ const UnifiedAudioPanel = ({
 
   const ttsDisabled = !tts.ttsConnected || !tts.sectionContent;
   const { isTextPickerActive, onSetTextPickerActive } = tts;
-  const normalizedPlaybackRate = Math.round(tts.playbackRate * 20) / 20;
+  const normalizedPlaybackRate = normalizePlaybackRate(tts.playbackRate);
   const requestedVideoId = useMemo(() => {
     return extractYouTubeVideoId(musicUrl);
   }, [musicUrl]);
@@ -639,39 +741,10 @@ const UnifiedAudioPanel = ({
 
                       <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600" />
 
-                      <div className="inline-flex items-center">
-                        <button
-                          type="button"
-                          onClick={() => setIsSpeedPickerOpen(current => !current)}
-                          className="flex cursor-pointer items-center border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-r-xl dark:text-zinc-300 dark:hover:bg-white/10 dark:focus-visible:ring-zinc-500"
-                          aria-expanded={isSpeedPickerOpen}
-                        >
-                          <span className="inline-block tabular-nums">
-                            {formatPlaybackRateLabel(normalizedPlaybackRate)}x
-                          </span>
-                        </button>
-                      </div>
-                      {isSpeedPickerOpen ? (
-                        <div className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-44 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.42)]">
-                          <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
-                            <span>{t('Velocita')}</span>
-                            <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
-                              {formatPlaybackRateLabel(normalizedPlaybackRate)}x
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0.8"
-                            max="1.6"
-                            step="0.05"
-                            value={normalizedPlaybackRate}
-                            onChange={event =>
-                              tts.onSpeedChange(Number.parseFloat(event.target.value))
-                            }
-                            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
-                          />
-                        </div>
-                      ) : null}
+                      <PlaybackSpeedPicker
+                        onSpeedChange={tts.onSpeedChange}
+                        playbackRate={normalizedPlaybackRate}
+                      />
                     </div>
 
                     <div className="flex items-center gap-3">

@@ -173,6 +173,87 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
+  test('closes only the playback-speed picker when another audio control receives a pointer event', async () => {
+    const user = userEvent.setup();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '1x' }));
+    expect(screen.getByText('Velocita')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Velocita' })).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole('combobox', { name: 'Parte da leggere' }));
+
+    expect(screen.queryByText('Velocita')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chiudi menu audio' })).toBeInTheDocument();
+  });
+
+  test('dismisses the playback-speed picker when keyboard focus leaves or Escape is pressed', async () => {
+    const user = userEvent.setup();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel()}
+      />
+    );
+
+    const speedPickerTrigger = screen.getByRole('button', { name: '1x' });
+    await user.click(speedPickerTrigger);
+    await user.tab();
+    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
+
+    await user.click(speedPickerTrigger);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
+    expect(speedPickerTrigger).toHaveFocus();
+  });
+
+  test('does not restore the playback-speed picker when a controlled panel reopens', async () => {
+    const user = userEvent.setup();
+    const props = {
+      initialTab: 'voce' as const,
+      isMusicPlaying: false,
+      musicUrl: '',
+      musicVolume: 60,
+      setIsMusicPlaying: () => {},
+      setMusicUrl: () => {},
+      setMusicVolume: () => {},
+      tts: buildTtsModel(),
+    };
+    const { rerender } = render(<UnifiedAudioPanel {...props} isOpen />);
+
+    await user.click(screen.getByRole('button', { name: '1x' }));
+    expect(screen.getByText('Velocita')).toBeInTheDocument();
+
+    rerender(<UnifiedAudioPanel {...props} isOpen={false} />);
+    rerender(<UnifiedAudioPanel {...props} isOpen />);
+
+    const speedPickerTrigger = screen.getByRole('button', { name: '1x' });
+    expect(speedPickerTrigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Velocita')).not.toBeInTheDocument();
+  });
+
   test('keeps the iframe lazy until the user starts background audio', async () => {
     const user = userEvent.setup();
     const { container } = render(

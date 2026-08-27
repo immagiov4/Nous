@@ -32,6 +32,7 @@ import {
 const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 100;
 const SELECTION_MENU_REOPEN_SUPPRESSION_MS = 260;
 const ANNOTATION_MARK_SELECTOR = 'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
+const CONTEXT_MENU_PORTAL_SELECTOR = '[data-nous-context-menu-portal]';
 const LESSON_CONTEXT_SURFACE_SELECTOR = '[data-nous-lesson-context-surface]';
 const LESSON_CONTEXT_INTERACTIVE_SELECTOR =
   'a,button,input,textarea,select,option,summary,[role="button"],[role="link"],[role="menuitem"],[contenteditable="true"],[data-nous-native-context-menu]';
@@ -730,7 +731,9 @@ export const useReaderContext = ({
         const selection = globalThis.getSelection();
         const isInteractingWithinMenu =
           interactionTarget instanceof Node &&
-          Boolean(contextMenuRef.current?.contains(interactionTarget));
+          (Boolean(contextMenuRef.current?.contains(interactionTarget)) ||
+            (interactionTarget instanceof Element &&
+              Boolean(interactionTarget.closest(CONTEXT_MENU_PORTAL_SELECTOR))));
         const syncAction = resolveMobileContextMenuSyncAction({
           hasSelection: Boolean(selection?.toString().trim() && selection.rangeCount > 0),
           isInteractingWithinMenu,
@@ -835,7 +838,7 @@ export const useReaderContext = ({
         return;
       }
 
-      if (target instanceof Element && target.closest('[data-nous-context-menu-portal]')) {
+      if (target instanceof Element && target.closest(CONTEXT_MENU_PORTAL_SELECTOR)) {
         return;
       }
 
