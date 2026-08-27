@@ -208,6 +208,7 @@ const PlaybackSpeedPicker = ({ onSpeedChange, playbackRate }: PlaybackSpeedPicke
           </div>
           <input
             type="range"
+            aria-label={t('Velocita')}
             min="0.8"
             max="1.6"
             step="0.05"

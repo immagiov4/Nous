@@ -191,6 +191,7 @@ describe('UnifiedAudioPanel', () => {
 
     await user.click(screen.getByRole('button', { name: '1x' }));
     expect(screen.getByText('Velocita')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Velocita' })).toBeInTheDocument();
 
     fireEvent.pointerDown(screen.getByRole('combobox', { name: 'Parte da leggere' }));
 

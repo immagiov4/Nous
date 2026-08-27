@@ -730,7 +730,9 @@ export const useReaderContext = ({
         const selection = globalThis.getSelection();
         const isInteractingWithinMenu =
           interactionTarget instanceof Node &&
-          Boolean(contextMenuRef.current?.contains(interactionTarget));
+          (Boolean(contextMenuRef.current?.contains(interactionTarget)) ||
+            (interactionTarget instanceof Element &&
+              Boolean(interactionTarget.closest('[data-nous-context-menu-portal]'))));
         const syncAction = resolveMobileContextMenuSyncAction({
           hasSelection: Boolean(selection?.toString().trim() && selection.rangeCount > 0),
           isInteractingWithinMenu,
