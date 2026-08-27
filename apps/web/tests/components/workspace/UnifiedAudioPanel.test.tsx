@@ -218,6 +218,8 @@ describe('UnifiedAudioPanel', () => {
     rerender(<UnifiedAudioPanel {...props} isOpen={false} />);
     rerender(<UnifiedAudioPanel {...props} isOpen />);
 
+    const speedPickerTrigger = screen.getByRole('button', { name: '1x' });
+    expect(speedPickerTrigger).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Velocita')).not.toBeInTheDocument();
   });
 
