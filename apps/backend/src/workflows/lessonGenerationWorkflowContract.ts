@@ -19,6 +19,8 @@ import {
   LessonVisualPlanningDecisionSchema,
   LessonYouTubePlanningSchema,
   PreviousLessonPdfImageMetadataSchema,
+  PreviousLessonResearchDossierSchema,
+  PreviousLessonResearchSummarySchema,
   ProjectLessonVisualSchema,
   ResearchSourceSchema,
   YouTubeResearchOutcomeSchema,
@@ -124,7 +126,9 @@ const LessonVisualFanOutResultSchema = z.discriminatedUnion('status', [
 
 const createLessonGenerationDurableSchemaSet = (
   pdfImageMetadataSchema: typeof LessonPdfImageMetadataSchema,
-  documentAssetsSchema: typeof LessonDocumentAssetsSchema
+  documentAssetsSchema: typeof LessonDocumentAssetsSchema,
+  lessonResearchSummarySchema: typeof LessonResearchSummarySchema,
+  lessonResearchDossierSchema: typeof LessonResearchDossierSchema
 ) => {
   const LessonSourcesStateSchema = LessonCoverageStateSchema.extend({
     documentAssetOwners: z.array(LessonAssetOwnerSchema),
@@ -157,7 +161,7 @@ const createLessonGenerationDurableSchemaSet = (
     lessonSources: z.array(ResearchSourceSchema),
     research: z.object({
       context: z.string(),
-      summary: LessonResearchSummarySchema.nullable(),
+      summary: lessonResearchSummarySchema.nullable(),
       youtube: YouTubeResearchOutcomeSchema.nullable(),
     }),
     stage: z.literal('research'),
@@ -180,7 +184,7 @@ const createLessonGenerationDurableSchemaSet = (
     pdfImages: z.array(pdfImageMetadataSchema),
     request: LessonGenerationRequestSchema,
     research: z.object({
-      summary: LessonResearchSummarySchema.nullable(),
+      summary: lessonResearchSummarySchema.nullable(),
       youtube: YouTubeResearchOutcomeSchema.nullable(),
     }),
     sourceFingerprint: z.string().length(64),
@@ -219,7 +223,7 @@ const createLessonGenerationDurableSchemaSet = (
     projectId: LessonIdentifierSchema,
     projectRevision: z.number().int().nonnegative().optional(),
     quiz: z.array(LessonQuizSchema),
-    researchDossier: LessonResearchDossierSchema.optional(),
+    researchDossier: lessonResearchDossierSchema.optional(),
     sectionId: LessonIdentifierSchema,
     visualPlanningDecision: LessonVisualPlanningDecisionSchema.optional(),
     warnings: z.array(LessonGenerationWarningSchema),
@@ -235,7 +239,7 @@ const createLessonGenerationDurableSchemaSet = (
     }),
   ]);
   const PersistedLessonGenerationResultSchema = LessonGenerationWorkflowResultSchema.extend({
-    researchDossier: LessonResearchDossierSchema,
+    researchDossier: lessonResearchDossierSchema,
   });
   const LessonPersistenceStateSchema = z.object({
     committedTargetFingerprint: z.string().length(64),
@@ -269,7 +273,9 @@ const createLessonGenerationDurableSchemaSet = (
 
 export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet(
   LessonPdfImageMetadataSchema,
-  LessonDocumentAssetsSchema
+  LessonDocumentAssetsSchema,
+  LessonResearchSummarySchema,
+  LessonResearchDossierSchema
 );
 
 export const {
@@ -294,9 +300,19 @@ const PreviousLessonDocumentAssetsSchema = LessonDocumentAssetsSchema.extend({
   ),
 });
 
+export const PreviousResearchContractLessonGenerationDurableSchemaSet =
+  createLessonGenerationDurableSchemaSet(
+    LessonPdfImageMetadataSchema,
+    LessonDocumentAssetsSchema,
+    PreviousLessonResearchSummarySchema,
+    PreviousLessonResearchDossierSchema
+  );
+
 export const PreviousLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet(
   PreviousLessonPdfImageMetadataSchema as unknown as typeof LessonPdfImageMetadataSchema,
-  PreviousLessonDocumentAssetsSchema
+  PreviousLessonDocumentAssetsSchema,
+  PreviousLessonResearchSummarySchema,
+  PreviousLessonResearchDossierSchema
 );
 
 export type LessonGenerationDurableSchemaSet = typeof CurrentLessonGenerationDurableSchemaSet;

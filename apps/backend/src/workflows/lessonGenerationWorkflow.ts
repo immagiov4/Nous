@@ -52,6 +52,7 @@ import {
   type LessonYouTubeState,
   type LessonYouTubeStateSchema,
   PreviousLessonGenerationDurableSchemaSet,
+  PreviousResearchContractLessonGenerationDurableSchemaSet,
   type SublessonPlanState,
   SublessonPlanStateSchema,
   type SublessonReadyState,
@@ -836,4 +837,17 @@ export const createPreviousLessonGenerationWorkflow = <
     executionDefaults,
     configSchema,
     PreviousLessonGenerationDurableSchemaSet
+  );
+
+export const createPreviousResearchContractLessonGenerationWorkflow = <
+  Config extends LessonGenerationWorkflowConfig = LessonGenerationWorkflowConfig,
+  Services extends LessonGenerationWorkflowServices = LessonGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = LessonGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createLessonGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    PreviousResearchContractLessonGenerationDurableSchemaSet
   );

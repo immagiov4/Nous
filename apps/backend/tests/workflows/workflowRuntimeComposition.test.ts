@@ -27,6 +27,8 @@ import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js'
 const RUN_ID = '9de19290-0dab-470d-a554-9a214073283e';
 const PRE_PDF_SOURCE_HASH_LESSON_DEFINITION =
   'ec69547055bd7c687c7d6cec929bb6e6395ed5ec5957674a7c52dcd1a718c378';
+const PRE_WHITESPACE_RESEARCH_LESSON_DEFINITION =
+  'c9d21983b2c81796f5b235129cc854faab285ce6b1e076320875d116b91a1954';
 const productionRegistry = createProductionRegistry();
 
 const createStore = (): WorkflowRuntimeCompositionStore => ({
@@ -85,6 +87,15 @@ describe('workflow runtime production composition', () => {
       productionRegistry.resolve(
         LESSON_GENERATION_WORKFLOW_ID,
         PRE_PDF_SOURCE_HASH_LESSON_DEFINITION
+      )
+    ).not.toBeNull();
+  });
+
+  test('resumes lesson workflows created before research identifiers rejected whitespace', () => {
+    expect(
+      productionRegistry.resolve(
+        LESSON_GENERATION_WORKFLOW_ID,
+        PRE_WHITESPACE_RESEARCH_LESSON_DEFINITION
       )
     ).not.toBeNull();
   });
