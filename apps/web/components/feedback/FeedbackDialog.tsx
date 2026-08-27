@@ -7,7 +7,7 @@ import type {
 import { Bug, Camera, CheckCircle2, Lightbulb, LoaderCircle, Send, Trash2, X } from 'lucide-react';
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { translateUiMessage as t, type UiMessage } from '../../i18n/uiMessages.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   type FeedbackDiagnosticsSnapshot,
   getFeedbackDiagnosticsSnapshot,
@@ -32,33 +32,33 @@ const MIN_DESCRIPTION_LENGTH = 10;
 const FOCUSABLE_CONTROL_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-const PRODUCT_SURFACE_LABELS: Record<FeedbackProductSurface, UiMessage> = {
-  assessment: 'Valutazione iniziale',
-  'contextual-chat': 'Chat contestuale',
-  home: 'Home',
-  library: 'Libreria',
-  planning: 'Pianificazione',
-  reader: 'Lettore',
+const PRODUCT_SURFACE_LABELS: Record<FeedbackProductSurface, () => string> = {
+  assessment: () => t('Valutazione iniziale'),
+  'contextual-chat': () => t('Chat contestuale'),
+  home: () => t('Home'),
+  library: () => t('Libreria'),
+  planning: () => t('Pianificazione'),
+  reader: () => t('Lettore'),
 };
 
-const WORKFLOW_OPERATION_LABELS: Record<FeedbackWorkflowOperation, UiMessage> = {
-  'create-lesson': 'Creazione lezione',
-  'generate-course': 'Generazione corso',
-  'load-section': 'Caricamento lezione',
+const WORKFLOW_OPERATION_LABELS: Record<FeedbackWorkflowOperation, () => string> = {
+  'create-lesson': () => t('Creazione lezione'),
+  'generate-course': () => t('Generazione corso'),
+  'load-section': () => t('Caricamento lezione'),
 };
 
-const WORKFLOW_STATUS_LABELS: Record<FeedbackWorkflowStatus, UiMessage> = {
-  completed: 'Completato',
-  failed: 'Non riuscito',
-  queued: 'In coda',
-  running: 'In corso',
+const WORKFLOW_STATUS_LABELS: Record<FeedbackWorkflowStatus, () => string> = {
+  completed: () => t('Completato'),
+  failed: () => t('Non riuscito'),
+  queued: () => t('In coda'),
+  running: () => t('In corso'),
 };
 
-const BREADCRUMB_OPERATION_LABELS: Record<FeedbackBreadcrumbOperation, UiMessage> = {
-  'opened-project': 'Corso aperto',
-  'opened-section': 'Lezione aperta',
-  'updated-workflow': 'Attività aggiornata',
-  'visited-surface': 'Area visitata',
+const BREADCRUMB_OPERATION_LABELS: Record<FeedbackBreadcrumbOperation, () => string> = {
+  'opened-project': () => t('Corso aperto'),
+  'opened-section': () => t('Lezione aperta'),
+  'updated-workflow': () => t('Attività aggiornata'),
+  'visited-surface': () => t('Area visitata'),
 };
 
 interface FeedbackTitleProps {
@@ -267,13 +267,13 @@ function FeedbackDiagnostics({
               ) : null}
               {productContext.surface ? (
                 <li>
-                  {t('Area')}: {t(PRODUCT_SURFACE_LABELS[productContext.surface])}
+                  {t('Area')}: {PRODUCT_SURFACE_LABELS[productContext.surface]()}
                 </li>
               ) : null}
               {productContext.workflow ? (
                 <li>
-                  {t('Attività')}: {t(WORKFLOW_OPERATION_LABELS[productContext.workflow.operation])}{' '}
-                  ({t(WORKFLOW_STATUS_LABELS[productContext.workflow.status])}) ·{' '}
+                  {t('Attività')}: {WORKFLOW_OPERATION_LABELS[productContext.workflow.operation]()}{' '}
+                  ({WORKFLOW_STATUS_LABELS[productContext.workflow.status]()}) ·{' '}
                   {productContext.workflow.runId}
                 </li>
               ) : null}
@@ -284,8 +284,8 @@ function FeedbackDiagnostics({
                   <li
                     key={`${breadcrumb.timestamp}-${breadcrumb.operation}-${breadcrumb.projectId || ''}-${breadcrumb.sectionId || ''}`}
                   >
-                    {t(BREADCRUMB_OPERATION_LABELS[breadcrumb.operation])} ·{' '}
-                    {t(PRODUCT_SURFACE_LABELS[breadcrumb.surface])}
+                    {BREADCRUMB_OPERATION_LABELS[breadcrumb.operation]()} ·{' '}
+                    {PRODUCT_SURFACE_LABELS[breadcrumb.surface]()}
                     {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
                     {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
                     {breadcrumb.timestamp}
