@@ -916,15 +916,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const onWorkflowSnapshot = (snapshot: LessonWorkflowSnapshot) => {
       if (!isGenerationCurrent()) return;
+      generatedSectionId = snapshot.sectionId;
+      state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
+      if (!isGenerationViewCurrent()) return;
       recordFeedbackWorkflowSnapshot({
         operation: 'create-lesson',
         projectId: snapshot.projectId,
         runId: snapshot.id,
         status: snapshot.status,
       });
-      generatedSectionId = snapshot.sectionId;
-      state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
-      if (isGenerationViewCurrent()) progressBridge.updateFromWorkflow(snapshot);
+      progressBridge.updateFromWorkflow(snapshot);
     };
 
     const generateSublessonResult = async (): Promise<DurableLessonResult | null> => {

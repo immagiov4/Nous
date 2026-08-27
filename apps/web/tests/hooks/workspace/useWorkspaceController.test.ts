@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type { LessonWorkflowSnapshot } from '@shared/lessonWorkflowContract';
 import JSZip from 'jszip';
 import { expect, test, vi } from 'vitest';
 import type {
@@ -11,6 +12,7 @@ import {
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import * as feedbackDiagnostics from '../../../services/feedback/browserDiagnostics.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import {
   type DurableLessonRecovery,
@@ -6063,6 +6065,58 @@ test('openProject reattaches an in-memory sublesson before its child is persiste
 
   expect(await creation).toEqual({ outcome: 'created' });
   expect(harness.state.adapter.isGenerationActive(snapshot.id)).toBe(false);
+});
+
+test('does not attach a sublesson workflow after navigating to another section', async () => {
+  const parentLesson = buildTestLesson({ id: 'lesson-1' });
+  const readyLesson = buildTestLesson({ content: '# Pronta', id: 'lesson-2' });
+  const plan = buildPlan({ sections: [parentLesson, readyLesson] });
+  let rejectGeneration: ((error: Error) => void) | undefined;
+  let markGenerationStarted: (() => void) | undefined;
+  let onWorkflowSnapshot: ((snapshot: LessonWorkflowSnapshot) => void) | undefined;
+  const generationStarted = new Promise<void>(resolve => {
+    markGenerationStarted = resolve;
+  });
+  const generationGate = new Promise<never>((_, reject) => {
+    rejectGeneration = reject;
+  });
+  const harness = createControllerHarness({
+    domain: { activeSectionId: parentLesson.id, learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateDurableSublesson: async input => {
+        onWorkflowSnapshot = input.onWorkflowSnapshot;
+        markGenerationStarted?.();
+        return generationGate;
+      },
+    },
+  });
+  const recordWorkflowSnapshot = vi.spyOn(feedbackDiagnostics, 'recordFeedbackWorkflowSnapshot');
+
+  try {
+    const creation = harness.controller.createLessonFromSelection({
+      instructions: 'Approfondisci',
+      selectedText: 'testo',
+    });
+    await generationStarted;
+    expect(await harness.controller.openSection(readyLesson)).toBe('reused-cached');
+    onWorkflowSnapshot?.({
+      createdAt: '2026-08-28T00:00:00.000Z',
+      id: 'sublesson-run',
+      projectId: 'project-1',
+      retrying: false,
+      sectionId: 'deep-1',
+      stage: 'sources',
+      status: 'running',
+      updatedAt: '2026-08-28T00:00:00.000Z',
+    });
+
+    expect(recordWorkflowSnapshot).not.toHaveBeenCalled();
+    rejectGeneration?.(new Error('Generazione interrotta'));
+    expect(await creation).toEqual({ outcome: 'ignored-busy' });
+  } finally {
+    recordWorkflowSnapshot.mockRestore();
+  }
 });
 
 test('sublesson failure follows synchronous section navigation when the library getter lags', async () => {
