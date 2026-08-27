@@ -1141,12 +1141,19 @@ describe('single workflow step runner', () => {
     expect(store.steps.recordFailure).not.toHaveBeenCalled();
   });
 
-  test('normalizes invalid output as a corrective failure', async () => {
+  test('persists one bounded validation issue and propagates the exhausted failure', async () => {
+    const ResearchState = z.object({
+      research: z.object({
+        summary: z.object({
+          sources: z.array(z.object({ title: z.string().min(1) })),
+        }),
+      }),
+    });
     const work = step({
       id: 'work',
       inputSchema: Text,
-      outputSchema: Text,
-      run: async () => ({ text: 123 }) as never,
+      outputSchema: ResearchState,
+      run: async () => ({ research: { summary: { sources: [{ title: '' }] } } }),
     });
     const registry = createWorkflowRegistry();
     const registered = registry.register({
@@ -1156,22 +1163,37 @@ describe('single workflow step runner', () => {
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'invalid-output',
         inputSchema: Text,
-        outputSchema: Text,
+        outputSchema: ResearchState,
         root: work,
       }),
     }).current;
     const recordFailure = vi.fn(async () => ({ status: 'failed' as const, transientEvents: [] }));
 
-    await runWorkflowStepClaim({
-      claim: makeClaim(registered, { nodeInstanceId: 'work' }),
+    const result = await runWorkflowStepClaim({
+      claim: makeClaim(registered, { attemptNumber: 3, nodeInstanceId: 'work' }),
       registry,
       services: {},
       store: makeStore({ recordFailure }),
     });
 
-    expect(recordFailure.mock.calls[0]?.[0].failure).toMatchObject({
+    expect(result).toEqual({
+      failure: recordFailure.mock.calls[0]?.[0].failure,
+      status: 'failure-recorded',
+      transientEvents: [],
+    });
+    expect(recordFailure.mock.calls[0]?.[0].claim.attemptNumber).toBe(3);
+    expect(recordFailure.mock.calls[0]?.[0].failure).toEqual({
       code: 'workflow_step_output_invalid',
+      details: {
+        validationIssue: {
+          code: 'too_small',
+          path: ['research', 'summary', 'sources', 0, 'title'],
+        },
+      },
+      feedback:
+        'Return an output that matches the declared schema. Correct research.summary.sources[0].title (too_small).',
       kind: 'corrective',
+      message: 'The workflow step returned an invalid output.',
     });
   });
 

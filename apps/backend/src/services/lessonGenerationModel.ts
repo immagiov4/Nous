@@ -11,6 +11,7 @@ import {
   resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
+import { firstSanitizedZodIssue, formatValidationPath } from '../utils/zodDiagnostics.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
@@ -24,6 +25,7 @@ import type {
   LessonResearchSummary,
 } from './lessonGenerationTypes.js';
 import { verifyLessonContentDraft } from './lessonGenerationVerification.js';
+import { LessonResearchModelResponseSchema } from './lessonResearchContract.js';
 
 export type {
   GenerateResearch,
@@ -176,58 +178,25 @@ const LESSON_JOB_RESPONSE_SCHEMA = {
   },
 } as const;
 
+const { $schema: _lessonResearchSchemaDialect, ...lessonResearchProviderSchema } =
+  LessonResearchModelResponseSchema.toJSONSchema();
+
 const LESSON_RESEARCH_RESPONSE_SCHEMA = {
   name: 'durable_lesson_research',
+  schema: lessonResearchProviderSchema,
   strict: true,
-  schema: {
-    additionalProperties: false,
-    properties: {
-      avoidOversimplifying: { items: { type: 'string' }, type: 'array' },
-      controversies: { items: { type: 'string' }, type: 'array' },
-      difficultSteps: { items: { type: 'string' }, type: 'array' },
-      factualSummary: { type: 'string' },
-      keyExamples: { items: { type: 'string' }, type: 'array' },
-      recentDevelopments: { items: { type: 'string' }, type: 'array' },
-      sources: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            note: { type: 'string' },
-            title: { type: 'string' },
-            url: { type: 'string' },
-          },
-          required: ['title', 'url', 'note'],
-          type: 'object',
-        },
-        type: 'array',
-      },
-      youtubeCandidateDecisions: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            decision: { enum: ['selected-source', 'rejected'], type: 'string' },
-            reason: { type: 'string' },
-            url: { type: 'string' },
-          },
-          required: ['url', 'decision', 'reason'],
-          type: 'object',
-        },
-        type: 'array',
-      },
-    },
-    required: [
-      'factualSummary',
-      'keyExamples',
-      'difficultSteps',
-      'avoidOversimplifying',
-      'controversies',
-      'recentDevelopments',
-      'sources',
-      'youtubeCandidateDecisions',
-    ],
-    type: 'object',
-  },
 } as const;
+
+const parseLessonResearchResponse = (value: unknown): LessonResearchSummary => {
+  const parsed = LessonResearchModelResponseSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const issue = firstSanitizedZodIssue(parsed.error);
+  throw retryLessonGenerationCorrection({
+    code: 'lesson_research_output_invalid',
+    feedback: `Return a valid research dossier. Correct ${formatValidationPath(issue.path)} (${issue.code}).`,
+    message: 'The lesson research model returned invalid structured output.',
+  });
+};
 
 export type LessonResearchRequest =
   | {
@@ -341,7 +310,7 @@ export const generateResearchSummary: GenerateResearch = async input => {
       serviceTier: resolveCodexServiceTierForSlot(input.config, request.slot),
       signal: input.signal,
     });
-    return JSON.parse(response) as LessonResearchSummary;
+    return parseLessonResearchResponse(JSON.parse(response));
   }
 
   const configured = createConfiguredTextModel(input.config, request.slot, {
@@ -361,7 +330,7 @@ export const generateResearchSummary: GenerateResearch = async input => {
     providerOptions: configured.providerOptions,
     ...(configured.tools ? { tools: configured.tools } : {}),
   });
-  return output;
+  return parseLessonResearchResponse(output);
 };
 
 export const generateLessonContent: GenerateLessonContent = async input => {

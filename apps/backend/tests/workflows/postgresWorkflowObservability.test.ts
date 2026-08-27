@@ -32,6 +32,7 @@ const STORED_REQUEST_FINGERPRINT = buildSha256HexDigest(
 );
 
 const createScriptedSql = (...responses: unknown[][]) => {
+  const jsonValues: unknown[] = [];
   let transactionOpen = false;
   const transaction = Object.assign(
     async (strings: TemplateStringsArray | readonly unknown[][], ..._values: unknown[]) => {
@@ -40,7 +41,13 @@ const createScriptedSql = (...responses: unknown[][]) => {
       if (!response) throw new Error('Unexpected workflow observability query.');
       return response;
     },
-    { array: (value: unknown) => value, json: (value: unknown) => value }
+    {
+      array: (value: unknown) => value,
+      json: (value: unknown) => {
+        jsonValues.push(value);
+        return value;
+      },
+    }
   ) as unknown as TransactionSql;
   const sql = Object.assign(transaction, {
     begin: async <T>(callback: (transactionSql: TransactionSql) => Promise<T>): Promise<T> => {
@@ -54,6 +61,7 @@ const createScriptedSql = (...responses: unknown[][]) => {
   }) as unknown as Sql;
   return {
     isTransactionOpen: () => transactionOpen,
+    jsonValues,
     remaining: () => responses.length,
     sql,
   };
@@ -553,16 +561,24 @@ describe('PostgreSQL workflow observability', () => {
       []
     );
     const retryLogs = captureLogs(retryDatabase.isTransactionOpen);
+    const validationFailure = {
+      code: 'workflow_step_output_invalid',
+      details: {
+        validationIssue: {
+          code: 'too_small',
+          path: ['research', 'summary', 'sources', 0, 'title'],
+        },
+      },
+      feedback:
+        'Return an output that matches the declared schema. Correct research.summary.sources[0].title (too_small).',
+      kind: 'corrective',
+      message: 'The workflow step returned an invalid output.',
+    } as const;
     await expect(
       new PostgresWorkflowStepStore(retryDatabase.sql, retryLogs.logger).recordFailure({
         claim: stepClaim,
         definition,
-        failure: {
-          code: 'provider_unavailable',
-          details: { response: 'private provider response' },
-          kind: 'operational',
-          message: 'private provider failure',
-        },
+        failure: validationFailure,
         random: () => 0,
       })
     ).resolves.toMatchObject({ status: 'retrying' });
@@ -578,11 +594,12 @@ describe('PostgreSQL workflow observability', () => {
       expect.objectContaining({
         action: 'retry-scheduled',
         event: 'workflow.attempt',
-        failureCode: 'provider_unavailable',
+        failureCode: 'workflow_step_output_invalid',
         operation: 'step',
         outcome: 'retrying',
       }),
     ]);
+    expect(retryDatabase.jsonValues).toEqual([validationFailure, validationFailure]);
     expect(JSON.stringify([...checkpointLogs.events, ...retryLogs.events])).not.toContain(
       'private'
     );

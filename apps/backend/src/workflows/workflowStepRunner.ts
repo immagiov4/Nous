@@ -1,5 +1,11 @@
 import type { TransactionSql } from 'postgres';
+import * as z from 'zod';
 
+import {
+  firstSanitizedZodIssue,
+  formatValidationPath,
+  type SanitizedZodIssue,
+} from '../utils/zodDiagnostics.js';
 import { snapshotImmutableJson } from './jsonSnapshot.js';
 import type { WorkflowCheckpointResult } from './postgresWorkflowCheckpoint.js';
 import type { RecordWorkflowProviderResultInput } from './postgresWorkflowProviderEffectStore.js';
@@ -104,9 +110,18 @@ const timeoutFailure = (): StepFailure => ({
   message: 'The workflow step exceeded its execution timeout.',
 });
 
-const invalidOutputFailure = (): StepFailure => ({
+const INVALID_OUTPUT_FEEDBACK = 'Return an output that matches the declared schema.';
+
+const invalidOutputFailure = (issue?: SanitizedZodIssue): StepFailure => ({
   code: 'workflow_step_output_invalid',
-  feedback: 'Return an output that matches the declared schema.',
+  ...(issue
+    ? {
+        details: {
+          validationIssue: { code: issue.code, path: [...issue.path] },
+        },
+        feedback: `${INVALID_OUTPUT_FEEDBACK} Correct ${formatValidationPath(issue.path)} (${issue.code}).`,
+      }
+    : { feedback: INVALID_OUTPUT_FEEDBACK }),
   kind: 'corrective',
   message: 'The workflow step returned an invalid output.',
 });
@@ -208,14 +223,18 @@ interface WorkflowStepAttemptResult {
   timedOut: boolean;
 }
 
-type ParsedStepOutput = { output: JsonValue; valid: true } | { valid: false };
+type ParsedStepOutput =
+  | { output: JsonValue; valid: true }
+  | { issue?: SanitizedZodIssue; valid: false };
 
 const parseStepOutput = (resolved: ResolvedWorkflowStep, value: unknown): ParsedStepOutput => {
   try {
     const output = snapshotImmutableJson(resolved.step.outputSchema.parse(value)) as JsonValue;
     return { output, valid: true };
-  } catch {
-    return { valid: false };
+  } catch (error) {
+    return error instanceof z.ZodError
+      ? { issue: firstSanitizedZodIssue(error), valid: false }
+      : { valid: false };
   }
 };
 
@@ -557,7 +576,7 @@ export const runWorkflowStepClaim = async <Services>(
     return recordFailure({
       claim: input.claim,
       definition: resolution.value.definition,
-      failure: invalidOutputFailure(),
+      failure: invalidOutputFailure(parsedOutput.issue),
       store: input.store,
     });
   }

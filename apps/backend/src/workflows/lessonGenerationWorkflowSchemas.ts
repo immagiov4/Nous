@@ -3,6 +3,16 @@ import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
 import type { ProjectAssetRef, ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
+import {
+  PreviousYouTubeCandidateDecisionSchema,
+  YouTubeCandidateDecisionSchema,
+} from '../services/lessonResearchContract.js';
+
+export {
+  LessonResearchSummarySchema,
+  PreviousLessonResearchSummarySchema,
+} from '../services/lessonResearchContract.js';
+
 const SHA256_HEX_LENGTH = 64;
 export const Sha256HexSchema = z.string().length(SHA256_HEX_LENGTH);
 export const LessonIdentifierSchema = z.string().min(1);
@@ -56,48 +66,36 @@ export const YouTubeResearchOutcomeSchema = z.object({
   videoCandidates: z.array(YouTubeVideoEvidenceSchema),
 });
 
-const YouTubeCandidateDecisionSchema = z.object({
-  decision: z.enum(['rejected', 'selected-source']),
-  reason: z.string(),
-  url: LessonIdentifierSchema,
-});
+const createLessonResearchDossierSchema = (
+  candidateDecisionSchema: typeof YouTubeCandidateDecisionSchema
+) =>
+  z.object({
+    avoidOversimplifying: z.array(z.string()).optional(),
+    controversies: z.array(z.string()).optional(),
+    difficultSteps: z.array(z.string()).optional(),
+    factualSummary: z.string().optional(),
+    generatedAt: TimestampSchema.optional(),
+    keyExamples: z.array(z.string()).optional(),
+    recentDevelopments: z.array(z.string()).optional(),
+    sectionId: LessonIdentifierSchema,
+    sources: z.array(ResearchSourceSchema),
+    title: LessonIdentifierSchema,
+    youtubeResearch: z
+      .object({
+        candidateDecisions: z.array(candidateDecisionSchema),
+        outcome: z.enum(['completed', 'failed']),
+        rationale: z.string(),
+      })
+      .optional(),
+  });
 
-export const LessonResearchSummarySchema = z.object({
-  avoidOversimplifying: z.array(z.string()),
-  controversies: z.array(z.string()),
-  difficultSteps: z.array(z.string()),
-  factualSummary: z.string(),
-  keyExamples: z.array(z.string()),
-  recentDevelopments: z.array(z.string()),
-  sources: z.array(
-    z.object({
-      note: z.string(),
-      title: LessonIdentifierSchema,
-      url: LessonIdentifierSchema,
-    })
-  ),
-  youtubeCandidateDecisions: z.array(YouTubeCandidateDecisionSchema).optional(),
-});
+export const LessonResearchDossierSchema = createLessonResearchDossierSchema(
+  YouTubeCandidateDecisionSchema
+);
 
-export const LessonResearchDossierSchema = z.object({
-  avoidOversimplifying: z.array(z.string()).optional(),
-  controversies: z.array(z.string()).optional(),
-  difficultSteps: z.array(z.string()).optional(),
-  factualSummary: z.string().optional(),
-  generatedAt: TimestampSchema.optional(),
-  keyExamples: z.array(z.string()).optional(),
-  recentDevelopments: z.array(z.string()).optional(),
-  sectionId: LessonIdentifierSchema,
-  sources: z.array(ResearchSourceSchema),
-  title: LessonIdentifierSchema,
-  youtubeResearch: z
-    .object({
-      candidateDecisions: z.array(YouTubeCandidateDecisionSchema),
-      outcome: z.enum(['completed', 'failed']),
-      rationale: z.string(),
-    })
-    .optional(),
-});
+export const PreviousLessonResearchDossierSchema = createLessonResearchDossierSchema(
+  PreviousYouTubeCandidateDecisionSchema
+);
 
 const LessonPdfImageMetadataPrefixShape = {
   asset: ProjectAssetRefSchema,
