@@ -1,0 +1,51 @@
+name: Pull request body
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate remote Markdown body
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted base revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install trusted dependencies
+        run: bun install --frozen-lockfile --ignore-scripts --production
+
+      - name: Read body from pull request event
+        env:
+          BODY_FILE: ${{ runner.temp }}/pull-request-body.md
+        run: >-
+          node -e "const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          fs.writeFileSync(process.env.BODY_FILE, event.pull_request.body ?? '', 'utf8');"
+
+      - name: Verify remote pull request body
+        env:
+          BODY_FILE: ${{ runner.temp }}/pull-request-body.md
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: >-
+          bun scripts/github-body.mjs verify --kind pr --repo "$REPOSITORY"
+          --number "$PR_NUMBER" --body-file "$BODY_FILE"

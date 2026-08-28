@@ -13,6 +13,7 @@
     "doctor": "bun run scripts/doctor.ts",
     "doctor:gate": "bun run scripts/doctor.ts --profile gate",
     "feature-map": "bun run scripts/run-feature-map.ts",
+    "github:body": "node scripts/github-body.mjs",
     "gen:favicon": "bun run scripts/generate-favicon-png.ts",
     "dev": "bun run scripts/run-local-dev.ts",
     "dev:frontend": "bun run scripts/free-frontend-port.ts && bun --bun vite --config apps/web/vite.config.ts",
