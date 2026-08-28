@@ -563,6 +563,7 @@ describe('useProjectLibrary', () => {
       }))
       .mockRejectedValueOnce(new Error('private backend detail'));
     repositoryMocks.deleteProject.mockRejectedValueOnce(new Error('cleanup failed'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = new File([archive], 'library.nous-library.zip');
     const { result } = renderHook(() =>
       useProjectLibrary({
@@ -599,6 +600,15 @@ describe('useProjectLibrary', () => {
       null,
       0
     );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Nous] Failed to roll back an imported library project.',
+      expect.objectContaining({
+        importedProjectId: repositoryMocks.importProjectArchive.mock.calls[1]?.[1],
+        projectId: 'course-two',
+        projectIndex: 2,
+      })
+    );
+    warnSpy.mockRestore();
   });
 
   test('rolls back imported projects when restoring a library backup fails', async () => {
@@ -649,6 +659,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.deleteProject
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('cleanup failed'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = new File(
       [new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))],
       'library.nous-library.zip'
@@ -675,6 +686,15 @@ describe('useProjectLibrary', () => {
     });
 
     expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Nous] Failed to roll back an imported library project.',
+      expect.objectContaining({
+        importedProjectId: repositoryMocks.importProjectArchive.mock.calls[0]?.[1],
+        projectId: 'course-one',
+        projectIndex: 1,
+      })
+    );
+    warnSpy.mockRestore();
   });
 
   test('clears a stale synchronization error after metadata refresh succeeds', async () => {

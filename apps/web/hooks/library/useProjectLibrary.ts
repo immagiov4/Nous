@@ -165,6 +165,25 @@ type LibraryArchiveProjectImportOutcome =
       rejectedProject: LibraryArchiveRejectedProject;
     };
 
+const warnLibraryArchiveProjectRollbackFailed = ({
+  error,
+  importedProjectId,
+  projectId,
+  projectIndex,
+}: {
+  error: unknown;
+  importedProjectId: string;
+  projectId: string;
+  projectIndex: number;
+}): void => {
+  console.warn('[Nous] Failed to roll back an imported library project.', {
+    error,
+    importedProjectId,
+    projectId,
+    projectIndex,
+  });
+};
+
 const importLibraryArchiveProject = async (
   repository: ProjectRepository,
   project: LibraryArchiveProject
@@ -205,7 +224,12 @@ const importLibraryArchiveProject = async (
       await repository.deleteProject(cleanupProjectId);
       return { cleanupFailed: false, kind: 'rejected', rejectedProject };
     } catch (cleanupError) {
-      console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
+      warnLibraryArchiveProjectRollbackFailed({
+        error: cleanupError,
+        importedProjectId: cleanupProjectId,
+        projectId: project.id,
+        projectIndex: project.projectIndex,
+      });
       return { cleanupFailed: true, kind: 'rejected', rejectedProject };
     }
   }
@@ -235,7 +259,12 @@ const rollbackImportedLibraryProjects = async (
       await repository.deleteProject(project.importedProjectId);
     } catch (cleanupError) {
       retainedImportedProjectIds.add(project.importedProjectId);
-      console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
+      warnLibraryArchiveProjectRollbackFailed({
+        error: cleanupError,
+        importedProjectId: project.importedProjectId,
+        projectId: project.id,
+        projectIndex: project.projectIndex,
+      });
     }
   }
   return retainedImportedProjectIds;
