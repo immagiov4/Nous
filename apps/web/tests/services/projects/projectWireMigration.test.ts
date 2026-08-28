@@ -150,6 +150,35 @@ test('legacy lesson migration derives Markdown content from structured blocks ac
   ]);
 });
 
+test('wire decoding rejects unsupported lesson content block types before projection', () => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire({
+        id: 'invalid-lesson-block',
+        learningPlan: {
+          modules: [
+            {
+              children: [
+                {
+                  content: 'Contenuto legacy da preservare.',
+                  contentBlocks: [{ markdown: 'Contenuto strutturato.', type: 'markdwon' }],
+                  id: 'lesson-1',
+                  kind: 'lesson',
+                  title: 'Lezione',
+                },
+              ],
+              id: 'module-1',
+              title: 'Modulo',
+            },
+          ],
+          title: 'Corso',
+        },
+        version: '4.1',
+      }),
+    /tipo blocco contenuto lezione non supportato/iu
+  );
+});
+
 test('canonical payloads reject unknown fields and unsupported versions instead of dropping them', () => {
   assert.throws(
     () =>
