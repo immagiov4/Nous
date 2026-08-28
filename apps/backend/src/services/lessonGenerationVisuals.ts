@@ -196,22 +196,22 @@ const ArtifactDraftPlanResponseSchema = z.object({
   visual_type: z.enum([...LESSON_VISUAL_TYPES, 'none']),
 });
 
-const ARTIFACT_DRAFT_PLAN_OUTPUT_INSTRUCTION = `Rispondi SOLO con JSON:
+const ARTIFACT_DRAFT_PLAN_OUTPUT_INSTRUCTION = `Respond ONLY with JSON:
 {
   "visual_type": "illustrative_image | flowchart_svg | structural_svg | interactive_html | chart_html | mermaid_erd | mermaid_class | none",
   "requires_depiction": true | false,
-  "concept": "una frase sul soggetto visuale",
+  "concept": "one sentence about the visual subject",
   "pedagogical_goal": "build_intuition | show_process | show_structure | enable_exploration | show_data",
-  "anchor_heading": "heading esatto della lezione oppure null",
+  "anchor_heading": "exact lesson heading or null",
   "interaction_level": "none | low | high",
   "complexity": "simple | moderate | complex",
   "coverage": "all_elements | single_complex | complete_synthesis | none",
-  "coverage_rationale": "breve spiegazione",
-  "factual_requirements": ["elementi visivi che devono essere corretti e presenti"],
-  "visual_direction": "composizione e punto di vista utili allo scopo didattico",
-  "reason": "una frase sul valore pedagogico della scelta",
-  "title": "titolo breve nella lingua della lezione",
-  "alt_text": "descrizione accessibile breve nella lingua della lezione"
+  "coverage_rationale": "short explanation",
+  "factual_requirements": ["visual elements that must be correct and present"],
+  "visual_direction": "composition and viewpoint useful for the pedagogical goal",
+  "reason": "one sentence about the pedagogical value of the choice",
+  "title": "short title in the lesson language",
+  "alt_text": "short accessible description in the lesson language"
 }`;
 
 const artifactDraftPlanJsonSchema = (): Record<string, unknown> => {
@@ -233,10 +233,10 @@ const requestArtifactDraftPlan = async (input: PlanLessonArtifactDraftInput): Pr
   const prompt = [
     basePrompt,
     input.requestedVisualKind
-      ? `Formato di rendering richiesto: ${input.requestedVisualKind}. Mantieni questa categoria.`
+      ? `Required rendering format: ${input.requestedVisualKind}. Keep this category.`
       : undefined,
     input.retryFeedback?.trim()
-      ? `Correzione richiesta dal tentativo precedente:\n${input.retryFeedback.trim()}`
+      ? `Required correction from the previous attempt:\n${input.retryFeedback.trim()}`
       : undefined,
   ]
     .filter(Boolean)
@@ -351,16 +351,16 @@ const visualKindForPlan = (plan: LessonVisualRetryPlan): RenderedArtifactDraft['
 
 const formatRuleForPlan = (plan: LessonVisualRetryPlan): string => {
   if (plan.visualType === 'interactive_html' || plan.visualType === 'chart_html') {
-    return `Restituisci un frammento HTML autosufficiente che inizi con <style>, includa <script>, non usi rete, script esterni o un documento HTML completo.
-Se il widget richiede davvero un asset artistico, aggiungilo a imageRequests e usalo esclusivamente come <img src="{{GENERATED_IMAGE:id}}" alt="...">. Ogni placeholder deve avere esattamente una richiesta con lo stesso id e viceversa. Gli id iniziano con una lettera minuscola e contengono solo minuscole, numeri, trattini o underscore. Se non servono immagini, imageRequests deve essere vuoto.
+    return `Return a self-contained HTML fragment that starts with <style>, includes <script>, and uses no network, external scripts, or complete HTML document.
+If the widget genuinely requires an artistic asset, add it to imageRequests and use it only as <img src="{{GENERATED_IMAGE:id}}" alt="...">. Every placeholder must have exactly one request with the same id and vice versa. IDs must start with a lowercase letter and contain only lowercase letters, numbers, hyphens, or underscores. If no images are needed, imageRequests must be empty.
 ${HTML_ARTIFACT_RENDER_RULES}`;
   }
   if (plan.visualType === 'structural_svg' || plan.visualType === 'flowchart_svg') {
-    return `Restituisci un singolo elemento <svg> completo. imageRequests deve essere vuoto.
+    return `Return one complete <svg> element. imageRequests must be empty.
 ${SVG_ARTIFACT_RENDER_RULES}`;
   }
   const diagramType = plan.visualType === 'mermaid_class' ? 'classDiagram' : 'erDiagram';
-  return `Restituisci soltanto codice Mermaid ${diagramType}. imageRequests deve essere vuoto.
+  return `Return only Mermaid ${diagramType} code. imageRequests must be empty.
 ${MERMAID_ARTIFACT_RENDER_RULES}`;
 };
 
@@ -370,31 +370,31 @@ const buildArtifactRenderPrompt = (
 ): string => {
   const formatRule = formatRuleForPlan(input.plan);
   const correctionInstructions = correction
-    ? `BOZZA DA REVISIONARE:\n${JSON.stringify({ code: correction.previous.code, imageRequests: correction.previous.imageRequests })}\n\n${correction.feedback}`
+    ? `DRAFT TO REVISE:\n${JSON.stringify({ code: correction.previous.code, imageRequests: correction.previous.imageRequests })}\n\n${correction.feedback}`
     : '';
   const retryInstructions = input.retryFeedback?.trim()
-    ? `CORREZIONE RICHIESTA DAL TENTATIVO PRECEDENTE:\n${input.retryFeedback.trim()}`
+    ? `REQUIRED CORRECTION FROM THE PREVIOUS ATTEMPT:\n${input.retryFeedback.trim()}`
     : '';
   const retainedAssetInstruction = input.existingEmbeddedAssets?.length
-    ? `Puoi mantenere soltanto questi riferimenti asset gia autorizzati, se restano necessari: ${input.existingEmbeddedAssets
+    ? `You may keep only these already authorized asset references if they remain necessary: ${input.existingEmbeddedAssets
         .map(asset => buildProjectAssetPlaceholder(asset.id))
-        .join(', ')}. Non inventare riferimenti PROJECT_ASSET e usa imageRequests per nuovi asset.`
-    : 'Non usare riferimenti PROJECT_ASSET; usa imageRequests per ogni nuovo asset.';
-  return `Genera il codice dell'esempio visuale pianificato per questa lezione.
+        .join(', ')}. Do not invent PROJECT_ASSET references. Use imageRequests for new assets.`
+    : 'Do not use PROJECT_ASSET references. Use imageRequests for every new asset.';
+  return `Generate the code for the visual example planned for this lesson.
 
-Titolo lezione: ${input.sectionTitle}
-Descrizione: ${input.sectionDescription}
-Piano visuale: ${JSON.stringify(input.plan)}
-Contenuto della lezione:
+Lesson title: ${input.sectionTitle}
+Description: ${input.sectionDescription}
+Visual plan: ${JSON.stringify(input.plan)}
+Lesson content:
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}
 
 ${formatRule}
-Ogni testo visibile deve usare la lingua della lezione. Il visuale deve rispettare i requisiti fattuali del piano e non aggiungere dettagli non supportati.
+All visible text must use the lesson language. The visual must follow the plan's factual requirements and add no unsupported details.
 ${NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT}
 ${retainedAssetInstruction}
 ${retryInstructions}
 ${correctionInstructions}
-Restituisci soltanto il JSON richiesto.`;
+Return only the requested JSON.`;
 };
 
 const requestGeneratedImage = async (input: RenderResolvedLessonVisualInput, prompt: string) => {
@@ -555,10 +555,10 @@ const normalizeArtifactDraft = (
 
 const buildReviewFeedback = (kind: RenderedArtifactDraft['kind'], issues: string[]): string => {
   if (kind !== 'svg') {
-    return 'Verifica questa bozza HTML come software didattico. Controlla che venga eseguita senza errori, che ogni controllo produca davvero il cambiamento dichiarato e che la grafica sia generata da regole o algoritmi verificabili. Se un asset artistico non puo essere prodotto dignitosamente dal codice, usa imageRequests. Mantieni una corrispondenza esatta tra imageRequests e placeholder {{GENERATED_IMAGE:id}} e correggi qualunque discrepanza tra etichette e risultato.';
+    return 'Review this HTML draft as educational software. Check that it runs without errors, every control produces its stated change, and the graphics come from verifiable rules or algorithms. If code cannot produce an artistic asset adequately, use imageRequests. Keep an exact correspondence between imageRequests and {{GENERATED_IMAGE:id}} placeholders, and correct every mismatch between labels and results.';
   }
   const issueList = issues.map(issue => `- ${issue}`).join('\n');
-  return `Questa e la versione renderizzata della bozza SVG. Correggi problemi visivi reali di leggibilita, sovrapposizione, spaziatura, contrasto e bordi, mantenendo contenuto e intento pedagogico. Il linter e euristico: usalo come indizio, non come verita assoluta.\n\n${issueList}`;
+  return `This is the rendered version of the SVG draft. Correct real visual problems in readability, overlap, spacing, contrast, and edges while preserving content and pedagogical intent. The linter is heuristic. Use it as evidence, not as absolute truth.\n\n${issueList}`;
 };
 
 export const generateLessonVisualArtifact = async (

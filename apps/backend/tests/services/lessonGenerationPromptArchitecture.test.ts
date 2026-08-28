@@ -1,5 +1,9 @@
+import {
+  LESSON_RESEARCH_TRANSFORMATION_RULE,
+  LESSON_SOURCE_PRECEDENCE_RULE,
+} from '@shared/lessonWritingContract';
 import { describe, expect, test } from 'vitest';
-
+import { buildLessonGenerationPrompt } from '../../src/services/lessonGenerationPrompt.js';
 import type { LessonContentDraft } from '../../src/services/lessonGenerationTypes.js';
 import {
   buildApplicableLessonVerificationCheckIds,
@@ -31,6 +35,21 @@ const BASE_CHECKS = [
 const EMPTY_CHECK_CONTEXT = {
   imageCandidates: [],
   instructionPacks: [],
+  sources: [],
+} as const;
+
+const LESSON_PROMPT_INPUT = {
+  description: 'Descrizione della lezione',
+  generationNotes: 'Usa esempi concreti e un ritmo graduale.',
+  imageCandidates: [],
+  instructionPacks: [],
+  language: 'Português (Brasil)',
+  pedagogicalContext: 'Profilo didattico specifico.',
+  previousLessonTitles: ['Fondamenti'],
+  refreshResearch: false,
+  researchContext: 'Dossier di supporto.',
+  sectionTitle: 'Applicazione pratica',
+  sourceContext: 'Convenzione specifica della fonte primaria.',
   sources: [],
 } as const;
 
@@ -358,5 +377,31 @@ x = 1 \)`,
         checkedIds
       )
     ).toEqual([]);
+  });
+});
+
+describe('lesson writing prompt composition', () => {
+  test('keeps language, personalization, and primary-source precedence in their contract order', () => {
+    const prompt = buildLessonGenerationPrompt(LESSON_PROMPT_INPUT);
+    const personalizationIndex = prompt.indexOf('COURSE PERSONALIZATION NOTES (HIGH PRIORITY)');
+    const sourceIndex = prompt.indexOf('PRIMARY SOURCE MATERIAL, CONTENT TO ANALYZE');
+    const writingContractIndex = prompt.indexOf('WRITING CONTRACT:');
+
+    expect(prompt).toContain('- Language: Português (Brasil)');
+    expect(personalizationIndex).toBeGreaterThan(-1);
+    expect(sourceIndex).toBeGreaterThan(personalizationIndex);
+    expect(writingContractIndex).toBeGreaterThan(sourceIndex);
+    expect(prompt).toContain(LESSON_SOURCE_PRECEDENCE_RULE);
+    expect(prompt).not.toContain(LESSON_RESEARCH_TRANSFORMATION_RULE);
+  });
+
+  test('switches to the research transformation contract only without primary material', () => {
+    const prompt = buildLessonGenerationPrompt({
+      ...LESSON_PROMPT_INPUT,
+      sourceContext: '',
+    });
+
+    expect(prompt).toContain(LESSON_RESEARCH_TRANSFORMATION_RULE);
+    expect(prompt).not.toContain(LESSON_SOURCE_PRECEDENCE_RULE);
   });
 });

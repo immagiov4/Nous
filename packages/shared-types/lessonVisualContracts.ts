@@ -88,7 +88,7 @@ export const getLessonRasterImageSubject = (input: LessonRasterImagePromptInput)
   const subject = input.concept.trim() || input.sectionDescription.trim() || input.sectionTitle;
   const lines = subject.split('\n');
   const requestLineIndex = lines.findIndex(
-    (line, index) => index > 0 && line.trimStart().toLowerCase().startsWith('richiesta:')
+    (line, index) => index > 0 && /^(?:request|richiesta):/u.test(line.trimStart().toLowerCase())
   );
   const subjectWithoutRequest =
     requestLineIndex < 0 ? subject : lines.slice(0, requestLineIndex).join('\n');
@@ -100,34 +100,34 @@ export const buildLessonRasterImagePrompt = (input: LessonRasterImagePromptInput
   const factualRequirements = input.factualRequirements.filter(Boolean).join('\n- ') || subject;
   const visualDirection =
     input.visualDirection.trim() ||
-    'Composizione orizzontale chiara, soggetto principale immediatamente riconoscibile e gerarchia visiva semplice.';
+    'Clear horizontal composition, an immediately recognizable main subject, and simple visual hierarchy.';
 
   return [
-    'SCOPO',
-    `Crea una singola immagine pedagogica accurata per aiutare a comprendere: ${input.pedagogicalGoal || 'il concetto centrale'}.`,
+    'PURPOSE',
+    `Create one accurate pedagogical image to help explain: ${input.pedagogicalGoal || 'the central concept'}.`,
     '',
-    'SOGGETTO E CONTESTO',
-    `Soggetto: ${subject}`,
-    `Lezione: ${input.sectionTitle}. ${input.sectionDescription}`,
+    'SUBJECT AND CONTEXT',
+    `Subject: ${subject}`,
+    `Lesson: ${input.sectionTitle}. ${input.sectionDescription}`,
     '',
-    'REQUISITI FATTUALI OBBLIGATORI',
+    'REQUIRED FACTUAL DETAILS',
     `- ${factualRequirements}`,
     '',
-    'COMPOSIZIONE',
+    'COMPOSITION',
     visualDirection,
-    'Formato orizzontale 16:9. Mostra solo elementi utili alla comprensione.',
+    'Use a horizontal 16:9 format. Show only elements that help understanding.',
     '',
-    'STILE',
-    'Illustrazione educativa precisa, leggibile, visivamente coerente e non decorativa. Materiali, luce, anatomia, prospettiva e relazioni spaziali devono essere plausibili per il soggetto.',
+    'STYLE',
+    'Use a precise, readable, visually coherent, non-decorative educational illustration. Materials, lighting, anatomy, perspective, and spatial relationships must be plausible for the subject.',
     NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
     '',
-    'VINCOLI',
-    '- Usa testo, numeri, etichette o frecce solo quando sono necessari per leggere il contenuto pedagogico; mantienili brevi, corretti e nella lingua della lezione.',
-    '- Nessun logo, watermark, didascalia narrativa o testo decorativo.',
-    '- Nessuna interfaccia grafica, cornice decorativa o elemento estraneo.',
-    '- Non trasformare il soggetto in un diagramma di blocchi: questa richiesta e raster perche il suo aspetto concreto o la sua complessita spaziale sono informativi.',
+    'CONSTRAINTS',
+    '- Use text, numbers, labels, or arrows only when needed to read the pedagogical content. Keep them short, correct, and in the lesson language.',
+    '- No logos, watermarks, narrative captions, or decorative text.',
+    '- No graphical interface, decorative frame, or unrelated element.',
+    '- Do not turn the subject into a block diagram. This request is raster because its concrete appearance or spatial complexity carries information.',
     '',
-    `CONTESTO FATTUALE DELLA LEZIONE\n${input.lessonMarkdown.slice(0, 4_000)}`,
+    `FACTUAL LESSON CONTEXT\n${input.lessonMarkdown.slice(0, 4_000)}`,
   ].join('\n');
 };
 
@@ -137,55 +137,55 @@ export const buildEmbeddedArtifactImagePrompt = (
     LessonRasterImagePromptInput,
     'concept' | 'lessonMarkdown' | 'sectionDescription' | 'sectionTitle'
   >
-): string => `Genera un singolo asset raster da inserire in un artefatto didattico HTML.
+): string => `Generate one raster asset to insert into an educational HTML artifact.
 
-Asset richiesto: ${request.prompt}
-Testo alternativo previsto: ${request.alt}
-Lezione: ${input.sectionTitle}. ${input.sectionDescription}
-Artefatto: ${input.concept || 'esempio visuale interattivo'}
+Requested asset: ${request.prompt}
+Expected alt text: ${request.alt}
+Lesson: ${input.sectionTitle}. ${input.sectionDescription}
+Artifact: ${input.concept || 'interactive visual example'}
 
 ${NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT}
 
-L'immagine deve essere autonoma, accurata e immediatamente leggibile. Nessuna interfaccia, cornice, watermark, logo o decorazione estranea. Non aggiungere testo salvo quando il prompt lo richiede esplicitamente; in quel caso usa la lingua della lezione. Mantieni il soggetto principale ben dentro i bordi e lascia margine sufficiente per eventuali ritagli responsive.
+The image must be self-contained, accurate, and immediately readable. Do not add an interface, frame, watermark, logo, or unrelated decoration. Add no text unless the prompt explicitly requires it. In that case, use the lesson language. Keep the main subject well inside the edges and leave enough margin for responsive cropping.
 
-CONTESTO FATTUALE DELLA LEZIONE
+FACTUAL LESSON CONTEXT
 ${input.lessonMarkdown.slice(0, 3_000)}`;
 
 export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE}
 - ${INTERACTIVE_VISUAL_VALUE_RULE}
 - ${VISUAL_FORMAT_SELECTION_RULE}
-- Per la generazione automatica pianifica normalmente zero o un artefatto, due solo se rispondono a domande pedagogiche diverse e complementari, tre solo se sono tutti indispensabili. Mai produrre varianti estetiche dello stesso contenuto.
-- La varieta dei formati non e mai un obiettivo. Due o tre immagini raster sono corrette quando sono la soluzione pedagogica migliore.
-- Non simulare immagini con ASCII art, testo monospace, celle, coordinate, box geometrici o SVG. Se l'aspetto concreto conta, usa illustrative_image.
-- Ogni piano deve restare nella sezione locale in cui e collocato: non anticipare concetti di sezioni successive e non fondere argomenti lontani.
-- La visuale deve essere comprensibile in pochi secondi usando termini naturali gia introdotti nel testo vicino. Vietati gergo inventato, etichette esoteriche, formule nominali ambigue e controlli dal risultato non osservabile.
-- Se la lezione presenta un insieme di elementi equivalenti, la visuale deve rappresentarli tutti. Usa single_complex soltanto quando un elemento e oggettivamente piu complesso e giustifica l'eccezione in reason.
-- Niente narrazione, takeaway, riepiloghi o box conclusivi dentro la visuale. Il testo visibile deve servire a leggere entita, stati, relazioni o controlli.
-- Scala il layout al numero di elementi: con molti elementi usa griglie o colonne compatte, minimizza le entita grafiche e abbrevia le etichette invece di comprimere il contenuto.
-- Restituisci da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} piani.`;
+- For automatic generation, normally plan zero or one artifact. Plan two only when they answer different, complementary pedagogical questions, and three only when all are indispensable. Never produce aesthetic variants of the same content.
+- Format variety is never a goal. Two or three raster images are correct when they are the best pedagogical solution.
+- Do not simulate images with ASCII art, monospace text, cells, coordinates, geometric boxes, or SVG. If concrete appearance matters, use illustrative_image.
+- Every plan must stay within the local section where it is placed. Do not preview concepts from later sections or merge distant topics.
+- The visual must be understandable within seconds using natural terms already introduced in nearby text. Do not use invented jargon, esoteric labels, ambiguous nominal formulas, or controls whose result cannot be observed.
+- If the lesson presents a set of equivalent elements, the visual must represent all of them. Use single_complex only when one element is objectively more complex, and justify the exception in reason.
+- Do not add narration, takeaways, recaps, or concluding boxes inside the visual. Visible text must help read entities, states, relationships, or controls.
+- Scale the layout to the number of elements. With many elements, use compact grids or columns, minimize graphical entities, and shorten labels instead of compressing the content.
+- Return from zero to ${MAX_GENERATED_VISUALS_PER_LESSON} plans.`;
 
 export const LESSON_VISUAL_PLANNER_SYSTEM_PROMPT = `SYSTEM:
-Sei un pianificatore pedagogico di esempi visivi per Nous Reader.
-Dato il testo finale di una lezione, decidi quali rappresentazioni visive generate servono davvero.
+You are a pedagogical planner of visual examples for Nous Reader.
+Given the final lesson text, decide which generated visual representations are genuinely needed.
 
-Scegli esattamente un tipo per ciascun piano:
-- illustrative_image: illustrazione raster per realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, anatomia, gesti, oggetti, scene, luoghi e fenomeni. Puo anche avere una composizione diagrammatica con frecce ed etichette quando queste aiutano a leggere l'immagine.
-- flowchart_svg: solo relazioni astratte tra passaggi testuali di un processo, pipeline o albero decisionale. I nodi non possono raffigurare gli stati visivi prodotti dai passaggi.
-- structural_svg: solo schema informativo semplice di contenimento, architettura, strati o parti dentro un sistema.
-- interactive_html: laboratorio HTML/CSS/JavaScript in cui l'interazione reale e indispensabile per esplorare, modificare o confrontare il concetto.
-- chart_html: dati quantitativi, confronti numerici, distribuzioni, trend.
-- mermaid_erd: solo schema entita-relazioni.
-- mermaid_class: solo classi, ereditarieta, interfacce, associazioni.
-- none: nessuna visuale utile, oppure la lezione e gia sufficientemente visuale.
+Choose exactly one type for each plan:
+- illustrative_image: a raster illustration for physical or stylized reality, dimensional form, lighting, shading, volume, perspective, materials, surfaces, texture, anatomy, gestures, objects, scenes, places, and phenomena. It may also use a diagram-like composition with arrows and labels when they help read the image.
+- flowchart_svg: abstract relationships among textual steps in a process, pipeline, or decision tree only. Nodes cannot depict the visual states produced by the steps.
+- structural_svg: a simple informational diagram of containment, architecture, layers, or parts within a system only.
+- interactive_html: an HTML, CSS, and JavaScript lab where real interaction is indispensable to explore, modify, or compare the concept.
+- chart_html: quantitative data, numerical comparisons, distributions, and trends.
+- mermaid_erd: entity relationship diagrams only.
+- mermaid_class: classes, inheritance, interfaces, and associations only.
+- none: no useful visual, or the lesson is already sufficiently visual.
 
-Regole:
+Rules:
 ${LESSON_VISUAL_PLANNING_RULES}
-- Per una richiesta esplicita pianifica un solo artefatto.
-- Inferisci la lingua dal testo finale della lezione. La visuale deve usare la stessa lingua della lezione.
-- Se "Immagini PDF gia integrate" e "si", trattale come materiale visivo primario. Aggiungi una visuale generata solo se risponde a una domanda pedagogica distinta che le immagini della fonte non coprono; altrimenti non pianificare nulla.
-- Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
-- Usa Mermaid solo per ER e class diagram.
-- Segui esattamente il formato di output richiesto in fondo.`;
+- For an explicit request, plan exactly one artifact.
+- Infer the language from the final lesson text. The visual must use the same language as the lesson.
+- If "PDF images already integrated" is "yes," treat them as primary visual material. Add a generated visual only when it answers a distinct pedagogical question not covered by the source images. Otherwise plan nothing.
+- Placement is part of the pedagogical choice. When generating a visual, set "anchor_heading" to the EXACT heading under which the text uses or introduces that concept. Use null only for genuinely concluding visuals.
+- Use Mermaid only for ER and class diagrams.
+- Follow the output format requested at the end exactly.`;
 
 const normalizeHeadingTitle = (value: string): string =>
   value
@@ -223,66 +223,66 @@ interface LessonVisualPlannerRequestInput {
 }
 
 export const buildLessonVisualPlannerRequest = (input: LessonVisualPlannerRequestInput): string =>
-  `Lezione: "${input.sectionTitle}"
-Descrizione: "${input.sectionDescription}"
-Immagini PDF gia integrate: ${input.hasPdfImages ? 'si' : 'no'}
-Note corso: ${input.generationNotes?.trim() || 'nessuna'}
-Lingua target: inferiscila dal testo della lezione e mantienila in ogni testo visibile dell'esempio.
-Heading disponibili per il posizionamento:
+  `Lesson: "${input.sectionTitle}"
+Description: "${input.sectionDescription}"
+PDF images already integrated: ${input.hasPdfImages ? 'yes' : 'no'}
+Course notes: ${input.generationNotes?.trim() || 'none'}
+Target language: infer it from the lesson text and preserve it in every visible part of the example.
+Available placement headings:
 ${
   getMarkdownHeadingTitles(input.lessonMarkdown)
     .map(heading => `- ${heading}`)
-    .join('\n') || '- nessun heading disponibile'
+    .join('\n') || '- no headings available'
 }
 
-Testo lezione:
+Lesson text:
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 
-export const SVG_ARTIFACT_RENDER_RULES = `Regole SVG obbligatorie:
-- SVG e riservato a schemi informativi semplici: pochi nodi, box, linee, frecce ed etichette per relazioni, gerarchie, contenimento e architetture astratte. Sono vietati realta fisica o stilizzata, forma dimensionale, luce, volume, prospettiva, materiali, superfici, texture, illustrazioni, forme organiche, persone, anatomia, gesti, oggetti raffigurati e scene. Non approssimare questi soggetti con box o disegni geometrici: richiedono un'immagine raster.
-- Se coverage e all_elements, rappresenta tutti gli elementi dell'insieme in un unico grafico. Usa una griglia o colonne per distribuirli.
-- Tutto il testo visibile deve essere nella lingua della lezione e usare termini naturali gia presenti nel testo locale.
-- Produci un singolo elemento <svg>, senza wrapper, DOCTYPE, HTML, script, event handler o risorse di rete.
-- Usa viewBox "0 0 680 H", width="100%", sfondo trasparente e nessun rettangolo esterno di background.
-- Il primo figlio e <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>.
-- Usa solo classi gia disponibili: .t, .ts, .th, .box, .arr, .leader, .node, .c-purple, .c-teal, .c-coral, .c-pink, .c-gray, .c-blue, .c-green, .c-amber, .c-red.
-- Ogni <text> ha class .t, .ts o .th e dominant-baseline="central". Usa sentence case, non Title Case o tutto maiuscolo.
-- Connettori <path> e <polyline> hanno fill="none"; le frecce usano marker-end="url(#arrow)".
-- Niente shadow, blur, glow, filter, emoji, HTML o commenti. Usa al massimo due rampe colore; c-gray e il default e c-amber/c-red/c-green sono solo semantici.
-- Altezza viewBox = ultimo elemento + 40px.
-- Calcola la larghezza dei box dal testo: circa 8px per carattere a 14px e 7px a 12px, piu 24px di padding. Abbrevia il testo prima di farlo sforare.
-- Box a una riga: 44px. Box a due righe: 56px, con 22px tra titolo e sottotitolo; titolo a cy - 9 e sottotitolo a cy + 13.
-- Padding interno almeno 24px, gap tra box adiacenti almeno 60px e gap freccia-bordo almeno 10px.
-- Prima di posizionare una riga verifica che N * box_width + (N - 1) * gap sia al massimo 600. Se non entra, usa piu righe.
-- Se una freccia attraverserebbe un box non collegato, usa un percorso a L in spazio libero.
-- Applica le classi c-* a un gruppo che contiene rect e text, senza annidare un altro gruppo intermedio.
-- Ogni etichetta ha da una a sei parole. Vietati caption narrative, box di sintesi, takeaway e frasi complete di prosa.`;
+export const SVG_ARTIFACT_RENDER_RULES = `Required SVG rules:
+- Reserve SVG for simple informational diagrams with a few nodes, boxes, lines, arrows, and labels showing abstract relationships, hierarchies, containment, and architectures. Do not use it for physical or stylized reality, dimensional form, lighting, volume, perspective, materials, surfaces, textures, illustrations, organic forms, people, anatomy, gestures, depicted objects, or scenes. Do not approximate these subjects with boxes or geometric drawings. They require a raster image.
+- If coverage is all_elements, represent every element in the set in one graphic. Use a grid or columns to distribute them.
+- All visible text must use the lesson language and natural terms already present in the local text.
+- Produce one <svg> element without a wrapper, DOCTYPE, HTML, scripts, event handlers, or network resources.
+- Use viewBox "0 0 680 H", width="100%", a transparent background, and no outer background rectangle.
+- The first child must be <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>.
+- Use only these available classes: .t, .ts, .th, .box, .arr, .leader, .node, .c-purple, .c-teal, .c-coral, .c-pink, .c-gray, .c-blue, .c-green, .c-amber, .c-red.
+- Every <text> must have class .t, .ts, or .th and dominant-baseline="central". Use sentence case, not Title Case or all caps.
+- Connector <path> and <polyline> elements must have fill="none". Arrows must use marker-end="url(#arrow)".
+- Do not use shadow, blur, glow, filter, emoji, HTML, or comments. Use at most two color ramps. c-gray is the default, while c-amber, c-red, and c-green are semantic only.
+- Set viewBox height to the final element plus 40px.
+- Calculate box width from the text at roughly 8px per character for 14px text and 7px for 12px text, plus 24px padding. Shorten text before it overflows.
+- A one-line box is 44px high. A two-line box is 56px high, with 22px between title and subtitle. Place the title at cy - 9 and the subtitle at cy + 13.
+- Use at least 24px internal padding, at least 60px between adjacent boxes, and at least 10px between an arrow and a border.
+- Before placing a row, verify that N * box_width + (N - 1) * gap is at most 600. If it does not fit, use multiple rows.
+- If an arrow would cross an unrelated box, route it in an L shape through free space.
+- Apply c-* classes to a group containing rect and text without nesting another intermediate group.
+- Keep every label between one and six words. Do not use narrative captions, summary boxes, takeaways, or complete prose sentences.`;
 
-export const HTML_ARTIFACT_RENDER_RULES = `Regole HTML obbligatorie:
-- Se coverage e all_elements, rappresenta tutti gli elementi dell'insieme con schede, stepper, pannelli o una griglia.
-- Tutto il testo visibile deve essere nella lingua della lezione e usare termini naturali gia introdotti nel testo locale. Ogni controllo dichiara un effetto osservabile e lo produce davvero.
-- Nessun DOCTYPE, <html>, <head> o <body>. Ordine immutabile: <style> prima, HTML in mezzo, <script> ultimo.
-- Ogni ID usato in document.getElementById esiste letteralmente nell'HTML prima dello script. Non creare quegli elementi via JavaScript.
-- Non dereferenziare direttamente document.getElementById(...).property: salva il risultato, verifica il caso null e poi usa la variabile.
-- Usa le variabili CSS --bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong.
-- Niente @media (prefers-color-scheme: dark), position:fixed, ombre pesanti, blur, filter, backdrop-filter o gradienti. L'host gestisce il tema scuro.
-- Container in flow con display:block e width:100%. Ogni range input ha step e i numeri mostrati sono arrotondati o formattati.
-- Il codice deve limitarsi all'esempio didattico mostrato nel proprio pannello e non deve eseguire azioni malevole, ingannevoli o estranee alla richiesta.
-- Non usare rete, fetch, XMLHttpRequest, WebSocket, EventSource, script esterni o import dinamici. Non navigare la pagina, aprire popup, avviare download, usare storage, cookie, clipboard, API del dispositivo o tentare di comunicare con la pagina parent. Non creare pulsanti finti per link esterni o chat.
-- Usa HTML/CSS/JavaScript per grafica naturalmente programmabile: pattern generativi, confronti CSS, simulazioni, stati, trasformazioni e shader semplici. Non renderizzare ASCII art o pseudo-pixel con testo monospace.
-- La grafica deve derivare da una legge o procedura verificabile. Non codificare a mano illustrazioni, modelli 3D o pixel art complessa come array di coordinate, celle o colori.
-- Se serve giudizio artistico o comprensione spaziale reale, usa un'immagine generata tramite imageRequests, non coordinate, CSS, canvas o SVG improvvisati.
-- Ogni asset artistico appare esclusivamente come <img src="{{GENERATED_IMAGE:asset-id-univoco}}" alt="...">. Ogni placeholder ha una richiesta con lo stesso id e viceversa.
-- Gli id degli asset iniziano con una lettera minuscola e contengono solo minuscole, numeri, trattini o underscore. I prompt sono autonomi e non usano riferimenti come "come sopra".
-- Richiedi soltanto immagini indispensabili; se una sola immagine composita basta, preferiscila. Se non servono immagini, imageRequests e vuoto.
-- Non aggiungere controlli finti a una dimostrazione passiva. Input, controlli e risultato che modificano stanno nello stesso pannello o nella stessa riga logica.
-- Usa spazio, margini e padding con parsimonia. Per piu controlli usa una griglia compatta e responsive; evita min-height arbitrari e lunghe colonne a tutta larghezza.
-- Titoli da una a tre parole e label da una a sei parole. Vietati caption narrative, box di sintesi, takeaway e paragrafi che riassumono la lezione.`;
+export const HTML_ARTIFACT_RENDER_RULES = `Required HTML rules:
+- If coverage is all_elements, represent every element in the set with cards, a stepper, panels, or a grid.
+- All visible text must use the lesson language and natural terms already introduced in the local text. Every control must state an observable effect and actually produce it.
+- Do not use DOCTYPE, <html>, <head>, or <body>. Keep this immutable order: <style> first, HTML in the middle, and <script> last.
+- Every ID used in document.getElementById must literally exist in the HTML before the script. Do not create those elements through JavaScript.
+- Do not dereference document.getElementById(...).property directly. Store the result, check for null, and then use the variable.
+- Use the CSS variables --bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, and --border-strong.
+- Do not use @media (prefers-color-scheme: dark), position:fixed, heavy shadows, blur, filter, backdrop-filter, or gradients. The host manages the dark theme.
+- Keep containers in flow with display:block and width:100%. Every range input must have a step, and displayed numbers must be rounded or formatted.
+- Restrict the code to the educational example shown in its own panel. It must not perform malicious, deceptive, or unrelated actions.
+- Do not use the network, fetch, XMLHttpRequest, WebSocket, EventSource, external scripts, or dynamic imports. Do not navigate the page, open popups, start downloads, use storage, cookies, the clipboard, device APIs, or attempt to communicate with the parent page. Do not create fake buttons for external links or chat.
+- Use HTML, CSS, and JavaScript for naturally programmable graphics such as generative patterns, CSS comparisons, simulations, states, transformations, and simple shaders. Do not render ASCII art or pseudo-pixels with monospace text.
+- Graphics must derive from a verifiable law or procedure. Do not hand-code illustrations, 3D models, or complex pixel art as arrays of coordinates, cells, or colors.
+- If the result needs artistic judgment or real spatial understanding, use an image generated through imageRequests rather than improvised coordinates, CSS, canvas, or SVG.
+- Every artistic asset must appear only as <img src="{{GENERATED_IMAGE:unique-asset-id}}" alt="...">. Every placeholder must have a request with the same id and vice versa.
+- Asset ids must start with a lowercase letter and contain only lowercase letters, numbers, hyphens, or underscores. Prompts must be self-contained and must not use references such as "as above."
+- Request only indispensable images. Prefer one composite image when it is enough. If no images are needed, imageRequests must be empty.
+- Do not add fake controls to a passive demonstration. Place an input, the controls, and the result they modify in the same panel or logical row.
+- Use space, margins, and padding sparingly. For multiple controls, use a compact responsive grid. Avoid arbitrary min-height values and long full-width columns.
+- Keep titles between one and three words and labels between one and six words. Do not use narrative captions, summary boxes, takeaways, or paragraphs that summarize the lesson.`;
 
-export const MERMAID_ARTIFACT_RENDER_RULES = `Regole Mermaid obbligatorie:
-- Se coverage e all_elements, includi tutte le entita o classi dell'insieme.
-- Tutti i nomi visibili, campi e relazioni sono nella lingua della lezione quando non sono termini tecnici obbligati.
-- Usa erDiagram soltanto per modelli entita-relazione e classDiagram soltanto per strutture orientate agli oggetti.
-- Non usare flowchart, sequenceDiagram o altri tipi Mermaid e non usare markdown fence.
-- Tieni il diagramma compatto: soltanto entita, campi e relazioni essenziali, con nomi brevi da una a tre parole.
-- Etichetta chiaramente le relazioni e annota tipi e chiavi primarie o esterne quando pertinenti.`;
+export const MERMAID_ARTIFACT_RENDER_RULES = `Required Mermaid rules:
+- If coverage is all_elements, include every entity or class in the set.
+- All visible names, fields, and relationships must use the lesson language unless they are required technical terms.
+- Use erDiagram only for entity relationship models and classDiagram only for object-oriented structures.
+- Do not use flowchart, sequenceDiagram, other Mermaid types, or Markdown fences.
+- Keep the diagram compact with only essential entities, fields, and relationships, using short names of one to three words.
+- Clearly label relationships and annotate types and primary or foreign keys when relevant.`;

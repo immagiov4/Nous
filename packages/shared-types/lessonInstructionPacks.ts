@@ -22,13 +22,13 @@ export interface LessonVerificationChecklistItem {
 }
 
 export const VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE =
-  'Quando il pacchetto visual-learning e attivo, consideralo una richiesta esplicita del task di includere almeno una rappresentazione visiva didatticamente necessaria. Preferisci immagini o media sorgente adeguati quando disponibili; se nessun media sorgente soddisfa il bisogno, il verifier puo ripristinare il minimo generated-visual necessario. Non soddisfare il requisito con elementi decorativi.';
+  'When the visual-learning pack is active, treat it as an explicit task requirement to include at least one pedagogically necessary visual representation. Prefer suitable source images or media when available. If no source media meets the need, the verifier may restore the minimum necessary generated-visual. Do not satisfy the requirement with decorative elements.';
 
 const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklistItem[] = [
   {
     checkId: 'core.instructions',
     instruction:
-      'Istruzioni, livello, tono, lingua, ritmo e preferenze esplicite dello studente sono rispettati.',
+      'The lesson respects the instructions, level, tone, language, pace, and explicit student preferences.',
   },
   {
     checkId: 'core.coverage',
@@ -37,22 +37,22 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   {
     checkId: 'core.progression',
     instruction:
-      'La progressione locale non richiede concetti non ancora introdotti e non lascia anticipazioni sospese. Ogni nuovo concetto, domanda, tecnica o astrazione ha un ponte conciso che chiarisce perche segue dal ragionamento precedente, anche se il contenuto e fattualmente corretto; non aggiungere ponti rituali quando il nesso e gia esplicito.',
+      'Local progression does not require concepts that have not yet been introduced or leave previews unresolved. Every new concept, question, technique, or abstraction has a concise bridge explaining why it follows from the preceding reasoning, even when the content is factually correct. Do not add ritual transitions when the link is already explicit.',
   },
   {
     checkId: 'core.clarity',
     instruction:
-      'Densita, passaggi intermedi, esempi e spiegazioni rendono comprensibile ogni passaggio sostanziale.',
+      'Density, intermediate steps, examples, and explanations make every substantive passage understandable.',
   },
   {
     checkId: 'core.correctness',
     instruction:
-      'Affermazioni ed esempi sono corretti, coerenti con le fonti disponibili e non si contraddicono.',
+      'Claims and examples are correct, consistent with the available sources, and do not contradict one another.',
   },
   {
     checkId: 'core.structure',
     instruction:
-      'Obiettivo, ordine, collegamenti, pause attive e conclusione formano una lezione didatticamente coerente.',
+      'The objective, ordering, connections, active pauses, and conclusion form a pedagogically coherent lesson.',
   },
   {
     checkId: 'core.active-pauses',
@@ -61,72 +61,71 @@ const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklist
   {
     checkId: 'core.relevance',
     instruction:
-      'Esempi, analogie, casi storici, dettagli curiosi e digressioni devono portare il concetto o chiarirne una conseguenza reale. Rimuovi dettagli interessanti ma didatticamente decorativi e non inventare ricordi, esperienze personali o autobiografia del docente/IA per rendere il testo piu umano.',
+      'Examples, analogies, historical cases, surprising details, and digressions must advance the concept or clarify a real consequence. Remove interesting but pedagogically decorative details, and do not invent memories, personal experiences, or autobiography for the teacher or AI to make the text seem more human.',
   },
   {
     checkId: 'core.integrity',
     instruction:
-      'Markdown, formule, codice, visuali, riferimenti e blocchi strutturati applicabili sono validi e leggibili.',
+      'Applicable Markdown, formulas, code, visuals, references, and structured blocks are valid and readable.',
   },
 ];
 
 const LESSON_INSTRUCTION_PACKS: Record<LessonInstructionPackId, LessonInstructionPack> = {
   mathematics: {
-    description: 'La lezione usa formule, simboli matematici o passaggi quantitativi sostanziali.',
+    description:
+      'The lesson uses formulas, mathematical symbols, or substantive quantitative passages.',
     writingRules: [
-      'Collega ogni formula alla spiegazione dei suoi simboli nello stesso paragrafo o in quello immediatamente successivo. La formula puo venire prima o dopo la spiegazione, ma nessun simbolo deve restare sospeso o richiedere di cercarne il significato in una sezione successiva.',
-      'Spiega in prosa che cosa rappresenta la formula e perche serve nel passaggio corrente; non limitarti a tradurre meccanicamente i simboli.',
-      'Quando lo studente dichiara difficolta con la matematica, introduci una sola nuova astrazione per volta e usa esempi numerici piccoli senza richiedere calcoli mentali inutili.',
-      'Dichiara convenzioni, unita di misura e significato di pedici, apici o lettere greche quando diventano rilevanti.',
+      'Connect every formula to an explanation of its symbols in the same paragraph or the one immediately after it. The formula may come before or after the explanation, but no symbol may remain unresolved or require looking for its meaning in a later section.',
+      'Explain in prose what the formula represents and why it is needed in the current passage. Do not merely translate the symbols mechanically.',
+      'When the student states that mathematics is difficult, introduce only one new abstraction at a time and use small numerical examples without requiring needless mental arithmetic.',
+      'State conventions, units of measurement, and the meaning of subscripts, superscripts, or Greek letters when they become relevant.',
     ],
     verificationChecks: [
-      'Ogni formula e ogni gruppo di simboli riceve una spiegazione adiacente, nello stesso paragrafo o in quello immediatamente successivo.',
-      'La spiegazione chiarisce significato e utilita della formula, non soltanto la lettura dei segni.',
-      'La densita matematica e coerente con le note dello studente e non accumula piu astrazioni nuove nello stesso passaggio.',
-      'Convenzioni, unita, pedici, apici e lettere greche sono chiariti localmente quando servono.',
+      'Every formula and group of symbols has an adjacent explanation in the same paragraph or the one immediately after it.',
+      'The explanation clarifies the formula meaning and purpose, not only how to read the symbols.',
+      'Mathematical density matches the student notes and does not accumulate multiple new abstractions in the same passage.',
+      'Conventions, units, subscripts, superscripts, and Greek letters are clarified locally when needed.',
     ],
   },
   code: {
-    description:
-      'La lezione insegna codice, API, comandi, configurazione o comportamento di un programma.',
+    description: 'The lesson teaches code, APIs, commands, configuration, or program behavior.',
     writingRules: [
-      'Presenta ogni esempio di codice o comando con lo scopo, le precondizioni necessarie e il risultato osservabile atteso.',
-      'Spiega identificatori, API e passaggi non ovvi vicino al primo esempio che li usa; non lasciare nomi tecnici opachi fino a una sezione successiva.',
-      'Distingui chiaramente comportamento garantito, esempio illustrativo e dettaglio specifico di una versione o piattaforma.',
+      'Present every code or command example with its purpose, required preconditions, and expected observable result.',
+      'Explain non-obvious identifiers, APIs, and steps near the first example that uses them. Do not leave opaque technical names unresolved until a later section.',
+      'Clearly distinguish guaranteed behavior, illustrative examples, and version-specific or platform-specific details.',
     ],
     verificationChecks: [
-      'Codice e comandi hanno scopo, precondizioni e risultato atteso comprensibili.',
-      'Identificatori e API non ovvi sono spiegati vicino al primo uso.',
-      'Il testo distingue contratti, esempi e dettagli dipendenti da versione o piattaforma.',
+      'Code and commands have an understandable purpose, preconditions, and expected result.',
+      'Non-obvious identifiers and APIs are explained near their first use.',
+      'The text distinguishes contracts, examples, and version-dependent or platform-dependent details.',
     ],
   },
   'technical-sources': {
     description:
-      'La lezione dipende da documentazione tecnica, sorgenti, standard, paper o fatti verificabili.',
+      'The lesson depends on technical documentation, source code, standards, papers, or verifiable facts.',
     writingRules: [
-      'Distingui fatti verificati nelle fonti, inferenze ragionevoli e convenzioni che devono essere controllate nel sistema concreto.',
-      'Conserva nomi, versioni, direzioni, ordini e vincoli tecnici esatti; non trasformare una convenzione locale in una regola universale.',
-      'Se le fonti non sostengono una conclusione, dichiara il limite invece di completarlo per intuizione.',
+      'Distinguish facts verified in the sources, reasonable inferences, and conventions that must be checked in the concrete system.',
+      'Preserve exact names, versions, directions, ordering, and technical constraints. Do not turn a local convention into a universal rule.',
+      'If the sources do not support a conclusion, state the limitation instead of filling it by intuition.',
     ],
     verificationChecks: [
-      'Fatti, inferenze e convenzioni sono distinti senza presentare supposizioni come certezze.',
-      'Nomi, versioni, ordini e vincoli tecnici corrispondono alle fonti disponibili.',
-      'I limiti delle fonti restano visibili e non sono colmati con dettagli inventati.',
+      'Facts, inferences, and conventions are distinguished without presenting assumptions as certainties.',
+      'Names, versions, ordering, and technical constraints match the available sources.',
+      'Source limitations remain visible and are not filled with invented details.',
     ],
   },
   'visual-learning': {
-    description:
-      'La comprensione richiede immagini, diagrammi, animazioni o rappresentazioni spaziali.',
+    description: 'Understanding requires images, diagrams, animations, or spatial representations.',
     writingRules: [
       VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE,
-      'Prepara ogni visuale con il contesto minimo necessario e collegala esplicitamente al concetto che deve rendere visibile.',
-      'Dopo la visuale, chiarisci il dettaglio da osservare e la conclusione didattica; non usarla come decorazione o sostituto di una spiegazione mancante.',
-      'Non chiedere alla visuale di rappresentare relazioni che il formato scelto non puo mostrare in modo affidabile.',
+      'Prepare every visual with the minimum necessary context and connect it explicitly to the concept it must make visible.',
+      'After the visual, clarify the detail to observe and the teaching conclusion. Do not use it as decoration or as a substitute for a missing explanation.',
+      'Do not ask a visual to represent relationships that the chosen format cannot show reliably.',
     ],
     verificationChecks: [
-      'Ogni visuale e preparata dal testo e ha un obiettivo didattico riconoscibile.',
-      'Il testo indica che cosa osservare e quale conclusione ricavare.',
-      'Formato e contenuto della visuale sono adatti alla relazione da mostrare.',
+      'Every visual is prepared by the text and has a recognizable teaching objective.',
+      'The text says what to observe and what conclusion to draw.',
+      'The visual format and content fit the relationship being shown.',
       VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE,
     ],
   },
@@ -139,11 +138,11 @@ const isLessonInstructionPackId = (value: unknown): value is LessonInstructionPa
 export const normalizeLessonInstructionPacks = (value: unknown): LessonInstructionPackId[] =>
   Array.isArray(value) ? [...new Set(value.filter(isLessonInstructionPackId))] : [];
 
-export const LESSON_INSTRUCTION_PACK_SELECTION_RULES = `Assegna a ogni lezione soltanto i pacchetti specialistici realmente applicabili:
+export const LESSON_INSTRUCTION_PACK_SELECTION_RULES = `Assign each lesson only the specialist packs that genuinely apply:
 ${LESSON_INSTRUCTION_PACK_IDS.map(
   id => `- \`${id}\`: ${LESSON_INSTRUCTION_PACKS[id].description}`
 ).join('\n')}
-Se nessun pacchetto specialistico serve, restituisci un array vuoto. Non attivare un pacchetto per una menzione marginale: deve descrivere un'esigenza sostanziale della lezione.`;
+If no specialist pack is needed, return an empty array. Do not activate a pack for a passing mention. It must describe a substantive need of the lesson.`;
 
 export const buildLessonInstructionPackBlock = (
   packIds: readonly LessonInstructionPackId[] | undefined,
@@ -154,9 +153,7 @@ export const buildLessonInstructionPackBlock = (
 
   const rulesKey = mode === 'writing' ? 'writingRules' : 'verificationChecks';
   const heading =
-    mode === 'writing'
-      ? 'PACCHETTI SPECIALISTICI ATTIVI PER LA SCRITTURA'
-      : 'CHECKLIST SPECIALISTICA OBBLIGATORIA';
+    mode === 'writing' ? 'ACTIVE SPECIALIST WRITING PACKS' : 'REQUIRED SPECIALIST CHECKLIST';
   const formattedPacks = normalizedIds
     .map(id => {
       const rules = LESSON_INSTRUCTION_PACKS[id][rulesKey].map(rule => `- ${rule}`).join('\n');

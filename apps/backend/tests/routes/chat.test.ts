@@ -890,8 +890,8 @@ describe('POST /api/chat/context', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ success: true, streamed: true });
     expect(aiMocks.streamText).toHaveBeenCalledTimes(1);
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('INTERA LEZIONE CORRENTE');
-    expect(aiMocks.streamText.mock.calls[0][0].system).not.toContain('SELEZIONE EVIDENZIATA');
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('FULL CURRENT LESSON');
+    expect(aiMocks.streamText.mock.calls[0][0].system).not.toContain('HIGHLIGHTED SELECTION');
   });
 
   test('validates that chat messages are present', async () => {
@@ -979,7 +979,7 @@ describe('POST /api/chat/context', () => {
 
     expect(response.status).toBe(200);
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'METADATI FONTI ORIGINALI DISTINTE (1;'
+      'DISTINCT ORIGINAL SOURCE METADATA (1;'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('049.pdf');
   });
@@ -1038,9 +1038,9 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       serializeContextSourceReferencesForPrompt(sourceReferences)
     );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('NOTA GIA ASSOCIATA');
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Annota: attiva');
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('EXISTING ASSOCIATED NOTE');
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Annotate: active');
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Search the web: active');
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
       getLearningArtifacts: expect.any(Object),
       getLessonDetails: expect.any(Object),
@@ -1735,9 +1735,9 @@ describe('POST /api/chat/library', () => {
       '2 corsi nello scope allegato: Frontend.'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Riferimenti allegati: folder:Frontend'
+      'Attached references: folder:Frontend'
     );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Search the web: active');
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
       searchWeb: expect.any(Object),
       listLibraryTree: expect.any(Object),
@@ -1996,7 +1996,7 @@ describe('POST /api/chat/library', () => {
       expect.objectContaining({
         allowWebSearch: true,
         developerInstructions: expect.stringContaining(
-          'Sei un ricercatore web per una chat di libreria corsi.'
+          'You are a web researcher for a course-library chat.'
         ),
         input: [
           {

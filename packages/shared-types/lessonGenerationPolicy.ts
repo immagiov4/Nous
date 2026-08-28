@@ -74,16 +74,16 @@ export const ACTIVE_PAUSE_TEXT_FORMAT_RULE =
   'Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence; preserva soltanto eventuale codice inline interno.';
 
 export const ORIGINAL_IMAGE_PRIORITY_RULE =
-  'Quando nei riferimenti sono disponibili immagini originali chiare, pertinenti e specifiche della fonte — per esempio schermate, oggetti, casi o diagrammi complessi propri del documento — preferiscile a visuali generate equivalenti. Se piu immagini originali coprono lo stesso bisogno pedagogico, usa solo il numero minimo utile e proporzionato alla struttura della lezione, evitando figure ridondanti. Genera una sostituzione solo quando gli originali non coprono la stessa esigenza pedagogica o non sono sufficientemente leggibili.';
+  'When the references contain clear, relevant original images specific to the source, such as screenshots, objects, cases, or complex diagrams from the document, prefer them over equivalent generated visuals. If several original images address the same pedagogical need, use only the minimum useful number proportional to the lesson structure and avoid redundant figures. Generate a replacement only when the originals do not address the same pedagogical need or are not sufficiently readable.';
 
 export const ORIGINAL_IMAGE_USAGE_RULES = [
-  'Ogni immagine originale deve servire una spiegazione vicina: non usarla come decorazione o intermezzo visivo.',
-  'Puoi referenziare soltanto gli assetId forniti. Se nessuna immagine e chiaramente pertinente, lascia imageRefs vuoto.',
-  'Ogni imageRef deve avere un anchorHeading che corrisponde esattamente a un heading presente in un blocco markdown, senza i simboli #.',
-  'Usa soltanto immagini con una caption visiva chiara e autosufficiente. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper o frammenti.',
+  'Every original image must support a nearby explanation. Do not use it as decoration or a visual interlude.',
+  'Reference only the supplied assetIds. If no image is clearly relevant, leave imageRefs empty.',
+  'Every imageRef must have an anchorHeading that exactly matches a heading in a Markdown block, without the # symbols.',
+  'Use only images with a clear, self-contained visual caption. Exclude blurred, partial, cropped, hard-to-read, or decorative images, as well as badges, icons, borders, wrappers, or fragments.',
   ORIGINAL_IMAGE_PRIORITY_RULE,
-  'Non usare il contesto testuale per indovinare una figura poco chiara: caption e testo vicino servono soltanto a disambiguare una figura gia riconoscibile.',
-  'Il paragrafo vicino deve dire che cosa guardare nell immagine e perche e utile; non citare mai un assetId tecnico nel markdown.',
+  'Do not use textual context to guess what an unclear figure shows. Captions and nearby text may only disambiguate an already recognizable figure.',
+  'The nearby paragraph must say what to observe in the image and why it is useful. Never mention a technical assetId in Markdown.',
 ] as const;
 
 export const LESSON_VISUAL_TYPES = [
@@ -99,20 +99,20 @@ export const LESSON_VISUAL_TYPES = [
 export type LessonVisualType = (typeof LESSON_VISUAL_TYPES)[number];
 
 export const GENERATED_VISUAL_RELEVANCE_RULE =
-  'Non generare visuali decorative. Ogni visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non limitarsi a riassumerlo o parafrasarlo; usa soltanto il numero minimo di visuali necessario.';
+  'Do not generate decorative visuals. Every visual must teach something that text alone makes harder to understand, not merely summarize or paraphrase it. Use only the minimum necessary number of visuals.';
 
 export const INTERACTIVE_VISUAL_VALUE_RULE =
-  'Tratta interactive_html come un formato costoso: usalo solo quando l’utente deve esplorare, modificare o confrontare stati e questa interazione produce una comprensione importante che testo, video o una o due immagini statiche non possono offrire altrettanto bene. Non usarlo per dimostrazioni cosmetiche, controlli banali o esempi statici travestiti da interattivi; se l’interazione non è essenziale, scegli il formato più semplice.';
+  'Treat interactive_html as an expensive format. Use it only when the user must explore, modify, or compare states and that interaction produces important understanding that text, video, or one or two static images cannot provide equally well. Do not use it for cosmetic demonstrations, trivial controls, or static examples disguised as interactive. If interaction is not essential, choose the simpler format.';
 
 export const VISUAL_FORMAT_SELECTION_RULE =
-  'Imposta requiresDepiction=true quando lo studente deve vedere l’aspetto di un oggetto, stato, scena, risultato grafico o trasformazione visiva, inclusi passaggi che mostrano come cambia un soggetto. In quel caso usa illustrative_image: un processo visivo non è un flowchart. SVG è consentito soltanto con requiresDepiction=false per relazioni astratte fra brevi etichette testuali, box generici e frecce; i nodi non possono contenere disegni, sagome, pixel art, oggetti, scene o esempi del risultato. Se la visuale deve mostrare esempi programmabili — inclusi pixel art, shader semplici, pattern generativi, confronti di filtri o effetti — usa interactive_html anche quando non richiede controlli; il formato può essere una dimostrazione HTML/JavaScript passiva. Usa interactive_html con controlli solo quando la manipolazione aggiunge valore didattico essenziale. Per una visuale programmabile passiva, imposta interactionLevel=none nel contratto backend oppure interaction_level=none nel contratto client.';
+  'Set requiresDepiction=true when the student must see the appearance of an object, state, scene, graphical result, or visual transformation, including steps that show how a subject changes. In that case use illustrative_image. A visual process is not a flowchart. SVG is allowed only with requiresDepiction=false for abstract relationships among short text labels, generic boxes, and arrows. Nodes cannot contain drawings, silhouettes, pixel art, objects, scenes, or examples of the result. If the visual must show programmable examples, including pixel art, simple shaders, generative patterns, or filter and effect comparisons, use interactive_html even when controls are unnecessary. The format may be a passive HTML and JavaScript demonstration. Use interactive_html with controls only when manipulation adds essential teaching value. For a passive programmable visual, set interactionLevel=none in the backend contract or interaction_level=none in the client contract.';
 
-export const NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT = `CONTRATTO VISIVO NOUS:
-- Base calda e neutra: avorio/carta, pietra e antracite; superfici sobrie, bordi leggeri, ombre minime e tipografia editoriale.
-- Usa un solo accento coerente col soggetto, scelto tra rosso smorzato, borgogna, verde terroso e rame/arancio smorzato.
-- Vietate palette SaaS blu/viola, neon, glow, gradienti decorativi e ombre sovradimensionate, salvo colore semanticamente necessario al contenuto.
-- Il medium segue lo scopo pedagogico: illustrazioni 2D editoriali sono pienamente ammesse; non usare oggetti o render 3D come default decorativo.
-- In HTML e SVG usa le variabili CSS dell'host (--bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong) invece di colori tema hard-coded e mantieni leggibili tema chiaro e scuro.`;
+export const NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT = `NOUS VISUAL CONTRACT:
+- Use a warm neutral base of ivory or paper, stone, and charcoal, with restrained surfaces, light borders, minimal shadows, and editorial typography.
+- Use one accent consistent with the subject, chosen from muted red, burgundy, earthy green, and muted copper or orange.
+- Do not use blue or purple SaaS palettes, neon, glow, decorative gradients, or oversized shadows unless the content requires the color semantically.
+- Let the pedagogical purpose determine the medium. Editorial 2D illustrations are fully allowed. Do not default to decorative 3D objects or renders.
+- In HTML and SVG, use the host CSS variables (--bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong) instead of hard-coded theme colors, and keep both light and dark themes readable.`;
 
 export const enforceLessonVisualTypeContract = <
   T extends { requiresDepiction: boolean; visualType: LessonVisualType },

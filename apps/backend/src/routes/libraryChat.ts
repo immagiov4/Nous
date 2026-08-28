@@ -61,18 +61,18 @@ const runLibraryWebSearch = async ({
     messages: [
       {
         role: 'system',
-        content: `Sei un ricercatore web per una chat di libreria corsi.
+        content: `You are a web researcher for a course-library chat.
 
-Devi usare OBBLIGATORIAMENTE il tool di ricerca web disponibile in questa richiesta.
-Non puoi saltare la ricerca.
-Restituisci in italiano:
-- un paragrafo breve con il cross-check esterno piu utile rispetto alla query;
-- 3-5 punti sintetici con fatti o formulazioni esterne rilevanti;
-- una sezione finale "Fonti" con link in markdown.`,
+You MUST use the web search tool available in this request.
+You may not skip the search.
+Return the result in Italian:
+- a brief paragraph with the most useful external cross-check for the query;
+- 3-5 concise points with relevant external facts or formulations;
+- a final "Fonti" section with Markdown links.`,
       },
       {
         role: 'user',
-        content: `Query da verificare:\n${normalizedQuery}\n\nRiepilogo scope libreria:\n${resolvedScopeSummary?.scopeSummary || 'Nessun riepilogo scope disponibile.'}\n\nContesti allegati:\n${formatLibraryAttachedRefs(attachedContextRefs)}\n\nEtichette contesto:\n${resolvedScopeSummary?.contextLabels?.join(', ') || 'nessun contesto allegato'}`,
+        content: `Query to verify:\n${normalizedQuery}\n\nLibrary-scope summary:\n${resolvedScopeSummary?.scopeSummary || 'No scope summary is available.'}\n\nAttached contexts:\n${formatLibraryAttachedRefs(attachedContextRefs)}\n\nContext labels:\n${resolvedScopeSummary?.contextLabels?.join(', ') || 'no context is attached'}`,
       },
     ],
     modelConfig,
@@ -95,8 +95,7 @@ const genericLibraryToolOutputSchema = jsonSchema<Record<string, unknown>>({
 
 const libraryChatTools = {
   listLibraryTree: tool({
-    description:
-      'Esplora l albero cartelle/corsi attualmente disponibile nello scope corrente consentito.',
+    description: 'Explore the folder and course tree currently available in the permitted scope.',
     inputSchema: jsonSchema<{
       includeProjects?: boolean;
     }>({
@@ -106,7 +105,7 @@ const libraryChatTools = {
         includeProjects: {
           type: 'boolean',
           description:
-            'Se true include anche i corsi foglia; se false restituisce solo la struttura cartelle rilevante.',
+            'When true, include leaf courses; when false, return only the relevant folder structure.',
         },
       },
     }),
@@ -114,7 +113,7 @@ const libraryChatTools = {
   }),
   getProjectOverviews: tool({
     description:
-      'Recupera overview e progresso dei corsi nello scope corrente oppure di corsi specifici. Utile per contatori e avanzamento, non per il testo delle note.',
+      'Retrieve course overviews and progress for the current scope or specific courses. Use it for counts and progress, not note text.',
     inputSchema: jsonSchema<{
       projectIds?: string[];
     }>({
@@ -126,7 +125,7 @@ const libraryChatTools = {
           items: {
             type: 'string',
           },
-          description: 'Lista facoltativa di projectId. Se omessa, usa tutto lo scope attuale.',
+          description: 'Optional list of projectIds. When omitted, use the entire current scope.',
         },
       },
     }),
@@ -134,7 +133,7 @@ const libraryChatTools = {
   }),
   getProjectStructures: tool({
     description:
-      'Recupera la struttura ordinata delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note, highlight e aiuti didattici. Se `projectIds` e omesso usa tutto lo scope corrente. Usalo per risolvere riferimenti strutturali o ordinali espressi dall utente, come modulo 3, capitolo 3 o terza lezione, prima di leggere il contenuto con getLessonDetails.',
+      'Retrieve the ordered lesson structure of one or more courses, including completion state, parentId, and counts of notes, highlights, and learning aids. When `projectIds` is omitted, use the entire current scope. Use this to resolve structural or ordinal user references such as module 3, chapter 3, or the third lesson before reading content with getLessonDetails.',
     inputSchema: jsonSchema<{
       projectIds?: string[];
     }>({
@@ -148,7 +147,7 @@ const libraryChatTools = {
             type: 'string',
           },
           description:
-            'Lista facoltativa di projectId reali gia ottenuti dai tool della libreria. Se omessa, usa tutto lo scope corrente.',
+            'Optional list of real projectIds already returned by library tools. When omitted, use the entire current scope.',
         },
       },
     }),
@@ -156,7 +155,7 @@ const libraryChatTools = {
   }),
   getLearningArtifacts: tool({
     description:
-      'Recupera gli artefatti visuali richiamabili dei corsi nello scope corrente: mappe/widget generati e immagini del PDF collegate alle lezioni. Restituisce solo metadati testuali; la UI renderizza le anteprime separatamente.',
+      'Retrieve addressable visual artifacts from courses in the current scope: generated maps or widgets and PDF images linked to lessons. Return text metadata only; the UI renders previews separately.',
     inputSchema: jsonSchema<{
       artifactIds?: string[];
       kinds?: Array<'future-asset' | 'generated-visual' | 'pdf-image'>;
@@ -179,7 +178,7 @@ const libraryChatTools = {
             type: 'string',
           },
           description:
-            'Filtro esatto sugli id artefatto gia restituiti da una chiamata precedente. Usalo per renderizzare solo artefatti scelti.',
+            'Exact filter on artifact IDs returned by a previous call. Use it to render only selected artifacts.',
         },
         kinds: {
           type: 'array',
@@ -188,12 +187,12 @@ const libraryChatTools = {
             enum: ['future-asset', 'generated-visual', 'pdf-image'],
           },
           description:
-            'Filtro per tipo di artefatto. Usa generated-visual per mappe/grafici/widget generati; usa pdf-image per immagini estratte dal PDF.',
+            'Filter by artifact type. Use generated-visual for generated maps, charts, or widgets, and pdf-image for images extracted from the PDF.',
         },
         lessonQuery: {
           type: 'string',
           description:
-            'Filtro testuale specifico sulla lezione di provenienza, utile quando l utente nomina una lezione o un corso/argomento da restringere prima del rendering.',
+            'Text filter for the source lesson, useful when the user names a lesson, course, or topic to narrow before rendering.',
         },
         maxResults: {
           type: 'integer',
@@ -206,18 +205,18 @@ const libraryChatTools = {
             type: 'string',
           },
           description:
-            'Lista facoltativa di projectId reali gia ottenuti dai tool della libreria. Se omessa usa tutto lo scope corrente.',
+            'Optional list of real projectIds already returned by library tools. When omitted, use the entire current scope.',
         },
         query: {
           type: 'string',
           description:
-            'Filtro testuale facoltativo su titolo artefatto, titolo lezione, didascalia o contesto vicino.',
+            'Optional text filter on artifact title, lesson title, caption, or nearby context.',
         },
         renderMode: {
           type: 'string',
           enum: ['attachments', 'metadata-only'],
           description:
-            'Default metadata-only: restituisce solo metadati per scegliere. Usa attachments solo quando vuoi mostrare in chat gli artefatti filtrati.',
+            'Default metadata-only returns only metadata for selection. Use attachments only to show the filtered artifacts in chat.',
         },
         requests: {
           type: 'array',
@@ -238,7 +237,7 @@ const libraryChatTools = {
             required: ['projectId'],
           },
           description:
-            'Richieste facoltative per limitare il recall a lezioni specifiche di corsi specifici.',
+            'Optional requests that limit retrieval to specific lessons in specific courses.',
         },
       },
     }),
@@ -246,7 +245,7 @@ const libraryChatTools = {
   }),
   generateLearningArtifact: tool({
     description:
-      'Genera un nuovo artefatto visuale temporaneo per una lezione precisa della libreria. Devi conoscere projectId e lessonId reali prima di chiamarlo: se sono ambigui usa prima getProjectStructures/getLessonDetails o chiedi chiarimento.',
+      'Generate a new temporary visual artifact for a specific library lesson. You must know the real projectId and lessonId before calling it; if they are ambiguous, first use getProjectStructures or getLessonDetails, or ask for clarification.',
     inputSchema: jsonSchema<{
       lessonId: string;
       mode?: 'new' | 'replacement-draft';
@@ -261,38 +260,37 @@ const libraryChatTools = {
       properties: {
         lessonId: {
           type: 'string',
-          description: 'Id reale della lezione target ottenuto dai tool della libreria.',
+          description: 'Real target lesson ID returned by library tools.',
         },
         mode: {
           type: 'string',
           enum: ['new', 'replacement-draft'],
           description:
-            'Usa replacement-draft quando l utente chiede di modificare o sostituire un artefatto esistente; altrimenti usa new.',
+            'Use replacement-draft when the user asks to modify or replace an existing artifact. Otherwise use new.',
         },
         projectId: {
           type: 'string',
-          description: 'Id reale del corso target ottenuto dai tool della libreria.',
+          description: 'Real target course ID returned by library tools.',
         },
         prompt: {
           type: 'string',
           description:
-            'Richiesta visuale precisa da soddisfare, con concetto e tipo di artefatto desiderato se indicato.',
+            'Precise visual request to satisfy, including the concept and desired artifact type when stated.',
         },
         requestedVisualKind: {
           type: 'string',
           enum: ['html', 'image', 'mermaid', 'svg'],
           description:
-            'Categoria di rendering chiesta esplicitamente dall utente: image, svg, mermaid oppure html.',
+            'Rendering category explicitly requested by the user: image, svg, mermaid, or html.',
         },
         revisionInstructions: {
           type: 'string',
           description:
-            'Istruzioni obbligatorie dell utente su cosa cambiare quando mode e replacement-draft.',
+            'Required user instructions about what to change when mode is replacement-draft.',
         },
         sourceArtifactId: {
           type: 'string',
-          description:
-            'Id esatto dell artefatto sorgente da modificare quando mode e replacement-draft.',
+          description: 'Exact ID of the source artifact to modify when mode is replacement-draft.',
         },
       },
       required: ['lessonId', 'projectId', 'prompt'],
@@ -301,7 +299,7 @@ const libraryChatTools = {
   }),
   requestSaveLearningArtifactNote: tool({
     description:
-      'Propone il salvataggio in una nota di lezione di uno o piu artefatti gia generati o mostrati in home chat. Il salvataggio reale avviene solo quando l utente clicca sulla card di conferma.',
+      'Propose saving one or more artifacts already generated or shown in home chat to a lesson note. Saving occurs only when the user clicks the confirmation card.',
     inputSchema: jsonSchema<{
       artifactIds: string[];
       lessonId: string;
@@ -318,23 +316,23 @@ const libraryChatTools = {
           items: {
             type: 'string',
           },
-          description: 'Id degli artefatti da allegare alla nota.',
+          description: 'IDs of the artifacts to attach to the note.',
         },
         lessonId: {
           type: 'string',
-          description: 'Id reale della lezione in cui salvare la nota.',
+          description: 'Real ID of the lesson where the note will be saved.',
         },
         noteDraft: {
           type: 'string',
-          description: 'Nota autosufficiente da salvare a livello lezione.',
+          description: 'Self-contained note to save at lesson level.',
         },
         projectId: {
           type: 'string',
-          description: 'Id reale del corso in cui salvare la nota.',
+          description: 'Real ID of the course where the note will be saved.',
         },
         rationale: {
           type: 'string',
-          description: 'Motivo breve mostrato nella card di conferma.',
+          description: 'Brief rationale shown on the confirmation card.',
         },
       },
       required: ['artifactIds', 'lessonId', 'noteDraft', 'projectId', 'rationale'],
@@ -343,7 +341,7 @@ const libraryChatTools = {
   }),
   startCourseAssessment: tool({
     description:
-      'Passa dalla ricerca nella libreria all intervista agentica per creare un nuovo corso. Usalo quando searchLibrary ha dimostrato che l argomento che l utente vuole imparare non e presente nello scope corrente. La decisione deve derivare dal significato della richiesta completa e dai risultati del tool, non da keyword isolate. Non usarlo per una normale domanda informativa o quando esiste gia un corso pertinente.',
+      'Move from library search to the agentic interview for creating a new course. Use it when searchLibrary has shown that the subject the user wants to learn is absent from the current scope. Base the decision on the meaning of the complete request and the tool results, not isolated keywords. Do not use it for a normal informational question or when a relevant course already exists.',
     inputSchema: jsonSchema<{
       topic: string;
     }>({
@@ -354,7 +352,7 @@ const libraryChatTools = {
           type: 'string',
           minLength: 1,
           description:
-            'Argomento specifico che l utente vuole imparare, formulato senza aggiungere un syllabus o dettagli inventati.',
+            'Specific subject the user wants to learn, stated without adding a syllabus or invented details.',
         },
       },
       required: ['topic'],
@@ -363,7 +361,7 @@ const libraryChatTools = {
   }),
   getLessonDetails: tool({
     description:
-      'Recupera una o piu lezioni complete con contenuto integrale, highlight, note e aiuti didattici contestuali (definizioni, formule, simboli e analogie) per corso e lessonIds specifici. Usalo anche per richieste di glossario.',
+      'Retrieve one or more complete lessons with full content, highlights, notes, and contextual learning aids (definitions, formulas, symbols, and analogies) for a specific course and lessonIds. Also use it for glossary requests.',
     inputSchema: jsonSchema<{
       requests: Array<{
         lessonIds: string[];
@@ -401,7 +399,7 @@ const libraryChatTools = {
   }),
   searchLibrary: tool({
     description:
-      'Cerca in titoli, descrizioni, contenuti lezioni, note, highlight e aiuti didattici (definizioni, formule, simboli e analogie) nei corsi consentiti dallo scope corrente.',
+      'Search titles, descriptions, lesson content, notes, highlights, and learning aids (definitions, formulas, symbols, and analogies) in courses permitted by the current scope.',
     inputSchema: jsonSchema<{
       maxResults?: number;
       projectIds?: string[];
@@ -455,9 +453,9 @@ const createLibrarySearchWebTool = ({
 }) =>
   createWebSearchTool({
     description:
-      'Esegue un cross-check web esterno con fonti aggiornate. Quando Cerca sul web e attiva devi chiamarlo prima della risposta finale. Usalo per verificare accuratezza, definizioni standard, best practice, fatti recenti o confronto esterno. Non usarlo per leggere dati interni della libreria, che vanno recuperati con i tool della libreria.',
+      'Run an external web cross-check with current sources. When Search the web is active, call it before the final answer. Use it to verify accuracy, standard definitions, best practices, recent facts, or external comparisons. Do not use it to read internal library data, which must be retrieved with library tools.',
     queryDescription:
-      'Query web precisa da usare per il cross-check esterno, formulata in modo specifico rispetto al punto da verificare.',
+      'Precise web query for the external cross-check, phrased specifically for the point to verify.',
     execute: async ({ maxResults, query }) =>
       runLibraryWebSearch({
         attachedContextRefs,

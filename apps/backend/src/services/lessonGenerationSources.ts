@@ -125,7 +125,7 @@ export const isPdfAssetSoftTimeoutError = (error: unknown): error is PdfAssetSof
 const clipSourceContext = (value: string, maxChars: number): string => {
   const trimmed = value.trim();
   if (trimmed.length <= maxChars) return trimmed;
-  return `${trimmed.slice(0, maxChars).trimEnd()}\n[estratto della fonte troncato]`;
+  return `${trimmed.slice(0, maxChars).trimEnd()}\n[truncated source excerpt]`;
 };
 
 const readReferenceChunkIds = (section: Record<string, unknown>, sourceId?: string): string[] =>
@@ -311,7 +311,7 @@ export const buildStoredDocumentSourceContext = async (
       await readProjectSourceText(candidate.file),
       MAX_LESSON_SOURCE_CONTEXT_CHARS
     );
-    if (content) blocks.push(`FONTE ORIGINALE: ${candidate.file.name}\n${content}`);
+    if (content) blocks.push(`ORIGINAL SOURCE: ${candidate.file.name}\n${content}`);
   }
   return clipSourceContext(blocks.join('\n\n---\n\n'), MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS);
 };
@@ -531,7 +531,7 @@ export const formatSourcesForPrompt = (sources: ResearchSource[]): string =>
     .map((source, sourceIndex) => {
       const sourceUrl = source.url ? ` — ${source.url}` : '';
       const transcript = source.youtubeTranscript
-        ? `\nTranscript timestampato:\n${formatYouTubeTranscript(source.youtubeTranscript.segments)}\nUsa sourceIndex ${sourceIndex} per le clip.`
+        ? `\nTimestamped transcript:\n${formatYouTubeTranscript(source.youtubeTranscript.segments)}\nUse sourceIndex ${sourceIndex} for clips.`
         : '';
       return `[${sourceIndex}] ${source.title}${sourceUrl}${transcript}`;
     })

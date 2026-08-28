@@ -142,10 +142,10 @@ const LANGUAGE_CLARITY_VERIFICATION_RULES = `${LESSON_STUDENT_STYLE_OVERRIDE_RUL
 const RELEVANCE_STYLE_VERIFICATION_RULES = `${LESSON_STUDENT_STYLE_OVERRIDE_RULE} ${LESSON_RELEVANCE_STYLE_RULES.join(' ')}`;
 const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_MAIN_PROSE_RULE} ${LESSON_LIST_STRUCTURE_RULE} ${LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE}`;
 const POSITIVE_DEFINITION_CHECK = `${LESSON_FIRST_EXPOSURE_RULE} ${LESSON_POSITIVE_DEFINITION_RULE}`;
-const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_USAGE_RULES.join(' ')} Valuta sia le immagini originali selezionabili sia gli imageRefs gia presenti. Se nessun candidato originale e utile e non esistono imageRefs, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
-const YOUTUBE_STRUCTURE_CHECK = `Se nei riferimenti esiste un transcript YouTube timestampato ma la bozza non contiene clip, applica le regole pedagogiche sottostanti anche alla decisione di omissione: aggiungi soltanto il minimo intervallo utile quando una clip e davvero necessaria; altrimenti segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni clip presente o aggiunta usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.`;
-const CODE_STRUCTURE_CHECK = `${LESSON_CODE_FORMATTING_RULE} Se la bozza non contiene codice, pseudocodice, comandi o output, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
-const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} Se la bozza non contiene matematica, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
+const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_USAGE_RULES.join(' ')} Evaluate both the selectable original images and any existing imageRefs. If no original candidate is useful and no imageRefs exist, mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
+const YOUTUBE_STRUCTURE_CHECK = `If the references contain a timestamped YouTube transcript but the draft has no clips, apply the pedagogical rules below to the omission decision as well. Add only the minimum useful interval when a clip is genuinely necessary. Otherwise mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}. Every existing or added clip must use a valid sourceIndex and timestamps entirely within the transcript. Its title must describe the specific moment, and its block must follow text that says what to observe.`;
+const CODE_STRUCTURE_CHECK = `${LESSON_CODE_FORMATTING_RULE} If the draft contains no code, pseudocode, commands, or output, mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
+const MATH_STRUCTURE_CHECK = `${FORMULA_RELEVANCE_RULE} ${LESSON_KATEX_FORMATTING_RULE} If the draft contains no mathematics, mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
 
 const draftMarkdownContains = (draft: LessonContentDraft, markers: readonly string[]): boolean =>
   draft.contentBlocks.some(
@@ -280,7 +280,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
-      return `${VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE} Se la bozza non contiene visuali generati, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO, il CONTESTO DIDATTICO VINCOLANTE o un pacchetto specialistico attivo rendano necessaria una rappresentazione visiva che non sia gia soddisfatta adeguatamente da immagini o media sorgente. Quando visual-learning e attivo e tale bisogno resta scoperto, aggiungi soltanto il numero minimo di generated-visual necessario; non segnare questo controllo come ${LESSON_VERIFICATION_STATUS.notApplicable} soltanto perche note e contesto non menzionano esplicitamente un visuale. Se nessuna istruzione del task richiede una rappresentazione mancante e non esistono visuali generati, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. Ogni piano visuale presente o aggiunto ha esattamente un blocco generated-visual con lo stesso slotId e viceversa. Applica anche l'intero contratto di pianificazione seguente alla bozza effettiva:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
+      return `${VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE} If the draft contains no generated visuals, do not add any unless the COURSE PERSONALIZATION NOTES, BINDING PEDAGOGICAL CONTEXT, or an active specialist pack requires a visual representation that source images or media do not already satisfy adequately. When visual-learning is active and that need remains unmet, add only the minimum necessary number of generated-visual blocks. Do not mark this check as ${LESSON_VERIFICATION_STATUS.notApplicable} merely because notes and context do not mention a visual explicitly. If no task instruction requires a missing representation and no generated visuals exist, mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}. Every existing or added visual plan must have exactly one generated-visual block with the same slotId and vice versa. Apply the complete planning contract below to the actual draft as well:\n${LESSON_VISUAL_PLANNING_RULES}\n- ${ORIGINAL_IMAGE_PRIORITY_RULE}`;
     case 'youtube-structure':
       return `${YOUTUBE_STRUCTURE_CHECK}\n${YOUTUBE_CLIP_PEDAGOGY_RULES}`;
   }
@@ -346,33 +346,33 @@ const buildLessonVerificationPrompt = (
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
   const retryCorrection = input.retryFeedback?.trim()
-    ? `\nCORREZIONE OBBLIGATORIA DAL TENTATIVO PRECEDENTE:\n${input.retryFeedback.trim()}\n`
+    ? `\nREQUIRED CORRECTION FROM THE PREVIOUS ATTEMPT:\n${input.retryFeedback.trim()}\n`
     : '';
   return `${buildLessonGenerationReferenceContext(input)}
 
-BOZZA DA VERIFICARE:
+DRAFT TO VERIFY:
 ${JSON.stringify(draft)}
 ${retryCorrection}
-COMPITO DI VERIFICA:
-Correggi SOLO cio che serve e conserva tutto il contenuto valido. Non riscrivere la lezione per gusto stilistico.
-Per ogni checkId elencato sotto, giudica la bozza effettiva e cita in evidence il passaggio o il motivo concreto. Non segnare pass automaticamente solo perche la regola compare nelle istruzioni.
-Compila esattamente una voce verificationReport per ciascun checkId, inclusi i controlli strutturali. Usa ${LESSON_VERIFICATION_STATUS.notApplicable} solo quando l'istruzione lo consente e il contenuto corrispondente non esiste nella bozza.
-La presenza di un check di riparazione non e un invito ad aggiungere una feature: crea pause o visuali generati soltanto quando una richiesta esplicita del task li rende necessari.
-Non introdurre imageRefs o clip YouTube se il relativo checkId non e elencato sotto. Se devi rimuovere un artefatto invalido e il controllo del formato sostitutivo non e presente, correggi in prosa o rimuovi l'artefatto invece di introdurre una nuova feature non verificata.
+VERIFICATION TASK:
+Correct ONLY what is necessary and preserve all valid content. Do not rewrite the lesson for stylistic preference.
+For every checkId listed below, judge the actual draft and cite the concrete passage or reason in evidence. Do not mark a check as pass automatically merely because its rule appears in the instructions.
+Produce exactly one verificationReport entry for every checkId, including structural checks. Use ${LESSON_VERIFICATION_STATUS.notApplicable} only when the instruction allows it and the corresponding content does not exist in the draft.
+The presence of a repair check is not an invitation to add a feature. Create active pauses or generated visuals only when an explicit task requirement makes them necessary.
+Do not introduce imageRefs or YouTube clips unless the corresponding checkId is listed below. If you must remove an invalid artifact and the replacement format check is absent, correct the content in prose or remove the artifact instead of introducing an unchecked feature.
 
-VINCOLI DI CONTINUITA E FOCUS SEMPRE OBBLIGATORI:
+ALWAYS REQUIRED CONTINUITY AND FOCUS CONSTRAINTS:
 - ${continuityRule}
 ${noRepetitionRule ? `- ${noRepetitionRule}\n` : ''}${LESSON_SCOPE_RULES.map(rule => `- ${rule}`).join('\n')}
 
-CHECKLIST SEMANTICA OBBLIGATORIA:
+REQUIRED SEMANTIC CHECKLIST:
 ${checklist.map(item => `- ${item.checkId}: ${item.instruction}`).join('\n')}
 
-CONTROLLI STRUTTURALI OBBLIGATORI:
+REQUIRED STRUCTURAL CHECKS:
 ${structuralCheckIds
   .map(checkId => `- ${checkId}: ${buildStructuralCheckInstruction(checkId)}`)
   .join('\n')}
 
-Restituisci soltanto il JSON verificato con verificationReport, senza testo esterno.`;
+Return only the verified JSON with verificationReport and no external text.`;
 };
 
 export const verifyLessonContentDraft = async (input: {

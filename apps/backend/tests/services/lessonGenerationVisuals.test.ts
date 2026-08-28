@@ -21,6 +21,7 @@ vi.mock('../../src/services/openRouterModelCapabilities.js', () => ({
   openRouterModelSupportsImages: openRouterModelSupportsImagesMock,
 }));
 
+import { getLessonRasterImageSubject } from '@shared/lessonVisualContracts';
 import { imageClient } from '../../src/services/imageClient.js';
 import {
   generateLessonVisualRaster,
@@ -75,6 +76,23 @@ const reviewInput = {
   },
 };
 
+test.each([
+  'Request:',
+  'Richiesta:',
+])('strips the internal %s suffix from raster concepts', marker => {
+  expect(
+    getLessonRasterImageSubject({
+      concept: `${visualPlan.concept}\n${marker} internal rendering direction`,
+      factualRequirements: visualPlan.factualRequirements,
+      lessonMarkdown: '## La struttura del tessuto',
+      pedagogicalGoal: visualPlan.pedagogicalGoal,
+      sectionDescription: 'Come riconoscere trama, ordito e sbieco.',
+      sectionTitle: 'La struttura del tessuto',
+      visualDirection: visualPlan.visualDirection,
+    })
+  ).toBe(visualPlan.concept);
+});
+
 test('the backend image provider returns raster bytes for the workflow staging boundary', async () => {
   const generateImage = vi.spyOn(imageClient, 'generateImage').mockResolvedValue({
     bytes: new TextEncoder().encode('hello'),
@@ -115,7 +133,7 @@ test('the backend image provider returns raster bytes for the workflow staging b
   expect(generateImage).toHaveBeenCalledWith(
     expect.objectContaining({
       model: 'image-model',
-      prompt: expect.stringContaining('questa richiesta e raster'),
+      prompt: expect.stringContaining('This request is raster'),
       provider: 'openrouter',
     })
   );

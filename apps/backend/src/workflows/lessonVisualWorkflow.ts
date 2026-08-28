@@ -325,7 +325,7 @@ export const createLessonVisualWorkflows = <
         throw retryCorrective({
           code: 'lesson_visual_generation_incomplete',
           feedback:
-            'La bozza precedente non rispettava il contratto del visuale. Genera una sostituzione completa e valida.',
+            'The previous draft did not follow the visual contract. Generate a complete, valid replacement.',
           message: 'The lesson visual could not be completed.',
         });
       }

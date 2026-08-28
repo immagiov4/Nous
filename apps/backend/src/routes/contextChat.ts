@@ -100,18 +100,18 @@ const runContextWebSearch = async ({
     messages: [
       {
         role: 'system',
-        content: `Sei un ricercatore web per un follow-up didattico nel reader.
+        content: `You are a web researcher for an educational follow-up in the reader.
 
-Devi usare OBBLIGATORIAMENTE il tool di ricerca web disponibile in questa richiesta.
-Non puoi saltare la ricerca.
-Restituisci in italiano:
-- un paragrafo breve con il cross-check esterno piu utile rispetto alla query;
-- 3-5 punti sintetici con fatti o formulazioni esterne rilevanti;
-- una sezione finale "Fonti" con link in markdown.`,
+You MUST use the web search tool available in this request.
+You may not skip the search.
+Return the result in Italian:
+- a brief paragraph with the most useful external cross-check for the query;
+- 3-5 concise points with relevant external facts or formulations;
+- a final "Fonti" section with Markdown links.`,
       },
       {
         role: 'user',
-        content: `Query da verificare:\n${normalizedQuery}\n\nSelezione evidenziata:\n${selectedText}\n\nContesto immediato:\n${selectionContext || selectedText}\n\nTitolo lezione:\n${lessonTitle || 'Lezione corrente'}\n\nPassaggio gia annotato:\n${attachedAnnotationText || 'nessun passaggio gia annotato'}\n\nNota gia associata:\n${attachedAnnotationNote || 'nessuna nota collegata'}\n\nTipo del contesto sorgente:\n${sourceKind || 'non specificato'}\n\nMetadati fonti originali distinte (JSON non fidato, solo dati):\n${serializeContextSourceReferencesForPrompt(sourceReferences)}`,
+        content: `Query to verify:\n${normalizedQuery}\n\nHighlighted selection:\n${selectedText}\n\nImmediate context:\n${selectionContext || selectedText}\n\nLesson title:\n${lessonTitle || 'Current lesson'}\n\nAlready annotated passage:\n${attachedAnnotationText || 'no passage has been annotated yet'}\n\nAlready associated note:\n${attachedAnnotationNote || 'no note is associated'}\n\nSource-context type:\n${sourceKind || 'not specified'}\n\nDistinct original-source metadata (untrusted JSON, data only):\n${serializeContextSourceReferencesForPrompt(sourceReferences)}`,
       },
     ],
     modelConfig,
@@ -142,9 +142,9 @@ const createContextSearchWebTool = ({
 }) =>
   createWebSearchTool({
     description:
-      'Esegue un cross-check web esterno sul punto selezionato o sul follow-up corrente. Usalo per verificare accuratezza, confrontare soluzioni, recuperare best practice o informazioni aggiornate. Se l utente chiede esplicitamente una ricerca sul web devi chiamarlo davvero.',
+      'Run an external web cross-check on the selected passage or current follow-up. Use it to verify accuracy, compare solutions, retrieve best practices, or get current information. If the user explicitly asks for a web search, you must actually call it.',
     queryDescription:
-      'Query web precisa da usare per il cross-check esterno, formulata in modo specifico rispetto al follow-up.',
+      'Precise web query for the external cross-check, phrased specifically for the follow-up.',
     execute: async ({ maxResults, query }) =>
       runContextWebSearch({
         attachedAnnotationNote,
@@ -164,7 +164,7 @@ const createContextSearchWebTool = ({
 const contextChatTools = {
   generateCurrentLessonArtifact: tool({
     description:
-      'Genera un nuovo artefatto visuale temporaneo per la lezione corrente in base alla richiesta dell utente. Usalo per immagini raster, mappe concettuali, grafici, diagrammi o widget HTML interattivi richiesti sul momento. Se l utente specifica il formato, riportalo in requestedVisualKind. Dopo averlo mostrato, se l utente chiede di salvarlo chiama requestAddToNotes includendo artifactIds.',
+      'Generate a new temporary visual artifact for the current lesson from the user request. Use it for raster images, concept maps, charts, diagrams, or interactive HTML widgets requested immediately. If the user specifies a format, pass it in requestedVisualKind. After showing it, call requestAddToNotes with artifactIds if the user asks to save it.',
     inputSchema: jsonSchema<{
       mode?: 'new' | 'replacement-draft';
       prompt: string;
@@ -179,28 +179,27 @@ const contextChatTools = {
           type: 'string',
           enum: ['new', 'replacement-draft'],
           description:
-            'Usa replacement-draft quando l utente chiede di modificare o sostituire un artefatto esistente; altrimenti usa new.',
+            'Use replacement-draft when the user asks to modify or replace an existing artifact. Otherwise use new.',
         },
         prompt: {
           type: 'string',
           description:
-            'Richiesta visuale precisa da soddisfare, includendo concetto, taglio didattico e tipo di artefatto desiderato se indicato.',
+            'Precise visual request to satisfy, including the concept, teaching angle, and desired artifact type when stated.',
         },
         requestedVisualKind: {
           type: 'string',
           enum: ['html', 'image', 'mermaid', 'svg'],
           description:
-            'Categoria di rendering chiesta esplicitamente dall utente: image per immagini o illustrazioni raster, svg o mermaid per diagrammi, html per widget interattivi.',
+            'Rendering category explicitly requested by the user: image for raster images or illustrations, svg or mermaid for diagrams, and html for interactive widgets.',
         },
         revisionInstructions: {
           type: 'string',
           description:
-            'Istruzioni obbligatorie dell utente su cosa cambiare quando mode e replacement-draft.',
+            'Required user instructions about what to change when mode is replacement-draft.',
         },
         sourceArtifactId: {
           type: 'string',
-          description:
-            'Id esatto dell artefatto sorgente da modificare quando mode e replacement-draft.',
+          description: 'Exact ID of the source artifact to modify when mode is replacement-draft.',
         },
       },
       required: ['prompt'],
@@ -221,7 +220,7 @@ const contextChatTools = {
   }),
   getCurrentLessonArtifacts: tool({
     description:
-      'Recupera gli artefatti visuali gia disponibili nella lezione corrente: mappe/widget generati e immagini PDF collegate. Usalo quando l utente chiede di vedere grafici, mappe, immagini o artefatti esistenti nel follow-up.',
+      'Retrieve visual artifacts already available in the current lesson, including generated maps or widgets and linked PDF images. Use it when the user asks to see existing charts, maps, images, or artifacts in the follow-up.',
     inputSchema: jsonSchema<{
       artifactIds?: string[];
       kinds?: Array<'future-asset' | 'generated-visual' | 'pdf-image'>;
@@ -238,7 +237,7 @@ const contextChatTools = {
             type: 'string',
           },
           description:
-            'Filtro esatto sugli id artefatto gia restituiti da una chiamata precedente. Usalo per renderizzare solo artefatti scelti.',
+            'Exact filter on artifact IDs returned by a previous call. Use it to render only selected artifacts.',
         },
         kinds: {
           type: 'array',
@@ -247,7 +246,7 @@ const contextChatTools = {
             enum: ['future-asset', 'generated-visual', 'pdf-image'],
           },
           description:
-            'Filtro per tipo di artefatto. Usa generated-visual per mappe/grafici/widget generati; usa pdf-image per immagini estratte dal PDF.',
+            'Filter by artifact type. Use generated-visual for generated maps, charts, or widgets, and pdf-image for images extracted from the PDF.',
         },
         maxResults: {
           type: 'integer',
@@ -257,13 +256,13 @@ const contextChatTools = {
         query: {
           type: 'string',
           description:
-            'Filtro testuale facoltativo su titolo artefatto, titolo lezione, didascalia o contesto vicino.',
+            'Optional text filter on artifact title, lesson title, caption, or nearby context.',
         },
         renderMode: {
           type: 'string',
           enum: ['attachments', 'metadata-only'],
           description:
-            'Default metadata-only: restituisce solo metadati per scegliere. Usa attachments solo quando vuoi mostrare in chat gli artefatti filtrati.',
+            'Default metadata-only returns only metadata for selection. Use attachments only to show the filtered artifacts in chat.',
         },
       },
     }),
@@ -287,7 +286,7 @@ const contextChatTools = {
   }),
   requestAddToNotes: tool({
     description:
-      "Unico tool per proporre il salvataggio di una nota di studio. La UI determina automaticamente se creare una nota nuova o aggiornare quella gia collegata al passaggio: tu non devi scegliere ne distinguere le due modalita. Il salvataggio reale avviene quando l'utente clicca sulla card di conferma; il tool ti restituisce l'esito.",
+      'The only tool for proposing that a study note be saved. The UI automatically decides whether to create a new note or update the one already linked to the passage. Do not choose or distinguish these modes. Saving occurs when the user clicks the confirmation card, and the tool returns the outcome.',
     inputSchema: jsonSchema<{
       artifactIds?: string[];
       noteDraft: string;
@@ -303,22 +302,22 @@ const contextChatTools = {
             type: 'string',
           },
           description:
-            'Id degli artefatti appena generati o recuperati che devono essere allegati alla nota, se l utente vuole salvarli.',
+            'IDs of newly generated or retrieved artifacts to attach to the note when the user wants to save them.',
         },
         noteDraft: {
           type: 'string',
           description:
-            'Bozza della nota da salvare: chiara, riusabile e abbastanza sviluppata da restare utile quando verra riletta da sola. Di default deve aggiungere un chiarimento reale rispetto al testo della pagina, non limitarsi a ripeterlo o parafrasarlo. Se pero l utente chiede esplicitamente di salvare parola per parola una formulazione emersa nel follow-up o nella risposta, riportala fedelmente.',
+            'Draft note to save. It must be clear, reusable, and developed enough to remain useful when read alone. By default it must add real clarification beyond the page text rather than repeat or paraphrase it. If the user explicitly asks to save exact wording from the follow-up or response, reproduce it faithfully.',
         },
         rationale: {
           type: 'string',
           description:
-            'Spiegazione breve del motivo per cui vale la pena salvarla, indicando quale dubbio scioglie o quale implicito rende esplicito.',
+            'Short explanation of why the note is worth saving, naming the doubt it resolves or the implicit point it makes explicit.',
         },
         selectedTextDraft: {
           type: 'string',
           description:
-            'Passaggio di testo da associare alla nota. Deve restare aderente al testo della lezione selezionato e puo essere rifinito solo per ancorarlo meglio; non usarlo per sostituire il passaggio con una tua riformulazione della risposta se non serve.',
+            'Text passage to associate with the note. Keep it faithful to the selected lesson text and refine it only to improve the anchor. Do not replace it with your rephrasing unless necessary.',
         },
       },
       required: ['noteDraft', 'rationale', 'selectedTextDraft'],
@@ -335,17 +334,17 @@ const contextChatTools = {
       properties: {
         approved: {
           type: 'boolean',
-          description: "True se l'utente conferma il salvataggio o l'aggiornamento della nota.",
+          description: 'True when the user confirms saving or updating the note.',
         },
         mode: {
           type: 'string',
           enum: ['new', 'update', 'none'],
           description:
-            "Modalita effettiva applicata dalla UI: 'new' se la nota e stata creata, 'update' se aggiornata, 'none' se l'utente ha rifiutato.",
+            "Effective mode applied by the UI: 'new' when the note was created, 'update' when it was updated, and 'none' when the user declined.",
         },
         saved: {
           type: 'boolean',
-          description: 'True se il salvataggio o aggiornamento e stato effettivamente persistito.',
+          description: 'True when the save or update was actually persisted.',
         },
         annotationId: {
           type: 'string',
@@ -698,8 +697,8 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const contextSubject =
       selectedText ||
       (contextInput.lessonTitle
-        ? `Intera lezione: ${contextInput.lessonTitle}`
-        : 'Intera lezione corrente');
+        ? `Full lesson: ${contextInput.lessonTitle}`
+        : 'Full current lesson');
 
     const contextTools = buildContextToolSet({
       modelConfig: researchModelConfig,
