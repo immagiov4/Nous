@@ -504,6 +504,42 @@ describe('useProjectLibrary', () => {
     );
   });
 
+  test('cleans the project id returned by the server when it differs from the requested id', async () => {
+    const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
+      folders: [],
+      placements: [
+        {
+          projectId: 'course-one',
+          folderId: null,
+          order: 0,
+          updatedAt: '2026-04-02T10:00:00.000Z',
+        },
+      ],
+    });
+    const returnedProjectId = 'server-created-course';
+    repositoryMocks.importProjectArchive.mockResolvedValueOnce({
+      meta: buildMeta(returnedProjectId, '2026-04-02T10:00:00.000Z'),
+      snapshot: buildSnapshot(returnedProjectId),
+    });
+    const file = new File([archive], 'library.nous-library.zip');
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await expect(result.current.importLibraryBackup(file)).rejects.toMatchObject({
+      code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+      projectCount: 1,
+      projectIndex: 1,
+    });
+
+    expect(repositoryMocks.deleteProject).toHaveBeenCalledOnce();
+    expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(returnedProjectId);
+  });
+
   test('reports later courses as not attempted when a failed target cannot be cleaned up', async () => {
     const timestamp = '2026-04-02T10:00:00.000Z';
     const projects = [

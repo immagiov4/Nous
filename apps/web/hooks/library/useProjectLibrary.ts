@@ -170,8 +170,10 @@ const importLibraryArchiveProject = async (
   project: LibraryArchiveProject
 ): Promise<LibraryArchiveProjectImportOutcome> => {
   const importedProjectId = createProjectId();
+  let cleanupProjectId = importedProjectId;
   try {
     const imported = await repository.importProjectArchive(project.archive, importedProjectId);
+    cleanupProjectId = imported.snapshot.id;
     if (imported.snapshot.id !== importedProjectId) {
       throw new Error('Il server ha restituito un identificatore corso inatteso.');
     }
@@ -200,7 +202,7 @@ const importLibraryArchiveProject = async (
       title: project.title,
     };
     try {
-      await repository.deleteProject(importedProjectId);
+      await repository.deleteProject(cleanupProjectId);
       return { cleanupFailed: false, kind: 'rejected', rejectedProject };
     } catch (cleanupError) {
       console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
