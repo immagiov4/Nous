@@ -13,11 +13,13 @@ export const createWorkspaceController = (
     openSection: sectionCommands.openSection,
   });
   const projectLifecycleCommands = createProjectLifecycleCommands(context, {
+    beginHomeChatWorkspaceOpen: assessmentCommands.beginHomeChatWorkspaceOpen,
     openSection: sectionCommands.openSection,
     resumeRetainedSublesson,
     resumePlanGeneration: assessmentCommands.resumePlanGeneration,
     startAssessment: assessmentCommands.startAssessment,
     startLearnAssessment: assessmentCommands.startLearnAssessment,
+    settleHomeChatWorkspaceOpen: assessmentCommands.settleHomeChatWorkspaceOpen,
   });
 
   return {

@@ -16,7 +16,11 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
-import HomeChatComposer, { type HomeChatSurfaceState } from './HomeChatComposer.tsx';
+import HomeChatComposer, {
+  type HomeChatSurfaceState,
+  type LibraryMessageSendHandler,
+  type StopGenerationHandler,
+} from './HomeChatComposer.tsx';
 import HomeChatConversation, { getActiveLibraryMessages } from './HomeChatConversation.tsx';
 
 interface HomeChatPanelProps {
@@ -55,11 +59,11 @@ interface HomeChatPanelProps {
   readonly showChatAvatars?: boolean;
   readonly onClearPendingFile: () => void;
   readonly onClearLibraryMessages?: () => void;
-  readonly onCancelNewCourse?: () => void;
+  readonly onCancelNewCourse?: StopGenerationHandler;
   readonly onContinueAssessment?: () => void;
   readonly onConfirmGenerate: () => void;
   readonly onHomeChatModeChange: (mode: HomeChatMode) => void;
-  readonly onLibraryMessageSend: (message: string) => void | Promise<void>;
+  readonly onLibraryMessageSend: LibraryMessageSendHandler;
   readonly onLibraryArtifactNoteApprove?: (
     toolCallId: string,
     input: {
@@ -100,9 +104,11 @@ const getMobileChatStyle = (
 };
 
 const HomeChatModeSelector = ({
+  disabled,
   homeChatMode,
   onChange,
 }: {
+  readonly disabled: boolean;
   readonly homeChatMode: HomeChatMode;
   readonly onChange: (mode: HomeChatMode) => void;
 }) => (
@@ -125,8 +131,9 @@ const HomeChatModeSelector = ({
           type="button"
           role="tab"
           aria-selected={isActive}
+          disabled={disabled}
           onClick={() => onChange(option.mode)}
-          className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
+          className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
             isActive
               ? 'text-white dark:text-stone-900'
               : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
@@ -151,11 +158,13 @@ const HomeChatModeSelector = ({
 );
 
 const HomeChatHeader = ({
+  disableModeChange,
   hideHeaderCopy,
   hideModeSelector,
   homeChatMode,
   onModeChange,
 }: {
+  readonly disableModeChange: boolean;
   readonly hideHeaderCopy: boolean;
   readonly hideModeSelector: boolean;
   readonly homeChatMode: HomeChatMode;
@@ -185,7 +194,11 @@ const HomeChatHeader = ({
         )}
         <div className="flex self-start items-center gap-2">
           {hideModeSelector ? null : (
-            <HomeChatModeSelector homeChatMode={homeChatMode} onChange={onModeChange} />
+            <HomeChatModeSelector
+              disabled={disableModeChange}
+              homeChatMode={homeChatMode}
+              onChange={onModeChange}
+            />
           )}
         </div>
       </div>
@@ -201,7 +214,7 @@ const HomeChatClearButton = ({
 }: {
   readonly homeChatMode: HomeChatMode;
   readonly isLoading: boolean;
-  readonly onCancelNewCourse?: () => void;
+  readonly onCancelNewCourse?: StopGenerationHandler;
   readonly onClearLibraryMessages?: () => void;
 }) => {
   const label =
@@ -278,6 +291,7 @@ export default function HomeChatPanel({
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
   const isLoading = homeChatMode === 'new-course' ? isNewCourseLoading : isLibraryModeLoading;
+  const isAnyChatLoading = isLibraryModeLoading || isNewCourseLoading;
   const hasActiveChat = activeMessages.length > 0 || isLoading || assessmentComplete;
   const isLibraryAwaitingFirstResponse =
     homeChatMode === 'library-query' &&
@@ -291,6 +305,8 @@ export default function HomeChatPanel({
   const reserveClearButtonSpace = showClearChat && hideHeaderCopy && hideModeSelector;
   const mobileChatStyle = getMobileChatStyle(isMobileViewport, viewportHeight, hasActiveChat);
   const isCompactSurface = compactWhenEmpty && !hasActiveChat;
+  const onStopGeneration =
+    homeChatMode === 'new-course' ? onCancelNewCourse : onLibraryMessageSend.stop;
 
   useEffect(() => {
     if (globalThis.window === undefined) return;
@@ -319,6 +335,7 @@ export default function HomeChatPanel({
       ) : null}
 
       <HomeChatHeader
+        disableModeChange={isAnyChatLoading}
         hideHeaderCopy={hideHeaderCopy}
         hideModeSelector={hideModeSelector}
         homeChatMode={homeChatMode}
@@ -380,6 +397,7 @@ export default function HomeChatPanel({
         onLibraryMessageSend={onLibraryMessageSend}
         onLibraryWebSearchChange={onLibraryWebSearchChange}
         onSendAssessmentMessage={onSendAssessmentMessage}
+        onStopGeneration={onStopGeneration}
         onToggleLibraryContextRef={onToggleLibraryContextRef}
         onUploadSourceClick={onUploadSourceClick}
         pendingFileName={pendingFileName}

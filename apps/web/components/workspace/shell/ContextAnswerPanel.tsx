@@ -16,6 +16,7 @@ import {
   NotebookPen,
   Plus,
   Sparkles,
+  Square,
   StickyNote,
   X,
 } from 'lucide-react';
@@ -100,6 +101,9 @@ interface RequestAddToNotesInput {
 }
 
 type RequestAddToNotesMode = 'new' | 'update' | 'none';
+
+const CONTEXT_ANSWER_INPUT_TARGET = 'context-answer-input';
+const CONTEXT_ANSWER_SUBMIT_TARGET = 'context-answer-submit';
 
 interface RequestAddToNotesOutput {
   approved: boolean;
@@ -284,6 +288,17 @@ interface ContextChatTools {
 }
 
 type ContextChatMessage = UIMessage<unknown, Record<string, never>, ContextChatTools>;
+type ContextChatToolPart = Extract<ContextChatMessage['parts'][number], { toolCallId: string }>;
+
+const isPendingContextToolPart = (
+  part: ContextChatMessage['parts'][number]
+): part is ContextChatToolPart =>
+  'toolCallId' in part && (part.state === 'input-streaming' || part.state === 'input-available');
+
+const getContextToolPartName = (part: ContextChatToolPart): string =>
+  'toolName' in part && typeof part.toolName === 'string'
+    ? part.toolName
+    : part.type.slice('tool-'.length);
 
 interface ContextRequestState {
   attachedAnnotationNote?: string;
@@ -303,6 +318,11 @@ interface ContextRequestState {
   sourceName?: string;
   sourceReferences?: ContextSourceReference[];
   toolPreferences: ContextChatToolPreferences;
+}
+
+interface ContextResponseState {
+  canContinue: boolean;
+  generation: number;
 }
 
 const serializeContextSourceReferences = (
@@ -455,6 +475,7 @@ function ContextAnswerPanelSession({
     () => currentLessonArtifactPayloads
   );
   const [input, setInput] = useState('');
+  const [hasRequestedResponseStop, setHasRequestedResponseStop] = useState(false);
   const mutationTarget: ContextLessonMutationTarget = {
     lessonId: contextAnswer.lessonId,
     projectId: contextAnswer.projectId,
@@ -489,6 +510,13 @@ function ContextAnswerPanelSession({
     new Set()
   );
   const hasSubmittedInitialQuestionRef = useRef(false);
+  const activeResponseStateRef = useRef<ContextResponseState>({
+    canContinue: true,
+    generation: 0,
+  });
+  const activeContextToolCallsRef = useRef(new Map<string, string>());
+  const contextStopButtonRef = useRef<HTMLButtonElement>(null);
+  const focusStopAfterSubmitRef = useRef(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectionAnchorRef = useRef<ConversationSelectionAnchor>({
@@ -497,6 +525,17 @@ function ContextAnswerPanelSession({
     selectedText: contextAnswer.selectedText,
     selectedTextStart: contextAnswer.selectedTextStart,
   });
+
+  useEffect(() => {
+    const responseState = activeResponseStateRef.current;
+    const activeToolCalls = activeContextToolCallsRef.current;
+    responseState.canContinue = true;
+    return () => {
+      responseState.canContinue = false;
+      responseState.generation += 1;
+      activeToolCalls.clear();
+    };
+  }, []);
 
   // Tracks when each requestAddToNotes part entered input-available without
   // valid input, so we can show fallback buttons after GRACE and auto-reject
@@ -608,15 +647,38 @@ function ContextAnswerPanelSession({
     [contextRequestStateStore]
   );
 
-  const { addToolOutput, error, messages, sendMessage, status } = useChat<ContextChatMessage>({
+  const contextChat = useChat<ContextChatMessage>({
     id: contextAnswer.id,
     transport,
     experimental_throttle: 96,
-    sendAutomaticallyWhen: ({ messages }) => shouldContinueContextResponse(messages),
+    sendAutomaticallyWhen: ({ messages }) =>
+      activeResponseStateRef.current.canContinue && shouldContinueContextResponse(messages),
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
         return;
       }
+      const responseGeneration = activeResponseStateRef.current.generation;
+      const shouldContinueToolCall = () => {
+        const responseState = activeResponseStateRef.current;
+        return responseState.canContinue && responseState.generation === responseGeneration;
+      };
+      if (!shouldContinueToolCall()) {
+        void addToolOutput({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          state: 'output-error',
+          errorText: t('Annullato'),
+        });
+        return;
+      }
+      const awaitTrackedToolCall = async <Result,>(request: () => Promise<Result>) => {
+        activeContextToolCallsRef.current.set(toolCall.toolCallId, toolCall.toolName);
+        try {
+          return await request();
+        } finally {
+          activeContextToolCallsRef.current.delete(toolCall.toolCallId);
+        }
+      };
       if (toolCall.toolName === 'requestAddToNotes') {
         const noteInput = isRequestAddToNotesInput(toolCall.input) ? toolCall.input : null;
         const currentState = contextRequestStateStore.read();
@@ -674,6 +736,7 @@ function ContextAnswerPanelSession({
 
       if (toolCall.toolName === 'generateCurrentLessonArtifact') {
         const artifactInput = readGenerateCurrentLessonArtifactInput(toolCall.input);
+        const projectId = contextAnswer.projectId;
         const currentState = contextRequestStateStore.read();
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
         const allArtifactPayloads = [
@@ -690,7 +753,7 @@ function ContextAnswerPanelSession({
             )
           : undefined;
 
-        if (!artifactInput || !contextAnswer.projectId || !draftLesson || !currentState) {
+        if (!artifactInput || !projectId || !draftLesson || !currentState) {
           void addToolOutput({
             tool: 'generateCurrentLessonArtifact',
             toolCallId: toolCall.toolCallId,
@@ -722,32 +785,39 @@ function ContextAnswerPanelSession({
 
         let draft: GeneratedLessonArtifactDraft | null = null;
         try {
-          draft = await generateLessonArtifactDraft({
-            contextAfter: currentState.contextAfter,
-            contextBefore: currentState.contextBefore,
-            generationNotes: undefined,
-            lesson: draftLesson,
-            mode: artifactInput.mode,
-            projectId: contextAnswer.projectId,
-            projectTitle: contextAnswer.projectTitle || t('Corso'),
-            prompt: artifactInput.prompt,
-            requestKey: toolCall.toolCallId,
-            requestedVisualKind: artifactInput.requestedVisualKind,
-            revisionInstructions: artifactInput.revisionInstructions,
-            selectedText: currentState.selectedText,
-            sourceArtifact,
-            sourceArtifactId,
-          });
+          draft = await awaitTrackedToolCall(() =>
+            generateLessonArtifactDraft({
+              contextAfter: currentState.contextAfter,
+              contextBefore: currentState.contextBefore,
+              generationNotes: undefined,
+              lesson: draftLesson,
+              mode: artifactInput.mode,
+              projectId,
+              projectTitle: contextAnswer.projectTitle || t('Corso'),
+              prompt: artifactInput.prompt,
+              requestKey: toolCall.toolCallId,
+              requestedVisualKind: artifactInput.requestedVisualKind,
+              revisionInstructions: artifactInput.revisionInstructions,
+              selectedText: currentState.selectedText,
+              sourceArtifact,
+              sourceArtifactId,
+            })
+          );
         } catch (generationError) {
-          console.error('[Nous][Context artifact] Generation failed.', generationError);
+          if (shouldContinueToolCall()) {
+            console.error('[Nous][Context artifact] Generation failed.', generationError);
+          }
         } finally {
-          setGeneratingArtifactToolCallIds(prev => {
-            if (!prev.has(toolCall.toolCallId)) return prev;
-            const next = new Set(prev);
-            next.delete(toolCall.toolCallId);
-            return next;
-          });
+          if (shouldContinueToolCall()) {
+            setGeneratingArtifactToolCallIds(prev => {
+              if (!prev.has(toolCall.toolCallId)) return prev;
+              const next = new Set(prev);
+              next.delete(toolCall.toolCallId);
+              return next;
+            });
+          }
         }
+        if (!shouldContinueToolCall()) return;
 
         if (!draft) {
           void addToolOutput({
@@ -784,14 +854,18 @@ function ContextAnswerPanelSession({
       }
 
       if (isLibraryAssistantToolName(toolCall.toolName)) {
+        const toolName = toolCall.toolName;
         let result: Awaited<ReturnType<typeof executeLibraryAssistantTool>>;
         try {
-          result = await executeLibraryAssistantTool({
-            dataSource: libraryAssistantDataSource,
-            input: toolCall.input,
-            toolName: toolCall.toolName,
-          });
+          result = await awaitTrackedToolCall(() =>
+            executeLibraryAssistantTool({
+              dataSource: libraryAssistantDataSource,
+              input: toolCall.input,
+              toolName,
+            })
+          );
         } catch (toolError) {
+          if (!shouldContinueToolCall()) return;
           console.error('[Nous][Context library] Tool execution failed.', toolError);
           void addToolOutput({
             tool: toolCall.toolName,
@@ -801,8 +875,9 @@ function ContextAnswerPanelSession({
           });
           return;
         }
+        if (!shouldContinueToolCall()) return;
 
-        if (toolCall.toolName === 'getLearningArtifacts') {
+        if (toolName === 'getLearningArtifacts') {
           setArtifactPayloadsByToolCallId(currentPayloads => ({
             ...currentPayloads,
             [toolCall.toolCallId]: result.renderPayloads ?? [],
@@ -811,7 +886,7 @@ function ContextAnswerPanelSession({
 
         if (result.outputError) {
           void addToolOutput({
-            tool: toolCall.toolName,
+            tool: toolName,
             toolCallId: toolCall.toolCallId,
             state: 'output-error',
             errorText: result.outputError,
@@ -820,13 +895,14 @@ function ContextAnswerPanelSession({
         }
 
         void addToolOutput({
-          tool: toolCall.toolName,
+          tool: toolName,
           toolCallId: toolCall.toolCallId,
           output: result.output || {},
         });
       }
     },
   });
+  const { addToolOutput, error, messages, sendMessage, status, stop } = contextChat;
 
   const artifactPayloadsById = useMemo(() => {
     const payloads = [
@@ -1297,10 +1373,25 @@ function ContextAnswerPanelSession({
   }, [messages, addToolOutput]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
+  const isStoppingResponse = isLoading && hasRequestedResponseStop;
   const isWaitingForNoteDecision = hasPendingAddToNotesRequest(messages);
-  const isComposerDisabled = status === 'submitted' || isWaitingForNoteDecision;
+  const isComposerDisabled =
+    status === 'submitted' || isStoppingResponse || isWaitingForNoteDecision;
   const hasActiveToolPreference =
     toolPreferences.annotate || toolPreferences.generateArtifacts || toolPreferences.webSearch;
+
+  useEffect(() => {
+    if (!isLoading || !focusStopAfterSubmitRef.current) return;
+    focusStopAfterSubmitRef.current = false;
+    contextStopButtonRef.current?.focus();
+  }, [isLoading]);
+
+  useEffect(() => {
+    if (isLoading || !hasRequestedResponseStop) return;
+    document
+      .querySelector<HTMLElement>(`[data-chat-composer-target="${CONTEXT_ANSWER_INPUT_TARGET}"]`)
+      ?.focus();
+  }, [hasRequestedResponseStop, isLoading]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length triggers scroll on new arrival
   useLayoutEffect(() => {
@@ -1323,9 +1414,41 @@ function ContextAnswerPanelSession({
       document.activeElement.blur();
     }
 
+    focusStopAfterSubmitRef.current =
+      !isMobileViewport &&
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.dataset.chatComposerTarget === CONTEXT_ANSWER_SUBMIT_TARGET;
+
+    activeResponseStateRef.current.canContinue = true;
+    activeResponseStateRef.current.generation += 1;
+    setHasRequestedResponseStop(false);
     setInput('');
     setIsToolMenuOpen(false);
     void sendMessage({ text: trimmedInput });
+  };
+
+  const handleStopResponse = () => {
+    if (!isLoading || isStoppingResponse) return;
+    activeResponseStateRef.current.canContinue = false;
+    setHasRequestedResponseStop(true);
+    setIsToolMenuOpen(false);
+    setGeneratingArtifactToolCallIds(new Set());
+    stop();
+    const pendingToolCalls = new Map(activeContextToolCallsRef.current);
+    for (const part of messages
+      .flatMap(message => message.parts)
+      .filter(isPendingContextToolPart)) {
+      pendingToolCalls.set(part.toolCallId, getContextToolPartName(part));
+    }
+    activeContextToolCallsRef.current.clear();
+    for (const [toolCallId, tool] of pendingToolCalls) {
+      void addToolOutput({
+        tool,
+        toolCallId,
+        state: 'output-error',
+        errorText: t('Annullato'),
+      });
+    }
   };
 
   const handleSpeechTranscription = (transcription: string) => {
@@ -1704,14 +1827,33 @@ function ContextAnswerPanelSession({
               : t('Chiedi un follow-up su questa risposta...')
           }
           disabled={isComposerDisabled}
-          inputDataTarget="context-answer-input"
+          inputDataTarget={CONTEXT_ANSWER_INPUT_TARGET}
           isLoading={isLoading}
           className="flex items-center gap-2"
           trailingContent={
-            <SpeechInputButton
-              disabled={isComposerDisabled}
-              onTranscription={handleSpeechTranscription}
-            />
+            isLoading ? (
+              <button
+                ref={contextStopButtonRef}
+                type="button"
+                onClick={handleStopResponse}
+                disabled={isStoppingResponse}
+                aria-busy={isStoppingResponse || undefined}
+                aria-label={t('Annulla')}
+                title={t('Annulla')}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-orange-400 dark:text-stone-950 dark:hover:bg-orange-300"
+              >
+                {isStoppingResponse ? (
+                  <LoaderCircle className="h-4 w-4 motion-safe:animate-spin" />
+                ) : (
+                  <Square className="h-4 w-4 fill-current" />
+                )}
+              </button>
+            ) : (
+              <SpeechInputButton
+                disabled={isComposerDisabled}
+                onTranscription={handleSpeechTranscription}
+              />
+            )
           }
           leadingContent={
             <div ref={toolMenuRef} className="relative flex shrink-0 items-center">
@@ -1843,8 +1985,8 @@ function ContextAnswerPanelSession({
           }
           inputShellClassName="min-w-0 flex-1 rounded-full border border-stone-200/80 bg-stone-50/80 px-3 py-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-500/80 dark:bg-stone-700/70 dark:focus-within:border-stone-400 dark:focus-within:bg-stone-700"
           inputClassName="h-10 w-full min-w-0 border-0 bg-transparent px-2 text-sm text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-400"
-          submitButtonClassName="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
-          submitDataTarget="context-answer-submit"
+          submitButtonClassName={`${isLoading ? 'hidden' : 'flex'} h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500`}
+          submitDataTarget={CONTEXT_ANSWER_SUBMIT_TARGET}
         />
 
         {hasActiveToolPreference ? (
