@@ -1,5 +1,6 @@
 import {
   type MarkdownRange,
+  MIN_MARKDOWN_FENCE_LENGTH,
   parseMarkdownAnalysis,
   planMarkdownFencedCode,
   projectUnclosedMarkdownFenceOpeners,
@@ -11,7 +12,10 @@ import { processMarkdownSegment } from './segment.ts';
 const DELETE_CONTROL_CHARACTER = '\u007f';
 const ANSI_ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 const MARKDOWN_LINE_ENDING_PATTERN = /\r\n?/gu;
-const POTENTIAL_MARKDOWN_FENCE_PATTERN = /`{3,}|~{3,}/u;
+const POTENTIAL_MARKDOWN_FENCE_PATTERN = new RegExp(
+  `\`{${MIN_MARKDOWN_FENCE_LENGTH},}|~{${MIN_MARKDOWN_FENCE_LENGTH},}`,
+  'u'
+);
 
 const introducesPotentialFence = (original: string, processed: string): boolean =>
   processed !== original && POTENTIAL_MARKDOWN_FENCE_PATTERN.test(processed);

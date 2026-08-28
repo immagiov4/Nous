@@ -96,6 +96,13 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech(input)).toBe('Prima.\n\nDopo.');
   });
 
+  test.each(['\r', '\r\n'])('strips Markdown prefixes after %j line endings', lineEnding => {
+    const expected = 'Prima\nelemento';
+
+    expect(prepareMarkdownForSpeech('Prima\n- elemento')).toBe(expected);
+    expect(prepareMarkdownForSpeech(`Prima${lineEnding}- elemento`)).toBe(expected);
+  });
+
   test('reads bare code-like text that the renderer leaves as prose', () => {
     expect(
       prepareMarkdownForSpeech('Prima.\n\ncpp while (i < 5) { std::cout << i; }\n\nDopo.')

@@ -14,6 +14,8 @@ import {
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
 const MARKDOWN_LINE_BREAK_PATTERN = /[\r\n]/u;
 const MARKDOWN_LINE_ENDING_PATTERN = /\r\n?/gu;
+const normalizeMarkdownLineEndings = (text: string): string =>
+  text.replaceAll(MARKDOWN_LINE_ENDING_PATTERN, '\n');
 
 const trimTrailingInlineSpace = (characters: string[]): void => {
   while (characters.at(-1) === ' ') {
@@ -38,7 +40,7 @@ const collapseWhitespace = (text: string): string => {
   const characters: string[] = [];
   let consecutiveNewlines = 0;
 
-  for (const character of text.replaceAll(MARKDOWN_LINE_ENDING_PATTERN, '\n')) {
+  for (const character of normalizeMarkdownLineEndings(text)) {
     if (isInlineWhitespace(character)) {
       appendInlineSpace(characters);
       continue;
@@ -471,7 +473,7 @@ export const prepareMarkdownForSpeech = (content: string): string => {
     ' '
   );
   const markdownLinksNormalized = normalizeMarkdownLinks(htmlTagsStripped);
-  const markdownPrefixesStripped = markdownLinksNormalized
+  const markdownPrefixesStripped = normalizeMarkdownLineEndings(markdownLinksNormalized)
     .split('\n')
     .map(stripMarkdownLinePrefix)
     .join('\n');
