@@ -191,6 +191,56 @@ describe('courseInterviewClient', () => {
     expect(globalThis.sessionStorage).toHaveLength(0);
   });
 
+  test('recovers the durable run identity when the start request is aborted', async () => {
+    const pollingAbortController = new AbortController();
+    const startAbortController = new AbortController();
+    const onRunStarted = vi.fn();
+    fetchWithSupabaseAuthMock
+      .mockImplementationOnce(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true }
+            );
+          })
+      )
+      .mockResolvedValueOnce(runSummaryResponse())
+      .mockImplementationOnce(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true }
+            );
+          })
+      );
+
+    const pending = startCourseInterview(
+      {
+        hasReliableSourceContext: false,
+        initialMessage: 'Voglio imparare TypeScript.',
+        mode: 'learn',
+        projectId: 'project-1',
+      },
+      {
+        onRunStarted,
+        signal: pollingAbortController.signal,
+        startSignal: startAbortController.signal,
+      }
+    );
+    await Promise.resolve();
+    startAbortController.abort();
+    await vi.waitFor(() => expect(onRunStarted).toHaveBeenCalledWith('interview-1'));
+    pollingAbortController.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(requestBody(1).requestKey).toBe(requestBody(0).requestKey);
+    expect(fetchWithSupabaseAuthMock.mock.calls[1]?.[1]?.signal).toBeUndefined();
+  });
+
   test('finds the authoritative active interview and returns null when none exists', async () => {
     fetchWithSupabaseAuthMock
       .mockResolvedValueOnce(runSummaryResponse('interview-active', 'waiting'))

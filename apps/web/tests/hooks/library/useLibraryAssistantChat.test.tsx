@@ -215,6 +215,60 @@ describe('useLibraryAssistantChat', () => {
     });
   });
 
+  test('terminalizes only pending tools from the active library turn', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-old-note',
+          role: 'assistant',
+          parts: [
+            {
+              input: { noteDraft: 'Nota precedente' },
+              state: 'input-available',
+              toolCallId: 'old-note-request',
+              type: 'tool-requestSaveLearningArtifactNote',
+            },
+          ],
+        },
+        {
+          id: 'assistant-active',
+          role: 'assistant',
+          parts: [
+            {
+              input: { query: 'domanda corrente' },
+              state: 'input-available',
+              toolCallId: 'active-search',
+              type: 'tool-searchLibrary',
+            },
+          ],
+        },
+      ],
+      sendMessage: vi.fn(),
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+
+    act(() => result.current.sendLibraryMessage.stop?.());
+
+    expect(addToolOutputMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'active-search' })
+    );
+    expect(addToolOutputMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'old-note-request' })
+    );
+  });
+
   test('sends the latest web-search preference through the initial transport instance', async () => {
     const stableFolders = [folder];
     const stableProjects = [project];

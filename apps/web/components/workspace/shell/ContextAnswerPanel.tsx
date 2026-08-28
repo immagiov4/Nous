@@ -102,6 +102,9 @@ interface RequestAddToNotesInput {
 
 type RequestAddToNotesMode = 'new' | 'update' | 'none';
 
+const CONTEXT_ANSWER_INPUT_TARGET = 'context-answer-input';
+const CONTEXT_ANSWER_SUBMIT_TARGET = 'context-answer-submit';
+
 interface RequestAddToNotesOutput {
   approved: boolean;
   mode: RequestAddToNotesMode;
@@ -1382,6 +1385,13 @@ function ContextAnswerPanelSession({
     contextStopButtonRef.current?.focus();
   }, [isLoading]);
 
+  useEffect(() => {
+    if (isLoading || !hasRequestedResponseStop) return;
+    document
+      .querySelector<HTMLElement>(`[data-chat-composer-target="${CONTEXT_ANSWER_INPUT_TARGET}"]`)
+      ?.focus();
+  }, [hasRequestedResponseStop, isLoading]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length triggers scroll on new arrival
   useLayoutEffect(() => {
     if (!messagesContainerRef.current) return;
@@ -1406,7 +1416,7 @@ function ContextAnswerPanelSession({
     focusStopAfterSubmitRef.current =
       !isMobileViewport &&
       document.activeElement instanceof HTMLElement &&
-      document.activeElement.dataset.chatComposerTarget === 'context-answer-submit';
+      document.activeElement.dataset.chatComposerTarget === CONTEXT_ANSWER_SUBMIT_TARGET;
 
     activeResponseStateRef.current.canContinue = true;
     activeResponseStateRef.current.generation += 1;
@@ -1816,7 +1826,7 @@ function ContextAnswerPanelSession({
               : t('Chiedi un follow-up su questa risposta...')
           }
           disabled={isComposerDisabled}
-          inputDataTarget="context-answer-input"
+          inputDataTarget={CONTEXT_ANSWER_INPUT_TARGET}
           isLoading={isLoading}
           className="flex items-center gap-2"
           trailingContent={
@@ -1832,7 +1842,7 @@ function ContextAnswerPanelSession({
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-orange-400 dark:text-stone-950 dark:hover:bg-orange-300"
               >
                 {isStoppingResponse ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <LoaderCircle className="h-4 w-4 motion-safe:animate-spin" />
                 ) : (
                   <Square className="h-4 w-4 fill-current" />
                 )}
@@ -1975,7 +1985,7 @@ function ContextAnswerPanelSession({
           inputShellClassName="min-w-0 flex-1 rounded-full border border-stone-200/80 bg-stone-50/80 px-3 py-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-500/80 dark:bg-stone-700/70 dark:focus-within:border-stone-400 dark:focus-within:bg-stone-700"
           inputClassName="h-10 w-full min-w-0 border-0 bg-transparent px-2 text-sm text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-400"
           submitButtonClassName={`${isLoading ? 'hidden' : 'flex'} h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500`}
-          submitDataTarget="context-answer-submit"
+          submitDataTarget={CONTEXT_ANSWER_SUBMIT_TARGET}
         />
 
         {hasActiveToolPreference ? (

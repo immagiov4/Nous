@@ -77,8 +77,10 @@ interface HomeChatStartResult {
 }
 
 interface PendingAssessmentInterviewRun {
+  readonly pollingAbortController?: AbortController;
   readonly projectId: string;
   readonly runId: Promise<string | null>;
+  readonly startRequestAbortController?: AbortController;
 }
 
 interface PendingWorkspaceOpen {
@@ -217,11 +219,25 @@ export const createAssessmentPlanningCommands = (
     isRequestCurrent?: () => boolean;
     mode: 'document' | 'learn';
     onRunStarted?: (runId: string) => void;
+    pollingSignal?: AbortSignal;
     projectId: string;
+    startSignal?: AbortSignal;
     sourceContext?: string;
   }): Promise<CourseInterviewOutcome> => {
-    const clientOptions = input.onRunStarted ? { onRunStarted: input.onRunStarted } : undefined;
-    const active = await openRouter.getActiveCourseInterview(input.projectId, clientOptions);
+    const activeClientOptions =
+      input.onRunStarted || input.startSignal
+        ? { onRunStarted: input.onRunStarted, signal: input.startSignal }
+        : undefined;
+    let active: CourseInterviewSnapshot | null;
+    try {
+      active = await openRouter.getActiveCourseInterview(input.projectId, activeClientOptions);
+    } catch (error) {
+      if (!input.startSignal?.aborted) throw error;
+      active = await openRouter.getActiveCourseInterview(
+        input.projectId,
+        input.onRunStarted ? { onRunStarted: input.onRunStarted } : undefined
+      );
+    }
     const snapshot =
       active ??
       (await openRouter.startCourseInterview(
@@ -232,7 +248,11 @@ export const createAssessmentPlanningCommands = (
           projectId: input.projectId,
           ...(input.sourceContext ? { sourceContext: input.sourceContext } : {}),
         },
-        clientOptions
+        {
+          onRunStarted: input.onRunStarted,
+          signal: input.pollingSignal,
+          startSignal: input.startSignal,
+        }
       ));
     if (input.isRequestCurrent && !input.isRequestCurrent()) {
       if (!isTerminalCourseInterviewSnapshot(snapshot)) {
@@ -446,6 +466,7 @@ export const createAssessmentPlanningCommands = (
     try {
       const currentProjectId = projectLibrary.getCurrentProjectId();
       const pendingRun = pendingAssessmentInterviewRun;
+      pendingRun?.startRequestAbortController?.abort();
       const projectId = pendingRun?.projectId ?? currentProjectId;
       if (projectId) {
         const pendingRunId = pendingRun ? await pendingRun.runId : null;
@@ -473,6 +494,8 @@ export const createAssessmentPlanningCommands = (
         } else if (interview) {
           await openRouter.cancelCourseInterview({ projectId, runId: interview.runId });
         }
+        if (!pendingRunCancellationError) pendingRun?.pollingAbortController?.abort();
+        if (pendingRunCancellationError) throw pendingRunCancellationError;
         if (!interview && activeHomeChatStartPromise) {
           const cancelledStart = await activeHomeChatStartPromise;
           if (cancelledStart.outcome === 'failed') {
@@ -482,7 +505,6 @@ export const createAssessmentPlanningCommands = (
             pendingRunCancellationError = undefined;
           }
         }
-        if (pendingRunCancellationError) throw pendingRunCancellationError;
         await waitForPendingWorkspaceOpen();
         await projectLibrary.refreshLibraryState();
       }
@@ -494,6 +516,9 @@ export const createAssessmentPlanningCommands = (
         resetInterviewClientState();
       }
     } catch (error) {
+      pushNousDebugTrace('assessment:cancellation-failed', {
+        errorMessage: getErrorMessage(error),
+      });
       if (
         projectLibrary.getCurrentProjectId() &&
         state.isWorkflowCurrent('assessment', cancellationRequestId) &&
@@ -501,7 +526,7 @@ export const createAssessmentPlanningCommands = (
       ) {
         state.beginWorkflow('assessment', t('Operazione non riuscita. Riprova.'));
       }
-      throw error;
+      throw new Error(t('Operazione non riuscita. Riprova.'), { cause: error });
     } finally {
       if (activeHomeChatWorkspaceOwnership === homeChatWorkspaceOwnership) {
         activeHomeChatWorkspaceOwnership = null;
@@ -742,7 +767,14 @@ export const createAssessmentPlanningCommands = (
       const runId = new Promise<string | null>(resolve => {
         resolveRunId = resolve;
       });
-      const pendingRun = { projectId, runId };
+      const pollingAbortController = new AbortController();
+      const startRequestAbortController = new AbortController();
+      const pendingRun = {
+        pollingAbortController,
+        projectId,
+        runId,
+        startRequestAbortController,
+      };
       pendingAssessmentInterviewRun = pendingRun;
       const reportRunStarted = (runId: string) => {
         if (hasResolvedRunId) return;
@@ -758,7 +790,9 @@ export const createAssessmentPlanningCommands = (
           isRequestCurrent,
           mode,
           onRunStarted: reportRunStarted,
+          pollingSignal: pollingAbortController.signal,
           projectId,
+          startSignal: startRequestAbortController.signal,
           ...(sourceContext ? { sourceContext } : {}),
         });
       } finally {

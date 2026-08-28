@@ -422,6 +422,10 @@ describe('ContextAnswerPanel', () => {
     expect(stopButton).toHaveFocus();
     await user.keyboard('{Enter}');
     expect(stopMock).toHaveBeenCalledOnce();
+
+    chatStatus = 'ready';
+    rerender(<ContextAnswerPanel {...props} />);
+    expect(screen.getByRole('textbox')).toHaveFocus();
   });
 
   test('does not revive a stopped artifact tool when a follow-up starts', async () => {

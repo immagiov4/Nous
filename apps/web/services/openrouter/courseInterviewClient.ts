@@ -98,6 +98,7 @@ interface CourseInterviewClientOptions {
   readonly onRunStarted?: (runId: string) => void;
   readonly onSnapshot?: (snapshot: CourseInterviewSnapshot) => void;
   readonly signal?: AbortSignal;
+  readonly startSignal?: AbortSignal;
 }
 
 interface SendCourseInterviewAnswerInput {
@@ -485,12 +486,21 @@ export const startCourseInterview = async (
     ...input,
     requestKey: request.requestKey,
   });
-  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/course-interviews`, {
-    body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
-    method: 'POST',
-    signal: options.signal,
-  });
+  const startSignal = options.startSignal ?? options.signal;
+  const sendStartRequest = (signal?: AbortSignal) =>
+    fetchWithSupabaseAuth(`${getBackendUrl()}/api/course-interviews`, {
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal,
+    });
+  let response: Response;
+  try {
+    response = await sendStartRequest(startSignal);
+  } catch (error) {
+    if (!startSignal?.aborted) throw error;
+    response = await sendStartRequest();
+  }
   if (isDefinitiveWorkflowStartRejection(response)) request.clear();
   const run = await readRunSummary(response, body.projectId);
   options.onRunStarted?.(run.id);

@@ -681,7 +681,7 @@ export default function HomeChatComposer({
             title={submitButtonLabel}
           >
             {isStoppingGeneration || (isGenerationActive && !onStopGeneration) ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
             ) : isGenerationActive ? (
               <Square className="h-3.5 w-3.5 fill-current" />
             ) : (

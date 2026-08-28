@@ -579,9 +579,10 @@ export const useLibraryAssistantChat = ({
     stop();
     const activeToolCalls = libraryAssistantActiveToolCallStore.get(requestStateKey);
     const pendingToolCalls = new Map(activeToolCalls);
-    for (const part of messages
-      .flatMap(message => message.parts)
-      .filter(isPendingLibraryToolPart)) {
+    const activeResponseMessage = [...messages]
+      .reverse()
+      .find(message => message.role === 'assistant');
+    for (const part of activeResponseMessage?.parts.filter(isPendingLibraryToolPart) ?? []) {
       pendingToolCalls.set(part.toolCallId, getLibraryToolPartName(part));
     }
     activeToolCalls?.clear();

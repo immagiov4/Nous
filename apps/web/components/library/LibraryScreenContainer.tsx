@@ -6,6 +6,7 @@ import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspace
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
@@ -88,6 +89,7 @@ export const LibraryScreenContainer = ({
       : 'new-course'
   );
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
+  const newCourseRequestTokenRef = useRef(0);
 
   const {
     assessmentMessages,
@@ -133,6 +135,7 @@ export const LibraryScreenContainer = ({
 
   const handleNewCourseMessage = useCallback(
     async (message: string) => {
+      const requestToken = ++newCourseRequestTokenRef.current;
       const toolPreferences: HomeChatToolPreferences = {
         addingAssessmentDetails: isAddingAssessmentDetails,
         mode: 'new-course',
@@ -146,6 +149,8 @@ export const LibraryScreenContainer = ({
             selectedFiles: pendingHomeSourceFiles,
             toolPreferences,
           });
+
+      if (requestToken !== newCourseRequestTokenRef.current) return;
 
       if (result.outcome === 'abandoned') {
         setHomeChatMode('library-query');
@@ -177,6 +182,7 @@ export const LibraryScreenContainer = ({
   );
 
   const cancelNewCourse = useCallback(async () => {
+    newCourseRequestTokenRef.current += 1;
     try {
       await cancelAssessment();
       setIsAddingAssessmentDetails(false);
@@ -185,7 +191,10 @@ export const LibraryScreenContainer = ({
       return true;
     } catch (error) {
       setHomeChatMode('new-course');
-      notify(getErrorMessage(error));
+      pushNousDebugTrace('assessment:cancellation-failed', {
+        errorMessage: getErrorMessage(error),
+      });
+      notify(t('Operazione non riuscita. Riprova.'));
       return false;
     }
   }, [cancelAssessment, notify]);

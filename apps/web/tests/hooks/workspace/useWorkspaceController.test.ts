@@ -2999,6 +2999,93 @@ test('cancelAssessment invalidates source preparation before startHomeChat persi
   assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
+test('cancelAssessment aborts interview startup and cancels its recovered durable run', async () => {
+  let markInterviewStartPending: () => void = () => {};
+  const interviewStartPending = new Promise<void>(resolve => {
+    markInterviewStartPending = resolve;
+  });
+  let observedPollingSignal: AbortSignal | undefined;
+  let observedStartSignal: AbortSignal | undefined;
+  const cancelCourseInterview = vi.fn(async () => {});
+  const { controller } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: (_input, options) => {
+        observedPollingSignal = options?.signal;
+        observedStartSignal = options?.startSignal;
+        markInterviewStartPending();
+        return new Promise((_resolve, reject) => {
+          observedStartSignal?.addEventListener(
+            'abort',
+            () => options?.onRunStarted?.('interview-run'),
+            { once: true }
+          );
+          observedPollingSignal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+      },
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare sistemi operativi' });
+  await interviewStartPending;
+  const cancellation = controller.cancelAssessment();
+  await Promise.resolve();
+  assert.equal(observedStartSignal?.aborted, true);
+  await cancellation;
+
+  assert.equal(observedPollingSignal?.aborted, true);
+  expect(cancelCourseInterview).toHaveBeenCalledWith({
+    projectId: expect.any(String),
+    runId: 'interview-run',
+  });
+  assert.equal((await startPromise).outcome, 'abandoned');
+});
+
+test('cancelAssessment keeps an abort-aware Home run available after cancellation fails', async () => {
+  let observedPollingSignal: AbortSignal | undefined;
+  let cancellationAttempts = 0;
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview: async () => {
+        cancellationAttempts += 1;
+        if (cancellationAttempts === 1) throw new Error('network unavailable');
+      },
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: (_input, options) => {
+        observedPollingSignal = options?.signal;
+        options?.onRunStarted?.('interview-run');
+        return new Promise((_resolve, reject) => {
+          observedPollingSignal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+      },
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare reti' });
+  await vi.waitFor(() => expect(observedPollingSignal).toBeDefined());
+  const draftProjectId = projectLibrary.adapter.currentProjectId;
+
+  await expect(controller.cancelAssessment()).rejects.toThrow(
+    t('Operazione non riuscita. Riprova.')
+  );
+  assert.equal(observedPollingSignal?.aborted, false);
+  assert.equal(projectLibrary.adapter.currentProjectId, draftProjectId);
+
+  await controller.cancelAssessment();
+  assert.equal(observedPollingSignal?.aborted, true);
+  assert.equal((await startPromise).outcome, 'abandoned');
+  assert.equal(cancellationAttempts, 2);
+});
+
 test('a cancelled startHomeChat cannot clear a newer completed request', async () => {
   let resolveSourcePreparation: (
     value: Awaited<
@@ -3329,7 +3416,7 @@ test('startHomeChat surfaces a late interview cancellation failure', async () =>
   assert.equal(cancelCourseInterview.mock.calls.length, 1);
 });
 
-test('cancelAssessment accepts a terminal late start after the cancellation request fails', async () => {
+test('cancelAssessment accepts a terminal late start after idempotent cancellation', async () => {
   let resolveInterview: (snapshot: CourseInterviewSnapshot) => void = () => {};
   let markInterviewStarted: () => void = () => {};
   const interviewStarted = new Promise<void>(resolve => {
@@ -3338,9 +3425,7 @@ test('cancelAssessment accepts a terminal late start after the cancellation requ
   const interview = new Promise<CourseInterviewSnapshot>(resolve => {
     resolveInterview = resolve;
   });
-  const cancelCourseInterview = vi.fn(async () => {
-    throw new Error('already completed');
-  });
+  const cancelCourseInterview = vi.fn(async () => {});
   const { controller, projectLibrary, state } = createControllerHarness({
     openRouter: {
       cancelCourseInterview,
@@ -4556,7 +4641,9 @@ test('cancelAssessment preserves active state for a retry when cancellation fail
   state.adapter.beginWorkflow('assessment', 'Valutazione risposta...');
   state.adapter.setAssessmentMessages([{ role: 'model', text: 'Prima domanda' }]);
 
-  await expect(controller.cancelAssessment()).rejects.toThrow('network unavailable');
+  await expect(controller.cancelAssessment()).rejects.toThrow(
+    t('Operazione non riuscita. Riprova.')
+  );
 
   assert.equal(state.internalState.workflowState.assessment.status, 'pending');
   assert.deepEqual(state.internalState.assessmentMessages, [
