@@ -90,6 +90,12 @@ describe('buildReadableBlocks', () => {
 });
 
 describe('prepareMarkdownForSpeech', () => {
+  test('skips lone-CR fenced code while preserving surrounding prose', () => {
+    const input = ['Prima.', '', '```ts', 'const secret = 42;', '```', '', 'Dopo.'].join('\r');
+
+    expect(prepareMarkdownForSpeech(input)).toBe('Prima.\n\nDopo.');
+  });
+
   test('reads bare code-like text that the renderer leaves as prose', () => {
     expect(
       prepareMarkdownForSpeech('Prima.\n\ncpp while (i < 5) { std::cout << i; }\n\nDopo.')

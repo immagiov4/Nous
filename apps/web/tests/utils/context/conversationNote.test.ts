@@ -85,6 +85,13 @@ test('anchors rendered link text after raw HTML reveals an unclosed fence', () =
   );
 });
 
+test('anchors visible text after a lone-CR line boundary', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Prima\rDopo', { selectedText: 'Dopo' }),
+    true
+  );
+});
+
 test('rejects note proposals whose text exists only in an unsupported viewer placeholder', () => {
   const placeholders = [
     {

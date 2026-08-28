@@ -8,6 +8,7 @@ import {
   normalizeMathSelectionArtifacts,
   parseMarkdownAnalysis,
   planMarkdownFencedCode,
+  projectUnclosedMarkdownFenceOpeners,
   stripHighlightTagsInsideMarkdownCode,
 } from '../../../utils/markdown/codeRanges.ts';
 
@@ -434,6 +435,7 @@ test('fenced-code planning follows Markdown indentation for closing fences', () 
   const indentedPseudoCloser = ['```ts', 'const value = 1;', '    ```'].join('\n');
   const quotedPseudoCloser = ['```ts', 'const value = 1;', '> ```'].join('\n');
   const quotedClosedFence = ['> ```ts', '> const value = 1;', '> ```'].join('\n');
+  const loneCarriageReturnClosedFence = ['```ts', 'const value = 1;', '```'].join('\r');
   const differentlyIndentedClosedFences = [
     ['   ```ts', 'value', '```'].join('\n'),
     ['>   ```ts', '> value', '> ```'].join('\n'),
@@ -453,6 +455,10 @@ test('fenced-code planning follows Markdown indentation for closing fences', () 
     closedRanges: [{ start: 0, end: quotedClosedFence.length }],
     unclosedRanges: [],
   });
+  assert.deepEqual(planMarkdownFencedCode(loneCarriageReturnClosedFence), {
+    closedRanges: [{ start: 0, end: loneCarriageReturnClosedFence.length }],
+    unclosedRanges: [],
+  });
   differentlyIndentedClosedFences.forEach(content => {
     assert.deepEqual(planMarkdownFencedCode(content), {
       closedRanges: [{ start: 0, end: content.length }],
@@ -466,6 +472,23 @@ test('fenced-code planning follows Markdown indentation for closing fences', () 
   assert.ok(listPlan.unclosedRanges[0].end <= listPlan.unclosedRanges[1].start);
 });
 
+test('fenced-code planning keeps lone-CR sibling blocks and prose bounded', () => {
+  const firstBlock = ['```a', 'one', '```'].join('\r');
+  const secondBlock = ['```b', 'two', '```'].join('\r');
+  const content = [firstBlock, 'visible prose', secondBlock].join('\r');
+
+  assert.deepEqual(
+    planMarkdownFencedCode(content).closedRanges.map(range =>
+      content.slice(range.start, range.end)
+    ),
+    [firstBlock, secondBlock]
+  );
+  assert.deepEqual(
+    parseMarkdownAnalysis(content).codeRanges.map(range => content.slice(range.start, range.end)),
+    [firstBlock, secondBlock]
+  );
+});
+
 test('analysis exposes Markdown syntax after an unclosed fence opener', () => {
   const content = ['~~~ts', '[Docs](https://example.com)'].join('\n');
   const destinationSlices = parseMarkdownAnalysis(content).linkDestinationRanges.map(range =>
@@ -473,6 +496,22 @@ test('analysis exposes Markdown syntax after an unclosed fence opener', () => {
   );
 
   assert.deepEqual(destinationSlices, ['(https://example.com)']);
+});
+
+test('projects a batch of lone-CR malformed fence openers in one pass', () => {
+  const openerCount = 256;
+  const content = Array.from({ length: openerCount }, (_, index) => `\`\`\`lang${index}`).join(
+    '\r'
+  );
+
+  const projection = projectUnclosedMarkdownFenceOpeners(content);
+
+  assert.equal(projection.escapedOpenerRanges.length, openerCount);
+  assert.deepEqual(planMarkdownFencedCode(projection.content).unclosedRanges, []);
+  assert.deepEqual(
+    projection.escapedOpenerRanges.map(range => content.slice(range.start, range.end)),
+    Array.from({ length: openerCount }, () => '```')
+  );
 });
 
 test('analysis exposes Markdown syntax after escaped raw HTML reveals an unclosed fence', () => {

@@ -351,11 +351,23 @@ const getNodeRange = (node: MarkdownAstNode, sourceOffsets: number[]): MarkdownR
 };
 
 const expandToLineBounds = (content: string, range: MarkdownRange): MarkdownRange => {
-  const lineStart = content.lastIndexOf('\n', range.start - 1) + 1;
-  if (range.end > range.start && content[range.end - 1] === '\n') {
-    return { start: lineStart, end: range.end };
+  const previousLineFeed = content.lastIndexOf('\n', range.start - 1);
+  const previousCarriageReturn = content.lastIndexOf('\r', range.start - 1);
+  const lineStart = Math.max(previousLineFeed, previousCarriageReturn) + 1;
+  if (range.end > range.start) {
+    const finalCharacter = content[range.end - 1];
+    if (finalCharacter === '\n') return { start: lineStart, end: range.end };
+    if (finalCharacter === '\r') {
+      const lineBreakEnd = content[range.end] === '\n' ? range.end + 1 : range.end;
+      return { start: lineStart, end: lineBreakEnd };
+    }
   }
-  const lineBreak = content.indexOf('\n', range.end);
+  const nextLineFeed = content.indexOf('\n', range.end);
+  const nextCarriageReturn = content.indexOf('\r', range.end);
+  let lineBreak = nextLineFeed;
+  if (lineBreak === -1 || (nextCarriageReturn !== -1 && nextCarriageReturn < lineBreak)) {
+    lineBreak = nextCarriageReturn;
+  }
   return { start: lineStart, end: lineBreak === -1 ? content.length : lineBreak };
 };
 
@@ -366,13 +378,15 @@ export interface MarkdownFencedCodePlan {
 
 const CLOSED_FENCE_BOUNDARY_LINE_COUNT = 2;
 const MIN_MARKDOWN_FENCE_LENGTH = 3;
+const MAX_MARKDOWN_BLOCK_INDENTATION = 3;
 const MARKDOWN_FENCE_OPENER_PATTERN = new RegExp(
   `^(\`{${MIN_MARKDOWN_FENCE_LENGTH},}|~{${MIN_MARKDOWN_FENCE_LENGTH},})`,
   'u'
 );
+const MARKDOWN_LINE_BREAK_PATTERN = /\r\n?|\n/u;
 
 const hasClosingFence = (source: string, parsedCode: string): boolean => {
-  const lines = source.split(/\r?\n/u);
+  const lines = source.split(MARKDOWN_LINE_BREAK_PATTERN);
   const openingMatch = lines[0]?.match(MARKDOWN_FENCE_OPENER_PATTERN);
   if (!openingMatch || lines.length < 2) {
     return false;
@@ -383,7 +397,8 @@ const hasClosingFence = (source: string, parsedCode: string): boolean => {
     `^[\\t >]*${openingFence[0]}{${openingFence.length},}[\\t ]*$`,
     'u'
   );
-  const parsedCodeLineCount = parsedCode.length === 0 ? 0 : parsedCode.split(/\r?\n/u).length;
+  const parsedCodeLineCount =
+    parsedCode.length === 0 ? 0 : parsedCode.split(MARKDOWN_LINE_BREAK_PATTERN).length;
   return (
     closingFence.test(lines.at(-1) ?? '') &&
     lines.length >= parsedCodeLineCount + CLOSED_FENCE_BOUNDARY_LINE_COUNT
@@ -438,12 +453,41 @@ const getFenceOpeningRange = (content: string, range: MarkdownRange): MarkdownRa
   return { start: openingFenceStart, end: openingFenceStart + openingFenceLength };
 };
 
-const CONTAINER_FENCE_LINE_PATTERN = /^([\t >+*().\d-]*)(`{3,}|~{3,})(.*)$/u;
+const CONTAINER_FENCE_LINE_PATTERN = new RegExp(
+  `^([\\t >+*().\\d-]*)(\`{${MIN_MARKDOWN_FENCE_LENGTH},}|~{${MIN_MARKDOWN_FENCE_LENGTH},})(.*)$`,
+  'u'
+);
+const CONTAINER_FENCE_INDENTATION_PATTERN = new RegExp(
+  `^ {0,${MAX_MARKDOWN_BLOCK_INDENTATION}}$`,
+  'u'
+);
 
 interface ProjectionFenceCandidate extends MarkdownRange {
   fenceCharacter: string;
   isMarkerOnly: boolean;
 }
+
+interface MarkdownLine {
+  content: string;
+  start: number;
+}
+
+const getMarkdownLines = (content: string, sourceStart: number): MarkdownLine[] => {
+  const lines: MarkdownLine[] = [];
+  let lineStart = 0;
+
+  for (let cursor = 0; cursor < content.length; cursor += 1) {
+    const character = content[cursor];
+    if (character !== '\r' && character !== '\n') continue;
+
+    lines.push({ content: content.slice(lineStart, cursor), start: sourceStart + lineStart });
+    if (character === '\r' && content[cursor + 1] === '\n') cursor += 1;
+    lineStart = cursor + 1;
+  }
+  lines.push({ content: content.slice(lineStart), start: sourceStart + lineStart });
+
+  return lines;
+};
 
 const getProjectionOpeningRanges = (
   content: string,
@@ -452,17 +496,15 @@ const getProjectionOpeningRanges = (
   unclosedRanges.flatMap(unclosedRange => {
     const firstOpeningRange = getFenceOpeningRange(content, unclosedRange);
     const rangeContent = content.slice(unclosedRange.start, unclosedRange.end);
-    const lines = rangeContent.split('\n');
     const candidates: ProjectionFenceCandidate[] = [];
-    let lineStart = unclosedRange.start;
-    for (const line of lines) {
-      const match = line.match(CONTAINER_FENCE_LINE_PATTERN);
+    for (const line of getMarkdownLines(rangeContent, unclosedRange.start)) {
+      const match = line.content.match(CONTAINER_FENCE_LINE_PATTERN);
       if (match) {
         const [, containerPrefix, fence, info] = match;
         const normalizedInfo = info.trim();
-        const start = lineStart + containerPrefix.length;
+        const start = line.start + containerPrefix.length;
         const hasValidInfo = fence[0] === '~' || !normalizedInfo.includes('`');
-        const hasValidIndentation = /^ {0,3}$/u.test(containerPrefix);
+        const hasValidIndentation = CONTAINER_FENCE_INDENTATION_PATTERN.test(containerPrefix);
         if (start !== firstOpeningRange.start && hasValidInfo && hasValidIndentation) {
           candidates.push({
             start,
@@ -472,7 +514,6 @@ const getProjectionOpeningRanges = (
           });
         }
       }
-      lineStart += line.length + 1;
     }
 
     const openingRanges = [firstOpeningRange];

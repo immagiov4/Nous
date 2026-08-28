@@ -200,6 +200,10 @@ export const buildVisibleProjection = (
     }
 
     if (currentCharacter === '\r') {
+      if (content[index + 1] !== '\n') {
+        pushCharacter('\n', index);
+        atLineStart = true;
+      }
       index += 1;
       continue;
     }

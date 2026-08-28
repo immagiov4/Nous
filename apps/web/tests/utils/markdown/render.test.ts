@@ -318,6 +318,12 @@ test('normalizeMarkdownForRendering preserves container-relative indented code',
   );
 });
 
+test('normalizeMarkdownForRendering preserves a valid lone-CR fenced block', () => {
+  const lines = ['Prima', '```ts', 'const answer = 42;', '```', 'Dopo'];
+
+  assert.equal(normalizeMarkdownForRendering(lines.join('\r')), lines.join('\n'));
+});
+
 test('normalizeMarkdownForRendering escapes consecutive unclosed list fences independently', () => {
   const input = ['- ```ts', '  first', '- ```js', '  second'].join('\n');
 
@@ -329,17 +335,17 @@ test('normalizeMarkdownForRendering escapes consecutive unclosed list fences ind
   );
 });
 
-test('normalizeMarkdownForRendering neutralizes unclosed openers in indented list continuations', () => {
-  const inputs = [
+test.each(
+  [
     ['-   ```ts', '    ```js', '    text'],
     ['> -   ```ts', '>     ```js', '>     text'],
-  ];
-
-  inputs.forEach(lines => {
-    const output = normalizeMarkdownForRendering(lines.join('\n'));
-    assert.equal(output.split('\n').filter(line => line.includes(escapeFenceRun('```'))).length, 2);
-    assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
-  });
+  ].map((lines, index) => ({ index, lines }))
+)('normalizeMarkdownForRendering neutralizes unclosed openers in list continuation $index', ({
+  lines,
+}) => {
+  const output = normalizeMarkdownForRendering(lines.join('\n'));
+  assert.equal(output.split('\n').filter(line => line.includes(escapeFenceRun('```'))).length, 2);
+  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
 });
 
 test.each([
@@ -517,7 +523,7 @@ test('normalizeMarkdownForRendering preserves a valid fence exposed by nested ma
   );
 });
 
-test('normalizeMarkdownForRendering neutralizes many malformed openers in one pass', () => {
+test('normalizeMarkdownForRendering neutralizes many malformed openers', () => {
   const openerCount = 64;
   const input = Array.from({ length: openerCount }, (_, index) => `\`\`\`lang${index}`).join('\n');
   const output = normalizeMarkdownForRendering(input);
@@ -526,6 +532,7 @@ test('normalizeMarkdownForRendering neutralizes many malformed openers in one pa
     output.split('\n').filter(line => line.startsWith(`${escapeFenceRun('```')}lang`)).length,
     openerCount
   );
+  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
 });
 
 test('normalizeMarkdownForRendering batches decreasing marker-only openers', () => {

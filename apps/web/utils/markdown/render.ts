@@ -10,7 +10,11 @@ import { processMarkdownSegment } from './segment.ts';
 
 const DELETE_CONTROL_CHARACTER = '\u007f';
 const ANSI_ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
+const MARKDOWN_LINE_ENDING_PATTERN = /\r\n?/gu;
 const POTENTIAL_MARKDOWN_FENCE_PATTERN = /`{3,}|~{3,}/u;
+
+const introducesPotentialFence = (original: string, processed: string): boolean =>
+  processed !== original && POTENTIAL_MARKDOWN_FENCE_PATTERN.test(processed);
 
 const processMarkdownOutsideCode = (content: string): string => {
   if (!POTENTIAL_MARKDOWN_FENCE_PATTERN.test(content)) return processMarkdownSegment(content);
@@ -68,7 +72,7 @@ export const normalizeMarkdownForRendering = (content: string): string => {
     content
       .replaceAll(ANSI_ESCAPE_SEQUENCE, '')
       .replaceAll(DELETE_CONTROL_CHARACTER, '')
-      .replaceAll(/\r/g, '')
+      .replaceAll(MARKDOWN_LINE_ENDING_PATTERN, '\n')
   );
   const fencedCodePlan = planMarkdownFencedCode(normalizedContent);
   const events = [
@@ -94,7 +98,7 @@ export const normalizeMarkdownForRendering = (content: string): string => {
 
     const segment = projectedContent.slice(cursor, start);
     const processedSegment = processMarkdownOutsideCode(segment);
-    if (processedSegment !== segment && POTENTIAL_MARKDOWN_FENCE_PATTERN.test(processedSegment)) {
+    if (introducesPotentialFence(segment, processedSegment)) {
       shouldReplanAfterSegmentProcessing = true;
     }
     parts.push(processedSegment);
@@ -111,10 +115,7 @@ export const normalizeMarkdownForRendering = (content: string): string => {
       start,
       end
     );
-    if (
-      escapedUnclosedContent !== unclosedContent &&
-      POTENTIAL_MARKDOWN_FENCE_PATTERN.test(escapedUnclosedContent)
-    ) {
+    if (introducesPotentialFence(unclosedContent, escapedUnclosedContent)) {
       shouldReplanAfterSegmentProcessing = true;
     }
     parts.push(escapedUnclosedContent);
@@ -123,10 +124,7 @@ export const normalizeMarkdownForRendering = (content: string): string => {
 
   const trailingSegment = projectedContent.slice(cursor);
   const processedTrailingSegment = processMarkdownOutsideCode(trailingSegment);
-  if (
-    processedTrailingSegment !== trailingSegment &&
-    POTENTIAL_MARKDOWN_FENCE_PATTERN.test(processedTrailingSegment)
-  ) {
+  if (introducesPotentialFence(trailingSegment, processedTrailingSegment)) {
     shouldReplanAfterSegmentProcessing = true;
   }
   parts.push(processedTrailingSegment);
