@@ -159,6 +159,12 @@ const skipHtmlWhitespace = (value, start) => {
   return cursor;
 };
 
+const trimTrailingHtmlWhitespace = value => {
+  let end = value.length;
+  while (value[end - 1] === ' ' || value[end - 1] === '\t') end -= 1;
+  return value.slice(0, end);
+};
+
 const htmlAttributeValueEnd = (value, start) => {
   const quote = value[start];
   if (quote === '"' || quote === "'") {
@@ -183,7 +189,8 @@ const htmlAttributeEnd = (value, start) => {
 };
 
 const isCompleteRawHtmlOpeningTag = line => {
-  const value = markdownBlockContent(line)?.replace(/[ \t]+$/u, '');
+  const blockContent = markdownBlockContent(line);
+  const value = blockContent === undefined ? undefined : trimTrailingHtmlWhitespace(blockContent);
   if (!value?.startsWith('<') || value.startsWith('</')) return false;
 
   let cursor = 1;
