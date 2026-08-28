@@ -523,6 +523,139 @@ describe('HomeChatPanel', () => {
     );
   });
 
+  test('stops a streaming library response from the composer with the keyboard', async () => {
+    const user = userEvent.setup();
+    const stop = vi.fn();
+    const onLibraryMessageSend = Object.assign(
+      vi.fn(async () => {}),
+      { stop }
+    );
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      isLibraryModeLoading: true,
+      libraryMessages: [
+        {
+          id: 'assistant-streaming',
+          role: 'assistant' as const,
+          parts: [
+            { type: 'text' as const, text: 'Risposta parziale', state: 'streaming' as const },
+          ],
+        },
+      ],
+      onLibraryMessageSend,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    stopButton.focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(onLibraryMessageSend).not.toHaveBeenCalled();
+    expect(stopButton).toBeDisabled();
+    expect(stopButton).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
+  });
+
+  test('keeps the active Stop action visible by blocking mode changes during streaming', async () => {
+    const user = userEvent.setup();
+    const stop = vi.fn();
+    const onLibraryMessageSend = Object.assign(
+      vi.fn(async () => {}),
+      { stop }
+    );
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      isLibraryModeLoading: true,
+      onLibraryMessageSend,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    const newCourseTab = screen.getByRole('tab', { name: /Nuovo corso/i });
+    expect(newCourseTab).toBeDisabled();
+    expect(screen.getByTitle(/Apri esploratore contesto libreria/i)).toBeDisabled();
+    await user.click(newCourseTab);
+    expect(props.onHomeChatModeChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^(Cancel|Annulla)$/i }));
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  test('uses the existing course cancellation for a generating new-course response', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      isNewCourseLoading: true,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /^(Cancel|Annulla)$/i }));
+
+    expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
+    expect(props.onSendAssessmentMessage).not.toHaveBeenCalled();
+  });
+
+  test('re-enables Stop when new-course cancellation fails', async () => {
+    const user = userEvent.setup();
+    const onCancelNewCourse = vi.fn(async () => false);
+    const props = buildProps();
+    const { rerender } = render(
+      <HomeChatPanel {...props} isNewCourseLoading onCancelNewCourse={onCancelNewCourse} />
+    );
+
+    const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    await user.click(stopButton);
+
+    expect(onCancelNewCourse).toHaveBeenCalledOnce();
+    await waitFor(() => expect(stopButton).toBeEnabled());
+    expect(stopButton).not.toHaveAttribute('aria-busy');
+
+    await user.click(stopButton);
+    expect(onCancelNewCourse).toHaveBeenCalledTimes(2);
+
+    rerender(
+      <HomeChatPanel {...props} isNewCourseLoading={false} onCancelNewCourse={onCancelNewCourse} />
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Start|Inizia/i })).toBeInTheDocument()
+    );
+  });
+
+  test('keeps the composer locked while new-course cancellation is settling', async () => {
+    const user = userEvent.setup();
+    let finishCancellation: (succeeded: boolean) => void = () => {};
+    const cancellation = new Promise<boolean>(resolve => {
+      finishCancellation = resolve;
+    });
+    const props = buildProps();
+    const onCancelNewCourse = vi.fn(() => cancellation);
+    const { rerender } = render(
+      <HomeChatPanel {...props} isNewCourseLoading onCancelNewCourse={onCancelNewCourse} />
+    );
+
+    await user.click(screen.getByRole('button', { name: /^(Cancel|Annulla)$/i }));
+    rerender(
+      <HomeChatPanel {...props} isNewCourseLoading={false} onCancelNewCourse={onCancelNewCourse} />
+    );
+
+    const stoppingButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    expect(stoppingButton).toBeDisabled();
+    expect(stoppingButton).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('textbox')).toBeDisabled();
+
+    finishCancellation(true);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Start|Inizia/i })).toBeDisabled()
+    );
+    expect(screen.getByRole('textbox')).toBeEnabled();
+  });
+
   test('replaces the current draft and selects the editable course name', async () => {
     const user = userEvent.setup();
     const props = {

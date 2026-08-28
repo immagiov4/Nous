@@ -6,6 +6,7 @@ import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspace
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
@@ -88,6 +89,7 @@ export const LibraryScreenContainer = ({
       : 'new-course'
   );
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
+  const newCourseRequestTokenRef = useRef(0);
 
   const {
     assessmentMessages,
@@ -100,15 +102,27 @@ export const LibraryScreenContainer = ({
     submitAssessment,
   } = controller;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
-  const isAssessmentActive =
-    assessmentMessages.length > 0 || controller.workflowState.assessment.status === 'pending';
-  const visibleHomeChatMode = assessmentMessages.length > 0 ? 'new-course' : homeChatMode;
+  const isNewCourseLoading = controller.workflowState.assessment.status === 'pending';
+  const isAnyHomeChatLoading = libraryAssistantChat.isLoading || isNewCourseLoading;
+  const isAssessmentActive = assessmentMessages.length > 0 || isNewCourseLoading;
+  const visibleHomeChatMode = isAssessmentActive ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
   const currentProjectRevision = savedProjects.find(
     project => project.id === controller.currentProjectId
   )?.revision;
+  const handleHomeChatModeChange = useCallback(
+    (mode: HomeChatMode) => {
+      if (isAnyHomeChatLoading) return;
+      setHomeChatMode(mode);
+    },
+    [isAnyHomeChatLoading]
+  );
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isAnyHomeChatLoading) {
+      event.target.value = '';
+      return;
+    }
     const selectedFiles = sortSourceFiles(Array.from(event.target.files || []));
     setPendingHomeSourceFiles(selectedFiles);
     if (selectedFiles.length > 0) {
@@ -121,6 +135,7 @@ export const LibraryScreenContainer = ({
 
   const handleNewCourseMessage = useCallback(
     async (message: string) => {
+      const requestToken = ++newCourseRequestTokenRef.current;
       const toolPreferences: HomeChatToolPreferences = {
         addingAssessmentDetails: isAddingAssessmentDetails,
         mode: 'new-course',
@@ -134,6 +149,8 @@ export const LibraryScreenContainer = ({
             selectedFiles: pendingHomeSourceFiles,
             toolPreferences,
           });
+
+      if (requestToken !== newCourseRequestTokenRef.current) return;
 
       if (result.outcome === 'abandoned') {
         setHomeChatMode('library-query');
@@ -164,14 +181,22 @@ export const LibraryScreenContainer = ({
     ]
   );
 
-  const cancelNewCourse = useCallback(() => {
-    void cancelAssessment()
-      .then(() => {
-        setIsAddingAssessmentDetails(false);
-        setPendingHomeSourceFiles([]);
-        setHomeChatMode('library-query');
-      })
-      .catch(error => notify(getErrorMessage(error)));
+  const cancelNewCourse = useCallback(async () => {
+    newCourseRequestTokenRef.current += 1;
+    try {
+      await cancelAssessment();
+      setIsAddingAssessmentDetails(false);
+      setPendingHomeSourceFiles([]);
+      setHomeChatMode('library-query');
+      return true;
+    } catch (error) {
+      setHomeChatMode('new-course');
+      pushNousDebugTrace('assessment:cancellation-failed', {
+        errorMessage: getErrorMessage(error),
+      });
+      notify(t('Operazione non riuscita. Riprova.'));
+      return false;
+    }
   }, [cancelAssessment, notify]);
 
   useEffect(() => {
@@ -258,7 +283,7 @@ export const LibraryScreenContainer = ({
           isDarkMode: readerState.readerChrome.isDarkMode,
           isLibraryLoading,
           isLibraryModeLoading: libraryAssistantChat.isLoading,
-          isNewCourseLoading: controller.workflowState.assessment.status === 'pending',
+          isNewCourseLoading,
           libraryAttachedContextRefs: libraryAssistantChat.attachedContextRefs,
           libraryArtifactPayloadsByToolCallId: libraryAssistantChat.artifactPayloadsByToolCallId,
           libraryFloatingArtifactPayloads: libraryAssistantChat.replacementDraftPayloads,
@@ -276,7 +301,7 @@ export const LibraryScreenContainer = ({
           onCancelNewCourse: cancelNewCourse,
           onContinueAssessment: () => setIsAddingAssessmentDetails(true),
           onConfirmGenerate: handleConfirmGenerate,
-          onHomeChatModeChange: setHomeChatMode,
+          onHomeChatModeChange: handleHomeChatModeChange,
           onLibraryMessageSend: libraryAssistantChat.sendLibraryMessage,
           onLibraryArtifactNoteApprove: libraryAssistantChat.approveLearningArtifactNoteSave,
           onLibraryArtifactNoteReject: libraryAssistantChat.rejectLearningArtifactNoteSave,

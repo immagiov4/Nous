@@ -19,6 +19,10 @@ interface PreviousWorkspaceState {
   snapshot: ProjectSnapshot | null;
 }
 
+interface ProjectBackupImportOptions {
+  readonly shouldHydrateWorkspace?: () => boolean;
+}
+
 const hasProjectArchiveExtension = (file: File): boolean =>
   file.name.toLowerCase().endsWith('.nous.zip');
 
@@ -86,7 +90,8 @@ const rollbackFailedArchiveImport = async (
 
 export const importProjectBackupFile = async (
   context: ProjectImportContext,
-  selectedFile: File
+  selectedFile: File,
+  options: ProjectBackupImportOptions = {}
 ): Promise<ProjectSnapshot> => {
   const archiveProject = (await hasZipFileSignature(selectedFile))
     ? await inspectProjectArchiveData(selectedFile)
@@ -120,6 +125,7 @@ export const importProjectBackupFile = async (
     const preparedSnapshot = hydration.snapshot;
 
     await persistPreparedSnapshotIfChanged(context, preparedSnapshot, hydration.didChange);
+    if (options.shouldHydrateWorkspace?.() === false) return preparedSnapshot;
     context.persistHydratedSnapshot(preparedSnapshot);
     didHydrateImportedSnapshot = true;
     await context.projectLibrary.touchStoredProject(preparedSnapshot.id);

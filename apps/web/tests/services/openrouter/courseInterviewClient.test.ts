@@ -138,13 +138,20 @@ describe('courseInterviewClient', () => {
         })
       );
 
-    const pending = startCourseInterview({
-      hasReliableSourceContext: true,
-      initialMessage: 'Voglio imparare TypeScript.',
-      mode: 'learn',
-      projectId: 'project-1',
-      sourceContext: 'Documentazione TypeScript.',
+    const onRunStarted = vi.fn((runId: string) => {
+      expect(runId).toBe('interview-1');
+      expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
     });
+    const pending = startCourseInterview(
+      {
+        hasReliableSourceContext: true,
+        initialMessage: 'Voglio imparare TypeScript.',
+        mode: 'learn',
+        projectId: 'project-1',
+        sourceContext: 'Documentazione TypeScript.',
+      },
+      { onRunStarted }
+    );
     await vi.advanceTimersByTimeAsync(1_000);
 
     await expect(pending).resolves.toMatchObject({
@@ -167,6 +174,7 @@ describe('courseInterviewClient', () => {
       'http://localhost:3301/api/course-interviews',
       expect.objectContaining({ method: 'POST' })
     );
+    expect(onRunStarted).toHaveBeenCalledOnce();
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       3,
       'http://localhost:3301/api/workflows/runs/interview-1',
@@ -181,6 +189,56 @@ describe('courseInterviewClient', () => {
       requestKey: expect.any(String),
     });
     expect(globalThis.sessionStorage).toHaveLength(0);
+  });
+
+  test('recovers the durable run identity when the start request is aborted', async () => {
+    const pollingAbortController = new AbortController();
+    const startAbortController = new AbortController();
+    const onRunStarted = vi.fn();
+    fetchWithSupabaseAuthMock
+      .mockImplementationOnce(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true }
+            );
+          })
+      )
+      .mockResolvedValueOnce(runSummaryResponse())
+      .mockImplementationOnce(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true }
+            );
+          })
+      );
+
+    const pending = startCourseInterview(
+      {
+        hasReliableSourceContext: false,
+        initialMessage: 'Voglio imparare TypeScript.',
+        mode: 'learn',
+        projectId: 'project-1',
+      },
+      {
+        onRunStarted,
+        signal: pollingAbortController.signal,
+        startSignal: startAbortController.signal,
+      }
+    );
+    await Promise.resolve();
+    startAbortController.abort();
+    await vi.waitFor(() => expect(onRunStarted).toHaveBeenCalledWith('interview-1'));
+    pollingAbortController.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(requestBody(1).requestKey).toBe(requestBody(0).requestKey);
+    expect(fetchWithSupabaseAuthMock.mock.calls[1]?.[1]?.signal).toBeUndefined();
   });
 
   test('finds the authoritative active interview and returns null when none exists', async () => {
@@ -469,6 +527,31 @@ describe('courseInterviewClient', () => {
       { cache: 'no-store', signal: undefined },
       { expectedStatuses: [404] }
     );
+  });
+
+  test('treats an already terminal interview as cancelled without another request', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      runStateResponse({ cleanupStatus: 'not-required', status: 'completed', waits: [] })
+    );
+
+    await expect(
+      cancelCourseInterview({ projectId: 'project-1', runId: 'interview-1' })
+    ).resolves.toBeUndefined();
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('accepts a cancellation rejection when the interview became terminal', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runStateResponse({ status: 'running' }))
+      .mockResolvedValueOnce(jsonResponse({ success: false }, 409))
+      .mockResolvedValueOnce(
+        runStateResponse({ cleanupStatus: 'not-required', status: 'completed', waits: [] })
+      );
+
+    await expect(
+      cancelCourseInterview({ projectId: 'project-1', runId: 'interview-1' })
+    ).resolves.toBeUndefined();
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(3);
   });
 
   test('records the persisted support code when interview cleanup fails', async () => {

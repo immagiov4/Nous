@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { LibraryScreenContainer } from '../../../components/library/LibraryScreenContainer.tsx';
@@ -20,6 +20,9 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
     chatProps: {
       assessmentComplete: boolean;
       homeChatMode: string;
+      onCancelNewCourse: () => Promise<boolean>;
+      onHomeChatModeChange: (mode: 'library-query' | 'new-course') => void;
+      onSendAssessmentMessage: (message: string) => Promise<void>;
       pendingFileNames?: string[];
     };
     onPageChange: (page: 'home' | 'library') => void;
@@ -32,6 +35,15 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       <button type="button" onClick={() => onPageChange('library')}>
         Apri libreria
       </button>
+      <button type="button" onClick={() => chatProps.onHomeChatModeChange('library-query')}>
+        Scorciatoia libreria
+      </button>
+      <button type="button" onClick={() => void chatProps.onSendAssessmentMessage('Nuovo corso')}>
+        Invia nuovo corso
+      </button>
+      <button type="button" onClick={() => void chatProps.onCancelNewCourse()}>
+        Ferma nuovo corso
+      </button>
     </>
   ),
 }));
@@ -40,6 +52,7 @@ const buildProps = () =>
   ({
     controller: {
       assessmentMessages: [],
+      cancelAssessment: vi.fn(async () => {}),
       courseProposal: null,
       confirmPlanGeneration: vi.fn(async () => ({})),
       isLibraryLoading: false,
@@ -128,6 +141,93 @@ describe('LibraryScreenContainer route fallback', () => {
     render(<LibraryScreenContainer {...props} />);
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:true');
+  });
+
+  test('ignores external chat mode shortcuts while a library response is active', () => {
+    globalThis.history.replaceState({}, '', '/percorso-sconosciuto');
+    const props = buildProps();
+    props.libraryAssistantChat.isLoading = true;
+
+    render(<LibraryScreenContainer {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Scorciatoia libreria' }));
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
+  });
+
+  test('routes an external assessment to new-course before its first message arrives', () => {
+    globalThis.history.replaceState({}, '', '/library');
+    const props = buildProps();
+    props.controller.workflowState.assessment.status = 'pending';
+
+    render(<LibraryScreenContainer {...props} />);
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
+  });
+
+  test('ignores source uploads while a library response is streaming', () => {
+    globalThis.history.replaceState({}, '', '/library');
+    const props = buildProps();
+    props.libraryAssistantChat.isLoading = true;
+
+    const { container } = render(<LibraryScreenContainer {...props} />);
+    const fileInput = container.querySelector<HTMLInputElement>('#library-source-file');
+    expect(fileInput).not.toBeNull();
+    if (!fileInput) {
+      throw new Error('Expected the library source file input.');
+    }
+
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+    });
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('library-query:false:');
+  });
+
+  test('ignores a canceled course result after a newer source is selected', async () => {
+    let resolveCanceledStart: (result: { outcome: 'abandoned' }) => void = () => {};
+    const canceledStart = new Promise<{ outcome: 'abandoned' }>(resolve => {
+      resolveCanceledStart = resolve;
+    });
+    const props = buildProps();
+    props.controller.startHomeChat = vi.fn(() => canceledStart) as never;
+
+    const { container } = render(<LibraryScreenContainer {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Invia nuovo corso' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ferma nuovo corso' }));
+    await act(async () => {});
+
+    const fileInput = container.querySelector<HTMLInputElement>('#library-source-file');
+    if (!fileInput) throw new Error('Expected the library source file input.');
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['new source'], 'new-source.md', { type: 'text/markdown' })] },
+    });
+
+    await act(async () => {
+      resolveCanceledStart({ outcome: 'abandoned' });
+      await canceledStart;
+    });
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent(
+      'new-course:false:new-source.md'
+    );
+  });
+
+  test('reports cancellation failures without exposing the technical error', async () => {
+    const props = buildProps();
+    props.controller.cancelAssessment = vi.fn(async () => {
+      throw new Error('sentinel storage secret');
+    });
+
+    render(<LibraryScreenContainer {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ferma nuovo corso' }));
+    await act(async () => {});
+
+    expect(props.notify).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^(Operation failed\. Try again\.|Operazione non riuscita\. Riprova\.)$/
+      )
+    );
+    expect(props.notify).not.toHaveBeenCalledWith(expect.stringContaining('sentinel'));
   });
 
   test('preserves retained project, section, and workflow context across home page changes', () => {

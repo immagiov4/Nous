@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 const useChatMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const generateLessonArtifactDraftMock = vi.fn();
+const lastAssistantMessageIsCompleteWithToolCallsMock = vi.fn();
+const stopMock = vi.fn();
 
 class MockDefaultChatTransport<UI_MESSAGE extends UIMessage> {
   api: string;
@@ -39,7 +41,7 @@ vi.mock('@ai-sdk/react', () => ({
 
 vi.mock('ai', () => ({
   DefaultChatTransport: MockDefaultChatTransport,
-  lastAssistantMessageIsCompleteWithToolCalls: () => false,
+  lastAssistantMessageIsCompleteWithToolCalls: lastAssistantMessageIsCompleteWithToolCallsMock,
 }));
 
 vi.mock('../../../services/openrouter/config.ts', () => ({
@@ -63,12 +65,16 @@ describe('useLibraryAssistantChat', () => {
     useChatMock.mockReset();
     addToolOutputMock.mockReset();
     generateLessonArtifactDraftMock.mockReset();
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReset();
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(false);
+    stopMock.mockReset();
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
       messages: [],
       sendMessage: vi.fn(),
       status: 'ready',
+      stop: stopMock,
     });
   });
 
@@ -119,6 +125,286 @@ describe('useLibraryAssistantChat', () => {
     placementByProjectId: {},
     rootNodes: [],
   };
+
+  test('exposes the active AI SDK cancellation through the library message sender', () => {
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+
+    act(() => result.current.sendLibraryMessage.stop?.());
+
+    expect(stopMock).toHaveBeenCalledOnce();
+  });
+
+  test('does not revive a stopped client tool when a new library message starts', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    let resolveProjects: (projects: never[]) => void = () => {};
+    const projectsRequest = new Promise<never[]>(resolve => {
+      resolveProjects = resolve;
+    });
+    const sendMessage = vi.fn(async () => {});
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-deferred-tool',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Risposta parziale', state: 'streaming' }],
+        },
+      ],
+      sendMessage,
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(() => projectsRequest),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const chatOptions = useChatMock.mock.calls[0]?.[0];
+    let toolCallRequest: Promise<void> | undefined;
+
+    act(() => {
+      toolCallRequest = chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea uno schema.',
+          },
+          toolCallId: 'deferred-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(true);
+    act(() => result.current.sendLibraryMessage.stop?.());
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(false);
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'output-error',
+        toolCallId: 'deferred-artifact',
+      })
+    );
+    act(() => {
+      void result.current.sendLibraryMessage('Nuova domanda');
+    });
+    expect(sendMessage).toHaveBeenCalledWith({ text: 'Nuova domanda' });
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(true);
+    await act(async () => {
+      resolveProjects([]);
+      await toolCallRequest;
+    });
+
+    expect(addToolOutputMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'deferred-artifact',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+  });
+
+  test('rejects a late stopped tool before starting the queued next response', async () => {
+    let resolveStoppedResponse: () => void = () => {};
+    const stoppedResponse = new Promise<void>(resolve => {
+      resolveStoppedResponse = resolve;
+    });
+    const sendMessage = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(() => stoppedResponse)
+      .mockResolvedValueOnce();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage,
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const loadProjectsById = vi.fn(async () => []);
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById,
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    let stoppedSend: Promise<void> | undefined;
+    let nextSend: Promise<void> | undefined;
+
+    act(() => {
+      stoppedSend = result.current.sendLibraryMessage('Prima domanda');
+    });
+    act(() => result.current.sendLibraryMessage.stop?.());
+    act(() => {
+      nextSend = result.current.sendLibraryMessage('Seconda domanda');
+    });
+    expect(sendMessage).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea lo schema della prima risposta.',
+          },
+          toolCallId: 'late-stopped-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    expect(loadProjectsById).not.toHaveBeenCalled();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'late-stopped-artifact',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+
+    await act(async () => {
+      resolveStoppedResponse();
+      await stoppedSend;
+    });
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    await nextSend;
+
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea lo schema della seconda risposta.',
+          },
+          toolCallId: 'current-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    expect(loadProjectsById).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'current-artifact',
+      output: {
+        artifact: null,
+        error: expect.stringMatching(
+          /^(I couldn't find the target lesson\.|Non ho trovato la lezione target\.)$/
+        ),
+      },
+    });
+  });
+
+  test('terminalizes only pending tools from the active library turn', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-old-note',
+          role: 'assistant',
+          parts: [
+            {
+              input: { noteDraft: 'Nota precedente' },
+              state: 'input-available',
+              toolCallId: 'old-note-request',
+              type: 'tool-requestSaveLearningArtifactNote',
+            },
+          ],
+        },
+        {
+          id: 'assistant-active',
+          role: 'assistant',
+          parts: [
+            {
+              input: { query: 'domanda corrente' },
+              state: 'input-available',
+              toolCallId: 'active-search',
+              type: 'tool-searchLibrary',
+            },
+          ],
+        },
+      ],
+      sendMessage: vi.fn(),
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+
+    act(() => result.current.sendLibraryMessage.stop?.());
+
+    expect(addToolOutputMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'active-search' })
+    );
+    expect(addToolOutputMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'old-note-request' })
+    );
+  });
+
+  test('preserves a prior note decision when Stop precedes the new assistant reply', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-old-note',
+          role: 'assistant',
+          parts: [
+            {
+              input: { noteDraft: 'Nota precedente' },
+              state: 'input-available',
+              toolCallId: 'old-note-request',
+              type: 'tool-requestSaveLearningArtifactNote',
+            },
+          ],
+        },
+        {
+          id: 'user-new-question',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Nuova domanda' }],
+        },
+      ],
+      sendMessage: vi.fn(),
+      status: 'submitted',
+      stop: stopMock,
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+
+    act(() => result.current.sendLibraryMessage.stop?.());
+
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+  });
 
   test('sends the latest web-search preference through the initial transport instance', async () => {
     const stableFolders = [folder];
@@ -279,6 +565,7 @@ describe('useLibraryAssistantChat', () => {
   });
 
   test('exposes a semantic new-course handoff requested by the library model', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
     const { result } = renderHook(() =>
       useLibraryAssistantChat({
         folders: [folder],
@@ -288,6 +575,7 @@ describe('useLibraryAssistantChat', () => {
       })
     );
     const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    const sendAutomaticallyWhen = useChatMock.mock.calls[0]?.[0]?.sendAutomaticallyWhen;
 
     await act(async () => {
       await onToolCall({
@@ -301,6 +589,8 @@ describe('useLibraryAssistantChat', () => {
     });
 
     expect(result.current.courseAssessmentRequest).toEqual({ topic: 'pixel art' });
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(sendAutomaticallyWhen({ messages: [] })).toBe(false);
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'startCourseAssessment',
       toolCallId: 'course-assessment-1',
@@ -315,6 +605,128 @@ describe('useLibraryAssistantChat', () => {
     });
 
     expect(result.current.courseAssessmentRequest).toBeNull();
+  });
+
+  test('terminalizes a parallel client tool when the library hands off to a new course', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    let resolveProjects: (projects: never[]) => void = () => {};
+    const projectsRequest = new Promise<never[]>(resolve => {
+      resolveProjects = resolve;
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(() => projectsRequest),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    let deferredToolCall: Promise<void> | undefined;
+
+    act(() => {
+      deferredToolCall = onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea uno schema.',
+          },
+          toolCallId: 'parallel-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: { topic: 'pixel art' },
+          toolCallId: 'course-assessment-1',
+          toolName: 'startCourseAssessment',
+        },
+      });
+    });
+
+    expect(result.current.courseAssessmentRequest).toEqual({ topic: 'pixel art' });
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'parallel-artifact',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'startCourseAssessment',
+      toolCallId: 'course-assessment-1',
+      output: { handoffRequested: true, topic: 'pixel art' },
+    });
+
+    await act(async () => {
+      resolveProjects([]);
+      await deferredToolCall;
+    });
+    expect(addToolOutputMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('terminalizes a streamed sibling tool when the library hands off to a new course', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-handoff',
+          role: 'assistant',
+          parts: [
+            {
+              input: { query: 'materiale correlato' },
+              state: 'input-available',
+              toolCallId: 'parallel-search',
+              type: 'tool-searchLibrary',
+            },
+          ],
+        },
+      ],
+      sendMessage: vi.fn(),
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: { topic: 'pixel art' },
+          toolCallId: 'course-assessment-1',
+          toolName: 'startCourseAssessment',
+        },
+      });
+    });
+
+    expect(result.current.courseAssessmentRequest).toEqual({ topic: 'pixel art' });
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'searchLibrary',
+      toolCallId: 'parallel-search',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'startCourseAssessment',
+      toolCallId: 'course-assessment-1',
+      output: { handoffRequested: true, topic: 'pixel art' },
+    });
+    expect(addToolOutputMock).toHaveBeenCalledTimes(2);
   });
 
   test('reuses the source artifact identity across explicit regeneration attempts', async () => {

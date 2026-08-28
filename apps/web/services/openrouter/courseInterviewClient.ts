@@ -95,8 +95,10 @@ export interface CourseInterviewSnapshot {
 export type StartCourseInterviewInput = Omit<CourseInterviewStartRequest, 'requestKey'>;
 
 interface CourseInterviewClientOptions {
+  readonly onRunStarted?: (runId: string) => void;
   readonly onSnapshot?: (snapshot: CourseInterviewSnapshot) => void;
   readonly signal?: AbortSignal;
+  readonly startSignal?: AbortSignal;
 }
 
 interface SendCourseInterviewAnswerInput {
@@ -484,14 +486,24 @@ export const startCourseInterview = async (
     ...input,
     requestKey: request.requestKey,
   });
-  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/course-interviews`, {
-    body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
-    method: 'POST',
-    signal: options.signal,
-  });
+  const startSignal = options.startSignal ?? options.signal;
+  const sendStartRequest = (signal?: AbortSignal) =>
+    fetchWithSupabaseAuth(`${getBackendUrl()}/api/course-interviews`, {
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal,
+    });
+  let response: Response;
+  try {
+    response = await sendStartRequest(startSignal);
+  } catch (error) {
+    if (!startSignal?.aborted) throw error;
+    response = await sendStartRequest();
+  }
   if (isDefinitiveWorkflowStartRejection(response)) request.clear();
   const run = await readRunSummary(response, body.projectId);
+  options.onRunStarted?.(run.id);
   request.clear();
   return waitForActionableSnapshot(run.id, body.projectId, options);
 };
@@ -508,6 +520,7 @@ export const getActiveCourseInterview = async (
   if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
   assertWorkflowPollResponse(response, COURSE_INTERVIEW_ERROR);
   const run = await readRunSummary(response, projectId);
+  options.onRunStarted?.(run.id);
   return waitForActionableSnapshot(run.id, projectId, options);
 };
 
@@ -549,21 +562,6 @@ export const cancelCourseInterview = async (
   input: CancelCourseInterviewInput,
   options: CourseInterviewClientOptions = {}
 ): Promise<void> => {
-  await fetchRunState(input.runId, input.projectId, options.signal);
-  const response = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(input.runId)}/cancellation`,
-    {
-      body: JSON.stringify({}),
-      headers: { 'Content-Type': 'application/json' },
-      method: 'POST',
-      signal: options.signal,
-    }
-  );
-  const payload = await readWorkflowJson(response);
-  if (!response.ok || !isRecord(payload) || payload.success !== true) {
-    throw new Error(COURSE_INTERVIEW_ERROR);
-  }
-
   const readCancellationState = async (
     signal?: AbortSignal
   ): Promise<{ readonly run: CourseInterviewRunSnapshot | null }> => {
@@ -582,19 +580,51 @@ export const cancelCourseInterview = async (
       ),
     };
   };
-  const cancellation = await pollWorkflow({
-    initialState: await readCancellationState(options.signal),
-    isTerminal: state =>
-      state.run === null ||
-      state.run.cleanupStatus === 'completed' ||
-      state.run.cleanupStatus === 'failed' ||
-      (state.run.cleanupStatus === 'not-required' &&
-        TERMINAL_INTERVIEW_STATUSES.has(state.run.status)),
-    readState: (_state, signal) => readCancellationState(signal),
-    signal: options.signal,
-  });
-  if (cancellation.run?.cleanupStatus === 'failed') {
-    logBackendFailureCorrelationId(cancellation.run.correlationId);
-    throw new Error(COURSE_INTERVIEW_ERROR);
+
+  const finishCancellation = async (initialState: {
+    readonly run: CourseInterviewRunSnapshot | null;
+  }): Promise<void> => {
+    const cancellation = await pollWorkflow({
+      initialState,
+      isTerminal: state =>
+        state.run === null ||
+        state.run.cleanupStatus === 'completed' ||
+        state.run.cleanupStatus === 'failed' ||
+        (state.run.cleanupStatus === 'not-required' &&
+          TERMINAL_INTERVIEW_STATUSES.has(state.run.status)),
+      readState: (_state, signal) => readCancellationState(signal),
+      signal: options.signal,
+    });
+    if (cancellation.run?.cleanupStatus === 'failed') {
+      logBackendFailureCorrelationId(cancellation.run.correlationId);
+      throw new Error(COURSE_INTERVIEW_ERROR);
+    }
+  };
+
+  const initialRun = await fetchRunState(input.runId, input.projectId, options.signal);
+  if (TERMINAL_INTERVIEW_STATUSES.has(initialRun.status)) {
+    await finishCancellation({ run: initialRun });
+    return;
   }
+
+  const response = await fetchWithSupabaseAuth(
+    `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(input.runId)}/cancellation`,
+    {
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal: options.signal,
+    }
+  );
+  const payload = await readWorkflowJson(response);
+  if (!response.ok || !isRecord(payload) || payload.success !== true) {
+    const currentState = await readCancellationState(options.signal);
+    if (currentState.run !== null && !TERMINAL_INTERVIEW_STATUSES.has(currentState.run.status)) {
+      throw new Error(COURSE_INTERVIEW_ERROR);
+    }
+    await finishCancellation(currentState);
+    return;
+  }
+
+  await finishCancellation(await readCancellationState(options.signal));
 };

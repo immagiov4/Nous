@@ -19,6 +19,7 @@ const defaultChatTransportInstances: Array<{
   prepareSendMessagesRequest?: (args: unknown) => unknown;
 }> = [];
 const sendMessageMock = vi.fn();
+const stopMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
 const lastAssistantMessageIsCompleteWithToolCallsMock = vi.fn<
@@ -68,6 +69,7 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
     onChange: (value: string) => void;
     onSubmit: () => void;
     placeholder: string;
+    submitDataTarget?: string;
     trailingContent?: ReactNode;
     value: string;
   }) => {
@@ -83,6 +85,7 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
         <button
           type="button"
           data-testid="chat-text-composer"
+          data-chat-composer-target={props.submitDataTarget}
           disabled={props.disabled}
           onClick={props.onSubmit}
         >
@@ -267,6 +270,7 @@ describe('ContextAnswerPanel', () => {
   beforeEach(() => {
     defaultChatTransportInstances.length = 0;
     sendMessageMock.mockReset();
+    stopMock.mockReset();
     addToolOutputMock.mockReset();
     useChatMock.mockReset();
     lastAssistantMessageIsCompleteWithToolCallsMock.mockReset();
@@ -357,6 +361,206 @@ describe('ContextAnswerPanel', () => {
     expect(panel?.style.bottom).toBe('0px');
     expect(panel?.style.maxHeight).toBe('844px');
     expect(screen.getByText('Risposta in streaming')).toBeInTheDocument();
+  });
+
+  test('stops a streaming response once from the keyboard without sending or clearing the next draft', async () => {
+    const user = userEvent.setup();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-streaming',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Risposta parziale', state: 'streaming' }],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'streaming',
+      stop: stopMock,
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    const input = screen.getByRole('textbox');
+    await user.type(input, 'Conserva questo follow-up');
+    const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    stopButton.focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(input).toHaveValue('Conserva questo follow-up');
+    expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
+    expect(stopButton).toBeDisabled();
+    expect(stopButton).toHaveAttribute('aria-busy', 'true');
+    expect(chatTextComposerProps.at(-1)?.disabled).toBe(true);
+    await user.click(screen.getByTestId('chat-text-composer'));
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  test('moves focus from the submitted send button to Stop', async () => {
+    const user = userEvent.setup();
+    let chatStatus: 'ready' | 'streaming' = 'ready';
+    useChatMock.mockImplementation(() => ({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: chatStatus,
+      stop: stopMock,
+    }));
+    const props = buildProps();
+    const { rerender } = render(<ContextAnswerPanel {...props} />);
+    await user.type(screen.getByRole('textbox'), 'Domanda da tastiera');
+    const sendButton = screen.getByTestId('chat-text-composer');
+    sendButton.focus();
+    await user.keyboard('{Enter}');
+
+    chatStatus = 'streaming';
+    rerender(<ContextAnswerPanel {...props} />);
+
+    const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    expect(stopButton).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(stopMock).toHaveBeenCalledOnce();
+
+    chatStatus = 'ready';
+    rerender(<ContextAnswerPanel {...props} />);
+    expect(screen.getByRole('textbox')).toHaveFocus();
+  });
+
+  test('does not revive a stopped artifact tool when a follow-up starts', async () => {
+    const user = userEvent.setup();
+    let resolveDraft: (draft: typeof generatedDraftArtifact) => void = () => {};
+    const draftRequest = new Promise<typeof generatedDraftArtifact>(resolve => {
+      resolveDraft = resolve;
+    });
+    generateLessonArtifactDraftMock.mockReturnValue(draftRequest);
+    const capturedChatOptions: Array<{
+      onToolCall: (args: {
+        toolCall: {
+          dynamic: false;
+          input: { prompt: string };
+          toolCallId: string;
+          toolName: 'generateCurrentLessonArtifact';
+        };
+      }) => Promise<void>;
+      sendAutomaticallyWhen: (args: { messages: [] }) => boolean;
+    }> = [];
+    let chatStatus: 'ready' | 'streaming' = 'streaming';
+    useChatMock.mockImplementation(options => {
+      capturedChatOptions.push(options);
+      return {
+        addToolOutput: addToolOutputMock,
+        error: undefined,
+        messages: [
+          {
+            id: 'assistant-deferred-tool',
+            role: 'assistant',
+            parts: [{ type: 'text', text: 'Risposta parziale', state: 'streaming' }],
+          },
+        ],
+        sendMessage: sendMessageMock,
+        status: chatStatus,
+        stop: stopMock,
+      };
+    });
+    const props = buildProps();
+    const { rerender } = render(<ContextAnswerPanel {...props} />);
+    const chatOptions = capturedChatOptions[0];
+    expect(chatOptions).toBeDefined();
+    if (!chatOptions) throw new Error('Context chat options were not captured.');
+    let toolCallRequest: Promise<void> | undefined;
+
+    act(() => {
+      toolCallRequest = chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: { prompt: 'Crea uno schema.' },
+          toolCallId: 'deferred-context-artifact',
+          toolName: 'generateCurrentLessonArtifact',
+        },
+      });
+    });
+    await user.click(screen.getByRole('button', { name: /^(Cancel|Annulla)$/i }));
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'output-error',
+        toolCallId: 'deferred-context-artifact',
+      })
+    );
+    chatStatus = 'ready';
+    rerender(<ContextAnswerPanel {...props} />);
+    sendMessageMock.mockClear();
+    await user.type(screen.getByRole('textbox'), 'Nuovo follow-up');
+    await user.click(screen.getByTestId('chat-text-composer'));
+    expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Nuovo follow-up' });
+    await act(async () => {
+      resolveDraft(generatedDraftArtifact);
+      await toolCallRequest;
+    });
+
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateCurrentLessonArtifact',
+      toolCallId: 'deferred-context-artifact',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(false);
+    expect(screen.queryByRole('button', { name: /Apri schema nuovo/i })).not.toBeInTheDocument();
+  });
+
+  test('drops a deferred artifact result after the context panel unmounts', async () => {
+    let resolveDraft: (draft: typeof generatedDraftArtifact) => void = () => {};
+    const draftRequest = new Promise<typeof generatedDraftArtifact>(resolve => {
+      resolveDraft = resolve;
+    });
+    generateLessonArtifactDraftMock.mockReturnValue(draftRequest);
+    let onToolCall:
+      | ((args: {
+          toolCall: {
+            dynamic: false;
+            input: { prompt: string };
+            toolCallId: string;
+            toolName: 'generateCurrentLessonArtifact';
+          };
+        }) => Promise<void>)
+      | undefined;
+    useChatMock.mockImplementation(options => {
+      onToolCall = options.onToolCall;
+      return {
+        addToolOutput: addToolOutputMock,
+        error: undefined,
+        messages: [],
+        sendMessage: sendMessageMock,
+        status: 'streaming',
+        stop: stopMock,
+      };
+    });
+    const { unmount } = render(<ContextAnswerPanel {...buildProps()} />);
+    let toolCallRequest: Promise<void> | undefined;
+
+    act(() => {
+      toolCallRequest = onToolCall?.({
+        toolCall: {
+          dynamic: false,
+          input: { prompt: 'Crea uno schema.' },
+          toolCallId: 'unmounted-context-artifact',
+          toolName: 'generateCurrentLessonArtifact',
+        },
+      });
+    });
+    unmount();
+    await act(async () => {
+      resolveDraft(generatedDraftArtifact);
+      await toolCallRequest;
+    });
+
+    expect(addToolOutputMock).not.toHaveBeenCalled();
   });
 
   test('preserves the desktop panel placement, size, and resize handle', () => {
