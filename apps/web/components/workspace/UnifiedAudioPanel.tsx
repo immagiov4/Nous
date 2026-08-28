@@ -89,6 +89,7 @@ const PLAYBACK_RATE_STEP_COUNT = Math.round(
   (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
 );
 const PLAYBACK_RATE_MARKER_COUNT = 5;
+const PLAYBACK_RATE_THUMB_SIZE_PX = 32;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -195,6 +196,7 @@ const PlaybackSpeedControl = ({
     (displayedPlaybackRate - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
   );
   const playbackRateProgress = (playbackRateStepIndex / PLAYBACK_RATE_STEP_COUNT) * 100;
+  const playbackRateFillOffset = PLAYBACK_RATE_THUMB_SIZE_PX * (0.5 - playbackRateProgress / 100);
 
   useEffect(() => {
     currentPlaybackRateRef.current = displayedPlaybackRate;
@@ -236,7 +238,7 @@ const PlaybackSpeedControl = ({
   };
 
   return (
-    <div className={`relative h-11 w-full ${isDisabled ? 'opacity-50' : ''}`}>
+    <div className={`relative h-9 w-full ${isDisabled ? 'opacity-50' : ''}`}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 overflow-hidden rounded-full bg-gray-200 dark:bg-zinc-700"
@@ -244,7 +246,7 @@ const PlaybackSpeedControl = ({
         <span
           data-playback-rate-fill
           className="absolute inset-y-0 left-0 rounded-full bg-orange-500 dark:bg-orange-400"
-          style={{ width: `${playbackRateProgress}%` }}
+          style={{ width: `calc(${playbackRateProgress}% + ${playbackRateFillOffset}px)` }}
         />
         <span className="absolute inset-x-5 inset-y-0 flex items-center justify-between">
           {Array.from({ length: PLAYBACK_RATE_MARKER_COUNT }, (_, index) => {
@@ -276,7 +278,7 @@ const PlaybackSpeedControl = ({
         step={PLAYBACK_RATE_STEP}
         value={displayedPlaybackRate}
         disabled={isDisabled}
-        className="absolute inset-0 z-10 m-0 h-11 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-11 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-11 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:mt-0.5 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
+        className="absolute inset-0 z-10 m-0 h-9 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-8 [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-9 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:mt-0.5 [&::-webkit-slider-thumb]:h-8 [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-150 motion-safe:[&::-moz-range-thumb]:ease-out motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-105 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-150 motion-safe:[&::-webkit-slider-thumb]:ease-out motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-105 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
         onChange={event => updatePlaybackRate(Number.parseFloat(event.target.value))}
         onKeyDown={isDisabled ? undefined : handleKeyDown}
       />
