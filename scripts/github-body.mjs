@@ -15,6 +15,7 @@ const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
 const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,9}[.)])[ \t]+\[[ xX]\][ \t]+\S/u;
+const GITHUB_ALERT_PATTERN = /^\[!(?:CAUTION|IMPORTANT|NOTE|TIP|WARNING)\](?:\n|$)/u;
 const PROTECTED_AST_TYPES = new Set('code definition image imageReference inlineCode'.split(' '));
 const MANAGED_PR_SUFFIX_START = '<!-- This is an auto-generated description by cubic. -->';
 const MANAGED_PR_SUFFIX_END = '<!-- End of auto-generated description by cubic. -->';
@@ -23,6 +24,8 @@ const markdownParser = unified().use(remarkParse).use(remarkGfm).freeze();
 const normalizeLineEndings = body => body.replace(/\r\n?/gu, '\n');
 const issue = (code, line, message) => ({ code, line, message });
 const nodeOffset = (node, boundary) => node.position?.[boundary]?.offset;
+const isGitHubAlert = node =>
+  GITHUB_ALERT_PATTERN.test(node.children?.[0]?.children?.[0]?.value ?? '');
 const walkAst = (root, visitor) => {
   const pending = [{ listAncestor: undefined, node: root, parent: undefined }];
   while (pending.length > 0) {
@@ -35,14 +38,12 @@ const walkAst = (root, visitor) => {
     }
   }
 };
-
 const parseMarkdown = body => markdownParser.parse(normalizeLineEndings(body));
 const maskRange = (characters, start, end) => {
   for (let index = start; index < end; index += 1) {
     if (characters[index] !== '\n') characters[index] = ' ';
   }
 };
-
 const maskOutsideDirectChildren = (characters, node) => {
   const start = nodeOffset(node, 'start');
   const end = nodeOffset(node, 'end');
@@ -57,7 +58,6 @@ const maskOutsideDirectChildren = (characters, node) => {
   }
   maskRange(characters, cursor, end);
 };
-
 const sourceWithoutProtectedMarkdown = (body, root, maskHtml = false) => {
   const characters = body.split('');
   walkAst(root, node => {
@@ -72,7 +72,6 @@ const sourceWithoutProtectedMarkdown = (body, root, maskHtml = false) => {
   });
   return characters.join('');
 };
-
 const collectVisibleStructureIssues = (body, root) => {
   const searchableBody = sourceWithoutProtectedMarkdown(body, root);
   const inlineStructureBody = sourceWithoutProtectedMarkdown(body, root, true);
@@ -176,7 +175,8 @@ const expectedRenderedTags = body => {
     if (node.type === 'heading') increment(`h${node.depth}`);
     if (node.type === 'listItem') increment('li');
     if (node.type === 'list') increment(node.ordered ? 'ol' : 'ul');
-    if (node.type === 'blockquote' || node.type === 'table') increment(node.type);
+    if (node.type === 'table' || (node.type === 'blockquote' && !isGitHubAlert(node)))
+      increment(node.type);
     if (node.type === 'code') increment('pre');
     if (node.type === 'thematicBreak') increment('hr');
   });
