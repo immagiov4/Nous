@@ -578,6 +578,7 @@ describe('HomeChatPanel', () => {
 
     const newCourseTab = screen.getByRole('tab', { name: /Nuovo corso/i });
     expect(newCourseTab).toBeDisabled();
+    expect(screen.getByTitle(/Apri esploratore contesto libreria/i)).toBeDisabled();
     await user.click(newCourseTab);
     expect(props.onHomeChatModeChange).not.toHaveBeenCalled();
 
@@ -603,8 +604,9 @@ describe('HomeChatPanel', () => {
   test('re-enables Stop when new-course cancellation fails', async () => {
     const user = userEvent.setup();
     const onCancelNewCourse = vi.fn(async () => false);
-    render(
-      <HomeChatPanel {...buildProps()} isNewCourseLoading onCancelNewCourse={onCancelNewCourse} />
+    const props = buildProps();
+    const { rerender } = render(
+      <HomeChatPanel {...props} isNewCourseLoading onCancelNewCourse={onCancelNewCourse} />
     );
 
     const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
@@ -616,6 +618,13 @@ describe('HomeChatPanel', () => {
 
     await user.click(stopButton);
     expect(onCancelNewCourse).toHaveBeenCalledTimes(2);
+
+    rerender(
+      <HomeChatPanel {...props} isNewCourseLoading={false} onCancelNewCourse={onCancelNewCourse} />
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Start|Inizia/i })).toBeInTheDocument()
+    );
   });
 
   test('keeps the composer locked while new-course cancellation is settling', async () => {

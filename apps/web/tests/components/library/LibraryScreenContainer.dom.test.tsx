@@ -20,6 +20,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
     chatProps: {
       assessmentComplete: boolean;
       homeChatMode: string;
+      onHomeChatModeChange: (mode: 'library-query' | 'new-course') => void;
       pendingFileNames?: string[];
     };
     onPageChange: (page: 'home' | 'library') => void;
@@ -31,6 +32,9 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       </div>
       <button type="button" onClick={() => onPageChange('library')}>
         Apri libreria
+      </button>
+      <button type="button" onClick={() => chatProps.onHomeChatModeChange('library-query')}>
+        Scorciatoia libreria
       </button>
     </>
   ),
@@ -128,6 +132,36 @@ describe('LibraryScreenContainer route fallback', () => {
     render(<LibraryScreenContainer {...props} />);
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:true');
+  });
+
+  test('ignores external chat mode shortcuts while a new course request is active', () => {
+    globalThis.history.replaceState({}, '', '/percorso-sconosciuto');
+    const props = buildProps();
+    props.controller.workflowState.assessment.status = 'pending';
+
+    render(<LibraryScreenContainer {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Scorciatoia libreria' }));
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
+  });
+
+  test('ignores source uploads while a library response is streaming', () => {
+    globalThis.history.replaceState({}, '', '/library');
+    const props = buildProps();
+    props.libraryAssistantChat.isLoading = true;
+
+    const { container } = render(<LibraryScreenContainer {...props} />);
+    const fileInput = container.querySelector<HTMLInputElement>('#library-source-file');
+    expect(fileInput).not.toBeNull();
+    if (!fileInput) {
+      throw new Error('Expected the library source file input.');
+    }
+
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+    });
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('library-query:false:');
   });
 
   test('preserves retained project, section, and workflow context across home page changes', () => {

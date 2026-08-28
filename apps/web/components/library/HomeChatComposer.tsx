@@ -200,6 +200,7 @@ const AttachmentButton = ({
   assessmentMessages,
   attachedContextCount,
   buttonRef,
+  disabled,
   homeChatMode,
   onActiveSurfaceChange,
   onUploadSourceClick,
@@ -208,6 +209,7 @@ const AttachmentButton = ({
   readonly assessmentMessages: Message[];
   readonly attachedContextCount: number;
   readonly buttonRef: RefObject<HTMLButtonElement | null>;
+  readonly disabled: boolean;
   readonly homeChatMode: HomeChatMode;
   readonly onActiveSurfaceChange: (surface: HomeChatSurfaceState) => void;
   readonly onUploadSourceClick: () => void;
@@ -226,7 +228,7 @@ const AttachmentButton = ({
       data-home-chat-target="attachment"
       type="button"
       onClick={openAttachment}
-      disabled={!isLibraryMode && assessmentMessages.length > 0}
+      disabled={disabled || (!isLibraryMode && assessmentMessages.length > 0)}
       className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-200/60 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300"
       title={
         isLibraryMode
@@ -435,7 +437,6 @@ export default function HomeChatComposer({
     'new-course': homeChatMode === 'new-course' ? draftTemplate?.value || '' : '',
   });
   const [hasRequestedStop, setHasRequestedStop] = useState(false);
-  const [hasStopFailure, setHasStopFailure] = useState(false);
   const [isStopRequestPending, setIsStopRequestPending] = useState(false);
   const [toolMenuAlign, setToolMenuAlign] = useState<MenuAlign>('start');
   const [attachmentMenuAlign, setAttachmentMenuAlign] = useState<MenuAlign>('start');
@@ -454,7 +455,7 @@ export default function HomeChatComposer({
   );
   const currentDraft = draftValueOverride ?? draftByMode[homeChatMode];
   const isStoppingGeneration = isStopRequestPending || (isLoading && hasRequestedStop);
-  const isGenerationActive = isLoading || isStopRequestPending || hasStopFailure;
+  const isGenerationActive = isLoading || isStopRequestPending;
   const activeLibraryToolCount = Number(libraryWebSearch) + Number(libraryGenerateArtifacts);
   const closeMenus = () => onActiveSurfaceChange(null);
   const sendButtonLabel = t(homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria');
@@ -559,7 +560,6 @@ export default function HomeChatComposer({
     const message = currentDraft.trim();
     if (!message) return;
     setHasRequestedStop(false);
-    setHasStopFailure(false);
     updateDraft('');
     closeMenus();
     if (homeChatMode === 'new-course') {
@@ -572,7 +572,6 @@ export default function HomeChatComposer({
   const stopGeneration = () => {
     if (!onStopGeneration || isStoppingGeneration) return;
     setHasRequestedStop(true);
-    setHasStopFailure(false);
     setIsStopRequestPending(true);
     closeMenus();
     try {
@@ -581,19 +580,16 @@ export default function HomeChatComposer({
           setIsStopRequestPending(false);
           if (succeeded === false) {
             setHasRequestedStop(false);
-            setHasStopFailure(true);
           }
         },
         () => {
           setIsStopRequestPending(false);
           setHasRequestedStop(false);
-          setHasStopFailure(true);
         }
       );
     } catch {
       setIsStopRequestPending(false);
       setHasRequestedStop(false);
-      setHasStopFailure(true);
     }
   };
 
@@ -625,6 +621,7 @@ export default function HomeChatComposer({
             assessmentMessages={assessmentMessages}
             attachedContextCount={attachedContextProjectIds.size}
             buttonRef={attachmentButtonRef}
+            disabled={isGenerationActive}
             homeChatMode={homeChatMode}
             onActiveSurfaceChange={onActiveSurfaceChange}
             onUploadSourceClick={onUploadSourceClick}

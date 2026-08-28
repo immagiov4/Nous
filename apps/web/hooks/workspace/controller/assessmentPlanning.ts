@@ -83,6 +83,12 @@ interface PendingHomeChatInterviewRun {
 
 class LateCourseInterviewCancellationError extends Error {}
 
+const isTerminalCourseInterviewSnapshot = (snapshot: CourseInterviewSnapshot): boolean =>
+  snapshot.status === 'cancelled' ||
+  snapshot.status === 'completed' ||
+  snapshot.status === 'expired' ||
+  snapshot.status === 'failed';
+
 const getCourseInterviewOutcome = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
   if (snapshot.status === 'cancelled' || snapshot.result?.kind === 'cancelled') return 'abandoned';
   if (snapshot.result?.kind === 'exhausted') {
@@ -107,6 +113,7 @@ export const createAssessmentPlanningCommands = (
   const { domain, openRouter, projectLibrary, state } = context;
   let activeAssessmentCancellationPromise: Promise<void> | null = null;
   let activeHomeChatStartPromise: Promise<HomeChatStartResult> | null = null;
+  const homeChatRunCancellationPromises = new Map<string, Promise<void>>();
   let pendingHomeChatInterviewRun: PendingHomeChatInterviewRun | null = null;
   let latestHomeChatRequestToken: symbol | null = null;
 
@@ -192,12 +199,16 @@ export const createAssessmentPlanningCommands = (
         clientOptions
       ));
     if (input.isRequestCurrent && !input.isRequestCurrent()) {
-      if (snapshot.status !== 'cancelled' && snapshot.result?.kind !== 'cancelled') {
+      if (!isTerminalCourseInterviewSnapshot(snapshot)) {
         try {
-          await openRouter.cancelCourseInterview({
-            projectId: snapshot.projectId,
-            runId: snapshot.runId,
-          });
+          const claimedCancellation = homeChatRunCancellationPromises.get(snapshot.runId);
+          await (claimedCancellation ??
+            openRouter
+              .cancelCourseInterview({
+                projectId: snapshot.projectId,
+                runId: snapshot.runId,
+              })
+              .then(() => undefined));
         } catch (error) {
           throw new LateCourseInterviewCancellationError(
             'Late course interview cancellation failed.',
@@ -376,36 +387,61 @@ export const createAssessmentPlanningCommands = (
 
   async function runAssessmentCancellation(): Promise<void> {
     latestHomeChatRequestToken = null;
-    state.invalidateWorkflows(['assessment']);
-    const invalidatedRequestId = state.getWorkflowState().assessment.requestId;
-    const projectId = projectLibrary.getCurrentProjectId();
-    if (projectId) {
-      const pendingRun =
-        pendingHomeChatInterviewRun?.projectId === projectId ? pendingHomeChatInterviewRun : null;
-      const pendingRunId = pendingRun ? await pendingRun.runId : null;
-      const interview = pendingRunId ? null : await openRouter.getActiveCourseInterview(projectId);
-      if (pendingRunId) {
-        await openRouter.cancelCourseInterview({ projectId, runId: pendingRunId });
-      } else if (interview?.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL) {
-        await openRouter.sendCourseInterviewDecision({
-          decision: { kind: 'cancel' },
-          projectId,
-          runId: interview.runId,
-          waitId: interview.wait.waitId,
-        });
-      } else if (interview) {
-        await openRouter.cancelCourseInterview({ projectId, runId: interview.runId });
-      }
-      if (!interview && activeHomeChatStartPromise) {
-        const cancelledStart = await activeHomeChatStartPromise;
-        if (cancelledStart.outcome === 'failed') {
-          throw new Error(t('Operazione non riuscita. Riprova.'));
+    const cancellationRequestId = state.beginWorkflow('assessment', t('Caricamento...'));
+    try {
+      const projectId = projectLibrary.getCurrentProjectId();
+      if (projectId) {
+        const pendingRun =
+          pendingHomeChatInterviewRun?.projectId === projectId ? pendingHomeChatInterviewRun : null;
+        const pendingRunId = pendingRun ? await pendingRun.runId : null;
+        const interview = pendingRunId
+          ? null
+          : await openRouter.getActiveCourseInterview(projectId);
+        let pendingRunCancellationError: unknown;
+        if (pendingRunId) {
+          const cancellationPromise = openRouter
+            .cancelCourseInterview({ projectId, runId: pendingRunId })
+            .then(() => undefined);
+          homeChatRunCancellationPromises.set(pendingRunId, cancellationPromise);
+          try {
+            await cancellationPromise;
+          } catch (error) {
+            pendingRunCancellationError = error;
+          }
+        } else if (interview?.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL) {
+          await openRouter.sendCourseInterviewDecision({
+            decision: { kind: 'cancel' },
+            projectId,
+            runId: interview.runId,
+            waitId: interview.wait.waitId,
+          });
+        } else if (interview) {
+          await openRouter.cancelCourseInterview({ projectId, runId: interview.runId });
         }
+        if (!interview && activeHomeChatStartPromise) {
+          const cancelledStart = await activeHomeChatStartPromise;
+          if (cancelledStart.outcome === 'failed') {
+            throw new Error(t('Operazione non riuscita. Riprova.'));
+          }
+          if (cancelledStart.outcome === 'abandoned') {
+            pendingRunCancellationError = undefined;
+          }
+        }
+        if (pendingRunCancellationError) throw pendingRunCancellationError;
+        await projectLibrary.refreshLibraryState();
       }
-      await projectLibrary.refreshLibraryState();
-    }
-    if (state.getWorkflowState().assessment.requestId === invalidatedRequestId) {
-      resetInterviewClientState();
+      if (state.isWorkflowCurrent('assessment', cancellationRequestId)) {
+        state.invalidateWorkflows(['assessment']);
+        resetInterviewClientState();
+      }
+    } catch (error) {
+      if (
+        projectLibrary.getCurrentProjectId() &&
+        state.isWorkflowCurrent('assessment', cancellationRequestId)
+      ) {
+        state.beginWorkflow('assessment', t('Operazione non riuscita. Riprova.'));
+      }
+      throw error;
     }
   }
 
@@ -598,15 +634,17 @@ export const createAssessmentPlanningCommands = (
       if (!isRequestCurrent()) return abandonCancelledStart();
       let resolveRunId: (runId: string | null) => void = () => {};
       let hasResolvedRunId = false;
+      let startedRunId: string | null = null;
       const runId = new Promise<string | null>(resolve => {
         resolveRunId = resolve;
       });
       const pendingRun = { projectId, runId };
       pendingHomeChatInterviewRun = pendingRun;
-      const reportRunStarted = (startedRunId: string) => {
+      const reportRunStarted = (runId: string) => {
         if (hasResolvedRunId) return;
+        startedRunId = runId;
         hasResolvedRunId = true;
-        resolveRunId(startedRunId);
+        resolveRunId(runId);
       };
       let outcome: CourseInterviewOutcome;
       try {
@@ -621,6 +659,7 @@ export const createAssessmentPlanningCommands = (
         });
       } finally {
         if (!hasResolvedRunId) resolveRunId(null);
+        if (startedRunId) homeChatRunCancellationPromises.delete(startedRunId);
         if (pendingHomeChatInterviewRun === pendingRun) pendingHomeChatInterviewRun = null;
       }
       if (!isRequestCurrent()) return abandonCancelledStart();

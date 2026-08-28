@@ -100,15 +100,27 @@ export const LibraryScreenContainer = ({
     submitAssessment,
   } = controller;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
-  const isAssessmentActive =
-    assessmentMessages.length > 0 || controller.workflowState.assessment.status === 'pending';
+  const isNewCourseLoading = controller.workflowState.assessment.status === 'pending';
+  const isAnyHomeChatLoading = libraryAssistantChat.isLoading || isNewCourseLoading;
+  const isAssessmentActive = assessmentMessages.length > 0 || isNewCourseLoading;
   const visibleHomeChatMode = assessmentMessages.length > 0 ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
   const currentProjectRevision = savedProjects.find(
     project => project.id === controller.currentProjectId
   )?.revision;
+  const handleHomeChatModeChange = useCallback(
+    (mode: HomeChatMode) => {
+      if (isAnyHomeChatLoading) return;
+      setHomeChatMode(mode);
+    },
+    [isAnyHomeChatLoading]
+  );
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isAnyHomeChatLoading) {
+      event.target.value = '';
+      return;
+    }
     const selectedFiles = sortSourceFiles(Array.from(event.target.files || []));
     setPendingHomeSourceFiles(selectedFiles);
     if (selectedFiles.length > 0) {
@@ -262,7 +274,7 @@ export const LibraryScreenContainer = ({
           isDarkMode: readerState.readerChrome.isDarkMode,
           isLibraryLoading,
           isLibraryModeLoading: libraryAssistantChat.isLoading,
-          isNewCourseLoading: controller.workflowState.assessment.status === 'pending',
+          isNewCourseLoading,
           libraryAttachedContextRefs: libraryAssistantChat.attachedContextRefs,
           libraryArtifactPayloadsByToolCallId: libraryAssistantChat.artifactPayloadsByToolCallId,
           libraryFloatingArtifactPayloads: libraryAssistantChat.replacementDraftPayloads,
@@ -280,7 +292,7 @@ export const LibraryScreenContainer = ({
           onCancelNewCourse: cancelNewCourse,
           onContinueAssessment: () => setIsAddingAssessmentDetails(true),
           onConfirmGenerate: handleConfirmGenerate,
-          onHomeChatModeChange: setHomeChatMode,
+          onHomeChatModeChange: handleHomeChatModeChange,
           onLibraryMessageSend: libraryAssistantChat.sendLibraryMessage,
           onLibraryArtifactNoteApprove: libraryAssistantChat.approveLearningArtifactNoteSave,
           onLibraryArtifactNoteReject: libraryAssistantChat.rejectLearningArtifactNoteSave,
