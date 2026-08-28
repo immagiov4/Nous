@@ -24,7 +24,6 @@ import type {
   ProjectStore,
   StoredProjectSourceFile,
 } from '../projects/types.js';
-import { readProjectLanguage } from '../services/lessonGenerationSources.js';
 import {
   type ProjectSourceMaterial,
   readProjectSourceMaterial,
@@ -232,6 +231,13 @@ const readProfileSummary = (project: ProjectSnapshot): string => {
   );
 };
 
+const buildSublessonOutputLanguageRule = (project: ProjectSnapshot): string => {
+  const configuredLanguage = project.userProfile?.language?.trim();
+  return configuredLanguage
+    ? `OUTPUT LANGUAGE: ${configuredLanguage}`
+    : 'OUTPUT LANGUAGE: Use the language of the supplied parent lesson.';
+};
+
 const buildFocusPrompt = (
   project: ProjectSnapshot,
   parentSectionId: string,
@@ -247,7 +253,7 @@ const buildFocusPrompt = (
   return `LEARNING PATH: ${project.learningPlan?.title || project.title || 'Unavailable.'}
 MODULE: ${parent.moduleTitle || 'Unavailable.'}
 STUDENT PROFILE: ${readProfileSummary(project)}
-OUTPUT LANGUAGE: ${readProjectLanguage(project)}
+${buildSublessonOutputLanguageRule(project)}
 
 PARENT LESSON: "${parent.title}"
 PARENT LESSON DESCRIPTION: "${parent.description}"

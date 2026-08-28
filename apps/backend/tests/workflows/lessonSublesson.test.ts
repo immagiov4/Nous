@@ -160,6 +160,25 @@ describe('durable sublesson stages', () => {
     expect(request?.prompt).toContain('OUTPUT LANGUAGE: Português (Brasil)');
   });
 
+  test.each([
+    ['missing', null],
+    ['blank', { language: '   ' }],
+  ] as const)('uses the parent lesson language when the profile language is %s', async (_case, userProfile) => {
+    const generateObject = vi.fn(async () => metadata);
+    const stages = createLessonSublessonStages({
+      generateObject: generateObject as never,
+      projectStore: store(snapshot({ userProfile })),
+    });
+
+    await stages.planSublesson(context(input));
+
+    const request = generateObject.mock.calls[0]?.[0];
+    expect(request?.prompt).toContain(
+      'OUTPUT LANGUAGE: Use the language of the supplied parent lesson.'
+    );
+    expect(request?.prompt).not.toContain('OUTPUT LANGUAGE: Italiano');
+  });
+
   test('preserves an explicit empty archive selection and exposes bounded archive tools', async () => {
     const archiveIndex = {
       entries: [{ contentKind: 'text', kind: 'file', path: 'src/clock.ts' }],
