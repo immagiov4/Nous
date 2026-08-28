@@ -183,6 +183,9 @@ export const LESSON_SHARED_WRITING_RULES = `${NUMBERED_LANGUAGE_CLARITY_RULES}
 - ${LESSON_GUIDED_NOVICE_RULE}
 ${NUMBERED_LOCAL_PROPEDEUTIC_RULES}`;
 
+export const LESSON_ACTIVE_PAUSE_VERIFIER_COMPATIBILITY_LABEL =
+  'ACTIVE-PAUSE VERIFIER COMPATIBILITY LABEL';
+
 export const LESSON_REFERENCE_SECTION_LABELS = {
   pedagogicalContext: {
     activePauseVerifierAlias: 'CONTESTO DIDATTICO VINCOLANTE',
@@ -214,7 +217,7 @@ export const buildUserGenerationNotesBlock = (notes: string | undefined | null):
 
   return `
 ${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.primary} (HIGH PRIORITY):
-ACTIVE-PAUSE VERIFIER COMPATIBILITY LABEL: "${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias}"
+${LESSON_ACTIVE_PAUSE_VERIFIER_COMPATIBILITY_LABEL}: "${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias}"
 """
 ${clipped}
 """
