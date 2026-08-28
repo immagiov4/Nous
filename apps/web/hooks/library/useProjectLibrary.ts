@@ -979,6 +979,7 @@ export const useProjectLibrary = ({
 
           const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
             artifactId,
+            contentBlocks: section.contentBlocks,
             replacementVisual: visual,
             visuals: section.generatedVisuals,
           });

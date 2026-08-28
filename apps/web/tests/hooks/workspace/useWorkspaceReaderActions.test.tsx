@@ -207,8 +207,10 @@ test('saves and replaces retained-answer artifacts on their originating lesson',
     title: 'mappa_nuova',
   };
   const replacementVisual = {
-    ...existingVisual,
+    createdAt: '2026-05-02T10:00:00.000Z',
     id: 'visual-replacement',
+    render: { code: '<svg data-replacement="true"></svg>', kind: 'svg' as const },
+    slotId: 'artifact-draft',
     title: 'mappa_sostitutiva',
   };
   const updateSection = vi.fn();
@@ -222,6 +224,14 @@ test('saves and replaces retained-answer artifacts on their originating lesson',
           id: 'annotation-existing',
           note: 'Nota da preservare',
           updatedAt: '2026-05-01T09:00:00.000Z',
+        },
+      ],
+      contentBlocks: [
+        { markdown: 'Contenuto della lezione.', type: 'markdown' },
+        {
+          slotId: 'lesson-slot-existing',
+          type: 'generated-visual',
+          visualId: existingVisual.id,
         },
       ],
       generatedVisuals: [existingVisual],
@@ -269,7 +279,13 @@ test('saves and replaces retained-answer artifacts on their originating lesson',
     'lesson-origin',
     undefined,
     undefined,
-    expect.any(Array)
+    [
+      expect.objectContaining({
+        id: existingVisual.id,
+        render: replacementVisual.render,
+        slotId: 'lesson-slot-existing',
+      }),
+    ]
   );
 });
 

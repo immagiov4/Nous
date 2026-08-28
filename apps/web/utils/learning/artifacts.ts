@@ -5,6 +5,7 @@ import type {
   LearningArtifactRenderPayload,
   LearningArtifactSummary,
   LearningSection,
+  LessonContentBlock,
   LessonImageRef,
   PdfDocumentAssets,
   PdfDocumentImageAsset,
@@ -12,7 +13,7 @@ import type {
   StoredLessonVisual,
 } from '../../types.ts';
 import { readCompleteMarkdownPlaceholderRange } from '../markdown/codeRanges.ts';
-import { getStoredLessonVisualKind } from '../visuals/storedLessonVisual.ts';
+import { getStoredLessonVisualKind, isProjectLessonVisual } from '../visuals/storedLessonVisual.ts';
 import { flattenLessons } from './pathNodes.ts';
 
 interface CollectLearningArtifactPayloadsInput {
@@ -82,14 +83,20 @@ export const resolveGeneratedVisualArtifact = (
 
 export const replaceGeneratedVisualPreservingId = ({
   artifactId,
+  contentBlocks,
   replacementVisual,
   visuals,
 }: {
   artifactId: string;
+  contentBlocks?: readonly LessonContentBlock[];
   replacementVisual: StoredLessonVisual;
   visuals?: StoredLessonVisual[];
 }): StoredLessonVisual[] | null => {
   const targetVisualId = readGeneratedVisualIdFromArtifactId(artifactId);
+  const referencedSlots = (contentBlocks || []).flatMap(block =>
+    block.type === 'generated-visual' && block.visualId === targetVisualId ? [block.slotId] : []
+  );
+  const referencedSlotId = referencedSlots.length === 1 ? referencedSlots[0] : undefined;
   let didReplace = false;
   const nextVisuals = (visuals || []).map(visual => {
     if (visual.id !== targetVisualId) {
@@ -97,9 +104,12 @@ export const replaceGeneratedVisualPreservingId = ({
     }
 
     didReplace = true;
+    const preservedSlotId =
+      referencedSlotId ?? (isProjectLessonVisual(visual) ? visual.slotId : null);
     return {
       ...replacementVisual,
       id: visual.id,
+      ...(preservedSlotId ? { slotId: preservedSlotId } : {}),
     };
   });
 

@@ -308,9 +308,13 @@ describe('learning artifacts', () => {
     ).toEqual(['Schema ER']);
   });
 
-  test('replaces a generated visual while preserving the original visual id', () => {
+  test('replaces a legacy generated visual while preserving its referenced id and slot', () => {
     const nextVisuals = replaceGeneratedVisualPreservingId({
       artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+      contentBlocks: [
+        { markdown: 'Contenuto della lezione.', type: 'markdown' },
+        { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: 'visual-1' },
+      ],
       replacementVisual: {
         altText: 'Nuova mappa persistente',
         createdAt: '2026-05-02T10:00:00.000Z',
@@ -345,7 +349,7 @@ describe('learning artifacts', () => {
         id: 'visual-1',
         title: 'mappa_nuova',
         render: { code: '<svg data-new="true"></svg>', kind: 'svg' },
-        slotId: 'artifact-draft',
+        slotId: 'lesson-slot-1',
       }),
       expect.objectContaining({
         id: 'visual-2',
