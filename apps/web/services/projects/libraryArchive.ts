@@ -45,6 +45,33 @@ export type LibraryArchiveErrorStage =
   | 'rollback'
   | 'zip-open';
 
+export interface LibraryArchiveProjectReference {
+  id: string;
+  projectCount: number;
+  projectIndex: number;
+  title: string;
+}
+
+export interface LibraryArchiveRejectedProject extends LibraryArchiveProjectReference {
+  code:
+    | 'LIBRARY_ARCHIVE_ENTRY_MISSING'
+    | 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED'
+    | 'LIBRARY_ARCHIVE_PROJECT_INVALID'
+    | 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE';
+  limitBytes?: number;
+  stage: 'nested-project-read' | 'project-import';
+}
+
+export interface LibraryArchiveImportedProject extends LibraryArchiveProjectReference {
+  importedProjectId: string;
+}
+
+export interface LibraryArchiveImportResult {
+  importedProjects: LibraryArchiveImportedProject[];
+  notAttemptedProjects: LibraryArchiveProjectReference[];
+  rejectedProjects: LibraryArchiveRejectedProject[];
+}
+
 export class LibraryArchiveError extends Error {
   constructor(
     message: string,
@@ -60,7 +87,11 @@ export class LibraryArchiveError extends Error {
 }
 
 export class LibraryArchiveRollbackError extends LibraryArchiveError {
-  constructor(projectIndex?: number, projectCount?: number) {
+  constructor(
+    projectIndex?: number,
+    projectCount?: number,
+    readonly result?: LibraryArchiveImportResult
+  ) {
     super(
       'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
       'LIBRARY_ARCHIVE_ROLLBACK_INCOMPLETE',
@@ -69,6 +100,25 @@ export class LibraryArchiveRollbackError extends LibraryArchiveError {
       projectCount
     );
     this.name = 'LibraryArchiveRollbackError';
+  }
+}
+
+export class LibraryArchivePartialImportError extends LibraryArchiveError {
+  constructor(readonly result: LibraryArchiveImportResult) {
+    const firstRejectedProject = result.rejectedProjects[0];
+    const importedCount = result.importedProjects.length;
+    const rejectedCount = result.rejectedProjects.length;
+    const importedLabel = importedCount === 1 ? 'corso importato' : 'corsi importati';
+    const rejectedLabel = rejectedCount === 1 ? 'corso rifiutato' : 'corsi rifiutati';
+    super(
+      `${importedCount} ${importedLabel}. ${rejectedCount} ${rejectedLabel}; il primo è “${firstRejectedProject?.title ?? 'Corso'}” (corso ${firstRejectedProject?.projectIndex ?? 1} di ${firstRejectedProject?.projectCount ?? rejectedCount}).`,
+      firstRejectedProject?.code ?? 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+      firstRejectedProject?.stage ?? 'project-import',
+      firstRejectedProject?.projectIndex,
+      firstRejectedProject?.projectCount,
+      firstRejectedProject?.limitBytes
+    );
+    this.name = 'LibraryArchivePartialImportError';
   }
 }
 
@@ -94,7 +144,15 @@ const isValidOrder = (value: unknown): value is number =>
 
 export interface LibraryArchiveData {
   projects: LibraryArchiveProjectEntry[];
-  projectArchives: Array<{ archive: Blob; id: string }>;
+  projectCount: number;
+  projectArchives: Array<{
+    archive: Blob;
+    id: string;
+    projectCount: number;
+    projectIndex: number;
+    title: string;
+  }>;
+  rejectedProjects: LibraryArchiveRejectedProject[];
   folders: LibraryFolder[];
   placements: LibraryPlacement[];
 }
@@ -412,20 +470,23 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
     );
   }
   const projects: LibraryArchiveProjectEntry[] = [];
-  const projectArchives: Array<{ archive: Blob; id: string }> = [];
+  const projectArchives: LibraryArchiveData['projectArchives'] = [];
+  const rejectedProjects: LibraryArchiveRejectedProject[] = [];
 
   for (const [index, project] of manifest.projects.entries()) {
     const projectIndex = index + 1;
     const projectCount = manifest.projects.length;
     const entry = zip.file(project.path);
     if (!entry) {
-      throw new LibraryArchiveError(
-        `Nel backup manca il corso ${projectIndex} di ${projectCount}.`,
-        'LIBRARY_ARCHIVE_ENTRY_MISSING',
-        'nested-project-read',
+      rejectedProjects.push({
+        code: 'LIBRARY_ARCHIVE_ENTRY_MISSING',
+        id: project.id,
+        projectCount,
         projectIndex,
-        projectCount
-      );
+        stage: 'nested-project-read',
+        title: project.title,
+      });
+      continue;
     }
 
     try {
@@ -446,25 +507,37 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
         );
       }
       projects.push(project);
-      projectArchives.push({ archive: projectArchive, id: project.id });
-    } catch (error) {
-      const tooLarge = error instanceof ZipEntryTooLargeError;
-      throw new LibraryArchiveError(
-        tooLarge
-          ? error.message
-          : `Il corso ${projectIndex} di ${projectCount} contiene un archivio non valido o non supportato.`,
-        tooLarge ? 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE' : 'LIBRARY_ARCHIVE_PROJECT_INVALID',
-        'nested-project-read',
-        projectIndex,
+      projectArchives.push({
+        archive: projectArchive,
+        id: project.id,
         projectCount,
-        tooLarge ? LIBRARY_ARCHIVE_MAX_PROJECT_BYTES : undefined
-      );
+        projectIndex,
+        title: project.title,
+      });
+    } catch (error) {
+      console.warn('[Nous] Rejected a course archive during library import.', {
+        error,
+        projectId: project.id,
+        projectIndex,
+      });
+      const tooLarge = error instanceof ZipEntryTooLargeError;
+      rejectedProjects.push({
+        code: tooLarge ? 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE' : 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+        id: project.id,
+        ...(tooLarge ? { limitBytes: LIBRARY_ARCHIVE_MAX_PROJECT_BYTES } : {}),
+        projectCount,
+        projectIndex,
+        stage: 'nested-project-read',
+        title: project.title,
+      });
     }
   }
 
   return {
     projects,
+    projectCount: manifest.projects.length,
     projectArchives,
+    rejectedProjects,
     folders: manifest.folders,
     placements: manifest.placements,
   };

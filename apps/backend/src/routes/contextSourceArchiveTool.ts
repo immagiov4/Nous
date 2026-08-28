@@ -518,7 +518,7 @@ export const createContextSourceArchiveTool = ({
 
   return tool({
     description:
-      'Consulta esclusivamente l’archivio sorgente conservato per la lezione corrente. Consente di risolvere i percorsi registrati della lezione, scorrere l’indice ordinato o una cartella, cercare una stringa letterale e leggere una pagina testuale da un percorso esatto. Le pagine di indice usano nextEntryCursor, le ricerche usano nextSearchCursor e le letture usano nextCursorBytes per continuare. Continua una ricerca finché nextSearchCursor è null prima di concludere che non esistono corrispondenze. Gli output includono il nome dell’archivio e citazioni con percorsi esatti; le ricerche includono riga, colonna e cursorBytes utilizzabile con read-file.',
+      'Inspect only the retained source archive for the current lesson. Resolve the lesson registered paths, browse the ordered index or a directory, search for a literal string, and read a text page from an exact path. Index pages use nextEntryCursor, searches use nextSearchCursor, and reads use nextCursorBytes to continue. Continue a search until nextSearchCursor is null before concluding that no matches exist. Outputs include the archive name and citations with exact paths. Search results include line, column, and cursorBytes usable with read-file.',
     execute,
     inputSchema: jsonSchema<ContextSourceArchiveToolInput>({
       type: 'object',
@@ -527,12 +527,12 @@ export const createContextSourceArchiveTool = ({
         entryCursor: {
           type: 'integer',
           minimum: 0,
-          description: 'nextEntryCursor restituito da tree o list-directory.',
+          description: 'nextEntryCursor returned by tree or list-directory.',
         },
         cursorBytes: {
           type: 'integer',
           minimum: 0,
-          description: 'Offset nextCursorBytes restituito da una precedente operazione read-file.',
+          description: 'nextCursorBytes offset returned by a previous read-file operation.',
         },
         operation: {
           type: 'string',
@@ -544,7 +544,7 @@ export const createContextSourceArchiveTool = ({
           type: 'string',
           minLength: 1,
           maxLength: MAX_CONTEXT_CHAT_FIELD_CHARS,
-          description: 'nextSearchCursor restituito da una precedente search-text.',
+          description: 'nextSearchCursor returned by a previous search-text operation.',
         },
       },
       required: ['operation'],

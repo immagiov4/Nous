@@ -52,20 +52,18 @@ export const buildLessonPedagogicalContext = (
   const researchLesson = findResearchLesson(project, String(section.id));
   return [
     typeof section.contextPrompt === 'string' && section.contextPrompt.trim()
-      ? `OBIETTIVO SPECIFICO DELLA LEZIONE:\n${section.contextPrompt.trim()}`
+      ? `SPECIFIC LESSON OBJECTIVE:\n${section.contextPrompt.trim()}`
       : '',
     parent
-      ? `CONTESTO DELLA LEZIONE PADRE:\n${JSON.stringify({
+      ? `PARENT LESSON CONTEXT:\n${JSON.stringify({
           content: typeof parent.content === 'string' ? parent.content : '',
           description: typeof parent.description === 'string' ? parent.description : '',
           title: typeof parent.title === 'string' ? parent.title : '',
         })}`
       : '',
-    project.userProfile
-      ? `PROFILO DIDATTICO DELL'UTENTE:\n${JSON.stringify(project.userProfile)}`
-      : '',
-    syllabusItem ? `VOCE DI SYLLABUS:\n${JSON.stringify(syllabusItem)}` : '',
-    researchLesson ? `PIANO DI RICERCA DELLA LEZIONE:\n${JSON.stringify(researchLesson)}` : '',
+    project.userProfile ? `USER LEARNING PROFILE:\n${JSON.stringify(project.userProfile)}` : '',
+    syllabusItem ? `SYLLABUS ENTRY:\n${JSON.stringify(syllabusItem)}` : '',
+    researchLesson ? `LESSON RESEARCH PLAN:\n${JSON.stringify(researchLesson)}` : '',
   ]
     .filter(Boolean)
     .join('\n\n');
