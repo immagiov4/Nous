@@ -565,7 +565,7 @@ export default function AccountMenu({
         className={
           triggerVariant === 'settings'
             ? 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-stone-600 transition-colors hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-white/5'
-            : 'inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-300 bg-white text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-950 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white'
+            : 'inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-300 bg-paper-light text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-950 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white'
         }
       >
         {triggerVariant === 'settings' ? (
