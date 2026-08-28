@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   deriveQuizFromLessonContentBlocks,
   hasValidTypedQuizBlocks,
@@ -94,7 +94,7 @@ test('keeps a malformed marker as markdown before converting a later complete ma
     'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo'
   );
 
-  assert.deepEqual(blocks, [
+  expect(blocks).toStrictEqual([
     { type: 'markdown', markdown: 'Prima {{VISUAL_SLOT:bozza poi' },
     { type: 'generated-visual', slotId: 'slot-1' },
     { type: 'markdown', markdown: 'dopo' },
@@ -104,7 +104,7 @@ test('keeps a malformed marker as markdown before converting a later complete ma
 test('keeps visual placeholders with unknown options as markdown', () => {
   const marker = '{{VISUAL_EXAMPLE:visual-1|foo=bar}}';
 
-  assert.deepEqual(legacyMarkdownToLessonContentBlocks(marker), [
+  expect(legacyMarkdownToLessonContentBlocks(marker)).toStrictEqual([
     { type: 'markdown', markdown: marker },
   ]);
 });

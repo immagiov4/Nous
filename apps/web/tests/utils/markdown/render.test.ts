@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 
 test('normalizeMarkdownForRendering removes Delete control characters from inline LaTeX', () => {
@@ -695,7 +695,7 @@ test('normalizeMarkdownForRendering does not restore a JSON fence around invalid
   const input = ['Testo prima.', '', '{ "userId": }', '```', '', 'Testo dopo.'].join('\n');
   const output = normalizeMarkdownForRendering(input);
 
-  assert.doesNotMatch(output, /```json/u);
+  expect(output).not.toMatch(/```json/u);
   assert.match(output, /\{ "userId": \}/u);
   assert.match(output, /Testo dopo\./u);
 });

@@ -72,8 +72,7 @@ test('applySectionAnnotation follows renderer-normalized prose indentation', () 
   });
 
   assert.ok(result);
-  assert.equal(
-    materializeSectionAnnotationMarks(content, result.annotations),
+  expect(materializeSectionAnnotationMarks(content, result.annotations)).toBe(
     '    <mark data-nous-annotation-id="annotation-indented-prose">Frase visibile normalizzata</mark>.'
   );
 });
@@ -88,8 +87,7 @@ test('applySectionAnnotation preserves a complete Markdown character reference',
   });
 
   assert.ok(result);
-  assert.equal(
-    materializeSectionAnnotationMarks(content, result.annotations),
+  expect(materializeSectionAnnotationMarks(content, result.annotations)).toBe(
     'Prima <mark data-nous-annotation-id="annotation-entity">A &amp; B</mark> dopo.'
   );
 });
@@ -101,7 +99,7 @@ test('applySectionAnnotation does not insert markup inside renderer-normalized b
     selectedText: 'velocity',
   });
 
-  assert.equal(result, null);
+  expect(result).toBe(null);
 });
 
 test('materialized annotations skip hidden boundaries and preserve adjacent emphasis', () => {
@@ -113,8 +111,7 @@ test('materialized annotations skip hidden boundaries and preserve adjacent emph
     selectedText: 'prima dopo',
   });
   assert.ok(imageResult);
-  assert.equal(
-    materializeSectionAnnotationMarks(imageContent, imageResult.annotations),
+  expect(materializeSectionAnnotationMarks(imageContent, imageResult.annotations)).toBe(
     '<mark data-nous-annotation-id="annotation-image-boundary">prima</mark>![figura](image.png)<mark data-nous-annotation-id="annotation-image-boundary">**dopo**</mark>'
   );
 
@@ -358,7 +355,7 @@ test('applySectionAnnotation keeps a refined inner word inside the original visi
   });
 
   assert.equal(result?.annotations[0]?.anchor?.kind, 'selection');
-  assert.equal(result?.annotations[0]?.anchor.selector.start, sourceStart);
+  expect(result.annotations[0]?.anchor.selector.start).toBe(sourceStart);
   assert.equal(result?.annotations[0]?.anchor.selector.exact, 'concetto');
 });
 
@@ -686,7 +683,7 @@ test('findSectionAnnotationForSelection keeps a refined update inside the origin
     selectedTextStart: secondSelectionStart,
   });
 
-  assert.equal(match?.annotation.id, 'annotation-second');
+  expect(match?.annotation.id).toBe('annotation-second');
 });
 
 test('applySectionAnnotation preserves inline math markdown while annotating the surrounding prose', () => {
