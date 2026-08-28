@@ -16,6 +16,8 @@ const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
 const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,9}[.)])[ \t]+\[[ xX]\][ \t]+\S/u;
 const GITHUB_ALERT_PATTERN = /^\[!(?:CAUTION|IMPORTANT|NOTE|TIP|WARNING)\](?:\n|$)/u;
+const RENDERED_GITHUB_ALERT_PATTERN =
+  /<div(?=[\s>])[^>]*\bclass=(["'])[^"']*\bmarkdown-alert\b[^"']*\1/giu;
 const PROTECTED_AST_TYPES = new Set('code definition image imageReference inlineCode'.split(' '));
 const MANAGED_PR_SUFFIX_START = '<!-- This is an auto-generated description by cubic. -->';
 const MANAGED_PR_SUFFIX_END = '<!-- End of auto-generated description by cubic. -->';
@@ -109,7 +111,6 @@ const collectVisibleStructureIssues = (body, root) => {
   });
   return issues;
 };
-
 const collectRootBlockSpacingIssues = (root, lines) => {
   const issues = [];
   for (const node of root.children ?? []) {
@@ -136,7 +137,6 @@ const collectRootBlockSpacingIssues = (root, lines) => {
   }
   return issues;
 };
-
 export const validateMarkdownBody = body => {
   const normalizedBody = normalizeLineEndings(body);
   if (!normalizedBody.trim()) {
@@ -159,7 +159,6 @@ export const assertValidMarkdownBody = (body, bodyFile) => {
   const issues = validateMarkdownBody(body);
   if (issues.length > 0) throw new Error(formatValidationIssues(issues, bodyFile));
 };
-
 const expectedRenderedTags = body => {
   const root = parseMarkdown(body);
   const counts = new Map();
@@ -173,11 +172,9 @@ const expectedRenderedTags = body => {
     if (node.type === 'heading') increment(`h${node.depth}`);
     if (node.type === 'listItem') increment('li');
     if (node.type === 'list') increment(node.ordered ? 'ol' : 'ul');
-    if (
-      node.type === 'table' ||
-      (node.type === 'blockquote' && (parent?.type !== 'root' || !isGitHubAlert(node)))
-    )
-      increment(node.type);
+    if (node.type === 'table') increment(node.type);
+    if (node.type === 'blockquote')
+      increment(parent?.type === 'root' && isGitHubAlert(node) ? 'div.markdown-alert' : node.type);
     if (node.type === 'code') increment('pre');
     if (node.type === 'thematicBreak') increment('hr');
   });
@@ -190,7 +187,9 @@ const expectedRenderedTags = body => {
   return counts;
 };
 const renderedTagCount = (renderedHtml, tag) =>
-  [...renderedHtml.matchAll(new RegExp(String.raw`<${tag}(?=[\s/>])`, 'giu'))].length;
+  tag === 'div.markdown-alert'
+    ? [...renderedHtml.matchAll(RENDERED_GITHUB_ALERT_PATTERN)].length
+    : [...renderedHtml.matchAll(new RegExp(String.raw`<${tag}(?=[\s/>])`, 'giu'))].length;
 export const assertGitHubRendering = (body, renderedHtml) => {
   if (!renderedHtml.trim()) throw new Error('GitHub returned an empty rendered body.');
   for (const [tag, expectedCount] of expectedRenderedTags(body)) {

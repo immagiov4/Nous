@@ -97,6 +97,7 @@ Compare old - new behavior, or use option 1) now.
     for (const missing of [
       '<h2',
       '<blockquote',
+      '<div class="markdown-alert',
       '<hr',
       '<pre',
       '<table',
