@@ -56,7 +56,6 @@ Literal \\n stays inside this example.
 `;
     expect(validateMarkdownBody(bodyWithCode)).toEqual([]);
   });
-
   test('rejects empty, single-line, and literal-newline bodies', () => {
     expectIssue('', 'empty-body');
     expectIssue('Only one physical line', 'missing-newline');
@@ -66,7 +65,6 @@ Literal \\n stays inside this example.
     expect(validateMarkdownBody('## Summary\n\n[Notes](docs\\new\\notes.md)\n')).toEqual([]);
     expectIssue('## Summary\n\n<details>Text\\nNext</details>\n', 'literal-newline');
   });
-
   test('uses AST blocks without treating ordinary prose as flattened Markdown', () => {
     const ordinaryProse = `${validBody}
 Use # tags in GitHub.
@@ -74,13 +72,15 @@ Compare old - new behavior, or use option 1) now.
 `;
 
     expect(validateMarkdownBody(ordinaryProse)).toEqual([]);
+    expect(
+      validateMarkdownBody('## Summary\n\nFirst <span title="Why ## this matters">label</span>.\n')
+    ).toEqual([]);
     const flattened = issueCodes(
       '## Summary\n\nDescription ## Testing - [ ] Next task\n\nMore context.\n'
     );
     expect(flattened).toEqual(new Set(['inline-heading', 'inline-list']));
     expect(validateMarkdownBody('> ## Quoted heading\n>\n> - [ ] Quoted task\n')).toEqual([]);
   });
-
   test('requires blank boundaries after headings and around top-level lists', () => {
     expectIssue('## Summary\nText.\n', 'heading-spacing');
     const listIssues = issueCodes('Text.\n- First\n- Second\n## Next\n\nDone.\n');
@@ -90,11 +90,11 @@ Compare old - new behavior, or use option 1) now.
 
   test('verifies the rendered heading, paragraph, and list structure', () => {
     const richBody =
-      '## Blocks\n\n> Quote.\n\n---\n\n```text\ncode\n```\n\n| A |\n| - |\n| B |\n\n- First.\n\n  Second.\n';
+      '## Blocks\n\n> Quote.\n\n---\n\n```text\ncode\n```\n\n| A |\n| - |\n| B |\n\n- First.\n\n  Second.\n- Third.\n';
     const richHtml =
       '<h2>Blocks</h2><blockquote><p>Quote.</p></blockquote><hr><pre><code>code</code></pre>' +
       '<table><tr><th>A</th></tr><tr><td>B</td></tr></table>' +
-      '<ul><li><p>First.</p><p>Second.</p></li></ul>';
+      '<ul><li><p>First.</p><p>Second.</p></li><li><p>Third.</p></li></ul>';
     for (const missing of [
       '<h2',
       '<blockquote',

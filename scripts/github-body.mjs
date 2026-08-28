@@ -60,14 +60,14 @@ const maskOutsideDirectChildren = (characters, node) => {
   maskRange(characters, cursor, end);
 };
 
-const sourceWithoutProtectedMarkdown = (body, root) => {
+const sourceWithoutProtectedMarkdown = (body, root, maskHtml = false) => {
   const characters = body.split('');
   walkAst(root, node => {
     if (node.type === 'link' || node.type === 'linkReference') {
       maskOutsideDirectChildren(characters, node);
       return;
     }
-    if (!PROTECTED_AST_TYPES.has(node.type)) return;
+    if (!PROTECTED_AST_TYPES.has(node.type) && !(maskHtml && node.type === 'html')) return;
     const start = nodeOffset(node, 'start');
     const end = nodeOffset(node, 'end');
     if (start !== undefined && end !== undefined) maskRange(characters, start, end);
@@ -77,6 +77,7 @@ const sourceWithoutProtectedMarkdown = (body, root) => {
 
 const collectVisibleStructureIssues = (body, root) => {
   const searchableBody = sourceWithoutProtectedMarkdown(body, root);
+  const inlineStructureBody = sourceWithoutProtectedMarkdown(body, root, true);
   const issues = [];
   let line = 1;
   let previousOffset = 0;
@@ -95,7 +96,7 @@ const collectVisibleStructureIssues = (body, root) => {
     const start = nodeOffset(node, 'start');
     const end = nodeOffset(node, 'end');
     if (node.type !== 'paragraph' || start === undefined || end === undefined) return;
-    for (const [index, text] of searchableBody.slice(start, end).split('\n').entries()) {
+    for (const [index, text] of inlineStructureBody.slice(start, end).split('\n').entries()) {
       const sourceLine = node.position.start.line + index;
       if (INLINE_HEADING_PATTERN.test(text)) {
         issues.push(
@@ -169,10 +170,9 @@ const expectedRenderedTags = body => {
   const counts = new Map();
   const increment = tag => counts.set(tag, (counts.get(tag) ?? 0) + 1);
   walkAst(root, (node, parent, listAncestor) => {
-    if (
-      node.type === 'paragraph' &&
-      (parent?.type !== 'listItem' || parent.spread || listAncestor?.spread)
-    ) {
+    const looseList =
+      listAncestor?.spread || listAncestor?.children.some(listItem => listItem.spread);
+    if (node.type === 'paragraph' && (parent?.type !== 'listItem' || looseList)) {
       increment('p');
     }
     if (node.type === 'heading') increment(`h${node.depth}`);
