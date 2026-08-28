@@ -436,12 +436,13 @@ describe('NewHomeView library interactions', () => {
         'before:absolute',
         'before:left-1/2',
         'before:top-1/2',
-        'before:h-12',
-        'before:w-12',
+        'before:h-48',
+        'before:w-48',
         'before:-translate-x-1/2',
         'before:-translate-y-1/2',
+        'before:opacity-[0.35]',
         'before:rounded-full',
-        'before:bg-[radial-gradient(circle,var(--bg-paper)_0%,var(--bg-paper)_58%,transparent_78%)]'
+        'before:bg-[radial-gradient(circle,var(--bg-paper)_0%,transparent_100%)]'
       );
       expect(nextFilters).toHaveClass(
         'absolute',
