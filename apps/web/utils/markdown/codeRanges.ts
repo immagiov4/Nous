@@ -451,7 +451,7 @@ const projectFenceOpeners = (
   return { content: characters.join(''), sourceOffsets };
 };
 
-interface UnclosedFenceProjection {
+export interface UnclosedFenceProjection {
   content: string;
   escapedOpenerRanges: MarkdownRange[];
   sourceOffsets: number[];
@@ -502,7 +502,7 @@ const getFenceOpenersInsideUnclosedRanges = (
   return openingRanges;
 };
 
-const projectAllUnclosedFenceOpeners = (content: string): UnclosedFenceProjection => {
+export const projectUnclosedMarkdownFenceOpeners = (content: string): UnclosedFenceProjection => {
   const initialUnclosedRanges = planMarkdownFencedCode(content).unclosedRanges;
   const initialOpeningRanges = initialUnclosedRanges.map(range =>
     getFenceOpeningRange(content, range)
@@ -532,7 +532,7 @@ const projectAllUnclosedFenceOpeners = (content: string): UnclosedFenceProjectio
 };
 
 export const escapeUnclosedMarkdownFenceOpeners = (content: string): string =>
-  projectAllUnclosedFenceOpeners(content).content;
+  projectUnclosedMarkdownFenceOpeners(content).content;
 
 const getTableDelimiterRange = (
   content: string,
@@ -664,7 +664,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     structuralRanges: [],
   };
   const indentationProjection = projectAccidentalPlainTextIndentation(content, fencedCodeRanges);
-  const fenceProjection = projectAllUnclosedFenceOpeners(indentationProjection.content);
+  const fenceProjection = projectUnclosedMarkdownFenceOpeners(indentationProjection.content);
   analysis.escapedFenceOpenerRanges = fenceProjection.escapedOpenerRanges.map(range => ({
     start: indentationProjection.sourceOffsets[range.start] ?? range.start,
     end: indentationProjection.sourceOffsets[range.end] ?? range.end,

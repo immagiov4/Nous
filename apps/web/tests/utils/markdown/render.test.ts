@@ -325,6 +325,27 @@ test('normalizeMarkdownForRendering neutralizes unclosed openers in indented lis
   });
 });
 
+test.each([
+  {
+    input: ['- item', '    ```ts', '    code', '- sibling'].join('\n'),
+    expected: ['- item', '    \\```ts', '    code', '- sibling'].join('\n'),
+    name: 'unordered list',
+  },
+  {
+    input: ['> - item', '>     ```ts', '>     code', '> - sibling'].join('\n'),
+    expected: ['> - item', '>     \\```ts', '>     code', '> - sibling'].join('\n'),
+    name: 'blockquote list',
+  },
+])('normalizeMarkdownForRendering retains $name context for unclosed fences', ({
+  input,
+  expected,
+}) => {
+  const output = normalizeMarkdownForRendering(input);
+
+  assert.equal(output, expected);
+  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
+});
+
 test('normalizeMarkdownForRendering still processes a sibling after an unclosed list fence', () => {
   const input = ['- ```ts', '  first', '- Header <iostream>'].join('\n');
 
