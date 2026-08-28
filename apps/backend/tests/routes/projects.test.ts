@@ -1365,6 +1365,28 @@ describe('/api/projects', () => {
     expect(listResponse.body.projects).toEqual([]);
   });
 
+  test('rejects full snapshots with incomplete referenced durable visuals', async () => {
+    const app = createApp();
+    const projectId = 'incomplete-visual-project';
+    const snapshot = createModuleSnapshot(projectId, 'Corso visuale incompleto');
+    const lesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!lesson) throw new Error('Missing incomplete visual test lesson.');
+    lesson.content = 'Contenuto strutturato.';
+    lesson.contentBlocks = [
+      { markdown: 'Contenuto strutturato.', type: 'markdown' },
+      { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: 'visual-1' },
+    ];
+    lesson.generatedVisuals = [{ id: 'visual-1', slotId: 'lesson-slot-1' } as never];
+
+    const response = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+
+    expect(response.status).toBe(400);
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects).toEqual([]);
+  });
+
   test('keeps structured lesson content canonical across later PUT and PATCH revisions', async () => {
     const app = createApp();
     const projectId = 'canonical-lesson-project';

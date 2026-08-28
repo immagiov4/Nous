@@ -122,3 +122,32 @@ export interface ProjectLessonVisual {
   readonly slotId: string;
   readonly title?: string;
 }
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
+
+const isValidProjectVisual = (value: unknown): value is ProjectVisual => {
+  if (!isRecord(value)) return false;
+  if (value.kind === 'image') return isValidProjectAssetRef(value.asset);
+  if (value.kind === 'html') {
+    return (
+      isNonEmptyString(value.code) &&
+      Array.isArray(value.embeddedAssets) &&
+      value.embeddedAssets.every(isValidProjectAssetRef)
+    );
+  }
+  return (value.kind === 'mermaid' || value.kind === 'svg') && isNonEmptyString(value.code);
+};
+
+const isOptionalNonEmptyString = (value: unknown): boolean =>
+  value === undefined || isNonEmptyString(value);
+
+export const isValidProjectLessonVisual = (value: unknown): value is ProjectLessonVisual =>
+  isRecord(value) &&
+  isNonEmptyString(value.createdAt) &&
+  isNonEmptyString(value.id) &&
+  isValidProjectVisual(value.render) &&
+  isNonEmptyString(value.slotId) &&
+  isOptionalNonEmptyString(value.altText) &&
+  isOptionalNonEmptyString(value.anchorHeading) &&
+  isOptionalNonEmptyString(value.title);

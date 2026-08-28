@@ -503,6 +503,54 @@ describe('durable lesson generation persistence', () => {
     ).toThrow(ProjectLessonGenerationTargetError);
   });
 
+  test('undo migrates an artifact-draft slot from a historical durable checkpoint', async () => {
+    const snapshot = project();
+    const input = visualsState(snapshot);
+    const execution = context(input).execution;
+    const state = await createLessonPersistenceStage({
+      loadProject: vi.fn().mockResolvedValue(snapshot),
+      now: () => NOW,
+    })(context(input));
+    const previousSection = JSON.parse(state.previous.sectionJson);
+    previousSection.content = 'Copia storica divergente';
+    previousSection.contentBlocks = [
+      { markdown: 'Contenuto storico autorevole.', type: 'markdown' },
+      { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: 'visual-old' },
+    ];
+    previousSection.generatedVisuals = [
+      {
+        createdAt: NOW,
+        id: 'visual-old',
+        render: { code: '<svg></svg>', kind: 'svg' },
+        slotId: 'artifact-draft',
+      },
+    ];
+    state.previous.sectionJson = JSON.stringify(previousSection);
+    const committed = applyProjectPatch(
+      snapshot,
+      buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
+      NOW
+    );
+
+    const undoPatch = buildLessonGenerationUndoPatch(
+      { revision: 5, snapshot: committed },
+      input,
+      state,
+      execution
+    );
+    const restored = applyProjectPatch(committed, undoPatch ?? {}, NOW);
+    const restoredLesson = restored.learningPlan?.modules?.[0]?.children?.[0];
+
+    expect(restoredLesson?.content).toBe('Contenuto storico autorevole.');
+    expect(restoredLesson?.contentBlocks).toEqual(previousSection.contentBlocks);
+    expect(restoredLesson?.generatedVisuals).toEqual([
+      expect.objectContaining({ id: 'visual-old', slotId: 'lesson-slot-1' }),
+    ]);
+    expect(
+      buildLessonGenerationUndoPatch({ revision: 6, snapshot: restored }, input, state, execution)
+    ).toBeNull();
+  });
+
   test.each([
     ['empty', []],
     ['malformed', [null]],

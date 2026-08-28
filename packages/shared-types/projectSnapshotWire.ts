@@ -6,6 +6,7 @@ import {
   LESSON_GENERATED_VISUAL_BLOCK_TYPE,
   LESSON_MARKDOWN_BLOCK_TYPE,
 } from './lessonContent';
+import { isValidProjectLessonVisual } from './projectAsset';
 import type { ProjectSourceKind } from './projectContract';
 import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
 
@@ -247,10 +248,12 @@ const assertGeneratedVisualBlockRelations = (
       (visual): visual is Record<string, unknown> => isRecord(visual) && visual.id === visualId
     );
     const matchingVisual = matchingVisuals[0];
+    const isLegacyVisual = matchingVisual ? isLegacyLessonGeneratedVisual(matchingVisual) : false;
     if (
       matchingVisuals.length !== 1 ||
       !matchingVisual ||
-      (!isLegacyLessonGeneratedVisual(matchingVisual) && matchingVisual.slotId !== slotId)
+      (!isLegacyVisual &&
+        (!isValidProjectLessonVisual(matchingVisual) || matchingVisual.slotId !== slotId))
     ) {
       throw new ProjectSnapshotWireError(INVALID_LESSON_VISUAL_REFERENCES_MESSAGE);
     }

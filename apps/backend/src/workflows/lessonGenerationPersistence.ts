@@ -287,11 +287,19 @@ const restoredSectionPatch = (
 ): NonNullable<TransactionProjectPatch['section']> => {
   let content = typeof previous.content === 'string' ? previous.content : null;
   let contentBlocks: unknown[] | null = null;
+  let generatedVisuals = Array.isArray(previous.generatedVisuals)
+    ? previous.generatedVisuals
+    : null;
   if (Array.isArray(previous.contentBlocks)) {
     try {
-      const canonicalPrevious = canonicalizeLessonNodeContent(previous);
+      const canonicalPrevious = canonicalizeLessonNodeContent(previous, {
+        recoverHistoricalArtifactDraftVisualSlots: true,
+      });
       content = canonicalPrevious.content as string;
       contentBlocks = canonicalPrevious.contentBlocks as unknown[];
+      generatedVisuals = Array.isArray(canonicalPrevious.generatedVisuals)
+        ? canonicalPrevious.generatedVisuals
+        : null;
     } catch (error) {
       if (!(error instanceof ProjectSnapshotWireError)) throw error;
     }
@@ -302,7 +310,7 @@ const restoredSectionPatch = (
     generationWarnings: Array.isArray(previous.generationWarnings)
       ? previous.generationWarnings
       : null,
-    generatedVisuals: Array.isArray(previous.generatedVisuals) ? previous.generatedVisuals : null,
+    generatedVisuals,
     imageRefs: Array.isArray(previous.imageRefs) ? previous.imageRefs : null,
     learningAids: Array.isArray(previous.learningAids) ? previous.learningAids : null,
     lastGenerationRunId:

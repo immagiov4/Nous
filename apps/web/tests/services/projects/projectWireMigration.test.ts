@@ -82,6 +82,20 @@ const legacyGeneratedVisual = {
   title: 'Visuale storica',
 };
 
+const projectAssetRef = {
+  byteSize: 1,
+  hash: 'a'.repeat(64),
+  id: 'a'.repeat(64),
+  mediaType: 'image/png',
+};
+
+const currentGeneratedVisual = (render: unknown) => ({
+  createdAt: '2026-08-28T12:00:00.000Z',
+  id: 'visual-1',
+  render,
+  slotId: 'slot-ready',
+});
+
 const readMigratedFiles = (project: ReturnType<typeof decodeProjectSnapshotWire>) => {
   assert.equal(project.source?.kind, 'document');
   assert.ok(Array.isArray(project.source.sources));
@@ -285,7 +299,9 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
   ];
 
   const decoded = decodeProjectSnapshotWire(
-    projectWithLessonBlocks(contentBlocks, [{ id: 'visual-1', slotId: 'slot-ready' }])
+    projectWithLessonBlocks(contentBlocks, [
+      currentGeneratedVisual({ code: '<svg></svg>', kind: 'svg' }),
+    ])
   );
   const lesson = (
     decoded.learningPlan as {
@@ -295,6 +311,44 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
 
   assert.equal(lesson?.content, '## Contenuto strutturato');
   assert.deepEqual(lesson?.contentBlocks, contentBlocks);
+});
+
+test.each([
+  { asset: projectAssetRef, kind: 'image' },
+  { code: '<main>Visuale</main>', embeddedAssets: [], kind: 'html' },
+  { code: 'flowchart LR; A --> B', kind: 'mermaid' },
+  { code: '<svg></svg>', kind: 'svg' },
+])('wire decoding accepts a referenced durable $kind visual', render => {
+  assert.doesNotThrow(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-ready', type: 'generated-visual', visualId: 'visual-1' },
+        ],
+        [currentGeneratedVisual(render)]
+      )
+    )
+  );
+});
+
+test.each([
+  { id: 'visual-1', slotId: 'slot-ready' },
+  { id: 'visual-1', render: {}, slotId: 'slot-ready' },
+])('wire decoding rejects an incomplete referenced durable visual', generatedVisual => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks(
+          [
+            { markdown: 'Contenuto strutturato.', type: 'markdown' },
+            { slotId: 'slot-ready', type: 'generated-visual', visualId: 'visual-1' },
+          ],
+          [generatedVisual]
+        )
+      ),
+    /riferimenti visuali della lezione non validi/iu
+  );
 });
 
 test('wire decoding rejects duplicate generated visual slots', () => {
