@@ -424,15 +424,47 @@ describe('NewHomeView library interactions', () => {
       const previousFilters = await screen.findByRole('button', {
         name: /Mostra i filtri precedenti|Show previous filters/,
       });
+      const previousArrowSurface = previousFilters.firstElementChild;
+      const nextArrowSurface = nextFilters.firstElementChild;
       expect(readChipViewportLayout()).toEqual(expectedChipViewportLayout);
-      expect(previousFilters).toHaveClass('absolute', 'left-0', 'h-11', 'w-11');
+      expect(previousFilters).toHaveClass(
+        'absolute',
+        'isolate',
+        'left-0',
+        'h-11',
+        'w-11',
+        'before:absolute',
+        'before:left-1/2',
+        'before:top-1/2',
+        'before:h-12',
+        'before:w-12',
+        'before:-translate-x-1/2',
+        'before:-translate-y-1/2',
+        'before:rounded-full',
+        'before:bg-[radial-gradient(circle,var(--bg-paper)_0%,var(--bg-paper)_58%,transparent_78%)]'
+      );
       expect(nextFilters).toHaveClass(
         'absolute',
+        'isolate',
         'right-0',
         'h-11',
         'w-11',
         'motion-reduce:transition-none'
       );
+      expect(previousArrowSurface).toHaveClass(
+        'relative',
+        'z-10',
+        'h-[2.125rem]',
+        'w-[2.125rem]',
+        'rounded-full',
+        'bg-white'
+      );
+      expect(nextArrowSurface).toHaveClass('h-[2.125rem]', 'w-[2.125rem]');
+      expect(chipViewport?.children).toHaveLength(3);
+      for (const chip of chipViewport?.children || []) {
+        expect(chip).toHaveClass('h-[2.125rem]');
+        expect(chip).not.toHaveClass('py-2');
+      }
 
       nextFilters.focus();
       expect(nextFilters).toHaveFocus();

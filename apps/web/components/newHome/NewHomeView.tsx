@@ -940,8 +940,10 @@ const CourseList = ({
       left: direction * (chipViewportRef.current.clientWidth * CHIP_SCROLL_PAGE_FRACTION),
     });
   };
+  const filterChipHeightClassName = 'h-[2.125rem]';
   const chipScrollButtonClassName =
-    'absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 transition-[opacity,transform] duration-200 motion-reduce:transition-none sm:h-9 sm:w-9 dark:border-white/10 dark:bg-stone-800 dark:text-stone-300';
+    "absolute top-1/2 z-10 isolate flex h-11 w-11 -translate-y-1/2 items-center justify-center transition-[opacity,transform] duration-200 before:pointer-events-none before:absolute before:left-1/2 before:top-1/2 before:h-12 before:w-12 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-[radial-gradient(circle,var(--bg-paper)_0%,var(--bg-paper)_58%,transparent_78%)] before:content-[''] motion-reduce:transition-none sm:h-9 sm:w-9";
+  const chipScrollArrowSurfaceClassName = `${filterChipHeightClassName} relative z-10 flex w-[2.125rem] items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 dark:border-white/10 dark:bg-stone-800 dark:text-stone-300`;
   const folderMenuGroup = groups.find(group => group.id === openFolderMenu?.id);
   const courseMenuProject = projects.find(project => project.id === openCourseMenu?.id);
 
@@ -1021,7 +1023,9 @@ const CourseList = ({
                 : 'pointer-events-none scale-90 opacity-0'
             }`}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <span className={chipScrollArrowSurfaceClassName}>
+              <ChevronLeft className="h-4 w-4" />
+            </span>
           </button>
           <div
             ref={chipViewportRef}
@@ -1047,7 +1051,7 @@ const CourseList = ({
                   title={typeof count === 'number' ? formatCourseCount(count) : undefined}
                   aria-pressed={filter === option.filter}
                   onClick={() => selectFilter(option.filter)}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900"
+                  className={`${filterChipHeightClassName} inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-4 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900`}
                 >
                   {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
                   {option.label}
@@ -1063,7 +1067,7 @@ const CourseList = ({
                 type="button"
                 aria-pressed={filter === `folder:${folder.id}`}
                 onClick={() => selectFilter(`folder:${folder.id}`)}
-                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900"
+                className={`${filterChipHeightClassName} inline-flex shrink-0 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900`}
               >
                 {folder.name}
                 <span className="text-[0.65rem] opacity-60">
@@ -1086,7 +1090,9 @@ const CourseList = ({
                 : 'pointer-events-none scale-90 opacity-0'
             }`}
           >
-            <ChevronRight className="h-4 w-4" />
+            <span className={chipScrollArrowSurfaceClassName}>
+              <ChevronRight className="h-4 w-4" />
+            </span>
           </button>
         </div>
       </div>
