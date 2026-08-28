@@ -173,7 +173,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  test('shows playback speed as a direct horizontal control without a secondary slider', () => {
+  test('shows voice and playback speed in one full-width vertical control', () => {
     render(
       <UnifiedAudioPanel
         initialTab="voce"
@@ -188,15 +188,59 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
+    const voiceSpeedControl = screen.getByRole('group', { name: 'Voce · Velocita' });
+    const voiceControl = screen.getByRole('combobox', { name: 'Voce' });
     const speedControl = screen.getByRole('slider', { name: 'Velocita' });
-    expect(speedControl).toHaveAttribute('aria-valuemin', '0.8');
-    expect(speedControl).toHaveAttribute('aria-valuemax', '1.6');
-    expect(speedControl).toHaveAttribute('aria-valuenow', '1');
+
+    expect(voiceSpeedControl).toHaveClass('w-full');
+    expect(voiceSpeedControl).toHaveTextContent('Alloy');
+    expect(voiceSpeedControl).toHaveTextContent('•');
+    expect(voiceSpeedControl).toHaveTextContent('1x');
+    expect(voiceControl).toHaveValue('alloy');
+    expect(speedControl).toHaveAttribute('type', 'range');
+    expect(speedControl).toHaveAttribute('min', '0.8');
+    expect(speedControl).toHaveAttribute('max', '1.6');
+    expect(speedControl).toHaveAttribute('step', '0.05');
+    expect(speedControl).toHaveValue('1');
     expect(speedControl).toHaveAttribute('aria-valuetext', '1x');
     expect(speedControl).toHaveAttribute('aria-orientation', 'horizontal');
-    expect(speedControl).toHaveTextContent('1x');
-    expect(speedControl).toHaveClass('h-11', 'w-11', 'touch-pan-y', 'cursor-ew-resize');
-    expect(document.querySelector('input[type="range"][min="0.8"]')).toBeNull();
+    expect(speedControl).toHaveClass('h-11', 'w-full', 'touch-pan-y');
+  });
+
+  test('keeps voice selection separate from playback-speed changes', async () => {
+    const user = userEvent.setup();
+    const onSpeedChange = vi.fn();
+    const onVoiceChange = vi.fn();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({
+          availableVoices: [
+            { id: 'alloy', label: 'Alloy', language: 'en' },
+            { id: 'echo', label: 'Echo', language: 'en' },
+          ],
+          onSpeedChange,
+          onVoiceChange,
+        })}
+      />
+    );
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Voce' }), 'echo');
+    expect(onVoiceChange).toHaveBeenCalledWith('echo');
+    expect(onSpeedChange).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Velocita' }), {
+      target: { value: '1.1' },
+    });
+    expect(onSpeedChange).toHaveBeenCalledWith(1.1);
+    expect(onVoiceChange).toHaveBeenCalledOnce();
   });
 
   test('disables direct speed input while TTS is unavailable', async () => {
@@ -217,13 +261,12 @@ describe('UnifiedAudioPanel', () => {
     );
 
     const speedControl = screen.getByRole('slider', { name: 'Velocita' });
-    expect(speedControl).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('combobox', { name: 'Voce' })).toBeDisabled();
+    expect(speedControl).toBeDisabled();
     expect(speedControl).toHaveAttribute('tabindex', '-1');
 
     speedControl.focus();
     await user.keyboard('{ArrowRight}');
-    fireEvent.pointerDown(speedControl, { clientX: 10, pointerId: 7, pointerType: 'touch' });
-    fireEvent.pointerMove(speedControl, { clientX: 30, pointerId: 7, pointerType: 'touch' });
 
     expect(onSpeedChange).not.toHaveBeenCalled();
   });
@@ -244,10 +287,8 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveAttribute(
-      'aria-valuenow',
-      '1.6'
-    );
+    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveValue('1.6');
+    expect(screen.getByText('1.6x')).toBeInTheDocument();
     expect(onSpeedChange).toHaveBeenCalledOnce();
     expect(onSpeedChange).toHaveBeenCalledWith(1.6);
   });
@@ -276,10 +317,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.05, 1.1, 1.05, 1.6, 0.8]);
   });
 
-  test.each([
-    'mouse',
-    'touch',
-  ] as const)('adjusts the playback-speed control right and left with %s pointers', pointerType => {
+  test('changes playback speed directly through the wide range input', () => {
     const onSpeedChange = vi.fn();
     render(
       <UnifiedAudioPanel
@@ -296,122 +334,7 @@ describe('UnifiedAudioPanel', () => {
     );
 
     const speedControl = screen.getByRole('slider', { name: 'Velocita' });
-    Object.assign(speedControl, {
-      hasPointerCapture: () => true,
-      releasePointerCapture: vi.fn(),
-      setPointerCapture: vi.fn(),
-    });
-
-    fireEvent.pointerDown(speedControl, {
-      clientX: 10,
-      clientY: 20,
-      button: 0,
-      isPrimary: true,
-      pointerId: 7,
-      pointerType,
-    });
-    fireEvent.pointerMove(speedControl, {
-      clientX: 12,
-      clientY: 20,
-      pointerId: 7,
-      pointerType,
-    });
-    expect(onSpeedChange).not.toHaveBeenCalled();
-
-    fireEvent.pointerMove(speedControl, {
-      clientX: 30,
-      clientY: 20,
-      pointerId: 7,
-      pointerType,
-    });
-    fireEvent.pointerMove(speedControl, {
-      clientX: 10,
-      clientY: 20,
-      pointerId: 7,
-      pointerType,
-    });
-    fireEvent.pointerUp(speedControl, { pointerId: 7, pointerType });
-
-    expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.1, 1]);
-  });
-
-  test('ignores secondary buttons and non-primary touch pointers', () => {
-    const onSpeedChange = vi.fn();
-    render(
-      <UnifiedAudioPanel
-        initialTab="voce"
-        isOpen
-        isMusicPlaying={false}
-        musicUrl=""
-        musicVolume={60}
-        setIsMusicPlaying={() => {}}
-        setMusicUrl={() => {}}
-        setMusicVolume={() => {}}
-        tts={buildTtsModel({ onSpeedChange })}
-      />
-    );
-
-    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
-    fireEvent.pointerDown(speedControl, {
-      button: 2,
-      clientX: 10,
-      isPrimary: true,
-      pointerId: 7,
-      pointerType: 'mouse',
-    });
-    fireEvent.pointerMove(speedControl, {
-      clientX: 30,
-      pointerId: 7,
-      pointerType: 'mouse',
-    });
-    fireEvent.pointerDown(speedControl, {
-      button: 0,
-      clientX: 10,
-      isPrimary: false,
-      pointerId: 8,
-      pointerType: 'touch',
-    });
-    fireEvent.pointerMove(speedControl, {
-      clientX: 30,
-      pointerId: 8,
-      pointerType: 'touch',
-    });
-
-    expect(onSpeedChange).not.toHaveBeenCalled();
-  });
-
-  test('keeps the active drag when another pointer loses capture', () => {
-    const onSpeedChange = vi.fn();
-    render(
-      <UnifiedAudioPanel
-        initialTab="voce"
-        isOpen
-        isMusicPlaying={false}
-        musicUrl=""
-        musicVolume={60}
-        setIsMusicPlaying={() => {}}
-        setMusicUrl={() => {}}
-        setMusicVolume={() => {}}
-        tts={buildTtsModel({ onSpeedChange })}
-      />
-    );
-
-    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
-    Object.assign(speedControl, { setPointerCapture: vi.fn() });
-    fireEvent.pointerDown(speedControl, {
-      button: 0,
-      clientX: 10,
-      isPrimary: true,
-      pointerId: 7,
-      pointerType: 'touch',
-    });
-    fireEvent.lostPointerCapture(speedControl, { pointerId: 8, pointerType: 'touch' });
-    fireEvent.pointerMove(speedControl, {
-      clientX: 30,
-      pointerId: 7,
-      pointerType: 'touch',
-    });
-
+    fireEvent.change(speedControl, { target: { value: '1.1' } });
     expect(onSpeedChange).toHaveBeenCalledWith(1.1);
   });
 
