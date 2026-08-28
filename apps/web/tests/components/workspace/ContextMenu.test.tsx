@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
@@ -78,6 +78,8 @@ describe('ContextMenu', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   test('submits a desktop question with trimmed input', async () => {
@@ -207,7 +209,7 @@ describe('ContextMenu', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apri menu' }));
     const createLessonItem = screen.getByRole('menuitem', {
-      name: 'Generazione sottolezione in corso…',
+      name: 'Attendi che la generazione in corso termini',
     });
 
     expect(createLessonItem).toBeDisabled();
@@ -231,7 +233,7 @@ describe('ContextMenu', () => {
     rerender(<ContextMenu {...props} isLoading lessonCreationBlockReason="lesson-generation" />);
 
     const pendingButton = screen.getByRole('button', {
-      name: 'Generazione sottolezione in corso…',
+      name: 'Attendi che la generazione in corso termini',
     });
     expect(pendingButton).toBeDisabled();
     await user.click(pendingButton);
@@ -307,6 +309,82 @@ describe('ContextMenu', () => {
     fireEvent.pointerDown(screen.getByPlaceholderText(/Chiedi a Nous/i));
     expect(screen.queryByRole('menu', { name: 'Apri menu' })).not.toBeInTheDocument();
     expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  test('repositions rare actions when content height and viewport geometry change', async () => {
+    const user = userEvent.setup();
+    const menuGap = 8;
+    const viewportPadding = 12;
+    const initialMenuHeight = 40;
+    const wrappedMenuHeight = 72;
+    const triggerHeight = 32;
+    const triggerRight = 300;
+    const triggerWidth = 32;
+    let menuHeight = initialMenuHeight;
+    let triggerTop = initialMenuHeight + menuGap + viewportPadding;
+    let resizeObserverCallback: ResizeObserverCallback | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    const observeMenu = vi.fn();
+    class ResizeObserverMock {
+      readonly disconnect = vi.fn();
+      readonly observe = observeMenu;
+      readonly unobserve = vi.fn();
+
+      constructor(callback: ResizeObserverCallback) {
+        resizeObserverCallback = callback;
+        resizeObserver = this as unknown as ResizeObserver;
+      }
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+      this: HTMLElement
+    ) {
+      return this.getAttribute('role') === 'menu' ? menuHeight : 0;
+    });
+
+    render(
+      <ContextMenu {...buildProps()} isLoading lessonCreationBlockReason="lesson-generation" />
+    );
+
+    const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
+    vi.spyOn(moreActionsButton, 'getBoundingClientRect').mockImplementation(() => ({
+      bottom: triggerTop + triggerHeight,
+      height: triggerHeight,
+      left: triggerRight - triggerWidth,
+      right: triggerRight,
+      top: triggerTop,
+      width: triggerWidth,
+      x: triggerRight - triggerWidth,
+      y: triggerTop,
+      toJSON: () => ({}),
+    }));
+
+    await user.click(moreActionsButton);
+
+    const submenu = screen.getByRole('menu', { name: 'Apri menu' });
+    expect(submenu.style.top).toBe('');
+    expect(submenu.style.bottom).toBe(`${globalThis.innerHeight - triggerTop + menuGap}px`);
+    expect(observeMenu).toHaveBeenCalledWith(submenu);
+
+    triggerTop = initialMenuHeight + menuGap + viewportPadding - 1;
+    fireEvent(globalThis.window, new Event('resize'));
+
+    expect(submenu.style.top).toBe(`${triggerTop + triggerHeight + menuGap}px`);
+    expect(submenu.style.bottom).toBe('');
+
+    menuHeight = wrappedMenuHeight;
+    act(() => {
+      resizeObserverCallback?.([], resizeObserver as ResizeObserver);
+    });
+
+    expect(submenu.style.top).toBe(`${triggerTop + triggerHeight + menuGap}px`);
+    expect(submenu.style.bottom).toBe('');
+
+    triggerTop = 200;
+    fireEvent(globalThis.window, new Event('resize'));
+
+    expect(submenu.style.top).toBe('');
+    expect(submenu.style.bottom).toBe(`${globalThis.innerHeight - triggerTop + menuGap}px`);
   });
 
   test('keeps the note panel anchored while opening the rare-actions menu', async () => {

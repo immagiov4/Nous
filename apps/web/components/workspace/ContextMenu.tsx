@@ -83,7 +83,6 @@ const CONTEXT_MENU_DESKTOP_CHROME_HEIGHT = 76;
 const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const MORE_ACTIONS_MENU_WIDTH = 240;
-const MORE_ACTIONS_MENU_HEIGHT = 52;
 const MORE_ACTIONS_MENU_GAP = 8;
 
 const clamp = (value: number, min: number, max: number) => {
@@ -97,6 +96,24 @@ const abbreviate = (value: string, maxLength: number) => {
   }
 
   return `${normalizedValue.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+};
+
+const getMoreActionsMenuStyle = (triggerRect: DOMRect, menuHeight: number): CSSProperties => {
+  const left = clamp(
+    triggerRect.right - MORE_ACTIONS_MENU_WIDTH,
+    CONTEXT_MENU_VIEWPORT_PADDING,
+    Math.max(
+      CONTEXT_MENU_VIEWPORT_PADDING,
+      globalThis.window.innerWidth - MORE_ACTIONS_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING
+    )
+  );
+
+  return triggerRect.top >= menuHeight + MORE_ACTIONS_MENU_GAP + CONTEXT_MENU_VIEWPORT_PADDING
+    ? {
+        bottom: globalThis.window.innerHeight - triggerRect.top + MORE_ACTIONS_MENU_GAP,
+        left,
+      }
+    : { left, top: triggerRect.bottom + MORE_ACTIONS_MENU_GAP };
 };
 
 const ContextMenu = ({
@@ -156,7 +173,7 @@ const ContextMenu = ({
   const isLessonMode = type === 'lesson';
   const lessonCreationBlockedLabel =
     lessonCreationBlockReason === 'lesson-generation'
-      ? t('Generazione sottolezione in corso…')
+      ? t('Attendi che la generazione in corso termini')
       : lessonCreationBlockReason === 'other-operation'
         ? t('Operazione in corso…')
         : null;
@@ -355,22 +372,7 @@ const ContextMenu = ({
       return;
     }
 
-    const left = clamp(
-      triggerRect.right - MORE_ACTIONS_MENU_WIDTH,
-      CONTEXT_MENU_VIEWPORT_PADDING,
-      Math.max(
-        CONTEXT_MENU_VIEWPORT_PADDING,
-        globalThis.window.innerWidth - MORE_ACTIONS_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING
-      )
-    );
-    setMoreActionsMenuStyle(
-      triggerRect.top >= MORE_ACTIONS_MENU_HEIGHT + MORE_ACTIONS_MENU_GAP
-        ? {
-            bottom: globalThis.window.innerHeight - triggerRect.top + MORE_ACTIONS_MENU_GAP,
-            left,
-          }
-        : { left, top: triggerRect.bottom + MORE_ACTIONS_MENU_GAP }
-    );
+    setMoreActionsMenuStyle(getMoreActionsMenuStyle(triggerRect, 0));
     setIsLessonConfirmOpen(false);
     setIsMoreActionsOpen(true);
   };
@@ -449,6 +451,42 @@ const ContextMenu = ({
       globalThis.window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isMoreActionsOpen, onClose]);
+
+  useLayoutEffect(() => {
+    if (!isMoreActionsOpen) {
+      return;
+    }
+
+    const updateMoreActionsMenuPosition = () => {
+      const triggerRect = moreActionsButtonRef.current?.getBoundingClientRect();
+      const menuHeight = moreActionsMenuRef.current?.offsetHeight;
+      if (!triggerRect || menuHeight === undefined) {
+        return;
+      }
+
+      const nextStyle = getMoreActionsMenuStyle(triggerRect, menuHeight);
+      setMoreActionsMenuStyle(currentStyle =>
+        currentStyle?.bottom === nextStyle.bottom &&
+        currentStyle?.left === nextStyle.left &&
+        currentStyle?.top === nextStyle.top
+          ? currentStyle
+          : nextStyle
+      );
+    };
+
+    updateMoreActionsMenuPosition();
+    const menuElement = moreActionsMenuRef.current;
+    let menuResizeObserver: ResizeObserver | null = null;
+    if (menuElement && typeof ResizeObserver !== 'undefined') {
+      menuResizeObserver = new ResizeObserver(updateMoreActionsMenuPosition);
+      menuResizeObserver.observe(menuElement);
+    }
+    globalThis.window.addEventListener('resize', updateMoreActionsMenuPosition);
+    return () => {
+      menuResizeObserver?.disconnect();
+      globalThis.window.removeEventListener('resize', updateMoreActionsMenuPosition);
+    };
+  }, [isMoreActionsOpen]);
 
   useEffect(() => {
     if (!isMoreActionsOpen) {
