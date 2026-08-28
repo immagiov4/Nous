@@ -592,12 +592,13 @@ export const createAssessmentPlanningCommands = (
       requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
       state.setScreenState(AppState.PLANNING);
       progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
-      await openRouter.sendCourseInterviewDecision({
+      const approvedInterview = await openRouter.sendCourseInterviewDecision({
         decision: { kind: 'approve' },
         projectId,
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
+      applyInterviewSnapshot(approvedInterview);
       const generated = await runDurableCourse({
         execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
         profile: courseProposal,

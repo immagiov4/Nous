@@ -3540,6 +3540,7 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
       await decisionGate;
       return createInterviewSnapshot({
         generationRunId: 'course-run-1',
+        messages: [{ role: 'model', text: 'Proposta approvata' }],
         projectId: 'document-project',
         result: {
           generationRunId: 'course-run-1',
@@ -3584,6 +3585,9 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
     waitId: 'decision-wait',
   });
   assert.equal(resumeActiveDurableCourse.mock.calls[0]?.[0].projectId, 'document-project');
+  assert.deepEqual(state.internalState.assessmentMessages, [
+    { role: 'model', text: 'Proposta approvata' },
+  ]);
   assert.deepEqual(projectLibrary.appliedProjectRevisions, [
     { projectId: 'document-project', revision: 4 },
   ]);

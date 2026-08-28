@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { getFeedbackProductSurface } from '../../app/AppContent.tsx';
+import { getFeedbackProductReferences, getFeedbackProductSurface } from '../../app/AppContent.tsx';
 import { AppState } from '../../types.ts';
 
 test('classifies the active course interview as assessment while rendered in the library', () => {
@@ -41,4 +41,18 @@ test.each([
       screenState: AppState.LIBRARY,
     })
   ).toBe(surface);
+});
+
+test('uses the pending project and drops the prior section while a different course opens', () => {
+  expect(
+    getFeedbackProductReferences({
+      activeSectionId: 'old-section',
+      currentProjectId: 'old-project',
+      openingProjectId: 'opening-project',
+      savedProjects: [
+        { id: 'old-project', revision: 2 },
+        { id: 'opening-project', revision: 7 },
+      ],
+    })
+  ).toEqual({ project: { id: 'opening-project', revision: 7 } });
 });

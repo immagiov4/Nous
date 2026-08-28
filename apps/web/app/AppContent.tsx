@@ -1,4 +1,7 @@
-import type { FeedbackProductSurface } from '@shared/feedbackDiagnosticsContract';
+import type {
+  FeedbackProductContext,
+  FeedbackProductSurface,
+} from '@shared/feedbackDiagnosticsContract';
 import { useEffect } from 'react';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
 import { getNewHomePageFromPathname } from '../components/newHome/NewHomeView.tsx';
@@ -39,6 +42,28 @@ export const getFeedbackProductSurface = ({
   if (screenState === AppState.PLANNING) return 'planning';
   if (screenState === AppState.READING) return hasContextAnswer ? 'contextual-chat' : 'reader';
   return getNewHomePageFromPathname(pathname);
+};
+
+export const getFeedbackProductReferences = ({
+  activeSectionId,
+  currentProjectId,
+  openingProjectId,
+  savedProjects,
+}: {
+  activeSectionId: string | null;
+  currentProjectId: string | null;
+  openingProjectId: string | null;
+  savedProjects: ReadonlyArray<{ id: string; revision?: number }>;
+}): Pick<FeedbackProductContext, 'project' | 'section'> => {
+  const projectId = openingProjectId || currentProjectId;
+  if (!projectId) return {};
+  const revision = savedProjects.find(project => project.id === projectId)?.revision;
+  const isOpeningDifferentProject =
+    openingProjectId !== null && openingProjectId !== currentProjectId;
+  return {
+    project: { id: projectId, ...(revision === undefined ? {} : { revision }) },
+    ...(!isOpeningDifferentProject && activeSectionId ? { section: { id: activeSectionId } } : {}),
+  };
 };
 
 const AppContent = () => {
@@ -84,27 +109,14 @@ const AppContent = () => {
   const { isLibraryLoading, openingProjectId, savedProjects, screenState, workflowState } =
     controller;
 
-  const currentProject = savedProjects.find(project => project.id === controller.currentProjectId);
-
   useEffect(() => {
     setFeedbackProductContext({
-      ...(controller.currentProjectId
-        ? {
-            project: {
-              id: controller.currentProjectId,
-              ...(currentProject?.revision === undefined
-                ? {}
-                : { revision: currentProject.revision }),
-            },
-          }
-        : {}),
-      ...(controller.activeSection
-        ? {
-            section: {
-              id: controller.activeSection.id,
-            },
-          }
-        : {}),
+      ...getFeedbackProductReferences({
+        activeSectionId: controller.activeSection?.id || null,
+        currentProjectId: controller.currentProjectId,
+        openingProjectId,
+        savedProjects,
+      }),
       surface: getFeedbackProductSurface({
         hasContextAnswer: Boolean(readerState.readerContext.contextAnswer),
         isAssessmentActive:
@@ -117,8 +129,9 @@ const AppContent = () => {
     controller.activeSection,
     controller.currentProjectId,
     controller.assessmentMessages.length,
-    currentProject?.revision,
+    openingProjectId,
     readerState.readerContext.contextAnswer,
+    savedProjects,
     screenState,
     workflowState.assessment.status,
   ]);
