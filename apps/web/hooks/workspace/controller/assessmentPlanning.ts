@@ -361,6 +361,7 @@ export const createAssessmentPlanningCommands = (
             : (() => {
                 throw new Error('Missing source input for assessment');
               })();
+      if (!state.isWorkflowCurrent('assessment', requestId)) return;
       const projectId = await ensureInterviewProject('document');
       await startTrackedAssessmentInterview({
         hasReliableSourceContext: assessmentContext.hasReliableSourceContext,
@@ -504,6 +505,7 @@ export const createAssessmentPlanningCommands = (
 
   async function runAssessmentCancellation(): Promise<void> {
     const homeChatWorkspaceOwnership = activeHomeChatWorkspaceOwnership;
+    const homeChatStartPromise = activeHomeChatStartPromise;
     const isCancellingActiveHomeChat = Boolean(
       homeChatWorkspaceOwnership &&
         (latestHomeChatRequestToken === homeChatWorkspaceOwnership.requestToken ||
@@ -589,17 +591,14 @@ export const createAssessmentPlanningCommands = (
         }
         if (!pendingRunCancellationError) pendingRun?.pollingAbortController?.abort();
         if (pendingRunCancellationError) throw pendingRunCancellationError;
-        if (!interview && activeHomeChatStartPromise) {
-          const cancelledStart = await activeHomeChatStartPromise;
-          if (cancelledStart.outcome === 'failed') {
-            throw new Error(t('Operazione non riuscita. Riprova.'));
-          }
-          if (cancelledStart.outcome === 'abandoned') {
-            pendingRunCancellationError = undefined;
-          }
-        }
         await waitForPendingWorkspaceOpen();
         await projectLibrary.refreshLibraryState();
+      }
+      if (homeChatStartPromise) {
+        const cancelledStart = await homeChatStartPromise;
+        if (cancelledStart.outcome === 'failed') {
+          throw new Error(t('Operazione non riuscita. Riprova.'));
+        }
       }
       if (
         state.isWorkflowCurrent('assessment', cancellationRequestId) &&

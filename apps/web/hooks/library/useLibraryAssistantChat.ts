@@ -237,7 +237,8 @@ const terminalizePendingLibraryToolCalls = ({
 }): void => {
   const activeToolCalls = libraryAssistantActiveToolCallStore.get(requestStateKey);
   const pendingToolCalls = new Map(activeToolCalls);
-  const activeResponseMessage = [...messages]
+  const latestUserMessageIndex = messages.map(message => message.role).lastIndexOf('user');
+  const activeResponseMessage = [...messages.slice(latestUserMessageIndex + 1)]
     .reverse()
     .find(message => message.role === 'assistant');
   for (const part of activeResponseMessage?.parts.filter(isPendingLibraryToolPart) ?? []) {

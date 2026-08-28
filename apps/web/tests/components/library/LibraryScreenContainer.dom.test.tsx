@@ -154,6 +154,16 @@ describe('LibraryScreenContainer route fallback', () => {
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
   });
 
+  test('routes an external assessment to new-course before its first message arrives', () => {
+    globalThis.history.replaceState({}, '', '/library');
+    const props = buildProps();
+    props.controller.workflowState.assessment.status = 'pending';
+
+    render(<LibraryScreenContainer {...props} />);
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
+  });
+
   test('ignores source uploads while a library response is streaming', () => {
     globalThis.history.replaceState({}, '', '/library');
     const props = buildProps();

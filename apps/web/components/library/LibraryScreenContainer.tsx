@@ -105,7 +105,7 @@ export const LibraryScreenContainer = ({
   const isNewCourseLoading = controller.workflowState.assessment.status === 'pending';
   const isAnyHomeChatLoading = libraryAssistantChat.isLoading || isNewCourseLoading;
   const isAssessmentActive = assessmentMessages.length > 0 || isNewCourseLoading;
-  const visibleHomeChatMode = assessmentMessages.length > 0 ? 'new-course' : homeChatMode;
+  const visibleHomeChatMode = isAssessmentActive ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
   const currentProjectRevision = savedProjects.find(
     project => project.id === controller.currentProjectId

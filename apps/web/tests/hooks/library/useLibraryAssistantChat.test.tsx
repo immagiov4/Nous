@@ -269,6 +269,48 @@ describe('useLibraryAssistantChat', () => {
     );
   });
 
+  test('preserves a prior note decision when Stop precedes the new assistant reply', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-old-note',
+          role: 'assistant',
+          parts: [
+            {
+              input: { noteDraft: 'Nota precedente' },
+              state: 'input-available',
+              toolCallId: 'old-note-request',
+              type: 'tool-requestSaveLearningArtifactNote',
+            },
+          ],
+        },
+        {
+          id: 'user-new-question',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Nuova domanda' }],
+        },
+      ],
+      sendMessage: vi.fn(),
+      status: 'submitted',
+      stop: stopMock,
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+
+    act(() => result.current.sendLibraryMessage.stop?.());
+
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+  });
+
   test('sends the latest web-search preference through the initial transport instance', async () => {
     const stableFolders = [folder];
     const stableProjects = [project];

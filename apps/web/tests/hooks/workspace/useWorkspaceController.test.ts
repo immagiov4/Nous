@@ -2986,11 +2986,12 @@ test('cancelAssessment invalidates source preparation before startHomeChat persi
   });
   await sourcePreparationStarted;
 
-  await controller.cancelAssessment();
+  const cancellation = controller.cancelAssessment();
   resolveSourcePreparation({
     content: 'source.pdf\nMateriale sorgente',
     hasReliableSourceContext: true,
   });
+  await cancellation;
   const result = await startPromise;
 
   assert.equal(result.outcome, 'abandoned');
@@ -3078,6 +3079,40 @@ test('cancelAssessment aborts and cancels an interview started by source upload'
   });
   expect(getActiveCourseInterview).toHaveBeenCalledOnce();
   assert.equal((await uploadPromise).outcome, 'started-assessment');
+});
+
+test('cancelAssessment prevents delayed PDF preparation from recreating a project', async () => {
+  let finishSourcePreparation: () => void = () => {};
+  let markSourcePreparationStarted: () => void = () => {};
+  const sourcePreparationStarted = new Promise<void>(resolve => {
+    markSourcePreparationStarted = resolve;
+  });
+  const sourcePreparationCanFinish = new Promise<void>(resolve => {
+    finishSourcePreparation = resolve;
+  });
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      buildAssessmentDocumentPrompt: async () => {
+        markSourcePreparationStarted();
+        await sourcePreparationCanFinish;
+        return { content: 'Materiale PDF', hasReliableSourceContext: true };
+      },
+    },
+  });
+
+  const uploadPromise = controller.handleSourceUpload(
+    new File(['fake pdf'], 'dispensa.pdf', { type: 'application/pdf' }),
+    { mode: 'new-project' }
+  );
+  await sourcePreparationStarted;
+  assert.equal(projectLibrary.persistedSnapshots.length, 1);
+
+  await controller.cancelAssessment();
+  finishSourcePreparation();
+  assert.equal((await uploadPromise).outcome, 'started-assessment');
+
+  assert.equal(projectLibrary.persistedSnapshots.length, 1);
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
 });
 
 test('cancelAssessment aborts interview startup and cancels its recovered durable run', async () => {
@@ -3528,15 +3563,15 @@ test('a cancelled startHomeChat cannot clear a newer completed request', async (
     selectedFile: new File(['pdf'], 'source.pdf', { type: 'application/pdf' }),
   });
   await sourcePreparationStarted;
-  await controller.cancelAssessment();
-
-  const newerResult = await controller.startHomeChat({ input: 'Voglio imparare Rust' });
-  const newerProjectId = projectLibrary.adapter.currentProjectId;
+  const cancellation = controller.cancelAssessment();
   resolveSourcePreparation({
     content: 'source.pdf\nMateriale sorgente',
     hasReliableSourceContext: true,
   });
+  await cancellation;
   const cancelledResult = await cancelledStart;
+  const newerResult = await controller.startHomeChat({ input: 'Voglio imparare Rust' });
+  const newerProjectId = projectLibrary.adapter.currentProjectId;
 
   assert.equal(newerResult.outcome, 'continued');
   assert.equal(cancelledResult.outcome, 'abandoned');
@@ -3586,14 +3621,14 @@ test('a cancelled source preparation cannot clear a project opened afterward', a
     selectedFile: new File(['pdf'], 'source.pdf', { type: 'application/pdf' }),
   });
   await sourcePreparationStarted;
-  await controller.cancelAssessment();
-
-  const openResult = await controller.openProject(openedProject.id);
+  const cancellation = controller.cancelAssessment();
   resolveSourcePreparation({
     content: 'source.pdf\nMateriale sorgente',
     hasReliableSourceContext: true,
   });
+  await cancellation;
   const cancelledResult = await cancelledStart;
+  const openResult = await controller.openProject(openedProject.id);
 
   assert.equal(openResult.outcome, 'opened');
   assert.equal(cancelledResult.outcome, 'abandoned');
@@ -3726,9 +3761,10 @@ test('overlapping Home starts release every ownership waiting on the same projec
     input: 'Secondo corso',
     selectedFile: new File(['two'], 'two.md', { type: 'text/markdown' }),
   });
-  await controller.cancelAssessment();
+  const cancellation = controller.cancelAssessment();
   finishSourcePreparation();
   finishProjectOpen();
+  await cancellation;
 
   assert.equal((await opening).outcome, 'opened');
   assert.equal((await firstStart).outcome, 'abandoned');
@@ -3789,6 +3825,70 @@ test('cancelAssessment rolls back a backup import that finishes after Stop', asy
   assert.equal(projectLibrary.adapter.currentProjectId, null);
 });
 
+test('cancelAssessment waits for a pre-project backup rollback failure', async () => {
+  const archivedSnapshot = createProjectSnapshot({
+    id: 'backup-project',
+    learningPlan: buildPlan(),
+    source: createProjectSourceFromFile(pdfFile),
+    state: AppState.READING,
+  });
+  const archive = await createProjectArchiveBlob(archivedSnapshot);
+  const archiveFile = new File([await archive.arrayBuffer()], 'nous-backup.nous.zip', {
+    type: 'application/zip',
+  });
+  let finishImport: () => void = () => {};
+  let markImportStarted: () => void = () => {};
+  const importStarted = new Promise<void>(resolve => {
+    markImportStarted = resolve;
+  });
+  const importCanFinish = new Promise<void>(resolve => {
+    finishImport = resolve;
+  });
+  let cleanupAttempts = 0;
+  const { controller } = createControllerHarness({
+    projectLibrary: {
+      deleteStoredProject: async () => {
+        cleanupAttempts += 1;
+        if (cleanupAttempts === 1) throw new Error('storage unavailable');
+      },
+      importProjectArchive: async (_archive, targetProjectId) => {
+        markImportStarted();
+        await importCanFinish;
+        return {
+          meta: buildMeta(targetProjectId),
+          snapshot: { ...archivedSnapshot, id: targetProjectId },
+        };
+      },
+    },
+  });
+
+  const startPromise = controller.startHomeChat({
+    input: 'Importa questo corso',
+    selectedFile: archiveFile,
+  });
+  await importStarted;
+  let hasCancellationSettled = false;
+  const cancellation = controller.cancelAssessment();
+  void cancellation.then(
+    () => {
+      hasCancellationSettled = true;
+    },
+    () => {
+      hasCancellationSettled = true;
+    }
+  );
+  await Promise.resolve();
+  assert.equal(hasCancellationSettled, false);
+
+  finishImport();
+  await expect(cancellation).rejects.toThrow(t('Operazione non riuscita. Riprova.'));
+  assert.equal((await startPromise).outcome, 'failed');
+  assert.equal(cleanupAttempts, 1);
+
+  await controller.cancelAssessment();
+  assert.equal(cleanupAttempts, 2);
+});
+
 test('a canceled backup import cannot hydrate over a project opened after Stop', async () => {
   const archivedSnapshot = createProjectSnapshot({
     id: 'backup-project',
@@ -3834,9 +3934,10 @@ test('a canceled backup import cannot hydrate over a project opened after Stop',
     selectedFile: archiveFile,
   });
   await importStarted;
-  await controller.cancelAssessment();
-  assert.equal((await controller.openProject(openedProject.id)).outcome, 'opened');
+  const cancellation = controller.cancelAssessment();
   finishImport();
+  await cancellation;
+  assert.equal((await controller.openProject(openedProject.id)).outcome, 'opened');
 
   assert.equal((await startPromise).outcome, 'abandoned');
   assert.deepEqual(projectLibrary.deletedProjectIds, [importedProjectId]);
