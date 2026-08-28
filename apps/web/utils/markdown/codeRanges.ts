@@ -765,18 +765,24 @@ const visitMarkdownTree = (
 const hasExactRange = (ranges: MarkdownRange[], range: MarkdownRange): boolean =>
   ranges.some(candidate => candidate.start === range.start && candidate.end === range.end);
 
+type CodeRangeCollectionMode = 'append' | 'deduplicate';
+
 const collectCodeAndMathRanges = (
   node: MarkdownAstNode,
   range: MarkdownRange,
-  context: MarkdownCollectionContext
+  context: MarkdownCollectionContext,
+  codeRangeMode: CodeRangeCollectionMode
 ): void => {
   const { analysis, content } = context;
-  if (node.type === 'inlineCode' && !hasExactRange(analysis.codeRanges, range)) {
+  const shouldAddCodeRange = (codeRange: MarkdownRange): boolean =>
+    codeRangeMode === 'append' || !hasExactRange(analysis.codeRanges, codeRange);
+
+  if (node.type === 'inlineCode' && shouldAddCodeRange(range)) {
     analysis.codeRanges.push(range);
   }
   if (node.type === 'code') {
     const blockRange = expandToLineBounds(content, range);
-    if (!hasExactRange(analysis.codeRanges, blockRange)) analysis.codeRanges.push(blockRange);
+    if (shouldAddCodeRange(blockRange)) analysis.codeRanges.push(blockRange);
   }
   if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
 };
@@ -837,7 +843,7 @@ const collectPrimaryNodeRanges = (
   escapedHtmlContentRanges: MarkdownRange[]
 ): void => {
   const { analysis, content, sourceOffsets } = context;
-  collectCodeAndMathRanges(node, range, context);
+  collectCodeAndMathRanges(node, range, context, 'append');
   analysis.structuralRanges.push(
     ...getStructuralRangesForNode(content, node, range, sourceOffsets)
   );
@@ -859,7 +865,7 @@ const collectEscapedHtmlNodeRanges = (
   context: MarkdownCollectionContext,
   escapedHtmlContentRanges: MarkdownRange[]
 ): void => {
-  collectCodeAndMathRanges(node, range, context);
+  collectCodeAndMathRanges(node, range, context, 'deduplicate');
   if (!isRangeInsideAny(range, escapedHtmlContentRanges)) return;
 
   const { analysis, content, sourceOffsets } = context;
