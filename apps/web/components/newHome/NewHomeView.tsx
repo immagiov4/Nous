@@ -41,7 +41,7 @@ import type {
   SavedProjectMeta,
 } from '../../types.ts';
 import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
-import { Pressable } from '../../utils/motion/index.ts';
+import { Pressable, useShouldAnimate } from '../../utils/motion/index.ts';
 import AccountMenu from '../account/AccountMenu.tsx';
 import HomeChatPanel from '../library/HomeChatPanel.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
@@ -634,6 +634,7 @@ const CourseList = ({
   setFilter: (filter: CourseFilter) => void;
 }) => {
   const chipViewportRef = useRef<HTMLDivElement>(null);
+  const shouldAnimate = useShouldAnimate();
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [dialog, setDialog] = useState<FolderDialogState | null>(null);
@@ -909,10 +910,12 @@ const CourseList = ({
 
   const scrollChips = (direction: -1 | 1) => {
     chipViewportRef.current?.scrollBy({
-      behavior: 'smooth',
+      behavior: shouldAnimate ? 'smooth' : 'auto',
       left: direction * (chipViewportRef.current.clientWidth * 0.85),
     });
   };
+  const chipScrollButtonClassName =
+    'absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 transition-[opacity,transform] duration-200 motion-reduce:transition-none sm:h-9 sm:w-9 dark:border-white/10 dark:bg-stone-800 dark:text-stone-300';
   const folderMenuGroup = groups.find(group => group.id === openFolderMenu?.id);
   const courseMenuProject = projects.find(project => project.id === openCourseMenu?.id);
 
@@ -977,17 +980,21 @@ const CourseList = ({
             </Pressable>
           ) : null}
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {canScrollLeft ? (
-            <button
-              type="button"
-              aria-label={t('Mostra i filtri precedenti')}
-              onClick={() => scrollChips(-1)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-          ) : null}
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <button
+            type="button"
+            aria-hidden={!canScrollLeft}
+            aria-label={t('Mostra i filtri precedenti')}
+            disabled={!canScrollLeft}
+            onClick={() => scrollChips(-1)}
+            className={`${chipScrollButtonClassName} left-0 ${
+              canScrollLeft
+                ? 'pointer-events-auto scale-100 opacity-100'
+                : 'pointer-events-none scale-90 opacity-0'
+            }`}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
           <div
             ref={chipViewportRef}
             onScroll={updateChipScrollState}
@@ -1037,16 +1044,20 @@ const CourseList = ({
               </button>
             ))}
           </div>
-          {canScrollRight ? (
-            <button
-              type="button"
-              aria-label={t('Mostra altri filtri')}
-              onClick={() => scrollChips(1)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-hidden={!canScrollRight}
+            aria-label={t('Mostra altri filtri')}
+            disabled={!canScrollRight}
+            onClick={() => scrollChips(1)}
+            className={`${chipScrollButtonClassName} right-0 ${
+              canScrollRight
+                ? 'pointer-events-auto scale-100 opacity-100'
+                : 'pointer-events-none scale-90 opacity-0'
+            }`}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       </div>
 

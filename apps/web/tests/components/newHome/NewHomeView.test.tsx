@@ -332,6 +332,83 @@ describe('NewHomeView library interactions', () => {
     );
   });
 
+  test.each([
+    { expectedScrollBehavior: 'smooth', prefersReducedMotion: false },
+    { expectedScrollBehavior: 'auto', prefersReducedMotion: true },
+  ])('overlays overflow controls without shrinking the filter-chip viewport when reduced motion is $prefersReducedMotion', async ({
+    expectedScrollBehavior,
+    prefersReducedMotion,
+  }) => {
+    globalThis.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? prefersReducedMotion : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const user = userEvent.setup();
+    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200);
+    const scrollLeft = vi.spyOn(HTMLElement.prototype, 'scrollLeft', 'get').mockReturnValue(100);
+    const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(500);
+    const scrollBy = vi.fn();
+    const originalScrollBy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollBy');
+    Object.defineProperty(HTMLElement.prototype, 'scrollBy', {
+      configurable: true,
+      value: scrollBy,
+    });
+    try {
+      render(
+        <NewHomeView
+          chatProps={chatProps}
+          isDarkMode={false}
+          isExportingProject={false}
+          isLibraryLoading={false}
+          libraryFolders={[folder]}
+          libraryTree={tree}
+          loadProjectCover={vi.fn(async () => null)}
+          loadProjectSource={vi.fn(async () => null)}
+          loadProjectsById={vi.fn(async () => [])}
+          onCreateFolder={vi.fn(async () => {})}
+          onOpenProject={vi.fn()}
+          onToggleDarkMode={vi.fn()}
+          openingProjectId={null}
+          projects={[project]}
+          saveProjectCover={vi.fn(async () => {})}
+        />
+      );
+      const nextFilters = await screen.findByRole('button', {
+        name: /Mostra altri filtri|Show more filters/,
+      });
+      const previousFilters = screen.getByRole('button', {
+        name: /Mostra i filtri precedenti|Show previous filters/,
+      });
+      expect(nextFilters.parentElement).toHaveClass('relative');
+      expect(previousFilters).toHaveClass('absolute', 'left-0', 'h-11', 'w-11');
+      expect(nextFilters).toHaveClass(
+        'absolute',
+        'right-0',
+        'h-11',
+        'w-11',
+        'motion-reduce:transition-none'
+      );
+
+      nextFilters.focus();
+      expect(nextFilters).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(scrollBy).toHaveBeenCalledWith({ behavior: expectedScrollBehavior, left: 170 });
+    } finally {
+      clientWidth.mockRestore();
+      scrollLeft.mockRestore();
+      scrollWidth.mockRestore();
+      if (originalScrollBy) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollBy', originalScrollBy);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'scrollBy');
+      }
+    }
+  });
+
   test('repositions an open course menu and restores focus on Escape', async () => {
     const user = userEvent.setup();
     const { container } = render(
