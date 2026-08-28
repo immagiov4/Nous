@@ -1,3 +1,4 @@
+import { ARTIFACT_DRAFT_SLOT_ID } from './artifactDraftWorkflowContract';
 import {
   deriveLegacyLessonContent,
   isCanonicalLessonContentBlock,
@@ -134,6 +135,7 @@ export type DecodedProjectSnapshotWire = ProjectSnapshotWire | LegacyProjectSnap
 
 export interface ProjectSnapshotWireDecodeOptions {
   externalArchiveBytesAvailable?: boolean;
+  recoverHistoricalArtifactDraftVisualSlots?: boolean;
   recoverHistoricalLessonContentBlocks?: boolean;
 }
 
@@ -181,12 +183,11 @@ const canonicalizeLessonContentBlocks = (contentBlocks: unknown[]): Record<strin
     throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
   });
 
-const assertGeneratedVisualBlockRelations = (
-  node: Record<string, unknown>,
+const collectGeneratedVisualBlockReferences = (
   contentBlocks: readonly Record<string, unknown>[]
-): void => {
-  const generatedVisuals = Array.isArray(node.generatedVisuals) ? node.generatedVisuals : [];
+): Map<string, string> => {
   const generatedVisualSlots = new Set<string>();
+  const generatedVisualSlotById = new Map<string, string>();
 
   for (const block of contentBlocks) {
     if (block.type !== LESSON_GENERATED_VISUAL_BLOCK_TYPE) continue;
@@ -198,8 +199,52 @@ const assertGeneratedVisualBlockRelations = (
     generatedVisualSlots.add(slotId);
 
     if (typeof block.visualId !== 'string') continue;
+    if (generatedVisualSlotById.has(block.visualId)) {
+      throw new ProjectSnapshotWireError(INVALID_LESSON_VISUAL_REFERENCES_MESSAGE);
+    }
+    generatedVisualSlotById.set(block.visualId, slotId);
+  }
+
+  return generatedVisualSlotById;
+};
+
+const recoverHistoricalArtifactDraftVisualSlots = (
+  generatedVisuals: unknown[],
+  generatedVisualSlotById: ReadonlyMap<string, string>
+): unknown[] => {
+  const visualIdCounts = new Map<string, number>();
+  for (const visual of generatedVisuals) {
+    if (!isRecord(visual) || typeof visual.id !== 'string') continue;
+    visualIdCounts.set(visual.id, (visualIdCounts.get(visual.id) ?? 0) + 1);
+  }
+
+  let didRecover = false;
+  const recoveredVisuals = generatedVisuals.map(visual => {
+    if (
+      !isRecord(visual) ||
+      typeof visual.id !== 'string' ||
+      visualIdCounts.get(visual.id) !== 1 ||
+      visual.slotId !== ARTIFACT_DRAFT_SLOT_ID ||
+      !isRecord(visual.render)
+    ) {
+      return visual;
+    }
+    const referencedSlotId = generatedVisualSlotById.get(visual.id);
+    if (!referencedSlotId || referencedSlotId === ARTIFACT_DRAFT_SLOT_ID) return visual;
+
+    didRecover = true;
+    return { ...visual, slotId: referencedSlotId };
+  });
+  return didRecover ? recoveredVisuals : generatedVisuals;
+};
+
+const assertGeneratedVisualBlockRelations = (
+  generatedVisuals: readonly unknown[],
+  generatedVisualSlotById: ReadonlyMap<string, string>
+): void => {
+  for (const [visualId, slotId] of generatedVisualSlotById) {
     const matchingVisuals = generatedVisuals.filter(
-      visual => isRecord(visual) && visual.id === block.visualId
+      (visual): visual is Record<string, unknown> => isRecord(visual) && visual.id === visualId
     );
     const matchingVisual = matchingVisuals[0];
     if (
@@ -222,7 +267,14 @@ export const canonicalizeLessonNodeContent = <Node extends Record<string, unknow
       throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
     }
     const contentBlocks = canonicalizeLessonContentBlocks(node.contentBlocks);
-    assertGeneratedVisualBlockRelations(node, contentBlocks);
+    const generatedVisualSlotById = collectGeneratedVisualBlockReferences(contentBlocks);
+    const storedGeneratedVisuals = Array.isArray(node.generatedVisuals)
+      ? node.generatedVisuals
+      : [];
+    const generatedVisuals = options.recoverHistoricalArtifactDraftVisualSlots
+      ? recoverHistoricalArtifactDraftVisualSlots(storedGeneratedVisuals, generatedVisualSlotById)
+      : storedGeneratedVisuals;
+    assertGeneratedVisualBlockRelations(generatedVisuals, generatedVisualSlotById);
     const content = deriveLegacyLessonContent(contentBlocks);
     if (!content) {
       throw new ProjectSnapshotWireError('Blocchi contenuto lezione senza testo Markdown.');
@@ -231,6 +283,7 @@ export const canonicalizeLessonNodeContent = <Node extends Record<string, unknow
       ...node,
       content,
       contentBlocks,
+      ...(generatedVisuals === storedGeneratedVisuals ? {} : { generatedVisuals }),
     } as Node;
   } catch (error) {
     if (

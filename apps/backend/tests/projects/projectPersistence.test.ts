@@ -12,6 +12,14 @@ const legacyGeneratedVisual = {
   title: 'Visuale storica',
 };
 
+const historicalArtifactDraftVisual = {
+  createdAt: '2026-08-28T12:00:00.000Z',
+  id: 'replacement-visual-1',
+  render: { code: '<svg viewBox="0 0 10 10"></svg>', kind: 'svg' as const },
+  slotId: 'artifact-draft',
+  title: 'Visuale sostitutiva',
+};
+
 const storedSnapshot = (contentBlocks: unknown): Omit<ProjectSnapshot, 'documentIndex'> => ({
   activeSectionId: 'lesson-1',
   createdAt: '2026-08-28T12:00:00.000Z',
@@ -95,5 +103,78 @@ test('stored snapshot recovery preserves recognizable legacy visual references',
     { markdown: 'Contenuto strutturato.', type: 'markdown' },
     { slotId: 'legacy-slot-1', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
   ]);
+  expect(restoredLesson?.generatedVisuals).toEqual([legacyGeneratedVisual]);
+});
+
+test('stored snapshot recovery repairs historical artifact draft replacement slots', () => {
+  const contentBlocks = [
+    { markdown: 'Contenuto strutturato.', type: 'markdown' },
+    {
+      slotId: 'lesson-slot-1',
+      type: 'generated-visual',
+      visualId: historicalArtifactDraftVisual.id,
+    },
+  ];
+  const snapshot = storedSnapshot(contentBlocks);
+  const storedLesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+  if (!storedLesson) throw new Error('Missing historical replacement test lesson.');
+  storedLesson.generatedVisuals = [historicalArtifactDraftVisual];
+
+  expect(() => decodeProjectSnapshotWire(snapshot)).toThrow(
+    /riferimenti visuali della lezione non validi/iu
+  );
+
+  const restored = mergeProjectSnapshotRow({ document_index: null, snapshot });
+  const restoredLesson = restored.learningPlan?.modules?.[0]?.children?.[0];
+  expect(restoredLesson?.contentBlocks).toEqual(contentBlocks);
+  expect(restoredLesson?.generatedVisuals).toEqual([
+    { ...historicalArtifactDraftVisual, slotId: 'lesson-slot-1' },
+  ]);
+
+  const { documentIndex: _documentIndex, ...restoredSnapshot } = restored;
+  const restoredAgain = mergeProjectSnapshotRow({
+    document_index: null,
+    snapshot: restoredSnapshot,
+  });
+  expect(restoredAgain.learningPlan?.modules?.[0]?.children?.[0]).toEqual(restoredLesson);
+});
+
+test('stored snapshot recovery does not repair arbitrary visual slot mismatches', () => {
+  const snapshot = storedSnapshot([
+    { markdown: 'Contenuto strutturato.', type: 'markdown' },
+    {
+      slotId: 'lesson-slot-1',
+      type: 'generated-visual',
+      visualId: historicalArtifactDraftVisual.id,
+    },
+  ]);
+  const storedLesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+  if (!storedLesson) throw new Error('Missing arbitrary mismatch test lesson.');
+  const arbitraryMismatch = { ...historicalArtifactDraftVisual, slotId: 'another-slot' };
+  storedLesson.generatedVisuals = [arbitraryMismatch];
+
+  const restored = mergeProjectSnapshotRow({ document_index: null, snapshot });
+  const restoredLesson = restored.learningPlan?.modules?.[0]?.children?.[0];
+
+  expect(restoredLesson?.content).toBe('Contenuto legacy recuperabile');
+  expect(restoredLesson?.contentBlocks).toBeNull();
+  expect(restoredLesson?.generatedVisuals).toEqual([arbitraryMismatch]);
+});
+
+test('stored snapshot recovery clears ambiguous legacy visual references', () => {
+  const snapshot = storedSnapshot([
+    { markdown: 'Contenuto strutturato.', type: 'markdown' },
+    { slotId: 'legacy-slot-a', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+    { slotId: 'legacy-slot-b', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+  ]);
+  const storedLesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+  if (!storedLesson) throw new Error('Missing ambiguous reference test lesson.');
+  storedLesson.generatedVisuals = [legacyGeneratedVisual];
+
+  const restored = mergeProjectSnapshotRow({ document_index: null, snapshot });
+  const restoredLesson = restored.learningPlan?.modules?.[0]?.children?.[0];
+
+  expect(restoredLesson?.content).toBe('Contenuto legacy recuperabile');
+  expect(restoredLesson?.contentBlocks).toBeNull();
   expect(restoredLesson?.generatedVisuals).toEqual([legacyGeneratedVisual]);
 });

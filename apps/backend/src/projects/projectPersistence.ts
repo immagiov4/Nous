@@ -39,5 +39,8 @@ export const mergeProjectSnapshotRow = (row: StoredProjectSnapshotRow): ProjectS
       ...(row.document_index === null ? {} : { documentIndex: row.document_index }),
     },
     false,
-    { recoverHistoricalLessonContentBlocks: true }
+    {
+      recoverHistoricalArtifactDraftVisualSlots: true,
+      recoverHistoricalLessonContentBlocks: true,
+    }
   );

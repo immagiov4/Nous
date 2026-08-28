@@ -311,6 +311,23 @@ test('wire decoding rejects duplicate generated visual slots', () => {
   );
 });
 
+test('wire decoding rejects a legacy visual referenced from multiple slots', () => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks(
+          [
+            { markdown: 'Contenuto strutturato.', type: 'markdown' },
+            { slotId: 'slot-a', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+            { slotId: 'slot-b', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+          ],
+          [legacyGeneratedVisual]
+        )
+      ),
+    /riferimenti visuali della lezione non validi/iu
+  );
+});
+
 test('wire decoding rejects generated visual references assigned to another slot', () => {
   assert.throws(
     () =>

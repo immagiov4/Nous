@@ -1335,6 +1335,36 @@ describe('/api/projects', () => {
     expect(listResponse.body.projects[0].revision).toBe(saveResponse.body.meta.revision);
   });
 
+  test('rejects full snapshots with generated visual slot mismatches', async () => {
+    const app = createApp();
+    const projectId = 'visual-slot-mismatch-project';
+    const snapshot = createModuleSnapshot(projectId, 'Corso visuale non valido');
+    const lesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!lesson) throw new Error('Missing visual mismatch test lesson.');
+    lesson.content = 'Contenuto strutturato.';
+    lesson.contentBlocks = [
+      { markdown: 'Contenuto strutturato.', type: 'markdown' },
+      { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: 'visual-1' },
+    ];
+    lesson.generatedVisuals = [
+      {
+        createdAt: '2026-08-28T12:00:00.000Z',
+        id: 'visual-1',
+        render: { code: '<svg></svg>', kind: 'svg' },
+        slotId: 'artifact-draft',
+        title: 'Visuale non valida',
+      },
+    ];
+
+    const response = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+
+    expect(response.status).toBe(400);
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects).toEqual([]);
+  });
+
   test('keeps structured lesson content canonical across later PUT and PATCH revisions', async () => {
     const app = createApp();
     const projectId = 'canonical-lesson-project';
