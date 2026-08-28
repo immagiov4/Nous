@@ -38,6 +38,33 @@ export interface ResolveSelectedSegmentsOptions {
 
 export { normalizeWhitespace } from '../markdown/textProjection.ts';
 
+const normalizeOptionalMathSelectionText = (value: string | undefined): string | undefined =>
+  value ? normalizeMathSelectionArtifacts(value) : value;
+
+interface PrimarySelectionMatchOptions {
+  exactMatch: ReturnType<typeof resolveExactMatch>;
+  fuzzyMatch: RegExpMatchArray | null;
+  hasSelectedTextStart: boolean;
+  hasSelectionContext: boolean;
+  shouldPreferExact: boolean;
+}
+
+const selectPrimarySelectionMatch = ({
+  exactMatch,
+  fuzzyMatch,
+  hasSelectedTextStart,
+  hasSelectionContext,
+  shouldPreferExact,
+}: PrimarySelectionMatchOptions) => {
+  if (hasSelectionContext || (hasSelectedTextStart && exactMatch)) {
+    return exactMatch;
+  }
+  if (shouldPreferExact) {
+    return exactMatch || fuzzyMatch;
+  }
+  return fuzzyMatch || exactMatch;
+};
+
 export const normalizeSectionAnnotationSelectionText = (value: string): string => {
   const mathNormalizedText = normalizeMathSelectionArtifacts(value).trim();
   return normalizeWhitespace(
@@ -66,20 +93,17 @@ export const resolveSelectedSegments = ({
 
   const analysis = parseMarkdownAnalysis(content);
   const visibleProjection = buildVisibleProjection(content, analysis);
-  const preferredSelectionMatch = preferredSelection
-    ? resolveExactMatch(
-        visibleProjection.text,
-        normalizeMathSelectionArtifacts(preferredSelection.selectedText).trim(),
-        preferredSelection.contextBefore
-          ? normalizeMathSelectionArtifacts(preferredSelection.contextBefore)
-          : preferredSelection.contextBefore,
-        preferredSelection.contextAfter
-          ? normalizeMathSelectionArtifacts(preferredSelection.contextAfter)
-          : preferredSelection.contextAfter,
-        Boolean(preferredSelection.contextBefore || preferredSelection.contextAfter),
-        preferredSelection.selectedTextStart
-      )
-    : undefined;
+  let preferredSelectionMatch: ReturnType<typeof resolveExactMatch>;
+  if (preferredSelection) {
+    preferredSelectionMatch = resolveExactMatch(
+      visibleProjection.text,
+      normalizeMathSelectionArtifacts(preferredSelection.selectedText).trim(),
+      normalizeOptionalMathSelectionText(preferredSelection.contextBefore),
+      normalizeOptionalMathSelectionText(preferredSelection.contextAfter),
+      Boolean(preferredSelection.contextBefore || preferredSelection.contextAfter),
+      preferredSelection.selectedTextStart
+    );
+  }
   const preferredRange = preferredSelectionMatch
     ? {
         start: preferredSelectionMatch.index,
@@ -93,8 +117,8 @@ export const resolveSelectedSegments = ({
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
     trimmedTargetText,
-    contextBefore ? normalizeMathSelectionArtifacts(contextBefore) : contextBefore,
-    contextAfter ? normalizeMathSelectionArtifacts(contextAfter) : contextAfter,
+    normalizeOptionalMathSelectionText(contextBefore),
+    normalizeOptionalMathSelectionText(contextAfter),
     hasSelectionContext,
     selectedTextStart,
     preferredRange
@@ -121,13 +145,13 @@ export const resolveSelectedSegments = ({
   const fuzzyRegex = new RegExp(expandedPattern, 'iu');
   const shouldPreferExact = /[^\p{L}\p{N}]/u.test(trimmedTargetText);
   const fuzzyMatch = visibleProjection.text.match(fuzzyRegex);
-  const match = hasSelectionContext
-    ? exactMatch
-    : selectedTextStart !== undefined && exactMatch
-      ? exactMatch
-      : shouldPreferExact
-        ? exactMatch || fuzzyMatch
-        : fuzzyMatch || exactMatch;
+  const match = selectPrimarySelectionMatch({
+    exactMatch,
+    fuzzyMatch,
+    hasSelectedTextStart: selectedTextStart !== undefined,
+    hasSelectionContext,
+    shouldPreferExact,
+  });
 
   if (hasSelectionContext && !match) {
     return [];
