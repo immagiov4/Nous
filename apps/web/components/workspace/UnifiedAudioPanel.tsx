@@ -88,6 +88,8 @@ const PLAYBACK_RATE_MAX = 1.6;
 const PLAYBACK_RATE_STEP = 0.05;
 const PLAYBACK_RATE_DIAL_START_DEGREES = -135;
 const PLAYBACK_RATE_DIAL_RANGE_DEGREES = 270;
+// Preserve the established speed track's full-range travel so the compact dial is not more sensitive.
+const PLAYBACK_RATE_DRAG_TRAVEL_PIXELS = 144;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -185,7 +187,6 @@ interface PlaybackSpeedDialProps {
 }
 
 interface PlaybackSpeedDragState {
-  horizontalTravelPixels: number;
   pointerId: number;
   pointerX: number;
   rawPlaybackRate: number;
@@ -202,7 +203,11 @@ const PlaybackSpeedDial = ({ onSpeedChange, playbackRate }: PlaybackSpeedDialPro
     if (!dragStateRef.current) {
       currentPlaybackRateRef.current = displayedPlaybackRate;
     }
-  }, [displayedPlaybackRate]);
+
+    if (playbackRate !== displayedPlaybackRate) {
+      onSpeedChange(displayedPlaybackRate);
+    }
+  }, [displayedPlaybackRate, onSpeedChange, playbackRate]);
 
   const updatePlaybackRate = (value: number) => {
     const nextPlaybackRate = clampPlaybackRate(value);
@@ -218,9 +223,7 @@ const PlaybackSpeedDial = ({ onSpeedChange, playbackRate }: PlaybackSpeedDialPro
     event.preventDefault();
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
-    const bounds = event.currentTarget.getBoundingClientRect();
     dragStateRef.current = {
-      horizontalTravelPixels: bounds.width,
       pointerId: event.pointerId,
       pointerX: event.clientX,
       rawPlaybackRate: currentPlaybackRateRef.current,
@@ -239,7 +242,7 @@ const PlaybackSpeedDial = ({ onSpeedChange, playbackRate }: PlaybackSpeedDialPro
     }
 
     const rateDelta =
-      (horizontalDelta / dragState.horizontalTravelPixels) *
+      (horizontalDelta / PLAYBACK_RATE_DRAG_TRAVEL_PIXELS) *
       (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN);
     dragState.pointerX = event.clientX;
     dragState.rawPlaybackRate = Math.min(
@@ -364,7 +367,6 @@ const UnifiedAudioPanel = ({
 
   const ttsDisabled = !tts.ttsConnected || !tts.sectionContent;
   const { isTextPickerActive, onSetTextPickerActive } = tts;
-  const normalizedPlaybackRate = normalizePlaybackRate(tts.playbackRate);
   const requestedVideoId = useMemo(() => {
     return extractYouTubeVideoId(musicUrl);
   }, [musicUrl]);
@@ -803,7 +805,7 @@ const UnifiedAudioPanel = ({
 
                       <PlaybackSpeedDial
                         onSpeedChange={tts.onSpeedChange}
-                        playbackRate={normalizedPlaybackRate}
+                        playbackRate={tts.playbackRate}
                       />
                     </div>
 

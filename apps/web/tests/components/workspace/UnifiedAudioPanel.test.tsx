@@ -197,6 +197,30 @@ describe('UnifiedAudioPanel', () => {
     expect(document.querySelector('input[type="range"][min="0.8"]')).toBeNull();
   });
 
+  test('synchronizes an out-of-range playback speed through the existing update path', () => {
+    const onSpeedChange = vi.fn();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ onSpeedChange, playbackRate: 2 })}
+      />
+    );
+
+    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveAttribute(
+      'aria-valuenow',
+      '1.6'
+    );
+    expect(onSpeedChange).toHaveBeenCalledOnce();
+    expect(onSpeedChange).toHaveBeenCalledWith(1.6);
+  });
+
   test('adjusts the direct playback-speed dial with keyboard controls and respects its bounds', async () => {
     const user = userEvent.setup();
     const onSpeedChange = vi.fn();
@@ -242,8 +266,6 @@ describe('UnifiedAudioPanel', () => {
 
     const speedDial = screen.getByRole('slider', { name: 'Velocita' });
     Object.assign(speedDial, {
-      getBoundingClientRect: () =>
-        ({ bottom: 40, height: 40, left: 0, right: 40, top: 0, width: 40 }) as DOMRect,
       hasPointerCapture: () => true,
       releasePointerCapture: vi.fn(),
       setPointerCapture: vi.fn(),
@@ -255,6 +277,14 @@ describe('UnifiedAudioPanel', () => {
       pointerId: 7,
       pointerType,
     });
+    fireEvent.pointerMove(speedDial, {
+      clientX: 12,
+      clientY: 20,
+      pointerId: 7,
+      pointerType,
+    });
+    expect(onSpeedChange).not.toHaveBeenCalled();
+
     fireEvent.pointerMove(speedDial, {
       clientX: 30,
       clientY: 20,
@@ -269,7 +299,7 @@ describe('UnifiedAudioPanel', () => {
     });
     fireEvent.pointerUp(speedDial, { pointerId: 7, pointerType });
 
-    expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.4, 1]);
+    expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.1, 1]);
   });
 
   test('keeps the iframe lazy until the user starts background audio', async () => {
