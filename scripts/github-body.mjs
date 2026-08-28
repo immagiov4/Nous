@@ -10,19 +10,12 @@ import { unified } from 'unified';
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_FULL_MEDIA_TYPE = 'application/vnd.github.full+json';
 const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
-const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES)
-  .toSorted((left, right) => left.localeCompare(right))
-  .join('|');
+const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
-const PROTECTED_AST_TYPES = new Set([
-  'code',
-  'definition',
-  'image',
-  'imageReference',
-  'inlineCode',
-]);
-const VISIBLE_CHILD_CONTAINER_AST_TYPES = new Set(['link', 'linkReference']);
+const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
+const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,9}[.)])[ \t]+\[[ xX]\][ \t]+\S/u;
+const PROTECTED_AST_TYPES = new Set('code definition image imageReference inlineCode'.split(' '));
 const MANAGED_PR_SUFFIX_START = '<!-- This is an auto-generated description by cubic. -->';
 const MANAGED_PR_SUFFIX_END = '<!-- End of auto-generated description by cubic. -->';
 const markdownParser = unified().use(remarkParse).use(remarkGfm).freeze();
@@ -32,13 +25,14 @@ const issue = (code, line, message) => ({ code, line, message });
 const nodeOffset = (node, boundary) => node.position?.[boundary]?.offset;
 
 const walkAst = (root, visitor) => {
-  const pending = [{ node: root, parent: undefined }];
+  const pending = [{ listAncestor: undefined, node: root, parent: undefined }];
   while (pending.length > 0) {
-    const { node, parent } = pending.pop();
-    visitor(node, parent);
+    const { listAncestor, node, parent } = pending.pop();
+    visitor(node, parent, listAncestor);
     const children = node.children ?? [];
+    const childListAncestor = node.type === 'list' ? node : listAncestor;
     for (let index = children.length - 1; index >= 0; index -= 1) {
-      pending.push({ node: children[index], parent: node });
+      pending.push({ listAncestor: childListAncestor, node: children[index], parent: node });
     }
   }
 };
@@ -69,7 +63,7 @@ const maskOutsideDirectChildren = (characters, node) => {
 const sourceWithoutProtectedMarkdown = (body, root) => {
   const characters = body.split('');
   walkAst(root, node => {
-    if (VISIBLE_CHILD_CONTAINER_AST_TYPES.has(node.type)) {
+    if (node.type === 'link' || node.type === 'linkReference') {
       maskOutsideDirectChildren(characters, node);
       return;
     }
@@ -81,19 +75,41 @@ const sourceWithoutProtectedMarkdown = (body, root) => {
   return characters.join('');
 };
 
-const collectLiteralNewlineIssues = (body, root) => {
+const collectVisibleStructureIssues = (body, root) => {
   const searchableBody = sourceWithoutProtectedMarkdown(body, root);
+  const issues = [];
   let line = 1;
   let previousOffset = 0;
-  return [...searchableBody.matchAll(LITERAL_NEWLINE_PATTERN)].map(match => {
+  for (const match of searchableBody.matchAll(LITERAL_NEWLINE_PATTERN)) {
     line += searchableBody.slice(previousOffset, match.index).split('\n').length - 1;
     previousOffset = match.index;
-    return issue(
-      'literal-newline',
-      line,
-      String.raw`Replace the literal \n or \r\n separator with a real line break.`
+    issues.push(
+      issue(
+        'literal-newline',
+        line,
+        String.raw`Replace the literal \n or \r\n separator with a real line break.`
+      )
     );
+  }
+  walkAst(root, node => {
+    const start = nodeOffset(node, 'start');
+    const end = nodeOffset(node, 'end');
+    if (node.type !== 'paragraph' || start === undefined || end === undefined) return;
+    for (const [index, text] of searchableBody.slice(start, end).split('\n').entries()) {
+      const sourceLine = node.position.start.line + index;
+      if (INLINE_HEADING_PATTERN.test(text)) {
+        issues.push(
+          issue('inline-heading', sourceLine, 'Start each Markdown heading on its own line.')
+        );
+      }
+      if (INLINE_TASK_ITEM_PATTERN.test(text)) {
+        issues.push(
+          issue('inline-list', sourceLine, 'Start each Markdown task-list item on its own line.')
+        );
+      }
+    }
   });
+  return issues;
 };
 
 const collectRootBlockSpacingIssues = (root, lines) => {
@@ -135,7 +151,7 @@ export const validateMarkdownBody = body => {
     : [issue('missing-newline', 1, 'Use real line breaks to structure the Markdown body.')];
   return [
     ...missingNewlineIssues,
-    ...collectLiteralNewlineIssues(normalizedBody, root),
+    ...collectVisibleStructureIssues(normalizedBody, root),
     ...collectRootBlockSpacingIssues(root, normalizedBody.split('\n')),
   ];
 };
@@ -152,10 +168,19 @@ const expectedRenderedTags = body => {
   const root = parseMarkdown(body);
   const counts = new Map();
   const increment = tag => counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  walkAst(root, (node, parent) => {
-    if (node.type === 'paragraph' && parent?.type !== 'listItem') increment('p');
+  walkAst(root, (node, parent, listAncestor) => {
+    if (
+      node.type === 'paragraph' &&
+      (parent?.type !== 'listItem' || parent.spread || listAncestor?.spread)
+    ) {
+      increment('p');
+    }
     if (node.type === 'heading') increment(`h${node.depth}`);
     if (node.type === 'listItem') increment('li');
+    if (node.type === 'list') increment(node.ordered ? 'ol' : 'ul');
+    if (node.type === 'blockquote' || node.type === 'table') increment(node.type);
+    if (node.type === 'code') increment('pre');
+    if (node.type === 'thematicBreak') increment('hr');
   });
   return counts;
 };

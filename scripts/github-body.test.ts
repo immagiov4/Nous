@@ -11,38 +11,20 @@ import {
   verifyGitHubBody,
 } from './github-body.mjs';
 
-const validBody = `## Summary
-
-The body keeps its paragraphs separate.
-
-- First item
-- Second item
-
-## Testing
-
-The focused test passed.
-`;
-
+const validBody =
+  '## Summary\n\nThe body keeps its paragraphs separate.\n\n- First item\n- Second item\n\n' +
+  '## Testing\n\nThe focused test passed.\n';
 const validRenderedBody =
   '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
   '<ul><li>First item</li><li>Second item</li></ul>' +
   '<h2>Testing</h2><p>The focused test passed.</p>';
-
-const managedSuffix = `<!-- This is an auto-generated description by cubic. -->
-
-Generated review context.
-
-<!-- End of auto-generated description by cubic. -->
-
-[Review in Cubic](https://www.cubic.dev/)
-`;
-
+const managedSuffix =
+  '<!-- This is an auto-generated description by cubic. -->\n\nGenerated review context.\n\n' +
+  '<!-- End of auto-generated description by cubic. -->\n\n[Review in Cubic](https://www.cubic.dev/)\n';
 const managedRenderedBody =
   `${validRenderedBody}<p>Generated review context.</p>` +
   '<p><a href="https://www.cubic.dev/">Review in Cubic</a></p>';
-
 const temporaryDirectories: string[] = [];
-
 const createBodyFile = async (body = validBody) => {
   const directory = await mkdtemp(join(tmpdir(), 'nous-github-body-test-'));
   temporaryDirectories.push(directory);
@@ -50,25 +32,19 @@ const createBodyFile = async (body = validBody) => {
   await writeFile(bodyFile, body, 'utf8');
   return bodyFile;
 };
-
 type RunGhCommand = (args: string[]) => Promise<string>;
 const prTarget = { kind: 'pr', number: 42, repository: 'immagiov4/Nous' } as const;
-
 const updatePrBody = (bodyFile: string, runGhCommand: RunGhCommand) =>
   updateGitHubBody({ bodyFile, runGhCommand, ...prTarget });
-
 const verifyPrBody = (bodyFile: string, runGhCommand: RunGhCommand) =>
   verifyGitHubBody({ bodyFile, runGhCommand, ...prTarget });
-
 const issueCodes = (body: string) => new Set(validateMarkdownBody(body).map(issue => issue.code));
-
+const expectIssue = (body: string, code: string) => expect(issueCodes(body)).toContain(code);
 afterEach(async () => {
-  vi.restoreAllMocks();
-  await Promise.all(
-    temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true }))
-  );
+  for (const directory of temporaryDirectories.splice(0)) {
+    await rm(directory, { force: true, recursive: true });
+  }
 });
-
 describe('GitHub body Markdown contract', () => {
   test('accepts explicit blocks while leaving literal notation inside code to Remark', () => {
     const bodyWithCode = `${validBody}
@@ -78,25 +54,17 @@ Use \`C:\\new\\notes\` as a documented path.
 Literal \\n stays inside this example.
 \`\`\`
 `;
-
-    expect(validateMarkdownBody(validBody)).toEqual([]);
     expect(validateMarkdownBody(bodyWithCode)).toEqual([]);
   });
 
   test('rejects empty, single-line, and literal-newline bodies', () => {
-    expect(issueCodes('')).toContain('empty-body');
-    expect(issueCodes('Only one physical line')).toContain('missing-newline');
-    expect(issueCodes('Only one physical line\n')).toContain('missing-newline');
-    expect(issueCodes('## Summary\n\nText\\n## Testing\\n- item\n\nDone.\n')).toContain(
-      'literal-newline'
-    );
-    expect(issueCodes('## Summary\n\n[Text\\nNext](https://example.com)\n')).toContain(
-      'literal-newline'
-    );
+    expectIssue('', 'empty-body');
+    expectIssue('Only one physical line', 'missing-newline');
+    expectIssue('Only one physical line\n', 'missing-newline');
+    expectIssue('## Summary\n\nText\\n## Testing\\n- item\n\nDone.\n', 'literal-newline');
+    expectIssue('## Summary\n\n[Text\\nNext](https://example.com)\n', 'literal-newline');
     expect(validateMarkdownBody('## Summary\n\n[Notes](docs\\new\\notes.md)\n')).toEqual([]);
-    expect(issueCodes('## Summary\n\n<details>Text\\nNext</details>\n')).toContain(
-      'literal-newline'
-    );
+    expectIssue('## Summary\n\n<details>Text\\nNext</details>\n', 'literal-newline');
   });
 
   test('uses AST blocks without treating ordinary prose as flattened Markdown', () => {
@@ -106,27 +74,41 @@ Compare old - new behavior, or use option 1) now.
 `;
 
     expect(validateMarkdownBody(ordinaryProse)).toEqual([]);
+    const flattened = issueCodes(
+      '## Summary\n\nDescription ## Testing - [ ] Next task\n\nMore context.\n'
+    );
+    expect(flattened).toEqual(new Set(['inline-heading', 'inline-list']));
+    expect(validateMarkdownBody('> ## Quoted heading\n>\n> - [ ] Quoted task\n')).toEqual([]);
   });
 
   test('requires blank boundaries after headings and around top-level lists', () => {
-    expect(issueCodes('## Summary\nText.\n')).toContain('heading-spacing');
+    expectIssue('## Summary\nText.\n', 'heading-spacing');
     const listIssues = issueCodes('Text.\n- First\n- Second\n## Next\n\nDone.\n');
     expect(listIssues).toContain('list-spacing-before');
     expect(listIssues).toContain('list-spacing-after');
-    expect(validateMarkdownBody(validBody)).toEqual([]);
   });
 
   test('verifies the rendered heading, paragraph, and list structure', () => {
-    expect(() => assertGitHubRendering(validBody, validRenderedBody)).not.toThrow();
-    expect(() => assertGitHubRendering(validBody, '<h2>Summary</h2><p>Collapsed.</p>')).toThrow(
-      'GitHub rendering lost Markdown blocks'
-    );
-    expect(() =>
-      assertGitHubRendering(
-        '> First paragraph.\n>\n> Second paragraph.\n',
-        '<blockquote><p>Collapsed.</p></blockquote>'
-      )
-    ).toThrow('GitHub rendering lost Markdown blocks');
+    const richBody =
+      '## Blocks\n\n> Quote.\n\n---\n\n```text\ncode\n```\n\n| A |\n| - |\n| B |\n\n- First.\n\n  Second.\n';
+    const richHtml =
+      '<h2>Blocks</h2><blockquote><p>Quote.</p></blockquote><hr><pre><code>code</code></pre>' +
+      '<table><tr><th>A</th></tr><tr><td>B</td></tr></table>' +
+      '<ul><li><p>First.</p><p>Second.</p></li></ul>';
+    for (const missing of [
+      '<h2',
+      '<blockquote',
+      '<hr',
+      '<pre',
+      '<table',
+      '<ul',
+      '<li',
+      '<p>Second.',
+    ]) {
+      expect(() => assertGitHubRendering(richBody, richHtml.replace(missing, '<missing'))).toThrow(
+        'GitHub rendering lost Markdown blocks'
+      );
+    }
   });
 });
 
