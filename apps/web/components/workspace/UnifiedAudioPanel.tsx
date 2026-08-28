@@ -308,8 +308,10 @@ const PlaybackSpeedDial = ({ isDisabled, onSpeedChange, playbackRate }: Playback
       onPointerMove={isDisabled ? undefined : handlePointerMove}
       onPointerUp={isDisabled ? undefined : stopPointerDrag}
       onPointerCancel={isDisabled ? undefined : stopPointerDrag}
-      onLostPointerCapture={() => {
-        dragStateRef.current = null;
+      onLostPointerCapture={event => {
+        if (dragStateRef.current?.pointerId === event.pointerId) {
+          dragStateRef.current = null;
+        }
       }}
     >
       <span

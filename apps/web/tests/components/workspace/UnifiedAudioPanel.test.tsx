@@ -379,6 +379,41 @@ describe('UnifiedAudioPanel', () => {
     expect(onSpeedChange).not.toHaveBeenCalled();
   });
 
+  test('keeps the active drag when another pointer loses capture', () => {
+    const onSpeedChange = vi.fn();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ onSpeedChange })}
+      />
+    );
+
+    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
+    Object.assign(speedDial, { setPointerCapture: vi.fn() });
+    fireEvent.pointerDown(speedDial, {
+      button: 0,
+      clientX: 10,
+      isPrimary: true,
+      pointerId: 7,
+      pointerType: 'touch',
+    });
+    fireEvent.lostPointerCapture(speedDial, { pointerId: 8, pointerType: 'touch' });
+    fireEvent.pointerMove(speedDial, {
+      clientX: 30,
+      pointerId: 7,
+      pointerType: 'touch',
+    });
+
+    expect(onSpeedChange).toHaveBeenCalledWith(1.1);
+  });
+
   test('keeps the iframe lazy until the user starts background audio', async () => {
     const user = userEvent.setup();
     const { container } = render(
