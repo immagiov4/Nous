@@ -169,8 +169,11 @@ export const canonicalizeLessonNodeContent = <Node extends Record<string, unknow
   node: Node,
   options: ProjectSnapshotWireDecodeOptions = {}
 ): Node => {
-  if (!Array.isArray(node.contentBlocks)) return node;
   try {
+    if (!Array.isArray(node.contentBlocks)) {
+      if (node.contentBlocks === undefined || node.contentBlocks === null) return node;
+      throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+    }
     const contentBlocks = canonicalizeLessonContentBlocks(node.contentBlocks);
     const content = deriveLegacyLessonContent(contentBlocks);
     if (!content) {

@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 import { mergeProjectSnapshotRow } from '../../src/projects/projectPersistence.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 
-const storedSnapshot = (contentBlocks: unknown[]): Omit<ProjectSnapshot, 'documentIndex'> => ({
+const storedSnapshot = (contentBlocks: unknown): Omit<ProjectSnapshot, 'documentIndex'> => ({
   activeSectionId: 'lesson-1',
   createdAt: '2026-08-28T12:00:00.000Z',
   id: 'project-1',
@@ -40,6 +40,7 @@ const storedSnapshot = (contentBlocks: unknown[]): Omit<ProjectSnapshot, 'docume
 test.each([
   ['empty', []],
   ['malformed', [null]],
+  ['non-array', { markdown: 'Forma non-array', type: 'markdown' }],
 ])('stored snapshot recovery clears %s historical lesson blocks', (_description, contentBlocks) => {
   const restored = mergeProjectSnapshotRow({
     document_index: null,
@@ -55,6 +56,9 @@ test('historical recovery stays limited to stored snapshots with legacy content'
   expect(() => decodeProjectSnapshotWire(storedSnapshot([]))).toThrow(
     /blocchi contenuto lezione senza testo Markdown/iu
   );
+  expect(() =>
+    decodeProjectSnapshotWire(storedSnapshot({ markdown: 'Forma non-array', type: 'markdown' }))
+  ).toThrow(/blocco contenuto lezione non valido/iu);
 
   const unrecoverable = storedSnapshot([null]);
   const lesson = unrecoverable.learningPlan?.modules?.[0]?.children?.[0];
