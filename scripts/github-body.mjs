@@ -164,66 +164,100 @@ const openRawHtmlBlock = (line, state, canStartTypeSeven) => {
   return false;
 };
 
+const advanceBlockState = (line, state) => {
+  if (state.rawHtmlBlock) {
+    if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
+      state.rawHtmlBlock = undefined;
+    } else {
+      const isClosingLine =
+        !state.rawHtmlBlock.endsAtBlank && rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line);
+      if (isClosingLine) state.rawHtmlBlock = undefined;
+      state.paragraphOpen = false;
+      return { isClosingLine, kind: 'raw-html' };
+    }
+  }
+
+  if (state.fence) {
+    const closingFence = new RegExp(
+      `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
+      'u'
+    );
+    const isClosingLine = closingFence.test(line);
+    if (isClosingLine) state.fence = undefined;
+    state.paragraphOpen = false;
+    return { isClosingLine, isOpeningLine: false, kind: 'fenced-code' };
+  }
+
+  const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+  if (openingFence) {
+    const marker = openingFence[1];
+    state.fence = { character: marker[0], length: marker.length };
+    state.paragraphOpen = false;
+    return { isClosingLine: false, isOpeningLine: true, kind: 'fenced-code' };
+  }
+
+  if (!line.trim()) {
+    state.paragraphOpen = false;
+    return { kind: 'blank' };
+  }
+
+  if (INDENTED_CODE_PATTERN.test(line)) {
+    state.paragraphOpen = false;
+    return { kind: 'indented-code' };
+  }
+
+  if (openRawHtmlBlock(line, state, !state.paragraphOpen)) {
+    state.paragraphOpen = false;
+    return { isClosingLine: false, kind: 'raw-html' };
+  }
+
+  return { kind: 'content' };
+};
+
 const inlineRunKey = (lineIndex, column) => `${lineIndex}:${column}`;
 
-const collectInlineCodeOpeners = lines => {
+const collectRawInlineCodeOpeners = lines => {
   const openers = new Set();
   const state = { fence: undefined, paragraphOpen: false, rawHtmlBlock: undefined };
-  let pendingRuns = new Map();
-  for (const [lineIndex, line] of lines.entries()) {
-    if (state.rawHtmlBlock) {
-      if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
-        state.rawHtmlBlock = undefined;
-      } else {
-        if (
-          !state.rawHtmlBlock.endsAtBlank &&
-          rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line)
-        ) {
-          state.rawHtmlBlock = undefined;
-        }
+  let blockRuns = [];
+
+  const recordBlockOpeners = () => {
+    let openerIndex = 0;
+    while (openerIndex < blockRuns.length) {
+      const openingRun = blockRuns[openerIndex];
+      let closingIndex = openerIndex + 1;
+      while (
+        closingIndex < blockRuns.length &&
+        blockRuns[closingIndex].length !== openingRun.length
+      ) {
+        closingIndex += 1;
+      }
+      if (closingIndex === blockRuns.length) {
+        openerIndex += 1;
         continue;
       }
+      openers.add(openingRun.key);
+      openerIndex = closingIndex + 1;
     }
-    if (state.fence) {
-      const closingFence = new RegExp(
-        `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
-        'u'
-      );
-      if (closingFence.test(line)) state.fence = undefined;
-      state.paragraphOpen = false;
-      continue;
-    }
-    const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
-    if (openingFence) {
-      const marker = openingFence[1];
-      state.fence = { character: marker[0], length: marker.length };
-      state.paragraphOpen = false;
-      pendingRuns = new Map();
-      continue;
-    }
-    if (!line.trim()) {
-      state.paragraphOpen = false;
-      pendingRuns = new Map();
-      continue;
-    }
-    const canStartTypeSeven = !state.paragraphOpen;
-    if (INDENTED_CODE_PATTERN.test(line) || openRawHtmlBlock(line, state, canStartTypeSeven)) {
-      state.paragraphOpen = false;
-      pendingRuns = new Map();
+    blockRuns = [];
+  };
+
+  for (const [lineIndex, line] of lines.entries()) {
+    const block = advanceBlockState(line, state);
+    if (block.kind !== 'content') {
+      recordBlockOpeners();
       continue;
     }
     for (const run of line.matchAll(/`+/gu)) {
-      const delimiterLength = run[0].length;
-      const pendingRun = pendingRuns.get(delimiterLength);
-      if (pendingRun) {
-        openers.add(pendingRun);
-        pendingRuns.delete(delimiterLength);
-      } else {
-        pendingRuns.set(delimiterLength, inlineRunKey(lineIndex, run.index));
-      }
+      blockRuns.push({
+        key: inlineRunKey(lineIndex, run.index),
+        length: run[0].length,
+      });
     }
     state.paragraphOpen = leavesParagraphOpen(line, /`/u.test(line));
+    if (!state.paragraphOpen) recordBlockOpeners();
   }
+  recordBlockOpeners();
   return openers;
 };
 
@@ -290,6 +324,108 @@ const maskInlineCodeAndHtmlComments = (line, lineIndex, openers, renderedContent
   return characters.join('');
 };
 
+const sameLineCodeSpanEnd = (line, markerIndex) => {
+  const runs = [...line.matchAll(/`+/gu)];
+  let openerIndex = 0;
+  while (openerIndex < runs.length) {
+    const openingRun = runs[openerIndex];
+    const closingIndex = runs.findIndex(
+      (run, index) => index > openerIndex && run[0].length === openingRun[0].length
+    );
+    if (closingIndex === -1) {
+      openerIndex += 1;
+      continue;
+    }
+    const closingRun = runs[closingIndex];
+    if (openingRun.index < markerIndex && closingRun.index > markerIndex) {
+      return closingRun.index + closingRun[0].length;
+    }
+    openerIndex = closingIndex + 1;
+  }
+  return -1;
+};
+
+const maskHtmlCommentsForOpenerCollection = (
+  lines,
+  preliminaryOpeners,
+  maskUnclosedComments = true
+) => {
+  const state = {
+    fence: undefined,
+    inHtmlComment: false,
+    inlineCodeDelimiter: undefined,
+    paragraphOpen: false,
+    rawHtmlBlock: undefined,
+  };
+  return lines.map((line, lineIndex) => {
+    const characters = line.split('');
+    let cursor = 0;
+    if (!state.inHtmlComment && !state.inlineCodeDelimiter) {
+      const block = advanceBlockState(line, state);
+      if (block.kind !== 'content') return line;
+    }
+    while (cursor < line.length) {
+      if (state.inHtmlComment) {
+        const commentEnd = line.indexOf('-->', cursor);
+        if (commentEnd === -1) {
+          maskRange(characters, cursor, line.length);
+          break;
+        }
+        maskRange(characters, cursor, commentEnd + 3);
+        state.inHtmlComment = false;
+        cursor = commentEnd + 3;
+        continue;
+      }
+
+      if (state.inlineCodeDelimiter) {
+        const delimiterStart = line.indexOf('`', cursor);
+        if (delimiterStart === -1) break;
+        const delimiterLength = markerRunLength(line, delimiterStart, '`');
+        cursor = delimiterStart + delimiterLength;
+        if (delimiterLength === state.inlineCodeDelimiter) {
+          state.inlineCodeDelimiter = undefined;
+        }
+        continue;
+      }
+
+      const commentStart = line.indexOf('<!--', cursor);
+      const inlineCodeStart = findNextInlineCodeOpener(line, lineIndex, cursor, preliminaryOpeners);
+      if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
+        state.inlineCodeDelimiter = markerRunLength(line, inlineCodeStart, '`');
+        cursor = inlineCodeStart + state.inlineCodeDelimiter;
+        continue;
+      }
+      if (commentStart === -1) break;
+      const codeSpanEnd = sameLineCodeSpanEnd(characters.join(''), commentStart);
+      if (codeSpanEnd !== -1) {
+        cursor = codeSpanEnd;
+        continue;
+      }
+      const commentEnd = line.indexOf('-->', commentStart + 4);
+      if (commentEnd === -1) {
+        const closesLater = lines.slice(lineIndex + 1).some(candidate => candidate.includes('-->'));
+        if (!maskUnclosedComments && !closesLater) break;
+        maskRange(characters, commentStart, line.length);
+        state.inHtmlComment = true;
+        break;
+      }
+      maskRange(characters, commentStart, commentEnd + 3);
+      cursor = commentEnd + 3;
+    }
+    const commentMaskedLine = characters.join('');
+    state.paragraphOpen = leavesParagraphOpen(commentMaskedLine, /`/u.test(commentMaskedLine));
+    return commentMaskedLine;
+  });
+};
+
+const collectInlineCodeOpeners = lines => {
+  const rawOpeners = collectRawInlineCodeOpeners(lines);
+  const closedCommentMaskedLines = maskHtmlCommentsForOpenerCollection(lines, rawOpeners, false);
+  const preliminaryOpeners = collectRawInlineCodeOpeners(closedCommentMaskedLines);
+  const commentMaskedLines = maskHtmlCommentsForOpenerCollection(lines, preliminaryOpeners);
+  return collectRawInlineCodeOpeners(commentMaskedLines);
+};
+
 const maskNonRenderedMarkdown = (body, renderedContentLines = new Set()) => {
   const state = {
     fence: undefined,
@@ -302,18 +438,6 @@ const maskNonRenderedMarkdown = (body, renderedContentLines = new Set()) => {
   const inlineCodeOpeners = collectInlineCodeOpeners(lines);
 
   return lines.map((line, lineIndex) => {
-    if (state.rawHtmlBlock) {
-      if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
-        state.rawHtmlBlock = undefined;
-      } else {
-        const isClosingLine =
-          !state.rawHtmlBlock.endsAtBlank &&
-          rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line);
-        if (line.trim() && !isClosingLine) renderedContentLines.add(lineIndex);
-        if (isClosingLine) state.rawHtmlBlock = undefined;
-        return ' '.repeat(line.length);
-      }
-    }
     if (state.inHtmlComment || state.inlineCodeDelimiter) {
       return maskInlineCodeAndHtmlComments(
         line,
@@ -324,38 +448,22 @@ const maskNonRenderedMarkdown = (body, renderedContentLines = new Set()) => {
       );
     }
 
-    if (state.fence) {
-      const closingFence = new RegExp(
-        `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
-        'u'
-      );
-      if (closingFence.test(line)) {
-        state.fence = undefined;
-      } else if (line.trim()) {
+    const block = advanceBlockState(line, state);
+    if (block.kind === 'raw-html') {
+      if (line.trim() && !block.isClosingLine) renderedContentLines.add(lineIndex);
+      return ' '.repeat(line.length);
+    }
+    if (block.kind === 'fenced-code') {
+      if (block.isOpeningLine || (line.trim() && !block.isClosingLine)) {
         renderedContentLines.add(lineIndex);
       }
-      state.paragraphOpen = false;
       return ' '.repeat(line.length);
     }
-
-    const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
-    if (openingFence) {
-      const marker = openingFence[1];
-      state.fence = { character: marker[0], length: marker.length };
-      state.paragraphOpen = false;
+    if (block.kind === 'indented-code') {
       renderedContentLines.add(lineIndex);
       return ' '.repeat(line.length);
     }
-
-    if (INDENTED_CODE_PATTERN.test(line)) {
-      state.paragraphOpen = false;
-      renderedContentLines.add(lineIndex);
-      return ' '.repeat(line.length);
-    }
-    const canStartTypeSeven = !state.paragraphOpen;
-    if (openRawHtmlBlock(line, state, canStartTypeSeven)) {
-      state.paragraphOpen = false;
-      renderedContentLines.add(lineIndex);
+    if (block.kind === 'blank') {
       return ' '.repeat(line.length);
     }
 

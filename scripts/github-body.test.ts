@@ -200,6 +200,64 @@ describe('GitHub body Markdown validation', () => {
       '## Example\n\nUse `<!--` literally.\n\nDescription ## Testing\n'
     );
     expect(issues.map(candidate => candidate.code)).toContain('inline-heading');
+    expect(
+      validateMarkdownBody('## Example\n\nNote <!-- ` --> and `text ## Not-a-heading` here.\n')
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nNote <!-- ` --> and `<!--` then.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n`closed` <!-- ` --> and `<!--` then.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nUse `ok` <!-- ` --> and `<!--` literal. Description ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nUse `` ` inner `` <!-- note --> and `<!--` literal. Description ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nUse `` ` `` <!-- `work` --> then `<!--` literally.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nUse `` ` `` <!-- `work` --> then `text ## Not-a-heading`.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nUse `code\n<!-- still code\nends` here.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nNote <!-- ` --> and `code\n<!-- literal\nends` here.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<!--\n```\n-->\nUse `code\n<!-- still code\nends` here.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n```\n<!--\n```\nUse `<!--` literally.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<!--\n```\n-->\nUse `<!--` literally.\n\nDescription ## Testing\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
     const unmatchedCodeIssues = validateMarkdownBody(
       '## Example\n\nUse an unmatched ` marker.\n\nDescription ## Testing\n'
     );
@@ -239,6 +297,7 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
     ).not.toThrow();
     const splitReferenceDefinition =
       '[docs]:\n  https://example.com\n  "Documentation"\n\nSee [docs].\n';
+    expect(validateMarkdownBody(splitReferenceDefinition)).toEqual([]);
     expect(() =>
       assertGitHubRendering(
         splitReferenceDefinition,
@@ -359,6 +418,26 @@ describe('GitHub body remote update', () => {
         number: 42,
         repository: 'immagiov4/Nous',
         runGhCommand: verifyManagedGhCommand,
+      })
+    ).resolves.toEqual({
+      endpoint: 'repos/immagiov4/Nous/pulls/42',
+      htmlLength: renderedBody.length,
+    });
+
+    const plainBodyFile = await createBodyFile(validBody);
+    const verifyAppendedGhCommand = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
+      JSON.stringify({
+        body: validBody + managedCubicDescription,
+        body_html: renderedBody,
+      })
+    );
+    await expect(
+      verifyGitHubBody({
+        bodyFile: plainBodyFile,
+        kind: 'pr',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand: verifyAppendedGhCommand,
       })
     ).resolves.toEqual({
       endpoint: 'repos/immagiov4/Nous/pulls/42',
