@@ -88,11 +88,12 @@ Compare old - new behavior, or use option 1) now.
   });
   test('verifies the rendered heading, paragraph, and list structure', () => {
     const richBody =
-      '## Blocks\n\n<h2>Raw heading</h2>\n\n> Quote.\n\n> [!NOTE]\n> Alert.\n\n---\n\n```text\ncode\n```\n\n| A |\n| - |\n| B |\n\n- First.\n\n  Second.\n- Third.\n';
+      '## Blocks\n\n<h2>Raw heading</h2>\n\n> Quote.\n\n> [!NOTE]\n> Alert.\n\n---\n\n```text\ncode\n```\n\n| A |\n| - |\n| B |\n\n- First.\n\n  Second.\n\n  > [!NOTE]\n  > Nested.\n- Third.\n';
     const richHtml =
       '<h2>Blocks</h2><h2>Raw heading</h2><blockquote><p>Quote.</p></blockquote><div class="markdown-alert"><p>Alert.</p></div><hr><pre><code>code</code></pre>' +
       '<table><tr><th>A</th></tr><tr><td>B</td></tr></table>' +
-      '<ul><li><p>First.</p><p>Second.</p></li><li><p>Third.</p></li></ul>';
+      '<ul><li><p>First.</p><p>Second.</p><blockquote><p>Nested.</p></blockquote></li><li><p>Third.</p></li></ul>';
+    expect(() => assertGitHubRendering(richBody, richHtml)).not.toThrow();
     for (const missing of [
       '<h2',
       '<blockquote',
@@ -123,7 +124,6 @@ describe('GitHub body remote lifecycle', () => {
       await writeFile(bodyFile, 'Changed after snapshot.\n', 'utf8');
       return validRenderedBody;
     });
-
     await expect(
       previewGitHubBody({ bodyFile, repository: 'immagiov4/Nous', runGhCommand })
     ).resolves.toEqual({ htmlLength: Buffer.byteLength(validRenderedBody, 'utf8') });

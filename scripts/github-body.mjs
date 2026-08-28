@@ -153,10 +153,8 @@ export const validateMarkdownBody = body => {
     ...collectRootBlockSpacingIssues(root, normalizedBody.split('\n')),
   ];
 };
-
 export const formatValidationIssues = (issues, bodyFile = 'body.md') =>
   issues.map(({ line, message }) => `${bodyFile}:${line}: ${message}`).join('\n');
-
 export const assertValidMarkdownBody = (body, bodyFile) => {
   const issues = validateMarkdownBody(body);
   if (issues.length > 0) throw new Error(formatValidationIssues(issues, bodyFile));
@@ -175,7 +173,10 @@ const expectedRenderedTags = body => {
     if (node.type === 'heading') increment(`h${node.depth}`);
     if (node.type === 'listItem') increment('li');
     if (node.type === 'list') increment(node.ordered ? 'ol' : 'ul');
-    if (node.type === 'table' || (node.type === 'blockquote' && !isGitHubAlert(node)))
+    if (
+      node.type === 'table' ||
+      (node.type === 'blockquote' && (parent?.type !== 'root' || !isGitHubAlert(node)))
+    )
       increment(node.type);
     if (node.type === 'code') increment('pre');
     if (node.type === 'thematicBreak') increment('hr');
@@ -188,7 +189,6 @@ const expectedRenderedTags = body => {
   });
   return counts;
 };
-
 const renderedTagCount = (renderedHtml, tag) =>
   [...renderedHtml.matchAll(new RegExp(String.raw`<${tag}(?=[\s/>])`, 'giu'))].length;
 export const assertGitHubRendering = (body, renderedHtml) => {
