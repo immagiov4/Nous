@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   assertGitHubRendering,
+  previewGitHubBody,
   updateGitHubBody,
   validateMarkdownBody,
   verifyGitHubBody,
@@ -58,6 +59,9 @@ describe('GitHub body Markdown validation', () => {
         '<p>First paragraph.</p><hr><p>Second paragraph.</p>'
       )
     ).not.toThrow();
+    expect(
+      validateMarkdownBody('- First paragraph\n\n  Second paragraph\n- Second item\n')
+    ).toEqual([]);
 
     const setextBody = 'Title\n=====\n\nParagraph.\n';
     expect(validateMarkdownBody(setextBody)).toEqual([]);
@@ -614,6 +618,39 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
 });
 
 describe('GitHub body remote update', () => {
+  test('previews the exact file snapshot through GitHub rendering', async () => {
+    const bodyFile = await createBodyFile();
+    const renderedBody =
+      '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
+      '<ul><li>First item</li><li>Second item</li></ul>' +
+      '<h2>Testing</h2><p>The focused test passed.</p>';
+    const runGhCommand = vi
+      .fn<(args: string[]) => Promise<string>>()
+      .mockResolvedValue(renderedBody);
+
+    await expect(
+      previewGitHubBody({
+        bodyFile,
+        repository: 'immagiov4/Nous',
+        runGhCommand,
+      })
+    ).resolves.toEqual({ htmlLength: renderedBody.length });
+    expect(runGhCommand).toHaveBeenCalledWith([
+      'api',
+      'markdown',
+      '--method',
+      'POST',
+      '--header',
+      'X-GitHub-Api-Version: 2022-11-28',
+      '--field',
+      expect.stringMatching(/^text=@.+nous-github-body-preview-.+body\.md$/u),
+      '--field',
+      'mode=gfm',
+      '--field',
+      'context=immagiov4/Nous',
+    ]);
+  });
+
   test('preserves the managed suffix, uploads from a file, then verifies remote raw and HTML', async () => {
     const bodyFile = await createBodyFile();
     const renderedBody =
@@ -844,6 +881,43 @@ describe('GitHub body remote update', () => {
     expect(uploadedBody).toBe(validBody + remoteManagedSuffix);
     expect(uploadedBody).not.toContain('/older');
     expect(uploadedBody).not.toContain('Review\\n## Broken');
+  });
+
+  test('preserves managed-marker examples inside fenced code', async () => {
+    const markerExample =
+      `${validBody}\n\`\`\`html\n${'<!-- This is an auto-generated description by cubic. -->'}\n` +
+      '```\n\n## Later section\n\nKeep this text.\n';
+    const bodyFile = await createBodyFile(markerExample);
+    const renderedBody =
+      '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
+      '<ul><li>First item</li><li>Second item</li></ul>' +
+      '<h2>Testing</h2><p>The focused test passed.</p><pre><code>marker</code></pre>' +
+      '<h2>Later section</h2><p>Keep this text.</p><p><a>Review in Cubic</a></p>';
+    let uploadedBody = '';
+    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      if (args[1] === 'markdown') return renderedBody;
+      if (args.includes('PATCH')) {
+        const bodyArgument = args.find(argument => argument.startsWith('body=@'));
+        if (!bodyArgument) throw new Error('Expected body file argument.');
+        uploadedBody = await readFile(bodyArgument.slice('body=@'.length), 'utf8');
+        return '';
+      }
+      return JSON.stringify({
+        body: uploadedBody || validBody + managedCubicDescription,
+        body_html: renderedBody,
+      });
+    });
+
+    await updateGitHubBody({
+      bodyFile,
+      kind: 'pr',
+      number: 42,
+      repository: 'immagiov4/Nous',
+      runGhCommand,
+    });
+
+    expect(uploadedBody).toBe(markerExample + managedCubicDescription);
+    expect(uploadedBody).toContain('## Later section');
   });
 
   test('rejects an invalid managed suffix before PATCH', async () => {

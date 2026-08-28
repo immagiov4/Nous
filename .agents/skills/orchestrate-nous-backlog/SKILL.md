@@ -305,7 +305,7 @@ Before publication, re-check remote state and the complete worktree.
 - Push directly to `main` only when the user explicitly requests that route. Otherwise use the
   repository's branch/PR workflow.
 - Confirm local HEAD and remote branch SHA after push, then report the CI URL/status.
-- Before creating a pull request or issue, run `bun run github:body -- validate` on its body file;
+- Before creating a pull request or issue, run `bun run github:body -- preview` on its body file;
   create with the native `--body-file` option, then run `bun run github:body -- verify`. For later
   body mutations, use `bun run github:body -- update`; keep body text out of shell interpolation
   and `gh pr edit`/`gh issue edit`.

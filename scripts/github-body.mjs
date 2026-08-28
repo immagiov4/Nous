@@ -17,8 +17,8 @@ const PARAGRAPH_INTERRUPT_LIST_PATTERN = /^( {0,3})(?:[-+*]|1[.)])(?:[ \t]+\S|[ 
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
 const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,9}[.)])[ \t]+\[[ xX]\][ \t]+\S/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
-const MANAGED_PR_SUFFIX_PATTERN =
-  /(?:\r?\n){2}<!-- This is an auto-generated description by cubic\. -->[\s\S]*$/u;
+const MANAGED_PR_SUFFIX_START = '<!-- This is an auto-generated description by cubic. -->';
+const MANAGED_PR_SUFFIX_END = '<!-- End of auto-generated description by cubic. -->';
 const BLOCKQUOTE_PREFIX_PATTERN = /^(?: {0,3}>[ \t]?)+/u;
 const INDENTED_CODE_PATTERN = /^(?: {4,}| {0,3}\t)[ \t]*\S/u;
 const RAW_HTML_TAG_START_PATTERN = /^ {0,3}<(\/)?([A-Za-z][A-Za-z0-9-]*)(?=[ \t/>]|$)/u;
@@ -348,6 +348,38 @@ const advanceBlockState = (line, state) => {
   }
 
   return { kind: 'content' };
+};
+
+const managedPrSuffix = body => {
+  const normalizedBody = normalizeLineEndings(body);
+  const lines = normalizedBody.split('\n');
+  const state = { fence: undefined, paragraphOpen: false, rawHtmlBlock: undefined };
+  let pendingStart = -1;
+  let suffixStart = -1;
+  let lineStart = 0;
+
+  for (const [index, line] of lines.entries()) {
+    const block = advanceBlockState(line, state);
+    if (block.kind === 'content') {
+      const hasBlankBoundary = index > 0 && !lines[index - 1].trim();
+      if (line === MANAGED_PR_SUFFIX_START && hasBlankBoundary) {
+        pendingStart = lineStart >= 2 ? lineStart - 2 : lineStart;
+      } else if (line === MANAGED_PR_SUFFIX_END && pendingStart !== -1) {
+        suffixStart = pendingStart;
+        pendingStart = -1;
+      }
+      state.paragraphOpen = leavesParagraphOpen(line);
+    }
+    lineStart += line.length + 1;
+  }
+
+  return suffixStart === -1 ? undefined : normalizedBody.slice(suffixStart);
+};
+
+const bodyWithoutManagedPrSuffix = body => {
+  const normalizedBody = normalizeLineEndings(body);
+  const suffix = managedPrSuffix(normalizedBody);
+  return suffix ? normalizedBody.slice(0, -suffix.length) : normalizedBody;
 };
 
 const inlineRunKey = (lineIndex, column) => `${lineIndex}:${column}`;
@@ -1085,7 +1117,14 @@ const collectLinkDefinitions = (sourceLines, structuralLines) => {
   return { identifiers, lineIndexes };
 };
 
-const collectListSpacingIssues = ({ index, line, setextHeadingLines, state, structuralLines }) => {
+const collectListSpacingIssues = ({
+  index,
+  line,
+  nextContentLine,
+  setextHeadingLines,
+  state,
+  structuralLines,
+}) => {
   const lineNumber = index + 1;
   const lineIsBlank = !line.trim();
   const listLikeLine = !setextHeadingLines.has(index) && isTopLevelListItem(line);
@@ -1095,7 +1134,9 @@ const collectListSpacingIssues = ({ index, line, setextHeadingLines, state, stru
   const indentedContinuation = state.inListBlock && /^(?: {2,}|\t)\S/u.test(line);
   const listIssues = [];
 
-  if (lineIsBlank) state.inListBlock = false;
+  const continuesLooseList =
+    lineIsBlank && state.inListBlock && /^(?: {2,}|\t)\S/u.test(nextContentLine ?? '');
+  if (lineIsBlank && !continuesLooseList) state.inListBlock = false;
   if (listItem && !state.inListBlock && index > 0 && structuralLines[index - 1]?.trim()) {
     listIssues.push(
       issue('list-spacing-before', lineNumber, 'Add a blank line before the Markdown list.')
@@ -1145,6 +1186,16 @@ function collectSetextHeadingLineIndexes(lines) {
   return headingLines;
 }
 
+const nextNonBlankLines = lines => {
+  const nextLines = Array.from({ length: lines.length });
+  let nextLine;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    nextLines[index] = nextLine;
+    if (lines[index].trim()) nextLine = lines[index];
+  }
+  return nextLines;
+};
+
 export const validateMarkdownBody = body => {
   const normalizedBody = normalizeLineEndings(body);
   const unquotedBody = stripBlockquotePrefixes(normalizedBody);
@@ -1157,6 +1208,7 @@ export const validateMarkdownBody = body => {
     linkDefinitions.lineIndexes.has(index) ? ' '.repeat(line.length) : line
   );
   const setextHeadingLines = collectSetextHeadingLineIndexes(structuralLines);
+  const nextContentLines = nextNonBlankLines(syntaxLines);
   const issues = [];
 
   if (normalizedBody.trim().length === 0) {
@@ -1191,6 +1243,7 @@ export const validateMarkdownBody = body => {
       ...collectListSpacingIssues({
         index,
         line: syntaxLine,
+        nextContentLine: nextContentLines[index],
         setextHeadingLines,
         state: listState,
         structuralLines: syntaxLines,
@@ -1416,11 +1469,11 @@ const verifyRemoteSnapshot = ({
   const normalizedLocalBody = normalizeLineEndings(localBody);
   const comparableRemoteBody =
     kind === 'pr' && !exactBodyMatch
-      ? normalizedRemoteBody.replace(MANAGED_PR_SUFFIX_PATTERN, '')
+      ? bodyWithoutManagedPrSuffix(normalizedRemoteBody)
       : normalizedRemoteBody;
   const comparableLocalBody =
     kind === 'pr' && !exactBodyMatch
-      ? normalizedLocalBody.replace(MANAGED_PR_SUFFIX_PATTERN, '')
+      ? bodyWithoutManagedPrSuffix(normalizedLocalBody)
       : normalizedLocalBody;
   if (comparableRemoteBody !== comparableLocalBody) {
     throw new Error('GitHub raw body does not match the Markdown body file.');
@@ -1438,9 +1491,9 @@ const verifyRemoteBody = async ({ endpoint, kind, localBody, number, runGhComman
 
 const bodyWithPreservedManagedSuffix = ({ kind, localBody, remoteBody }) => {
   if (kind !== 'pr') return localBody;
-  const managedSuffix = MANAGED_PR_SUFFIX_PATTERN.exec(remoteBody)?.[0];
+  const managedSuffix = managedPrSuffix(remoteBody);
   if (!managedSuffix) return localBody;
-  return `${normalizeLineEndings(localBody).replace(MANAGED_PR_SUFFIX_PATTERN, '')}${managedSuffix}`;
+  return `${bodyWithoutManagedPrSuffix(localBody)}${managedSuffix}`;
 };
 
 const renderGitHubMarkdown = ({ bodyFile, repository, runGhCommand }) =>
@@ -1458,6 +1511,27 @@ const renderGitHubMarkdown = ({ bodyFile, repository, runGhCommand }) =>
     '--field',
     `context=${repository}`,
   ]);
+
+export const previewGitHubBody = async ({ bodyFile, repository, runGhCommand = runGh }) => {
+  const absoluteBodyFile = resolve(bodyFile);
+  const body = await readFile(absoluteBodyFile, 'utf8');
+  assertValidMarkdownBody(body, absoluteBodyFile);
+  let temporaryDirectory;
+  try {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'nous-github-body-preview-'));
+    const previewFile = join(temporaryDirectory, 'body.md');
+    await writeFile(previewFile, body, 'utf8');
+    const renderedPreview = await renderGitHubMarkdown({
+      bodyFile: previewFile,
+      repository,
+      runGhCommand,
+    });
+    assertGitHubRendering(body, renderedPreview);
+    return { htmlLength: Buffer.byteLength(renderedPreview, 'utf8') };
+  } finally {
+    if (temporaryDirectory) await rm(temporaryDirectory, { force: true, recursive: true });
+  }
+};
 
 export const verifyGitHubBody = async ({
   bodyFile,
@@ -1483,7 +1557,7 @@ export const updateGitHubBody = async ({
   const absoluteBodyFile = resolve(bodyFile);
   const localBody = await readFile(absoluteBodyFile, 'utf8');
   const localBodyWithoutManagedSuffix =
-    kind === 'pr' ? localBody.replace(MANAGED_PR_SUFFIX_PATTERN, '') : localBody;
+    kind === 'pr' ? bodyWithoutManagedPrSuffix(localBody) : localBody;
   assertValidMarkdownBody(localBodyWithoutManagedSuffix, absoluteBodyFile);
 
   const endpoint = endpointFor({ kind, number, repository });
@@ -1576,6 +1650,7 @@ const validateKind = kind => {
 
 const usage = `Usage:
   bun run github:body -- validate --body-file <path>
+  bun run github:body -- preview --repo <owner/repository> --body-file <path>
   bun run github:body -- verify --kind <${GITHUB_BODY_KIND_USAGE}> --repo <owner/repository> --number <number> --body-file <path>
   bun run github:body -- update --kind <${GITHUB_BODY_KIND_USAGE}> --repo <owner/repository> --number <number> --body-file <path>`;
 
@@ -1588,6 +1663,16 @@ export const runCli = async (args, dependencies = {}) => {
     const body = await readFile(bodyFile, 'utf8');
     assertValidMarkdownBody(body, bodyFile);
     process.stdout.write(`Validated GitHub body: ${bodyFile}\n`);
+    return;
+  }
+
+  if (command === 'preview') {
+    const result = await previewGitHubBody({
+      bodyFile,
+      repository: validateRepository(requiredFlag(flags, '--repo')),
+      runGhCommand: dependencies.runGhCommand,
+    });
+    process.stdout.write(`Previewed GitHub body (${result.htmlLength} rendered HTML bytes).\n`);
     return;
   }
 

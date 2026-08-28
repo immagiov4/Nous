@@ -83,6 +83,7 @@ Validate a pull-request or issue body from a Markdown file before publishing it:
 
 ```bash
 bun run github:body -- validate --body-file body.md
+bun run github:body -- preview --repo immagiov4/Nous --body-file body.md
 bun run github:body -- verify --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 bun run github:body -- update --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 ```
