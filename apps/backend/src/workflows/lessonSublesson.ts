@@ -24,6 +24,7 @@ import type {
   ProjectStore,
   StoredProjectSourceFile,
 } from '../projects/types.js';
+import { readConfiguredProjectLanguage } from '../services/lessonGenerationSources.js';
 import {
   type ProjectSourceMaterial,
   readProjectSourceMaterial,
@@ -232,7 +233,7 @@ const readProfileSummary = (project: ProjectSnapshot): string => {
 };
 
 const buildSublessonOutputLanguageRule = (project: ProjectSnapshot): string => {
-  const configuredLanguage = project.userProfile?.language?.trim();
+  const configuredLanguage = readConfiguredProjectLanguage(project);
   return configuredLanguage
     ? `OUTPUT LANGUAGE: ${configuredLanguage}`
     : 'OUTPUT LANGUAGE: Use the language of the supplied parent lesson.';

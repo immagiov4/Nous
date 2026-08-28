@@ -163,6 +163,7 @@ describe('durable sublesson stages', () => {
   test.each([
     ['missing', null],
     ['blank', { language: '   ' }],
+    ['invalid', { language: 7 } as never],
   ] as const)('uses the parent lesson language when the profile language is %s', async (_case, userProfile) => {
     const generateObject = vi.fn(async () => metadata);
     const stages = createLessonSublessonStages({

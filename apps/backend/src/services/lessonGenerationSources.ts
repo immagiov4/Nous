@@ -400,8 +400,14 @@ export const readExistingDossier = (project: ProjectSnapshot, sectionId: string)
   return isRecord(value) ? value : null;
 };
 
+export const readConfiguredProjectLanguage = (project: ProjectSnapshot): string | undefined => {
+  const language = project.userProfile?.language;
+  if (typeof language !== 'string') return undefined;
+  return language.trim() || undefined;
+};
+
 export const readProjectLanguage = (project: ProjectSnapshot): string =>
-  project.userProfile?.language?.trim() || 'Italiano';
+  readConfiguredProjectLanguage(project) ?? 'Italiano';
 
 const sourceKey = (source: ResearchSource): string => {
   if (source.sourceId?.trim()) return `source:${source.sourceId.trim()}`;
