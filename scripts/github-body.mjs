@@ -15,7 +15,14 @@ const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES)
   .join('|');
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
-const PROTECTED_AST_TYPES = new Set(['code', 'definition', 'inlineCode']);
+const PROTECTED_AST_TYPES = new Set([
+  'code',
+  'definition',
+  'image',
+  'imageReference',
+  'inlineCode',
+]);
+const VISIBLE_CHILD_CONTAINER_AST_TYPES = new Set(['link', 'linkReference']);
 const MANAGED_PR_SUFFIX_START = '<!-- This is an auto-generated description by cubic. -->';
 const MANAGED_PR_SUFFIX_END = '<!-- End of auto-generated description by cubic. -->';
 const markdownParser = unified().use(remarkParse).use(remarkGfm).freeze();
@@ -24,9 +31,16 @@ const normalizeLineEndings = body => body.replace(/\r\n?/gu, '\n');
 const issue = (code, line, message) => ({ code, line, message });
 const nodeOffset = (node, boundary) => node.position?.[boundary]?.offset;
 
-const walkAst = (node, ancestors, visitor) => {
-  visitor(node, ancestors);
-  for (const child of node.children ?? []) walkAst(child, [...ancestors, node], visitor);
+const walkAst = (root, visitor) => {
+  const pending = [{ node: root, parent: undefined }];
+  while (pending.length > 0) {
+    const { node, parent } = pending.pop();
+    visitor(node, parent);
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push({ node: children[index], parent: node });
+    }
+  }
 };
 
 const parseMarkdown = body => markdownParser.parse(normalizeLineEndings(body));
@@ -37,9 +51,28 @@ const maskRange = (characters, start, end) => {
   }
 };
 
+const maskOutsideDirectChildren = (characters, node) => {
+  const start = nodeOffset(node, 'start');
+  const end = nodeOffset(node, 'end');
+  if (start === undefined || end === undefined) return;
+  let cursor = start;
+  for (const child of node.children ?? []) {
+    const childStart = nodeOffset(child, 'start');
+    const childEnd = nodeOffset(child, 'end');
+    if (childStart === undefined || childEnd === undefined) continue;
+    maskRange(characters, cursor, childStart);
+    cursor = childEnd;
+  }
+  maskRange(characters, cursor, end);
+};
+
 const sourceWithoutProtectedMarkdown = (body, root) => {
   const characters = body.split('');
-  walkAst(root, [], node => {
+  walkAst(root, node => {
+    if (VISIBLE_CHILD_CONTAINER_AST_TYPES.has(node.type)) {
+      maskOutsideDirectChildren(characters, node);
+      return;
+    }
     if (!PROTECTED_AST_TYPES.has(node.type)) return;
     const start = nodeOffset(node, 'start');
     const end = nodeOffset(node, 'end');
@@ -119,10 +152,8 @@ const expectedRenderedTags = body => {
   const root = parseMarkdown(body);
   const counts = new Map();
   const increment = tag => counts.set(tag, (counts.get(tag) ?? 0) + 1);
-  for (const node of root.children ?? []) {
-    if (node.type === 'paragraph') increment('p');
-  }
-  walkAst(root, [], node => {
+  walkAst(root, (node, parent) => {
+    if (node.type === 'paragraph' && parent?.type !== 'listItem') increment('p');
     if (node.type === 'heading') increment(`h${node.depth}`);
     if (node.type === 'listItem') increment('li');
   });
@@ -228,7 +259,7 @@ const managedPrSuffix = body => {
   const occurrenceCount = (value, marker) => value.split(marker).length - 1;
   let activeStartCount = 0;
   let activeEndCount = 0;
-  walkAst(root, [], node => {
+  walkAst(root, node => {
     if (node.type !== 'html') return;
     activeStartCount += occurrenceCount(node.value, MANAGED_PR_SUFFIX_START);
     activeEndCount += occurrenceCount(node.value, MANAGED_PR_SUFFIX_END);
@@ -265,23 +296,28 @@ const bodyWithoutManagedPrSuffix = body => {
 
 const bodyWithPreservedManagedSuffix = ({ kind, localBody, remoteBody }) => {
   if (kind !== 'pr') return localBody;
-  const localBodyWithoutManagedSuffix = bodyWithoutManagedPrSuffix(localBody).trimEnd();
+  const localBodyWithoutManagedSuffix = bodyWithoutManagedPrSuffix(localBody);
   const suffix = managedPrSuffix(remoteBody);
-  return suffix ? `${localBodyWithoutManagedSuffix}\n\n${suffix}` : localBodyWithoutManagedSuffix;
+  if (!suffix) return localBodyWithoutManagedSuffix;
+  const composedBody = `${localBodyWithoutManagedSuffix.trimEnd()}\n\n${suffix}`;
+  if (managedPrSuffix(composedBody) !== suffix) {
+    throw new Error('The managed pull request body suffix was absorbed by local Markdown.');
+  }
+  return composedBody;
 };
 
-const comparableBody = (body, kind, exactBodyMatch) => {
-  const normalizedBody = normalizeLineEndings(body);
-  return kind === 'pr' && !exactBodyMatch
-    ? bodyWithoutManagedPrSuffix(normalizedBody).trimEnd()
-    : normalizedBody;
-};
+const comparableBody = (body, stripManagedSuffix) =>
+  stripManagedSuffix ? bodyWithoutManagedPrSuffix(body).trimEnd() : normalizeLineEndings(body);
 
 const verifyRemoteSnapshot = ({ exactBodyMatch = false, kind, localBody, number, remote }) => {
   assertRemoteKind(remote, kind, number);
+  const stripManagedSuffix =
+    kind === 'pr' &&
+    !exactBodyMatch &&
+    (managedPrSuffix(remote.body) !== undefined || managedPrSuffix(localBody) !== undefined);
   if (
-    comparableBody(remote.body, kind, exactBodyMatch) !==
-    comparableBody(localBody, kind, exactBodyMatch)
+    comparableBody(remote.body, stripManagedSuffix) !==
+    comparableBody(localBody, stripManagedSuffix)
   ) {
     throw new Error('GitHub raw body does not match the Markdown body file.');
   }

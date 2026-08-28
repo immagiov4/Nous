@@ -51,6 +51,15 @@ const createBodyFile = async (body = validBody) => {
   return bodyFile;
 };
 
+type RunGhCommand = (args: string[]) => Promise<string>;
+const prTarget = { kind: 'pr', number: 42, repository: 'immagiov4/Nous' } as const;
+
+const updatePrBody = (bodyFile: string, runGhCommand: RunGhCommand) =>
+  updateGitHubBody({ bodyFile, runGhCommand, ...prTarget });
+
+const verifyPrBody = (bodyFile: string, runGhCommand: RunGhCommand) =>
+  verifyGitHubBody({ bodyFile, runGhCommand, ...prTarget });
+
 const issueCodes = (body: string) => new Set(validateMarkdownBody(body).map(issue => issue.code));
 
 afterEach(async () => {
@@ -84,6 +93,7 @@ Literal \\n stays inside this example.
     expect(issueCodes('## Summary\n\n[Text\\nNext](https://example.com)\n')).toContain(
       'literal-newline'
     );
+    expect(validateMarkdownBody('## Summary\n\n[Notes](docs\\new\\notes.md)\n')).toEqual([]);
     expect(issueCodes('## Summary\n\n<details>Text\\nNext</details>\n')).toContain(
       'literal-newline'
     );
@@ -111,6 +121,12 @@ Compare old - new behavior, or use option 1) now.
     expect(() => assertGitHubRendering(validBody, '<h2>Summary</h2><p>Collapsed.</p>')).toThrow(
       'GitHub rendering lost Markdown blocks'
     );
+    expect(() =>
+      assertGitHubRendering(
+        '> First paragraph.\n>\n> Second paragraph.\n',
+        '<blockquote><p>Collapsed.</p></blockquote>'
+      )
+    ).toThrow('GitHub rendering lost Markdown blocks');
   });
 });
 
@@ -171,15 +187,9 @@ describe('GitHub body remote lifecycle', () => {
       return JSON.stringify({ body: remoteBody, body_html: managedRenderedBody });
     });
 
-    await expect(
-      updateGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).resolves.toMatchObject({ endpoint: 'repos/immagiov4/Nous/pulls/42' });
+    await expect(updatePrBody(bodyFile, runGhCommand)).resolves.toMatchObject({
+      endpoint: 'repos/immagiov4/Nous/pulls/42',
+    });
     expect(uploadedBody).toBe(`${validBody.trimEnd()}\n\n${managedSuffix}`);
     expect(patchCount).toBe(1);
   });
@@ -192,15 +202,9 @@ describe('GitHub body remote lifecycle', () => {
       return JSON.stringify({ body: validBody, body_html: validRenderedBody });
     });
 
-    await expect(
-      updateGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).rejects.toThrow('GitHub rendering lost Markdown blocks');
+    await expect(updatePrBody(bodyFile, runGhCommand)).rejects.toThrow(
+      'GitHub rendering lost Markdown blocks'
+    );
     expect(runGhCommand.mock.calls.some(([args]) => args.includes('PATCH'))).toBe(false);
   });
 
@@ -215,15 +219,9 @@ describe('GitHub body remote lifecycle', () => {
       return JSON.stringify({ body, body_html: validRenderedBody });
     });
 
-    await expect(
-      updateGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).rejects.toThrow('GitHub body changed during update');
+    await expect(updatePrBody(bodyFile, runGhCommand)).rejects.toThrow(
+      'GitHub body changed during update'
+    );
     expect(runGhCommand.mock.calls.some(([args]) => args.includes('PATCH'))).toBe(false);
   });
 
@@ -239,17 +237,21 @@ describe('GitHub body remote lifecycle', () => {
       const runGhCommand = vi
         .fn()
         .mockResolvedValue(JSON.stringify({ body: remoteBody, body_html: validRenderedBody }));
-      await expect(
-        updateGitHubBody({
-          bodyFile,
-          kind: 'pr',
-          number: 42,
-          repository: 'immagiov4/Nous',
-          runGhCommand,
-        })
-      ).rejects.toThrow('managed pull request body markers are incomplete');
+      await expect(updatePrBody(bodyFile, runGhCommand)).rejects.toThrow(
+        'managed pull request body markers are incomplete'
+      );
       expect(runGhCommand).toHaveBeenCalledTimes(1);
     }
+
+    const unclosedFenceFile = await createBodyFile('## Summary\n\n```text\nUnclosed fence\n');
+    const remoteBody = `${validBody.trimEnd()}\n\n${managedSuffix}`;
+    const runGhCommand = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify({ body: remoteBody, body_html: managedRenderedBody }));
+    await expect(updatePrBody(unclosedFenceFile, runGhCommand)).rejects.toThrow(
+      'managed pull request body suffix was absorbed'
+    );
+    expect(runGhCommand).toHaveBeenCalledTimes(1);
   });
 
   test('fails verification when the remote raw body differs from the file', async () => {
@@ -267,27 +269,25 @@ describe('GitHub body remote lifecycle', () => {
           body: validBody.replace('focused test passed', 'remote body changed'),
           body_html: validRenderedBody,
         })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          body: validBody.trimEnd(),
+          body_html: validRenderedBody,
+        })
       );
 
-    await expect(
-      verifyGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).resolves.toMatchObject({ endpoint: 'repos/immagiov4/Nous/pulls/42' });
+    await expect(verifyPrBody(bodyFile, runGhCommand)).resolves.toMatchObject({
+      endpoint: 'repos/immagiov4/Nous/pulls/42',
+    });
 
-    await expect(
-      verifyGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).rejects.toThrow('GitHub raw body does not match');
+    await expect(verifyPrBody(bodyFile, runGhCommand)).rejects.toThrow(
+      'GitHub raw body does not match'
+    );
+
+    await expect(verifyPrBody(bodyFile, runGhCommand)).rejects.toThrow(
+      'GitHub raw body does not match'
+    );
   });
 
   test('rejects unsupported targets and pull requests passed as issues before mutation', async () => {
