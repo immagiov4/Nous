@@ -8,7 +8,7 @@ const GITHUB_FULL_MEDIA_TYPE = 'application/vnd.github.full+json';
 const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
 const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
 const HEADING_PATTERN = /^( {0,3})(#{1,6})(?:[ \t]+|$)/u;
-const LIST_ITEM_PATTERN = /^( {0,3})(?:[-+*]|\d{1,3}[.)])[ \t]+\S/u;
+const LIST_ITEM_PATTERN = /^( {0,3})(?:[-+*]|\d{1,3}[.)])(?:[ \t]+\S|[ \t]*$)/u;
 // A single # in prose is indistinguishable from a flattened H1; H2+ matches the repository's PR sections without rejecting normal prose.
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
 const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,3}[.)])[ \t]+\[(?: |x|X)\][ \t]+\S/u;
@@ -16,6 +16,82 @@ const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
 const MANAGED_CUBIC_DESCRIPTION_PATTERN =
   /\n\n<!-- This is an auto-generated description by cubic\. -->[\s\S]*?<!-- End of auto-generated description by cubic\. -->[ \t]*\n*$/u;
 const BLOCKQUOTE_PREFIX_PATTERN = /^(?: {0,3}>[ \t]?)+/u;
+const INDENTED_CODE_PATTERN = /^(?: {4,}|\t)\S/u;
+const LINK_DEFINITION_PATTERN = /^ {0,3}\[[^\]]+\]:[ \t]+\S/u;
+const LINK_DEFINITION_START_PATTERN = /^ {0,3}\[[^\]]+\]:[ \t]*$/u;
+const LINK_DESTINATION_PATTERN = /^ {1,3}(?:<[^>]+>|\S+)[ \t]*$/u;
+const LINK_TITLE_PATTERN = /^ {1,3}(?:"[^"]*"|'[^']*'|\([^)]*\))[ \t]*$/u;
+const RAW_HTML_TAG_PATTERN = /^ {0,3}<(\/)?([A-Za-z][A-Za-z0-9-]*)\b[^>]*>/u;
+const RAW_HTML_COMPLETE_TAG_PATTERN =
+  /^ {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?[ \t]*\/?>|<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$/u;
+const RAW_HTML_BLOCK_TAGS = new Set([
+  'address',
+  'article',
+  'aside',
+  'base',
+  'basefont',
+  'blockquote',
+  'body',
+  'caption',
+  'center',
+  'col',
+  'colgroup',
+  'dd',
+  'details',
+  'dialog',
+  'dir',
+  'div',
+  'dl',
+  'dt',
+  'fieldset',
+  'figcaption',
+  'figure',
+  'footer',
+  'form',
+  'frame',
+  'frameset',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'head',
+  'header',
+  'hr',
+  'html',
+  'iframe',
+  'legend',
+  'li',
+  'link',
+  'main',
+  'menu',
+  'menuitem',
+  'nav',
+  'noframes',
+  'ol',
+  'optgroup',
+  'option',
+  'p',
+  'param',
+  'search',
+  'section',
+  'summary',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'title',
+  'track',
+  'tr',
+  'ul',
+]);
+const RAW_HTML_UNINTERRUPTED_TAGS = new Set(['pre', 'script', 'style', 'textarea']);
+const WINDOWS_PATH_TOKEN_PATTERN = /[^\s<>()[\]{}"`]+/gu;
+const STRUCTURAL_LITERAL_NEWLINE_PATTERN =
+  /\\(?:r\\n|n)(?=#{1,6}(?:[ \t]|$)|(?:[-+*]|\d{1,3}[.)])(?:[ \t]|$))/u;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const SETEXT_HEADING_PATTERN = /^ {0,3}(=+|-+)[ \t]*$/u;
 const TABLE_DELIMITER_PATTERN = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$/u;
@@ -28,25 +104,139 @@ const stripBlockquotePrefix = line => line.replace(BLOCKQUOTE_PREFIX_PATTERN, ''
 const stripBlockquotePrefixes = body =>
   normalizeLineEndings(body).split('\n').map(stripBlockquotePrefix).join('\n');
 
+const leavesParagraphOpen = (line, hasRenderedInlineContent = false) => {
+  if (!line.trim()) return hasRenderedInlineContent;
+  return !(
+    HEADING_PATTERN.test(line) ||
+    isTopLevelListItem(line) ||
+    SETEXT_HEADING_PATTERN.test(line) ||
+    TABLE_DELIMITER_PATTERN.test(line) ||
+    THEMATIC_BREAK_PATTERN.test(line) ||
+    LINK_DEFINITION_PATTERN.test(line) ||
+    LINK_DEFINITION_START_PATTERN.test(line)
+  );
+};
+
 const maskRange = (characters, start, end) => {
   for (let index = start; index < end; index += 1) characters[index] = ' ';
 };
 
-const findInlineCodeSpan = (line, cursor) => {
-  const delimiterRuns = [...line.slice(cursor).matchAll(/`+/gu)];
-  for (const [index, openingRun] of delimiterRuns.entries()) {
-    const closingRun = delimiterRuns
-      .slice(index + 1)
-      .find(candidate => candidate[0].length === openingRun[0].length);
-    if (closingRun) {
-      const start = cursor + openingRun.index;
-      return { end: cursor + closingRun.index + closingRun[0].length, start };
-    }
-  }
-  return undefined;
+const markerRunLength = (line, start, marker) => {
+  let end = start;
+  while (line[end] === marker) end += 1;
+  return end - start;
 };
 
-const maskInlineCodeAndHtmlComments = (line, state) => {
+const rawHtmlClosingPattern = tag => new RegExp(`</${tag}[ \\t]*>`, 'iu');
+
+const isWindowsPathToken = token => {
+  if (/^(?:[A-Za-z]:\\|\\\\)/u.test(token)) return true;
+  const separatorCount = token.match(/\\/gu)?.length ?? 0;
+  return separatorCount >= 2 && /\\(?!n|r\\n)/u.test(token);
+};
+
+const maskWindowsPathTokens = line =>
+  line.replace(WINDOWS_PATH_TOKEN_PATTERN, token => {
+    if (!isWindowsPathToken(token)) return token;
+    const separatorIndex = token.search(STRUCTURAL_LITERAL_NEWLINE_PATTERN);
+    if (separatorIndex === -1) return ' '.repeat(token.length);
+    return ' '.repeat(separatorIndex) + token.slice(separatorIndex);
+  });
+
+const openRawHtmlBlock = (line, state, canStartTypeSeven) => {
+  const openingTag = RAW_HTML_TAG_PATTERN.exec(line);
+  if (!openingTag) return false;
+  const tag = openingTag[2].toLowerCase();
+  if (RAW_HTML_BLOCK_TAGS.has(tag)) {
+    state.rawHtmlBlock = { endsAtBlank: true, tag };
+    return true;
+  }
+  if (!openingTag[1] && RAW_HTML_UNINTERRUPTED_TAGS.has(tag)) {
+    if (!rawHtmlClosingPattern(tag).test(line)) {
+      state.rawHtmlBlock = { endsAtBlank: false, tag };
+    }
+    return true;
+  }
+  if (canStartTypeSeven && RAW_HTML_COMPLETE_TAG_PATTERN.test(line)) {
+    state.rawHtmlBlock = { endsAtBlank: true, tag };
+    return true;
+  }
+  return false;
+};
+
+const inlineRunKey = (lineIndex, column) => `${lineIndex}:${column}`;
+
+const collectInlineCodeOpeners = lines => {
+  const openers = new Set();
+  const state = { fence: undefined, paragraphOpen: false, rawHtmlBlock: undefined };
+  let pendingRuns = new Map();
+  for (const [lineIndex, line] of lines.entries()) {
+    if (state.rawHtmlBlock) {
+      if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
+        state.rawHtmlBlock = undefined;
+      } else {
+        if (
+          !state.rawHtmlBlock.endsAtBlank &&
+          rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line)
+        ) {
+          state.rawHtmlBlock = undefined;
+        }
+        continue;
+      }
+    }
+    if (state.fence) {
+      const closingFence = new RegExp(
+        `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
+        'u'
+      );
+      if (closingFence.test(line)) state.fence = undefined;
+      state.paragraphOpen = false;
+      continue;
+    }
+    const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+    if (openingFence) {
+      const marker = openingFence[1];
+      state.fence = { character: marker[0], length: marker.length };
+      state.paragraphOpen = false;
+      pendingRuns = new Map();
+      continue;
+    }
+    if (!line.trim()) {
+      state.paragraphOpen = false;
+      pendingRuns = new Map();
+      continue;
+    }
+    const canStartTypeSeven = !state.paragraphOpen;
+    if (INDENTED_CODE_PATTERN.test(line) || openRawHtmlBlock(line, state, canStartTypeSeven)) {
+      state.paragraphOpen = false;
+      pendingRuns = new Map();
+      continue;
+    }
+    for (const run of line.matchAll(/`+/gu)) {
+      const delimiterLength = run[0].length;
+      const pendingRun = pendingRuns.get(delimiterLength);
+      if (pendingRun) {
+        openers.add(pendingRun);
+        pendingRuns.delete(delimiterLength);
+      } else {
+        pendingRuns.set(delimiterLength, inlineRunKey(lineIndex, run.index));
+      }
+    }
+    state.paragraphOpen = leavesParagraphOpen(line, /`/u.test(line));
+  }
+  return openers;
+};
+
+const findNextInlineCodeOpener = (line, lineIndex, cursor, openers) => {
+  let delimiterStart = line.indexOf('`', cursor);
+  while (delimiterStart !== -1) {
+    if (openers.has(inlineRunKey(lineIndex, delimiterStart))) return delimiterStart;
+    delimiterStart = line.indexOf('`', delimiterStart + markerRunLength(line, delimiterStart, '`'));
+  }
+  return -1;
+};
+
+const maskInlineCodeAndHtmlComments = (line, lineIndex, openers, renderedContentLines, state) => {
   const characters = line.split('');
   let cursor = 0;
 
@@ -63,12 +253,27 @@ const maskInlineCodeAndHtmlComments = (line, state) => {
       continue;
     }
 
+    if (state.inlineCodeDelimiter) {
+      const delimiterStart = line.indexOf('`', cursor);
+      if (delimiterStart === -1) {
+        maskRange(characters, cursor, line.length);
+        break;
+      }
+      const delimiterLength = markerRunLength(line, delimiterStart, '`');
+      maskRange(characters, cursor, delimiterStart + delimiterLength);
+      cursor = delimiterStart + delimiterLength;
+      if (delimiterLength === state.inlineCodeDelimiter) state.inlineCodeDelimiter = undefined;
+      continue;
+    }
+
     const commentStart = line.indexOf('<!--', cursor);
-    const inlineCode = findInlineCodeSpan(line, cursor);
-    const inlineCodeStart = inlineCode?.start ?? -1;
+    const inlineCodeStart = findNextInlineCodeOpener(line, lineIndex, cursor, openers);
     if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
-      maskRange(characters, inlineCodeStart, inlineCode.end);
-      cursor = inlineCode.end;
+      const delimiterLength = markerRunLength(line, inlineCodeStart, '`');
+      maskRange(characters, inlineCodeStart, inlineCodeStart + delimiterLength);
+      renderedContentLines.add(lineIndex);
+      state.inlineCodeDelimiter = delimiterLength;
+      cursor = inlineCodeStart + delimiterLength;
       continue;
     }
     if (commentStart === -1) break;
@@ -85,32 +290,85 @@ const maskInlineCodeAndHtmlComments = (line, state) => {
   return characters.join('');
 };
 
-const maskNonRenderedMarkdown = body => {
-  const state = { fence: undefined, inHtmlComment: false };
+const maskNonRenderedMarkdown = (body, renderedContentLines = new Set()) => {
+  const state = {
+    fence: undefined,
+    inHtmlComment: false,
+    inlineCodeDelimiter: undefined,
+    paragraphOpen: false,
+    rawHtmlBlock: undefined,
+  };
+  const lines = normalizeLineEndings(body).split('\n');
+  const inlineCodeOpeners = collectInlineCodeOpeners(lines);
 
-  return normalizeLineEndings(body)
-    .split('\n')
-    .map(line => {
-      if (state.inHtmlComment) return maskInlineCodeAndHtmlComments(line, state);
-
-      if (state.fence) {
-        const closingFence = new RegExp(
-          `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
-          'u'
-        );
-        if (closingFence.test(line)) state.fence = undefined;
+  return lines.map((line, lineIndex) => {
+    if (state.rawHtmlBlock) {
+      if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
+        state.rawHtmlBlock = undefined;
+      } else {
+        const isClosingLine =
+          !state.rawHtmlBlock.endsAtBlank &&
+          rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line);
+        if (line.trim() && !isClosingLine) renderedContentLines.add(lineIndex);
+        if (isClosingLine) state.rawHtmlBlock = undefined;
         return ' '.repeat(line.length);
       }
+    }
+    if (state.inHtmlComment || state.inlineCodeDelimiter) {
+      return maskInlineCodeAndHtmlComments(
+        line,
+        lineIndex,
+        inlineCodeOpeners,
+        renderedContentLines,
+        state
+      );
+    }
 
-      const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
-      if (openingFence) {
-        const marker = openingFence[1];
-        state.fence = { character: marker[0], length: marker.length };
-        return ' '.repeat(line.length);
+    if (state.fence) {
+      const closingFence = new RegExp(
+        `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
+        'u'
+      );
+      if (closingFence.test(line)) {
+        state.fence = undefined;
+      } else if (line.trim()) {
+        renderedContentLines.add(lineIndex);
       }
+      state.paragraphOpen = false;
+      return ' '.repeat(line.length);
+    }
 
-      return maskInlineCodeAndHtmlComments(line, state);
-    });
+    const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+    if (openingFence) {
+      const marker = openingFence[1];
+      state.fence = { character: marker[0], length: marker.length };
+      state.paragraphOpen = false;
+      renderedContentLines.add(lineIndex);
+      return ' '.repeat(line.length);
+    }
+
+    if (INDENTED_CODE_PATTERN.test(line)) {
+      state.paragraphOpen = false;
+      renderedContentLines.add(lineIndex);
+      return ' '.repeat(line.length);
+    }
+    const canStartTypeSeven = !state.paragraphOpen;
+    if (openRawHtmlBlock(line, state, canStartTypeSeven)) {
+      state.paragraphOpen = false;
+      renderedContentLines.add(lineIndex);
+      return ' '.repeat(line.length);
+    }
+
+    const maskedLine = maskInlineCodeAndHtmlComments(
+      line,
+      lineIndex,
+      inlineCodeOpeners,
+      renderedContentLines,
+      state
+    );
+    state.paragraphOpen = leavesParagraphOpen(maskedLine, renderedContentLines.has(lineIndex));
+    return maskedLine;
+  });
 };
 
 const issue = (code, line, message) => ({ code, line, message });
@@ -118,14 +376,18 @@ const issue = (code, line, message) => ({ code, line, message });
 export const validateMarkdownBody = body => {
   const normalizedBody = normalizeLineEndings(body);
   const lines = normalizedBody.split('\n');
-  const structuralLines = maskNonRenderedMarkdown(stripBlockquotePrefixes(normalizedBody));
+  const unquotedBody = stripBlockquotePrefixes(normalizedBody);
+  const renderedContentLines = new Set();
+  const structuralLines = maskNonRenderedMarkdown(unquotedBody, renderedContentLines);
   const issues = [];
 
   if (normalizedBody.trim().length === 0) {
     return [issue('empty-body', 1, 'The body must contain Markdown content.')];
   }
 
-  const contentLineCount = structuralLines.filter(line => line.trim()).length;
+  const contentLineCount = structuralLines.filter(
+    (line, index) => line.trim() || renderedContentLines.has(index)
+  ).length;
   if (contentLineCount < 2) {
     issues.push(
       issue(
@@ -141,12 +403,15 @@ export const validateMarkdownBody = body => {
   for (const [index, line] of structuralLines.entries()) {
     const lineNumber = index + 1;
     const lineIsBlank = !line.trim();
-    const listItem = isTopLevelListItem(line);
+    const setextHeading =
+      SETEXT_HEADING_PATTERN.test(line) && index > 0 && Boolean(structuralLines[index - 1]?.trim());
+    const listItem = !setextHeading && isTopLevelListItem(line);
     const indentedListContinuation = inListBlock && /^(?: {2,}|\t)\S/u.test(line);
 
     if (lineIsBlank) inListBlock = false;
 
-    if (LITERAL_NEWLINE_PATTERN.test(line)) {
+    const lineWithoutWindowsPaths = maskWindowsPathTokens(line);
+    if (LITERAL_NEWLINE_PATTERN.test(lineWithoutWindowsPaths)) {
       issues.push(
         issue(
           'literal-newline',
@@ -170,6 +435,12 @@ export const validateMarkdownBody = body => {
 
     const heading = HEADING_PATTERN.exec(line);
     if (heading && index < lines.length - 1 && structuralLines[index + 1]?.trim() !== '') {
+      issues.push(
+        issue('heading-spacing', lineNumber, 'Add a blank line after the Markdown heading.')
+      );
+    }
+
+    if (setextHeading && index < lines.length - 1 && structuralLines[index + 1]?.trim() !== '') {
       issues.push(
         issue('heading-spacing', lineNumber, 'Add a blank line after the Markdown heading.')
       );
@@ -209,6 +480,24 @@ export const assertValidMarkdownBody = (body, bodyFile) => {
   if (issues.length > 0) throw new Error(formatValidationIssues(issues, bodyFile));
 };
 
+const isLinkDefinitionBlock = block => {
+  let index = 0;
+  while (index < block.length) {
+    if (LINK_DEFINITION_PATTERN.test(block[index])) {
+      index += 1;
+    } else if (
+      LINK_DEFINITION_START_PATTERN.test(block[index]) &&
+      LINK_DESTINATION_PATTERN.test(block[index + 1] ?? '')
+    ) {
+      index += 2;
+    } else {
+      return false;
+    }
+    if (LINK_TITLE_PATTERN.test(block[index] ?? '')) index += 1;
+  }
+  return true;
+};
+
 const markdownStructure = body => {
   const lines = maskNonRenderedMarkdown(stripBlockquotePrefixes(body));
   const headingLevels = [];
@@ -219,17 +508,10 @@ const markdownStructure = body => {
   const recordBlock = () => {
     if (block.length === 0) return;
 
-    const setextMarker = block.length > 1 ? SETEXT_HEADING_PATTERN.exec(block.at(-1)) : undefined;
-    if (setextMarker) {
-      headingLevels.push(setextMarker[1].startsWith('=') ? 1 : 2);
-      block = [];
-      return;
-    }
-
     const containsList = block.some(isTopLevelListItem);
     const isRawHtml = /^ {0,3}<\/?[A-Za-z][^>]*>/u.test(block[0]);
-    const isIndentedCode = /^(?: {4,}|\t)\S/u.test(block[0]);
-    const isLinkDefinition = block.every(line => /^ {0,3}\[[^\]]+\]:[ \t]+\S/u.test(line));
+    const isIndentedCode = INDENTED_CODE_PATTERN.test(block[0]);
+    const isLinkDefinition = isLinkDefinitionBlock(block);
     const isTable = block.some(line => TABLE_DELIMITER_PATTERN.test(line));
     const isThematicBreak = block.length === 1 && THEMATIC_BREAK_PATTERN.test(block[0]);
     if (
@@ -256,6 +538,13 @@ const markdownStructure = body => {
     if (heading) {
       recordBlock();
       headingLevels.push(heading[2].length);
+      continue;
+    }
+
+    const setextHeading = SETEXT_HEADING_PATTERN.exec(line);
+    if (setextHeading && block.length > 0) {
+      block = [];
+      headingLevels.push(setextHeading[1].startsWith('=') ? 1 : 2);
       continue;
     }
 
@@ -348,11 +637,16 @@ const verifyRemoteBody = async ({ endpoint, kind, localBody, number, runGhComman
   }
 
   const normalizedRemoteBody = normalizeLineEndings(remote.body);
+  const normalizedLocalBody = normalizeLineEndings(localBody);
   const comparableRemoteBody =
     kind === 'pr'
       ? normalizedRemoteBody.replace(MANAGED_CUBIC_DESCRIPTION_PATTERN, '')
       : normalizedRemoteBody;
-  if (comparableRemoteBody !== normalizeLineEndings(localBody)) {
+  const comparableLocalBody =
+    kind === 'pr'
+      ? normalizedLocalBody.replace(MANAGED_CUBIC_DESCRIPTION_PATTERN, '')
+      : normalizedLocalBody;
+  if (comparableRemoteBody !== comparableLocalBody) {
     throw new Error('GitHub raw body does not match the Markdown body file.');
   }
   assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`);

@@ -35,7 +35,7 @@ describe('pull request body workflow security contract', () => {
     expect(workflow.on).toEqual({
       pull_request_target: { types: ['opened', 'edited', 'reopened'] },
     });
-    expect(workflow.permissions).toEqual({ contents: 'read' });
+    expect(workflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
   });
 
   test('executes the trusted base revision without persisted credentials', () => {
@@ -56,7 +56,8 @@ describe('pull request body workflow security contract', () => {
       .join('\n');
 
     expect(commands).toContain('process.env.GITHUB_EVENT_PATH');
-    expect(commands).toContain('node scripts/github-body.mjs validate --body-file');
+    expect(commands).toContain('node scripts/github-body.mjs verify --kind pr');
+    expect(serializedSteps).toContain(`"GH_TOKEN":"\${{ github.token }}"`);
     expect(serializedSteps).not.toContain('github.event.pull_request.body');
   });
 });

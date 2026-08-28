@@ -58,6 +58,22 @@ describe('GitHub body Markdown validation', () => {
         '<p>First paragraph.</p><hr><p>Second paragraph.</p>'
       )
     ).not.toThrow();
+
+    const setextBody = 'Title\n=====\n\nParagraph.\n';
+    expect(validateMarkdownBody(setextBody)).toEqual([]);
+    expect(() =>
+      assertGitHubRendering(setextBody, '<h1>Title</h1><p>Paragraph.</p>')
+    ).not.toThrow();
+    expect(() => assertGitHubRendering(setextBody, '<p>Title Paragraph.</p>')).toThrow(
+      /lost Markdown headings/u
+    );
+    const multilineSetextBody = 'First heading line\nsecond heading line\n---\n\nParagraph.\n';
+    expect(() =>
+      assertGitHubRendering(
+        multilineSetextBody,
+        '<h2>First heading line second heading line</h2><p>Paragraph.</p>'
+      )
+    ).not.toThrow();
   });
 
   test('rejects literal newline separators from shell-flattened bodies', () => {
@@ -65,12 +81,30 @@ describe('GitHub body Markdown validation', () => {
 
     expect(issues.map(candidate => candidate.code)).toContain('missing-real-newline');
     expect(issues.map(candidate => candidate.code)).toContain('literal-newline');
+    expect(validateMarkdownBody('## Summary\n\nUse C:\\new\\file as an example.\n')).toEqual([]);
+    expect(validateMarkdownBody('## Summary\n\nUse docs\\new\\file as an example.\n')).toEqual([]);
+    expect(
+      validateMarkdownBody('## Summary\n\nChanged docs\\new\\file\\n## Testing\n\nDone.\n').map(
+        candidate => candidate.code
+      )
+    ).toContain('literal-newline');
+    expect(
+      validateMarkdownBody(
+        '## Summary\n\nfirst paragraph\\nsecond paragraph\n\n## Testing\n\nDone.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('literal-newline');
+    expect(
+      validateMarkdownBody('## Summary\n\nSummary:\\ntext\n').map(candidate => candidate.code)
+    ).toContain('literal-newline');
   });
 
   test('rejects a single flattened content line even with an editor newline at EOF', () => {
     const issues = validateMarkdownBody('Everything was flattened into one content line.\n');
 
     expect(issues.map(candidate => candidate.code)).toContain('missing-real-newline');
+    expect(
+      validateMarkdownBody('<!-- one -->\n<!-- two -->\n').map(candidate => candidate.code)
+    ).toContain('missing-real-newline');
   });
 
   test('rejects headings and list items flattened into a paragraph', () => {
@@ -98,6 +132,9 @@ describe('GitHub body Markdown validation', () => {
       'list-spacing-before',
       'list-spacing-after',
     ]);
+    expect(
+      validateMarkdownBody('Title\n=====\nParagraph\n').map(candidate => candidate.code)
+    ).toContain('heading-spacing');
   });
 
   test('allows literal newline notation inside code', () => {
@@ -108,11 +145,65 @@ describe('GitHub body Markdown validation', () => {
     expect(
       validateMarkdownBody('## Example\n\nUse ``text ` marker ## not-a-heading`` safely.\n')
     ).toEqual([]);
+    expect(
+      validateMarkdownBody('## Example\n\nUse `first line\nDescription ## Not-a-heading` safely.\n')
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nCode follows.\n\n    Description ## Not-a-heading\n    \\n\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<details><summary>Why ## Not a heading</summary></details>\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody('## Example\n\n<div>\nDescription ## Not-a-heading\n</div>\n')
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody('## Example\n\n<div>\ntext\n</div>\nDescription ## Not-a-heading\n')
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<div></div>\nDescription ## Not-a-heading\n\nParagraph.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<span>Label</span> Description ## Testing\n\nParagraph.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody('## Example\n\n<br> Description ## Testing\n\nParagraph.\n').map(
+        candidate => candidate.code
+      )
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nParagraph\n<span>\nDescription ## Testing\n\nMore.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody('```text\ncode\n```\n<span>\nDescription ## Not-a-heading\n\nMore.\n')
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<details>\n<summary>More</summary>\n\nDescription ## Testing\n\n</details>\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(validateMarkdownBody('## Example\n\n```text\nsample\n```\n')).toEqual([]);
+    expect(validateMarkdownBody('```text\nfirst\nsecond\n```\n')).toEqual([]);
+    expect(validateMarkdownBody('<div>\nfirst\nsecond\n</div>\n')).toEqual([]);
 
     const issues = validateMarkdownBody(
       '## Example\n\nUse `<!--` literally.\n\nDescription ## Testing\n'
     );
     expect(issues.map(candidate => candidate.code)).toContain('inline-heading');
+    const unmatchedCodeIssues = validateMarkdownBody(
+      '## Example\n\nUse an unmatched ` marker.\n\nDescription ## Testing\n'
+    );
+    expect(unmatchedCodeIssues.map(candidate => candidate.code)).toContain('inline-heading');
 
     const commentIssues = validateMarkdownBody(
       '## Example\n\nText.\n\n<!-- open\n```\n`-->`\nDescription ## Testing\n'
@@ -131,6 +222,29 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
 `;
 
     expect(validateMarkdownBody(body)).toEqual([]);
+
+    const markerOnlyList = '-\n  First item\n';
+    expect(validateMarkdownBody(markerOnlyList)).toEqual([]);
+    expect(() =>
+      assertGitHubRendering(markerOnlyList, '<ul><li>First item</li></ul>')
+    ).not.toThrow();
+
+    const referenceDefinition = '[docs]: https://example.com\n  "Documentation"\n\nSee [docs].\n';
+    expect(validateMarkdownBody(referenceDefinition)).toEqual([]);
+    expect(() =>
+      assertGitHubRendering(
+        referenceDefinition,
+        '<p>See <a href="https://example.com" title="Documentation">docs</a>.</p>'
+      )
+    ).not.toThrow();
+    const splitReferenceDefinition =
+      '[docs]:\n  https://example.com\n  "Documentation"\n\nSee [docs].\n';
+    expect(() =>
+      assertGitHubRendering(
+        splitReferenceDefinition,
+        '<p>See <a href="https://example.com" title="Documentation">docs</a>.</p>'
+      )
+    ).not.toThrow();
 
     const blockquotedList = '> - First item\n> - Second item\n';
     expect(validateMarkdownBody('> # Previous heading\n>\n> - [ ] Previous task\n')).toEqual([]);
@@ -230,6 +344,26 @@ describe('GitHub body remote update', () => {
     });
     expect(verifyGhCommand).toHaveBeenCalledTimes(1);
     expect(verifyGhCommand).toHaveBeenCalledWith(readCommand);
+
+    const managedBodyFile = await createBodyFile(validBody + managedCubicDescription);
+    const verifyManagedGhCommand = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
+      JSON.stringify({
+        body: validBody + managedCubicDescription,
+        body_html: renderedBody,
+      })
+    );
+    await expect(
+      verifyGitHubBody({
+        bodyFile: managedBodyFile,
+        kind: 'pr',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand: verifyManagedGhCommand,
+      })
+    ).resolves.toEqual({
+      endpoint: 'repos/immagiov4/Nous/pulls/42',
+      htmlLength: renderedBody.length,
+    });
   });
 
   test('does not allow the PR-only Cubic suffix on issue bodies', async () => {
