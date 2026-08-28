@@ -10,7 +10,9 @@ import { unified } from 'unified';
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_FULL_MEDIA_TYPE = 'application/vnd.github.full+json';
 const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
-const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
+const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES)
+  .toSorted((left, right) => left.localeCompare(right))
+  .join('|');
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
 const PROTECTED_AST_TYPES = new Set([
@@ -101,16 +103,15 @@ export const validateMarkdownBody = body => {
     return [issue('empty-body', 1, 'The Markdown body must not be empty.')];
   }
 
-  const issues = [];
-  if (!normalizedBody.includes('\n')) {
-    issues.push(
-      issue('missing-newline', 1, 'Use real line breaks to structure the Markdown body.')
-    );
-  }
   const root = parseMarkdown(normalizedBody);
-  issues.push(...collectLiteralNewlineIssues(normalizedBody, root));
-  issues.push(...collectRootBlockSpacingIssues(root, normalizedBody.split('\n')));
-  return issues;
+  const missingNewlineIssues = normalizedBody.includes('\n')
+    ? []
+    : [issue('missing-newline', 1, 'Use real line breaks to structure the Markdown body.')];
+  return [
+    ...missingNewlineIssues,
+    ...collectLiteralNewlineIssues(normalizedBody, root),
+    ...collectRootBlockSpacingIssues(root, normalizedBody.split('\n')),
+  ];
 };
 
 export const formatValidationIssues = (issues, bodyFile = 'body.md') =>
@@ -164,9 +165,8 @@ const runProcess = (command, args) =>
         return;
       }
       const detail = Buffer.concat(stderr).toString('utf8').trim();
-      rejectProcess(
-        new Error(`gh api failed with exit code ${exitCode}${detail ? `: ${detail}` : '.'}`)
-      );
+      const detailSuffix = detail ? `: ${detail}` : '.';
+      rejectProcess(new Error(`gh api failed with exit code ${exitCode}${detailSuffix}`));
     });
   });
 
