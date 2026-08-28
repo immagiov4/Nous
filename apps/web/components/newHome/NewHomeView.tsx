@@ -41,7 +41,7 @@ import type {
   SavedProjectMeta,
 } from '../../types.ts';
 import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
-import { Pressable } from '../../utils/motion/index.ts';
+import { Pressable, useShouldAnimate } from '../../utils/motion/index.ts';
 import AccountMenu from '../account/AccountMenu.tsx';
 import HomeChatPanel from '../library/HomeChatPanel.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
@@ -64,6 +64,8 @@ export type NewHomePage = 'home' | 'library';
 const PHONE_VIEWPORT_MEDIA_QUERY = '(max-width: 639px)';
 const PHONE_RESUME_PROJECT_LIMIT = 1;
 const DEFAULT_RESUME_PROJECT_LIMIT = 3;
+const CHIP_SCROLL_PAGE_FRACTION = 0.85;
+const CHIP_SCROLL_BOUNDARY_TOLERANCE_PX = 2;
 
 const readIsPhoneViewport = (): boolean =>
   typeof globalThis.matchMedia === 'function' &&
@@ -634,6 +636,9 @@ const CourseList = ({
   setFilter: (filter: CourseFilter) => void;
 }) => {
   const chipViewportRef = useRef<HTMLDivElement>(null);
+  const previousChipScrollButtonRef = useRef<HTMLButtonElement>(null);
+  const nextChipScrollButtonRef = useRef<HTMLButtonElement>(null);
+  const shouldAnimate = useShouldAnimate();
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [dialog, setDialog] = useState<FolderDialogState | null>(null);
@@ -893,8 +898,27 @@ const CourseList = ({
   const updateChipScrollState = useCallback(() => {
     const viewport = chipViewportRef.current;
     if (!viewport) return;
-    setCanScrollLeft(viewport.scrollLeft > 2);
-    setCanScrollRight(viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
+    const nextCanScrollLeft = viewport.scrollLeft > CHIP_SCROLL_BOUNDARY_TOLERANCE_PX;
+    const nextCanScrollRight =
+      viewport.scrollLeft + viewport.clientWidth <
+      viewport.scrollWidth - CHIP_SCROLL_BOUNDARY_TOLERANCE_PX;
+
+    if (
+      !nextCanScrollLeft &&
+      globalThis.document.activeElement === previousChipScrollButtonRef.current
+    ) {
+      viewport.querySelector<HTMLButtonElement>('button')?.focus();
+    }
+    if (
+      !nextCanScrollRight &&
+      globalThis.document.activeElement === nextChipScrollButtonRef.current
+    ) {
+      const filterChips = viewport.querySelectorAll<HTMLButtonElement>('button');
+      filterChips[filterChips.length - 1]?.focus();
+    }
+
+    setCanScrollLeft(nextCanScrollLeft);
+    setCanScrollRight(nextCanScrollRight);
   }, []);
 
   useEffect(() => {
@@ -908,11 +932,22 @@ const CourseList = ({
   };
 
   const scrollChips = (direction: -1 | 1) => {
+    const canScroll = direction === -1 ? canScrollLeft : canScrollRight;
+    if (!canScroll) return;
+
     chipViewportRef.current?.scrollBy({
-      behavior: 'smooth',
-      left: direction * (chipViewportRef.current.clientWidth * 0.85),
+      behavior: shouldAnimate ? 'smooth' : 'auto',
+      left: direction * (chipViewportRef.current.clientWidth * CHIP_SCROLL_PAGE_FRACTION),
     });
   };
+  const filterChipHeightClassName = 'h-[2.125rem]';
+  const chipScrollButtonClassName =
+    "absolute top-1/2 z-10 isolate flex h-11 w-11 -translate-y-1/2 items-center justify-center transition-[opacity,transform] duration-200 before:pointer-events-none before:absolute before:left-1/2 before:top-1/2 before:h-48 before:w-48 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-[radial-gradient(circle_closest-side,var(--bg-paper)_0%,var(--bg-paper)_23%,transparent_100%)] before:opacity-[0.9] before:[mask-composite:intersect] before:content-[''] motion-reduce:transition-none sm:h-9 sm:w-9";
+  const previousChipScrollHaloMaskClassName =
+    'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%),linear-gradient(to_right,black_0%,black_61.5%,transparent_92.5%)]';
+  const nextChipScrollHaloMaskClassName =
+    'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%),linear-gradient(to_left,black_0%,black_61.5%,transparent_92.5%)]';
+  const chipScrollArrowSurfaceClassName = `${filterChipHeightClassName} relative z-10 flex w-[2.125rem] items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 dark:border-white/10 dark:bg-stone-800 dark:text-stone-300`;
   const folderMenuGroup = groups.find(group => group.id === openFolderMenu?.id);
   const courseMenuProject = projects.find(project => project.id === openCourseMenu?.id);
 
@@ -977,17 +1012,25 @@ const CourseList = ({
             </Pressable>
           ) : null}
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {canScrollLeft ? (
-            <button
-              type="button"
-              aria-label={t('Mostra i filtri precedenti')}
-              onClick={() => scrollChips(-1)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
-            >
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <button
+            ref={previousChipScrollButtonRef}
+            type="button"
+            aria-hidden={!canScrollLeft}
+            aria-disabled={!canScrollLeft}
+            aria-label={t('Mostra i filtri precedenti')}
+            tabIndex={canScrollLeft ? 0 : -1}
+            onClick={() => scrollChips(-1)}
+            className={`${chipScrollButtonClassName} ${previousChipScrollHaloMaskClassName} left-0 ${
+              canScrollLeft
+                ? 'pointer-events-auto scale-100 opacity-100'
+                : 'pointer-events-none scale-90 opacity-0'
+            }`}
+          >
+            <span className={chipScrollArrowSurfaceClassName}>
               <ChevronLeft className="h-4 w-4" />
-            </button>
-          ) : null}
+            </span>
+          </button>
           <div
             ref={chipViewportRef}
             onScroll={updateChipScrollState}
@@ -1012,7 +1055,7 @@ const CourseList = ({
                   title={typeof count === 'number' ? formatCourseCount(count) : undefined}
                   aria-pressed={filter === option.filter}
                   onClick={() => selectFilter(option.filter)}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900"
+                  className={`${filterChipHeightClassName} inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-4 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900`}
                 >
                   {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
                   {option.label}
@@ -1028,7 +1071,7 @@ const CourseList = ({
                 type="button"
                 aria-pressed={filter === `folder:${folder.id}`}
                 onClick={() => selectFilter(`folder:${folder.id}`)}
-                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900"
+                className={`${filterChipHeightClassName} inline-flex shrink-0 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 text-xs font-medium text-stone-600 aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:aria-pressed:border-stone-100 dark:aria-pressed:bg-stone-100 dark:aria-pressed:text-stone-900`}
               >
                 {folder.name}
                 <span className="text-[0.65rem] opacity-60">
@@ -1037,16 +1080,24 @@ const CourseList = ({
               </button>
             ))}
           </div>
-          {canScrollRight ? (
-            <button
-              type="button"
-              aria-label={t('Mostra altri filtri')}
-              onClick={() => scrollChips(1)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
-            >
+          <button
+            ref={nextChipScrollButtonRef}
+            type="button"
+            aria-hidden={!canScrollRight}
+            aria-disabled={!canScrollRight}
+            aria-label={t('Mostra altri filtri')}
+            tabIndex={canScrollRight ? 0 : -1}
+            onClick={() => scrollChips(1)}
+            className={`${chipScrollButtonClassName} ${nextChipScrollHaloMaskClassName} right-0 ${
+              canScrollRight
+                ? 'pointer-events-auto scale-100 opacity-100'
+                : 'pointer-events-none scale-90 opacity-0'
+            }`}
+          >
+            <span className={chipScrollArrowSurfaceClassName}>
               <ChevronRight className="h-4 w-4" />
-            </button>
-          ) : null}
+            </span>
+          </button>
         </div>
       </div>
 
