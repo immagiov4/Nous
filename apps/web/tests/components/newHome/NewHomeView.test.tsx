@@ -393,9 +393,26 @@ describe('NewHomeView library interactions', () => {
       const nextFilters = await screen.findByRole('button', {
         name: /Mostra altri filtri|Show more filters/,
       });
-      const chipViewport = nextFilters.parentElement?.querySelector('.new-home-filter-scroll');
-      expect(nextFilters.parentElement).toHaveClass('relative', 'px-11', 'sm:px-9');
-      expect(chipViewport).not.toHaveClass('pl-11', 'pr-11', 'sm:pl-9', 'sm:pr-9');
+      const chipViewportWrapper = nextFilters.parentElement;
+      const chipViewport = chipViewportWrapper?.querySelector('.new-home-filter-scroll');
+      const readChipViewportLayout = () => {
+        const inFlowChildren = [...(chipViewportWrapper?.children || [])].filter(
+          child => !child.classList.contains('absolute')
+        );
+        return {
+          inFlowChildCount: inFlowChildren.length,
+          viewportClassName: chipViewport?.className,
+          viewportIsOnlyInFlowChild: inFlowChildren[0] === chipViewport,
+          wrapperClassName: chipViewportWrapper?.className,
+        };
+      };
+      const expectedChipViewportLayout = {
+        inFlowChildCount: 1,
+        viewportClassName: 'new-home-filter-scroll flex min-w-0 flex-1 gap-2 overflow-x-auto py-1',
+        viewportIsOnlyInFlowChild: true,
+        wrapperClassName: 'relative flex min-w-0 flex-1 items-center',
+      };
+      expect(readChipViewportLayout()).toEqual(expectedChipViewportLayout);
       expect(
         screen.queryByRole('button', {
           name: /Mostra i filtri precedenti|Show previous filters/,
@@ -407,7 +424,7 @@ describe('NewHomeView library interactions', () => {
       const previousFilters = await screen.findByRole('button', {
         name: /Mostra i filtri precedenti|Show previous filters/,
       });
-      expect(nextFilters.parentElement).toHaveClass('px-11', 'sm:px-9');
+      expect(readChipViewportLayout()).toEqual(expectedChipViewportLayout);
       expect(previousFilters).toHaveClass('absolute', 'left-0', 'h-11', 'w-11');
       expect(nextFilters).toHaveClass(
         'absolute',

@@ -1006,7 +1006,7 @@ const CourseList = ({
             </Pressable>
           ) : null}
         </div>
-        <div className="relative flex min-w-0 flex-1 items-center px-11 sm:px-9">
+        <div className="relative flex min-w-0 flex-1 items-center">
           <button
             ref={previousChipScrollButtonRef}
             type="button"
