@@ -65,6 +65,7 @@ const PHONE_VIEWPORT_MEDIA_QUERY = '(max-width: 639px)';
 const PHONE_RESUME_PROJECT_LIMIT = 1;
 const DEFAULT_RESUME_PROJECT_LIMIT = 3;
 const CHIP_SCROLL_PAGE_FRACTION = 0.85;
+const CHIP_SCROLL_BOUNDARY_TOLERANCE_PX = 2;
 
 const readIsPhoneViewport = (): boolean =>
   typeof globalThis.matchMedia === 'function' &&
@@ -897,9 +898,10 @@ const CourseList = ({
   const updateChipScrollState = useCallback(() => {
     const viewport = chipViewportRef.current;
     if (!viewport) return;
-    const nextCanScrollLeft = viewport.scrollLeft > 2;
+    const nextCanScrollLeft = viewport.scrollLeft > CHIP_SCROLL_BOUNDARY_TOLERANCE_PX;
     const nextCanScrollRight =
-      viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2;
+      viewport.scrollLeft + viewport.clientWidth <
+      viewport.scrollWidth - CHIP_SCROLL_BOUNDARY_TOLERANCE_PX;
 
     if (
       !nextCanScrollLeft &&

@@ -348,12 +348,22 @@ describe('NewHomeView library interactions', () => {
       dispatchEvent: vi.fn(),
     }));
     const user = userEvent.setup();
-    let currentScrollLeft = 0;
-    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200);
+    const chipViewportWidthPx = 200;
+    const chipScrollWidthPx = 500;
+    const startScrollLeftPx = 0;
+    const intermediateScrollLeftPx = 100;
+    const endScrollLeftPx = chipScrollWidthPx - chipViewportWidthPx;
+    const expectedPageScrollOffsetPx = 170;
+    let currentScrollLeft = startScrollLeftPx;
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(chipViewportWidthPx);
     const scrollLeft = vi
       .spyOn(HTMLElement.prototype, 'scrollLeft', 'get')
       .mockImplementation(() => currentScrollLeft);
-    const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(500);
+    const scrollWidth = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockReturnValue(chipScrollWidthPx);
     const scrollBy = vi.fn();
     const originalScrollBy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollBy');
     Object.defineProperty(HTMLElement.prototype, 'scrollBy', {
@@ -392,7 +402,7 @@ describe('NewHomeView library interactions', () => {
         })
       ).not.toBeInTheDocument();
 
-      currentScrollLeft = 100;
+      currentScrollLeft = intermediateScrollLeftPx;
       await act(async () => globalThis.window.dispatchEvent(new Event('resize')));
       const previousFilters = await screen.findByRole('button', {
         name: /Mostra i filtri precedenti|Show previous filters/,
@@ -410,10 +420,13 @@ describe('NewHomeView library interactions', () => {
       nextFilters.focus();
       expect(nextFilters).toHaveFocus();
       await user.keyboard('{Enter}');
-      expect(scrollBy).toHaveBeenCalledWith({ behavior: expectedScrollBehavior, left: 170 });
+      expect(scrollBy).toHaveBeenCalledWith({
+        behavior: expectedScrollBehavior,
+        left: expectedPageScrollOffsetPx,
+      });
 
       const edgeFolderChip = screen.getByRole('button', { name: /^Frontend1$/ });
-      currentScrollLeft = 300;
+      currentScrollLeft = endScrollLeftPx;
       await act(async () => chipViewport?.dispatchEvent(new Event('scroll')));
       expect(edgeFolderChip).toHaveFocus();
       expect(nextFilters).toHaveAttribute('aria-disabled', 'true');
