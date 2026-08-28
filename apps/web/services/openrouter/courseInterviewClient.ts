@@ -95,6 +95,7 @@ export interface CourseInterviewSnapshot {
 export type StartCourseInterviewInput = Omit<CourseInterviewStartRequest, 'requestKey'>;
 
 interface CourseInterviewClientOptions {
+  readonly onRunStarted?: (runId: string) => void;
   readonly onSnapshot?: (snapshot: CourseInterviewSnapshot) => void;
   readonly signal?: AbortSignal;
 }
@@ -492,6 +493,7 @@ export const startCourseInterview = async (
   });
   if (isDefinitiveWorkflowStartRejection(response)) request.clear();
   const run = await readRunSummary(response, body.projectId);
+  options.onRunStarted?.(run.id);
   request.clear();
   return waitForActionableSnapshot(run.id, body.projectId, options);
 };
@@ -508,6 +510,7 @@ export const getActiveCourseInterview = async (
   if (response.status === WORKFLOW_NOT_FOUND_STATUS) return null;
   assertWorkflowPollResponse(response, COURSE_INTERVIEW_ERROR);
   const run = await readRunSummary(response, projectId);
+  options.onRunStarted?.(run.id);
   return waitForActionableSnapshot(run.id, projectId, options);
 };
 

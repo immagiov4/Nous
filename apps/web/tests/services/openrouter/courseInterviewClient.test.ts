@@ -138,13 +138,20 @@ describe('courseInterviewClient', () => {
         })
       );
 
-    const pending = startCourseInterview({
-      hasReliableSourceContext: true,
-      initialMessage: 'Voglio imparare TypeScript.',
-      mode: 'learn',
-      projectId: 'project-1',
-      sourceContext: 'Documentazione TypeScript.',
+    const onRunStarted = vi.fn((runId: string) => {
+      expect(runId).toBe('interview-1');
+      expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
     });
+    const pending = startCourseInterview(
+      {
+        hasReliableSourceContext: true,
+        initialMessage: 'Voglio imparare TypeScript.',
+        mode: 'learn',
+        projectId: 'project-1',
+        sourceContext: 'Documentazione TypeScript.',
+      },
+      { onRunStarted }
+    );
     await vi.advanceTimersByTimeAsync(1_000);
 
     await expect(pending).resolves.toMatchObject({
@@ -167,6 +174,7 @@ describe('courseInterviewClient', () => {
       'http://localhost:3301/api/course-interviews',
       expect.objectContaining({ method: 'POST' })
     );
+    expect(onRunStarted).toHaveBeenCalledOnce();
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       3,
       'http://localhost:3301/api/workflows/runs/interview-1',

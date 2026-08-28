@@ -172,6 +172,7 @@ export const LibraryScreenContainer = ({
       setHomeChatMode('library-query');
       return true;
     } catch (error) {
+      setHomeChatMode('new-course');
       notify(getErrorMessage(error));
       return false;
     }

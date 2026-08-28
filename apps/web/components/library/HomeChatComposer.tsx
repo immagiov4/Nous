@@ -435,6 +435,8 @@ export default function HomeChatComposer({
     'new-course': homeChatMode === 'new-course' ? draftTemplate?.value || '' : '',
   });
   const [hasRequestedStop, setHasRequestedStop] = useState(false);
+  const [hasStopFailure, setHasStopFailure] = useState(false);
+  const [isStopRequestPending, setIsStopRequestPending] = useState(false);
   const [toolMenuAlign, setToolMenuAlign] = useState<MenuAlign>('start');
   const [attachmentMenuAlign, setAttachmentMenuAlign] = useState<MenuAlign>('start');
   const [toolMenuVerticalPlacement, setToolMenuVerticalPlacement] =
@@ -451,11 +453,12 @@ export default function HomeChatComposer({
     [libraryAttachedContextRefs, libraryTree]
   );
   const currentDraft = draftValueOverride ?? draftByMode[homeChatMode];
-  const isStoppingGeneration = isLoading && hasRequestedStop;
+  const isStoppingGeneration = isStopRequestPending || (isLoading && hasRequestedStop);
+  const isGenerationActive = isLoading || isStopRequestPending || hasStopFailure;
   const activeLibraryToolCount = Number(libraryWebSearch) + Number(libraryGenerateArtifacts);
   const closeMenus = () => onActiveSurfaceChange(null);
   const sendButtonLabel = t(homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria');
-  const submitButtonLabel = isLoading && onStopGeneration ? t('Annulla') : sendButtonLabel;
+  const submitButtonLabel = isGenerationActive && onStopGeneration ? t('Annulla') : sendButtonLabel;
 
   useLayoutEffect(() => {
     if (
@@ -556,6 +559,7 @@ export default function HomeChatComposer({
     const message = currentDraft.trim();
     if (!message) return;
     setHasRequestedStop(false);
+    setHasStopFailure(false);
     updateDraft('');
     closeMenus();
     if (homeChatMode === 'new-course') {
@@ -568,16 +572,28 @@ export default function HomeChatComposer({
   const stopGeneration = () => {
     if (!onStopGeneration || isStoppingGeneration) return;
     setHasRequestedStop(true);
+    setHasStopFailure(false);
+    setIsStopRequestPending(true);
     closeMenus();
     try {
       void Promise.resolve(onStopGeneration()).then(
         succeeded => {
-          if (succeeded === false) setHasRequestedStop(false);
+          setIsStopRequestPending(false);
+          if (succeeded === false) {
+            setHasRequestedStop(false);
+            setHasStopFailure(true);
+          }
         },
-        () => setHasRequestedStop(false)
+        () => {
+          setIsStopRequestPending(false);
+          setHasRequestedStop(false);
+          setHasStopFailure(true);
+        }
       );
     } catch {
+      setIsStopRequestPending(false);
       setHasRequestedStop(false);
+      setHasStopFailure(true);
     }
   };
 
@@ -638,10 +654,10 @@ export default function HomeChatComposer({
             }}
             placeholder={getComposerPlaceholder(homeChatMode, assessmentComplete, inputPlaceholder)}
             className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-            disabled={isLoading}
+            disabled={isGenerationActive}
           />
           <SpeechInputButton
-            disabled={isLoading}
+            disabled={isGenerationActive}
             onTranscription={transcription => {
               setDraftByMode(current => ({
                 ...current,
@@ -652,22 +668,24 @@ export default function HomeChatComposer({
             variant="compact"
           />
           <button
-            type={isLoading && onStopGeneration ? 'button' : 'submit'}
+            type={isGenerationActive && onStopGeneration ? 'button' : 'submit'}
             data-home-chat-target="submit"
-            onClick={isLoading && onStopGeneration ? stopGeneration : undefined}
-            disabled={isLoading ? !onStopGeneration || isStoppingGeneration : !currentDraft.trim()}
+            onClick={isGenerationActive && onStopGeneration ? stopGeneration : undefined}
+            disabled={
+              isGenerationActive ? !onStopGeneration || isStoppingGeneration : !currentDraft.trim()
+            }
             aria-busy={isStoppingGeneration || undefined}
             aria-label={submitButtonLabel}
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
-              isLoading
+              isGenerationActive
                 ? 'bg-orange-500 text-white'
                 : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-200 disabled:text-gray-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-500'
             }`}
             title={submitButtonLabel}
           >
-            {isStoppingGeneration || (isLoading && !onStopGeneration) ? (
+            {isStoppingGeneration || (isGenerationActive && !onStopGeneration) ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : isLoading ? (
+            ) : isGenerationActive ? (
               <Square className="h-3.5 w-3.5 fill-current" />
             ) : (
               <ArrowUp className="h-4 w-4" />

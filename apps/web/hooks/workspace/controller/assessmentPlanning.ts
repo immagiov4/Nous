@@ -56,6 +56,33 @@ interface AssessmentPlanningDependencies {
 
 type CourseInterviewOutcome = 'abandoned' | 'assessment-complete' | 'continued';
 
+interface HomeChatStartArgs {
+  input: string;
+  selectedFile?: File | null;
+  selectedFiles?: File[];
+  toolPreferences?: HomeChatToolPreferences;
+}
+
+interface HomeChatStartResult {
+  errorMessage?: string;
+  outcome:
+    | 'abandoned'
+    | 'assessment-complete'
+    | 'continued'
+    | 'failed'
+    | 'imported'
+    | 'noop'
+    | 'planned';
+  sourceWarnings?: ProjectSourceWarning[];
+}
+
+interface PendingHomeChatInterviewRun {
+  readonly projectId: string;
+  readonly runId: Promise<string | null>;
+}
+
+class LateCourseInterviewCancellationError extends Error {}
+
 const getCourseInterviewOutcome = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
   if (snapshot.status === 'cancelled' || snapshot.result?.kind === 'cancelled') return 'abandoned';
   if (snapshot.result?.kind === 'exhausted') {
@@ -78,6 +105,10 @@ export const createAssessmentPlanningCommands = (
   _: AssessmentPlanningDependencies
 ) => {
   const { domain, openRouter, projectLibrary, state } = context;
+  let activeAssessmentCancellationPromise: Promise<void> | null = null;
+  let activeHomeChatStartPromise: Promise<HomeChatStartResult> | null = null;
+  let pendingHomeChatInterviewRun: PendingHomeChatInterviewRun | null = null;
+  let latestHomeChatRequestToken: symbol | null = null;
 
   const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
     recordFeedbackWorkflowSnapshot({
@@ -140,20 +171,42 @@ export const createAssessmentPlanningCommands = (
   const startOrResumeInterview = async (input: {
     hasReliableSourceContext: boolean;
     initialMessage?: string;
+    isRequestCurrent?: () => boolean;
     mode: 'document' | 'learn';
+    onRunStarted?: (runId: string) => void;
     projectId: string;
     sourceContext?: string;
   }): Promise<CourseInterviewOutcome> => {
-    const active = await openRouter.getActiveCourseInterview(input.projectId);
+    const clientOptions = input.onRunStarted ? { onRunStarted: input.onRunStarted } : undefined;
+    const active = await openRouter.getActiveCourseInterview(input.projectId, clientOptions);
     const snapshot =
       active ??
-      (await openRouter.startCourseInterview({
-        hasReliableSourceContext: input.hasReliableSourceContext,
-        ...(input.initialMessage ? { initialMessage: input.initialMessage } : {}),
-        mode: input.mode,
-        projectId: input.projectId,
-        ...(input.sourceContext ? { sourceContext: input.sourceContext } : {}),
-      }));
+      (await openRouter.startCourseInterview(
+        {
+          hasReliableSourceContext: input.hasReliableSourceContext,
+          ...(input.initialMessage ? { initialMessage: input.initialMessage } : {}),
+          mode: input.mode,
+          projectId: input.projectId,
+          ...(input.sourceContext ? { sourceContext: input.sourceContext } : {}),
+        },
+        clientOptions
+      ));
+    if (input.isRequestCurrent && !input.isRequestCurrent()) {
+      if (snapshot.status !== 'cancelled' && snapshot.result?.kind !== 'cancelled') {
+        try {
+          await openRouter.cancelCourseInterview({
+            projectId: snapshot.projectId,
+            runId: snapshot.runId,
+          });
+        } catch (error) {
+          throw new LateCourseInterviewCancellationError(
+            'Late course interview cancellation failed.',
+            { cause: error }
+          );
+        }
+      }
+      return 'abandoned';
+    }
     return applyInterviewSnapshot(snapshot);
   };
 
@@ -321,11 +374,19 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
-  async function cancelAssessment(): Promise<void> {
+  async function runAssessmentCancellation(): Promise<void> {
+    latestHomeChatRequestToken = null;
+    state.invalidateWorkflows(['assessment']);
+    const invalidatedRequestId = state.getWorkflowState().assessment.requestId;
     const projectId = projectLibrary.getCurrentProjectId();
     if (projectId) {
-      const interview = await openRouter.getActiveCourseInterview(projectId);
-      if (interview?.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL) {
+      const pendingRun =
+        pendingHomeChatInterviewRun?.projectId === projectId ? pendingHomeChatInterviewRun : null;
+      const pendingRunId = pendingRun ? await pendingRun.runId : null;
+      const interview = pendingRunId ? null : await openRouter.getActiveCourseInterview(projectId);
+      if (pendingRunId) {
+        await openRouter.cancelCourseInterview({ projectId, runId: pendingRunId });
+      } else if (interview?.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL) {
         await openRouter.sendCourseInterviewDecision({
           decision: { kind: 'cancel' },
           projectId,
@@ -335,28 +396,40 @@ export const createAssessmentPlanningCommands = (
       } else if (interview) {
         await openRouter.cancelCourseInterview({ projectId, runId: interview.runId });
       }
+      if (!interview && activeHomeChatStartPromise) {
+        const cancelledStart = await activeHomeChatStartPromise;
+        if (cancelledStart.outcome === 'failed') {
+          throw new Error(t('Operazione non riuscita. Riprova.'));
+        }
+      }
       await projectLibrary.refreshLibraryState();
     }
-    resetInterviewClientState();
+    if (state.getWorkflowState().assessment.requestId === invalidatedRequestId) {
+      resetInterviewClientState();
+    }
   }
 
-  async function startHomeChat(args: {
-    input: string;
-    selectedFile?: File | null;
-    selectedFiles?: File[];
-    toolPreferences?: HomeChatToolPreferences;
-  }): Promise<{
-    errorMessage?: string;
-    outcome:
-      | 'abandoned'
-      | 'assessment-complete'
-      | 'continued'
-      | 'failed'
-      | 'imported'
-      | 'noop'
-      | 'planned';
-    sourceWarnings?: ProjectSourceWarning[];
-  }> {
+  function cancelAssessment(): Promise<void> {
+    if (activeAssessmentCancellationPromise) return activeAssessmentCancellationPromise;
+
+    const cancellationPromise = runAssessmentCancellation();
+    activeAssessmentCancellationPromise = cancellationPromise;
+    void cancellationPromise.then(
+      () => {
+        if (activeAssessmentCancellationPromise === cancellationPromise) {
+          activeAssessmentCancellationPromise = null;
+        }
+      },
+      () => {
+        if (activeAssessmentCancellationPromise === cancellationPromise) {
+          activeAssessmentCancellationPromise = null;
+        }
+      }
+    );
+    return cancellationPromise;
+  }
+
+  async function runHomeChatStart(args: HomeChatStartArgs): Promise<HomeChatStartResult> {
     const trimmedInput = args.input.trim();
     if (!trimmedInput) {
       return { outcome: 'noop' };
@@ -371,7 +444,28 @@ export const createAssessmentPlanningCommands = (
       'assessment',
       t(selectedFiles.length > 0 ? 'Preparazione sorgente...' : 'Avvio conversazione...')
     );
+    const requestToken = Symbol('home-chat-request');
+    latestHomeChatRequestToken = requestToken;
     let sourceWarnings: ProjectSourceWarning[] = [];
+    let draftProjectId: string | null = null;
+    const isRequestCurrent = () => state.isWorkflowCurrent('assessment', requestId);
+    const abandonCancelledStart = async () => {
+      if (draftProjectId) {
+        try {
+          await projectLibrary.deleteStoredProject(draftProjectId);
+          await projectLibrary.refreshLibraryState();
+        } catch (cleanupError) {
+          pushNousDebugTrace('assessment:cancelled-draft-cleanup-failed', {
+            errorMessage: getErrorMessage(cleanupError),
+            projectId: draftProjectId,
+          });
+        }
+      }
+      if (latestHomeChatRequestToken === null || latestHomeChatRequestToken === requestToken) {
+        resetInterviewClientState();
+      }
+      return { outcome: 'abandoned' as const, sourceWarnings };
+    };
 
     try {
       domain.resetDomain();
@@ -399,10 +493,15 @@ export const createAssessmentPlanningCommands = (
         if (zipFiles.length === 1) {
           const selectedFile = zipFiles[0];
           const isBackupArchive = await isNousBackupArchive(selectedFile);
+          if (!isRequestCurrent()) return abandonCancelledStart();
 
           if (isBackupArchive) {
             state.setWorkflowMessage('assessment', requestId, t('Importazione backup...'));
-            await importProjectBackupFile(context, selectedFile);
+            const importedSnapshot = await importProjectBackupFile(context, selectedFile);
+            if (!isRequestCurrent()) {
+              draftProjectId = importedSnapshot.id;
+              return abandonCancelledStart();
+            }
             state.succeedWorkflow('assessment', requestId);
             return { outcome: 'imported' };
           }
@@ -410,6 +509,7 @@ export const createAssessmentPlanningCommands = (
           const archiveSource = await import('../../../utils/project/codebaseBundle.ts').then(
             module => module.createSourceArchiveFromZip(selectedFile)
           );
+          if (!isRequestCurrent()) return abandonCancelledStart();
           nextSource = archiveSource;
           nextFile = archiveSource.file;
           archiveFile = selectedFile;
@@ -445,6 +545,7 @@ export const createAssessmentPlanningCommands = (
 
         if (nextSource.kind === 'archive') {
           const projectId = createProjectId();
+          draftProjectId = projectId;
           projectLibrary.setCurrentProjectId(projectId);
           const saved = await projectLibrary.persistSnapshot(
             createProjectSnapshot({
@@ -457,6 +558,7 @@ export const createAssessmentPlanningCommands = (
           if (saved?.snapshot.source?.kind !== 'archive') {
             throw new Error('La sorgente archivio non è stata salvata.');
           }
+          if (!isRequestCurrent()) return abandonCancelledStart();
           nextSource = saved.snapshot.source;
           sourceWarnings = getProjectSourceWarnings(nextSource);
         }
@@ -490,14 +592,38 @@ export const createAssessmentPlanningCommands = (
         domain.setIsLearnMode(true);
       }
 
+      if (!isRequestCurrent()) return abandonCancelledStart();
       const projectId = await ensureInterviewProject(mode, preparedSource);
-      const outcome = await startOrResumeInterview({
-        hasReliableSourceContext,
-        initialMessage: trimmedInput,
-        mode,
-        projectId,
-        ...(sourceContext ? { sourceContext } : {}),
+      draftProjectId = projectId;
+      if (!isRequestCurrent()) return abandonCancelledStart();
+      let resolveRunId: (runId: string | null) => void = () => {};
+      let hasResolvedRunId = false;
+      const runId = new Promise<string | null>(resolve => {
+        resolveRunId = resolve;
       });
+      const pendingRun = { projectId, runId };
+      pendingHomeChatInterviewRun = pendingRun;
+      const reportRunStarted = (startedRunId: string) => {
+        if (hasResolvedRunId) return;
+        hasResolvedRunId = true;
+        resolveRunId(startedRunId);
+      };
+      let outcome: CourseInterviewOutcome;
+      try {
+        outcome = await startOrResumeInterview({
+          hasReliableSourceContext,
+          initialMessage: trimmedInput,
+          isRequestCurrent,
+          mode,
+          onRunStarted: reportRunStarted,
+          projectId,
+          ...(sourceContext ? { sourceContext } : {}),
+        });
+      } finally {
+        if (!hasResolvedRunId) resolveRunId(null);
+        if (pendingHomeChatInterviewRun === pendingRun) pendingHomeChatInterviewRun = null;
+      }
+      if (!isRequestCurrent()) return abandonCancelledStart();
       state.succeedWorkflow('assessment', requestId);
       if (outcome === 'abandoned') {
         await projectLibrary.refreshLibraryState();
@@ -505,26 +631,50 @@ export const createAssessmentPlanningCommands = (
       }
       return { outcome, sourceWarnings };
     } catch (error) {
+      if (!isRequestCurrent()) {
+        if (error instanceof LateCourseInterviewCancellationError) {
+          pushNousDebugTrace('assessment:late-cancellation-failed', {
+            errorMessage: getErrorMessage(error.cause),
+            projectId: draftProjectId,
+          });
+          return { outcome: 'failed', sourceWarnings };
+        }
+        return abandonCancelledStart();
+      }
       if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
         sourceWarnings = error.sourceWarnings;
       }
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('assessment', requestId, errorMessage);
-      const draftProjectId = projectLibrary.getCurrentProjectId();
-      if (draftProjectId) {
+      const failedDraftProjectId = projectLibrary.getCurrentProjectId();
+      if (failedDraftProjectId) {
         try {
-          const activeInterview = await openRouter.getActiveCourseInterview(draftProjectId);
-          if (!activeInterview) await projectLibrary.deleteStoredProject(draftProjectId);
+          const activeInterview = await openRouter.getActiveCourseInterview(failedDraftProjectId);
+          if (!activeInterview) await projectLibrary.deleteStoredProject(failedDraftProjectId);
         } catch (cleanupError) {
           pushNousDebugTrace('assessment:draft-cleanup-failed', {
             errorMessage: getErrorMessage(cleanupError),
-            projectId: draftProjectId,
+            projectId: failedDraftProjectId,
           });
         }
       }
       resetInterviewClientState();
       return { outcome: 'failed', errorMessage, sourceWarnings };
     }
+  }
+
+  function startHomeChat(args: HomeChatStartArgs): Promise<HomeChatStartResult> {
+    const startPromise = runHomeChatStart(args);
+    activeHomeChatStartPromise = startPromise;
+    void startPromise.then(
+      () => {
+        if (activeHomeChatStartPromise === startPromise) activeHomeChatStartPromise = null;
+      },
+      () => {
+        if (activeHomeChatStartPromise === startPromise) activeHomeChatStartPromise = null;
+      }
+    );
+    return startPromise;
   }
 
   async function submitAssessment(
@@ -560,6 +710,9 @@ export const createAssessmentPlanningCommands = (
               runId: interview.runId,
               waitId: interview.wait.waitId,
             });
+      if (!state.isWorkflowCurrent('assessment', requestId)) {
+        return { outcome: 'abandoned' };
+      }
       const outcome = applyInterviewSnapshot(snapshot);
       state.succeedWorkflow('assessment', requestId);
       if (outcome === 'abandoned') {
@@ -568,6 +721,9 @@ export const createAssessmentPlanningCommands = (
       }
       return { outcome };
     } catch (error) {
+      if (!state.isWorkflowCurrent('assessment', requestId)) {
+        return { outcome: 'abandoned' };
+      }
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('assessment', requestId, errorMessage);
       return { outcome: 'failed', errorMessage };
