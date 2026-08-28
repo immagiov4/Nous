@@ -107,7 +107,7 @@ Compare old - new behavior, or use option 1) now.
         'GitHub rendering lost Markdown blocks'
       );
     }
-    expect(() => assertGitHubRendering('<h2>Raw heading</h2>\n', '<p>Missing.</p>')).toThrow(
+    expect(() => assertGitHubRendering('<hr/>\n', '<p>Missing.</p>')).toThrow(
       'GitHub rendering lost Markdown blocks'
     );
   });

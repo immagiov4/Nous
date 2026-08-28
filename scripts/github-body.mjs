@@ -190,7 +190,7 @@ const expectedRenderedTags = body => {
 };
 
 const renderedTagCount = (renderedHtml, tag) =>
-  [...renderedHtml.matchAll(new RegExp(`<${tag}(?:[ >])`, 'giu'))].length;
+  [...renderedHtml.matchAll(new RegExp(`<${tag}(?=[\\s/>])`, 'giu'))].length;
 export const assertGitHubRendering = (body, renderedHtml) => {
   if (!renderedHtml.trim()) throw new Error('GitHub returned an empty rendered body.');
   for (const [tag, expectedCount] of expectedRenderedTags(body)) {
