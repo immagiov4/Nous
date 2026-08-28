@@ -164,14 +164,17 @@ export const LibraryScreenContainer = ({
     ]
   );
 
-  const cancelNewCourse = useCallback(() => {
-    void cancelAssessment()
-      .then(() => {
-        setIsAddingAssessmentDetails(false);
-        setPendingHomeSourceFiles([]);
-        setHomeChatMode('library-query');
-      })
-      .catch(error => notify(getErrorMessage(error)));
+  const cancelNewCourse = useCallback(async () => {
+    try {
+      await cancelAssessment();
+      setIsAddingAssessmentDetails(false);
+      setPendingHomeSourceFiles([]);
+      setHomeChatMode('library-query');
+      return true;
+    } catch (error) {
+      notify(getErrorMessage(error));
+      return false;
+    }
   }, [cancelAssessment, notify]);
 
   useEffect(() => {

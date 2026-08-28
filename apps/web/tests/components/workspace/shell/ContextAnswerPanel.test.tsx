@@ -69,6 +69,7 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
     onChange: (value: string) => void;
     onSubmit: () => void;
     placeholder: string;
+    submitDataTarget?: string;
     trailingContent?: ReactNode;
     value: string;
   }) => {
@@ -84,6 +85,7 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
         <button
           type="button"
           data-testid="chat-text-composer"
+          data-chat-composer-target={props.submitDataTarget}
           disabled={props.disabled}
           onClick={props.onSubmit}
         >
@@ -393,6 +395,33 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
     expect(stopButton).toBeDisabled();
     expect(stopButton).toHaveAttribute('aria-busy', 'true');
+  });
+
+  test('moves focus from the submitted send button to Stop', async () => {
+    const user = userEvent.setup();
+    let chatStatus: 'ready' | 'streaming' = 'ready';
+    useChatMock.mockImplementation(() => ({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: chatStatus,
+      stop: stopMock,
+    }));
+    const props = buildProps();
+    const { rerender } = render(<ContextAnswerPanel {...props} />);
+    await user.type(screen.getByRole('textbox'), 'Domanda da tastiera');
+    const sendButton = screen.getByTestId('chat-text-composer');
+    sendButton.focus();
+    await user.keyboard('{Enter}');
+
+    chatStatus = 'streaming';
+    rerender(<ContextAnswerPanel {...props} />);
+
+    const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    expect(stopButton).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(stopMock).toHaveBeenCalledOnce();
   });
 
   test('does not revive a stopped artifact tool when a follow-up starts', async () => {

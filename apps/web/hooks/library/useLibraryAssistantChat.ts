@@ -593,6 +593,7 @@ export const useLibraryAssistantChat = ({
         errorText: t('Annullato'),
       });
     }
+    return undefined;
   }, [addToolOutput, messages, requestStateKey, stop]);
   const libraryMessageSender = useMemo(
     () => Object.assign(sendLibraryMessage, { stop: stopLibraryMessage }),

@@ -19,6 +19,7 @@ import type {
 import HomeChatComposer, {
   type HomeChatSurfaceState,
   type LibraryMessageSendHandler,
+  type StopGenerationHandler,
 } from './HomeChatComposer.tsx';
 import HomeChatConversation, { getActiveLibraryMessages } from './HomeChatConversation.tsx';
 
@@ -58,7 +59,7 @@ interface HomeChatPanelProps {
   readonly showChatAvatars?: boolean;
   readonly onClearPendingFile: () => void;
   readonly onClearLibraryMessages?: () => void;
-  readonly onCancelNewCourse?: () => void;
+  readonly onCancelNewCourse?: StopGenerationHandler;
   readonly onContinueAssessment?: () => void;
   readonly onConfirmGenerate: () => void;
   readonly onHomeChatModeChange: (mode: HomeChatMode) => void;
@@ -204,7 +205,7 @@ const HomeChatClearButton = ({
 }: {
   readonly homeChatMode: HomeChatMode;
   readonly isLoading: boolean;
-  readonly onCancelNewCourse?: () => void;
+  readonly onCancelNewCourse?: StopGenerationHandler;
   readonly onClearLibraryMessages?: () => void;
 }) => {
   const label =

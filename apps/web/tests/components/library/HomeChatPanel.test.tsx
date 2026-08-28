@@ -575,6 +575,21 @@ describe('HomeChatPanel', () => {
     expect(props.onSendAssessmentMessage).not.toHaveBeenCalled();
   });
 
+  test('re-enables Stop when new-course cancellation fails', async () => {
+    const user = userEvent.setup();
+    const onCancelNewCourse = vi.fn(async () => false);
+    render(
+      <HomeChatPanel {...buildProps()} isNewCourseLoading onCancelNewCourse={onCancelNewCourse} />
+    );
+
+    const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    await user.click(stopButton);
+
+    expect(onCancelNewCourse).toHaveBeenCalledOnce();
+    await waitFor(() => expect(stopButton).toBeEnabled());
+    expect(stopButton).not.toHaveAttribute('aria-busy');
+  });
+
   test('replaces the current draft and selects the editable course name', async () => {
     const user = userEvent.setup();
     const props = {

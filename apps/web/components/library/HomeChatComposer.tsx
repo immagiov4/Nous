@@ -9,8 +9,9 @@ import HomeChatLibraryContextPicker, {
 } from './HomeChatLibraryContextPicker.tsx';
 
 export type HomeChatSurfaceState = null | 'attachment-menu' | 'tool-menu';
+export type StopGenerationHandler = () => boolean | undefined | Promise<boolean | undefined>;
 export type LibraryMessageSendHandler = ((message: string) => void | Promise<void>) & {
-  readonly stop?: () => void;
+  readonly stop?: StopGenerationHandler;
 };
 type MenuAlign = 'start' | 'end';
 type MenuVerticalPlacement = 'above' | 'below';
@@ -46,7 +47,7 @@ interface HomeChatComposerProps {
   readonly onLibraryMessageSend: LibraryMessageSendHandler;
   readonly onLibraryWebSearchChange: (value: boolean) => void;
   readonly onSendAssessmentMessage: (message: string) => Promise<void>;
-  readonly onStopGeneration?: () => void;
+  readonly onStopGeneration?: StopGenerationHandler;
   readonly onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
   readonly onUploadSourceClick: () => void;
   readonly pendingFileName: string | null;
@@ -568,7 +569,16 @@ export default function HomeChatComposer({
     if (!onStopGeneration || isStoppingGeneration) return;
     setHasRequestedStop(true);
     closeMenus();
-    onStopGeneration();
+    try {
+      void Promise.resolve(onStopGeneration()).then(
+        succeeded => {
+          if (succeeded === false) setHasRequestedStop(false);
+        },
+        () => setHasRequestedStop(false)
+      );
+    } catch {
+      setHasRequestedStop(false);
+    }
   };
 
   return (

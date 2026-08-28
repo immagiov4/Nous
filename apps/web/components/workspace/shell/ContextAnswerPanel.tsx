@@ -512,6 +512,8 @@ function ContextAnswerPanelSession({
     generation: 0,
   });
   const activeContextToolCallsRef = useRef(new Map<string, string>());
+  const contextStopButtonRef = useRef<HTMLButtonElement>(null);
+  const focusStopAfterSubmitRef = useRef(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectionAnchorRef = useRef<ConversationSelectionAnchor>({
@@ -1374,6 +1376,12 @@ function ContextAnswerPanelSession({
   const hasActiveToolPreference =
     toolPreferences.annotate || toolPreferences.generateArtifacts || toolPreferences.webSearch;
 
+  useEffect(() => {
+    if (!isLoading || !focusStopAfterSubmitRef.current) return;
+    focusStopAfterSubmitRef.current = false;
+    contextStopButtonRef.current?.focus();
+  }, [isLoading]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length triggers scroll on new arrival
   useLayoutEffect(() => {
     if (!messagesContainerRef.current) return;
@@ -1394,6 +1402,11 @@ function ContextAnswerPanelSession({
     if (isMobileViewport && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
+
+    focusStopAfterSubmitRef.current =
+      !isMobileViewport &&
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.dataset.chatComposerTarget === 'context-answer-submit';
 
     activeResponseStateRef.current.canContinue = true;
     activeResponseStateRef.current.generation += 1;
@@ -1809,6 +1822,7 @@ function ContextAnswerPanelSession({
           trailingContent={
             isLoading ? (
               <button
+                ref={contextStopButtonRef}
                 type="button"
                 onClick={handleStopResponse}
                 disabled={isStoppingResponse}

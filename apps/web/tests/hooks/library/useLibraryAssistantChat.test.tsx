@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 const useChatMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const generateLessonArtifactDraftMock = vi.fn();
+const lastAssistantMessageIsCompleteWithToolCallsMock = vi.fn();
 const stopMock = vi.fn();
 
 class MockDefaultChatTransport<UI_MESSAGE extends UIMessage> {
@@ -40,7 +41,7 @@ vi.mock('@ai-sdk/react', () => ({
 
 vi.mock('ai', () => ({
   DefaultChatTransport: MockDefaultChatTransport,
-  lastAssistantMessageIsCompleteWithToolCalls: () => false,
+  lastAssistantMessageIsCompleteWithToolCalls: lastAssistantMessageIsCompleteWithToolCallsMock,
 }));
 
 vi.mock('../../../services/openrouter/config.ts', () => ({
@@ -64,6 +65,8 @@ describe('useLibraryAssistantChat', () => {
     useChatMock.mockReset();
     addToolOutputMock.mockReset();
     generateLessonArtifactDraftMock.mockReset();
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReset();
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(false);
     stopMock.mockReset();
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
@@ -139,6 +142,7 @@ describe('useLibraryAssistantChat', () => {
   });
 
   test('does not revive a stopped client tool when a new library message starts', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
     let resolveProjects: (projects: never[]) => void = () => {};
     const projectsRequest = new Promise<never[]>(resolve => {
       resolveProjects = resolve;
@@ -183,7 +187,9 @@ describe('useLibraryAssistantChat', () => {
         },
       });
     });
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(true);
     act(() => result.current.sendLibraryMessage.stop?.());
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(false);
     expect(addToolOutputMock).toHaveBeenCalledWith(
       expect.objectContaining({
         state: 'output-error',
@@ -194,6 +200,7 @@ describe('useLibraryAssistantChat', () => {
       void result.current.sendLibraryMessage('Nuova domanda');
     });
     expect(sendMessage).toHaveBeenCalledWith({ text: 'Nuova domanda' });
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(true);
     await act(async () => {
       resolveProjects([]);
       await toolCallRequest;
@@ -206,7 +213,6 @@ describe('useLibraryAssistantChat', () => {
       state: 'output-error',
       errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
     });
-    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(false);
   });
 
   test('sends the latest web-search preference through the initial transport instance', async () => {
