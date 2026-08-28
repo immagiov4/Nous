@@ -46,6 +46,8 @@ const INLINE_FORMAT_DELIMITERS = ['***', '___', '**', '__', '~~', '*', '_'];
 const CHARACTER_REFERENCE_AT_START_REGEX =
   /^&(?:#(?:\d{1,7}|[xX][\dA-Fa-f]{1,6})|[A-Za-z][A-Za-z0-9]{1,31});/u;
 const WORD_BOUNDARY_CHARACTER_REGEX = /^[\p{L}\p{N}]$/u;
+const BLOCK_MARKER_AT_START_REGEX = /^[ \t]{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)[ \t]+/u;
+const CODE_DELIMITER_AT_START_REGEX = /^`+/u;
 
 export const getHiddenInlineBoundaryRanges = (
   content: string,
@@ -99,227 +101,283 @@ export const normalizeLooseText = (value: string): string =>
     .replaceAll(/\s+/g, ' ')
     .trim();
 
+interface VisibleProjectionState {
+  activeCodeDelimiter: string | null;
+  atLineStart: boolean;
+  boundaryRangesByStart: Map<number, MarkdownRange>;
+  characters: string[];
+  content: string;
+  escapedFenceOpenerRangesByStart: Map<number, MarkdownRange>;
+  hiddenRangesByStart: Map<number, MarkdownRange>;
+  index: number;
+  insertedBoundarySourceIndexes: number[];
+  linkDestinationRangesByStart: Map<number, MarkdownRange>;
+  mathRangesByStart: Map<number, MarkdownRange>;
+  pendingBoundarySourceIndex: number | null;
+  rawHtmlTagRanges: MarkdownRange[];
+  sourceEnds: number[];
+  sourceIndexes: number[];
+}
+
+const pushVisibleCharacter = (
+  state: VisibleProjectionState,
+  character: string,
+  sourceIndex: number,
+  sourceEnd = sourceIndex + 1
+): void => {
+  if (state.pendingBoundarySourceIndex !== null) {
+    if (
+      WORD_BOUNDARY_CHARACTER_REGEX.test(state.characters.at(-1) ?? '') &&
+      WORD_BOUNDARY_CHARACTER_REGEX.test(character)
+    ) {
+      state.characters.push(' ');
+      state.insertedBoundarySourceIndexes.push(state.pendingBoundarySourceIndex);
+      state.sourceIndexes.push(state.pendingBoundarySourceIndex);
+      state.sourceEnds.push(state.pendingBoundarySourceIndex);
+    }
+    state.pendingBoundarySourceIndex = null;
+  }
+  state.characters.push(character);
+  state.sourceIndexes.push(sourceIndex);
+  state.sourceEnds.push(sourceEnd);
+};
+
+const skipHiddenProjectionRange = (state: VisibleProjectionState): boolean => {
+  const hiddenRange = state.hiddenRangesByStart.get(state.index);
+  if (!hiddenRange) return false;
+
+  const boundaryRange = state.boundaryRangesByStart.get(state.index);
+  if (boundaryRange) {
+    state.pendingBoundarySourceIndex =
+      boundaryRange.end < state.content.length
+        ? boundaryRange.end
+        : Math.max(0, boundaryRange.start - 1);
+  }
+  state.index = Math.max(hiddenRange.end, boundaryRange?.end ?? hiddenRange.end);
+  return true;
+};
+
+const skipBlockMarker = (state: VisibleProjectionState): boolean => {
+  if (!state.atLineStart) return false;
+  const markerMatch = BLOCK_MARKER_AT_START_REGEX.exec(state.content.slice(state.index));
+  if (!markerMatch) return false;
+
+  state.index += markerMatch[0].length;
+  state.atLineStart = false;
+  return true;
+};
+
+const projectEscapedFenceOpener = (state: VisibleProjectionState): boolean => {
+  const range = state.escapedFenceOpenerRangesByStart.get(state.index);
+  if (!range) return false;
+
+  for (let sourceIndex = range.start; sourceIndex < range.end; sourceIndex += 1) {
+    pushVisibleCharacter(state, state.content[sourceIndex], sourceIndex);
+  }
+  state.atLineStart = false;
+  state.index = range.end;
+  return true;
+};
+
+const projectMathRange = (state: VisibleProjectionState): boolean => {
+  const range = state.mathRangesByStart.get(state.index);
+  if (!range) return false;
+
+  const projection = projectMarkdownMathRange(state.content, range);
+  projection.text.split('').forEach((character, projectionIndex) => {
+    pushVisibleCharacter(
+      state,
+      character,
+      projection.sourceIndexes[projectionIndex] ?? range.start
+    );
+  });
+  state.atLineStart = false;
+  state.index = range.end;
+  return true;
+};
+
+const projectLineBreak = (state: VisibleProjectionState): boolean => {
+  const character = state.content[state.index];
+  if (character === '\r') {
+    if (state.content[state.index + 1] !== '\n') {
+      pushVisibleCharacter(state, '\n', state.index);
+      state.atLineStart = true;
+    }
+    state.index += 1;
+    return true;
+  }
+  if (character !== '\n') return false;
+
+  pushVisibleCharacter(state, '\n', state.index);
+  state.atLineStart = true;
+  state.index += 1;
+  return true;
+};
+
+const projectActiveCode = (state: VisibleProjectionState): boolean => {
+  if (!state.activeCodeDelimiter) return false;
+  if (state.content.startsWith(state.activeCodeDelimiter, state.index)) {
+    state.index += state.activeCodeDelimiter.length;
+    state.activeCodeDelimiter = null;
+    return true;
+  }
+
+  const placeholderRange = readCompleteMarkdownPlaceholderRange(state.content, state.index);
+  if (
+    placeholderRange &&
+    !isMarkdownPlaceholderLiteralInsideCode(state.content, placeholderRange.start)
+  ) {
+    state.index = placeholderRange.end;
+    return true;
+  }
+
+  pushVisibleCharacter(state, state.content[state.index], state.index);
+  state.atLineStart = false;
+  state.index += 1;
+  return true;
+};
+
+const openInlineCode = (state: VisibleProjectionState): boolean => {
+  if (state.content[state.index] !== '`') return false;
+  const delimiterLength =
+    CODE_DELIMITER_AT_START_REGEX.exec(state.content.slice(state.index))?.[0].length ?? 1;
+  state.activeCodeDelimiter = '`'.repeat(delimiterLength);
+  state.index += delimiterLength;
+  return true;
+};
+
+const skipMarkdownPlaceholder = (state: VisibleProjectionState): boolean => {
+  const range = readCompleteMarkdownPlaceholderRange(state.content, state.index);
+  if (!range) return false;
+  state.index = range.end;
+  return true;
+};
+
+const projectCharacterReference = (state: VisibleProjectionState): boolean => {
+  if (state.content[state.index] !== '&') return false;
+  const reference = CHARACTER_REFERENCE_AT_START_REGEX.exec(state.content.slice(state.index))?.[0];
+  if (!reference) return false;
+
+  const referenceEnd = state.index + reference.length;
+  const isInsideRawHtmlTag = state.rawHtmlTagRanges.some(
+    range => state.index >= range.start && referenceEnd <= range.end
+  );
+  if (isInsideRawHtmlTag) return false;
+
+  const decodedReference = decodeString(reference);
+  if (decodedReference === reference) return false;
+  for (const character of decodedReference) {
+    pushVisibleCharacter(state, character, state.index, referenceEnd);
+  }
+  state.atLineStart = false;
+  state.index = referenceEnd;
+  return true;
+};
+
+const projectMalformedImageLabel = (state: VisibleProjectionState): boolean => {
+  if (state.content[state.index] !== '!' || state.content[state.index + 1] !== '[') return false;
+  const labelEnd = findInlineLabelEnd(state.content, state.index + 1);
+  if (labelEnd === -1) return false;
+
+  const labelStart = state.index;
+  for (let sourceIndex = labelStart; sourceIndex <= labelEnd; sourceIndex += 1) {
+    pushVisibleCharacter(state, state.content[sourceIndex], sourceIndex);
+  }
+  state.atLineStart = false;
+  state.index = labelEnd + 1;
+  return true;
+};
+
+const skipLinkBracket = (state: VisibleProjectionState): boolean => {
+  const character = state.content[state.index];
+  if (character !== '[' && character !== ']') return false;
+  if (character === ']' && state.content[state.index + 1] === '(') {
+    const destinationRange = state.linkDestinationRangesByStart.get(state.index + 1);
+    if (destinationRange) {
+      state.index = destinationRange.end;
+      return true;
+    }
+  }
+  state.index += 1;
+  return true;
+};
+
+const projectEscapedCharacter = (state: VisibleProjectionState): boolean => {
+  if (state.content[state.index] !== '\\' || state.index + 1 >= state.content.length) return false;
+  pushVisibleCharacter(state, state.content[state.index + 1], state.index + 1);
+  state.atLineStart = false;
+  state.index += 2;
+  return true;
+};
+
+const skipMarkdownToken = (state: VisibleProjectionState): boolean => {
+  const token = MARKDOWN_TOKENS.find(candidate => state.content.startsWith(candidate, state.index));
+  if (!token) return false;
+  state.index += token.length;
+  return true;
+};
+
+const advanceVisibleProjection = (state: VisibleProjectionState): void => {
+  if (skipHiddenProjectionRange(state)) return;
+  if (skipBlockMarker(state)) return;
+  if (projectEscapedFenceOpener(state)) return;
+  if (projectMathRange(state)) return;
+  if (projectLineBreak(state)) return;
+  if (projectActiveCode(state)) return;
+  if (openInlineCode(state)) return;
+  if (skipMarkdownPlaceholder(state)) return;
+  if (projectCharacterReference(state)) return;
+  if (projectMalformedImageLabel(state)) return;
+  if (skipLinkBracket(state)) return;
+  if (projectEscapedCharacter(state)) return;
+  if (skipMarkdownToken(state)) return;
+
+  pushVisibleCharacter(state, state.content[state.index], state.index);
+  state.atLineStart = false;
+  state.index += 1;
+};
+
 export const buildVisibleProjection = (
   content: string,
   analysis: MarkdownAnalysis = parseMarkdownAnalysis(content)
 ): VisibleProjection => {
-  const characters: string[] = [];
-  const insertedBoundarySourceIndexes: number[] = [];
-  const sourceEnds: number[] = [];
-  const sourceIndexes: number[] = [];
-  let index = 0;
-  let atLineStart = true;
-  let activeCodeDelimiter: string | null = null;
-  let pendingBoundarySourceIndex: number | null = null;
-  const linkDestinationRangesByStart = indexLongestRangeByStart(analysis.linkDestinationRanges);
-  const mathRangesByStart = indexLongestRangeByStart(analysis.mathRanges);
-  const escapedFenceOpenerRangesByStart = indexLongestRangeByStart(
-    analysis.escapedFenceOpenerRanges
-  );
-  const hiddenRangesByStart = indexLongestRangeByStart([
-    ...getMarkdownImageRanges(content, analysis),
-    ...getMarkdownLinkDestinationRanges(content, analysis),
-    ...getMarkdownReferenceDefinitionRanges(content, analysis),
-    ...getMarkdownReferenceLinkLabelRanges(content, analysis),
-    ...analysis.htmlSyntaxRanges,
-    ...analysis.rendererNormalizedIndentRanges,
-    ...analysis.structuralRanges,
-  ]);
-  const boundaryRangesByStart = indexLongestRangeByStart(
-    getHiddenInlineBoundaryRanges(content, analysis)
-  );
-  const rawHtmlTagRanges = getRawHtmlTagRanges(content);
-
-  const pushCharacter = (character: string, sourceIndex: number, sourceEnd = sourceIndex + 1) => {
-    if (pendingBoundarySourceIndex !== null) {
-      if (
-        WORD_BOUNDARY_CHARACTER_REGEX.test(characters.at(-1) ?? '') &&
-        WORD_BOUNDARY_CHARACTER_REGEX.test(character)
-      ) {
-        characters.push(' ');
-        insertedBoundarySourceIndexes.push(pendingBoundarySourceIndex);
-        sourceIndexes.push(pendingBoundarySourceIndex);
-        sourceEnds.push(pendingBoundarySourceIndex);
-      }
-      pendingBoundarySourceIndex = null;
-    }
-    characters.push(character);
-    sourceIndexes.push(sourceIndex);
-    sourceEnds.push(sourceEnd);
+  const state: VisibleProjectionState = {
+    activeCodeDelimiter: null,
+    atLineStart: true,
+    boundaryRangesByStart: indexLongestRangeByStart(
+      getHiddenInlineBoundaryRanges(content, analysis)
+    ),
+    characters: [],
+    content,
+    escapedFenceOpenerRangesByStart: indexLongestRangeByStart(analysis.escapedFenceOpenerRanges),
+    hiddenRangesByStart: indexLongestRangeByStart([
+      ...getMarkdownImageRanges(content, analysis),
+      ...getMarkdownLinkDestinationRanges(content, analysis),
+      ...getMarkdownReferenceDefinitionRanges(content, analysis),
+      ...getMarkdownReferenceLinkLabelRanges(content, analysis),
+      ...analysis.htmlSyntaxRanges,
+      ...analysis.rendererNormalizedIndentRanges,
+      ...analysis.structuralRanges,
+    ]),
+    index: 0,
+    insertedBoundarySourceIndexes: [],
+    linkDestinationRangesByStart: indexLongestRangeByStart(analysis.linkDestinationRanges),
+    mathRangesByStart: indexLongestRangeByStart(analysis.mathRanges),
+    pendingBoundarySourceIndex: null,
+    rawHtmlTagRanges: getRawHtmlTagRanges(content),
+    sourceEnds: [],
+    sourceIndexes: [],
   };
 
-  while (index < content.length) {
-    const hiddenRange = hiddenRangesByStart.get(index);
-    if (hiddenRange) {
-      const boundaryRange = boundaryRangesByStart.get(index);
-      if (boundaryRange) {
-        pendingBoundarySourceIndex =
-          boundaryRange.end < content.length
-            ? boundaryRange.end
-            : Math.max(0, boundaryRange.start - 1);
-      }
-      index = Math.max(hiddenRange.end, boundaryRange?.end ?? hiddenRange.end);
-      continue;
-    }
-    if (atLineStart) {
-      const blockMarkerMatch = content
-        .slice(index)
-        .match(/^[ \t]{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)[ \t]+/u);
-
-      if (blockMarkerMatch) {
-        index += blockMarkerMatch[0].length;
-        atLineStart = false;
-        continue;
-      }
-    }
-
-    const currentCharacter = content[index];
-
-    const escapedFenceOpenerRange = escapedFenceOpenerRangesByStart.get(index);
-    if (escapedFenceOpenerRange) {
-      content
-        .slice(escapedFenceOpenerRange.start, escapedFenceOpenerRange.end)
-        .split('')
-        .forEach((character, offset) => {
-          pushCharacter(character, escapedFenceOpenerRange.start + offset);
-        });
-      atLineStart = false;
-      index = escapedFenceOpenerRange.end;
-      continue;
-    }
-
-    const mathRange = mathRangesByStart.get(index);
-    if (mathRange) {
-      const mathProjection = projectMarkdownMathRange(content, mathRange);
-      mathProjection.text.split('').forEach((character, projectionIndex) => {
-        pushCharacter(character, mathProjection.sourceIndexes[projectionIndex] ?? mathRange.start);
-      });
-      atLineStart = false;
-      index = mathRange.end;
-      continue;
-    }
-
-    if (currentCharacter === '\r') {
-      if (content[index + 1] !== '\n') {
-        pushCharacter('\n', index);
-        atLineStart = true;
-      }
-      index += 1;
-      continue;
-    }
-
-    if (currentCharacter === '\n') {
-      pushCharacter('\n', index);
-      atLineStart = true;
-      index += 1;
-      continue;
-    }
-
-    if (activeCodeDelimiter) {
-      if (content.startsWith(activeCodeDelimiter, index)) {
-        index += activeCodeDelimiter.length;
-        activeCodeDelimiter = null;
-        continue;
-      }
-
-      const placeholderRange = readCompleteMarkdownPlaceholderRange(content, index);
-      if (
-        placeholderRange &&
-        !isMarkdownPlaceholderLiteralInsideCode(content, placeholderRange.start)
-      ) {
-        index = placeholderRange.end;
-        continue;
-      }
-
-      pushCharacter(currentCharacter, index);
-      atLineStart = false;
-      index += 1;
-      continue;
-    }
-
-    if (currentCharacter === '`') {
-      const delimiterLength = content.slice(index).match(/^`+/u)?.[0].length ?? 1;
-      activeCodeDelimiter = '`'.repeat(delimiterLength);
-      index += delimiterLength;
-      continue;
-    }
-
-    const placeholderRange = readCompleteMarkdownPlaceholderRange(content, index);
-    if (placeholderRange) {
-      index = placeholderRange.end;
-      continue;
-    }
-
-    if (currentCharacter === '&') {
-      const reference = content.slice(index).match(CHARACTER_REFERENCE_AT_START_REGEX)?.[0];
-      const referenceEnd = reference ? index + reference.length : index;
-      const isOutsideRawHtmlTag =
-        reference !== undefined &&
-        !rawHtmlTagRanges.some(range => index >= range.start && referenceEnd <= range.end);
-      if (reference && isOutsideRawHtmlTag) {
-        const decodedReference = decodeString(reference);
-        if (decodedReference !== reference) {
-          for (let decodedIndex = 0; decodedIndex < decodedReference.length; decodedIndex += 1) {
-            pushCharacter(decodedReference[decodedIndex], index, referenceEnd);
-          }
-          atLineStart = false;
-          index = referenceEnd;
-          continue;
-        }
-      }
-    }
-
-    if (currentCharacter === '!' && content[index + 1] === '[') {
-      const labelEnd = findInlineLabelEnd(content, index + 1);
-      if (labelEnd !== -1) {
-        content
-          .slice(index, labelEnd + 1)
-          .split('')
-          .forEach((character, offset) => {
-            pushCharacter(character, index + offset);
-          });
-        atLineStart = false;
-        index = labelEnd + 1;
-        continue;
-      }
-    }
-
-    if (currentCharacter === '[' || currentCharacter === ']') {
-      if (currentCharacter === ']' && content[index + 1] === '(') {
-        const destinationRange = linkDestinationRangesByStart.get(index + 1);
-        if (destinationRange) {
-          index = destinationRange.end;
-          continue;
-        }
-      }
-
-      index += 1;
-      continue;
-    }
-
-    if (currentCharacter === '\\' && index + 1 < content.length) {
-      pushCharacter(content[index + 1], index + 1);
-      atLineStart = false;
-      index += 2;
-      continue;
-    }
-
-    const markdownToken = MARKDOWN_TOKENS.find(token => content.startsWith(token, index));
-    if (markdownToken) {
-      index += markdownToken.length;
-      continue;
-    }
-
-    pushCharacter(currentCharacter, index);
-    atLineStart = false;
-    index += 1;
+  while (state.index < content.length) {
+    advanceVisibleProjection(state);
   }
 
   return {
-    insertedBoundarySourceIndexes,
-    sourceEnds,
-    text: characters.join(''),
-    sourceIndexes,
+    insertedBoundarySourceIndexes: state.insertedBoundarySourceIndexes,
+    sourceEnds: state.sourceEnds,
+    text: state.characters.join(''),
+    sourceIndexes: state.sourceIndexes,
   };
 };
 
@@ -391,6 +449,38 @@ export const buildSourceLooseProjection = (content: string): LooseProjection => 
   };
 };
 
+interface ExactMatchSelectionOptions {
+  contextualMatches: RegExpMatchArray[];
+  eligibleMatches: RegExpMatchArray[];
+  matchesInsidePreferredRange: RegExpMatchArray[];
+  preferredRange?: MarkdownRange;
+  preferredStart?: number;
+  requireContextMatch: boolean;
+  selectionMatches: RegExpMatchArray[];
+}
+
+const selectExactMatch = ({
+  contextualMatches,
+  eligibleMatches,
+  matchesInsidePreferredRange,
+  preferredRange,
+  preferredStart,
+  requireContextMatch,
+  selectionMatches,
+}: ExactMatchSelectionOptions): RegExpMatchArray | undefined => {
+  if (preferredStart !== undefined) {
+    const preferredMatch = eligibleMatches.find(candidate => candidate.index === preferredStart);
+    if (preferredMatch) return preferredMatch;
+  }
+  if (preferredRange) {
+    return matchesInsidePreferredRange.length === 1 ? matchesInsidePreferredRange[0] : undefined;
+  }
+  if (requireContextMatch) {
+    return contextualMatches.length === 1 ? contextualMatches[0] : undefined;
+  }
+  return contextualMatches[0] || selectionMatches[0];
+};
+
 export const resolveExactMatch = (
   text: string,
   selectedText: string,
@@ -432,19 +522,15 @@ export const resolveExactMatch = (
         return start >= preferredRange.start && start + candidate[0].length <= preferredRange.end;
       })
     : [];
-  const match =
-    (preferredStart !== undefined
-      ? eligibleMatches.find(candidate => candidate.index === preferredStart)
-      : undefined) ??
-    (preferredRange
-      ? matchesInsidePreferredRange.length === 1
-        ? matchesInsidePreferredRange[0]
-        : undefined
-      : requireContextMatch
-        ? contextualMatches.length === 1
-          ? contextualMatches[0]
-          : undefined
-        : contextualMatches[0] || selectionMatches[0]);
+  const match = selectExactMatch({
+    contextualMatches,
+    eligibleMatches,
+    matchesInsidePreferredRange,
+    preferredRange,
+    preferredStart,
+    requireContextMatch,
+    selectionMatches,
+  });
 
   if (!match) {
     return undefined;
