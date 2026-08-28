@@ -103,8 +103,11 @@ const providerEffect: WorkflowProviderEffectExecutor = {
   run: ({ operation }) => operation(),
 };
 
-const getRenderRoute = (workflowConfig = config) => {
-  const route = createLessonVisualWorkflows(workflowConfig).render.root;
+const getRenderRoute = (
+  workflowConfig = config,
+  options: Parameters<typeof createLessonVisualWorkflows>[1] = {}
+) => {
+  const route = createLessonVisualWorkflows(workflowConfig, options).render.root;
   if (route.kind !== 'routeBy') throw new TypeError('Expected the visual format route.');
   return route;
 };
@@ -152,7 +155,7 @@ describe('lesson visual workflows', () => {
   });
 
   test('raster generation stages bytes before checkpointing the asset reference', async () => {
-    const raster = getRenderRoute().cases.raster;
+    const raster = getRenderRoute(config, { preserveRasterConcept: true }).cases.raster;
     if (raster?.kind !== 'step') throw new TypeError('Expected the raster step.');
     const stage = vi.fn(async () => assetRef(FIRST_ASSET_ID));
     const generateRaster = vi.fn(async () => ({
@@ -164,7 +167,6 @@ describe('lesson visual workflows', () => {
     const rasterInput = {
       ...input,
       plan: { ...input.plan, visualType: 'illustrative_image' as const },
-      preserveRasterConcept: true,
     };
 
     const result = await raster.run({

@@ -241,6 +241,7 @@ const createLessonGenerationWorkflowDefinition = <
 ) => {
   const visualWorkflow = createLessonVisualWorkflows<Config, Services>(
     executionDefaults,
+    {},
     configSchema
   ).render;
 

@@ -159,7 +159,6 @@ const renderState = (
   kind: 'render',
   lessonMarkdown: input.lessonMarkdown,
   plan,
-  ...(input.requestedVisualKind === 'image' ? { preserveRasterConcept: true } : {}),
   projectId: input.projectId,
   sectionDescription: input.sectionDescription,
   sectionId: input.sectionId,
@@ -171,7 +170,7 @@ export const createArtifactDraftWorkflow = (executionDefaults: ArtifactDraftWork
   const visualWorkflow = createLessonVisualWorkflows<
     ArtifactDraftWorkflowConfig,
     ArtifactDraftWorkflowServices
-  >(executionDefaults, ArtifactDraftWorkflowConfigSchema).render;
+  >(executionDefaults, { preserveRasterConcept: true }, ArtifactDraftWorkflowConfigSchema).render;
 
   const planArtifactDraft = step<
     typeof ArtifactDraftWorkflowInputSchema,
