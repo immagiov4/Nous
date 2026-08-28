@@ -635,6 +635,8 @@ const CourseList = ({
   setFilter: (filter: CourseFilter) => void;
 }) => {
   const chipViewportRef = useRef<HTMLDivElement>(null);
+  const previousChipScrollButtonRef = useRef<HTMLButtonElement>(null);
+  const nextChipScrollButtonRef = useRef<HTMLButtonElement>(null);
   const shouldAnimate = useShouldAnimate();
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -895,8 +897,26 @@ const CourseList = ({
   const updateChipScrollState = useCallback(() => {
     const viewport = chipViewportRef.current;
     if (!viewport) return;
-    setCanScrollLeft(viewport.scrollLeft > 2);
-    setCanScrollRight(viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
+    const nextCanScrollLeft = viewport.scrollLeft > 2;
+    const nextCanScrollRight =
+      viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2;
+
+    if (
+      !nextCanScrollLeft &&
+      globalThis.document.activeElement === previousChipScrollButtonRef.current
+    ) {
+      viewport.querySelector<HTMLButtonElement>('button')?.focus();
+    }
+    if (
+      !nextCanScrollRight &&
+      globalThis.document.activeElement === nextChipScrollButtonRef.current
+    ) {
+      const filterChips = viewport.querySelectorAll<HTMLButtonElement>('button');
+      filterChips[filterChips.length - 1]?.focus();
+    }
+
+    setCanScrollLeft(nextCanScrollLeft);
+    setCanScrollRight(nextCanScrollRight);
   }, []);
 
   useEffect(() => {
@@ -910,6 +930,9 @@ const CourseList = ({
   };
 
   const scrollChips = (direction: -1 | 1) => {
+    const canScroll = direction === -1 ? canScrollLeft : canScrollRight;
+    if (!canScroll) return;
+
     chipViewportRef.current?.scrollBy({
       behavior: shouldAnimate ? 'smooth' : 'auto',
       left: direction * (chipViewportRef.current.clientWidth * CHIP_SCROLL_PAGE_FRACTION),
@@ -983,10 +1006,12 @@ const CourseList = ({
         </div>
         <div className="relative flex min-w-0 flex-1 items-center px-11 sm:px-9">
           <button
+            ref={previousChipScrollButtonRef}
             type="button"
             aria-hidden={!canScrollLeft}
+            aria-disabled={!canScrollLeft}
             aria-label={t('Mostra i filtri precedenti')}
-            disabled={!canScrollLeft}
+            tabIndex={canScrollLeft ? 0 : -1}
             onClick={() => scrollChips(-1)}
             className={`${chipScrollButtonClassName} left-0 ${
               canScrollLeft
@@ -1046,10 +1071,12 @@ const CourseList = ({
             ))}
           </div>
           <button
+            ref={nextChipScrollButtonRef}
             type="button"
             aria-hidden={!canScrollRight}
+            aria-disabled={!canScrollRight}
             aria-label={t('Mostra altri filtri')}
-            disabled={!canScrollRight}
+            tabIndex={canScrollRight ? 0 : -1}
             onClick={() => scrollChips(1)}
             className={`${chipScrollButtonClassName} right-0 ${
               canScrollRight

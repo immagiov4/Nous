@@ -413,6 +413,15 @@ describe('NewHomeView library interactions', () => {
       expect(scrollBy).toHaveBeenCalledWith({ behavior: expectedScrollBehavior, left: 170 });
 
       const edgeFolderChip = screen.getByRole('button', { name: /^Frontend1$/ });
+      currentScrollLeft = 300;
+      await act(async () => chipViewport?.dispatchEvent(new Event('scroll')));
+      expect(edgeFolderChip).toHaveFocus();
+      expect(nextFilters).toHaveAttribute('aria-disabled', 'true');
+      expect(nextFilters).toHaveAttribute('aria-hidden', 'true');
+      expect(nextFilters).toHaveAttribute('tabindex', '-1');
+      nextFilters.click();
+      expect(scrollBy).toHaveBeenCalledTimes(1);
+
       await user.click(edgeFolderChip);
       expect(edgeFolderChip).toHaveAttribute('aria-pressed', 'true');
     } finally {
