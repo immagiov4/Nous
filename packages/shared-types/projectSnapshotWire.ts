@@ -131,6 +131,7 @@ export type DecodedProjectSnapshotWire = ProjectSnapshotWire | LegacyProjectSnap
 
 export interface ProjectSnapshotWireDecodeOptions {
   externalArchiveBytesAvailable?: boolean;
+  recoverHistoricalLessonContentBlocks?: boolean;
 }
 
 export class ProjectSnapshotWireError extends Error {
@@ -165,19 +166,31 @@ const canonicalizeLessonContentBlocks = (contentBlocks: unknown[]): Record<strin
   });
 
 export const canonicalizeLessonNodeContent = <Node extends Record<string, unknown>>(
-  node: Node
+  node: Node,
+  options: ProjectSnapshotWireDecodeOptions = {}
 ): Node => {
   if (!Array.isArray(node.contentBlocks)) return node;
-  const contentBlocks = canonicalizeLessonContentBlocks(node.contentBlocks);
-  const content = deriveLegacyLessonContent(contentBlocks);
-  if (!content) {
-    throw new ProjectSnapshotWireError('Blocchi contenuto lezione senza testo Markdown.');
+  try {
+    const contentBlocks = canonicalizeLessonContentBlocks(node.contentBlocks);
+    const content = deriveLegacyLessonContent(contentBlocks);
+    if (!content) {
+      throw new ProjectSnapshotWireError('Blocchi contenuto lezione senza testo Markdown.');
+    }
+    return {
+      ...node,
+      content,
+      contentBlocks,
+    } as Node;
+  } catch (error) {
+    if (
+      !(error instanceof ProjectSnapshotWireError) ||
+      !options.recoverHistoricalLessonContentBlocks ||
+      typeof node.content !== 'string'
+    ) {
+      throw error;
+    }
+    return { ...node, contentBlocks: null } as Node;
   }
-  return {
-    ...node,
-    content,
-    contentBlocks,
-  } as Node;
 };
 
 const assertOptionalString = (record: Record<string, unknown>, key: string): void => {
@@ -526,7 +539,8 @@ const validateLearningPlan = (value: Record<string, unknown>): void => {
 };
 
 export const canonicalizeLearningPlanContent = (
-  learningPlan: Record<string, unknown>
+  learningPlan: Record<string, unknown>,
+  options: ProjectSnapshotWireDecodeOptions = {}
 ): Record<string, unknown> => ({
   ...learningPlan,
   ...(Array.isArray(learningPlan.modules)
@@ -537,7 +551,7 @@ export const canonicalizeLearningPlanContent = (
             ...module,
             children: module.children.map(child =>
               isRecord(child) && child.kind === 'lesson'
-                ? canonicalizeLessonNodeContent(child)
+                ? canonicalizeLessonNodeContent(child, options)
                 : child
             ),
           };
@@ -547,7 +561,7 @@ export const canonicalizeLearningPlanContent = (
   ...(Array.isArray(learningPlan.sections)
     ? {
         sections: learningPlan.sections.map(section =>
-          isRecord(section) ? canonicalizeLessonNodeContent(section) : section
+          isRecord(section) ? canonicalizeLessonNodeContent(section, options) : section
         ),
       }
     : {}),
@@ -646,7 +660,7 @@ export const decodeProjectSnapshotWire = (
       .map(([key, entry]) => [key, structuredClone(entry)])
   ) as LegacyProjectSnapshotWire;
   const learningPlan = isRecord(project.learningPlan)
-    ? canonicalizeLearningPlanContent(project.learningPlan)
+    ? canonicalizeLearningPlanContent(project.learningPlan, options)
     : project.learningPlan;
 
   const decoded = {
