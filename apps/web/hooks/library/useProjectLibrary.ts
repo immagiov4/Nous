@@ -10,6 +10,9 @@ import {
   createLibraryArchiveBlob,
   getLibraryArchiveExtension,
   LibraryArchiveError,
+  type LibraryArchiveImportResult,
+  LibraryArchivePartialImportError,
+  type LibraryArchiveRejectedProject,
   LibraryArchiveRollbackError,
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
@@ -144,6 +147,9 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
   projects
     .slice()
     .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
+
+const sortRejectedProjectsByPosition = (projects: LibraryArchiveRejectedProject[]) =>
+  projects.slice().sort((left, right) => left.projectIndex - right.projectIndex);
 
 const haveSameProjectMetadata = (left: SavedProjectMeta, right: SavedProjectMeta): boolean => {
   const leftKeys = Object.keys(left) as Array<keyof SavedProjectMeta>;
@@ -1092,50 +1098,90 @@ export const useProjectLibrary = ({
         setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
         throw error;
       }
-      const projectArchivesById = new Map(
-        archive.projectArchives.map(project => [project.id, project.archive])
-      );
       const projectIdMap = new Map<string, string>();
       const importedProjectIds: string[] = [];
-      try {
-        for (const [projectOffset, project] of archive.projects.entries()) {
-          const projectIndex = projectOffset + 1;
-          const projectCount = archive.projects.length;
+      const importedProjects: LibraryArchiveImportResult['importedProjects'] = [];
+      const rejectedProjects: LibraryArchiveRejectedProject[] = [...archive.rejectedProjects];
+
+      for (const [projectOffset, project] of archive.projectArchives.entries()) {
+        const importedProjectId = createProjectId();
+        try {
+          const imported = await projectRepositoryRef.current.importProjectArchive(
+            project.archive,
+            importedProjectId
+          );
+          if (imported.snapshot.id !== importedProjectId) {
+            throw new Error('Il server ha restituito un identificatore corso inatteso.');
+          }
+          projectIdMap.set(project.id, importedProjectId);
+          importedProjectIds.push(importedProjectId);
+          importedProjects.push({
+            id: project.id,
+            importedProjectId,
+            projectCount: project.projectCount,
+            projectIndex: project.projectIndex,
+            title: project.title,
+          });
+        } catch {
+          rejectedProjects.push({
+            code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+            id: project.id,
+            projectCount: project.projectCount,
+            projectIndex: project.projectIndex,
+            stage: 'project-import',
+            title: project.title,
+          });
           try {
-            const originalProjectId = project.id;
-            if (!originalProjectId) {
-              throw new Error('Il backup contiene un corso senza identificatore.');
+            await projectRepositoryRef.current.deleteProject(importedProjectId);
+          } catch (cleanupError) {
+            console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
+            const result: LibraryArchiveImportResult = {
+              importedProjects,
+              notAttemptedProjects: archive.projectArchives
+                .slice(projectOffset + 1)
+                .map(notAttemptedProject => ({
+                  id: notAttemptedProject.id,
+                  projectCount: notAttemptedProject.projectCount,
+                  projectIndex: notAttemptedProject.projectIndex,
+                  title: notAttemptedProject.title,
+                })),
+              rejectedProjects: sortRejectedProjectsByPosition(rejectedProjects),
+            };
+            try {
+              await refreshLibraryState();
+            } catch (refreshError) {
+              console.warn(
+                '[Nous] Failed to refresh the library after an incomplete rollback.',
+                refreshError
+              );
             }
-            const importedProjectId = createProjectId();
-            const projectArchive = projectArchivesById.get(originalProjectId);
-            if (!projectArchive) {
-              throw new Error('Il backup contiene un corso senza archivio.');
-            }
-            importedProjectIds.push(importedProjectId);
-            const imported = await projectRepositoryRef.current.importProjectArchive(
-              projectArchive,
-              importedProjectId
+            const rollbackError = new LibraryArchiveRollbackError(
+              project.projectIndex,
+              project.projectCount,
+              result
             );
-            if (imported.snapshot.id !== importedProjectId) {
-              throw new Error('Il server ha restituito un identificatore corso inatteso.');
-            }
-            projectIdMap.set(originalProjectId, importedProjectId);
-          } catch (error) {
-            if (error instanceof LibraryArchiveError) throw error;
-            throw new LibraryArchiveError(
-              `Importazione del corso ${projectIndex} di ${projectCount} non riuscita.`,
-              'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
-              'project-import',
-              projectIndex,
-              projectCount
-            );
+            setProjectSyncState({
+              kind: 'import',
+              message: rollbackError.message,
+              phase: 'failed',
+            });
+            throw rollbackError;
           }
         }
-        await restoreLibraryArchiveOrganization(
-          projectRepositoryRef.current,
-          archive,
-          projectIdMap
-        );
+      }
+
+      const restorableOrganization = {
+        folders: archive.folders,
+        placements: archive.placements.filter(placement => projectIdMap.has(placement.projectId)),
+      };
+      try {
+        if (importedProjects.length > 0) {
+          await restoreLibraryArchiveOrganization(
+            projectRepositoryRef.current,
+            restorableOrganization,
+            projectIdMap
+          );
+        }
       } catch (error) {
         let rollbackFailed = error instanceof LibraryArchiveRollbackError;
         const rollbackProjectIds = [...importedProjectIds].reverse();
@@ -1172,9 +1218,30 @@ export const useProjectLibrary = ({
         setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
         throw error;
       }
-      await refreshLibraryState();
+      const partialImportError =
+        rejectedProjects.length > 0
+          ? new LibraryArchivePartialImportError({
+              importedProjects,
+              notAttemptedProjects: [],
+              rejectedProjects: sortRejectedProjectsByPosition(rejectedProjects),
+            })
+          : null;
+      try {
+        await refreshLibraryState();
+      } catch (refreshError) {
+        if (!partialImportError) throw refreshError;
+        console.warn('[Nous] Failed to refresh the library after a partial import.', refreshError);
+      }
+      if (partialImportError) {
+        setProjectSyncState({
+          kind: 'import',
+          message: partialImportError.message,
+          phase: 'failed',
+        });
+        throw partialImportError;
+      }
       setProjectSyncState({ kind: 'idle' });
-      return archive.projects.length;
+      return importedProjects.length;
     },
     [refreshLibraryState]
   );

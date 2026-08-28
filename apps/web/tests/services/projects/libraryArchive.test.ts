@@ -111,7 +111,14 @@ test('library backup export rejects a missing project placement', async () => {
 test('library backup import rejects a nested project whose id differs from the manifest', async () => {
   const archive = await createLibraryArchiveBlob([buildSnapshot('course-one', 'Corso uno')], {
     folders: [],
-    placements: [{ projectId: 'course-one', folderId: null, order: 0, updatedAt: '' }],
+    placements: [
+      {
+        projectId: 'course-one',
+        folderId: null,
+        order: 0,
+        updatedAt: '2026-07-13T00:00:00.000Z',
+      },
+    ],
   });
   const zip = await JSZip.loadAsync(await archive.arrayBuffer());
   const manifestEntry = zip.file('library.json');
@@ -125,7 +132,19 @@ test('library backup import rejects a nested project whose id differs from the m
   zip.file('library.json', JSON.stringify(manifest));
   const malformed = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
 
-  await assert.rejects(() => readLibraryArchive(malformed), /non valido|non corrisponde/iu);
+  const imported = await readLibraryArchive(malformed);
+
+  assert.deepEqual(imported.projectArchives, []);
+  assert.deepEqual(imported.rejectedProjects, [
+    {
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      id: 'different-course',
+      projectCount: 1,
+      projectIndex: 1,
+      stage: 'nested-project-read',
+      title: 'Corso uno',
+    },
+  ]);
 });
 
 test('library backup v2 accepts duplicate sibling orders used by the current stores', async () => {
@@ -436,7 +455,7 @@ test('library backup import rejects cyclic folder hierarchies before importing p
   await assert.rejects(() => readLibraryArchive(archive), /gerarchia delle cartelle.*ciclo/iu);
 });
 
-test('library backup import reports the missing nested course position', async () => {
+test('library backup import isolates a missing nested course with its position', async () => {
   const zip = new JSZip();
   zip.file(
     'library.json',
@@ -448,10 +467,22 @@ test('library backup import reports the missing nested course position', async (
   );
   const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
 
-  await assert.rejects(() => readLibraryArchive(archive), /Nel backup manca il corso 1 di 1\./);
+  const imported = await readLibraryArchive(archive);
+
+  assert.deepEqual(imported.projectArchives, []);
+  assert.deepEqual(imported.rejectedProjects, [
+    {
+      code: 'LIBRARY_ARCHIVE_ENTRY_MISSING',
+      id: 'missing',
+      projectCount: 1,
+      projectIndex: 1,
+      stage: 'nested-project-read',
+      title: 'Corso',
+    },
+  ]);
 });
 
-test('library backup import does not report a corrupt nested course as oversized', async () => {
+test('library backup import isolates a corrupt nested course without reporting it as oversized', async () => {
   const archive = await createLibraryArchiveBlob([buildSnapshot('course', 'Corso')], {
     folders: [],
     placements: [
@@ -472,18 +503,60 @@ test('library backup import does not report a corrupt nested course as oversized
   assert.notEqual(nestedOffset, -1);
   archiveBytes[nestedOffset] ^= 1;
 
-  await assert.rejects(
-    () => readLibraryArchive(new Blob([archiveBytes])),
-    (error: unknown) => {
-      assert(error instanceof LibraryArchiveError);
-      assert.equal(error.code, 'LIBRARY_ARCHIVE_PROJECT_INVALID');
-      assert.equal(error.stage, 'nested-project-read');
-      assert.equal(error.projectIndex, 1);
-      assert.equal(error.projectCount, 1);
-      assert.equal(error.limitBytes, undefined);
-      return true;
-    }
+  const imported = await readLibraryArchive(new Blob([archiveBytes]));
+
+  assert.deepEqual(imported.projectArchives, []);
+  assert.deepEqual(imported.rejectedProjects, [
+    {
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      id: 'course',
+      projectCount: 1,
+      projectIndex: 1,
+      stage: 'nested-project-read',
+      title: 'Corso',
+    },
+  ]);
+});
+
+test('library backup import preserves a valid course when another nested archive is corrupt', async () => {
+  const timestamp = '2026-07-13T00:00:00.000Z';
+  const projects = Array.from({ length: 2 }, (_, index) =>
+    buildSnapshot(`course-${index + 1}`, `Corso ${index + 1}`)
   );
+  const archive = await createLibraryArchiveBlob(projects, {
+    folders: [],
+    placements: projects.map((project, index) => ({
+      projectId: project.id,
+      folderId: null,
+      order: index,
+      updatedAt: timestamp,
+    })),
+  });
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  zip.file('projects/002-course-2.nous.zip', new Uint8Array([0x6e, 0x6f, 0x75, 0x73]), {
+    binary: true,
+    compression: 'STORE',
+  });
+  const archiveWithCorruptCourse = new Blob([
+    new Uint8Array(await zip.generateAsync({ type: 'uint8array' })),
+  ]);
+
+  const imported = await readLibraryArchive(archiveWithCorruptCourse);
+
+  assert.deepEqual(
+    imported.projectArchives.map(project => project.id),
+    ['course-1']
+  );
+  assert.deepEqual(imported.rejectedProjects, [
+    {
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      id: 'course-2',
+      projectCount: 2,
+      projectIndex: 2,
+      stage: 'nested-project-read',
+      title: 'Corso 2',
+    },
+  ]);
 });
 
 test('library backup rejects aggregate expansion before opening nested project archives', async () => {

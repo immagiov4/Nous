@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import JSZip from 'jszip';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
@@ -320,7 +321,126 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.moveProjects).toHaveBeenCalledWith([importedProjectId], 'folder-1', 0);
   });
 
-  test('reports the failed course position and rolls back every attempted target', async () => {
+  test('retains 10 valid courses and their organization when course 7 of 11 is corrupt', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
+    const projects = Array.from({ length: 11 }, (_, index) => buildSnapshot(`course-${index + 1}`));
+    const archive = await createLibraryArchiveBlob(projects, {
+      folders: [
+        {
+          id: 'old-folder',
+          name: 'Materie',
+          parentFolderId: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          order: 0,
+        },
+      ],
+      placements: projects.map((project, index) => ({
+        projectId: project.id,
+        folderId: 'old-folder',
+        order: index,
+        updatedAt: timestamp,
+      })),
+    });
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    zip.file('projects/007-course-7.nous.zip', new Uint8Array([0x6e, 0x6f, 0x75, 0x73]), {
+      binary: true,
+      compression: 'STORE',
+    });
+    const file = new File(
+      [new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))],
+      'library.nous-library.zip'
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    let importError: unknown;
+    await act(async () => {
+      try {
+        await result.current.importLibraryBackup(file);
+      } catch (error) {
+        importError = error;
+      }
+    });
+
+    expect(importError).toMatchObject({
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      result: {
+        importedProjects: expect.arrayContaining([
+          expect.objectContaining({ projectCount: 11, projectIndex: 1 }),
+          expect.objectContaining({ projectCount: 11, projectIndex: 11 }),
+        ]),
+        notAttemptedProjects: [],
+        rejectedProjects: [
+          expect.objectContaining({
+            code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+            id: 'course-7',
+            projectCount: 11,
+            projectIndex: 7,
+          }),
+        ],
+      },
+    });
+    expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(10);
+    expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
+    expect(repositoryMocks.createFolder).toHaveBeenCalledWith({
+      name: 'Materie',
+      parentFolderId: null,
+    });
+    expect(repositoryMocks.moveProjects.mock.calls.map(call => call[2])).toEqual(
+      Array.from({ length: 10 }, (_, index) => index)
+    );
+  });
+
+  test('preserves the partial import result when the final library refresh fails', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
+    const projects = [buildSnapshot('course-one'), buildSnapshot('course-two')];
+    const archive = await createLibraryArchiveBlob(projects, {
+      folders: [],
+      placements: projects.map((project, index) => ({
+        projectId: project.id,
+        folderId: null,
+        order: index,
+        updatedAt: timestamp,
+      })),
+    });
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    zip.file('projects/002-course-two.nous.zip', new Uint8Array([0x6e, 0x6f, 0x75, 0x73]), {
+      binary: true,
+      compression: 'STORE',
+    });
+    const file = new File(
+      [new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))],
+      'library.nous-library.zip'
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    repositoryMocks.listProjects.mockRejectedValueOnce(new Error('refresh failed'));
+
+    await expect(result.current.importLibraryBackup(file)).rejects.toMatchObject({
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      result: {
+        importedProjects: [expect.objectContaining({ id: 'course-one', projectIndex: 1 })],
+        notAttemptedProjects: [],
+        rejectedProjects: [expect.objectContaining({ id: 'course-two', projectIndex: 2 })],
+      },
+    });
+
+    expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
+  });
+
+  test('keeps successful courses when a later server import fails and cleans only its target', async () => {
     const archive = await createLibraryArchiveBlob(
       [buildSnapshot('course-one'), buildSnapshot('course-two')],
       {
@@ -358,16 +478,87 @@ describe('useProjectLibrary', () => {
 
     await expect(result.current.importLibraryBackup(file)).rejects.toMatchObject({
       code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
-      message: 'Importazione del corso 2 di 2 non riuscita.',
       projectCount: 2,
       projectIndex: 2,
+      result: {
+        importedProjects: [expect.objectContaining({ id: 'course-one', projectIndex: 1 })],
+        notAttemptedProjects: [],
+        rejectedProjects: [
+          expect.objectContaining({
+            code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+            id: 'course-two',
+            projectIndex: 2,
+          }),
+        ],
+      },
       stage: 'project-import',
     });
 
     expect(repositoryMocks.deleteProject.mock.calls).toEqual([
       [repositoryMocks.importProjectArchive.mock.calls[1]?.[1]],
-      [repositoryMocks.importProjectArchive.mock.calls[0]?.[1]],
     ]);
+    expect(repositoryMocks.moveProjects).toHaveBeenCalledWith(
+      [repositoryMocks.importProjectArchive.mock.calls[0]?.[1]],
+      null,
+      0
+    );
+  });
+
+  test('reports later courses as not attempted when a failed target cannot be cleaned up', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
+    const projects = [
+      buildSnapshot('course-one'),
+      buildSnapshot('course-two'),
+      buildSnapshot('course-three'),
+    ];
+    const archive = await createLibraryArchiveBlob(projects, {
+      folders: [],
+      placements: projects.map((project, index) => ({
+        projectId: project.id,
+        folderId: null,
+        order: index,
+        updatedAt: timestamp,
+      })),
+    });
+    repositoryMocks.importProjectArchive
+      .mockImplementationOnce(async (_archive: Blob, targetProjectId: string) => ({
+        meta: buildMeta(targetProjectId, timestamp),
+        snapshot: buildSnapshot(targetProjectId),
+      }))
+      .mockRejectedValueOnce(new Error('private backend detail'));
+    repositoryMocks.deleteProject.mockRejectedValueOnce(new Error('cleanup failed'));
+    const file = new File([archive], 'library.nous-library.zip');
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await expect(result.current.importLibraryBackup(file)).rejects.toMatchObject({
+      code: 'LIBRARY_ARCHIVE_ROLLBACK_INCOMPLETE',
+      projectCount: 3,
+      projectIndex: 2,
+      result: {
+        importedProjects: [expect.objectContaining({ id: 'course-one', projectIndex: 1 })],
+        notAttemptedProjects: [expect.objectContaining({ id: 'course-three', projectIndex: 3 })],
+        rejectedProjects: [
+          expect.objectContaining({
+            code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+            id: 'course-two',
+            projectIndex: 2,
+          }),
+        ],
+      },
+      stage: 'rollback',
+    });
+
+    expect(repositoryMocks.deleteProject.mock.calls).toEqual([
+      [repositoryMocks.importProjectArchive.mock.calls[1]?.[1]],
+    ]);
+    expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(2);
+    expect(repositoryMocks.moveProjects).not.toHaveBeenCalled();
   });
 
   test('rolls back imported projects when restoring a library backup fails', async () => {
