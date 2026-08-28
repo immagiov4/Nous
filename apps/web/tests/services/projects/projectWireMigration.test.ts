@@ -200,6 +200,7 @@ test('wire decoding rejects unsupported lesson content block types before projec
 
 test('wire decoding rejects malformed allowlisted lesson blocks before projection', () => {
   const malformedBlocks = [
+    { kind: 'markdown', markdown: 'Contenuto legacy.', type: 7 },
     { type: 'inline-quiz' },
     {
       quiz: { correctIndex: 0, options: ['Una sola opzione'], question: 'Domanda' },

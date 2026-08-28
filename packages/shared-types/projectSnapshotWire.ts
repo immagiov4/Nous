@@ -149,7 +149,10 @@ const canonicalizeLessonContentBlocks = (contentBlocks: unknown[]): Record<strin
     if (!isRecord(block)) {
       throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
     }
-    if (typeof block.type === 'string') {
+    if (block.type !== undefined) {
+      if (typeof block.type !== 'string') {
+        throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+      }
       if (!isLessonContentBlockType(block.type)) {
         throw new ProjectSnapshotWireError('Tipo blocco contenuto lezione non supportato.');
       }
