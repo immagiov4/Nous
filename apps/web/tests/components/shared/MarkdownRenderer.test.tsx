@@ -881,7 +881,7 @@ describe('MarkdownRenderer', () => {
     expect(container.querySelector('p pre')).toBeNull();
   });
 
-  test('renders JSON with a missing opening fence as one code block', () => {
+  test('renders JSON with a missing opening fence as unrepaired prose', () => {
     const { container } = render(
       <MarkdownRenderer
         content={[
@@ -898,11 +898,10 @@ describe('MarkdownRenderer', () => {
       />
     );
 
-    const codeBlocks = container.querySelectorAll('pre');
-    expect(codeBlocks).toHaveLength(1);
-    expect(codeBlocks[0]).toHaveTextContent('"userId": "42"');
-    expect(codeBlocks[0]).toHaveTextContent('"role": "editor"');
-    expect(screen.queryByText('```')).not.toBeInTheDocument();
+    expect(container.querySelector('pre')).toBeNull();
+    expect(container).toHaveTextContent('"userId": "42"');
+    expect(container).toHaveTextContent('"role": "editor"');
+    expect(container).toHaveTextContent('```');
     expect(
       screen.getByText('La sessione resta sotto il controllo del server.')
     ).toBeInTheDocument();

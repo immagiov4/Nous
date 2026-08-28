@@ -12,9 +12,7 @@ import {
   getAccidentalPlainTextIndentationRanges,
   projectAccidentalPlainTextIndentation,
 } from './indentation.ts';
-import { planMissingJsonOpeningFenceRepairs } from './jsonFenceRepair.ts';
 import { getRenderedMathSourceRanges } from './mathNormalization.ts';
-import { planMarkdownSegmentRendering } from './segment.ts';
 
 export { getMarkdownMathRangeAt } from './mathSyntax.ts';
 
@@ -356,22 +354,44 @@ const expandToLineBounds = (content: string, range: MarkdownRange): MarkdownRang
   return { start: lineStart, end: lineBreak === -1 ? content.length : lineBreak };
 };
 
-const getRawFencedCodeRanges = (content: string): MarkdownRange[] => {
+export interface MarkdownFencedCodePlan {
+  closedRanges: MarkdownRange[];
+  unclosedRanges: MarkdownRange[];
+}
+
+const hasClosingFence = (source: string): boolean => {
+  const lines = source.split(/\r?\n/u);
+  const openingMatch = lines[0]?.match(/^ {0,3}(`{3,}|~{3,})/u);
+  if (!openingMatch || lines.length < 2) {
+    return false;
+  }
+
+  const openingFence = openingMatch[1];
+  const closingFence = new RegExp(
+    `^[\\t >]*${openingFence[0]}{${openingFence.length},}[\\t ]*$`,
+    'u'
+  );
+  return closingFence.test(lines.at(-1) ?? '');
+};
+
+export const planMarkdownFencedCode = (content: string): MarkdownFencedCodePlan => {
   const root = markdownParser.runSync(markdownParser.parse(content)) as MarkdownAstNode;
-  const ranges: MarkdownRange[] = [];
+  const plan: MarkdownFencedCodePlan = { closedRanges: [], unclosedRanges: [] };
   const visit = (node: MarkdownAstNode): void => {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
     if (node.type === 'code' && start !== undefined && end !== undefined) {
       const source = content.slice(start, end);
       if (/^ {0,3}(?:`{3,}|~{3,})/u.test(source)) {
-        ranges.push(expandToLineBounds(content, { start, end }));
+        const range = expandToLineBounds(content, { start, end });
+        const target = hasClosingFence(source) ? plan.closedRanges : plan.unclosedRanges;
+        target.push(range);
       }
     }
     node.children?.forEach(visit);
   };
   visit(root);
-  return ranges;
+  return plan;
 };
 
 const getTableDelimiterRange = (
@@ -483,43 +503,8 @@ const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
     return ranges;
   });
 
-const getRendererSynthesizedCodeRanges = (
-  content: string,
-  fencedCodeRanges: MarkdownRange[]
-): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  let cursor = 0;
-  const collectSegment = (end: number) => {
-    if (cursor >= end) return;
-    const plan = planMarkdownSegmentRendering(content.slice(cursor, end));
-    ranges.push(
-      ...plan.synthesizedCodeRanges.map(range => ({
-        start: cursor + range.start,
-        end: cursor + range.end,
-      }))
-    );
-  };
-
-  for (const fencedRange of fencedCodeRanges) {
-    collectSegment(fencedRange.start);
-    cursor = Math.max(cursor, fencedRange.end);
-  }
-  collectSegment(content.length);
-  return ranges;
-};
-
-const isWholeLineRange = (content: string, range: MarkdownRange): boolean => {
-  const lineStart = content.lastIndexOf('\n', Math.max(0, range.start - 1)) + 1;
-  const nextLineBreak = content.indexOf('\n', range.end);
-  const lineEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
-  return (
-    content.slice(lineStart, range.start).trim() === '' &&
-    content.slice(range.end, lineEnd).trim() === ''
-  );
-};
-
 export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
-  const rawFencedCodeRanges = getRawFencedCodeRanges(content);
+  const fencedCodePlan = planMarkdownFencedCode(content);
   const analysis: MarkdownAnalysis = {
     annotationOnlyRanges: [],
     codeRanges: [],
@@ -532,35 +517,23 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     referenceLinkLabelRanges: [],
     rendererNormalizedIndentRanges: getAccidentalPlainTextIndentationRanges(
       content,
-      rawFencedCodeRanges
+      fencedCodePlan.closedRanges
     ),
     structuralRanges: [],
   };
-  const indentationProjection = projectAccidentalPlainTextIndentation(content, rawFencedCodeRanges);
-  const projectedFencedCodeRanges = getRawFencedCodeRanges(indentationProjection.content);
-  const jsonFenceRepairPlan = planMissingJsonOpeningFenceRepairs(indentationProjection.content);
-  const rendererCodeRanges = [
-    ...projectedFencedCodeRanges,
-    ...jsonFenceRepairPlan.sourceCodeRanges,
-    ...getRenderedMathSourceRanges(indentationProjection.content).filter(range =>
-      isWholeLineRange(indentationProjection.content, range)
-    ),
-  ].sort((left, right) => left.start - right.start);
-  const rendererSynthesizedCodeRanges = getRendererSynthesizedCodeRanges(
-    indentationProjection.content,
-    rendererCodeRanges
-  ).map(range => ({
+  const indentationProjection = projectAccidentalPlainTextIndentation(
+    content,
+    fencedCodePlan.closedRanges
+  );
+  const unclosedFencedCodeRanges = planMarkdownFencedCode(
+    indentationProjection.content
+  ).unclosedRanges.map(range => ({
     start: indentationProjection.sourceOffsets[range.start] ?? range.start,
     end: indentationProjection.sourceOffsets[range.end] ?? range.end,
   }));
-  const repairedJsonCodeRanges = jsonFenceRepairPlan.sourceCodeRanges.map(range => ({
-    start: indentationProjection.sourceOffsets[range.start] ?? range.start,
-    end: indentationProjection.sourceOffsets[range.end] ?? range.end,
-  }));
-  analysis.codeRanges.push(...rendererSynthesizedCodeRanges, ...repairedJsonCodeRanges);
-  const startsAtRepairedJsonClosingFence = (range: MarkdownRange): boolean =>
-    repairedJsonCodeRanges.some(
-      repairedRange => range.start >= repairedRange.start && range.start < repairedRange.end
+  const startsInsideUnclosedFence = (range: MarkdownRange): boolean =>
+    unclosedFencedCodeRanges.some(
+      unclosedRange => range.start >= unclosedRange.start && range.start < unclosedRange.end
     );
   const htmlProjection = projectDisallowedRawHtml(indentationProjection.content);
   const htmlSourceOffsets = htmlProjection.sourceOffsets.map(
@@ -577,7 +550,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
         analysis.codeRanges.push(range);
       }
       if (node.type === 'code') {
-        if (!startsAtRepairedJsonClosingFence(range)) {
+        if (!startsInsideUnclosedFence(range)) {
           const blockRange = expandToLineBounds(content, range);
           analysis.codeRanges.push(blockRange);
         }
@@ -658,7 +631,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       ) {
         analysis.codeRanges.push(range);
       }
-      if (node.type === 'code' && !startsAtRepairedJsonClosingFence(range)) {
+      if (node.type === 'code' && !startsInsideUnclosedFence(range)) {
         const blockRange = expandToLineBounds(content, range);
         if (
           !analysis.codeRanges.some(

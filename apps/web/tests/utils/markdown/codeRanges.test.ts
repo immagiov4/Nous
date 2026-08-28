@@ -421,6 +421,14 @@ test('getMarkdownProtectedRanges keeps code fences, inline code, and math blocks
   assert.ok(protectedSlices.some(slice => slice.includes('const value = 1;')));
 });
 
+test('code ranges do not synthesize fences for bare code-like or malformed input', () => {
+  const bareCode = 'cpp while (i < 5) { std::cout << i; }';
+  const malformedFence = ['{ "userId": 42 }', '```', '', 'Testo visibile.'].join('\n');
+
+  assert.deepEqual(parseMarkdownAnalysis(bareCode).codeRanges, []);
+  assert.deepEqual(parseMarkdownAnalysis(malformedFence).codeRanges, []);
+});
+
 test('annotation ranges protect supported backslash math delimiters', () => {
   const content = String.raw`Prima \(x + y\) e poi \[z = 1\].`;
   const protectedText = getMarkdownAnnotationProtectedRanges(content).map(range =>

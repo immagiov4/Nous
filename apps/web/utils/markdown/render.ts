@@ -1,66 +1,50 @@
-import { stripHighlightTagsInsideMarkdownCode } from './codeRanges.ts';
-import {
-  getFenceToken,
-  mergeOrphanedContinuationLinesIntoPreviousFence,
-  mergeSplitBraceFencedBlocks,
-  mergeSplitTextPseudocodeBlocks,
-  parseFencedBlockAt,
-  sanitizeExistingFencedCodeBlock,
-} from './fencedCode.ts';
-import { planMissingJsonOpeningFenceRepairs } from './jsonFenceRepair.ts';
+import { planMarkdownFencedCode, stripHighlightTagsInsideMarkdownCode } from './codeRanges.ts';
 import { processMarkdownSegment } from './segment.ts';
 
 const DELETE_CONTROL_CHARACTER = '\u007f';
 const ANSI_ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 
-const applyPostFenceRepairs = (content: string): string =>
-  mergeSplitTextPseudocodeBlocks(
-    mergeSplitBraceFencedBlocks(mergeOrphanedContinuationLinesIntoPreviousFence(content))
-  );
-
 export const normalizeMarkdownForRendering = (content: string): string => {
-  const normalizedContent = planMissingJsonOpeningFenceRepairs(
-    stripHighlightTagsInsideMarkdownCode(
-      content
-        .replaceAll(ANSI_ESCAPE_SEQUENCE, '')
-        .replaceAll(DELETE_CONTROL_CHARACTER, '')
-        .replaceAll(/\r/g, '')
-    )
-  ).content;
-  const lines = normalizedContent.split('\n');
+  const normalizedContent = stripHighlightTagsInsideMarkdownCode(
+    content
+      .replaceAll(ANSI_ESCAPE_SEQUENCE, '')
+      .replaceAll(DELETE_CONTROL_CHARACTER, '')
+      .replaceAll(/\r/g, '')
+  );
+  const fencedCodePlan = planMarkdownFencedCode(normalizedContent);
+  const unclosedFenceStarts = fencedCodePlan.unclosedRanges.map(range => {
+    const openingLineEnd = normalizedContent.indexOf('\n', range.start);
+    const openingLine = normalizedContent.slice(
+      range.start,
+      openingLineEnd === -1 ? normalizedContent.length : openingLineEnd
+    );
+    const fenceOffset = openingLine.search(/[`~]/u);
+    return range.start + Math.max(fenceOffset, 0);
+  });
+  const events = [
+    ...fencedCodePlan.closedRanges.map(range => ({ ...range, type: 'closed' as const })),
+    ...unclosedFenceStarts.map(start => ({ end: start, start, type: 'unclosed' as const })),
+  ].sort((left, right) => left.start - right.start);
   const parts: string[] = [];
-  const markdownBuffer: string[] = [];
+  let cursor = 0;
 
-  const flushMarkdownBuffer = () => {
-    if (markdownBuffer.length === 0) {
-      return;
-    }
-
-    parts.push(processMarkdownSegment(markdownBuffer.join('\n')));
-    markdownBuffer.length = 0;
-  };
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!getFenceToken(line)) {
-      markdownBuffer.push(line);
+  for (const event of events) {
+    if (event.start < cursor) {
       continue;
     }
 
-    flushMarkdownBuffer();
-
-    const block = parseFencedBlockAt(lines, index);
-    if (!block) {
-      markdownBuffer.push(line.replace(/^(`{3,}|~{3,})/, String.raw`\$1`));
+    parts.push(processMarkdownSegment(normalizedContent.slice(cursor, event.start)));
+    if (event.type === 'unclosed') {
+      parts.push('\\');
+      cursor = event.start;
       continue;
     }
 
-    const fencedBlockContent = lines.slice(index, block.lastIndex + 1).join('\n');
-    parts.push(sanitizeExistingFencedCodeBlock(fencedBlockContent));
-    index = block.lastIndex;
+    parts.push(normalizedContent.slice(event.start, event.end));
+    cursor = event.end;
   }
 
-  flushMarkdownBuffer();
+  parts.push(processMarkdownSegment(normalizedContent.slice(cursor)));
 
-  return applyPostFenceRepairs(parts.join('\n'));
+  return parts.join('');
 };

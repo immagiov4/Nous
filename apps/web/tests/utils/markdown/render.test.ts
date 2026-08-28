@@ -20,87 +20,17 @@ test('normalizeMarkdownForRendering removes ANSI styling from inline LaTeX', () 
   );
 });
 
-test('normalizeMarkdownForRendering converts single-line cpp snippets into fenced code blocks', () => {
-  const input = 'Sintassi:\n\ncpp while (i < 5) { std::cout << i; }';
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.equal(output, 'Sintassi:\n\n```cpp\nwhile (i < 5) { std::cout << i; }\n```');
-});
-
 test.each([
   ['ordinary prose ending in a comma', 'Una unità nascosta può calcolare, per esempio,'],
   ['an existing fenced code block', '```cpp\n#include <iostream>\n```'],
+  ['language-prefixed bare code', 'cpp while (i < 5) { std::cout << i; }'],
+  ['the reported bare Lua line', 'local tempo = 0'],
   [
     'bare parenthetical prose',
     'The result (see section A) and the note (this is important) stay as prose.',
   ],
 ])('normalizeMarkdownForRendering keeps %s unchanged', (_case, input) => {
   assert.equal(normalizeMarkdownForRendering(input), input);
-});
-
-test('normalizeMarkdownForRendering repairs language label plus multiline code into one fenced block', () => {
-  const input =
-    'Un esempio semplice chiarisce il valore della regola\n\ncpp\nif (condition) {\ndoSomething();\n} else { doSomethingElse();\n}';
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.equal(
-    output,
-    'Un esempio semplice chiarisce il valore della regola\n\n```cpp\nif (condition) {\ndoSomething();\n} else { doSomethingElse();\n}\n```'
-  );
-});
-
-test('normalizeMarkdownForRendering keeps multiline code together when the first line starts with the language label', () => {
-  const input = 'cpp if (condition) {\ndoSomething();\n}';
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.equal(output, '```cpp\nif (condition) {\ndoSomething();\n}\n```');
-});
-
-test('normalizeMarkdownForRendering wraps standalone C++ lines and preserves angle brackets as code', () => {
-  const input = '#include <iostream>\nstd::vector<int> values;';
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.equal(output, '```cpp\n#include <iostream>\nstd::vector<int> values;\n```');
-});
-
-test('normalizeMarkdownForRendering keeps multiline constructor snippets together across blank lines', () => {
-  const input =
-    'ServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)';
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.equal(
-    output,
-    '```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```'
-  );
-});
-
-test('normalizeMarkdownForRendering keeps language-labeled multiline code together across blank lines', () => {
-  const input =
-    'cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)';
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.equal(
-    output,
-    '```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```'
-  );
-});
-
-test('normalizeMarkdownForRendering stops the code block before following prose', () => {
-  const input =
-    "ServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n\nQui l'ownership della mappa e chiarissima.";
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.equal(
-    output,
-    "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima."
-  );
 });
 
 test('normalizeMarkdownForRendering escapes disallowed raw html while preserving mark tags', () => {
@@ -111,14 +41,11 @@ test('normalizeMarkdownForRendering escapes disallowed raw html while preserving
   assert.equal(output, 'Header &lt;iostream&gt; e <mark>focus</mark>.');
 });
 
-test('normalizeMarkdownForRendering extracts trailing prose from existing fenced code blocks', () => {
+test('normalizeMarkdownForRendering preserves every line in valid fenced code blocks', () => {
   const input =
     "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve.\n```";
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve."
-  );
+  assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
 test('normalizeMarkdownForRendering strips accidental mark tags from inline code spans', () => {
@@ -215,30 +142,6 @@ test('normalizeMarkdownForRendering converts single-line bracket-delimited displ
   );
 });
 
-test('normalizeMarkdownForRendering does not swallow prose with backtick-wrapped C++ types into code blocks', () => {
-  const input =
-    "cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.";
-
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`."
-  );
-});
-
-test('normalizeMarkdownForRendering keeps multi-line function call arguments together via paren tracking', () => {
-  const input =
-    'Client::Client(...):\n\tm_tsrc(tsrc),\n\tm_env(\n\t\tmake_irr<ClientMap>(this, engine, control, 666),\n\t\ttsrc, this\n\t),';
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.ok(
-    output.includes(
-      '\tm_env(\n\t\tmake_irr<ClientMap>(this, engine, control, 666),\n\t\ttsrc, this\n\t),\n```'
-    ),
-    'tsrc, this and ), must remain inside the fenced block'
-  );
-});
-
 test('normalizeMarkdownForRendering preserves angle brackets inside inline backtick code spans', () => {
   const input = 'Il parametro `std::unique_ptr<ServerMap> map` comunica ownership esclusiva.';
 
@@ -247,31 +150,7 @@ test('normalizeMarkdownForRendering preserves angle brackets inside inline backt
   assert.equal(output, input, '<ServerMap> inside backtick code must not be escaped');
 });
 
-test('normalizeMarkdownForRendering splits prose back out of an existing fenced code block', () => {
-  const input = [
-    '#### Un esempio concreto e il costruttore di `ServerEnvironment`',
-    '',
-    '```cpp',
-    'ServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,',
-    '\t\tServer *server, MetricsBackend *mb):',
-    '\tEnvironment(server),',
-    '\tm_map(std::move(map)),',
-    '\tm_script(server->getScriptIface()),',
-    '\tm_server(server)',
-    '',
-    "Qui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.",
-    '```',
-  ].join('\n');
-
-  const output = normalizeMarkdownForRendering(input);
-
-  assert.ok(
-    output.includes("\tm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima"),
-    'prose should be moved outside the fenced code block'
-  );
-});
-
-test('normalizeMarkdownForRendering refences orphaned continuation lines after a premature closing fence', () => {
+test('normalizeMarkdownForRendering does not reconstruct a prematurely closed fence', () => {
   const input = [
     '```cpp',
     '\tm_env(',
@@ -285,15 +164,10 @@ test('normalizeMarkdownForRendering refences orphaned continuation lines after a
 
   const output = normalizeMarkdownForRendering(input);
 
-  assert.ok(
-    output.includes(
-      '```cpp\n\tm_env(\n\t\tmake_irr<ClientMap>(this, rendering_engine, control, 666),\n\t\ttsrc, this\n\t),\n```'
-    ),
-    'orphaned continuation lines should be merged back into the previous fenced code block'
-  );
+  assert.equal(output, input);
 });
 
-test('normalizeMarkdownForRendering rejoins brace code blocks split around unindented body lines', () => {
+test('normalizeMarkdownForRendering preserves model-split fenced blocks without merging them', () => {
   const input = [
     'Il ciclo:',
     '',
@@ -308,154 +182,7 @@ test('normalizeMarkdownForRendering rejoins brace code blocks split around unind
     '```',
   ].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      'Il ciclo:',
-      '',
-      '```text',
-      'FOR (i = valoreIniziale; condizioneDiContinuazione; aggiornamento) {',
-      'blocco di istruzioni',
-      '}',
-      '```',
-    ].join('\n')
-  );
-});
-
-test('normalizeMarkdownForRendering rejoins split brace blocks with assignment body lines', () => {
-  const input = [
-    'Per esempio',
-    '',
-    '```text',
-    'FOR (i = 1; i < n + 1; i = i + 1) {',
-    '```',
-    '',
-    'x = x + 1',
-    '',
-    '```text',
-    '}',
-    '```',
-  ].join('\n');
-
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      'Per esempio',
-      '',
-      '```text',
-      'FOR (i = 1; i < n + 1; i = i + 1) {',
-      'x = x + 1',
-      '}',
-      '```',
-    ].join('\n')
-  );
-});
-
-test('normalizeMarkdownForRendering extracts prose after a split closing brace fence', () => {
-  const input = [
-    'Il ciclo WHILE:',
-    '',
-    '```text',
-    'WHILE (condizione) {',
-    '```',
-    '',
-    'blocco di istruzioni',
-    '',
-    '```text',
-    '}',
-    '',
-    'Prima di ogni iterazione la condizione viene valutata: se e vera, il blocco viene eseguito.',
-    '```',
-  ].join('\n');
-
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      'Il ciclo WHILE:',
-      '',
-      '```text',
-      'WHILE (condizione) {',
-      'blocco di istruzioni',
-      '}',
-      '```',
-      '',
-      'Prima di ogni iterazione la condizione viene valutata: se e vera, il blocco viene eseguito.',
-    ].join('\n')
-  );
-});
-
-test('normalizeMarkdownForRendering merges model-split IF pseudocode into one block', () => {
-  const input = [
-    'La forma generale e:',
-    '',
-    '```text',
-    'IF (condizione) {',
-    '```',
-    ' istruzioni eseguite se la condizione e vera',
-    '} ELSE {',
-    ' istruzioni eseguite se la condizione e falsa',
-    '```text',
-    '}',
-    '```',
-    '',
-    'La condizione viene valutata.',
-  ].join('\n');
-
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      'La forma generale e:',
-      '',
-      '```text',
-      'IF (condizione) {',
-      ' istruzioni eseguite se la condizione e vera',
-      '} ELSE {',
-      ' istruzioni eseguite se la condizione e falsa',
-      '}',
-      '```',
-      '',
-      'La condizione viene valutata.',
-    ].join('\n')
-  );
-});
-
-test('normalizeMarkdownForRendering merges full model-split function pseudocode examples', () => {
-  const input = [
-    '### Somma degli elementi di un array',
-    '',
-    '```text',
-    'SommaArray(a, n)',
-    '```',
-    ' s = 0',
-    '```text',
-    ' FOR (i = 0; i < n; i = i + 1) {',
-    '```',
-    ' s = s + a[i]',
-    '```text',
-    ' }',
-    '```',
-    ' RETURN s',
-    '',
-    'La funzione prende un array `a` e il suo numero di elementi `n`.',
-  ].join('\n');
-
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      '### Somma degli elementi di un array',
-      '',
-      '```text',
-      'SommaArray(a, n)',
-      ' s = 0',
-      ' FOR (i = 0; i < n; i = i + 1) {',
-      ' s = s + a[i]',
-      ' }',
-      ' RETURN s',
-      '```',
-      '',
-      'La funzione prende un array `a` e il suo numero di elementi `n`.',
-    ].join('\n')
-  );
+  assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
 test('normalizeMarkdownForRendering converts bare-paren inline math containing LaTeX commands into dollar-delimited math', () => {
@@ -597,7 +324,7 @@ test('normalizeMarkdownForRendering does not turn indented plain-text fragments 
   assert.match(output, /\nmono$/);
 });
 
-test('normalizeMarkdownForRendering restores a missing opening fence around valid JSON', () => {
+test('normalizeMarkdownForRendering leaves malformed JSON fences unrepaired', () => {
   const input = [
     'Il server usa l’identificatore per trovare una voce nello store, ad esempio:',
     '',
@@ -611,25 +338,10 @@ test('normalizeMarkdownForRendering restores a missing opening fence around vali
     'Il vantaggio difensivo è chiaro.',
   ].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      'Il server usa l’identificatore per trovare una voce nello store, ad esempio:',
-      '',
-      '```json',
-      '{',
-      '  "userId": "42",',
-      '  "role": "editor",',
-      '  "createdAt": "2026-07-11T10:00:00.000Z"',
-      '}',
-      '```',
-      '',
-      'Il vantaggio difensivo è chiaro.',
-    ].join('\n')
-  );
+  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', '\\```'));
 });
 
-test('normalizeMarkdownForRendering preserves a later fenced block after restoring JSON', () => {
+test('normalizeMarkdownForRendering does not insert a JSON fence before later fence syntax', () => {
   const input = [
     'Il record della sessione è:',
     '',
@@ -646,28 +358,10 @@ test('normalizeMarkdownForRendering preserves a later fenced block after restori
     '```',
   ].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      'Il record della sessione è:',
-      '',
-      '```json',
-      '{',
-      '  "userId": "42",',
-      '  "role": "editor"',
-      '}',
-      '```',
-      '',
-      'Il server legge la sessione prima di eseguire:',
-      '',
-      '```js',
-      'const session = await store.get(sessionId);',
-      '```',
-    ].join('\n')
-  );
+  assert.equal(normalizeMarkdownForRendering(input), input);
 });
 
-test('normalizeMarkdownForRendering restores a fence around single-line JSON', () => {
+test('normalizeMarkdownForRendering escapes an unmatched fence after single-line JSON', () => {
   const input = [
     'Il cookie non deve contenere dati autorevoli:',
     '',
@@ -677,18 +371,7 @@ test('normalizeMarkdownForRendering restores a fence around single-line JSON', (
     'Il server conserva invece lo stato.',
   ].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    [
-      'Il cookie non deve contenere dati autorevoli:',
-      '',
-      '```json',
-      '{ "userId": 42, "role": "admin" }',
-      '```',
-      '',
-      'Il server conserva invece lo stato.',
-    ].join('\n')
-  );
+  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', '\\```'));
 });
 
 test('normalizeMarkdownForRendering does not restore a JSON fence around invalid JSON', () => {
