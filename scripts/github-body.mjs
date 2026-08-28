@@ -23,7 +23,6 @@ const markdownParser = unified().use(remarkParse).use(remarkGfm).freeze();
 const normalizeLineEndings = body => body.replace(/\r\n?/gu, '\n');
 const issue = (code, line, message) => ({ code, line, message });
 const nodeOffset = (node, boundary) => node.position?.[boundary]?.offset;
-
 const walkAst = (root, visitor) => {
   const pending = [{ listAncestor: undefined, node: root, parent: undefined }];
   while (pending.length > 0) {
@@ -38,7 +37,6 @@ const walkAst = (root, visitor) => {
 };
 
 const parseMarkdown = body => markdownParser.parse(normalizeLineEndings(body));
-
 const maskRange = (characters, start, end) => {
   for (let index = start; index < end; index += 1) {
     if (characters[index] !== '\n') characters[index] = ' ';
@@ -184,14 +182,15 @@ const expectedRenderedTags = body => {
   });
   walkAst(root, node => {
     if (node.type !== 'html') return;
-    for (const tag of counts.keys()) increment(tag, renderedTagCount(node.value, tag));
+    for (const tag of 'blockquote h1 h2 h3 h4 h5 h6 hr li ol p pre table ul'.split(' ')) {
+      increment(tag, renderedTagCount(node.value, tag));
+    }
   });
   return counts;
 };
 
 const renderedTagCount = (renderedHtml, tag) =>
   [...renderedHtml.matchAll(new RegExp(`<${tag}(?:[ >])`, 'giu'))].length;
-
 export const assertGitHubRendering = (body, renderedHtml) => {
   if (!renderedHtml.trim()) throw new Error('GitHub returned an empty rendered body.');
   for (const [tag, expectedCount] of expectedRenderedTags(body)) {
@@ -203,7 +202,6 @@ export const assertGitHubRendering = (body, renderedHtml) => {
     }
   }
 };
-
 const runProcess = (command, args) =>
   new Promise((resolveProcess, rejectProcess) => {
     const child = spawn(command, args, { shell: false, windowsHide: true });

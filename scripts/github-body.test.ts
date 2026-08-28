@@ -70,7 +70,6 @@ Literal \\n stays inside this example.
 Use # tags in GitHub.
 Compare old - new behavior, or use option 1) now.
 `;
-
     expect(validateMarkdownBody(ordinaryProse)).toEqual([]);
     expect(
       validateMarkdownBody('## Summary\n\nFirst <span title="Why ## this matters">label</span>.\n')
@@ -108,6 +107,9 @@ Compare old - new behavior, or use option 1) now.
         'GitHub rendering lost Markdown blocks'
       );
     }
+    expect(() => assertGitHubRendering('<h2>Raw heading</h2>\n', '<p>Missing.</p>')).toThrow(
+      'GitHub rendering lost Markdown blocks'
+    );
   });
 });
 describe('GitHub body remote lifecycle', () => {
