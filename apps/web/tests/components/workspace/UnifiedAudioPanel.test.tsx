@@ -204,8 +204,9 @@ describe('UnifiedAudioPanel', () => {
     expect(speedControl).toHaveValue('1');
     expect(speedControl).toHaveAttribute('aria-valuetext', '1x');
     expect(speedControl).toHaveAttribute('aria-orientation', 'horizontal');
-    expect(speedControl).toHaveClass('h-8', 'w-full', 'touch-pan-y');
-    expect(container.querySelectorAll('[data-playback-rate-tick]')).toHaveLength(17);
+    expect(speedControl).toHaveClass('h-11', 'w-full', 'touch-pan-y');
+    expect(container.querySelectorAll('[data-playback-rate-marker]')).toHaveLength(5);
+    expect(container.querySelector('[data-playback-rate-fill]')).toHaveStyle({ width: '25%' });
   });
 
   test('keeps voice selection separate from playback-speed changes', async () => {

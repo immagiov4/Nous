@@ -85,8 +85,10 @@ const YOUTUBE_PLAYER_STATE = {
 const PLAYBACK_RATE_MIN = 0.8;
 const PLAYBACK_RATE_MAX = 1.6;
 const PLAYBACK_RATE_STEP = 0.05;
-const PLAYBACK_RATE_TICK_COUNT =
-  Math.round((PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP) + 1;
+const PLAYBACK_RATE_STEP_COUNT = Math.round(
+  (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
+);
+const PLAYBACK_RATE_MARKER_COUNT = 5;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -189,6 +191,10 @@ const PlaybackSpeedControl = ({
   const currentPlaybackRateRef = useRef(clampPlaybackRate(playbackRate));
   const displayedPlaybackRate = clampPlaybackRate(playbackRate);
   const playbackRateLabel = getPlaybackRateLabel(displayedPlaybackRate);
+  const playbackRateStepIndex = Math.round(
+    (displayedPlaybackRate - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
+  );
+  const playbackRateProgress = (playbackRateStepIndex / PLAYBACK_RATE_STEP_COUNT) * 100;
 
   useEffect(() => {
     currentPlaybackRateRef.current = displayedPlaybackRate;
@@ -230,22 +236,31 @@ const PlaybackSpeedControl = ({
   };
 
   return (
-    <div className={`relative h-6 w-full ${isDisabled ? 'opacity-50' : ''}`}>
+    <div className={`relative h-11 w-full ${isDisabled ? 'opacity-50' : ''}`}>
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-2.5 top-4 -translate-y-1/2"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full bg-gray-200 dark:bg-zinc-700"
       >
-        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-gray-300 dark:bg-zinc-600" />
-        <span className="relative flex items-center justify-between">
-          {Array.from({ length: PLAYBACK_RATE_TICK_COUNT }, (_, index) =>
-            normalizePlaybackRate(PLAYBACK_RATE_MIN + index * PLAYBACK_RATE_STEP)
-          ).map(playbackRateTick => (
-            <span
-              key={playbackRateTick}
-              data-playback-rate-tick={playbackRateTick}
-              className="h-2 w-px bg-gray-400 dark:bg-zinc-500"
-            />
-          ))}
+        <span
+          data-playback-rate-fill
+          className="absolute inset-y-0 left-0 rounded-full bg-orange-500 dark:bg-orange-400"
+          style={{ width: `${playbackRateProgress}%` }}
+        />
+        <span className="absolute inset-x-5 inset-y-0 flex items-center justify-between">
+          {Array.from({ length: PLAYBACK_RATE_MARKER_COUNT }, (_, index) => {
+            const markerProgress = index / (PLAYBACK_RATE_MARKER_COUNT - 1);
+            return (
+              <span
+                key={markerProgress}
+                data-playback-rate-marker={markerProgress}
+                className={`h-1.5 w-1.5 rounded-full ${
+                  markerProgress * 100 <= playbackRateProgress
+                    ? 'bg-orange-200 dark:bg-orange-100/80'
+                    : 'bg-gray-400 dark:bg-zinc-500'
+                }`}
+              />
+            );
+          })}
         </span>
       </div>
 
@@ -261,7 +276,7 @@ const PlaybackSpeedControl = ({
         step={PLAYBACK_RATE_STEP}
         value={displayedPlaybackRate}
         disabled={isDisabled}
-        className="absolute inset-0 z-10 m-0 h-8 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-700 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-sm [&::-moz-range-track]:h-1 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-700 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-sm dark:[&::-moz-range-thumb]:border-zinc-800 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-800 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
+        className="absolute inset-0 z-10 m-0 h-11 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-11 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-11 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:mt-0.5 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
         onChange={event => updatePlaybackRate(Number.parseFloat(event.target.value))}
         onKeyDown={isDisabled ? undefined : handleKeyDown}
       />
@@ -735,9 +750,9 @@ const UnifiedAudioPanel = ({
                   ) : null}
 
                   <div className="space-y-2">
-                    <fieldset className="min-w-0 w-full rounded-xl border border-gray-300 bg-white/80 px-3 shadow-sm focus-within:border-gray-500 focus-within:ring-2 focus-within:ring-gray-200 dark:border-zinc-600 dark:bg-zinc-800/80 dark:focus-within:border-zinc-400 dark:focus-within:ring-zinc-700">
+                    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
                       <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
-                      <div className="relative min-h-8">
+                      <div className="relative min-h-10">
                         <select
                           aria-label={t('Voce')}
                           value={tts.currentVoice}
@@ -756,15 +771,18 @@ const UnifiedAudioPanel = ({
 
                         <div
                           aria-hidden="true"
-                          className={`pointer-events-none flex min-h-8 items-center justify-center gap-2 px-4 text-sm font-semibold ${
+                          className={`pointer-events-none flex min-h-10 items-center justify-between gap-3 px-1 text-sm font-medium ${
                             ttsDisabled
                               ? 'text-gray-400 dark:text-zinc-500'
                               : 'text-gray-700 dark:text-zinc-200'
                           }`}
                         >
-                          <span className="min-w-0 truncate">{currentVoiceLabel}</span>
-                          <span className="text-gray-300 dark:text-zinc-600">•</span>
-                          <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="min-w-0 truncate">{currentVoiceLabel}</span>
+                            <span className="text-gray-300 dark:text-zinc-600">•</span>
+                            <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+                          </span>
+                          <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
                         </div>
                       </div>
 
