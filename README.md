@@ -78,3 +78,13 @@ Authenticated sessions use server storage. Import/export remains available for m
 Use `bun run doctor` for an actionable local health report. GitHub CI runs the complete Bun suite;
 `bun run gate:full` adds coverage and Sonar on the final commit. See
 [Testing and quality gates](docs/TESTING.md) for the canonical command list and CI contract.
+
+Validate a pull-request or issue body from a Markdown file before publishing it:
+
+```bash
+bun run github:body -- validate --body-file body.md
+bun run github:body -- update --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
+```
+
+Use `--kind issue` for an issue. The update command sends the file through `gh api`, then verifies
+the remote raw body and GitHub-rendered HTML. It fails instead of accepting flattened Markdown.

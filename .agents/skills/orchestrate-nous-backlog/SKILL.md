@@ -305,6 +305,9 @@ Before publication, re-check remote state and the complete worktree.
 - Push directly to `main` only when the user explicitly requests that route. Otherwise use the
   repository's branch/PR workflow.
 - Confirm local HEAD and remote branch SHA after push, then report the CI URL/status.
+- For every pull-request or issue body mutation, write the Markdown to a file and run
+  `bun run github:body -- update` with its target flags. Let that command own validation and remote
+  verification; keep body text out of shell interpolation and `gh pr edit`/`gh issue edit`.
 - Use `$problem-to-github-issue` before any issue mutation and `$to-tickets` before publishing a
   ticket breakdown. In every PR description, name each resolved issue using GitHub-closing
   references where appropriate (for example, `Closes #123`). Before completion, verify that every

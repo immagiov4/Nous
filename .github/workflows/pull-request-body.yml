@@ -1,0 +1,35 @@
+name: Pull request body
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate remote Markdown body
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted base revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Read body from pull request event
+        env:
+          BODY_FILE: ${{ runner.temp }}/pull-request-body.md
+        run: >-
+          node -e "const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          fs.writeFileSync(process.env.BODY_FILE, event.pull_request.body ?? '', 'utf8');"
+
+      - name: Validate pull request body
+        env:
+          BODY_FILE: ${{ runner.temp }}/pull-request-body.md
+        run: node scripts/github-body.mjs validate --body-file "$BODY_FILE"
