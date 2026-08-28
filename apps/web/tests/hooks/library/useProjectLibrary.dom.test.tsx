@@ -558,7 +558,11 @@ describe('useProjectLibrary', () => {
       [repositoryMocks.importProjectArchive.mock.calls[1]?.[1]],
     ]);
     expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(2);
-    expect(repositoryMocks.moveProjects).not.toHaveBeenCalled();
+    expect(repositoryMocks.moveProjects).toHaveBeenCalledWith(
+      [repositoryMocks.importProjectArchive.mock.calls[0]?.[1]],
+      null,
+      0
+    );
   });
 
   test('rolls back imported projects when restoring a library backup fails', async () => {
