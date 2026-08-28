@@ -162,6 +162,16 @@ describe('GitHub body Markdown validation', () => {
       validateMarkdownBody('## Example\n\nUse ``text ` marker ## not-a-heading`` safely.\n')
     ).toEqual([]);
     expect(
+      validateMarkdownBody(
+        '## Example\n\nUse \\`text ## Testing\\` literally.\n\nMore context.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\nUse \\\\`text ## Not-a-heading\\\\` as code.\n\nMore context.\n'
+      )
+    ).toEqual([]);
+    expect(
       validateMarkdownBody('## Example\n\nUse `first line\nDescription ## Not-a-heading` safely.\n')
     ).toEqual([]);
     expect(validateMarkdownBody('`first line\nsecond line`\n')).toEqual([]);
@@ -444,6 +454,14 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
       validateMarkdownBody('See [Why ## this matters](a(b(c)d)e).\n\nMore context.\n')
     ).toEqual([]);
     expect(validateMarkdownBody('See [Why \\] ## this matters](/url).\n\nMore context.\n')).toEqual(
+      []
+    );
+    expect(
+      validateMarkdownBody('See \\[Description ## Testing](/url).\n\nMore context.\n').map(
+        candidate => candidate.code
+      )
+    ).toContain('inline-heading');
+    expect(validateMarkdownBody('See \\\\[Why ## this matters](/url).\n\nMore context.\n')).toEqual(
       []
     );
     for (const multilineLink of [

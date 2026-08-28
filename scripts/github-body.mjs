@@ -347,6 +347,14 @@ const advanceBlockState = (line, state) => {
 
 const inlineRunKey = (lineIndex, column) => `${lineIndex}:${column}`;
 
+const isMarkdownEscaped = (value, index) => {
+  let backslashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+    backslashCount += 1;
+  }
+  return backslashCount % 2 === 1;
+};
+
 const collectRawInlineCodeOpeners = lines => {
   const openers = new Set();
   const state = { fence: undefined, paragraphOpen: false, rawHtmlBlock: undefined };
@@ -356,6 +364,10 @@ const collectRawInlineCodeOpeners = lines => {
     let openerIndex = 0;
     while (openerIndex < blockRuns.length) {
       const openingRun = blockRuns[openerIndex];
+      if (openingRun.escaped) {
+        openerIndex += 1;
+        continue;
+      }
       let closingIndex = openerIndex + 1;
       while (
         closingIndex < blockRuns.length &&
@@ -383,6 +395,7 @@ const collectRawInlineCodeOpeners = lines => {
       blockRuns.push({
         key: inlineRunKey(lineIndex, run.index),
         length: run[0].length,
+        escaped: isMarkdownEscaped(line, run.index),
       });
     }
     state.paragraphOpen = leavesParagraphOpen(line, /`/u.test(line));
@@ -823,6 +836,10 @@ const maskInlineLinks = (line, linkDefinitionIdentifiers) => {
   while (cursor < line.length) {
     const labelStart = line.indexOf('[', cursor);
     if (labelStart === -1) break;
+    if (isMarkdownEscaped(line, labelStart)) {
+      cursor = labelStart + 1;
+      continue;
+    }
     const labelEnd = closingDelimiterIndex(line, labelStart, '[', ']');
     if (labelEnd === -1) break;
     const label = line.slice(labelStart + 1, labelEnd);
@@ -842,8 +859,11 @@ const maskInlineLinks = (line, linkDefinitionIdentifiers) => {
     }
 
     if (linkEnd !== undefined) {
+      const imageStart = labelStart - 1;
       const linkStart =
-        labelStart > 0 && line[labelStart - 1] === '!' ? labelStart - 1 : labelStart;
+        imageStart >= 0 && line[imageStart] === '!' && !isMarkdownEscaped(line, imageStart)
+          ? imageStart
+          : labelStart;
       maskRange(characters, linkStart, linkEnd);
       cursor = linkEnd;
       continue;
