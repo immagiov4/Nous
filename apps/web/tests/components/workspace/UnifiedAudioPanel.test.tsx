@@ -173,8 +173,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  test('closes only the playback-speed picker when another audio control receives a pointer event', async () => {
-    const user = userEvent.setup();
+  test('shows the playback speed as a direct dial without a secondary slider', () => {
     render(
       <UnifiedAudioPanel
         initialTab="voce"
@@ -189,18 +188,18 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: '1x' }));
-    expect(screen.getByText('Velocita')).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Velocita' })).toBeInTheDocument();
-
-    fireEvent.pointerDown(screen.getByRole('combobox', { name: 'Parte da leggere' }));
-
-    expect(screen.queryByText('Velocita')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Chiudi menu audio' })).toBeInTheDocument();
+    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
+    expect(speedDial).toHaveAttribute('aria-valuemin', '0.8');
+    expect(speedDial).toHaveAttribute('aria-valuemax', '1.6');
+    expect(speedDial).toHaveAttribute('aria-valuenow', '1');
+    expect(speedDial).toHaveAttribute('aria-valuetext', '1x');
+    expect(speedDial).toHaveTextContent('1x');
+    expect(document.querySelector('input[type="range"][min="0.8"]')).toBeNull();
   });
 
-  test('dismisses the playback-speed picker when keyboard focus leaves or Escape is pressed', async () => {
+  test('adjusts the direct playback-speed dial with keyboard controls and respects its bounds', async () => {
     const user = userEvent.setup();
+    const onSpeedChange = vi.fn();
     render(
       <UnifiedAudioPanel
         initialTab="voce"
@@ -211,47 +210,66 @@ describe('UnifiedAudioPanel', () => {
         setIsMusicPlaying={() => {}}
         setMusicUrl={() => {}}
         setMusicVolume={() => {}}
-        tts={buildTtsModel()}
+        tts={buildTtsModel({ onSpeedChange })}
       />
     );
 
-    const speedPickerTrigger = screen.getByRole('button', { name: '1x' });
-    await user.click(speedPickerTrigger);
-    await user.tab();
-    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveFocus();
+    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
+    speedDial.focus();
+    await user.keyboard('{ArrowRight}{ArrowUp}{ArrowLeft}{End}{ArrowRight}{Home}{ArrowLeft}');
 
-    await user.tab();
-    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
-
-    await user.click(speedPickerTrigger);
-    await user.keyboard('{Escape}');
-    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
-    expect(speedPickerTrigger).toHaveFocus();
+    expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.05, 1.1, 1.05, 1.6, 0.8]);
   });
 
-  test('does not restore the playback-speed picker when a controlled panel reopens', async () => {
-    const user = userEvent.setup();
-    const props = {
-      initialTab: 'voce' as const,
-      isMusicPlaying: false,
-      musicUrl: '',
-      musicVolume: 60,
-      setIsMusicPlaying: () => {},
-      setMusicUrl: () => {},
-      setMusicVolume: () => {},
-      tts: buildTtsModel(),
-    };
-    const { rerender } = render(<UnifiedAudioPanel {...props} isOpen />);
+  test.each([
+    'mouse',
+    'touch',
+  ] as const)('adjusts the playback-speed dial right and left with %s pointers', pointerType => {
+    const onSpeedChange = vi.fn();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ onSpeedChange })}
+      />
+    );
 
-    await user.click(screen.getByRole('button', { name: '1x' }));
-    expect(screen.getByText('Velocita')).toBeInTheDocument();
+    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
+    Object.assign(speedDial, {
+      getBoundingClientRect: () =>
+        ({ bottom: 40, height: 40, left: 0, right: 40, top: 0, width: 40 }) as DOMRect,
+      hasPointerCapture: () => true,
+      releasePointerCapture: vi.fn(),
+      setPointerCapture: vi.fn(),
+    });
 
-    rerender(<UnifiedAudioPanel {...props} isOpen={false} />);
-    rerender(<UnifiedAudioPanel {...props} isOpen />);
+    fireEvent.pointerDown(speedDial, {
+      clientX: 10,
+      clientY: 20,
+      pointerId: 7,
+      pointerType,
+    });
+    fireEvent.pointerMove(speedDial, {
+      clientX: 30,
+      clientY: 20,
+      pointerId: 7,
+      pointerType,
+    });
+    fireEvent.pointerMove(speedDial, {
+      clientX: 10,
+      clientY: 20,
+      pointerId: 7,
+      pointerType,
+    });
+    fireEvent.pointerUp(speedDial, { pointerId: 7, pointerType });
 
-    const speedPickerTrigger = screen.getByRole('button', { name: '1x' });
-    expect(speedPickerTrigger).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('Velocita')).not.toBeInTheDocument();
+    expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.4, 1]);
   });
 
   test('keeps the iframe lazy until the user starts background audio', async () => {

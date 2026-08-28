@@ -13,7 +13,15 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { VoiceProfileId } from '../../types';
 import { extractYouTubeVideoId } from '../../utils/youtube.ts';
@@ -78,6 +86,8 @@ const YOUTUBE_PLAYER_STATE = {
 const PLAYBACK_RATE_MIN = 0.8;
 const PLAYBACK_RATE_MAX = 1.6;
 const PLAYBACK_RATE_STEP = 0.05;
+const PLAYBACK_RATE_DIAL_START_DEGREES = -135;
+const PLAYBACK_RATE_DIAL_RANGE_DEGREES = 270;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -160,98 +170,148 @@ const normalizePlaybackRate = (value: number): number => {
   return Math.round(value * stepsPerUnit) / stepsPerUnit;
 };
 
-interface PlaybackSpeedPickerProps {
+const clampPlaybackRate = (value: number): number =>
+  Math.min(PLAYBACK_RATE_MAX, Math.max(PLAYBACK_RATE_MIN, normalizePlaybackRate(value)));
+
+const getPlaybackRateDialAngle = (playbackRate: number): number => {
+  const progress =
+    (clampPlaybackRate(playbackRate) - PLAYBACK_RATE_MIN) / (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN);
+  return PLAYBACK_RATE_DIAL_START_DEGREES + progress * PLAYBACK_RATE_DIAL_RANGE_DEGREES;
+};
+
+interface PlaybackSpeedDialProps {
   readonly onSpeedChange: (speed: number) => void;
   readonly playbackRate: number;
 }
 
-const PlaybackSpeedPicker = ({ onSpeedChange, playbackRate }: PlaybackSpeedPickerProps) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
+interface PlaybackSpeedDragState {
+  horizontalTravelPixels: number;
+  pointerId: number;
+  pointerX: number;
+  rawPlaybackRate: number;
+}
+
+const PlaybackSpeedDial = ({ onSpeedChange, playbackRate }: PlaybackSpeedDialProps) => {
+  const dragStateRef = useRef<PlaybackSpeedDragState | null>(null);
+  const currentPlaybackRateRef = useRef(clampPlaybackRate(playbackRate));
+  const displayedPlaybackRate = clampPlaybackRate(playbackRate);
+  const playbackRateLabel = `${formatPlaybackRateLabel(displayedPlaybackRate)}x`;
+  const dialAngle = getPlaybackRateDialAngle(displayedPlaybackRate);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!dragStateRef.current) {
+      currentPlaybackRateRef.current = displayedPlaybackRate;
+    }
+  }, [displayedPlaybackRate]);
+
+  const updatePlaybackRate = (value: number) => {
+    const nextPlaybackRate = clampPlaybackRate(value);
+    if (nextPlaybackRate === currentPlaybackRateRef.current) {
       return;
     }
 
-    const isWithinSpeedPicker = (target: EventTarget | null) =>
-      target instanceof Node &&
-      (Boolean(buttonRef.current?.contains(target)) ||
-        Boolean(pickerRef.current?.contains(target)));
+    currentPlaybackRateRef.current = nextPlaybackRate;
+    onSpeedChange(nextPlaybackRate);
+  };
 
-    const handlePointerDown = (event: PointerEvent) => {
-      if (isWithinSpeedPicker(event.target)) {
-        return;
-      }
-
-      setIsOpen(false);
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.focus();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const bounds = event.currentTarget.getBoundingClientRect();
+    dragStateRef.current = {
+      horizontalTravelPixels: bounds.width,
+      pointerId: event.pointerId,
+      pointerX: event.clientX,
+      rawPlaybackRate: currentPlaybackRateRef.current,
     };
+  };
 
-    const handleFocusIn = (event: FocusEvent) => {
-      if (!isWithinSpeedPicker(event.target)) {
-        setIsOpen(false);
-      }
-    };
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') {
-        return;
-      }
+    const horizontalDelta = event.clientX - dragState.pointerX;
+    if (horizontalDelta === 0) {
+      return;
+    }
 
-      setIsOpen(false);
-      buttonRef.current?.focus();
-    };
+    const rateDelta =
+      (horizontalDelta / dragState.horizontalTravelPixels) *
+      (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN);
+    dragState.pointerX = event.clientX;
+    dragState.rawPlaybackRate = Math.min(
+      PLAYBACK_RATE_MAX,
+      Math.max(PLAYBACK_RATE_MIN, dragState.rawPlaybackRate + rateDelta)
+    );
+    updatePlaybackRate(dragState.rawPlaybackRate);
+  };
 
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('focusin', handleFocusIn);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('focusin', handleFocusIn);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
+  const stopPointerDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current?.pointerId !== event.pointerId) {
+      return;
+    }
+
+    dragStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    let nextPlaybackRate: number | null = null;
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      nextPlaybackRate = currentPlaybackRateRef.current + PLAYBACK_RATE_STEP;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      nextPlaybackRate = currentPlaybackRateRef.current - PLAYBACK_RATE_STEP;
+    } else if (event.key === 'Home') {
+      nextPlaybackRate = PLAYBACK_RATE_MIN;
+    } else if (event.key === 'End') {
+      nextPlaybackRate = PLAYBACK_RATE_MAX;
+    }
+
+    if (nextPlaybackRate === null) {
+      return;
+    }
+
+    event.preventDefault();
+    updatePlaybackRate(nextPlaybackRate);
+  };
 
   return (
-    <>
-      <div className="inline-flex items-center">
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={() => setIsOpen(current => !current)}
-          className="flex cursor-pointer items-center border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-r-xl dark:text-zinc-300 dark:hover:bg-white/10 dark:focus-visible:ring-zinc-500"
-          aria-expanded={isOpen}
-        >
-          <span className="inline-block tabular-nums">
-            {formatPlaybackRateLabel(playbackRate)}x
-          </span>
-        </button>
-      </div>
-      {isOpen ? (
-        <div
-          ref={pickerRef}
-          className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-44 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.42)]"
-        >
-          <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
-            <span>{t('Velocita')}</span>
-            <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
-              {formatPlaybackRateLabel(playbackRate)}x
-            </span>
-          </div>
-          <input
-            type="range"
-            aria-label={t('Velocita')}
-            min={PLAYBACK_RATE_MIN}
-            max={PLAYBACK_RATE_MAX}
-            step={PLAYBACK_RATE_STEP}
-            value={playbackRate}
-            onChange={event => onSpeedChange(Number.parseFloat(event.target.value))}
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
-          />
-        </div>
-      ) : null}
-    </>
+    <div
+      role="slider"
+      tabIndex={0}
+      aria-label={t('Velocita')}
+      aria-valuemin={PLAYBACK_RATE_MIN}
+      aria-valuemax={PLAYBACK_RATE_MAX}
+      aria-valuenow={displayedPlaybackRate}
+      aria-valuetext={playbackRateLabel}
+      title={`${t('Velocita')}: ${playbackRateLabel}`}
+      className="relative mx-1 flex h-9 w-9 touch-none cursor-grab select-none items-center justify-center rounded-full border border-gray-300 bg-gray-50 text-gray-700 shadow-inner outline-none transition-colors hover:border-gray-400 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-gray-300 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus-visible:ring-zinc-500"
+      onKeyDown={handleKeyDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={stopPointerDrag}
+      onPointerCancel={stopPointerDrag}
+      onLostPointerCapture={() => {
+        dragStateRef.current = null;
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-1 rounded-full"
+        style={{ transform: `rotate(${dialAngle}deg)` }}
+      >
+        <span className="absolute left-1/2 top-0 h-1.5 w-0.5 -translate-x-1/2 rounded-full bg-gray-700 dark:bg-zinc-200" />
+      </span>
+      <span className="pointer-events-none relative text-[10px] font-semibold tabular-nums">
+        {playbackRateLabel}
+      </span>
+    </div>
   );
 };
 
@@ -741,7 +801,7 @@ const UnifiedAudioPanel = ({
 
                       <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600" />
 
-                      <PlaybackSpeedPicker
+                      <PlaybackSpeedDial
                         onSpeedChange={tts.onSpeedChange}
                         playbackRate={normalizedPlaybackRate}
                       />
