@@ -309,6 +309,15 @@ test('normalizeMarkdownForRendering does not promote an indented pseudo-closer',
   assert.equal(normalizeMarkdownForRendering(input), input.replace('~~~', escapeFenceRun('~~~')));
 });
 
+test('normalizeMarkdownForRendering preserves container-relative indented code', () => {
+  const input = ['> ~~~outer', '>', '>     ```lang', '>     content'].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [`> ${escapeFenceRun('~~~')}outer`, '>', '>     ```lang', '>     content'].join('\n')
+  );
+});
+
 test('normalizeMarkdownForRendering escapes consecutive unclosed list fences independently', () => {
   const input = ['- ```ts', '  first', '- ```js', '  second'].join('\n');
 
@@ -517,6 +526,14 @@ test('normalizeMarkdownForRendering neutralizes many malformed openers in one pa
     output.split('\n').filter(line => line.startsWith(`${escapeFenceRun('```')}lang`)).length,
     openerCount
   );
+});
+
+test('normalizeMarkdownForRendering batches decreasing marker-only openers', () => {
+  const lines = Array.from({ length: 64 }, (_, index) => '`'.repeat(67 - index));
+  const output = normalizeMarkdownForRendering(lines.join('\n'));
+
+  assert.equal(output, lines.map(escapeFenceRun).join('\n'));
+  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
 });
 
 test('normalizeMarkdownForRendering does not turn indented plain-text fragments into code blocks', () => {

@@ -440,6 +440,11 @@ const getFenceOpeningRange = (content: string, range: MarkdownRange): MarkdownRa
 
 const CONTAINER_FENCE_LINE_PATTERN = /^([\t >+*().\d-]*)(`{3,}|~{3,})(.*)$/u;
 
+interface ProjectionFenceCandidate extends MarkdownRange {
+  fenceCharacter: string;
+  isMarkerOnly: boolean;
+}
+
 const getProjectionOpeningRanges = (
   content: string,
   unclosedRanges: readonly MarkdownRange[]
@@ -448,29 +453,50 @@ const getProjectionOpeningRanges = (
     const firstOpeningRange = getFenceOpeningRange(content, unclosedRange);
     const rangeContent = content.slice(unclosedRange.start, unclosedRange.end);
     const lines = rangeContent.split('\n');
-    const hasPotentialCloser = lines.slice(1).some(line => {
-      const match = line.match(CONTAINER_FENCE_LINE_PATTERN);
-      return match ? match[3].trim().length === 0 : false;
-    });
-    if (hasPotentialCloser) return [firstOpeningRange];
-
-    const openingRanges = [firstOpeningRange];
-    const openingStarts = new Set([firstOpeningRange.start]);
+    const candidates: ProjectionFenceCandidate[] = [];
     let lineStart = unclosedRange.start;
     for (const line of lines) {
       const match = line.match(CONTAINER_FENCE_LINE_PATTERN);
       if (match) {
         const [, containerPrefix, fence, info] = match;
         const normalizedInfo = info.trim();
-        const isDefiniteOpener =
-          normalizedInfo.length > 0 && (fence[0] === '~' || !normalizedInfo.includes('`'));
         const start = lineStart + containerPrefix.length;
-        if (isDefiniteOpener && !openingStarts.has(start)) {
-          openingRanges.push({ start, end: start + fence.length });
-          openingStarts.add(start);
+        const hasValidInfo = fence[0] === '~' || !normalizedInfo.includes('`');
+        const hasValidIndentation = /^ {0,3}$/u.test(containerPrefix);
+        if (start !== firstOpeningRange.start && hasValidInfo && hasValidIndentation) {
+          candidates.push({
+            start,
+            end: start + fence.length,
+            fenceCharacter: fence[0],
+            isMarkerOnly: normalizedInfo.length === 0,
+          });
         }
       }
       lineStart += line.length + 1;
+    }
+
+    const openingRanges = [firstOpeningRange];
+    let candidateIndex = 0;
+    while (candidateIndex < candidates.length) {
+      const opener = candidates[candidateIndex];
+      let closerIndex = candidateIndex + 1;
+      while (closerIndex < candidates.length) {
+        const closer = candidates[closerIndex];
+        if (
+          closer.isMarkerOnly &&
+          closer.fenceCharacter === opener.fenceCharacter &&
+          closer.end - closer.start >= opener.end - opener.start
+        ) {
+          break;
+        }
+        closerIndex += 1;
+      }
+      if (closerIndex === candidates.length) {
+        openingRanges.push({ start: opener.start, end: opener.end });
+        candidateIndex += 1;
+      } else {
+        candidateIndex = closerIndex + 1;
+      }
     }
     return openingRanges;
   });
