@@ -207,7 +207,7 @@ describe('ContextMenu', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apri menu' }));
     const createLessonItem = screen.getByRole('menuitem', {
-      name: 'Generazione sottolezione in corso…',
+      name: 'Attendi che la generazione in corso termini',
     });
 
     expect(createLessonItem).toBeDisabled();
@@ -231,7 +231,7 @@ describe('ContextMenu', () => {
     rerender(<ContextMenu {...props} isLoading lessonCreationBlockReason="lesson-generation" />);
 
     const pendingButton = screen.getByRole('button', {
-      name: 'Generazione sottolezione in corso…',
+      name: 'Attendi che la generazione in corso termini',
     });
     expect(pendingButton).toBeDisabled();
     await user.click(pendingButton);

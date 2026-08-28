@@ -980,6 +980,7 @@ const ENGLISH_UI_MESSAGES = {
   'Scrivi la nota che vuoi lasciare su questo passaggio...':
     'Write the note you want to leave on this passage...',
   'Scrivi, aggiorna o svuota la nota...': 'Write, update, or clear the note...',
+  'Attendi che la generazione in corso termini': 'Wait for the current generation to finish',
   'Generazione sottolezione in corso…': 'Generating sublesson…',
   'Vuoi creare una nuova sottolezione da questa pagina?':
     'Do you want to create a new sublesson from this page?',

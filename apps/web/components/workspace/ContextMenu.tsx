@@ -156,7 +156,7 @@ const ContextMenu = ({
   const isLessonMode = type === 'lesson';
   const lessonCreationBlockedLabel =
     lessonCreationBlockReason === 'lesson-generation'
-      ? t('Generazione sottolezione in corso…')
+      ? t('Attendi che la generazione in corso termini')
       : lessonCreationBlockReason === 'other-operation'
         ? t('Operazione in corso…')
         : null;
