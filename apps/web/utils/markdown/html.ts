@@ -14,36 +14,39 @@ export interface RawHtmlTagRange {
   start: number;
 }
 
+const readRawHtmlTagAt = (value: string, start: number): RawHtmlTag | null => {
+  let cursor = start + 1;
+  if (value[cursor] === '/') cursor += 1;
+  const nameStart = cursor;
+  if (!/[A-Za-z]/u.test(value[cursor] || '')) return null;
+
+  cursor += 1;
+  while (/[A-Za-z0-9-]/u.test(value[cursor] || '')) cursor += 1;
+  const name = value.slice(nameStart, cursor);
+  let quote: '"' | "'" | null = null;
+
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (quote !== null) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return { start, end: cursor + 1, name };
+    }
+    cursor += 1;
+  }
+
+  return null;
+};
+
 const getRawHtmlTags = (value: string): RawHtmlTag[] => {
   const tags: RawHtmlTag[] = [];
   let start = value.indexOf('<');
   while (start !== -1) {
-    let cursor = start + 1;
-    if (value[cursor] === '/') cursor += 1;
-    const nameStart = cursor;
-    if (!/[A-Za-z]/u.test(value[cursor] || '')) {
-      start = value.indexOf('<', start + 1);
-      continue;
-    }
-    cursor += 1;
-    while (/[A-Za-z0-9-]/u.test(value[cursor] || '')) cursor += 1;
-    const name = value.slice(nameStart, cursor);
-    let quote: '"' | "'" | null = null;
-    let tagEnd: number | null = null;
-    while (cursor < value.length) {
-      const character = value[cursor];
-      if (quote !== null) {
-        if (character === quote) quote = null;
-      } else if (character === '"' || character === "'") {
-        quote = character;
-      } else if (character === '>') {
-        tagEnd = cursor + 1;
-        tags.push({ start, end: tagEnd, name });
-        break;
-      }
-      cursor += 1;
-    }
-    start = value.indexOf('<', tagEnd ?? start + 1);
+    const tag = readRawHtmlTagAt(value, start);
+    if (tag) tags.push(tag);
+    start = value.indexOf('<', tag?.end ?? start + 1);
   }
   return tags;
 };
