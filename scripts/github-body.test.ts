@@ -87,12 +87,11 @@ Compare old - new behavior, or use option 1) now.
     expect(listIssues).toContain('list-spacing-before');
     expect(listIssues).toContain('list-spacing-after');
   });
-
   test('verifies the rendered heading, paragraph, and list structure', () => {
     const richBody =
-      '## Blocks\n\n> Quote.\n\n---\n\n```text\ncode\n```\n\n| A |\n| - |\n| B |\n\n- First.\n\n  Second.\n- Third.\n';
+      '## Blocks\n\n<h2>Raw heading</h2>\n\n> Quote.\n\n---\n\n```text\ncode\n```\n\n| A |\n| - |\n| B |\n\n- First.\n\n  Second.\n- Third.\n';
     const richHtml =
-      '<h2>Blocks</h2><blockquote><p>Quote.</p></blockquote><hr><pre><code>code</code></pre>' +
+      '<h2>Blocks</h2><h2>Raw heading</h2><blockquote><p>Quote.</p></blockquote><hr><pre><code>code</code></pre>' +
       '<table><tr><th>A</th></tr><tr><td>B</td></tr></table>' +
       '<ul><li><p>First.</p><p>Second.</p></li><li><p>Third.</p></li></ul>';
     for (const missing of [
@@ -111,7 +110,6 @@ Compare old - new behavior, or use option 1) now.
     }
   });
 });
-
 describe('GitHub body remote lifecycle', () => {
   test('previews an immutable file snapshot through GitHub rendering', async () => {
     const bodyFile = await createBodyFile();
@@ -143,7 +141,6 @@ describe('GitHub body remote lifecycle', () => {
       'context=immagiov4/Nous',
     ]);
   });
-
   test('uploads one snapshot, preserves the managed suffix, then verifies raw and rendered data', async () => {
     const staleLocalSuffix = managedSuffix.replace(
       'Generated review context.',
@@ -175,7 +172,6 @@ describe('GitHub body remote lifecycle', () => {
     expect(uploadedBody).toBe(`${validBody.trimEnd()}\n\n${managedSuffix}`);
     expect(patchCount).toBe(1);
   });
-
   test('rejects a collapsed GitHub preview before PATCH', async () => {
     const bodyFile = await createBodyFile();
     const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {

@@ -168,7 +168,7 @@ export const assertValidMarkdownBody = (body, bodyFile) => {
 const expectedRenderedTags = body => {
   const root = parseMarkdown(body);
   const counts = new Map();
-  const increment = tag => counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  const increment = (tag, amount = 1) => counts.set(tag, (counts.get(tag) ?? 0) + amount);
   walkAst(root, (node, parent, listAncestor) => {
     const looseList =
       listAncestor?.spread || listAncestor?.children.some(listItem => listItem.spread);
@@ -181,6 +181,10 @@ const expectedRenderedTags = body => {
     if (node.type === 'blockquote' || node.type === 'table') increment(node.type);
     if (node.type === 'code') increment('pre');
     if (node.type === 'thematicBreak') increment('hr');
+  });
+  walkAst(root, node => {
+    if (node.type !== 'html') return;
+    for (const tag of counts.keys()) increment(tag, renderedTagCount(node.value, tag));
   });
   return counts;
 };
