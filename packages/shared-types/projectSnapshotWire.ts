@@ -1,3 +1,4 @@
+import { deriveLegacyLessonContent } from './lessonContent';
 import type { ProjectSourceKind } from './projectContract';
 import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
 
@@ -136,6 +137,36 @@ export class ProjectSnapshotWireError extends Error {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const canonicalizeLessonContentBlocks = (contentBlocks: unknown[]): Record<string, unknown>[] =>
+  contentBlocks.map(block => {
+    if (!isRecord(block)) {
+      throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+    }
+    if (typeof block.type === 'string') {
+      if (block.type === 'markdown' && typeof block.markdown !== 'string') {
+        throw new ProjectSnapshotWireError('Blocco Markdown lezione non valido.');
+      }
+      return block;
+    }
+    if (block.kind === 'markdown' && typeof block.markdown === 'string') {
+      const { kind: _legacyKind, ...canonicalBlock } = block;
+      return { ...canonicalBlock, type: 'markdown' };
+    }
+    throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+  });
+
+export const canonicalizeLessonNodeContent = <Node extends Record<string, unknown>>(
+  node: Node
+): Node => {
+  if (!Array.isArray(node.contentBlocks)) return node;
+  const contentBlocks = canonicalizeLessonContentBlocks(node.contentBlocks);
+  return {
+    ...node,
+    content: deriveLegacyLessonContent(contentBlocks),
+    contentBlocks,
+  } as Node;
+};
 
 const assertOptionalString = (record: Record<string, unknown>, key: string): void => {
   if (record[key] !== undefined && typeof record[key] !== 'string') {
@@ -482,6 +513,34 @@ const validateLearningPlan = (value: Record<string, unknown>): void => {
   }
 };
 
+const canonicalizeLearningPlanContent = (
+  learningPlan: Record<string, unknown>
+): Record<string, unknown> => ({
+  ...learningPlan,
+  ...(Array.isArray(learningPlan.modules)
+    ? {
+        modules: learningPlan.modules.map(module => {
+          if (!isRecord(module) || !Array.isArray(module.children)) return module;
+          return {
+            ...module,
+            children: module.children.map(child =>
+              isRecord(child) && child.kind === 'lesson'
+                ? canonicalizeLessonNodeContent(child)
+                : child
+            ),
+          };
+        }),
+      }
+    : {}),
+  ...(Array.isArray(learningPlan.sections)
+    ? {
+        sections: learningPlan.sections.map(section =>
+          isRecord(section) ? canonicalizeLessonNodeContent(section) : section
+        ),
+      }
+    : {}),
+});
+
 const validateProjectFields = (record: Record<string, unknown>): void => {
   STRING_FIELDS.forEach(key => {
     assertOptionalString(record, key);
@@ -574,9 +633,13 @@ export const decodeProjectSnapshotWire = (
       .filter(([key, entry]) => PROJECT_FIELDS.has(key) && key !== 'file' && entry !== undefined)
       .map(([key, entry]) => [key, structuredClone(entry)])
   ) as LegacyProjectSnapshotWire;
+  const learningPlan = isRecord(project.learningPlan)
+    ? canonicalizeLearningPlanContent(project.learningPlan)
+    : project.learningPlan;
 
   const decoded = {
     ...project,
+    ...(learningPlan === undefined ? {} : { learningPlan }),
     ...canonicalSource,
     ...(canonicalSource.sourceKind
       ? { sourceKind: canonicalSource.sourceKind }

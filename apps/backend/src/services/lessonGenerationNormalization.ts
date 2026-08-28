@@ -1,3 +1,4 @@
+import { deriveLegacyLessonContent } from '@shared/lessonContent';
 import {
   enforceLessonVisualTypeContract,
   MAX_GENERATED_VISUALS_PER_LESSON,
@@ -17,11 +18,7 @@ import type {
 import { type LessonVisualDraftPlan, toVisualRetryPlan } from './lessonGenerationVisuals.js';
 
 export const toLessonContent = (blocks: readonly { markdown?: string; type: string }[]): string =>
-  blocks
-    .flatMap(block =>
-      block.type === 'markdown' && block.markdown?.trim() ? [block.markdown.trim()] : []
-    )
-    .join('\n\n');
+  deriveLegacyLessonContent(blocks);
 
 const isClipWithinTranscript = (
   source: ResearchSource | undefined,

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { deriveLegacyLessonContent } from '@shared/lessonContent';
 
 import type { Sql } from 'postgres';
 
@@ -84,7 +85,7 @@ const sectionCommitPatch = (
   input: LessonVisualsState,
   runId: string
 ): NonNullable<TransactionProjectPatch['section']> => ({
-  content: input.content,
+  content: deriveLegacyLessonContent(input.contentBlocks),
   contentBlocks: input.contentBlocks,
   generationWarnings: input.warnings,
   generatedVisuals: input.generatedVisuals,
@@ -143,7 +144,7 @@ const buildPersistenceState = (
       sectionJson: canonicalJson(snapshotLessonGenerationTarget(project, sectionId)),
     },
     result: {
-      content: input.content,
+      content: deriveLegacyLessonContent(input.contentBlocks),
       contentBlocks: input.contentBlocks,
       documentAssets: input.documentAssets,
       generatedVisuals: input.generatedVisuals,
@@ -279,21 +280,29 @@ export const buildLessonGenerationCommitPatch = (
 const restoredSectionPatch = (
   sectionId: string,
   previous: Record<string, unknown>
-): NonNullable<TransactionProjectPatch['section']> => ({
-  content: typeof previous.content === 'string' ? previous.content : null,
-  contentBlocks: Array.isArray(previous.contentBlocks) ? previous.contentBlocks : null,
-  generationWarnings: Array.isArray(previous.generationWarnings)
-    ? previous.generationWarnings
-    : null,
-  generatedVisuals: Array.isArray(previous.generatedVisuals) ? previous.generatedVisuals : null,
-  imageRefs: Array.isArray(previous.imageRefs) ? previous.imageRefs : null,
-  learningAids: Array.isArray(previous.learningAids) ? previous.learningAids : null,
-  lastGenerationRunId:
-    typeof previous.lastGenerationRunId === 'string' ? previous.lastGenerationRunId : null,
-  quiz: Array.isArray(previous.quiz) ? previous.quiz : null,
-  sectionId,
-  visualPlanningDecision: previous.visualPlanningDecision ?? null,
-});
+): NonNullable<TransactionProjectPatch['section']> => {
+  const contentBlocks = Array.isArray(previous.contentBlocks) ? previous.contentBlocks : null;
+  return {
+    content:
+      contentBlocks === null
+        ? typeof previous.content === 'string'
+          ? previous.content
+          : null
+        : deriveLegacyLessonContent(contentBlocks),
+    contentBlocks,
+    generationWarnings: Array.isArray(previous.generationWarnings)
+      ? previous.generationWarnings
+      : null,
+    generatedVisuals: Array.isArray(previous.generatedVisuals) ? previous.generatedVisuals : null,
+    imageRefs: Array.isArray(previous.imageRefs) ? previous.imageRefs : null,
+    learningAids: Array.isArray(previous.learningAids) ? previous.learningAids : null,
+    lastGenerationRunId:
+      typeof previous.lastGenerationRunId === 'string' ? previous.lastGenerationRunId : null,
+    quiz: Array.isArray(previous.quiz) ? previous.quiz : null,
+    sectionId,
+    visualPlanningDecision: previous.visualPlanningDecision ?? null,
+  };
+};
 
 const restoredDossiers = (
   project: ProjectSnapshot,

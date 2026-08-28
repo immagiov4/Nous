@@ -1304,6 +1304,51 @@ describe('/api/projects', () => {
     });
   });
 
+  test('keeps structured lesson content canonical across later PUT and PATCH revisions', async () => {
+    const app = createApp();
+    const projectId = 'canonical-lesson-project';
+    const canonicalContent =
+      '## Timer\n\n```lua\nlocal tempo = 0\n\nlocal delta = 1\n```\n\nConclusione.';
+    const snapshot = createModuleSnapshot(projectId, 'Corso canonico');
+    const lesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!lesson) throw new Error('Missing canonical lesson fixture.');
+    lesson.content = canonicalContent;
+    lesson.contentBlocks = [{ markdown: canonicalContent, type: 'markdown' }];
+
+    const initialSave = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+    const laterSnapshot = initialSave.body.snapshot as ProjectSnapshot;
+    const laterLesson = laterSnapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!laterLesson) throw new Error('Missing saved canonical lesson.');
+    laterLesson.content =
+      '## Timer\n\nlocal tempo = 0\n```lua\n\nlocal delta = 1\n```\n\nConclusione.';
+    laterSnapshot.title = 'Titolo aggiornato';
+
+    const laterSave = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ expectedRevision: initialSave.body.meta.revision, snapshot: laterSnapshot });
+    expect(laterSave.status).toBe(200);
+
+    const patchResponse = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: laterSave.body.meta.revision,
+        patch: {
+          section: {
+            content: 'Seconda copia divergente',
+            sectionId: 'lesson-1',
+          },
+        },
+      });
+    expect(patchResponse.status).toBe(200);
+
+    const finalLoad = await request(app).get(`/api/projects/projects/${projectId}`);
+    const finalLesson = finalLoad.body.project.learningPlan.modules[0].children[0];
+    expect(finalLesson.content).toBe(canonicalContent);
+    expect(finalLesson.contentBlocks).toEqual([{ markdown: canonicalContent, type: 'markdown' }]);
+  });
+
   test('rejects source changes through the generic project patch route', async () => {
     const app = createApp();
     const snapshot = createPdfSnapshot('source-patch-project', 'Corso PDF');

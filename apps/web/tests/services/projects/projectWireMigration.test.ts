@@ -111,6 +111,42 @@ test('historical archive import and canonical re-export preserve lesson round-tr
   );
 });
 
+test('legacy lesson migration derives Markdown content from structured blocks across round trips', () => {
+  const canonicalContent =
+    '## Timer\n\n```lua\nlocal tempo = 0\n\nlocal delta = 1\n```\n\nConclusione.';
+  const inconsistentLegacyProject = {
+    id: 'legacy-divergent-lesson',
+    learningPlan: {
+      modules: [
+        {
+          children: [
+            {
+              content: '## Timer\n\nlocal tempo = 0\n```lua\n\nlocal delta = 1\n```',
+              contentBlocks: [{ kind: 'markdown', markdown: canonicalContent }],
+              id: 'lesson-1',
+              kind: 'lesson',
+              title: 'Timer',
+            },
+          ],
+          id: 'module-1',
+          title: 'Modulo',
+        },
+      ],
+      title: 'Corso',
+    },
+    version: '4.1',
+  };
+
+  const migrated = normalizeImportedProject(inconsistentLegacyProject);
+  const roundTripped = normalizeImportedProject(exportProjectData(migrated));
+
+  assert.equal(flattenLessons(migrated.learningPlan?.modules)[0]?.content, canonicalContent);
+  assert.deepEqual(flattenLessons(migrated.learningPlan?.modules)[0]?.contentBlocks, [
+    { markdown: canonicalContent, type: 'markdown' },
+  ]);
+  assert.equal(flattenLessons(roundTripped.learningPlan?.modules)[0]?.content, canonicalContent);
+});
+
 test('canonical payloads reject unknown fields and unsupported versions instead of dropping them', () => {
   assert.throws(
     () =>

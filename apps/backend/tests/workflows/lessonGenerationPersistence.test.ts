@@ -299,6 +299,7 @@ describe('durable lesson generation persistence', () => {
   test('commits atomically and adopts only assets referenced by the final lesson', async () => {
     const snapshot = project();
     const input = visualsState(snapshot);
+    input.content = 'Copia Markdown obsoleta';
     input.warnings = [
       {
         code: 'lesson_pdf_image_extraction_incomplete',
@@ -359,7 +360,7 @@ describe('durable lesson generation persistence', () => {
       ],
     });
     expect(patch.section).toMatchObject({
-      content: input.content,
+      content: '## Lezione\n\nContenuto nuovo.',
       generationWarnings: input.warnings,
       lastGenerationRunId: 'run-new',
       sectionId: 'lesson-1',
@@ -463,15 +464,26 @@ describe('durable lesson generation persistence', () => {
       buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
       NOW
     );
+    const historicalState = {
+      ...state,
+      previous: {
+        ...state.previous,
+        sectionJson: JSON.stringify({
+          ...JSON.parse(state.previous.sectionJson),
+          content: 'Copia storica divergente',
+        }),
+      },
+    };
 
     const undoPatch = buildLessonGenerationUndoPatch(
       { revision: 5, snapshot: committed },
       input,
-      state,
+      historicalState,
       execution
     );
     expect(undoPatch).not.toBeNull();
     const restored = applyProjectPatch(committed, undoPatch ?? {}, NOW);
+    expect(restored.learningPlan?.modules?.[0]?.children?.[0]?.content).toBe('Lezione precedente');
     expect(buildLessonGenerationTargetFingerprint(restored, 'lesson-1')).toBe(
       input.targetFingerprint
     );
