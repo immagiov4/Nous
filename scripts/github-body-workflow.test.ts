@@ -50,12 +50,13 @@ describe('pull request body workflow security contract', () => {
   });
 
   test('reads untrusted body text from the event file instead of shell interpolation', () => {
+    const serializedSteps = JSON.stringify(workflow.jobs.validate.steps);
     const commands = workflow.jobs.validate.steps
       .flatMap(step => (step.run ? [step.run] : []))
       .join('\n');
 
     expect(commands).toContain('process.env.GITHUB_EVENT_PATH');
     expect(commands).toContain('node scripts/github-body.mjs validate --body-file');
-    expect(commands).not.toContain('github.event.pull_request.body');
+    expect(serializedSteps).not.toContain('github.event.pull_request.body');
   });
 });

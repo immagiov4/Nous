@@ -9,7 +9,8 @@ const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
 const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
 const HEADING_PATTERN = /^( {0,3})(#{1,6})(?:[ \t]+|$)/u;
 const LIST_ITEM_PATTERN = /^( {0,3})(?:[-+*]|\d{1,3}[.)])[ \t]+\S/u;
-const INLINE_HEADING_PATTERN = /\S[ \t]+#{1,6}(?:[ \t]+\S|[ \t]*$)/u;
+// A single # in prose is indistinguishable from a flattened H1; H2+ matches the repository's PR sections without rejecting normal prose.
+const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
 const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,3}[.)])[ \t]+\[(?: |x|X)\][ \t]+\S/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
 const MANAGED_CUBIC_DESCRIPTION_PATTERN =
@@ -31,6 +32,20 @@ const maskRange = (characters, start, end) => {
   for (let index = start; index < end; index += 1) characters[index] = ' ';
 };
 
+const findInlineCodeSpan = (line, cursor) => {
+  const delimiterRuns = [...line.slice(cursor).matchAll(/`+/gu)];
+  for (const [index, openingRun] of delimiterRuns.entries()) {
+    const closingRun = delimiterRuns
+      .slice(index + 1)
+      .find(candidate => candidate[0].length === openingRun[0].length);
+    if (closingRun) {
+      const start = cursor + openingRun.index;
+      return { end: cursor + closingRun.index + closingRun[0].length, start };
+    }
+  }
+  return undefined;
+};
+
 const maskInlineCodeAndHtmlComments = (line, state) => {
   const characters = line.split('');
   let cursor = 0;
@@ -49,11 +64,11 @@ const maskInlineCodeAndHtmlComments = (line, state) => {
     }
 
     const commentStart = line.indexOf('<!--', cursor);
-    const inlineCode = /(`+)([^`]*?)\1/u.exec(line.slice(cursor));
-    const inlineCodeStart = inlineCode ? cursor + inlineCode.index : -1;
+    const inlineCode = findInlineCodeSpan(line, cursor);
+    const inlineCodeStart = inlineCode?.start ?? -1;
     if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
-      maskRange(characters, inlineCodeStart, inlineCodeStart + inlineCode[0].length);
-      cursor = inlineCodeStart + inlineCode[0].length;
+      maskRange(characters, inlineCodeStart, inlineCode.end);
+      cursor = inlineCode.end;
       continue;
     }
     if (commentStart === -1) break;

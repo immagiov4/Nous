@@ -104,6 +104,10 @@ describe('GitHub body Markdown validation', () => {
     const body = '## Example\n\nUse `\\n` in a string.\n\n```text\n\\n\n```\n';
 
     expect(validateMarkdownBody(body)).toEqual([]);
+    expect(validateMarkdownBody('## Example\n\nUse # for headings in prose.\n')).toEqual([]);
+    expect(
+      validateMarkdownBody('## Example\n\nUse ``text ` marker ## not-a-heading`` safely.\n')
+    ).toEqual([]);
 
     const issues = validateMarkdownBody(
       '## Example\n\nUse `<!--` literally.\n\nDescription ## Testing\n'
