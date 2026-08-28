@@ -439,15 +439,16 @@ export const createProjectLifecycleCommands = (
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }> {
     state.invalidateOpenSectionRequests();
     const requestId = state.beginWorkflow('openProject', t('Apertura progetto...'));
-    await beginHomeChatWorkspaceOpen(projectId, requestId);
-    if (projectLibrary.getCurrentProjectId() !== projectId) {
-      state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
-    }
     let didSettleOpenWorkflow = false;
-    state.setOpeningProjectId(projectId);
-    pushNousDebugTrace('open-project:start', { projectId, requestId });
 
     try {
+      await beginHomeChatWorkspaceOpen(projectId, requestId);
+      if (projectLibrary.getCurrentProjectId() !== projectId) {
+        state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
+      }
+      state.setOpeningProjectId(projectId);
+      pushNousDebugTrace('open-project:start', { projectId, requestId });
+
       const snapshot = await projectLibrary.loadStoredProject(projectId);
       if (!state.isWorkflowCurrent('openProject', requestId)) {
         pushNousDebugTrace('open-project:stale-after-load', { projectId, requestId });

@@ -3430,6 +3430,69 @@ test('a draft reopen waits for an in-flight cancelled-draft cleanup retry', asyn
   assert.deepEqual(operations, ['delete-started', 'delete-finished', 'load-project']);
 });
 
+test('a failed cleanup retry settles a concurrent draft reopen before the next Stop', async () => {
+  let resolveInterview: (snapshot: CourseInterviewSnapshot) => void = () => {};
+  let markInterviewStarted: () => void = () => {};
+  let failCleanupRetry: () => void = () => {};
+  const interviewStarted = new Promise<void>(resolve => {
+    markInterviewStarted = resolve;
+  });
+  const interview = new Promise<CourseInterviewSnapshot>(resolve => {
+    resolveInterview = resolve;
+  });
+  const cleanupRetryFailure = new Promise<void>((_resolve, reject) => {
+    failCleanupRetry = () => reject(new Error('storage still unavailable'));
+  });
+  let cleanupAttempts = 0;
+  const loadStoredProject = vi.fn();
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview: async () => {},
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async (_input, options) => {
+        options?.onRunStarted?.('interview-run');
+        markInterviewStarted();
+        return interview;
+      },
+    },
+    projectLibrary: {
+      deleteStoredProject: async () => {
+        cleanupAttempts += 1;
+        if (cleanupAttempts === 1) throw new Error('storage unavailable');
+        if (cleanupAttempts === 2) await cleanupRetryFailure;
+      },
+      loadStoredProject,
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare database' });
+  await interviewStarted;
+  const draftProjectId = projectLibrary.adapter.currentProjectId;
+  assert.ok(draftProjectId);
+  const firstCancellation = controller.cancelAssessment();
+  resolveInterview(
+    createInterviewSnapshot({
+      projectId: draftProjectId,
+      result: { kind: 'cancelled', projectId: draftProjectId },
+      status: 'completed',
+    })
+  );
+  await expect(firstCancellation).rejects.toThrow(t('Operazione non riuscita. Riprova.'));
+  assert.equal((await startPromise).outcome, 'failed');
+
+  const cleanupRetry = controller.cancelAssessment();
+  await vi.waitFor(() => expect(cleanupAttempts).toBe(2));
+  const reopen = controller.openProject(draftProjectId);
+  failCleanupRetry();
+
+  await expect(cleanupRetry).rejects.toThrow(t('Operazione non riuscita. Riprova.'));
+  assert.equal((await reopen).outcome, 'failed');
+  expect(loadStoredProject).not.toHaveBeenCalled();
+
+  await controller.cancelAssessment();
+  assert.equal(cleanupAttempts, 3);
+});
+
 test('a cancelled startHomeChat cannot clear a newer completed request', async () => {
   let resolveSourcePreparation: (
     value: Awaited<
