@@ -28,7 +28,7 @@ const MOBILE_SIDEBAR_MOTION_CLASS_NAME =
 const MODULE_TITLE_PREFIX = /^(?:modulo|module)\s+(\d+)\s*(?:[—–-]\s*)?/i;
 
 const getModuleDisplay = (title: string, fallbackOrdinal: number) => {
-  const prefixMatch = title.match(MODULE_TITLE_PREFIX);
+  const prefixMatch = MODULE_TITLE_PREFIX.exec(title);
   return {
     ordinal: prefixMatch ? Number(prefixMatch[1]) : fallbackOrdinal,
     title: title.replace(MODULE_TITLE_PREFIX, '').trim(),
@@ -466,24 +466,23 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                                 isGenerating: isFirstTimeGeneration,
                                 isLoading: isLessonLoading,
                               });
+                        const handleSectionClick = () => {
+                          if (section.kind === 'exercise') {
+                            onSelectExercise(section);
+                            return;
+                          }
+
+                          if (section.id === activeSectionId) return;
+
+                          setPendingSectionId(section.id);
+                          startSectionTransition(onSelectSection.bind(null, section));
+                        };
 
                         return (
                           <button
                             type="button"
                             key={section.id}
-                            onClick={() => {
-                              if (section.kind === 'exercise') {
-                                onSelectExercise(section);
-                                return;
-                              }
-
-                              if (section.id === activeSectionId) {
-                                return;
-                              }
-
-                              setPendingSectionId(section.id);
-                              startSectionTransition(() => onSelectSection(section));
-                            }}
+                            onClick={handleSectionClick}
                             onContextMenu={
                               section.kind === 'lesson'
                                 ? event => handleLessonContextMenu(event, section)

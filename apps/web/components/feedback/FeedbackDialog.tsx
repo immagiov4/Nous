@@ -189,8 +189,6 @@ function FeedbackDiagnostics({
   includeDiagnostics: boolean;
   onChange: (checked: boolean) => void;
 }) {
-  const productContext = diagnostics.productContext;
-
   return (
     <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
       <label className="flex cursor-pointer items-start gap-3">
@@ -223,55 +221,8 @@ function FeedbackDiagnostics({
             {t('Codici assistenza')}: {diagnostics.correlationIds.join(', ')}
           </p>
         ) : null}
-        {productContext ? (
-          <div className="mt-3 border-t border-stone-200 pt-3 dark:border-zinc-700">
-            <p className="font-semibold text-stone-700 dark:text-zinc-200">
-              {t('Contesto prodotto')}
-            </p>
-            <ul className="mt-2 space-y-1">
-              {productContext.project ? (
-                <li>
-                  {t('Corso')}: {productContext.project.id}
-                  {productContext.project.revision === undefined
-                    ? ''
-                    : ` · ${t('Revisione')} ${productContext.project.revision}`}
-                </li>
-              ) : null}
-              {productContext.section ? (
-                <li>
-                  {t('Lezione')}: {productContext.section.id}
-                </li>
-              ) : null}
-              {productContext.surface ? (
-                <li>
-                  {t('Area')}: {getFeedbackProductSurfaceLabel(productContext.surface)}
-                </li>
-              ) : null}
-              {productContext.workflow ? (
-                <li>
-                  {t('Attività')}:{' '}
-                  {getFeedbackWorkflowOperationLabel(productContext.workflow.operation)} (
-                  {getFeedbackWorkflowStatusLabel(productContext.workflow.status)}) ·{' '}
-                  {productContext.workflow.runId}
-                </li>
-              ) : null}
-            </ul>
-            {productContext.breadcrumbs?.length ? (
-              <ul className="mt-2 space-y-1">
-                {createFeedbackBreadcrumbListItems(productContext.breadcrumbs).map(
-                  ({ breadcrumb, key }) => (
-                    <li key={key}>
-                      {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
-                      {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
-                      {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
-                      {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
-                      {breadcrumb.timestamp}
-                    </li>
-                  )
-                )}
-              </ul>
-            ) : null}
-          </div>
+        {diagnostics.productContext ? (
+          <FeedbackProductContextPreview productContext={diagnostics.productContext} />
         ) : null}
         {diagnostics.consoleEntries.length > 0 ? (
           <ul className="mt-2 space-y-1 font-mono">
@@ -285,6 +236,59 @@ function FeedbackDiagnostics({
           <p className="mt-2">{t('Nessun log recente disponibile.')}</p>
         )}
       </details>
+    </div>
+  );
+}
+
+function FeedbackProductContextPreview({
+  productContext,
+}: {
+  productContext: NonNullable<FeedbackDiagnosticsSnapshot['productContext']>;
+}) {
+  return (
+    <div className="mt-3 border-t border-stone-200 pt-3 dark:border-zinc-700">
+      <p className="font-semibold text-stone-700 dark:text-zinc-200">{t('Contesto prodotto')}</p>
+      <ul className="mt-2 space-y-1">
+        {productContext.project ? (
+          <li>
+            {t('Corso')}: {productContext.project.id}
+            {productContext.project.revision === undefined
+              ? ''
+              : ` · ${t('Revisione')} ${productContext.project.revision}`}
+          </li>
+        ) : null}
+        {productContext.section ? (
+          <li>
+            {t('Lezione')}: {productContext.section.id}
+          </li>
+        ) : null}
+        {productContext.surface ? (
+          <li>
+            {t('Area')}: {getFeedbackProductSurfaceLabel(productContext.surface)}
+          </li>
+        ) : null}
+        {productContext.workflow ? (
+          <li>
+            {t('Attività')}: {getFeedbackWorkflowOperationLabel(productContext.workflow.operation)}{' '}
+            ({getFeedbackWorkflowStatusLabel(productContext.workflow.status)}) ·{' '}
+            {productContext.workflow.runId}
+          </li>
+        ) : null}
+      </ul>
+      {productContext.breadcrumbs?.length ? (
+        <ul className="mt-2 space-y-1">
+          {createFeedbackBreadcrumbListItems(productContext.breadcrumbs).map(
+            ({ breadcrumb, key }) => (
+              <li key={key}>
+                {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
+                {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
+                {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
+                {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} · {breadcrumb.timestamp}
+              </li>
+            )
+          )}
+        </ul>
+      ) : null}
     </div>
   );
 }

@@ -103,6 +103,54 @@ export const appendSpeechTranscription = (currentValue: string, transcription: s
   return currentText ? `${currentText} ${transcribedText}` : transcribedText;
 };
 
+function SpeechErrorAlert({
+  error,
+  onDismiss,
+  onRetry,
+  presentation,
+}: {
+  error: SpeechInputError;
+  onDismiss: () => void;
+  onRetry: () => void;
+  presentation: 'inline' | 'viewport';
+}) {
+  const isViewportAlert = presentation === 'viewport';
+  return (
+    <div
+      role="alert"
+      aria-label={error.message}
+      data-nous-context-menu-portal={isViewportAlert || undefined}
+      style={isViewportAlert ? { bottom: VIEWPORT_ERROR_ALERT_BOTTOM } : undefined}
+      className={`${
+        isViewportAlert
+          ? 'fixed inset-x-4 z-[70] w-auto'
+          : 'absolute bottom-[calc(100%+0.6rem)] right-0 z-30 w-64'
+      } flex items-start gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs leading-5 text-red-700 shadow-lg dark:border-red-900/70 dark:bg-stone-800 dark:text-red-200`}
+    >
+      <span className="min-w-0 flex-1">
+        {error.message}
+        {error.retryAvailable ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 block font-semibold underline underline-offset-2 hover:text-red-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:hover:text-white"
+          >
+            {t('Riprova trascrizione')}
+          </button>
+        ) : null}
+      </span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label={t('Chiudi avviso microfono')}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-100 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-300 dark:hover:bg-red-950/60 dark:hover:text-red-100"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 export default function SpeechInputButton({
   disabled = false,
   errorPresentation = 'inline',
@@ -295,44 +343,17 @@ export default function SpeechInputButton({
   const colorClassName = isRecording
     ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30'
     : 'text-stone-400 hover:bg-stone-100 hover:text-stone-600 disabled:text-stone-300 dark:text-stone-500 dark:hover:bg-zinc-700 dark:hover:text-stone-300 dark:disabled:text-stone-600';
+  const retryFailedTranscription = () => {
+    const failedTranscription = failedTranscriptionRef.current;
+    if (failedTranscription) void transcribeRecording(failedTranscription);
+  };
   const speechErrorAlert = speechInputError ? (
-    <div
-      role="alert"
-      aria-label={speechInputError.message}
-      data-nous-context-menu-portal={errorPresentation === 'viewport' || undefined}
-      style={errorPresentation === 'viewport' ? { bottom: VIEWPORT_ERROR_ALERT_BOTTOM } : undefined}
-      className={`${
-        errorPresentation === 'viewport'
-          ? 'fixed inset-x-4 z-[70] w-auto'
-          : 'absolute bottom-[calc(100%+0.6rem)] right-0 z-30 w-64'
-      } flex items-start gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs leading-5 text-red-700 shadow-lg dark:border-red-900/70 dark:bg-stone-800 dark:text-red-200`}
-    >
-      <span className="min-w-0 flex-1">
-        {speechInputError.message}
-        {speechInputError.retryAvailable ? (
-          <button
-            type="button"
-            onClick={() => {
-              const failedTranscription = failedTranscriptionRef.current;
-              if (failedTranscription) {
-                void transcribeRecording(failedTranscription);
-              }
-            }}
-            className="mt-1 block font-semibold underline underline-offset-2 hover:text-red-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:hover:text-white"
-          >
-            {t('Riprova trascrizione')}
-          </button>
-        ) : null}
-      </span>
-      <button
-        type="button"
-        onClick={() => setSpeechInputError(null)}
-        aria-label={t('Chiudi avviso microfono')}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-100 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-300 dark:hover:bg-red-950/60 dark:hover:text-red-100"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
+    <SpeechErrorAlert
+      error={speechInputError}
+      onDismiss={() => setSpeechInputError(null)}
+      onRetry={retryFailedTranscription}
+      presentation={errorPresentation}
+    />
   ) : null;
 
   return (
