@@ -22,21 +22,25 @@ const introducesPotentialFence = (original: string, processed: string): boolean 
 const processMarkdownRangeOutsideCode = (
   content: string,
   codeRanges: readonly MarkdownRange[],
-  bounds: MarkdownRange = { start: 0, end: content.length },
+  bounds?: MarkdownRange,
   processSegment = processMarkdownSegment
 ): string => {
+  const rangeStart = bounds?.start ?? 0;
+  const rangeEnd = bounds?.end ?? content.length;
   const parts: string[] = [];
-  let cursor = bounds.start;
+  let cursor = rangeStart;
   for (const range of codeRanges) {
     if (range.end <= cursor) continue;
-    if (range.start >= bounds.end) break;
+    if (range.start >= rangeEnd) break;
     const protectedStart = Math.max(cursor, range.start);
-    const protectedEnd = Math.min(bounds.end, range.end);
-    parts.push(processSegment(content.slice(cursor, protectedStart)));
-    parts.push(content.slice(protectedStart, protectedEnd));
+    const protectedEnd = Math.min(rangeEnd, range.end);
+    parts.push(
+      processSegment(content.slice(cursor, protectedStart)),
+      content.slice(protectedStart, protectedEnd)
+    );
     cursor = protectedEnd;
   }
-  parts.push(processSegment(content.slice(cursor, bounds.end)));
+  parts.push(processSegment(content.slice(cursor, rangeEnd)));
   return parts.join('');
 };
 

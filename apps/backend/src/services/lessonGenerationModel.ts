@@ -440,8 +440,7 @@ const updateMarkdownFence = (
 const unbalancedLatexCorrection = () =>
   retryLessonGenerationCorrection({
     code: 'lesson_review_latex_unbalanced',
-    feedback:
-      'Repair the verified lesson so every active LaTeX environment opened with \\begin{...} is closed by the matching \\end{...} in the same mathematical structure. Literal LaTeX commands mentioned in prose must use inline code instead of acting as active environments.',
+    feedback: String.raw`Repair the verified lesson so every active LaTeX environment opened with \begin{...} is closed by the matching \end{...} in the same mathematical structure. Literal LaTeX commands mentioned in prose must use inline code instead of acting as active environments.`,
     message: 'The verified lesson has unbalanced LaTeX environments.',
   });
 

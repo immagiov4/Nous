@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   parseMarkdownAnalysis,
   planMarkdownFencedCode,
@@ -52,7 +52,7 @@ test('normalizeMarkdownForRendering preserves every line in valid fenced code bl
   const input =
     "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve.\n```";
 
-  assert.equal(normalizeMarkdownForRendering(input), input);
+  expect(normalizeMarkdownForRendering(input)).toBe(input);
 });
 
 test('normalizeMarkdownForRendering strips accidental mark tags from inline code spans', () => {
@@ -171,7 +171,7 @@ test('normalizeMarkdownForRendering does not reconstruct a prematurely closed fe
 
   const output = normalizeMarkdownForRendering(input);
 
-  assert.equal(output, input);
+  expect(output).toBe(input);
 });
 
 test('normalizeMarkdownForRendering preserves model-split fenced blocks without merging them', () => {
@@ -189,7 +189,7 @@ test('normalizeMarkdownForRendering preserves model-split fenced blocks without 
     '```',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input);
+  expect(normalizeMarkdownForRendering(input)).toBe(input);
 });
 
 test('normalizeMarkdownForRendering converts bare-paren inline math containing LaTeX commands into dollar-delimited math', () => {
@@ -306,14 +306,13 @@ test('normalizeMarkdownForRendering escapes an unclosed fence so following prose
 test('normalizeMarkdownForRendering does not promote an indented pseudo-closer', () => {
   const input = ['~~~ts', 'const answer = 42;', '    ~~~', '## Still code-like input'].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input.replace('~~~', escapeFenceRun('~~~')));
+  expect(normalizeMarkdownForRendering(input)).toBe(input.replace('~~~', escapeFenceRun('~~~')));
 });
 
 test('normalizeMarkdownForRendering preserves container-relative indented code', () => {
   const input = ['> ~~~outer', '>', '>     ```lang', '>     content'].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
+  expect(normalizeMarkdownForRendering(input)).toBe(
     [`> ${escapeFenceRun('~~~')}outer`, '>', '>     ```lang', '>     content'].join('\n')
   );
 });
@@ -321,14 +320,13 @@ test('normalizeMarkdownForRendering preserves container-relative indented code',
 test('normalizeMarkdownForRendering preserves a valid lone-CR fenced block', () => {
   const lines = ['Prima', '```ts', 'const answer = 42;', '```', 'Dopo'];
 
-  assert.equal(normalizeMarkdownForRendering(lines.join('\r')), lines.join('\n'));
+  expect(normalizeMarkdownForRendering(lines.join('\r'))).toBe(lines.join('\n'));
 });
 
 test('normalizeMarkdownForRendering escapes consecutive unclosed list fences independently', () => {
   const input = ['- ```ts', '  first', '- ```js', '  second'].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
+  expect(normalizeMarkdownForRendering(input)).toBe(
     [`- ${escapeFenceRun('```')}ts`, '  first', `- ${escapeFenceRun('```')}js`, '  second'].join(
       '\n'
     )
@@ -386,8 +384,7 @@ test.each([
 test('normalizeMarkdownForRendering still processes a sibling after an unclosed list fence', () => {
   const input = ['- ```ts', '  first', '- Header <iostream>'].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
+  expect(normalizeMarkdownForRendering(input)).toBe(
     [`- ${escapeFenceRun('```')}ts`, '  first', '- Header &lt;iostream&gt;'].join('\n')
   );
 });
@@ -395,8 +392,7 @@ test('normalizeMarkdownForRendering still processes a sibling after an unclosed 
 test('normalizeMarkdownForRendering escapes disallowed HTML inside an unclosed fence', () => {
   const input = ['```ts', '<iframe src="https://example.com"></iframe>'].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
+  expect(normalizeMarkdownForRendering(input)).toBe(
     [`${escapeFenceRun('```')}ts`, '&lt;iframe src="https://example.com"&gt;&lt;/iframe&gt;'].join(
       '\n'
     )
@@ -413,8 +409,7 @@ test('normalizeMarkdownForRendering processes prose recovered from an unclosed f
     '    recovered prose',
   ].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
+  expect(normalizeMarkdownForRendering(input)).toBe(
     [
       `${escapeFenceRun('```')}outer`,
       '$x$',
@@ -460,7 +455,7 @@ test('normalizeMarkdownForRendering preserves HTML-like text in code after an un
     'After.',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', escapeFenceRun('```')));
+  expect(normalizeMarkdownForRendering(input)).toBe(input.replace('```', escapeFenceRun('```')));
 });
 
 test.each([
@@ -509,8 +504,7 @@ test('normalizeMarkdownForRendering escapes nested unclosed fence openers to a f
     '\n'
   );
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
+  expect(normalizeMarkdownForRendering(input)).toBe(
     [
       `${escapeFenceRun('```')}ts`,
       'const first = true;',
@@ -525,15 +519,14 @@ test('normalizeMarkdownForRendering leaves no inline-code delimiter in an escape
   const input = ['```js', 'alpha', '``'].join('\n');
   const output = normalizeMarkdownForRendering(input);
 
-  assert.equal(output, [`${escapeFenceRun('```')}js`, 'alpha', '``'].join('\n'));
-  assert.deepEqual(parseMarkdownAnalysis(output).codeRanges, []);
+  expect(output).toBe([`${escapeFenceRun('```')}js`, 'alpha', '``'].join('\n'));
+  expect(parseMarkdownAnalysis(output).codeRanges).toStrictEqual([]);
 });
 
 test('normalizeMarkdownForRendering preserves a valid fence exposed by nested malformed openers', () => {
   const input = ['`````', 'outer', '~~~~', 'middle', '```', 'inner', '```'].join('\n');
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
+  expect(normalizeMarkdownForRendering(input)).toBe(
     [
       escapeFenceRun('`````'),
       'outer',
@@ -551,19 +544,18 @@ test('normalizeMarkdownForRendering neutralizes many malformed openers', () => {
   const input = Array.from({ length: openerCount }, (_, index) => `\`\`\`lang${index}`).join('\n');
   const output = normalizeMarkdownForRendering(input);
 
-  assert.equal(
-    output.split('\n').filter(line => line.startsWith(`${escapeFenceRun('```')}lang`)).length,
-    openerCount
-  );
-  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
+  expect(
+    output.split('\n').filter(line => line.startsWith(`${escapeFenceRun('```')}lang`))
+  ).toHaveLength(openerCount);
+  expect(planMarkdownFencedCode(output).unclosedRanges).toStrictEqual([]);
 });
 
 test('normalizeMarkdownForRendering batches decreasing marker-only openers', () => {
   const lines = Array.from({ length: 64 }, (_, index) => '`'.repeat(67 - index));
   const output = normalizeMarkdownForRendering(lines.join('\n'));
 
-  assert.equal(output, lines.map(escapeFenceRun).join('\n'));
-  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
+  expect(output).toBe(lines.map(escapeFenceRun).join('\n'));
+  expect(planMarkdownFencedCode(output).unclosedRanges).toStrictEqual([]);
 });
 
 test('normalizeMarkdownForRendering does not turn indented plain-text fragments into code blocks', () => {
@@ -608,7 +600,7 @@ test('normalizeMarkdownForRendering leaves malformed JSON fences unrepaired', ()
     'Il vantaggio difensivo è chiaro.',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', escapeFenceRun('```')));
+  expect(normalizeMarkdownForRendering(input)).toBe(input.replace('```', escapeFenceRun('```')));
 });
 
 test('normalizeMarkdownForRendering does not insert a JSON fence before later fence syntax', () => {
@@ -628,7 +620,7 @@ test('normalizeMarkdownForRendering does not insert a JSON fence before later fe
     '```',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input);
+  expect(normalizeMarkdownForRendering(input)).toBe(input);
 });
 
 test('normalizeMarkdownForRendering escapes an unmatched fence after single-line JSON', () => {
@@ -641,14 +633,14 @@ test('normalizeMarkdownForRendering escapes an unmatched fence after single-line
     'Il server conserva invece lo stato.',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', escapeFenceRun('```')));
+  expect(normalizeMarkdownForRendering(input)).toBe(input.replace('```', escapeFenceRun('```')));
 });
 
 test('normalizeMarkdownForRendering does not restore a JSON fence around invalid JSON', () => {
   const input = ['Testo prima.', '', '{ "userId": }', '```', '', 'Testo dopo.'].join('\n');
   const output = normalizeMarkdownForRendering(input);
 
-  assert.doesNotMatch(output, /```json/u);
+  expect(output).not.toMatch(/```json/u);
   assert.match(output, /\{ "userId": \}/u);
   assert.match(output, /Testo dopo\./u);
 });

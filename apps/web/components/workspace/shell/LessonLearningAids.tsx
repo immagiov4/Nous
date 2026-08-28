@@ -24,11 +24,13 @@ interface LearningAidsProps {
   readonly onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
 }
 
-interface MobileLearningAidsProps
-  extends Pick<LearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'> {
+type MobileLearningAidsProps = Pick<
+  LearningAidsProps,
+  'isDarkMode' | 'learningAids' | 'onSaveLearningAids'
+> & {
   readonly isOpen: boolean;
   readonly onOpenChange: (isOpen: boolean) => void;
-}
+};
 
 const LEARNING_AID_TITLE_MAX_LENGTH = 64;
 const LEARNING_AID_CONTENT_MAX_LENGTH = 500;

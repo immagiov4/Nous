@@ -127,7 +127,7 @@ export default function WorkspaceReaderInlineQuestion({
               )}`}
             >
               <span className="float-left -ml-4 -mt-4 mb-1 mr-2 flex size-8 items-center justify-center rounded-br-2xl bg-stone-100/80 text-xs font-semibold text-stone-500 dark:bg-zinc-700/70 dark:text-stone-400">
-                {String.fromCharCode(65 + optionIndex)}
+                {String.fromCodePoint(65 + optionIndex)}
               </span>
               <div className="min-w-0">
                 <MarkdownRenderer

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import type { LessonImageRef, PdfImageAsset } from '../../../types';
 import {
   parsePdfContentParts,
@@ -43,7 +43,7 @@ test('preserves a malformed PDF marker before replacing a later complete marker'
     { 'pdf-img-001': asset }
   );
 
-  assert.match(rendered, /\{\{PDF_IMAGE:bozza poi/u);
+  expect(rendered).toMatch(/\{\{PDF_IMAGE:bozza poi/u);
   assert.match(rendered, /data-pdf-asset-id="pdf-img-001"/u);
   assert.match(rendered, /dopo/u);
 });
@@ -51,7 +51,7 @@ test('preserves a malformed PDF marker before replacing a later complete marker'
 test('preserves PDF placeholders with unknown options', () => {
   const content = 'Prima {{PDF_IMAGE:pdf-img-001|foo=bar}} dopo';
 
-  assert.equal(replacePdfImagePlaceholders(content, { 'pdf-img-001': asset }), content);
+  expect(replacePdfImagePlaceholders(content, { 'pdf-img-001': asset })).toBe(content);
 });
 
 test('drops orphan placeholders without throwing', () => {
@@ -125,7 +125,7 @@ test('normalizes persisted placeholders whose text contains a legacy opening bra
     'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {A|caption=Insieme {A}} dopo'
   );
 
-  assert.equal(restored, 'Prima {{PDF_IMAGE:pdf-img-001|alt=Set  A|caption=Insieme  A}} dopo');
+  expect(restored).toBe('Prima {{PDF_IMAGE:pdf-img-001|alt=Set  A|caption=Insieme  A}} dopo');
   assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
 });
 
@@ -134,6 +134,6 @@ test('does not let an incomplete legacy marker consume the next complete placeho
     'Prima {{PDF_IMAGE:bozza|alt=Set {A poi {{PDF_IMAGE:pdf-img-001}} dopo'
   );
 
-  assert.match(restored, /\{\{PDF_IMAGE:bozza\|alt=Set \{A poi/u);
+  expect(restored).toMatch(/\{\{PDF_IMAGE:bozza\|alt=Set \{A poi/u);
   assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
 });

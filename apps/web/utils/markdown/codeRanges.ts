@@ -387,14 +387,14 @@ const MARKDOWN_LINE_BREAK_PATTERN = /\r\n?|\n/u;
 
 const hasClosingFence = (source: string, parsedCode: string): boolean => {
   const lines = source.split(MARKDOWN_LINE_BREAK_PATTERN);
-  const openingMatch = lines[0]?.match(MARKDOWN_FENCE_OPENER_PATTERN);
+  const openingMatch = MARKDOWN_FENCE_OPENER_PATTERN.exec(lines[0] ?? '');
   if (!openingMatch || lines.length < 2) {
     return false;
   }
 
   const openingFence = openingMatch[1];
   const closingFence = new RegExp(
-    `^[\\t >]*${openingFence[0]}{${openingFence.length},}[\\t ]*$`,
+    String.raw`^[\t >]*${openingFence[0]}{${openingFence.length},}[\t ]*$`,
     'u'
   );
   const parsedCodeLineCount =
@@ -449,7 +449,7 @@ const getFenceOpeningRange = (content: string, range: MarkdownRange): MarkdownRa
     openingLineEnd === -1 ? range.end : openingLineEnd
   );
   const openingFenceStart = range.start + Math.max(openingLine.search(/[`~]/u), 0);
-  const openingFenceLength = content.slice(openingFenceStart).match(/^[`~]+/u)?.[0].length ?? 0;
+  const openingFenceLength = /^[`~]+/u.exec(content.slice(openingFenceStart))?.[0].length ?? 0;
   return { start: openingFenceStart, end: openingFenceStart + openingFenceLength };
 };
 
@@ -471,6 +471,28 @@ interface MarkdownLine {
   content: string;
   start: number;
 }
+
+const getProjectionFenceCandidate = (
+  line: MarkdownLine,
+  firstOpeningRange: MarkdownRange
+): ProjectionFenceCandidate | undefined => {
+  const match = CONTAINER_FENCE_LINE_PATTERN.exec(line.content);
+  if (!match) return undefined;
+
+  const [, containerPrefix, fence, info] = match;
+  const normalizedInfo = info.trim();
+  const start = line.start + containerPrefix.length;
+  const hasValidInfo = fence.startsWith('~') || !normalizedInfo.includes('`');
+  const hasValidIndentation = CONTAINER_FENCE_INDENTATION_PATTERN.test(containerPrefix);
+  if (start === firstOpeningRange.start || !hasValidInfo || !hasValidIndentation) return undefined;
+
+  return {
+    start,
+    end: start + fence.length,
+    fenceCharacter: fence[0],
+    isMarkerOnly: normalizedInfo.length === 0,
+  };
+};
 
 const getMarkdownLines = (content: string, sourceStart: number): MarkdownLine[] => {
   const lines: MarkdownLine[] = [];
@@ -498,22 +520,8 @@ const getProjectionOpeningRanges = (
     const rangeContent = content.slice(unclosedRange.start, unclosedRange.end);
     const candidates: ProjectionFenceCandidate[] = [];
     for (const line of getMarkdownLines(rangeContent, unclosedRange.start)) {
-      const match = line.content.match(CONTAINER_FENCE_LINE_PATTERN);
-      if (match) {
-        const [, containerPrefix, fence, info] = match;
-        const normalizedInfo = info.trim();
-        const start = line.start + containerPrefix.length;
-        const hasValidInfo = fence[0] === '~' || !normalizedInfo.includes('`');
-        const hasValidIndentation = CONTAINER_FENCE_INDENTATION_PATTERN.test(containerPrefix);
-        if (start !== firstOpeningRange.start && hasValidInfo && hasValidIndentation) {
-          candidates.push({
-            start,
-            end: start + fence.length,
-            fenceCharacter: fence[0],
-            isMarkerOnly: normalizedInfo.length === 0,
-          });
-        }
-      }
+      const candidate = getProjectionFenceCandidate(line, firstOpeningRange);
+      if (candidate) candidates.push(candidate);
     }
 
     const openingRanges = [firstOpeningRange];
@@ -687,6 +695,22 @@ const getFootnoteDefinitionLabelRange = (
   return nodeRange.start < end ? { start: nodeRange.start, end } : null;
 };
 
+const getTaskListMarkerRange = (
+  content: string,
+  node: MarkdownAstNode,
+  nodeRange: MarkdownRange
+): MarkdownRange | null => {
+  if (node.type !== 'listItem' || node.checked === null || node.checked === undefined) return null;
+
+  const lineEnd = content.indexOf('\n', nodeRange.start);
+  const firstLineEnd = lineEnd === -1 ? nodeRange.end : Math.min(lineEnd, nodeRange.end);
+  const taskMarker = /\[[ xX]\]/u.exec(content.slice(nodeRange.start, firstLineEnd));
+  if (!taskMarker) return null;
+
+  const markerStart = nodeRange.start + taskMarker.index;
+  return { start: markerStart, end: markerStart + taskMarker[0].length };
+};
+
 const getStructuralRangesForNode = (
   content: string,
   node: MarkdownAstNode,
@@ -694,15 +718,8 @@ const getStructuralRangesForNode = (
   sourceOffsets: number[]
 ): MarkdownRange[] => {
   if (node.type === 'thematicBreak' || node.type === 'footnoteReference') return [nodeRange];
-  if (node.type === 'listItem' && node.checked !== null && node.checked !== undefined) {
-    const lineEnd = content.indexOf('\n', nodeRange.start);
-    const firstLineEnd = lineEnd === -1 ? nodeRange.end : Math.min(lineEnd, nodeRange.end);
-    const taskMarker = /\[[ xX]\]/u.exec(content.slice(nodeRange.start, firstLineEnd));
-    if (taskMarker) {
-      const markerStart = nodeRange.start + taskMarker.index;
-      return [{ start: markerStart, end: markerStart + taskMarker[0].length }];
-    }
-  }
+  const taskMarkerRange = getTaskListMarkerRange(content, node, nodeRange);
+  if (taskMarkerRange) return [taskMarkerRange];
   if (node.type === 'heading') {
     const underlineStart = content.lastIndexOf('\n', nodeRange.end - 1) + 1;
     if (underlineStart > nodeRange.start) return [{ start: underlineStart, end: nodeRange.end }];
@@ -736,6 +753,140 @@ const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
     }
     return ranges;
   });
+
+interface MarkdownCollectionContext {
+  analysis: MarkdownAnalysis;
+  content: string;
+  sourceOffsets: number[];
+}
+
+const visitMarkdownTree = (
+  node: MarkdownAstNode,
+  visitNode: (node: MarkdownAstNode) => void
+): void => {
+  visitNode(node);
+  node.children?.forEach(child => {
+    visitMarkdownTree(child, visitNode);
+  });
+};
+
+const hasExactRange = (ranges: MarkdownRange[], range: MarkdownRange): boolean =>
+  ranges.some(candidate => candidate.start === range.start && candidate.end === range.end);
+
+type CodeRangeCollectionMode = 'append' | 'deduplicate';
+
+const collectCodeAndMathRanges = (
+  node: MarkdownAstNode,
+  range: MarkdownRange,
+  context: MarkdownCollectionContext,
+  codeRangeMode: CodeRangeCollectionMode
+): void => {
+  const { analysis, content } = context;
+  const shouldAddCodeRange = (codeRange: MarkdownRange): boolean =>
+    codeRangeMode === 'append' || !hasExactRange(analysis.codeRanges, codeRange);
+
+  if (node.type === 'inlineCode' && shouldAddCodeRange(range)) {
+    analysis.codeRanges.push(range);
+  }
+  if (node.type === 'code') {
+    const blockRange = expandToLineBounds(content, range);
+    if (shouldAddCodeRange(blockRange)) analysis.codeRanges.push(blockRange);
+  }
+  if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
+};
+
+const collectImageRange = (
+  node: MarkdownAstNode,
+  range: MarkdownRange,
+  context: MarkdownCollectionContext
+): void => {
+  if (node.type !== 'image' && node.type !== 'imageReference') return;
+  const source = context.content.slice(range.start, range.end);
+  if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
+    context.analysis.imageRanges.push(range);
+  }
+};
+
+const collectLinkRanges = (
+  node: MarkdownAstNode,
+  range: MarkdownRange,
+  context: MarkdownCollectionContext
+): void => {
+  const { analysis, content, sourceOffsets } = context;
+  if (node.type === 'link') {
+    const source = content.slice(range.start, range.end);
+    if (isAnnotationUnsafeAutolink(node, source)) {
+      analysis.annotationOnlyRanges.push(range);
+    } else if (!(source.startsWith('<') && source.endsWith('>'))) {
+      const destinationRange = getInlineLinkDestinationRange(content, node, range, sourceOffsets);
+      if (destinationRange) analysis.linkDestinationRanges.push(destinationRange);
+    }
+  }
+  if (node.type === 'linkReference') {
+    const labelRange = getReferenceLabelRange(content, node, range, sourceOffsets);
+    if (labelRange) analysis.referenceLinkLabelRanges.push(labelRange);
+  }
+};
+
+const collectHtmlRanges = (
+  node: MarkdownAstNode,
+  range: MarkdownRange,
+  context: MarkdownCollectionContext,
+  escapedHtmlContentRanges: MarkdownRange[]
+): void => {
+  if (node.type !== 'html') return;
+  const source = context.content.slice(range.start, range.end);
+  if (isRendererHiddenHtmlSyntax(source)) {
+    context.analysis.htmlSyntaxRanges.push(range);
+    return;
+  }
+  context.analysis.htmlSyntaxRanges.push(...getAllowedRawHtmlTagRanges(source, range.start));
+  if (escapeDisallowedRawHtml(source) !== source) escapedHtmlContentRanges.push(range);
+};
+
+const collectPrimaryNodeRanges = (
+  node: MarkdownAstNode,
+  range: MarkdownRange,
+  context: MarkdownCollectionContext,
+  escapedHtmlContentRanges: MarkdownRange[]
+): void => {
+  const { analysis, content, sourceOffsets } = context;
+  collectCodeAndMathRanges(node, range, context, 'append');
+  analysis.structuralRanges.push(
+    ...getStructuralRangesForNode(content, node, range, sourceOffsets)
+  );
+  if (node.type === 'footnoteReference') analysis.inlineBoundaryRanges.push(range);
+  collectImageRange(node, range, context);
+  if (node.type === 'definition') {
+    analysis.referenceDefinitionRanges.push(expandToLineBounds(content, range));
+  }
+  collectHtmlRanges(node, range, context, escapedHtmlContentRanges);
+  collectLinkRanges(node, range, context);
+};
+
+const isRangeInsideAny = (range: MarkdownRange, containers: MarkdownRange[]): boolean =>
+  containers.some(container => range.start >= container.start && range.end <= container.end);
+
+const collectEscapedHtmlNodeRanges = (
+  node: MarkdownAstNode,
+  range: MarkdownRange,
+  context: MarkdownCollectionContext,
+  escapedHtmlContentRanges: MarkdownRange[]
+): void => {
+  collectCodeAndMathRanges(node, range, context, 'deduplicate');
+  if (!isRangeInsideAny(range, escapedHtmlContentRanges)) return;
+
+  const { analysis, content, sourceOffsets } = context;
+  if (node.type === 'html' && isRendererHiddenHtmlSyntax(content.slice(range.start, range.end))) {
+    analysis.htmlSyntaxRanges.push(range);
+  }
+  analysis.structuralRanges.push(
+    ...getStructuralRangesForNode(content, node, range, sourceOffsets)
+  );
+  if (node.type === 'footnoteReference') analysis.inlineBoundaryRanges.push(range);
+  collectImageRange(node, range, context);
+  collectLinkRanges(node, range, context);
+};
 
 export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
   const fencedCodePlan = planMarkdownFencedCode(content);
@@ -784,132 +935,29 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
   const root = markdownParser.runSync(
     markdownParser.parse(fenceProjection.content)
   ) as MarkdownAstNode;
-  const visit = (node: MarkdownAstNode): void => {
-    const range = getNodeRange(node, markdownSourceOffsets);
-    if (range) {
-      if (node.type === 'inlineCode') {
-        analysis.codeRanges.push(range);
-      }
-      if (node.type === 'code') {
-        const blockRange = expandToLineBounds(content, range);
-        analysis.codeRanges.push(blockRange);
-      }
-      if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
-      analysis.structuralRanges.push(
-        ...getStructuralRangesForNode(content, node, range, markdownSourceOffsets)
-      );
-      if (node.type === 'footnoteReference') analysis.inlineBoundaryRanges.push(range);
-      if (node.type === 'image' || node.type === 'imageReference') {
-        const source = content.slice(range.start, range.end);
-        if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
-          analysis.imageRanges.push(range);
-        }
-      }
-      if (node.type === 'definition') {
-        analysis.referenceDefinitionRanges.push(expandToLineBounds(content, range));
-      }
-      if (node.type === 'html') {
-        const source = content.slice(range.start, range.end);
-        if (isRendererHiddenHtmlSyntax(source)) {
-          analysis.htmlSyntaxRanges.push(range);
-        } else {
-          analysis.htmlSyntaxRanges.push(...getAllowedRawHtmlTagRanges(source, range.start));
-          if (escapeDisallowedRawHtml(source) !== source) {
-            escapedHtmlContentRanges.push(range);
-          }
-        }
-      }
-      if (node.type === 'link') {
-        const source = content.slice(range.start, range.end);
-        if (isAnnotationUnsafeAutolink(node, source)) {
-          analysis.annotationOnlyRanges.push(range);
-        } else if (!(source.startsWith('<') && source.endsWith('>'))) {
-          const destinationRange = getInlineLinkDestinationRange(
-            content,
-            node,
-            range,
-            markdownSourceOffsets
-          );
-          if (destinationRange) analysis.linkDestinationRanges.push(destinationRange);
-        }
-      }
-      if (node.type === 'linkReference') {
-        const labelRange = getReferenceLabelRange(content, node, range, markdownSourceOffsets);
-        if (labelRange) analysis.referenceLinkLabelRanges.push(labelRange);
-      }
-    }
-    node.children?.forEach(visit);
+  const primaryContext: MarkdownCollectionContext = {
+    analysis,
+    content,
+    sourceOffsets: markdownSourceOffsets,
   };
-  visit(root);
+  visitMarkdownTree(root, node => {
+    const range = getNodeRange(node, markdownSourceOffsets);
+    if (range) collectPrimaryNodeRanges(node, range, primaryContext, escapedHtmlContentRanges);
+  });
   const htmlRoot = markdownParser.runSync(
     markdownParser.parse(htmlFenceProjection.content)
   ) as MarkdownAstNode;
-  const visitEscapedHtml = (node: MarkdownAstNode): void => {
+  const escapedHtmlContext: MarkdownCollectionContext = {
+    analysis,
+    content,
+    sourceOffsets: htmlSourceOffsets,
+  };
+  visitMarkdownTree(htmlRoot, node => {
     const range = getNodeRange(node, htmlSourceOffsets);
     if (range) {
-      const isInsideEscapedHtml = escapedHtmlContentRanges.some(
-        htmlRange => range.start >= htmlRange.start && range.end <= htmlRange.end
-      );
-      if (
-        isInsideEscapedHtml &&
-        node.type === 'html' &&
-        isRendererHiddenHtmlSyntax(content.slice(range.start, range.end))
-      ) {
-        analysis.htmlSyntaxRanges.push(range);
-      }
-      if (
-        node.type === 'inlineCode' &&
-        !analysis.codeRanges.some(
-          candidate => candidate.start === range.start && candidate.end === range.end
-        )
-      ) {
-        analysis.codeRanges.push(range);
-      }
-      if (node.type === 'code') {
-        const blockRange = expandToLineBounds(content, range);
-        if (
-          !analysis.codeRanges.some(
-            candidate => candidate.start === blockRange.start && candidate.end === blockRange.end
-          )
-        ) {
-          analysis.codeRanges.push(blockRange);
-        }
-      }
-      if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
-      if (isInsideEscapedHtml) {
-        analysis.structuralRanges.push(
-          ...getStructuralRangesForNode(content, node, range, htmlSourceOffsets)
-        );
-        if (node.type === 'footnoteReference') analysis.inlineBoundaryRanges.push(range);
-      }
-      if (isInsideEscapedHtml && (node.type === 'image' || node.type === 'imageReference')) {
-        const source = content.slice(range.start, range.end);
-        if (node.type === 'imageReference' || rendererParsesImageSource(source)) {
-          analysis.imageRanges.push(range);
-        }
-      }
-      if (isInsideEscapedHtml && node.type === 'link') {
-        const source = content.slice(range.start, range.end);
-        if (isAnnotationUnsafeAutolink(node, source)) {
-          analysis.annotationOnlyRanges.push(range);
-        } else if (!(source.startsWith('<') && source.endsWith('>'))) {
-          const destinationRange = getInlineLinkDestinationRange(
-            content,
-            node,
-            range,
-            htmlSourceOffsets
-          );
-          if (destinationRange) analysis.linkDestinationRanges.push(destinationRange);
-        }
-      }
-      if (isInsideEscapedHtml && node.type === 'linkReference') {
-        const labelRange = getReferenceLabelRange(content, node, range, htmlSourceOffsets);
-        if (labelRange) analysis.referenceLinkLabelRanges.push(labelRange);
-      }
+      collectEscapedHtmlNodeRanges(node, range, escapedHtmlContext, escapedHtmlContentRanges);
     }
-    node.children?.forEach(visitEscapedHtml);
-  };
-  visitEscapedHtml(htmlRoot);
+  });
   analysis.mathRanges.push(
     ...getRenderedMathSourceRanges(content).filter(
       mathRange =>

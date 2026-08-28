@@ -369,14 +369,15 @@ const collectLineNormalizedMathRanges = (
   const lineStarts = getLineStartOffsets(lines);
   const ranges: MarkdownMathRange[] = [];
 
-  for (let index = 0; index < lines.length; index += 1) {
+  let index = 0;
+  while (index < lines.length) {
     const orphanedCandidate = readOrphanedBracketMathCandidate(lines, index);
     if (orphanedCandidate && buildDisplayMathReplacement(orphanedCandidate.body)) {
       ranges.push({
         start: lineStarts[index],
         end: lineStarts[orphanedCandidate.lastIndex] + lines[orphanedCandidate.lastIndex].length,
       });
-      index = orphanedCandidate.nextIndex - 1;
+      index = orphanedCandidate.nextIndex;
       continue;
     }
 
@@ -404,6 +405,7 @@ const collectLineNormalizedMathRanges = (
         end: lineEnd - (trailingPlainText.length - trailingPlainText.trimEnd().length),
       });
     }
+    index += 1;
   }
   return ranges;
 };

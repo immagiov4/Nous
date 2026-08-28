@@ -17,7 +17,7 @@ import {
   type ProjectSnapshotWire,
 } from '@shared/projectSnapshotWire';
 import JSZip from 'jszip';
-import { expectTypeOf, test } from 'vitest';
+import { expect, expectTypeOf, test } from 'vitest';
 import {
   exportProjectData,
   normalizeImportedProject,
@@ -201,24 +201,22 @@ test('legacy lesson migration derives Markdown content from structured blocks ac
   const migrated = normalizeImportedProject(inconsistentLegacyProject);
   const roundTripped = normalizeImportedProject(exportProjectData(migrated));
 
-  assert.equal(flattenLessons(migrated.learningPlan?.modules)[0]?.content, canonicalContent);
-  assert.deepEqual(flattenLessons(migrated.learningPlan?.modules)[0]?.contentBlocks, [
+  expect(flattenLessons(migrated.learningPlan?.modules)[0]?.content).toBe(canonicalContent);
+  expect(flattenLessons(migrated.learningPlan?.modules)[0]?.contentBlocks).toStrictEqual([
     { markdown: canonicalContent, type: 'markdown' },
   ]);
-  assert.equal(flattenLessons(roundTripped.learningPlan?.modules)[0]?.content, canonicalContent);
-  assert.deepEqual(flattenLessons(roundTripped.learningPlan?.modules)[0]?.contentBlocks, [
+  expect(flattenLessons(roundTripped.learningPlan?.modules)[0]?.content).toBe(canonicalContent);
+  expect(flattenLessons(roundTripped.learningPlan?.modules)[0]?.contentBlocks).toStrictEqual([
     { markdown: canonicalContent, type: 'markdown' },
   ]);
 });
 
 test('wire decoding rejects unsupported lesson content block types before projection', () => {
-  assert.throws(
-    () =>
-      decodeProjectSnapshotWire(
-        projectWithLessonBlocks([{ markdown: 'Contenuto strutturato.', type: 'markdwon' }])
-      ),
-    /tipo blocco contenuto lezione non supportato/iu
-  );
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks([{ markdown: 'Contenuto strutturato.', type: 'markdwon' }])
+    )
+  ).toThrow(/tipo blocco contenuto lezione non supportato/iu);
 });
 
 test('wire decoding rejects malformed allowlisted lesson blocks before projection', () => {
@@ -250,8 +248,7 @@ test('wire decoding rejects malformed allowlisted lesson blocks before projectio
   ];
 
   for (const block of malformedBlocks) {
-    assert.throws(
-      () => decodeProjectSnapshotWire(projectWithLessonBlocks([block])),
+    expect(() => decodeProjectSnapshotWire(projectWithLessonBlocks([block]))).toThrow(
       /blocco contenuto lezione non valido/iu
     );
   }
@@ -275,8 +272,7 @@ test('wire decoding rejects authoritative lesson block collections without Markd
   ];
 
   for (const contentBlocks of textlessCollections) {
-    assert.throws(
-      () => decodeProjectSnapshotWire(projectWithLessonBlocks(contentBlocks)),
+    expect(() => decodeProjectSnapshotWire(projectWithLessonBlocks(contentBlocks))).toThrow(
       /blocchi contenuto lezione senza testo Markdown/iu
     );
   }
@@ -315,8 +311,8 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
     }
   ).modules[0]?.children[0];
 
-  assert.equal(lesson?.content, '## Contenuto strutturato');
-  assert.deepEqual(lesson?.contentBlocks, contentBlocks);
+  expect(lesson?.content).toBe('## Contenuto strutturato');
+  expect(lesson?.contentBlocks).toStrictEqual(contentBlocks);
 });
 
 test.each([
@@ -373,88 +369,78 @@ test.each([
 });
 
 test('wire decoding rejects duplicate generated visual slots', () => {
-  assert.throws(
-    () =>
-      decodeProjectSnapshotWire(
-        projectWithLessonBlocks([
-          { markdown: 'Contenuto strutturato.', type: 'markdown' },
-          { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
-          { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
-        ])
-      ),
-    /riferimenti visuali della lezione non validi/iu
-  );
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks([
+        { markdown: 'Contenuto strutturato.', type: 'markdown' },
+        { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+        { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+      ])
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
 });
 
 test('wire decoding rejects a legacy visual referenced from multiple slots', () => {
-  assert.throws(
-    () =>
-      decodeProjectSnapshotWire(
-        projectWithLessonBlocks(
-          [
-            { markdown: 'Contenuto strutturato.', type: 'markdown' },
-            { slotId: 'slot-a', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
-            { slotId: 'slot-b', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
-          ],
-          [legacyGeneratedVisual]
-        )
-      ),
-    /riferimenti visuali della lezione non validi/iu
-  );
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+          { slotId: 'slot-b', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+        ],
+        [legacyGeneratedVisual]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
 });
 
 test('wire decoding rejects generated visual references assigned to another slot', () => {
-  assert.throws(
-    () =>
-      decodeProjectSnapshotWire(
-        projectWithLessonBlocks(
-          [
-            { markdown: 'Contenuto strutturato.', type: 'markdown' },
-            { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-b' },
-          ],
-          [{ id: 'visual-b', slotId: 'slot-b' }]
-        )
-      ),
-    /riferimenti visuali della lezione non validi/iu
-  );
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-b' },
+        ],
+        [{ id: 'visual-b', slotId: 'slot-b' }]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
 });
 
 test('wire decoding rejects unrecognized slotless visual records', () => {
-  assert.throws(
-    () =>
-      decodeProjectSnapshotWire(
-        projectWithLessonBlocks(
-          [
-            { markdown: 'Contenuto strutturato.', type: 'markdown' },
-            { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
-          ],
-          [{ id: 'visual-a' }]
-        )
-      ),
-    /riferimenti visuali della lezione non validi/iu
-  );
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
+        ],
+        [{ id: 'visual-a' }]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
 });
 
 test('wire decoding rejects slotless durable visuals with legacy-shaped fields', () => {
-  assert.throws(
-    () =>
-      decodeProjectSnapshotWire(
-        projectWithLessonBlocks(
-          [
-            { markdown: 'Contenuto strutturato.', type: 'markdown' },
-            { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
-          ],
-          [
-            {
-              ...legacyGeneratedVisual,
-              id: 'visual-a',
-              render: { code: '<svg></svg>', kind: 'svg' },
-            },
-          ]
-        )
-      ),
-    /riferimenti visuali della lezione non validi/iu
-  );
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
+        ],
+        [
+          {
+            ...legacyGeneratedVisual,
+            id: 'visual-a',
+            render: { code: '<svg></svg>', kind: 'svg' },
+          },
+        ]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
 });
 
 test('import and round trip preserve references to recognizable legacy generated visuals', () => {
@@ -471,10 +457,10 @@ test('import and round trip preserve references to recognizable legacy generated
   const importedLesson = flattenLessons(imported.learningPlan?.modules)[0];
   const roundTrippedLesson = flattenLessons(roundTripped.learningPlan?.modules)[0];
 
-  assert.deepEqual(importedLesson?.contentBlocks, contentBlocks);
-  assert.deepEqual(importedLesson?.generatedVisuals, [legacyGeneratedVisual]);
-  assert.deepEqual(roundTrippedLesson?.contentBlocks, contentBlocks);
-  assert.deepEqual(roundTrippedLesson?.generatedVisuals, [legacyGeneratedVisual]);
+  expect(importedLesson?.contentBlocks).toStrictEqual(contentBlocks);
+  expect(importedLesson?.generatedVisuals).toStrictEqual([legacyGeneratedVisual]);
+  expect(roundTrippedLesson?.contentBlocks).toStrictEqual(contentBlocks);
+  expect(roundTrippedLesson?.generatedVisuals).toStrictEqual([legacyGeneratedVisual]);
 });
 
 test('canonical payloads reject unknown fields and unsupported versions instead of dropping them', () => {

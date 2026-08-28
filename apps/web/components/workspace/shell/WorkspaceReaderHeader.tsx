@@ -83,6 +83,14 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     onRegenerateActiveSection();
   };
   const visibleLoadingStatus = isMobileViewport ? loadingStatus : loadingStatus.toUpperCase();
+  let regenerateAvailabilityClassName = '';
+  if (!canRegenerate || isLoading) {
+    regenerateAvailabilityClassName =
+      'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500';
+  } else if (!isMobileViewport) {
+    regenerateAvailabilityClassName =
+      'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300';
+  }
   let loadingBadge: ReactNode = null;
   if (isLoading) {
     loadingBadge = (
@@ -176,13 +184,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                 isMobileViewport
                   ? 'h-9 w-9 border-0 bg-transparent text-gray-400 hover:bg-black/5 hover:text-gray-600 dark:bg-transparent dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
                   : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
-              } ${
-                !canRegenerate || isLoading
-                  ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500'
-                  : isMobileViewport
-                    ? ''
-                    : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
-              }`}
+              } ${regenerateAvailabilityClassName}`}
               title={t(
                 canRegenerate ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
               )}
