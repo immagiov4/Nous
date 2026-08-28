@@ -266,7 +266,7 @@ const projectCharacterReference = (state: VisibleProjectionState): boolean => {
 
   const decodedReference = decodeString(reference);
   if (decodedReference === reference) return false;
-  for (const character of decodedReference) {
+  for (const character of decodedReference.split('')) {
     pushVisibleCharacter(state, character, state.index, referenceEnd);
   }
   state.atLineStart = false;
