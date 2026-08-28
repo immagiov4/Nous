@@ -35,6 +35,29 @@ const legacyProject = JSON.parse(
   readFileSync(resolve('apps/web/tests/fixtures/projects/legacy-codebase-project.json'), 'utf8')
 ) as Record<string, unknown>;
 
+const projectWithLessonBlocks = (contentBlocks: unknown[]) => ({
+  id: 'lesson-block-project',
+  learningPlan: {
+    modules: [
+      {
+        children: [
+          {
+            content: 'Contenuto legacy da preservare.',
+            contentBlocks,
+            id: 'lesson-1',
+            kind: 'lesson',
+            title: 'Lezione',
+          },
+        ],
+        id: 'module-1',
+        title: 'Modulo',
+      },
+    ],
+    title: 'Corso',
+  },
+  version: '4.1',
+});
+
 const readMigratedFiles = (project: ReturnType<typeof decodeProjectSnapshotWire>) => {
   assert.equal(project.source?.kind, 'document');
   assert.ok(Array.isArray(project.source.sources));
@@ -153,30 +176,82 @@ test('legacy lesson migration derives Markdown content from structured blocks ac
 test('wire decoding rejects unsupported lesson content block types before projection', () => {
   assert.throws(
     () =>
-      decodeProjectSnapshotWire({
-        id: 'invalid-lesson-block',
-        learningPlan: {
-          modules: [
-            {
-              children: [
-                {
-                  content: 'Contenuto legacy da preservare.',
-                  contentBlocks: [{ markdown: 'Contenuto strutturato.', type: 'markdwon' }],
-                  id: 'lesson-1',
-                  kind: 'lesson',
-                  title: 'Lezione',
-                },
-              ],
-              id: 'module-1',
-              title: 'Modulo',
-            },
-          ],
-          title: 'Corso',
-        },
-        version: '4.1',
-      }),
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks([{ markdown: 'Contenuto strutturato.', type: 'markdwon' }])
+      ),
     /tipo blocco contenuto lezione non supportato/iu
   );
+});
+
+test('wire decoding rejects malformed allowlisted lesson blocks before projection', () => {
+  const malformedBlocks = [
+    { type: 'inline-quiz' },
+    {
+      quiz: { correctIndex: 1, options: ['Una sola opzione'], question: 'Domanda' },
+      type: 'inline-quiz',
+    },
+    {
+      clips: [{ endSeconds: 5, sourceIndex: 0, startSeconds: 10 }],
+      type: 'youtube-clips',
+    },
+    { type: 'generated-visual' },
+    { slotId: 'slot-1', type: 'generated-visual' },
+    { retryPlan: {}, slotId: 'slot-1', type: 'generated-visual' },
+  ];
+
+  for (const block of malformedBlocks) {
+    assert.throws(
+      () => decodeProjectSnapshotWire(projectWithLessonBlocks([block])),
+      /blocco contenuto lezione non valido/iu
+    );
+  }
+});
+
+test('wire decoding preserves every valid lesson block while deriving legacy Markdown', () => {
+  const retryPlan = {
+    complexity: 'moderate',
+    concept: 'Confronto tra stati',
+    coverage: 'single_complex',
+    coverageRationale: 'Rende visibile la differenza.',
+    factualRequirements: ['Due stati distinti'],
+    interactionLevel: 'none',
+    pedagogicalGoal: 'Confrontare i due stati.',
+    reason: 'Il confronto beneficia di una visuale.',
+    requiresDepiction: false,
+    slotId: 'slot-retry',
+    visualDirection: 'Mostra due colonne affiancate.',
+    visualType: 'structural_svg',
+  };
+  const contentBlocks = [
+    { markdown: '## Contenuto strutturato', type: 'markdown' },
+    { markdown: '', type: 'markdown' },
+    {
+      quiz: {
+        correctIndex: 1,
+        exerciseType: 'concept-check',
+        options: ['Prima', 'Seconda'],
+        question: 'Quale opzione e corretta?',
+      },
+      type: 'inline-quiz',
+    },
+    {
+      clips: [{ endSeconds: 20, sourceIndex: 0, startSeconds: 10, title: 'Estratto' }],
+      type: 'youtube-clips',
+    },
+    { clips: [], type: 'youtube-clips' },
+    { slotId: 'slot-ready', type: 'generated-visual', visualId: 'visual-1' },
+    { retryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+  ];
+
+  const decoded = decodeProjectSnapshotWire(projectWithLessonBlocks(contentBlocks));
+  const lesson = (
+    decoded.learningPlan as {
+      modules: Array<{ children: Array<{ content: string; contentBlocks: unknown[] }> }>;
+    }
+  ).modules[0]?.children[0];
+
+  assert.equal(lesson?.content, '## Contenuto strutturato');
+  assert.deepEqual(lesson?.contentBlocks, contentBlocks);
 });
 
 test('canonical payloads reject unknown fields and unsupported versions instead of dropping them', () => {

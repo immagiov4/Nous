@@ -1,5 +1,6 @@
 import {
   deriveLegacyLessonContent,
+  isCanonicalLessonContentBlock,
   isLessonContentBlockType,
   LESSON_MARKDOWN_BLOCK_TYPE,
 } from './lessonContent';
@@ -151,8 +152,8 @@ const canonicalizeLessonContentBlocks = (contentBlocks: unknown[]): Record<strin
       if (!isLessonContentBlockType(block.type)) {
         throw new ProjectSnapshotWireError('Tipo blocco contenuto lezione non supportato.');
       }
-      if (block.type === LESSON_MARKDOWN_BLOCK_TYPE && typeof block.markdown !== 'string') {
-        throw new ProjectSnapshotWireError('Blocco Markdown lezione non valido.');
+      if (!isCanonicalLessonContentBlock(block)) {
+        throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
       }
       return block;
     }
