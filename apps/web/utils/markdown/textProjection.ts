@@ -113,6 +113,9 @@ export const buildVisibleProjection = (
   let pendingBoundarySourceIndex: number | null = null;
   const linkDestinationRangesByStart = indexLongestRangeByStart(analysis.linkDestinationRanges);
   const mathRangesByStart = indexLongestRangeByStart(analysis.mathRanges);
+  const escapedFenceOpenerRangesByStart = indexLongestRangeByStart(
+    analysis.escapedFenceOpenerRanges
+  );
   const hiddenRangesByStart = indexLongestRangeByStart([
     ...getMarkdownImageRanges(content, analysis),
     ...getMarkdownLinkDestinationRanges(content, analysis),
@@ -171,6 +174,19 @@ export const buildVisibleProjection = (
     }
 
     const currentCharacter = content[index];
+
+    const escapedFenceOpenerRange = escapedFenceOpenerRangesByStart.get(index);
+    if (escapedFenceOpenerRange) {
+      content
+        .slice(escapedFenceOpenerRange.start, escapedFenceOpenerRange.end)
+        .split('')
+        .forEach((character, offset) => {
+          pushCharacter(character, escapedFenceOpenerRange.start + offset);
+        });
+      atLineStart = false;
+      index = escapedFenceOpenerRange.end;
+      continue;
+    }
 
     const mathRange = mathRangesByStart.get(index);
     if (mathRange) {

@@ -7,6 +7,7 @@ import {
   getMarkdownReferenceDefinitionRanges,
   normalizeMathSelectionArtifacts,
   parseMarkdownAnalysis,
+  planMarkdownFencedCode,
   stripHighlightTagsInsideMarkdownCode,
 } from '../../../utils/markdown/codeRanges.ts';
 
@@ -427,6 +428,51 @@ test('code ranges do not synthesize fences for bare code-like or malformed input
 
   assert.deepEqual(parseMarkdownAnalysis(bareCode).codeRanges, []);
   assert.deepEqual(parseMarkdownAnalysis(malformedFence).codeRanges, []);
+});
+
+test('fenced-code planning follows Markdown indentation for closing fences', () => {
+  const indentedPseudoCloser = ['```ts', 'const value = 1;', '    ```'].join('\n');
+  const quotedPseudoCloser = ['```ts', 'const value = 1;', '> ```'].join('\n');
+  const quotedClosedFence = ['> ```ts', '> const value = 1;', '> ```'].join('\n');
+  const differentlyIndentedClosedFences = [
+    ['   ```ts', 'value', '```'].join('\n'),
+    ['>   ```ts', '> value', '> ```'].join('\n'),
+  ];
+
+  assert.deepEqual(planMarkdownFencedCode(indentedPseudoCloser), {
+    closedRanges: [],
+    unclosedRanges: [{ start: 0, end: indentedPseudoCloser.length }],
+  });
+  assert.deepEqual(parseMarkdownAnalysis(indentedPseudoCloser).codeRanges, []);
+  assert.deepEqual(parseMarkdownAnalysis(indentedPseudoCloser).rendererNormalizedIndentRanges, []);
+  assert.deepEqual(planMarkdownFencedCode(quotedPseudoCloser), {
+    closedRanges: [],
+    unclosedRanges: [{ start: 0, end: quotedPseudoCloser.length }],
+  });
+  assert.deepEqual(planMarkdownFencedCode(quotedClosedFence), {
+    closedRanges: [{ start: 0, end: quotedClosedFence.length }],
+    unclosedRanges: [],
+  });
+  differentlyIndentedClosedFences.forEach(content => {
+    assert.deepEqual(planMarkdownFencedCode(content), {
+      closedRanges: [{ start: 0, end: content.length }],
+      unclosedRanges: [],
+    });
+  });
+
+  const unclosedListItems = ['- ```ts', '  first', '- ```js', '  second'].join('\n');
+  const listPlan = planMarkdownFencedCode(unclosedListItems);
+  assert.equal(listPlan.unclosedRanges.length, 2);
+  assert.ok(listPlan.unclosedRanges[0].end <= listPlan.unclosedRanges[1].start);
+});
+
+test('analysis exposes Markdown syntax after an unclosed fence opener', () => {
+  const content = ['~~~ts', '[Docs](https://example.com)'].join('\n');
+  const destinationSlices = parseMarkdownAnalysis(content).linkDestinationRanges.map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(destinationSlices, ['(https://example.com)']);
 });
 
 test('annotation ranges protect supported backslash math delimiters', () => {

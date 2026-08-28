@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { planMarkdownFencedCode } from '../../../utils/markdown/codeRanges.ts';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 
 test('normalizeMarkdownForRendering removes Delete control characters from inline LaTeX', () => {
@@ -294,6 +295,84 @@ test('normalizeMarkdownForRendering escapes an unclosed fence so following prose
   assert.match(output, /\\```ts/);
   assert.match(output, /## Dopo il codice/);
   assert.match(output, /Testo leggibile\./);
+});
+
+test('normalizeMarkdownForRendering does not promote an indented pseudo-closer', () => {
+  const input = ['~~~ts', 'const answer = 42;', '    ~~~', '## Still code-like input'].join('\n');
+
+  assert.equal(normalizeMarkdownForRendering(input), `\\${input}`);
+});
+
+test('normalizeMarkdownForRendering escapes consecutive unclosed list fences independently', () => {
+  const input = ['- ```ts', '  first', '- ```js', '  second'].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    ['- \\```ts', '  first', '- \\```js', '  second'].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering neutralizes unclosed openers in indented list continuations', () => {
+  const inputs = [
+    ['-   ```ts', '    ```js', '    text'],
+    ['> -   ```ts', '>     ```js', '>     text'],
+  ];
+
+  inputs.forEach(lines => {
+    const output = normalizeMarkdownForRendering(lines.join('\n'));
+    assert.equal(output.match(/\\```/gu)?.length, 2);
+    assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
+  });
+});
+
+test('normalizeMarkdownForRendering still processes a sibling after an unclosed list fence', () => {
+  const input = ['- ```ts', '  first', '- Header <iostream>'].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    ['- \\```ts', '  first', '- Header &lt;iostream&gt;'].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering escapes disallowed HTML inside an unclosed fence', () => {
+  const input = ['```ts', '<iframe src="https://example.com"></iframe>'].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    ['\\```ts', '&lt;iframe src="https://example.com"&gt;&lt;/iframe&gt;'].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering preserves HTML-like text in code after an unclosed opener', () => {
+  const input = [
+    '```ts',
+    'Use `<div>` inline.',
+    '~~~html',
+    '<div>fenced</div>',
+    '~~~',
+    'After.',
+  ].join('\n');
+
+  assert.equal(normalizeMarkdownForRendering(input), `\\${input}`);
+});
+
+test('normalizeMarkdownForRendering escapes nested unclosed fence openers to a fixed point', () => {
+  const input = ['```ts', 'const first = true;', '```js', 'const second = true;', '## After'].join(
+    '\n'
+  );
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    ['\\```ts', 'const first = true;', '\\```js', 'const second = true;', '## After'].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering neutralizes many malformed openers in one pass', () => {
+  const openerCount = 64;
+  const input = Array.from({ length: openerCount }, (_, index) => `\`\`\`lang${index}`).join('\n');
+  const output = normalizeMarkdownForRendering(input);
+
+  assert.equal(output.match(/\\```lang/gu)?.length, openerCount);
 });
 
 test('normalizeMarkdownForRendering does not turn indented plain-text fragments into code blocks', () => {

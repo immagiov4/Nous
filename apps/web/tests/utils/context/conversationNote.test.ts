@@ -63,6 +63,16 @@ test('rejects note proposals whose text is absent or only belongs to an image', 
   );
 });
 
+test('anchors rendered link text after nested unclosed fence openers', () => {
+  const content = ['```ts', '```js', '[Docs](https://example.com)'].join('\n');
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' }), true);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, { selectedText: 'https://example.com' }),
+    false
+  );
+});
+
 test('rejects note proposals whose text exists only in an unsupported viewer placeholder', () => {
   const placeholders = [
     {
