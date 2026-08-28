@@ -570,14 +570,10 @@ export const generateDurableLesson = async ({
     clearLessonRequestState(retainedLessonRequest.storageKey, retainedLessonRequest.requestKey);
   }
   if (parentSectionId) {
-    let sublessonRecovery = recovery;
-    if (sublessonRecovery === undefined) {
-      sublessonRecovery = await resolveDurableSublessonRequestForSection(
-        projectId,
-        parentSectionId,
-        sectionId
-      );
-    }
+    const sublessonRecovery =
+      recovery === undefined
+        ? await resolveDurableSublessonRequestForSection(projectId, parentSectionId, sectionId)
+        : recovery;
     if (sublessonRecovery) {
       return resumeRetainedLessonRequest({
         onProgressStage,

@@ -1158,6 +1158,36 @@ describe('generateDurableLesson', () => {
     expect(globalThis.sessionStorage).toHaveLength(0);
   });
 
+  test('does not repeat sublesson recovery after the caller resolved no retained request', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      response(
+        {
+          id: 'run-sublesson',
+          projectId: 'project-1',
+          result: { ...completedResult, sectionId: 'deep-lesson' },
+          sectionId: 'deep-lesson',
+          stage: 'verification',
+          status: 'completed',
+        },
+        202
+      )
+    );
+
+    await generateDurableLesson({
+      parentSectionId: 'lesson-1',
+      projectId: 'project-1',
+      recovery: null,
+      sectionId: 'deep-lesson',
+    });
+
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
+      'http://localhost:3301/api/lesson-workflows/lessons',
+      expect.objectContaining({ method: 'POST' }),
+      { expectedStatuses: [409] }
+    );
+  });
+
   test('resolves a retained sublesson from its parent before the child is locally available', async () => {
     globalThis.sessionStorage.setItem(
       'nous:lesson-workflow-request:project-1:sublesson:lesson-1',

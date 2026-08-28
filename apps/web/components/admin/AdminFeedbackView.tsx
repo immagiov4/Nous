@@ -229,54 +229,63 @@ function FeedbackDiagnostics({ report }: { report: AdminFeedbackReport }) {
           </div>
         ) : null}
         {diagnostics.productContext ? (
-          <div>
-            <dt className="text-xs text-stone-400 dark:text-zinc-500">{t('Contesto prodotto')}</dt>
-            <dd className="mt-1 space-y-1 text-stone-700 dark:text-zinc-200">
-              {diagnostics.productContext.project ? (
-                <p>
-                  {t('Corso')}: {diagnostics.productContext.project.id}
-                  {diagnostics.productContext.project.revision === undefined
-                    ? ''
-                    : ` · ${t('Revisione')} ${diagnostics.productContext.project.revision}`}
-                </p>
-              ) : null}
-              {diagnostics.productContext.section ? (
-                <p>
-                  {t('Lezione')}: {diagnostics.productContext.section.id}
-                </p>
-              ) : null}
-              {diagnostics.productContext.surface ? (
-                <p>
-                  {t('Area')}: {getFeedbackProductSurfaceLabel(diagnostics.productContext.surface)}
-                </p>
-              ) : null}
-              {diagnostics.productContext.workflow ? (
-                <p>
-                  {t('Attività')}:{' '}
-                  {getFeedbackWorkflowOperationLabel(diagnostics.productContext.workflow.operation)}{' '}
-                  ({getFeedbackWorkflowStatusLabel(diagnostics.productContext.workflow.status)}) ·{' '}
-                  {diagnostics.productContext.workflow.runId}
-                </p>
-              ) : null}
-              {diagnostics.productContext.breadcrumbs?.length ? (
-                <ul className="space-y-1">
-                  {createFeedbackBreadcrumbListItems(diagnostics.productContext.breadcrumbs).map(
-                    ({ breadcrumb, key }) => (
-                      <li key={key}>
-                        {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
-                        {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
-                        {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
-                        {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
-                        {breadcrumb.timestamp}
-                      </li>
-                    )
-                  )}
-                </ul>
-              ) : null}
-            </dd>
-          </div>
+          <FeedbackProductContextDetails productContext={diagnostics.productContext} />
         ) : null}
       </dl>
+    </div>
+  );
+}
+
+function FeedbackProductContextDetails({
+  productContext,
+}: {
+  productContext: NonNullable<AdminFeedbackReport['diagnostics']['productContext']>;
+}) {
+  return (
+    <div>
+      <dt className="text-xs text-stone-400 dark:text-zinc-500">{t('Contesto prodotto')}</dt>
+      <dd className="mt-1 space-y-1 text-stone-700 dark:text-zinc-200">
+        {productContext.project ? (
+          <p>
+            {t('Corso')}: {productContext.project.id}
+            {productContext.project.revision === undefined
+              ? ''
+              : ` · ${t('Revisione')} ${productContext.project.revision}`}
+          </p>
+        ) : null}
+        {productContext.section ? (
+          <p>
+            {t('Lezione')}: {productContext.section.id}
+          </p>
+        ) : null}
+        {productContext.surface ? (
+          <p>
+            {t('Area')}: {getFeedbackProductSurfaceLabel(productContext.surface)}
+          </p>
+        ) : null}
+        {productContext.workflow ? (
+          <p>
+            {t('Attività')}: {getFeedbackWorkflowOperationLabel(productContext.workflow.operation)}{' '}
+            ({getFeedbackWorkflowStatusLabel(productContext.workflow.status)}) ·{' '}
+            {productContext.workflow.runId}
+          </p>
+        ) : null}
+        {productContext.breadcrumbs?.length ? (
+          <ul className="space-y-1">
+            {createFeedbackBreadcrumbListItems(productContext.breadcrumbs).map(
+              ({ breadcrumb, key }) => (
+                <li key={key}>
+                  {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
+                  {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
+                  {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
+                  {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
+                  {breadcrumb.timestamp}
+                </li>
+              )
+            )}
+          </ul>
+        ) : null}
+      </dd>
     </div>
   );
 }
