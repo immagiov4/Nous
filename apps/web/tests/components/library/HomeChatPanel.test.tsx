@@ -560,6 +560,31 @@ describe('HomeChatPanel', () => {
     expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
   });
 
+  test('keeps the active Stop action visible by blocking mode changes during streaming', async () => {
+    const user = userEvent.setup();
+    const stop = vi.fn();
+    const onLibraryMessageSend = Object.assign(
+      vi.fn(async () => {}),
+      { stop }
+    );
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      isLibraryModeLoading: true,
+      onLibraryMessageSend,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    const newCourseTab = screen.getByRole('tab', { name: /Nuovo corso/i });
+    expect(newCourseTab).toBeDisabled();
+    await user.click(newCourseTab);
+    expect(props.onHomeChatModeChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^(Cancel|Annulla)$/i }));
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
   test('uses the existing course cancellation for a generating new-course response', async () => {
     const user = userEvent.setup();
     const props = {
