@@ -309,6 +309,40 @@ describe('ContextMenu', () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
+  test('opens a wrapped rare-actions menu below when its measured height does not fit above', async () => {
+    const user = userEvent.setup();
+    const offsetHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return this.getAttribute('role') === 'menu' ? 72 : 0;
+      });
+
+    render(
+      <ContextMenu {...buildProps()} isLoading lessonCreationBlockReason="lesson-generation" />
+    );
+
+    const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
+    vi.spyOn(moreActionsButton, 'getBoundingClientRect').mockReturnValue({
+      bottom: 92,
+      height: 32,
+      left: 268,
+      right: 300,
+      top: 60,
+      width: 32,
+      x: 268,
+      y: 60,
+      toJSON: () => ({}),
+    });
+
+    await user.click(moreActionsButton);
+
+    const submenu = screen.getByRole('menu', { name: 'Apri menu' });
+    expect(submenu.style.top).toBe('100px');
+    expect(submenu.style.bottom).toBe('');
+
+    offsetHeightSpy.mockRestore();
+  });
+
   test('keeps the note panel anchored while opening the rare-actions menu', async () => {
     const user = userEvent.setup();
 
