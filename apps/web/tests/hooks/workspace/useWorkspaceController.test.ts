@@ -2999,6 +2999,87 @@ test('cancelAssessment invalidates source preparation before startHomeChat persi
   assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
+test('cancelAssessment does not create an interview after the aborted lookup recovers no run', async () => {
+  let markActiveLookupPending: () => void = () => {};
+  const activeLookupPending = new Promise<void>(resolve => {
+    markActiveLookupPending = resolve;
+  });
+  let activeLookupCalls = 0;
+  const startCourseInterview = vi.fn();
+  const { controller } = createControllerHarness({
+    openRouter: {
+      getActiveCourseInterview: async (_projectId, options) => {
+        activeLookupCalls += 1;
+        if (activeLookupCalls !== 1) return null;
+        markActiveLookupPending();
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+      },
+      startCourseInterview,
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare database' });
+  await activeLookupPending;
+  await controller.cancelAssessment();
+
+  assert.equal((await startPromise).outcome, 'abandoned');
+  expect(startCourseInterview).not.toHaveBeenCalled();
+});
+
+test('cancelAssessment aborts and cancels an interview started by source upload', async () => {
+  let markInterviewStartPending: () => void = () => {};
+  const interviewStartPending = new Promise<void>(resolve => {
+    markInterviewStartPending = resolve;
+  });
+  let observedPollingSignal: AbortSignal | undefined;
+  let observedStartSignal: AbortSignal | undefined;
+  const cancelCourseInterview = vi.fn(async () => {});
+  const getActiveCourseInterview = vi.fn(async () => null);
+  const { controller } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview,
+      startCourseInterview: (_input, options) => {
+        observedPollingSignal = options?.signal;
+        observedStartSignal = options?.startSignal;
+        options?.onRunStarted?.('source-upload-run');
+        markInterviewStartPending();
+        return new Promise((_resolve, reject) => {
+          observedPollingSignal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+      },
+    },
+  });
+
+  const uploadPromise = controller.handleSourceUpload(
+    new File(['fake pdf'], 'dispensa.pdf', { type: 'application/pdf' }),
+    { mode: 'new-project' }
+  );
+  await interviewStartPending;
+  const cancellation = controller.cancelAssessment();
+  await Promise.resolve();
+  assert.equal(observedStartSignal?.aborted, true);
+  await cancellation;
+
+  assert.equal(observedPollingSignal?.aborted, true);
+  expect(cancelCourseInterview).toHaveBeenCalledWith({
+    projectId: expect.any(String),
+    runId: 'source-upload-run',
+  });
+  expect(getActiveCourseInterview).toHaveBeenCalledOnce();
+  assert.equal((await uploadPromise).outcome, 'started-assessment');
+});
+
 test('cancelAssessment aborts interview startup and cancels its recovered durable run', async () => {
   let markInterviewStartPending: () => void = () => {};
   const interviewStartPending = new Promise<void>(resolve => {

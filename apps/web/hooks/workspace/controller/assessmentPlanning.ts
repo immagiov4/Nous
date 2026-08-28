@@ -76,6 +76,18 @@ interface HomeChatStartResult {
   sourceWarnings?: ProjectSourceWarning[];
 }
 
+interface StartOrResumeInterviewInput {
+  hasReliableSourceContext: boolean;
+  initialMessage?: string;
+  isRequestCurrent?: () => boolean;
+  mode: 'document' | 'learn';
+  onRunStarted?: (runId: string) => void;
+  pollingSignal?: AbortSignal;
+  projectId: string;
+  startSignal?: AbortSignal;
+  sourceContext?: string;
+}
+
 interface PendingAssessmentInterviewRun {
   readonly pollingAbortController?: AbortController;
   readonly projectId: string;
@@ -225,17 +237,9 @@ export const createAssessmentPlanningCommands = (
     return projectId;
   };
 
-  const startOrResumeInterview = async (input: {
-    hasReliableSourceContext: boolean;
-    initialMessage?: string;
-    isRequestCurrent?: () => boolean;
-    mode: 'document' | 'learn';
-    onRunStarted?: (runId: string) => void;
-    pollingSignal?: AbortSignal;
-    projectId: string;
-    startSignal?: AbortSignal;
-    sourceContext?: string;
-  }): Promise<CourseInterviewOutcome> => {
+  const startOrResumeInterview = async (
+    input: StartOrResumeInterviewInput
+  ): Promise<CourseInterviewOutcome> => {
     const activeClientOptions =
       input.onRunStarted || input.startSignal
         ? { onRunStarted: input.onRunStarted, signal: input.startSignal }
@@ -250,6 +254,7 @@ export const createAssessmentPlanningCommands = (
         input.onRunStarted ? { onRunStarted: input.onRunStarted } : undefined
       );
     }
+    if (!active && input.isRequestCurrent && !input.isRequestCurrent()) return 'abandoned';
     const snapshot =
       active ??
       (await openRouter.startCourseInterview(
@@ -289,6 +294,45 @@ export const createAssessmentPlanningCommands = (
     return applyInterviewSnapshot(snapshot);
   };
 
+  const startTrackedAssessmentInterview = async (
+    input: Omit<StartOrResumeInterviewInput, 'onRunStarted' | 'pollingSignal' | 'startSignal'>
+  ): Promise<CourseInterviewOutcome> => {
+    let resolveRunId: (runId: string | null) => void = () => {};
+    let hasResolvedRunId = false;
+    let startedRunId: string | null = null;
+    const runId = new Promise<string | null>(resolve => {
+      resolveRunId = resolve;
+    });
+    const pollingAbortController = new AbortController();
+    const startRequestAbortController = new AbortController();
+    const pendingRun = {
+      pollingAbortController,
+      projectId: input.projectId,
+      runId,
+      startRequestAbortController,
+    };
+    pendingAssessmentInterviewRun = pendingRun;
+    const reportRunStarted = (startedId: string) => {
+      if (hasResolvedRunId) return;
+      startedRunId = startedId;
+      hasResolvedRunId = true;
+      resolveRunId(startedId);
+    };
+
+    try {
+      return await startOrResumeInterview({
+        ...input,
+        onRunStarted: reportRunStarted,
+        pollingSignal: pollingAbortController.signal,
+        startSignal: startRequestAbortController.signal,
+      });
+    } finally {
+      if (!hasResolvedRunId) resolveRunId(null);
+      if (startedRunId) assessmentRunCancellationPromises.delete(startedRunId);
+      if (pendingAssessmentInterviewRun === pendingRun) pendingAssessmentInterviewRun = null;
+    }
+  };
+
   async function startAssessment({
     file,
     sources,
@@ -318,8 +362,9 @@ export const createAssessmentPlanningCommands = (
                 throw new Error('Missing source input for assessment');
               })();
       const projectId = await ensureInterviewProject('document');
-      await startOrResumeInterview({
+      await startTrackedAssessmentInterview({
         hasReliableSourceContext: assessmentContext.hasReliableSourceContext,
+        isRequestCurrent: () => state.isWorkflowCurrent('assessment', requestId),
         mode: 'document',
         projectId,
         sourceContext: assessmentContext.content,
@@ -327,6 +372,7 @@ export const createAssessmentPlanningCommands = (
       if (!state.isWorkflowCurrent('assessment', requestId)) return;
       state.succeedWorkflow('assessment', requestId);
     } catch (error) {
+      if (!state.isWorkflowCurrent('assessment', requestId)) return;
       state.setScreenState(AppState.LIBRARY);
       pushNousDebugTrace('assessment:failed', {
         errorMessage: getErrorMessage(error),
@@ -343,13 +389,16 @@ export const createAssessmentPlanningCommands = (
 
     try {
       const projectId = await ensureInterviewProject('learn');
-      await startOrResumeInterview({
+      await startTrackedAssessmentInterview({
         hasReliableSourceContext: false,
+        isRequestCurrent: () => state.isWorkflowCurrent('assessment', requestId),
         mode: 'learn',
         projectId,
       });
+      if (!state.isWorkflowCurrent('assessment', requestId)) return;
       state.succeedWorkflow('assessment', requestId);
     } catch (error) {
+      if (!state.isWorkflowCurrent('assessment', requestId)) return;
       state.setScreenState(AppState.LIBRARY);
       state.failWorkflow('assessment', requestId, getErrorMessage(error));
       throw error;
@@ -810,45 +859,14 @@ export const createAssessmentPlanningCommands = (
       draftProjectId = projectId;
       workspaceOwnership.draftProjectId = draftProjectId;
       if (!isRequestCurrent()) return abandonCancelledStart();
-      let resolveRunId: (runId: string | null) => void = () => {};
-      let hasResolvedRunId = false;
-      let startedRunId: string | null = null;
-      const runId = new Promise<string | null>(resolve => {
-        resolveRunId = resolve;
-      });
-      const pollingAbortController = new AbortController();
-      const startRequestAbortController = new AbortController();
-      const pendingRun = {
-        pollingAbortController,
+      const outcome = await startTrackedAssessmentInterview({
+        hasReliableSourceContext,
+        initialMessage: trimmedInput,
+        isRequestCurrent,
+        mode,
         projectId,
-        runId,
-        startRequestAbortController,
-      };
-      pendingAssessmentInterviewRun = pendingRun;
-      const reportRunStarted = (runId: string) => {
-        if (hasResolvedRunId) return;
-        startedRunId = runId;
-        hasResolvedRunId = true;
-        resolveRunId(runId);
-      };
-      let outcome: CourseInterviewOutcome;
-      try {
-        outcome = await startOrResumeInterview({
-          hasReliableSourceContext,
-          initialMessage: trimmedInput,
-          isRequestCurrent,
-          mode,
-          onRunStarted: reportRunStarted,
-          pollingSignal: pollingAbortController.signal,
-          projectId,
-          startSignal: startRequestAbortController.signal,
-          ...(sourceContext ? { sourceContext } : {}),
-        });
-      } finally {
-        if (!hasResolvedRunId) resolveRunId(null);
-        if (startedRunId) assessmentRunCancellationPromises.delete(startedRunId);
-        if (pendingAssessmentInterviewRun === pendingRun) pendingAssessmentInterviewRun = null;
-      }
+        ...(sourceContext ? { sourceContext } : {}),
+      });
       if (!isRequestCurrent()) return abandonCancelledStart();
       state.succeedWorkflow('assessment', requestId);
       if (outcome === 'abandoned') {
