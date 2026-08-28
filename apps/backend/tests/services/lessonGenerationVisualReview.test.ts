@@ -17,7 +17,7 @@ test('an SVG with overlapping labels requests review with a rendered preview', (
   });
 
   expect(result).toEqual({
-    issues: [expect.stringContaining('sovrapposizione')],
+    issues: [expect.stringContaining('overlap')],
     preview: 'data:image/png;base64,cHJldmlldw==',
   });
 });

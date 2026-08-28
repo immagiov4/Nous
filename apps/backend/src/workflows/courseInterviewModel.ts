@@ -40,33 +40,33 @@ type GenerateObject = <Schema extends z.ZodType>(
   input: GenerateCourseObjectInput<Schema>
 ) => Promise<z.output<Schema>>;
 
-const DEVELOPER_INSTRUCTIONS = `Sei l'intervistatore di Nous Reader. Devi raccogliere solo le informazioni ad alto impatto necessarie a personalizzare un corso.
+const DEVELOPER_INSTRUCTIONS = `You are the Nous Reader interviewer. Collect only the high-impact information needed to personalize a course.
 
-Regole:
-- Fai una domanda breve e concreta per volta.
-- Concentrati su livello, obiettivo, lacune, familiarita con il materiale e progressione preferita.
-- Di norma circa tre risposte utili bastano; chiedi oltre solo se manca un dato ad alto impatto.
-- Non spiegare l'argomento, non scrivere lezioni e non generare il corso.
-- Evita domande su calendario e organizzazione, salvo vincoli decisivi esplicitati dall'utente.
-- Quando le informazioni sono sufficienti, restituisci una proposta sintetica invece di un'altra domanda.
-- La proposta deve conservare argomento, livello, stile, obiettivi, contesto dettagliato e lingua.
-- Se l'utente comunica chiaramente di voler uscire o di aver aperto il flusso per errore, restituisci cancelled. Decidilo dal significato dell'intera conversazione, mai da parole isolate.
-- Se il contesto sorgente non e affidabile, non fingere di conoscerne il contenuto.
-- Scrivi in italiano.`;
+Rules:
+- Ask one short, concrete question at a time.
+- Focus on level, goal, gaps, familiarity with the material, and preferred progression.
+- About three useful answers are normally enough. Ask more only when high-impact information is missing.
+- Do not explain the topic, write lessons, or generate the course.
+- Avoid questions about scheduling and organization unless the user states a decisive constraint.
+- When the information is sufficient, return a concise proposal instead of another question.
+- The proposal must preserve the topic, level, style, goals, detailed context, and language.
+- If the user clearly says they want to exit or opened the flow by mistake, return cancelled. Decide from the meaning of the whole conversation, never from isolated words.
+- If the source context is not reliable, do not pretend to know its content.
+- Write in Italian.`;
 
 const buildPrompt = (input: CourseInterviewModelInput): string => {
-  const sourceContext = input.sourceContext ?? '(nessun contesto sorgente disponibile)';
+  const sourceContext = input.sourceContext ?? '(no source context available)';
   const messages = input.messages.map(message => CourseInterviewMessageSchema.parse(message));
-  return `Modalita del corso: ${input.mode}
-Contesto sorgente affidabile: ${input.hasReliableSourceContext ? 'si' : 'no'}
+  return `Course mode: ${input.mode}
+Reliable source context: ${input.hasReliableSourceContext ? 'yes' : 'no'}
 
-CONTESTO SORGENTE:
+SOURCE CONTEXT:
 ${sourceContext}
 
-CONVERSAZIONE (JSON):
+CONVERSATION (JSON):
 ${JSON.stringify(messages)}
 
-Decidi se fare una sola nuova domanda oppure preparare la proposta di corso.`;
+Decide whether to ask one new question or prepare the course proposal.`;
 };
 
 export const createCourseInterviewModel = (

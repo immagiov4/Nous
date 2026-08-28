@@ -113,10 +113,10 @@ const collectTextRects = (
     const estimatedWidth = label.length * 8;
     const left = getTextLeft(x, estimatedWidth, readAttribute(attributes, 'text-anchor'));
     if (left < 0 || left + estimatedWidth > width || y < 0 || y > height) {
-      issues.push(`Possibile testo fuori dai bordi: "${label}".`);
+      issues.push(`Text may extend beyond the bounds: "${label}".`);
     }
     if (label.split(/\s+/u).length > 6) {
-      issues.push(`Etichetta probabilmente troppo lunga: "${label}".`);
+      issues.push(`Label may be too long: "${label}".`);
     }
     textRects.push({
       bottom: y + TEXT_HEIGHT / 2,
@@ -141,7 +141,7 @@ const appendOverlapIssues = (textRects: EstimatedTextRect[], issues: string[]): 
         first.top < second.bottom &&
         first.bottom > second.top
       ) {
-        issues.push(`Possibile sovrapposizione tra "${first.label}" e "${second.label}".`);
+        issues.push(`Possible overlap between "${first.label}" and "${second.label}".`);
       }
     }
   }

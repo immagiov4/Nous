@@ -32,7 +32,7 @@ describe('course interview model', () => {
     );
     const request = generateObject.mock.calls[0]?.[0];
     expect(request.prompt).toContain('Indice e contenuto verificato della fonte.');
-    expect(request.prompt).toContain('Contesto sorgente affidabile: si');
+    expect(request.prompt).toContain('Reliable source context: yes');
   });
 
   test('requires one typed question or proposal', () => {

@@ -5,9 +5,28 @@ import {
   isPdfAssetSoftTimeoutError,
   mergeSources,
   parseResearchSource,
+  readConfiguredProjectLanguage,
   readOriginalSourceNames,
+  readProjectLanguage,
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
+
+test.each([
+  ['whitespace-only', { language: '   ' }],
+  ['non-string', { language: 7 } as never],
+] as const)('project language ignores %s profile values', (_case, userProfile) => {
+  const project = {
+    id: 'project-language',
+    version: '1',
+    userProfile,
+    createdAt: '2026-08-28T00:00:00.000Z',
+    updatedAt: '2026-08-28T00:00:00.000Z',
+    lastOpenedAt: '2026-08-28T00:00:00.000Z',
+  };
+
+  expect(readConfiguredProjectLanguage(project)).toBeUndefined();
+  expect(readProjectLanguage(project)).toBe('Italiano');
+});
 
 test('PDF image extraction aborts after the approved 90 second soft timeout', async () => {
   vi.useFakeTimers();

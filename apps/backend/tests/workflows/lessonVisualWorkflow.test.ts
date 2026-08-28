@@ -152,10 +152,14 @@ describe('lesson visual workflows', () => {
   });
 
   test('raster generation stages bytes before checkpointing the asset reference', async () => {
-    const raster = getRenderRoute().cases.raster;
+    const raster = getRenderRoute(config).cases.raster;
     if (raster?.kind !== 'step') throw new TypeError('Expected the raster step.');
     const stage = vi.fn(async () => assetRef(FIRST_ASSET_ID));
-    const services = makeServices({ assets: { stage } });
+    const generateRaster = vi.fn(async () => ({
+      bytes: new Uint8Array([1, 2, 3, 4]),
+      mediaType: 'image/png' as const,
+    }));
+    const services = makeServices({ assets: { stage }, generateRaster });
     const signal = new AbortController().signal;
     const rasterInput = {
       ...input,

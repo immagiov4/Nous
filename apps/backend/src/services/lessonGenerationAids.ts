@@ -34,7 +34,7 @@ const MAX_OTHER_KIND_COUNT = 1;
 const MAX_LEARNING_AID_COUNT = 4;
 const MAX_LESSON_MARKDOWN_CHARS = 24_000;
 const LEARNING_AIDS_SYSTEM_INSTRUCTION =
-  'Sei Lia, un tutor rigoroso. Estrai solo supporti didattici brevi e verificabili dal testo fornito. Rispondi esclusivamente con un oggetto JSON valido conforme allo schema richiesto.';
+  'You are Lia, a rigorous tutor. Extract only short, verifiable learning aids from the supplied text. Respond only with a valid JSON object that follows the requested schema.';
 
 const LEARNING_AIDS_RESPONSE_SCHEMA = {
   name: 'lesson_learning_aids',
@@ -148,25 +148,25 @@ const buildLearningAidsPrompt = (
   contentMarkdown: string,
   sectionDescription: string,
   sectionTitle: string
-): string => `Analizza la lezione seguente e individua solo gli aiuti contestuali che riducono davvero il carico cognitivo.
+): string => `Analyze the following lesson and identify only contextual aids that genuinely reduce cognitive load.
 
-TITOLO: ${sectionTitle}
-DESCRIZIONE: ${sectionDescription}
+TITLE: ${sectionTitle}
+DESCRIPTION: ${sectionDescription}
 
-VINCOLI:
-- Scrivi nella stessa lingua della lezione.
-- Restituisci al massimo 2 definizioni importanti e specifiche del contesto.
-- Puoi aggiungere al massimo una formula e un'analogia, solo se sono realmente utili.
-- Usa formula solo per un'espressione matematica con quantita o simboli e una relazione utile da consultare e riutilizzare. Relazioni in prosa, equivalenze concettuali, regole mnemoniche e frasi che usano "=" come abbreviazione sono definizioni, non formule.
-- Mantieni titolo e contenuto compatti, autonomi e privi di riempitivo.
-- Il titolo e un'etichetta: massimo 4 parole e 32 caratteri. Scegli il nome piu breve e riconoscibile del concetto, mai una frase descrittiva.
-- Ogni definizione deve essere comprensibile da sola per il richiamo immediato: usa parole comuni e non introdurre termini tecnici non spiegati; se un termine e indispensabile, chiariscilo nella stessa definizione.
-- Non duplicare frasi o concetti equivalenti.
-- Usa anchorHeading solo se coincide esattamente con un heading Markdown esistente; altrimenti usa null.
-- Non modificare il Markdown e non proporre testo da inserirvi.
-- Se nessun aiuto aggiunge valore, restituisci aids vuoto.
+CONSTRAINTS:
+- Write in the same language as the lesson.
+- Return at most two important definitions specific to the context.
+- Add at most one formula and one analogy, and only when they are genuinely useful.
+- Use a formula only for a mathematical expression with quantities or symbols and a relationship useful for reference and reuse. Prose relationships, conceptual equivalences, mnemonic rules, and phrases that use "=" as shorthand are definitions, not formulas.
+- Keep the title and content compact, self-contained, and free of filler.
+- The title is a label with at most four words and 32 characters. Choose the shortest recognizable name for the concept, never a descriptive sentence.
+- Every definition must be understandable on its own for immediate recall. Use common words and do not introduce unexplained technical terms. If a term is indispensable, clarify it within the same definition.
+- Do not duplicate equivalent phrases or concepts.
+- Use anchorHeading only when it exactly matches an existing Markdown heading. Otherwise use null.
+- Do not modify the Markdown or propose text to insert into it.
+- If no aid adds value, return an empty aids array.
 
-LEZIONE:
+LESSON:
 ${contentMarkdown.slice(0, MAX_LESSON_MARKDOWN_CHARS)}`;
 
 export interface GenerateLessonLearningAidsInput {
@@ -187,7 +187,7 @@ const requestLessonLearningAidDrafts: RequestLessonLearningAidDrafts = async (in
     const modelConfig = resolveTextModelConfig(input.config, 'lesson');
     const response = await runCodexAppServerTurn({
       allowWebSearch: false,
-      developerInstructions: `${LEARNING_AIDS_SYSTEM_INSTRUCTION} Non usare strumenti e non accedere a file locali.`,
+      developerInstructions: `${LEARNING_AIDS_SYSTEM_INSTRUCTION} Do not use tools or access local files.`,
       input: [{ text: prompt, type: 'text' }],
       model: modelConfig.model,
       outputSchema: LEARNING_AIDS_RESPONSE_SCHEMA.schema,

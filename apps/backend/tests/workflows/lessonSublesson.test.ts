@@ -129,7 +129,9 @@ describe('durable sublesson stages', () => {
     const generateObject = vi.fn(async () => metadata);
     const stages = createLessonSublessonStages({
       generateObject: generateObject as never,
-      projectStore: store(snapshot()),
+      projectStore: store(
+        snapshot({ userProfile: { language: 'Português (Brasil)', topic: 'Sistemi distribuiti' } })
+      ),
     });
 
     const result = await stages.planSublesson(context(input));
@@ -155,6 +157,27 @@ describe('durable sublesson stages', () => {
     expect(request?.prompt).toContain('assenza di orologio globale');
     expect(request?.prompt).toContain('Fondamenti dei sistemi distribuiti');
     expect(request?.prompt).toContain('Sistemi distribuiti');
+    expect(request?.prompt).toContain('OUTPUT LANGUAGE: Português (Brasil)');
+  });
+
+  test.each([
+    ['missing', null],
+    ['blank', { language: '   ' }],
+    ['invalid', { language: 7 } as never],
+  ] as const)('uses the parent lesson language when the profile language is %s', async (_case, userProfile) => {
+    const generateObject = vi.fn(async () => metadata);
+    const stages = createLessonSublessonStages({
+      generateObject: generateObject as never,
+      projectStore: store(snapshot({ userProfile })),
+    });
+
+    await stages.planSublesson(context(input));
+
+    const request = generateObject.mock.calls[0]?.[0];
+    expect(request?.prompt).toContain(
+      'OUTPUT LANGUAGE: Use the language of the supplied parent lesson.'
+    );
+    expect(request?.prompt).not.toContain('OUTPUT LANGUAGE: Italiano');
   });
 
   test('preserves an explicit empty archive selection and exposes bounded archive tools', async () => {

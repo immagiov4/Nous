@@ -4377,7 +4377,7 @@ test('openSection does not start durable work when its generation target was not
   });
 
   await expect(harness.controller.openSection(lesson)).rejects.toThrow(
-    'I could not save the lesson to generate. Try again.'
+    t('Non sono riuscito a salvare la lezione da generare. Riprova.')
   );
   expect(generateDurableLesson).not.toHaveBeenCalled();
   expect(harness.domain.activeSectionId).toBeNull();
@@ -4403,7 +4403,7 @@ test('force regeneration clears its retained intent when target persistence fail
   });
 
   await expect(harness.controller.regenerateActiveSection()).rejects.toThrow(
-    'I could not save the lesson to generate. Try again.'
+    t('Non sono riuscito a salvare la lezione da generare. Riprova.')
   );
   expect(retainDurableLessonForceRegenerationIntent).toHaveBeenCalledWith('project-1', lesson.id);
   expect(clearDurableLessonForceRegenerationIntent).toHaveBeenCalledWith('project-1', lesson.id);
@@ -6243,7 +6243,7 @@ test('createLessonFromSelection does not start when its parent selection was not
   });
 
   expect(result).toEqual({
-    errorMessage: 'I could not save the lesson to generate. Try again.',
+    errorMessage: t('Non sono riuscito a salvare la lezione da generare. Riprova.'),
     outcome: 'failed',
   });
   expect(generateDurableSublesson).not.toHaveBeenCalled();
