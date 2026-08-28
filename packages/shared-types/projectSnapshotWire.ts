@@ -1,3 +1,12 @@
+import { ARTIFACT_DRAFT_SLOT_ID } from './artifactDraftWorkflowContract';
+import {
+  deriveLegacyLessonContent,
+  isCanonicalLessonContentBlock,
+  isLessonContentBlockType,
+  LESSON_GENERATED_VISUAL_BLOCK_TYPE,
+  LESSON_MARKDOWN_BLOCK_TYPE,
+} from './lessonContent';
+import { isValidProjectLessonVisual } from './projectAsset';
 import type { ProjectSourceKind } from './projectContract';
 import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
 
@@ -7,6 +16,8 @@ export type ProjectSnapshotFormatVersion = typeof PROJECT_SNAPSHOT_FORMAT_VERSIO
 const BASE64_ENCODING_CHUNK_BYTES = 0x8000;
 const LEGACY_CODEBASE_SOURCE_KIND = 'codebase-bundle';
 const LEGACY_AGGREGATE_RECOVERY_NAME = 'Contenuto aggregato legacy - origini non disponibili.txt';
+const LEGACY_LESSON_VISUAL_KINDS = new Set(['html', 'image', 'mermaid', 'svg']);
+const INVALID_LESSON_VISUAL_REFERENCES_MESSAGE = 'Riferimenti visuali della lezione non validi.';
 const OBSOLETE_LEGACY_FIELDS = new Set(['activeLaboratoryExerciseId', 'laboratory']);
 const PROJECT_SOURCE_KINDS = new Set<ProjectSourceKind>([
   'document',
@@ -125,6 +136,8 @@ export type DecodedProjectSnapshotWire = ProjectSnapshotWire | LegacyProjectSnap
 
 export interface ProjectSnapshotWireDecodeOptions {
   externalArchiveBytesAvailable?: boolean;
+  recoverHistoricalArtifactDraftVisualSlots?: boolean;
+  recoverHistoricalLessonContentBlocks?: boolean;
 }
 
 export class ProjectSnapshotWireError extends Error {
@@ -136,6 +149,156 @@ export class ProjectSnapshotWireError extends Error {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isLegacyLessonGeneratedVisual = (value: Record<string, unknown>): boolean =>
+  !Object.hasOwn(value, 'slotId') &&
+  !Object.hasOwn(value, 'render') &&
+  typeof value.id === 'string' &&
+  typeof value.title === 'string' &&
+  typeof value.kind === 'string' &&
+  LEGACY_LESSON_VISUAL_KINDS.has(value.kind) &&
+  typeof value.code === 'string' &&
+  typeof value.createdAt === 'string';
+
+const canonicalizeLessonContentBlocks = (contentBlocks: unknown[]): Record<string, unknown>[] =>
+  contentBlocks.map(block => {
+    if (!isRecord(block)) {
+      throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+    }
+    if (block.type !== undefined) {
+      if (typeof block.type !== 'string') {
+        throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+      }
+      if (!isLessonContentBlockType(block.type)) {
+        throw new ProjectSnapshotWireError('Tipo blocco contenuto lezione non supportato.');
+      }
+      if (!isCanonicalLessonContentBlock(block)) {
+        throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+      }
+      return block;
+    }
+    if (block.kind === LESSON_MARKDOWN_BLOCK_TYPE && typeof block.markdown === 'string') {
+      const { kind: _legacyKind, ...canonicalBlock } = block;
+      return { ...canonicalBlock, type: LESSON_MARKDOWN_BLOCK_TYPE };
+    }
+    throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+  });
+
+const collectGeneratedVisualBlockReferences = (
+  contentBlocks: readonly Record<string, unknown>[]
+): Map<string, string> => {
+  const generatedVisualSlots = new Set<string>();
+  const generatedVisualSlotById = new Map<string, string>();
+
+  for (const block of contentBlocks) {
+    if (block.type !== LESSON_GENERATED_VISUAL_BLOCK_TYPE) continue;
+
+    const slotId = block.slotId as string;
+    if (generatedVisualSlots.has(slotId)) {
+      throw new ProjectSnapshotWireError(INVALID_LESSON_VISUAL_REFERENCES_MESSAGE);
+    }
+    generatedVisualSlots.add(slotId);
+
+    if (typeof block.visualId !== 'string') continue;
+    if (generatedVisualSlotById.has(block.visualId)) {
+      throw new ProjectSnapshotWireError(INVALID_LESSON_VISUAL_REFERENCES_MESSAGE);
+    }
+    generatedVisualSlotById.set(block.visualId, slotId);
+  }
+
+  return generatedVisualSlotById;
+};
+
+const recoverHistoricalArtifactDraftVisualSlots = (
+  generatedVisuals: unknown[],
+  generatedVisualSlotById: ReadonlyMap<string, string>
+): unknown[] => {
+  const visualIdCounts = new Map<string, number>();
+  for (const visual of generatedVisuals) {
+    if (!isRecord(visual) || typeof visual.id !== 'string') continue;
+    visualIdCounts.set(visual.id, (visualIdCounts.get(visual.id) ?? 0) + 1);
+  }
+
+  let didRecover = false;
+  const recoveredVisuals = generatedVisuals.map(visual => {
+    if (
+      !isRecord(visual) ||
+      typeof visual.id !== 'string' ||
+      visualIdCounts.get(visual.id) !== 1 ||
+      visual.slotId !== ARTIFACT_DRAFT_SLOT_ID ||
+      !isRecord(visual.render)
+    ) {
+      return visual;
+    }
+    const referencedSlotId = generatedVisualSlotById.get(visual.id);
+    if (!referencedSlotId || referencedSlotId === ARTIFACT_DRAFT_SLOT_ID) return visual;
+
+    didRecover = true;
+    return { ...visual, slotId: referencedSlotId };
+  });
+  return didRecover ? recoveredVisuals : generatedVisuals;
+};
+
+const assertGeneratedVisualBlockRelations = (
+  generatedVisuals: readonly unknown[],
+  generatedVisualSlotById: ReadonlyMap<string, string>
+): void => {
+  for (const [visualId, slotId] of generatedVisualSlotById) {
+    const matchingVisuals = generatedVisuals.filter(
+      (visual): visual is Record<string, unknown> => isRecord(visual) && visual.id === visualId
+    );
+    const matchingVisual = matchingVisuals[0];
+    const isLegacyVisual = matchingVisual ? isLegacyLessonGeneratedVisual(matchingVisual) : false;
+    if (
+      matchingVisuals.length !== 1 ||
+      !matchingVisual ||
+      (!isLegacyVisual &&
+        (!isValidProjectLessonVisual(matchingVisual) || matchingVisual.slotId !== slotId))
+    ) {
+      throw new ProjectSnapshotWireError(INVALID_LESSON_VISUAL_REFERENCES_MESSAGE);
+    }
+  }
+};
+
+export const canonicalizeLessonNodeContent = <Node extends Record<string, unknown>>(
+  node: Node,
+  options: ProjectSnapshotWireDecodeOptions = {}
+): Node => {
+  try {
+    if (!Array.isArray(node.contentBlocks)) {
+      if (node.contentBlocks === undefined || node.contentBlocks === null) return node;
+      throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
+    }
+    const contentBlocks = canonicalizeLessonContentBlocks(node.contentBlocks);
+    const generatedVisualSlotById = collectGeneratedVisualBlockReferences(contentBlocks);
+    const storedGeneratedVisuals = Array.isArray(node.generatedVisuals)
+      ? node.generatedVisuals
+      : [];
+    const generatedVisuals = options.recoverHistoricalArtifactDraftVisualSlots
+      ? recoverHistoricalArtifactDraftVisualSlots(storedGeneratedVisuals, generatedVisualSlotById)
+      : storedGeneratedVisuals;
+    assertGeneratedVisualBlockRelations(generatedVisuals, generatedVisualSlotById);
+    const content = deriveLegacyLessonContent(contentBlocks);
+    if (!content) {
+      throw new ProjectSnapshotWireError('Blocchi contenuto lezione senza testo Markdown.');
+    }
+    return {
+      ...node,
+      content,
+      contentBlocks,
+      ...(generatedVisuals === storedGeneratedVisuals ? {} : { generatedVisuals }),
+    } as Node;
+  } catch (error) {
+    if (
+      !(error instanceof ProjectSnapshotWireError) ||
+      !options.recoverHistoricalLessonContentBlocks ||
+      typeof node.content !== 'string'
+    ) {
+      throw error;
+    }
+    return { ...node, contentBlocks: null } as Node;
+  }
+};
 
 const assertOptionalString = (record: Record<string, unknown>, key: string): void => {
   if (record[key] !== undefined && typeof record[key] !== 'string') {
@@ -482,6 +645,35 @@ const validateLearningPlan = (value: Record<string, unknown>): void => {
   }
 };
 
+export const canonicalizeLearningPlanContent = (
+  learningPlan: Record<string, unknown>,
+  options: ProjectSnapshotWireDecodeOptions = {}
+): Record<string, unknown> => ({
+  ...learningPlan,
+  ...(Array.isArray(learningPlan.modules)
+    ? {
+        modules: learningPlan.modules.map(module => {
+          if (!isRecord(module) || !Array.isArray(module.children)) return module;
+          return {
+            ...module,
+            children: module.children.map(child =>
+              isRecord(child) && child.kind === 'lesson'
+                ? canonicalizeLessonNodeContent(child, options)
+                : child
+            ),
+          };
+        }),
+      }
+    : {}),
+  ...(Array.isArray(learningPlan.sections)
+    ? {
+        sections: learningPlan.sections.map(section =>
+          isRecord(section) ? canonicalizeLessonNodeContent(section, options) : section
+        ),
+      }
+    : {}),
+});
+
 const validateProjectFields = (record: Record<string, unknown>): void => {
   STRING_FIELDS.forEach(key => {
     assertOptionalString(record, key);
@@ -574,9 +766,13 @@ export const decodeProjectSnapshotWire = (
       .filter(([key, entry]) => PROJECT_FIELDS.has(key) && key !== 'file' && entry !== undefined)
       .map(([key, entry]) => [key, structuredClone(entry)])
   ) as LegacyProjectSnapshotWire;
+  const learningPlan = isRecord(project.learningPlan)
+    ? canonicalizeLearningPlanContent(project.learningPlan, options)
+    : project.learningPlan;
 
   const decoded = {
     ...project,
+    ...(learningPlan === undefined ? {} : { learningPlan }),
     ...canonicalSource,
     ...(canonicalSource.sourceKind
       ? { sourceKind: canonicalSource.sourceKind }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { LessonWorkflowSnapshot } from '@shared/lessonWorkflowContract';
 import JSZip from 'jszip';
-import { expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import type {
   WorkspaceControllerStateAdapter,
   WorkspaceGenerationKind,
@@ -11,7 +11,7 @@ import {
   type WorkspaceDomainControllerAdapter,
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
-import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { setRenderingLocaleOverride, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import * as feedbackDiagnostics from '../../../services/feedback/browserDiagnostics.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import {
@@ -53,6 +53,8 @@ import {
   buildTestLesson,
   buildTestProjectMeta,
 } from '../../helpers/learningPlan.ts';
+
+afterEach(() => setRenderingLocaleOverride(null));
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',
@@ -4365,6 +4367,7 @@ test('a superseded persistence failure is not reported over the visible lesson',
 });
 
 test('openSection does not start durable work when its generation target was not saved', async () => {
+  setRenderingLocaleOverride('en');
   const lesson = buildTestLesson({ id: 'lesson-1' });
   const generateDurableLesson = vi.fn();
   const harness = createControllerHarness({
@@ -4385,6 +4388,7 @@ test('openSection does not start durable work when its generation target was not
 });
 
 test('force regeneration clears its retained intent when target persistence fails', async () => {
+  setRenderingLocaleOverride('en');
   const lesson = buildTestLesson({ content: '# Esistente', id: 'lesson-1' });
   const retainDurableLessonForceRegenerationIntent = vi.fn();
   const clearDurableLessonForceRegenerationIntent = vi.fn();
@@ -6223,6 +6227,7 @@ test('createLessonFromSelection persists its parent before starting durable work
 });
 
 test('createLessonFromSelection does not start when its parent selection was not saved', async () => {
+  setRenderingLocaleOverride('en');
   const parentLesson = buildTestLesson({ content: '# Lezione', id: 'lesson-1' });
   const generateDurableSublesson = vi.fn();
   const harness = createControllerHarness({

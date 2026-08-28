@@ -1304,6 +1304,134 @@ describe('/api/projects', () => {
     });
   });
 
+  test('rejects non-array lesson content blocks without mutating the section', async () => {
+    const app = createApp();
+    const projectId = 'invalid-content-blocks-patch-project';
+    const snapshot = createModuleSnapshot(projectId, 'Corso patch non valida');
+    const saveResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+    expect(saveResponse.status).toBe(200);
+
+    const patchResponse = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: saveResponse.body.meta.revision,
+        patch: {
+          section: {
+            content: 'Contenuto da non salvare',
+            contentBlocks: { markdown: 'Contenuto da non salvare', type: 'markdown' },
+            sectionId: 'lesson-2',
+          },
+        },
+      });
+
+    expect(patchResponse.status).toBe(400);
+    const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
+    const persistedLesson = loadResponse.body.project.learningPlan.modules[1].children[0];
+    expect(persistedLesson).not.toHaveProperty('content');
+    expect(persistedLesson).not.toHaveProperty('contentBlocks');
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects[0].revision).toBe(saveResponse.body.meta.revision);
+  });
+
+  test('rejects full snapshots with generated visual slot mismatches', async () => {
+    const app = createApp();
+    const projectId = 'visual-slot-mismatch-project';
+    const snapshot = createModuleSnapshot(projectId, 'Corso visuale non valido');
+    const lesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!lesson) throw new Error('Missing visual mismatch test lesson.');
+    lesson.content = 'Contenuto strutturato.';
+    lesson.contentBlocks = [
+      { markdown: 'Contenuto strutturato.', type: 'markdown' },
+      { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: 'visual-1' },
+    ];
+    lesson.generatedVisuals = [
+      {
+        createdAt: '2026-08-28T12:00:00.000Z',
+        id: 'visual-1',
+        render: { code: '<svg></svg>', kind: 'svg' },
+        slotId: 'artifact-draft',
+        title: 'Visuale non valida',
+      },
+    ];
+
+    const response = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+
+    expect(response.status).toBe(400);
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects).toEqual([]);
+  });
+
+  test('rejects full snapshots with incomplete referenced durable visuals', async () => {
+    const app = createApp();
+    const projectId = 'incomplete-visual-project';
+    const snapshot = createModuleSnapshot(projectId, 'Corso visuale incompleto');
+    const lesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!lesson) throw new Error('Missing incomplete visual test lesson.');
+    lesson.content = 'Contenuto strutturato.';
+    lesson.contentBlocks = [
+      { markdown: 'Contenuto strutturato.', type: 'markdown' },
+      { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: 'visual-1' },
+    ];
+    lesson.generatedVisuals = [{ id: 'visual-1', slotId: 'lesson-slot-1' } as never];
+
+    const response = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+
+    expect(response.status).toBe(400);
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects).toEqual([]);
+  });
+
+  test('keeps structured lesson content canonical across later PUT and PATCH revisions', async () => {
+    const app = createApp();
+    const projectId = 'canonical-lesson-project';
+    const canonicalContent =
+      '## Timer\n\n```lua\nlocal tempo = 0\n\nlocal delta = 1\n```\n\nConclusione.';
+    const snapshot = createModuleSnapshot(projectId, 'Corso canonico');
+    const lesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!lesson) throw new Error('Missing canonical lesson fixture.');
+    lesson.content = canonicalContent;
+    lesson.contentBlocks = [{ markdown: canonicalContent, type: 'markdown' }];
+
+    const initialSave = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+    const laterSnapshot = initialSave.body.snapshot as ProjectSnapshot;
+    const laterLesson = laterSnapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!laterLesson) throw new Error('Missing saved canonical lesson.');
+    laterLesson.content =
+      '## Timer\n\nlocal tempo = 0\n```lua\n\nlocal delta = 1\n```\n\nConclusione.';
+    laterSnapshot.title = 'Titolo aggiornato';
+
+    const laterSave = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ expectedRevision: initialSave.body.meta.revision, snapshot: laterSnapshot });
+    expect(laterSave.status).toBe(200);
+
+    const patchResponse = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: laterSave.body.meta.revision,
+        patch: {
+          section: {
+            content: 'Seconda copia divergente',
+            sectionId: 'lesson-1',
+          },
+        },
+      });
+    expect(patchResponse.status).toBe(200);
+
+    const finalLoad = await request(app).get(`/api/projects/projects/${projectId}`);
+    const finalLesson = finalLoad.body.project.learningPlan.modules[0].children[0];
+    expect(finalLesson.content).toBe(canonicalContent);
+    expect(finalLesson.contentBlocks).toEqual([{ markdown: canonicalContent, type: 'markdown' }]);
+  });
+
   test('rejects source changes through the generic project patch route', async () => {
     const app = createApp();
     const snapshot = createPdfSnapshot('source-patch-project', 'Corso PDF');

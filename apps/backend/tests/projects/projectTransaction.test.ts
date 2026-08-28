@@ -170,6 +170,55 @@ describe('patchProjectInTransaction', () => {
     });
   });
 
+  test('canonicalizes lesson content in whole learning-plan patches before persistence', async () => {
+    const updatedAt = '2026-07-29T12:00:00.000Z';
+    const { json, sql } = createTransactionSql([
+      [
+        {
+          document_index: null,
+          meta: STORED_META,
+          revision: '4',
+          snapshot: STORED_SNAPSHOT,
+        },
+      ],
+      [{ meta: { ...STORED_META, updatedAt }, revision: '5' }],
+      [{ id: 'project-1' }],
+    ]);
+    const divergentLearningPlan = {
+      ...STORED_SNAPSHOT.learningPlan,
+      sections: [
+        {
+          content: 'Copia Markdown obsoleta',
+          contentBlocks: [{ markdown: 'Contenuto strutturato.', type: 'markdown' }],
+          id: 'section-1',
+        },
+      ],
+    };
+
+    const result = await patchProjectInTransaction(sql, {
+      buildPatch: () => ({ learningPlan: divergentLearningPlan }),
+      projectId: 'project-1',
+      updatedAt,
+      userId: 'user-1',
+    });
+
+    expect(result.snapshot.learningPlan?.sections?.[0]).toMatchObject({
+      content: 'Contenuto strutturato.',
+      contentBlocks: [{ markdown: 'Contenuto strutturato.', type: 'markdown' }],
+    });
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        learningPlan: expect.objectContaining({
+          sections: [
+            expect.objectContaining({
+              content: 'Contenuto strutturato.',
+            }),
+          ],
+        }),
+      })
+    );
+  });
+
   test('waits for the project lock when applying a safely rebasable patch', async () => {
     const { calls, sql } = createTransactionSql([
       [

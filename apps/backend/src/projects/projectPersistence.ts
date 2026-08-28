@@ -33,7 +33,14 @@ export const splitProjectSnapshot = (snapshot: ProjectSnapshot) => {
 };
 
 export const mergeProjectSnapshotRow = (row: StoredProjectSnapshotRow): ProjectSnapshot =>
-  normalizeProjectSnapshot({
-    ...row.snapshot,
-    ...(row.document_index === null ? {} : { documentIndex: row.document_index }),
-  });
+  normalizeProjectSnapshot(
+    {
+      ...row.snapshot,
+      ...(row.document_index === null ? {} : { documentIndex: row.document_index }),
+    },
+    false,
+    {
+      recoverHistoricalArtifactDraftVisualSlots: true,
+      recoverHistoricalLessonContentBlocks: true,
+    }
+  );

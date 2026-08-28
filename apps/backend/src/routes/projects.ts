@@ -787,6 +787,18 @@ const readNullableArray = (value: unknown): unknown[] | null | undefined => {
   return Array.isArray(value) ? value : undefined;
 };
 
+const readLessonContentBlocksPatch = (
+  section: Record<string, unknown>
+): unknown[] | null | undefined => {
+  if (!Object.hasOwn(section, 'contentBlocks')) return undefined;
+
+  const contentBlocks = readNullableArray(section.contentBlocks);
+  if (contentBlocks === undefined) {
+    throw new Error('Blocchi contenuto lezione non validi.');
+  }
+  return contentBlocks;
+};
+
 const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefined => {
   const value = body.section;
   if (!isRecord(value)) {
@@ -802,7 +814,7 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
     sectionId,
     annotations: Array.isArray(value.annotations) ? value.annotations : undefined,
     content: readNullableString(value.content),
-    contentBlocks: readNullableArray(value.contentBlocks),
+    contentBlocks: readLessonContentBlocksPatch(value),
     generationWarnings: readNullableArray(value.generationWarnings),
     generatedVisuals: readNullableArray(value.generatedVisuals),
     imageRefs: readNullableArray(value.imageRefs),

@@ -299,6 +299,7 @@ describe('durable lesson generation persistence', () => {
   test('commits atomically and adopts only assets referenced by the final lesson', async () => {
     const snapshot = project();
     const input = visualsState(snapshot);
+    input.content = 'Copia Markdown obsoleta';
     input.warnings = [
       {
         code: 'lesson_pdf_image_extraction_incomplete',
@@ -359,7 +360,7 @@ describe('durable lesson generation persistence', () => {
       ],
     });
     expect(patch.section).toMatchObject({
-      content: input.content,
+      content: '## Lezione\n\nContenuto nuovo.',
       generationWarnings: input.warnings,
       lastGenerationRunId: 'run-new',
       sectionId: 'lesson-1',
@@ -452,6 +453,9 @@ describe('durable lesson generation persistence', () => {
 
   test('undo restores the prior lesson without clobbering other lesson assets and is idempotent', async () => {
     const snapshot = project();
+    const historicalLesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!historicalLesson) throw new Error('Missing historical test lesson.');
+    historicalLesson.content = 'Copia storica divergente';
     const input = visualsState(snapshot);
     const execution = context(input).execution;
     const state = await createLessonPersistenceStage({
@@ -463,7 +467,6 @@ describe('durable lesson generation persistence', () => {
       buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
       NOW
     );
-
     const undoPatch = buildLessonGenerationUndoPatch(
       { revision: 5, snapshot: committed },
       input,
@@ -472,7 +475,8 @@ describe('durable lesson generation persistence', () => {
     );
     expect(undoPatch).not.toBeNull();
     const restored = applyProjectPatch(committed, undoPatch ?? {}, NOW);
-    expect(buildLessonGenerationTargetFingerprint(restored, 'lesson-1')).toBe(
+    expect(restored.learningPlan?.modules?.[0]?.children?.[0]?.content).toBe('Lezione precedente');
+    expect(buildLessonGenerationTargetFingerprint(restored, 'lesson-1')).not.toBe(
       input.targetFingerprint
     );
     expect(restored.documentAssets).toMatchObject({
@@ -497,6 +501,91 @@ describe('durable lesson generation persistence', () => {
         execution
       )
     ).toThrow(ProjectLessonGenerationTargetError);
+  });
+
+  test('undo migrates an artifact-draft slot from a historical durable checkpoint', async () => {
+    const snapshot = project();
+    const input = visualsState(snapshot);
+    const execution = context(input).execution;
+    const state = await createLessonPersistenceStage({
+      loadProject: vi.fn().mockResolvedValue(snapshot),
+      now: () => NOW,
+    })(context(input));
+    const previousSection = JSON.parse(state.previous.sectionJson);
+    previousSection.content = 'Copia storica divergente';
+    previousSection.contentBlocks = [
+      { markdown: 'Contenuto storico autorevole.', type: 'markdown' },
+      { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: 'visual-old' },
+    ];
+    previousSection.generatedVisuals = [
+      {
+        createdAt: NOW,
+        id: 'visual-old',
+        render: { code: '<svg></svg>', kind: 'svg' },
+        slotId: 'artifact-draft',
+      },
+    ];
+    state.previous.sectionJson = JSON.stringify(previousSection);
+    const committed = applyProjectPatch(
+      snapshot,
+      buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
+      NOW
+    );
+
+    const undoPatch = buildLessonGenerationUndoPatch(
+      { revision: 5, snapshot: committed },
+      input,
+      state,
+      execution
+    );
+    const restored = applyProjectPatch(committed, undoPatch ?? {}, NOW);
+    const restoredLesson = restored.learningPlan?.modules?.[0]?.children?.[0];
+
+    expect(restoredLesson?.content).toBe('Contenuto storico autorevole.');
+    expect(restoredLesson?.contentBlocks).toEqual(previousSection.contentBlocks);
+    expect(restoredLesson?.generatedVisuals).toEqual([
+      expect.objectContaining({ id: 'visual-old', slotId: 'lesson-slot-1' }),
+    ]);
+    expect(
+      buildLessonGenerationUndoPatch({ revision: 6, snapshot: restored }, input, state, execution)
+    ).toBeNull();
+  });
+
+  test.each([
+    ['empty', []],
+    ['malformed', [null]],
+  ])('undo restores legacy content and clears %s historical content blocks', async (_description, historicalContentBlocks) => {
+    const snapshot = project();
+    const historicalLesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!historicalLesson) throw new Error('Missing historical test lesson.');
+    historicalLesson.content = 'Copia legacy recuperabile';
+    historicalLesson.contentBlocks = historicalContentBlocks;
+    const input = visualsState(snapshot);
+    const execution = context(input).execution;
+    const state = await createLessonPersistenceStage({
+      loadProject: vi.fn().mockResolvedValue(snapshot),
+      now: () => NOW,
+    })(context(input));
+    const committed = applyProjectPatch(
+      snapshot,
+      buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
+      NOW
+    );
+
+    const undoPatch = buildLessonGenerationUndoPatch(
+      { revision: 5, snapshot: committed },
+      input,
+      state,
+      execution
+    );
+    expect(undoPatch).not.toBeNull();
+    const restored = applyProjectPatch(committed, undoPatch ?? {}, NOW);
+    const restoredLesson = restored.learningPlan?.modules?.[0]?.children?.[0];
+    expect(restoredLesson?.content).toBe('Copia legacy recuperabile');
+    expect(restoredLesson?.contentBlocks).toBeNull();
+    expect(
+      buildLessonGenerationUndoPatch({ revision: 6, snapshot: restored }, input, state, execution)
+    ).toBeNull();
   });
 
   test('appends the restored lesson revision inside the undo transaction', async () => {
