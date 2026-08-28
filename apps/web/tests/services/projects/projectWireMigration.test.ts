@@ -35,7 +35,7 @@ const legacyProject = JSON.parse(
   readFileSync(resolve('apps/web/tests/fixtures/projects/legacy-codebase-project.json'), 'utf8')
 ) as Record<string, unknown>;
 
-const projectWithLessonBlocks = (contentBlocks: unknown[]) => ({
+const projectWithLessonBlocks = (contentBlocks: unknown[], generatedVisuals?: unknown[]) => ({
   id: 'lesson-block-project',
   learningPlan: {
     modules: [
@@ -44,6 +44,7 @@ const projectWithLessonBlocks = (contentBlocks: unknown[]) => ({
           {
             content: 'Contenuto legacy da preservare.',
             contentBlocks,
+            ...(generatedVisuals === undefined ? {} : { generatedVisuals }),
             id: 'lesson-1',
             kind: 'lesson',
             title: 'Lezione',
@@ -71,6 +72,14 @@ const validVisualRetryPlan = {
   slotId: 'slot-retry',
   visualDirection: 'Mostra due colonne affiancate.',
   visualType: 'structural_svg',
+};
+
+const legacyGeneratedVisual = {
+  code: '<svg viewBox="0 0 10 10"></svg>',
+  createdAt: '2026-08-28T12:00:00.000Z',
+  id: 'legacy-visual-1',
+  kind: 'svg',
+  title: 'Visuale storica',
 };
 
 const readMigratedFiles = (project: ReturnType<typeof decodeProjectSnapshotWire>) => {
@@ -275,7 +284,9 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
     { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
   ];
 
-  const decoded = decodeProjectSnapshotWire(projectWithLessonBlocks(contentBlocks));
+  const decoded = decodeProjectSnapshotWire(
+    projectWithLessonBlocks(contentBlocks, [{ id: 'visual-1', slotId: 'slot-ready' }])
+  );
   const lesson = (
     decoded.learningPlan as {
       modules: Array<{ children: Array<{ content: string; contentBlocks: unknown[] }> }>;
@@ -284,6 +295,94 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
 
   assert.equal(lesson?.content, '## Contenuto strutturato');
   assert.deepEqual(lesson?.contentBlocks, contentBlocks);
+});
+
+test('wire decoding rejects duplicate generated visual slots', () => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks([
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+          { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+        ])
+      ),
+    /riferimenti visuali della lezione non validi/iu
+  );
+});
+
+test('wire decoding rejects generated visual references assigned to another slot', () => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks(
+          [
+            { markdown: 'Contenuto strutturato.', type: 'markdown' },
+            { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-b' },
+          ],
+          [{ id: 'visual-b', slotId: 'slot-b' }]
+        )
+      ),
+    /riferimenti visuali della lezione non validi/iu
+  );
+});
+
+test('wire decoding rejects unrecognized slotless visual records', () => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks(
+          [
+            { markdown: 'Contenuto strutturato.', type: 'markdown' },
+            { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
+          ],
+          [{ id: 'visual-a' }]
+        )
+      ),
+    /riferimenti visuali della lezione non validi/iu
+  );
+});
+
+test('wire decoding rejects slotless durable visuals with legacy-shaped fields', () => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks(
+          [
+            { markdown: 'Contenuto strutturato.', type: 'markdown' },
+            { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
+          ],
+          [
+            {
+              ...legacyGeneratedVisual,
+              id: 'visual-a',
+              render: { code: '<svg></svg>', kind: 'svg' },
+            },
+          ]
+        )
+      ),
+    /riferimenti visuali della lezione non validi/iu
+  );
+});
+
+test('import and round trip preserve references to recognizable legacy generated visuals', () => {
+  const contentBlocks = [
+    { markdown: 'Contenuto strutturato.', type: 'markdown' },
+    { slotId: 'legacy-slot-1', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+  ];
+
+  const decoded = decodeProjectSnapshotWire(
+    projectWithLessonBlocks(contentBlocks, [legacyGeneratedVisual])
+  );
+  const imported = normalizeImportedProject(decoded);
+  const roundTripped = normalizeImportedProject(exportProjectData(imported));
+  const importedLesson = flattenLessons(imported.learningPlan?.modules)[0];
+  const roundTrippedLesson = flattenLessons(roundTripped.learningPlan?.modules)[0];
+
+  assert.deepEqual(importedLesson?.contentBlocks, contentBlocks);
+  assert.deepEqual(importedLesson?.generatedVisuals, [legacyGeneratedVisual]);
+  assert.deepEqual(roundTrippedLesson?.contentBlocks, contentBlocks);
+  assert.deepEqual(roundTrippedLesson?.generatedVisuals, [legacyGeneratedVisual]);
 });
 
 test('canonical payloads reject unknown fields and unsupported versions instead of dropping them', () => {

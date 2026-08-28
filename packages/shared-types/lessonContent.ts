@@ -8,7 +8,7 @@ interface LessonContentBlockLike {
 export const LESSON_MARKDOWN_BLOCK_TYPE = 'markdown' as const;
 const LESSON_INLINE_QUIZ_BLOCK_TYPE = 'inline-quiz' as const;
 const LESSON_YOUTUBE_CLIPS_BLOCK_TYPE = 'youtube-clips' as const;
-const LESSON_GENERATED_VISUAL_BLOCK_TYPE = 'generated-visual' as const;
+export const LESSON_GENERATED_VISUAL_BLOCK_TYPE = 'generated-visual' as const;
 const LESSON_CONTENT_BLOCK_TYPES = [
   LESSON_MARKDOWN_BLOCK_TYPE,
   LESSON_INLINE_QUIZ_BLOCK_TYPE,

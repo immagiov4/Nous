@@ -4,6 +4,14 @@ import { expect, test } from 'vitest';
 import { mergeProjectSnapshotRow } from '../../src/projects/projectPersistence.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 
+const legacyGeneratedVisual = {
+  code: '<svg viewBox="0 0 10 10"></svg>',
+  createdAt: '2026-08-28T12:00:00.000Z',
+  id: 'legacy-visual-1',
+  kind: 'svg' as const,
+  title: 'Visuale storica',
+};
+
 const storedSnapshot = (contentBlocks: unknown): Omit<ProjectSnapshot, 'documentIndex'> => ({
   activeSectionId: 'lesson-1',
   createdAt: '2026-08-28T12:00:00.000Z',
@@ -68,4 +76,24 @@ test('historical recovery stays limited to stored snapshots with legacy content'
   expect(() => mergeProjectSnapshotRow({ document_index: null, snapshot: unrecoverable })).toThrow(
     /blocco contenuto lezione non valido/iu
   );
+});
+
+test('stored snapshot recovery preserves recognizable legacy visual references', () => {
+  const snapshot = storedSnapshot([
+    { markdown: 'Contenuto strutturato.', type: 'markdown' },
+    { slotId: 'legacy-slot-1', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+  ]);
+  const storedLesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+  if (!storedLesson) throw new Error('Missing historical visual test lesson.');
+  storedLesson.generatedVisuals = [legacyGeneratedVisual];
+
+  const restored = mergeProjectSnapshotRow({ document_index: null, snapshot });
+  const restoredLesson = restored.learningPlan?.modules?.[0]?.children?.[0];
+
+  expect(restoredLesson?.content).toBe('Contenuto strutturato.');
+  expect(restoredLesson?.contentBlocks).toEqual([
+    { markdown: 'Contenuto strutturato.', type: 'markdown' },
+    { slotId: 'legacy-slot-1', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+  ]);
+  expect(restoredLesson?.generatedVisuals).toEqual([legacyGeneratedVisual]);
 });

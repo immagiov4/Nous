@@ -1304,6 +1304,37 @@ describe('/api/projects', () => {
     });
   });
 
+  test('rejects non-array lesson content blocks without mutating the section', async () => {
+    const app = createApp();
+    const projectId = 'invalid-content-blocks-patch-project';
+    const snapshot = createModuleSnapshot(projectId, 'Corso patch non valida');
+    const saveResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot });
+    expect(saveResponse.status).toBe(200);
+
+    const patchResponse = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: saveResponse.body.meta.revision,
+        patch: {
+          section: {
+            content: 'Contenuto da non salvare',
+            contentBlocks: { markdown: 'Contenuto da non salvare', type: 'markdown' },
+            sectionId: 'lesson-2',
+          },
+        },
+      });
+
+    expect(patchResponse.status).toBe(400);
+    const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
+    const persistedLesson = loadResponse.body.project.learningPlan.modules[1].children[0];
+    expect(persistedLesson).not.toHaveProperty('content');
+    expect(persistedLesson).not.toHaveProperty('contentBlocks');
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects[0].revision).toBe(saveResponse.body.meta.revision);
+  });
+
   test('keeps structured lesson content canonical across later PUT and PATCH revisions', async () => {
     const app = createApp();
     const projectId = 'canonical-lesson-project';
