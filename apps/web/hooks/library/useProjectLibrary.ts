@@ -9,9 +9,12 @@ import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotati
 import {
   createLibraryArchiveBlob,
   getLibraryArchiveExtension,
+  type LibraryArchiveData,
   LibraryArchiveError,
+  type LibraryArchiveImportedProject,
   type LibraryArchiveImportResult,
   LibraryArchivePartialImportError,
+  type LibraryArchiveProjectReference,
   type LibraryArchiveRejectedProject,
   LibraryArchiveRollbackError,
   readLibraryArchive,
@@ -24,6 +27,7 @@ import {
 } from '../../services/projects/projectArchive.ts';
 import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
 import {
+  type ProjectRepository,
   type ProjectSaveResult,
   type ProjectSnapshotWithRevision,
   ProjectStorageError,
@@ -150,6 +154,90 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
 
 const sortRejectedProjectsByPosition = (projects: LibraryArchiveRejectedProject[]) =>
   projects.slice().sort((left, right) => left.projectIndex - right.projectIndex);
+
+type LibraryArchiveProject = LibraryArchiveData['projectArchives'][number];
+
+type LibraryArchiveProjectImportOutcome =
+  | { importedProject: LibraryArchiveImportedProject; kind: 'imported' }
+  | {
+      cleanupFailed: boolean;
+      kind: 'rejected';
+      rejectedProject: LibraryArchiveRejectedProject;
+    };
+
+const importLibraryArchiveProject = async (
+  repository: ProjectRepository,
+  project: LibraryArchiveProject
+): Promise<LibraryArchiveProjectImportOutcome> => {
+  const importedProjectId = createProjectId();
+  try {
+    const imported = await repository.importProjectArchive(project.archive, importedProjectId);
+    if (imported.snapshot.id !== importedProjectId) {
+      throw new Error('Il server ha restituito un identificatore corso inatteso.');
+    }
+    return {
+      importedProject: {
+        id: project.id,
+        importedProjectId,
+        projectCount: project.projectCount,
+        projectIndex: project.projectIndex,
+        title: project.title,
+      },
+      kind: 'imported',
+    };
+  } catch (error) {
+    console.warn('[Nous] Failed to import a course from a library archive.', {
+      error,
+      projectId: project.id,
+      projectIndex: project.projectIndex,
+    });
+    const rejectedProject: LibraryArchiveRejectedProject = {
+      code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
+      id: project.id,
+      projectCount: project.projectCount,
+      projectIndex: project.projectIndex,
+      stage: 'project-import',
+      title: project.title,
+    };
+    try {
+      await repository.deleteProject(importedProjectId);
+      return { cleanupFailed: false, kind: 'rejected', rejectedProject };
+    } catch (cleanupError) {
+      console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
+      return { cleanupFailed: true, kind: 'rejected', rejectedProject };
+    }
+  }
+};
+
+const buildLibraryArchiveImportResult = ({
+  importedProjects,
+  notAttemptedProjects = [],
+  rejectedProjects,
+}: {
+  importedProjects: LibraryArchiveImportedProject[];
+  notAttemptedProjects?: LibraryArchiveProjectReference[];
+  rejectedProjects: LibraryArchiveRejectedProject[];
+}): LibraryArchiveImportResult => ({
+  importedProjects,
+  notAttemptedProjects,
+  rejectedProjects: sortRejectedProjectsByPosition(rejectedProjects),
+});
+
+const rollbackImportedLibraryProjects = async (
+  repository: ProjectRepository,
+  importedProjects: LibraryArchiveImportedProject[]
+): Promise<Set<string>> => {
+  const retainedImportedProjectIds = new Set<string>();
+  for (const project of importedProjects.slice().reverse()) {
+    try {
+      await repository.deleteProject(project.importedProjectId);
+    } catch (cleanupError) {
+      retainedImportedProjectIds.add(project.importedProjectId);
+      console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
+    }
+  }
+  return retainedImportedProjectIds;
+};
 
 const haveSameProjectMetadata = (left: SavedProjectMeta, right: SavedProjectMeta): boolean => {
   const leftKeys = Object.keys(left) as Array<keyof SavedProjectMeta>;
@@ -1099,87 +1187,56 @@ export const useProjectLibrary = ({
         throw error;
       }
       const projectIdMap = new Map<string, string>();
-      const importedProjectIds: string[] = [];
       const importedProjects: LibraryArchiveImportResult['importedProjects'] = [];
       const rejectedProjects: LibraryArchiveRejectedProject[] = [...archive.rejectedProjects];
 
       for (const [projectOffset, project] of archive.projectArchives.entries()) {
-        const importedProjectId = createProjectId();
-        try {
-          const imported = await projectRepositoryRef.current.importProjectArchive(
-            project.archive,
-            importedProjectId
-          );
-          if (imported.snapshot.id !== importedProjectId) {
-            throw new Error('Il server ha restituito un identificatore corso inatteso.');
-          }
-          projectIdMap.set(project.id, importedProjectId);
-          importedProjectIds.push(importedProjectId);
-          importedProjects.push({
-            id: project.id,
-            importedProjectId,
-            projectCount: project.projectCount,
-            projectIndex: project.projectIndex,
-            title: project.title,
-          });
-        } catch (error) {
-          console.warn('[Nous] Failed to import a course from a library archive.', {
-            error,
-            projectId: project.id,
-            projectIndex: project.projectIndex,
-          });
-          rejectedProjects.push({
-            code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
-            id: project.id,
-            projectCount: project.projectCount,
-            projectIndex: project.projectIndex,
-            stage: 'project-import',
-            title: project.title,
-          });
-          try {
-            await projectRepositoryRef.current.deleteProject(importedProjectId);
-          } catch (cleanupError) {
-            console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
-            const result: LibraryArchiveImportResult = {
-              importedProjects,
-              notAttemptedProjects: archive.projectArchives
-                .slice(projectOffset + 1)
-                .map(notAttemptedProject => ({
-                  id: notAttemptedProject.id,
-                  projectCount: notAttemptedProject.projectCount,
-                  projectIndex: notAttemptedProject.projectIndex,
-                  title: notAttemptedProject.title,
-                })),
-              rejectedProjects: sortRejectedProjectsByPosition(rejectedProjects),
-            };
-            try {
-              await refreshLibraryState();
-            } catch (refreshError) {
-              console.warn(
-                '[Nous] Failed to refresh the library after an incomplete rollback.',
-                refreshError
-              );
-            }
-            const rollbackError = new LibraryArchiveRollbackError(
-              project.projectIndex,
-              project.projectCount,
-              result
-            );
-            setProjectSyncState({
-              kind: 'import',
-              message: rollbackError.message,
-              phase: 'failed',
-            });
-            throw rollbackError;
-          }
+        const outcome = await importLibraryArchiveProject(projectRepositoryRef.current, project);
+        if (outcome.kind === 'imported') {
+          projectIdMap.set(project.id, outcome.importedProject.importedProjectId);
+          importedProjects.push(outcome.importedProject);
+          continue;
         }
+        rejectedProjects.push(outcome.rejectedProject);
+        if (!outcome.cleanupFailed) continue;
+
+        const result = buildLibraryArchiveImportResult({
+          importedProjects,
+          notAttemptedProjects: archive.projectArchives
+            .slice(projectOffset + 1)
+            .map(notAttemptedProject => ({
+              id: notAttemptedProject.id,
+              projectCount: notAttemptedProject.projectCount,
+              projectIndex: notAttemptedProject.projectIndex,
+              title: notAttemptedProject.title,
+            })),
+          rejectedProjects,
+        });
+        try {
+          await refreshLibraryState();
+        } catch (refreshError) {
+          console.warn(
+            '[Nous] Failed to refresh the library after an incomplete rollback.',
+            refreshError
+          );
+        }
+        const rollbackError = new LibraryArchiveRollbackError(
+          project.projectIndex,
+          project.projectCount,
+          result
+        );
+        setProjectSyncState({
+          kind: 'import',
+          message: rollbackError.message,
+          phase: 'failed',
+        });
+        throw rollbackError;
       }
 
-      const completedImportResult: LibraryArchiveImportResult = {
+      const completedImportResult = buildLibraryArchiveImportResult({
         importedProjects,
-        notAttemptedProjects: [],
-        rejectedProjects: sortRejectedProjectsByPosition(rejectedProjects),
-      };
+        rejectedProjects,
+      });
       const restorableOrganization = {
         folders: archive.folders,
         placements: archive.placements.filter(placement => projectIdMap.has(placement.projectId)),
@@ -1193,18 +1250,12 @@ export const useProjectLibrary = ({
           );
         }
       } catch (error) {
-        let rollbackFailed = error instanceof LibraryArchiveRollbackError;
-        const retainedImportedProjectIds = new Set<string>();
-        const rollbackProjectIds = [...importedProjectIds].reverse();
-        for (const projectId of rollbackProjectIds) {
-          try {
-            await projectRepositoryRef.current.deleteProject(projectId);
-          } catch (cleanupError) {
-            rollbackFailed = true;
-            retainedImportedProjectIds.add(projectId);
-            console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
-          }
-        }
+        const retainedImportedProjectIds = await rollbackImportedLibraryProjects(
+          projectRepositoryRef.current,
+          importedProjects
+        );
+        const rollbackFailed =
+          error instanceof LibraryArchiveRollbackError || retainedImportedProjectIds.size > 0;
         if (rollbackFailed) {
           try {
             await refreshLibraryState();
@@ -1219,12 +1270,12 @@ export const useProjectLibrary = ({
             error instanceof LibraryArchiveError
               ? (error.projectCount ?? archive.projectCount)
               : archive.projectCount,
-            {
-              ...completedImportResult,
+            buildLibraryArchiveImportResult({
               importedProjects: importedProjects.filter(project =>
                 retainedImportedProjectIds.has(project.importedProjectId)
               ),
-            }
+              rejectedProjects,
+            })
           );
           setProjectSyncState({
             kind: 'import',
