@@ -260,17 +260,17 @@ const openRawHtmlBlock = (line, state, canStartTypeSeven) => {
   const tag = openingTag[2].toLowerCase();
   if (RAW_HTML_BLOCK_TAGS.has(tag)) {
     state.rawHtmlBlock = { endsAtBlank: true, rendersContent: true, tag };
-    return { rendersContent: true };
+    return { rendersContent: true, tag: openingTag[1] ? undefined : tag };
   }
   if (!openingTag[1] && RAW_HTML_UNINTERRUPTED_TAGS.has(tag)) {
     if (!rawHtmlClosingPattern(tag).test(line)) {
       state.rawHtmlBlock = { endsAtBlank: false, rendersContent: true, tag };
     }
-    return { rendersContent: true };
+    return { rendersContent: true, tag };
   }
   if (canStartTypeSeven && isCompleteRawHtmlTagLine(line)) {
     state.rawHtmlBlock = { endsAtBlank: true, rendersContent: true, tag };
-    return { rendersContent: true };
+    return { rendersContent: true, tag };
   }
   return false;
 };
@@ -339,7 +339,12 @@ const advanceBlockState = (line, state) => {
   const openedRawHtmlBlock = openRawHtmlBlock(line, state, !state.paragraphOpen);
   if (openedRawHtmlBlock) {
     state.paragraphOpen = false;
-    return { isClosingLine: false, kind: 'raw-html', ...openedRawHtmlBlock };
+    return {
+      isClosingLine: false,
+      isOpeningLine: true,
+      kind: 'raw-html',
+      ...openedRawHtmlBlock,
+    };
   }
 
   return { kind: 'content' };
@@ -625,7 +630,11 @@ const collectInlineCodeOpeners = lines => {
   return collectRawInlineCodeOpeners(commentMaskedLines);
 };
 
-const maskNonRenderedMarkdown = (body, renderedContentLines = new Set()) => {
+const maskNonRenderedMarkdown = (
+  body,
+  renderedContentLines = new Set(),
+  renderedBlockTags = []
+) => {
   const state = {
     fence: undefined,
     inHtmlComment: false,
@@ -649,12 +658,16 @@ const maskNonRenderedMarkdown = (body, renderedContentLines = new Set()) => {
 
     const block = advanceBlockState(line, state);
     if (block.kind === 'raw-html') {
+      if (block.isOpeningLine && block.rendersContent && block.tag) {
+        renderedBlockTags.push(block.tag);
+      }
       if (block.rendersContent && line.trim() && !block.isClosingLine) {
         renderedContentLines.add(lineIndex);
       }
       return ' '.repeat(line.length);
     }
     if (block.kind === 'fenced-code') {
+      if (block.isOpeningLine) renderedBlockTags.push('pre');
       if (block.isOpeningLine || (line.trim() && !block.isClosingLine)) {
         renderedContentLines.add(lineIndex);
       }
@@ -1108,7 +1121,12 @@ function isParagraphBlock(block) {
 }
 
 const markdownStructure = body => {
-  const lines = maskNonRenderedMarkdown(stripBlockquotePrefixes(body));
+  const renderedBlockTags = [];
+  const lines = maskNonRenderedMarkdown(
+    stripBlockquotePrefixes(body),
+    new Set(),
+    renderedBlockTags
+  );
   const headingLevels = [];
   let listItemCount = 0;
   let paragraphCount = 0;
@@ -1143,6 +1161,7 @@ const markdownStructure = body => {
 
     if (isThematicBreak(line)) {
       recordBlock();
+      renderedBlockTags.push('hr');
       block.push(line);
       recordBlock();
       continue;
@@ -1155,7 +1174,7 @@ const markdownStructure = body => {
   }
   recordBlock();
 
-  return { headingLevels, listItemCount, paragraphCount };
+  return { headingLevels, listItemCount, paragraphCount, renderedBlockTags };
 };
 
 const countMatches = (value, pattern) => [...value.matchAll(pattern)].length;
@@ -1189,6 +1208,19 @@ export const assertGitHubRendering = (body, renderedHtml) => {
     throw new Error(
       `GitHub rendering collapsed paragraphs: expected ${expected.paragraphCount}, received ${renderedParagraphs}.`
     );
+  }
+
+  const expectedBlockTagCounts = new Map();
+  for (const tag of expected.renderedBlockTags) {
+    expectedBlockTagCounts.set(tag, (expectedBlockTagCounts.get(tag) ?? 0) + 1);
+  }
+  for (const [tag, expectedCount] of expectedBlockTagCounts) {
+    const actualCount = countMatches(renderedHtml, new RegExp(`<${tag}(?:[ >])`, 'giu'));
+    if (actualCount < expectedCount) {
+      throw new Error(
+        `GitHub rendering lost Markdown blocks: expected ${expectedCount} <${tag}>, received ${actualCount}.`
+      );
+    }
   }
 };
 

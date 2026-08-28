@@ -526,6 +526,27 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
     );
   });
 
+  test('checks rendered fenced code, raw HTML, and thematic breaks', () => {
+    expect(() =>
+      assertGitHubRendering('```text\ncode\n```\n\nParagraph.\n', '<p>Paragraph.</p>')
+    ).toThrow('expected 1 <pre>, received 0');
+    expect(() =>
+      assertGitHubRendering(
+        '<details>\n<summary>More</summary>\n</details>\n\nParagraph.\n',
+        '<p>Paragraph.</p>'
+      )
+    ).toThrow('expected 1 <details>, received 0');
+    expect(() =>
+      assertGitHubRendering(
+        'First paragraph.\n\n---\n\nSecond paragraph.\n',
+        '<p>First</p><p>Second</p>'
+      )
+    ).toThrow('expected 1 <hr>, received 0');
+    expect(() =>
+      assertGitHubRendering('</div>\n\nParagraph.\n', '</div><p>Paragraph.</p>')
+    ).not.toThrow();
+  });
+
   test('counts incomplete HTML-looking text as paragraph content', () => {
     const body = '<custom\ntext\n\nSecond.\n';
 
