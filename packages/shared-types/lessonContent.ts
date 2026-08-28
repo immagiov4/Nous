@@ -3,12 +3,16 @@ interface LessonContentBlockLike {
   readonly type?: unknown;
 }
 
+export const LESSON_MARKDOWN_BLOCK_TYPE = 'markdown' as const;
+
 export const deriveLegacyLessonContent = (
   contentBlocks: readonly LessonContentBlockLike[]
 ): string =>
   contentBlocks
     .flatMap(block =>
-      block.type === 'markdown' && typeof block.markdown === 'string' && block.markdown.trim()
+      block.type === LESSON_MARKDOWN_BLOCK_TYPE &&
+      typeof block.markdown === 'string' &&
+      block.markdown.trim()
         ? [block.markdown.trim()]
         : []
     )

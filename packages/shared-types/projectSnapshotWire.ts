@@ -1,4 +1,4 @@
-import { deriveLegacyLessonContent } from './lessonContent';
+import { deriveLegacyLessonContent, LESSON_MARKDOWN_BLOCK_TYPE } from './lessonContent';
 import type { ProjectSourceKind } from './projectContract';
 import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
 
@@ -144,14 +144,14 @@ const canonicalizeLessonContentBlocks = (contentBlocks: unknown[]): Record<strin
       throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
     }
     if (typeof block.type === 'string') {
-      if (block.type === 'markdown' && typeof block.markdown !== 'string') {
+      if (block.type === LESSON_MARKDOWN_BLOCK_TYPE && typeof block.markdown !== 'string') {
         throw new ProjectSnapshotWireError('Blocco Markdown lezione non valido.');
       }
       return block;
     }
-    if (block.kind === 'markdown' && typeof block.markdown === 'string') {
+    if (block.kind === LESSON_MARKDOWN_BLOCK_TYPE && typeof block.markdown === 'string') {
       const { kind: _legacyKind, ...canonicalBlock } = block;
-      return { ...canonicalBlock, type: 'markdown' };
+      return { ...canonicalBlock, type: LESSON_MARKDOWN_BLOCK_TYPE };
     }
     throw new ProjectSnapshotWireError('Blocco contenuto lezione non valido.');
   });

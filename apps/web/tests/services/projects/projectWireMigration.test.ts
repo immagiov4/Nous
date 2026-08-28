@@ -145,6 +145,9 @@ test('legacy lesson migration derives Markdown content from structured blocks ac
     { markdown: canonicalContent, type: 'markdown' },
   ]);
   assert.equal(flattenLessons(roundTripped.learningPlan?.modules)[0]?.content, canonicalContent);
+  assert.deepEqual(flattenLessons(roundTripped.learningPlan?.modules)[0]?.contentBlocks, [
+    { markdown: canonicalContent, type: 'markdown' },
+  ]);
 });
 
 test('canonical payloads reject unknown fields and unsupported versions instead of dropping them', () => {
