@@ -527,6 +527,7 @@ export const useLibraryAssistantChat = ({
           stop();
           terminalizePendingLibraryToolCalls({
             completedToolCallId: toolCall.toolCallId,
+            messages,
             requestStateKey,
             writeCancelledOutput: (toolCallId, tool) => {
               void addToolOutput({

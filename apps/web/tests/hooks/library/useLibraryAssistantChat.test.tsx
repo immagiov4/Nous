@@ -575,6 +575,65 @@ describe('useLibraryAssistantChat', () => {
     expect(addToolOutputMock).toHaveBeenCalledTimes(2);
   });
 
+  test('terminalizes a streamed sibling tool when the library hands off to a new course', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-handoff',
+          role: 'assistant',
+          parts: [
+            {
+              input: { query: 'materiale correlato' },
+              state: 'input-available',
+              toolCallId: 'parallel-search',
+              type: 'tool-searchLibrary',
+            },
+          ],
+        },
+      ],
+      sendMessage: vi.fn(),
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: { topic: 'pixel art' },
+          toolCallId: 'course-assessment-1',
+          toolName: 'startCourseAssessment',
+        },
+      });
+    });
+
+    expect(result.current.courseAssessmentRequest).toEqual({ topic: 'pixel art' });
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'searchLibrary',
+      toolCallId: 'parallel-search',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'startCourseAssessment',
+      toolCallId: 'course-assessment-1',
+      output: { handoffRequested: true, topic: 'pixel art' },
+    });
+    expect(addToolOutputMock).toHaveBeenCalledTimes(2);
+  });
+
   test('reuses the source artifact identity across explicit regeneration attempts', async () => {
     const sourceArtifact = {
       summary: {

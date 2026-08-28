@@ -3013,8 +3013,10 @@ test('cancelAssessment does not create an interview after the aborted lookup rec
         activeLookupCalls += 1;
         if (activeLookupCalls !== 1) return null;
         markActiveLookupPending();
+        const signal = options?.signal;
+        if (!signal) throw new Error('Expected an abort signal for the active interview lookup.');
         return new Promise((_resolve, reject) => {
-          options?.signal?.addEventListener(
+          signal.addEventListener(
             'abort',
             () => reject(new DOMException('Aborted', 'AbortError')),
             { once: true }
@@ -3047,12 +3049,17 @@ test('cancelAssessment aborts and cancels an interview started by source upload'
       cancelCourseInterview,
       getActiveCourseInterview,
       startCourseInterview: (_input, options) => {
-        observedPollingSignal = options?.signal;
-        observedStartSignal = options?.startSignal;
+        const pollingSignal = options?.signal;
+        const startSignal = options?.startSignal;
+        if (!pollingSignal || !startSignal) {
+          throw new Error('Expected polling and startup abort signals.');
+        }
+        observedPollingSignal = pollingSignal;
+        observedStartSignal = startSignal;
         options?.onRunStarted?.('source-upload-run');
         markInterviewStartPending();
         return new Promise((_resolve, reject) => {
-          observedPollingSignal?.addEventListener(
+          pollingSignal.addEventListener(
             'abort',
             () => reject(new DOMException('Aborted', 'AbortError')),
             { once: true }
@@ -3128,16 +3135,19 @@ test('cancelAssessment aborts interview startup and cancels its recovered durabl
       cancelCourseInterview,
       getActiveCourseInterview: async () => null,
       startCourseInterview: (_input, options) => {
-        observedPollingSignal = options?.signal;
-        observedStartSignal = options?.startSignal;
+        const pollingSignal = options?.signal;
+        const startSignal = options?.startSignal;
+        if (!pollingSignal || !startSignal) {
+          throw new Error('Expected polling and startup abort signals.');
+        }
+        observedPollingSignal = pollingSignal;
+        observedStartSignal = startSignal;
         markInterviewStartPending();
         return new Promise((_resolve, reject) => {
-          observedStartSignal?.addEventListener(
-            'abort',
-            () => options?.onRunStarted?.('interview-run'),
-            { once: true }
-          );
-          observedPollingSignal?.addEventListener(
+          startSignal.addEventListener('abort', () => options?.onRunStarted?.('interview-run'), {
+            once: true,
+          });
+          pollingSignal.addEventListener(
             'abort',
             () => reject(new DOMException('Aborted', 'AbortError')),
             { once: true }
@@ -3173,10 +3183,12 @@ test('cancelAssessment keeps an abort-aware Home run available after cancellatio
       },
       getActiveCourseInterview: async () => null,
       startCourseInterview: (_input, options) => {
-        observedPollingSignal = options?.signal;
+        const pollingSignal = options?.signal;
+        if (!pollingSignal) throw new Error('Expected a polling abort signal.');
+        observedPollingSignal = pollingSignal;
         options?.onRunStarted?.('interview-run');
         return new Promise((_resolve, reject) => {
-          observedPollingSignal?.addEventListener(
+          pollingSignal.addEventListener(
             'abort',
             () => reject(new DOMException('Aborted', 'AbortError')),
             { once: true }
@@ -3997,7 +4009,7 @@ test('cancelAssessment suppresses and cancels a late startHomeChat interview sna
   assert.equal(projectLibrary.adapter.currentProjectId, null);
 });
 
-test('startHomeChat surfaces a late interview cancellation failure', async () => {
+test('startHomeChat retains its draft for cleanup after a late cancellation failure', async () => {
   let resolveInterview: (snapshot: CourseInterviewSnapshot) => void = () => {};
   let markInterviewStarted: () => void = () => {};
   const interviewStarted = new Promise<void>(resolve => {
@@ -4006,14 +4018,31 @@ test('startHomeChat surfaces a late interview cancellation failure', async () =>
   const interview = new Promise<CourseInterviewSnapshot>(resolve => {
     resolveInterview = resolve;
   });
+  let shouldExposeActiveInterview = false;
+  let retryProjectId: string | null = null;
+  let interviewStartCount = 0;
   const cancelCourseInterview = vi.fn(async () => {
-    throw new Error('network unavailable');
+    if (!shouldExposeActiveInterview) {
+      shouldExposeActiveInterview = true;
+      throw new Error('network unavailable');
+    }
   });
   const { controller, projectLibrary, state } = createControllerHarness({
     openRouter: {
       cancelCourseInterview,
-      getActiveCourseInterview: async () => null,
-      startCourseInterview: async (_input, options) => {
+      getActiveCourseInterview: async projectId =>
+        shouldExposeActiveInterview && retryProjectId === projectId
+          ? createInterviewSnapshot({ projectId: retryProjectId })
+          : null,
+      startCourseInterview: async (input, options) => {
+        interviewStartCount += 1;
+        if (interviewStartCount > 1) {
+          return createInterviewSnapshot({
+            projectId: input.projectId,
+            result: { kind: 'cancelled', projectId: input.projectId },
+            status: 'completed',
+          });
+        }
         options?.onRunStarted?.('interview-run');
         markInterviewStarted();
         return interview;
@@ -4026,6 +4055,7 @@ test('startHomeChat surfaces a late interview cancellation failure', async () =>
   const cancellation = controller.cancelAssessment();
   const projectId = projectLibrary.persistedSnapshots[0]?.id;
   assert.ok(projectId);
+  retryProjectId = projectId;
   const cancellationFailure = expect(cancellation).rejects.toThrow(
     t('Operazione non riuscita. Riprova.')
   );
@@ -4040,6 +4070,23 @@ test('startHomeChat surfaces a late interview cancellation failure', async () =>
   assert.equal(projectLibrary.adapter.currentProjectId, projectId);
   assert.equal(state.internalState.workflowState.assessment.status, 'pending');
   assert.equal(cancelCourseInterview.mock.calls.length, 1);
+
+  projectLibrary.adapter.setCurrentProjectId('other-project');
+  const nextStart = await controller.startHomeChat({ input: 'Voglio imparare algebra' });
+
+  assert.equal(cancelCourseInterview.mock.calls.length, 2);
+  expect(cancelCourseInterview).toHaveBeenLastCalledWith({
+    projectId,
+    runId: 'interview-run',
+  });
+  assert.equal(
+    projectLibrary.deletedProjectIds.some(deletedId => deletedId === projectId),
+    true
+  );
+  assert.equal(nextStart.outcome, 'abandoned');
+  assert.equal(interviewStartCount, 2);
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
+  assert.equal(state.internalState.workflowState.assessment.status, 'succeeded');
 });
 
 test('cancelAssessment accepts a terminal late start after idempotent cancellation', async () => {

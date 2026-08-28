@@ -143,10 +143,10 @@ describe('LibraryScreenContainer route fallback', () => {
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:true');
   });
 
-  test('ignores external chat mode shortcuts while a new course request is active', () => {
+  test('ignores external chat mode shortcuts while a library response is active', () => {
     globalThis.history.replaceState({}, '', '/percorso-sconosciuto');
     const props = buildProps();
-    props.controller.workflowState.assessment.status = 'pending';
+    props.libraryAssistantChat.isLoading = true;
 
     render(<LibraryScreenContainer {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'Scorciatoia libreria' }));

@@ -107,6 +107,7 @@ interface AssessmentWorkspaceOwnership {
   draftProjectId: string | null;
   readonly pendingOpenProjects: Map<number, PendingWorkspaceOpen>;
   readonly requestToken: symbol;
+  requiresCancellationRetry: boolean;
 }
 
 interface PendingCancelledDraftCleanup {
@@ -166,6 +167,7 @@ export const createAssessmentPlanningCommands = (
       draftProjectId: null,
       pendingOpenProjects: new Map(),
       requestToken,
+      requiresCancellationRetry: false,
     };
     const openProjectRequestId = state.getWorkflowState().openProject.requestId;
     const pendingOpenProject = openProjectAttempts.get(openProjectRequestId);
@@ -509,7 +511,8 @@ export const createAssessmentPlanningCommands = (
     const isCancellingActiveHomeChat = Boolean(
       homeChatWorkspaceOwnership &&
         (latestHomeChatRequestToken === homeChatWorkspaceOwnership.requestToken ||
-          pendingCancelledDraftCleanup?.ownership === homeChatWorkspaceOwnership)
+          pendingCancelledDraftCleanup?.ownership === homeChatWorkspaceOwnership ||
+          homeChatWorkspaceOwnership.requiresCancellationRetry)
     );
     const hasHomeChatWorkspaceBeenAdopted = () => {
       const currentProjectId = projectLibrary.getCurrentProjectId();
@@ -562,7 +565,10 @@ export const createAssessmentPlanningCommands = (
       const currentProjectId = projectLibrary.getCurrentProjectId();
       const pendingRun = pendingAssessmentInterviewRun;
       pendingRun?.startRequestAbortController?.abort();
-      const projectId = pendingRun?.projectId ?? currentProjectId;
+      const cancellationRetryProjectId = homeChatWorkspaceOwnership?.requiresCancellationRetry
+        ? homeChatWorkspaceOwnership.draftProjectId
+        : null;
+      const projectId = pendingRun?.projectId ?? cancellationRetryProjectId ?? currentProjectId;
       if (projectId) {
         const pendingRunId = pendingRun ? await pendingRun.runId : null;
         const interview = pendingRunId
@@ -592,6 +598,28 @@ export const createAssessmentPlanningCommands = (
         if (!pendingRunCancellationError) pendingRun?.pollingAbortController?.abort();
         if (pendingRunCancellationError) throw pendingRunCancellationError;
         await waitForPendingWorkspaceOpen();
+        const retryOwnership = homeChatWorkspaceOwnership?.requiresCancellationRetry
+          ? homeChatWorkspaceOwnership
+          : null;
+        const retryDraftProjectId = retryOwnership?.draftProjectId;
+        if (retryDraftProjectId && !retryOwnership.adoptedProjectIds.has(retryDraftProjectId)) {
+          const cleanupPromise = projectLibrary.deleteStoredProject(retryDraftProjectId);
+          retryOwnership.draftCleanupPromise = cleanupPromise;
+          try {
+            await cleanupPromise;
+          } catch (cleanupError) {
+            pendingCancelledDraftCleanup = {
+              ownership: retryOwnership,
+              projectId: retryDraftProjectId,
+            };
+            throw cleanupError;
+          } finally {
+            if (retryOwnership.draftCleanupPromise === cleanupPromise) {
+              retryOwnership.draftCleanupPromise = null;
+            }
+          }
+        }
+        if (retryOwnership) retryOwnership.requiresCancellationRetry = false;
         await projectLibrary.refreshLibraryState();
       }
       if (homeChatStartPromise) {
@@ -622,6 +650,8 @@ export const createAssessmentPlanningCommands = (
     } finally {
       if (
         activeHomeChatWorkspaceOwnership === homeChatWorkspaceOwnership &&
+        activeHomeChatStartPromise !== homeChatStartPromise &&
+        !homeChatWorkspaceOwnership?.requiresCancellationRetry &&
         pendingCancelledDraftCleanup?.ownership !== homeChatWorkspaceOwnership
       ) {
         activeHomeChatWorkspaceOwnership = null;
@@ -876,6 +906,7 @@ export const createAssessmentPlanningCommands = (
     } catch (error) {
       if (!isRequestCurrent()) {
         if (error instanceof LateCourseInterviewCancellationError) {
+          workspaceOwnership.requiresCancellationRetry = true;
           pushNousDebugTrace('assessment:late-cancellation-failed', {
             errorMessage: getErrorMessage(error.cause),
             projectId: draftProjectId,
@@ -907,13 +938,24 @@ export const createAssessmentPlanningCommands = (
   }
 
   function startHomeChat(args: HomeChatStartArgs): Promise<HomeChatStartResult> {
-    const startPromise = runHomeChatStart(args);
+    const startPromise = activeHomeChatWorkspaceOwnership?.requiresCancellationRetry
+      ? cancelAssessment().then(
+          () => runHomeChatStart(args),
+          error => ({
+            errorMessage: getErrorMessage(error),
+            outcome: 'failed' as const,
+          })
+        )
+      : runHomeChatStart(args);
     activeHomeChatStartPromise = startPromise;
     void startPromise.then(
       () => {
         if (activeHomeChatStartPromise === startPromise) {
           activeHomeChatStartPromise = null;
-          if (pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership) {
+          if (
+            !activeHomeChatWorkspaceOwnership?.requiresCancellationRetry &&
+            pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership
+          ) {
             activeHomeChatWorkspaceOwnership = null;
           }
         }
@@ -921,7 +963,10 @@ export const createAssessmentPlanningCommands = (
       () => {
         if (activeHomeChatStartPromise === startPromise) {
           activeHomeChatStartPromise = null;
-          if (pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership) {
+          if (
+            !activeHomeChatWorkspaceOwnership?.requiresCancellationRetry &&
+            pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership
+          ) {
             activeHomeChatWorkspaceOwnership = null;
           }
         }
