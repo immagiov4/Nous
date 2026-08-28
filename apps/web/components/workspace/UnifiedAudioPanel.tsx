@@ -13,7 +13,14 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { VoiceProfileId } from '../../types';
 import { extractYouTubeVideoId } from '../../utils/youtube.ts';
@@ -76,8 +83,13 @@ const YOUTUBE_PLAYER_STATE = {
   BUFFERING: 3,
 } as const;
 const PLAYBACK_RATE_MIN = 0.8;
-const PLAYBACK_RATE_MAX = 1.6;
+const PLAYBACK_RATE_MAX = 2;
 const PLAYBACK_RATE_STEP = 0.05;
+const PLAYBACK_RATE_STEP_COUNT = Math.round(
+  (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
+);
+const PLAYBACK_RATE_MARKER_COUNT = 5;
+const PLAYBACK_RATE_THUMB_SIZE_PX = 40;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -160,98 +172,121 @@ const normalizePlaybackRate = (value: number): number => {
   return Math.round(value * stepsPerUnit) / stepsPerUnit;
 };
 
-interface PlaybackSpeedPickerProps {
+const clampPlaybackRate = (value: number): number =>
+  Math.min(PLAYBACK_RATE_MAX, Math.max(PLAYBACK_RATE_MIN, normalizePlaybackRate(value)));
+
+const getPlaybackRateThumbCenterOffset = (progressPercent: number): number =>
+  PLAYBACK_RATE_THUMB_SIZE_PX * (0.5 - progressPercent / 100);
+
+const getPlaybackRateLabel = (playbackRate: number): string =>
+  `${formatPlaybackRateLabel(clampPlaybackRate(playbackRate))}x`;
+
+interface PlaybackSpeedControlProps {
+  readonly isDisabled: boolean;
   readonly onSpeedChange: (speed: number) => void;
   readonly playbackRate: number;
 }
 
-const PlaybackSpeedPicker = ({ onSpeedChange, playbackRate }: PlaybackSpeedPickerProps) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
+const PlaybackSpeedControl = ({
+  isDisabled,
+  onSpeedChange,
+  playbackRate,
+}: PlaybackSpeedControlProps) => {
+  const currentPlaybackRateRef = useRef(clampPlaybackRate(playbackRate));
+  const displayedPlaybackRate = clampPlaybackRate(playbackRate);
+  const playbackRateLabel = getPlaybackRateLabel(displayedPlaybackRate);
+  const playbackRateStepIndex = Math.round(
+    (displayedPlaybackRate - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
+  );
+  const playbackRateProgress = (playbackRateStepIndex / PLAYBACK_RATE_STEP_COUNT) * 100;
+  const playbackRateFillOffset = getPlaybackRateThumbCenterOffset(playbackRateProgress);
 
   useEffect(() => {
-    if (!isOpen) {
+    currentPlaybackRateRef.current = displayedPlaybackRate;
+
+    if (playbackRate !== displayedPlaybackRate) {
+      onSpeedChange(displayedPlaybackRate);
+    }
+  }, [displayedPlaybackRate, onSpeedChange, playbackRate]);
+
+  const updatePlaybackRate = (value: number) => {
+    const nextPlaybackRate = clampPlaybackRate(value);
+    if (nextPlaybackRate === currentPlaybackRateRef.current) {
       return;
     }
 
-    const isWithinSpeedPicker = (target: EventTarget | null) =>
-      target instanceof Node &&
-      (Boolean(buttonRef.current?.contains(target)) ||
-        Boolean(pickerRef.current?.contains(target)));
+    currentPlaybackRateRef.current = nextPlaybackRate;
+    onSpeedChange(nextPlaybackRate);
+  };
 
-    const handlePointerDown = (event: PointerEvent) => {
-      if (isWithinSpeedPicker(event.target)) {
-        return;
-      }
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    let nextPlaybackRate: number | null = null;
 
-      setIsOpen(false);
-    };
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      nextPlaybackRate = currentPlaybackRateRef.current + PLAYBACK_RATE_STEP;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      nextPlaybackRate = currentPlaybackRateRef.current - PLAYBACK_RATE_STEP;
+    } else if (event.key === 'Home') {
+      nextPlaybackRate = PLAYBACK_RATE_MIN;
+    } else if (event.key === 'End') {
+      nextPlaybackRate = PLAYBACK_RATE_MAX;
+    }
 
-    const handleFocusIn = (event: FocusEvent) => {
-      if (!isWithinSpeedPicker(event.target)) {
-        setIsOpen(false);
-      }
-    };
+    if (nextPlaybackRate === null) {
+      return;
+    }
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') {
-        return;
-      }
-
-      setIsOpen(false);
-      buttonRef.current?.focus();
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('focusin', handleFocusIn);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('focusin', handleFocusIn);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
+    event.preventDefault();
+    updatePlaybackRate(nextPlaybackRate);
+  };
 
   return (
-    <>
-      <div className="inline-flex items-center">
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={() => setIsOpen(current => !current)}
-          className="flex cursor-pointer items-center border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-r-xl dark:text-zinc-300 dark:hover:bg-white/10 dark:focus-visible:ring-zinc-500"
-          aria-expanded={isOpen}
-        >
-          <span className="inline-block tabular-nums">
-            {formatPlaybackRateLabel(playbackRate)}x
-          </span>
-        </button>
+    <div className={`relative h-9 w-full ${isDisabled ? 'opacity-50' : ''}`}>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full bg-gray-200 dark:bg-zinc-700"
+      >
+        <span
+          data-playback-rate-fill
+          className="absolute inset-y-0 left-0 rounded-full bg-orange-500 dark:bg-orange-400"
+          style={{ width: `calc(${playbackRateProgress}% + ${playbackRateFillOffset}px)` }}
+        />
+        {Array.from({ length: PLAYBACK_RATE_MARKER_COUNT }, (_, index) => {
+          const markerProgress = index / (PLAYBACK_RATE_MARKER_COUNT - 1);
+          const markerProgressPercent = markerProgress * 100;
+          const markerOffset = getPlaybackRateThumbCenterOffset(markerProgressPercent);
+          return (
+            <span
+              key={markerProgress}
+              data-playback-rate-marker={markerProgress}
+              className={`absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${
+                markerProgressPercent <= playbackRateProgress
+                  ? 'bg-orange-200 dark:bg-orange-100/80'
+                  : 'bg-gray-400 dark:bg-zinc-500'
+              }`}
+              style={{ left: `calc(${markerProgressPercent}% + ${markerOffset}px)` }}
+            />
+          );
+        })}
       </div>
-      {isOpen ? (
-        <div
-          ref={pickerRef}
-          className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-44 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.42)]"
-        >
-          <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
-            <span>{t('Velocita')}</span>
-            <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
-              {formatPlaybackRateLabel(playbackRate)}x
-            </span>
-          </div>
-          <input
-            type="range"
-            aria-label={t('Velocita')}
-            min={PLAYBACK_RATE_MIN}
-            max={PLAYBACK_RATE_MAX}
-            step={PLAYBACK_RATE_STEP}
-            value={playbackRate}
-            onChange={event => onSpeedChange(Number.parseFloat(event.target.value))}
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
-          />
-        </div>
-      ) : null}
-    </>
+
+      <input
+        type="range"
+        tabIndex={isDisabled ? -1 : 0}
+        aria-label={t('Velocita')}
+        aria-valuetext={playbackRateLabel}
+        aria-orientation="horizontal"
+        title={`${t('Velocita')}: ${playbackRateLabel}`}
+        min={PLAYBACK_RATE_MIN}
+        max={PLAYBACK_RATE_MAX}
+        step={PLAYBACK_RATE_STEP}
+        value={displayedPlaybackRate}
+        disabled={isDisabled}
+        className="absolute inset-0 z-10 m-0 h-9 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-9 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:-mt-0.5 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-300 motion-safe:[&::-moz-range-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-110 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-300 motion-safe:[&::-webkit-slider-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-110 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
+        onChange={event => updatePlaybackRate(Number.parseFloat(event.target.value))}
+        onKeyDown={isDisabled ? undefined : handleKeyDown}
+      />
+    </div>
   );
 };
 
@@ -304,7 +339,6 @@ const UnifiedAudioPanel = ({
 
   const ttsDisabled = !tts.ttsConnected || !tts.sectionContent;
   const { isTextPickerActive, onSetTextPickerActive } = tts;
-  const normalizedPlaybackRate = normalizePlaybackRate(tts.playbackRate);
   const requestedVideoId = useMemo(() => {
     return extractYouTubeVideoId(musicUrl);
   }, [musicUrl]);
@@ -347,6 +381,9 @@ const UnifiedAudioPanel = ({
         { id: tts.currentVoice, label: tts.currentVoice, language: 'custom' },
         ...tts.availableVoices,
       ];
+  const currentVoiceLabel =
+    displayedVoices.find(voice => voice.id === tts.currentVoice)?.label ?? tts.currentVoice;
+  const playbackRateLabel = getPlaybackRateLabel(tts.playbackRate);
 
   const formatTime = (value: number) => {
     if (!value || Number.isNaN(value)) {
@@ -718,36 +755,52 @@ const UnifiedAudioPanel = ({
                     </div>
                   ) : null}
 
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="relative inline-flex items-center overflow-visible rounded-xl border border-gray-300 bg-white/80 dark:border-zinc-600 dark:bg-zinc-800/80">
-                      <select
-                        value={tts.currentVoice}
-                        onChange={event => tts.onVoiceChange(event.target.value as VoiceProfileId)}
-                        className="cursor-pointer appearance-none border-0 bg-transparent px-3 py-1.5 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-black/5 focus:outline-none rounded-l-xl dark:text-zinc-200 dark:hover:bg-white/10"
-                        disabled={ttsDisabled}
-                      >
-                        {displayedVoices.map(voice => (
-                          <option
-                            key={voice.id}
-                            value={voice.id}
-                            className={`dark:bg-zinc-800 dark:text-gray-100 ${
-                              voice.id === tts.currentVoice ? 'font-semibold' : 'font-normal'
-                            }`}
-                          >
-                            {voice.label}
-                          </option>
-                        ))}
-                      </select>
+                  <div className="space-y-2">
+                    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
+                      <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
+                      <div className="relative min-h-10">
+                        <select
+                          aria-label={t('Voce')}
+                          title={t('Voce')}
+                          value={tts.currentVoice}
+                          onChange={event =>
+                            tts.onVoiceChange(event.target.value as VoiceProfileId)
+                          }
+                          className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
+                          disabled={ttsDisabled}
+                        >
+                          {displayedVoices.map(voice => (
+                            <option key={voice.id} value={voice.id}>
+                              {voice.label}
+                            </option>
+                          ))}
+                        </select>
 
-                      <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600" />
+                        <div
+                          aria-hidden="true"
+                          className={`pointer-events-none flex min-h-10 items-center gap-2 px-1 text-sm font-medium ${
+                            ttsDisabled
+                              ? 'text-gray-400 dark:text-zinc-500'
+                              : 'text-gray-700 dark:text-zinc-200'
+                          }`}
+                        >
+                          <span className="flex min-w-0 items-center gap-1">
+                            <span className="truncate">{currentVoiceLabel}</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
+                          </span>
+                          <span className="text-gray-300 dark:text-zinc-600">•</span>
+                          <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+                        </div>
+                      </div>
 
-                      <PlaybackSpeedPicker
+                      <PlaybackSpeedControl
+                        isDisabled={ttsDisabled}
                         onSpeedChange={tts.onSpeedChange}
-                        playbackRate={normalizedPlaybackRate}
+                        playbackRate={tts.playbackRate}
                       />
-                    </div>
+                    </fieldset>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center gap-3">
                       <button
                         type="button"
                         onClick={() => tts.onSkipChunk('prev')}
