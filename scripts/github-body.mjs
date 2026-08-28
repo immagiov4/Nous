@@ -6,12 +6,14 @@ import { pathToFileURL } from 'node:url';
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_FULL_MEDIA_TYPE = 'application/vnd.github.full+json';
 const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
-const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
+const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES)
+  .toSorted((left, right) => left.localeCompare(right))
+  .join('|');
 const HEADING_PATTERN = /^( {0,3})(#{1,6})(?:[ \t]+|$)/u;
 const LIST_ITEM_PATTERN = /^( {0,3})(?:[-+*]|\d{1,3}[.)])(?:[ \t]+\S|[ \t]*$)/u;
 // A single # in prose is indistinguishable from a flattened H1; H2+ matches the repository's PR sections without rejecting normal prose.
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
-const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,3}[.)])[ \t]+\[(?: |x|X)\][ \t]+\S/u;
+const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,3}[.)])[ \t]+\[[ xX]\][ \t]+\S/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
 const MANAGED_CUBIC_DESCRIPTION_PATTERN =
   /\n\n<!-- This is an auto-generated description by cubic\. -->[\s\S]*?<!-- End of auto-generated description by cubic\. -->[ \t]*\n*$/u;
@@ -21,9 +23,11 @@ const LINK_DEFINITION_PATTERN = /^ {0,3}\[[^\]]+\]:[ \t]+\S/u;
 const LINK_DEFINITION_START_PATTERN = /^ {0,3}\[[^\]]+\]:[ \t]*$/u;
 const LINK_DESTINATION_PATTERN = /^ {1,3}(?:<[^>]+>|\S+)[ \t]*$/u;
 const LINK_TITLE_PATTERN = /^ {1,3}(?:"[^"]*"|'[^']*'|\([^)]*\))[ \t]*$/u;
-const RAW_HTML_TAG_PATTERN = /^ {0,3}<(\/)?([A-Za-z][A-Za-z0-9-]*)\b[^>]*>/u;
-const RAW_HTML_COMPLETE_TAG_PATTERN =
-  /^ {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?[ \t]*\/?>|<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$/u;
+const RAW_HTML_TAG_PATTERN = /^ {0,3}<(\/)?([A-Za-z][A-Za-z0-9-]*)(?=[ \t/>])[^>]*>/u;
+const RAW_HTML_CLOSING_TAG_PATTERN = /^ {0,3}<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$/u;
+const HTML_ATTRIBUTE_NAME_START_PATTERN = /^[A-Za-z_:]$/u;
+const HTML_ATTRIBUTE_NAME_CHARACTER_PATTERN = /^[A-Za-z0-9_.:-]$/u;
+const HTML_UNQUOTED_ATTRIBUTE_CHARACTER_PATTERN = /^[^ \t\n\f\r/"'`<>=]$/u;
 const RAW_HTML_BLOCK_TAGS = new Set([
   'address',
   'article',
@@ -90,16 +94,36 @@ const RAW_HTML_BLOCK_TAGS = new Set([
 ]);
 const RAW_HTML_UNINTERRUPTED_TAGS = new Set(['pre', 'script', 'style', 'textarea']);
 const WINDOWS_PATH_TOKEN_PATTERN = /[^\s<>()[\]{}"`]+/gu;
-const STRUCTURAL_LITERAL_NEWLINE_PATTERN =
-  /\\(?:r\\n|n)(?=#{1,6}(?:[ \t]|$)|(?:[-+*]|\d{1,3}[.)])(?:[ \t]|$))/u;
+const LITERAL_NEWLINE_CANDIDATE_PATTERN = /\\(?:r\\n|n)/gu;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const SETEXT_HEADING_PATTERN = /^ {0,3}(=+|-+)[ \t]*$/u;
-const TABLE_DELIMITER_PATTERN = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$/u;
-const THEMATIC_BREAK_PATTERN = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/u;
+const TABLE_DELIMITER_CELL_PATTERN = /^:?-+:?$/u;
 
 const normalizeLineEndings = body => body.replace(/\r\n?/gu, '\n');
-const isTopLevelListItem = line =>
-  LIST_ITEM_PATTERN.test(line) && !THEMATIC_BREAK_PATTERN.test(line);
+const markdownBlockContent = line => {
+  const leadingSpaces = /^ */u.exec(line)?.[0].length ?? 0;
+  if (leadingSpaces > 3 || line[leadingSpaces] === '\t') return undefined;
+  return line.slice(leadingSpaces);
+};
+
+const isThematicBreak = line => {
+  const content = markdownBlockContent(line);
+  if (content === undefined) return false;
+  const compactMarker = content.replace(/[ \t]/gu, '');
+  if (compactMarker.length < 3) return false;
+  return ['*', '-', '_'].some(marker => compactMarker === marker.repeat(compactMarker.length));
+};
+
+const isTableDelimiter = line => {
+  const content = markdownBlockContent(line);
+  if (content === undefined) return false;
+  const trimmedLine = content.trimEnd();
+  if (!trimmedLine.includes('|')) return false;
+  const cells = trimmedLine.replace(/^\|/u, '').replace(/\|$/u, '').split('|');
+  return cells.length > 1 && cells.every(cell => TABLE_DELIMITER_CELL_PATTERN.test(cell.trim()));
+};
+
+const isTopLevelListItem = line => LIST_ITEM_PATTERN.test(line) && !isThematicBreak(line);
 const stripBlockquotePrefix = line => line.replace(BLOCKQUOTE_PREFIX_PATTERN, '');
 const stripBlockquotePrefixes = body =>
   normalizeLineEndings(body).split('\n').map(stripBlockquotePrefix).join('\n');
@@ -110,8 +134,8 @@ const leavesParagraphOpen = (line, hasRenderedInlineContent = false) => {
     HEADING_PATTERN.test(line) ||
     isTopLevelListItem(line) ||
     SETEXT_HEADING_PATTERN.test(line) ||
-    TABLE_DELIMITER_PATTERN.test(line) ||
-    THEMATIC_BREAK_PATTERN.test(line) ||
+    isTableDelimiter(line) ||
+    isThematicBreak(line) ||
     LINK_DEFINITION_PATTERN.test(line) ||
     LINK_DEFINITION_START_PATTERN.test(line)
   );
@@ -127,7 +151,61 @@ const markerRunLength = (line, start, marker) => {
   return end - start;
 };
 
-const rawHtmlClosingPattern = tag => new RegExp(`</${tag}[ \\t]*>`, 'iu');
+const rawHtmlClosingPattern = tag => new RegExp(String.raw`</${tag}[ \t]*>`, 'iu');
+
+const skipHtmlWhitespace = (value, start) => {
+  let cursor = start;
+  while (value[cursor] === ' ' || value[cursor] === '\t') cursor += 1;
+  return cursor;
+};
+
+const htmlAttributeValueEnd = (value, start) => {
+  const quote = value[start];
+  if (quote === '"' || quote === "'") {
+    const closingQuote = value.indexOf(quote, start + 1);
+    return closingQuote === -1 ? -1 : closingQuote + 1;
+  }
+
+  let cursor = start;
+  while (HTML_UNQUOTED_ATTRIBUTE_CHARACTER_PATTERN.test(value[cursor] ?? '')) cursor += 1;
+  return cursor === start ? -1 : cursor;
+};
+
+const htmlAttributeEnd = (value, start) => {
+  if (!HTML_ATTRIBUTE_NAME_START_PATTERN.test(value[start] ?? '')) return -1;
+  let cursor = start + 1;
+  while (HTML_ATTRIBUTE_NAME_CHARACTER_PATTERN.test(value[cursor] ?? '')) cursor += 1;
+
+  const equalsSign = skipHtmlWhitespace(value, cursor);
+  if (value[equalsSign] !== '=') return cursor;
+  const attributeValue = skipHtmlWhitespace(value, equalsSign + 1);
+  return htmlAttributeValueEnd(value, attributeValue);
+};
+
+const isCompleteRawHtmlOpeningTag = line => {
+  const value = markdownBlockContent(line)?.replace(/[ \t]+$/u, '');
+  if (!value?.startsWith('<') || value.startsWith('</')) return false;
+
+  let cursor = 1;
+  if (!/^[A-Za-z]$/u.test(value[cursor] ?? '')) return false;
+  cursor += 1;
+  while (/^[A-Za-z0-9-]$/u.test(value[cursor] ?? '')) cursor += 1;
+
+  while (cursor < value.length) {
+    const attributeStart = skipHtmlWhitespace(value, cursor);
+    if (value[attributeStart] === '>' && attributeStart === value.length - 1) return true;
+    if (value[attributeStart] === '/' && value.slice(attributeStart) === '/>') return true;
+    if (attributeStart === cursor) return false;
+    cursor = htmlAttributeEnd(value, attributeStart);
+    if (cursor === -1) return false;
+  }
+  return false;
+};
+
+const isCompleteRawHtmlTagLine = line => {
+  if (RAW_HTML_CLOSING_TAG_PATTERN.test(line)) return true;
+  return isCompleteRawHtmlOpeningTag(line);
+};
 
 const isWindowsPathToken = token => {
   if (/^(?:[A-Za-z]:\\|\\\\)/u.test(token)) return true;
@@ -135,10 +213,18 @@ const isWindowsPathToken = token => {
   return separatorCount >= 2 && /\\(?!n|r\\n)/u.test(token);
 };
 
+const structuralLiteralNewlineIndex = token => {
+  for (const match of token.matchAll(LITERAL_NEWLINE_CANDIDATE_PATTERN)) {
+    const suffix = token.slice(match.index + match[0].length);
+    if (HEADING_PATTERN.test(suffix) || LIST_ITEM_PATTERN.test(suffix)) return match.index;
+  }
+  return -1;
+};
+
 const maskWindowsPathTokens = line =>
   line.replace(WINDOWS_PATH_TOKEN_PATTERN, token => {
     if (!isWindowsPathToken(token)) return token;
-    const separatorIndex = token.search(STRUCTURAL_LITERAL_NEWLINE_PATTERN);
+    const separatorIndex = structuralLiteralNewlineIndex(token);
     if (separatorIndex === -1) return ' '.repeat(token.length);
     return ' '.repeat(separatorIndex) + token.slice(separatorIndex);
   });
@@ -157,36 +243,48 @@ const openRawHtmlBlock = (line, state, canStartTypeSeven) => {
     }
     return true;
   }
-  if (canStartTypeSeven && RAW_HTML_COMPLETE_TAG_PATTERN.test(line)) {
+  if (canStartTypeSeven && isCompleteRawHtmlTagLine(line)) {
     state.rawHtmlBlock = { endsAtBlank: true, tag };
     return true;
   }
   return false;
 };
 
-const advanceBlockState = (line, state) => {
-  if (state.rawHtmlBlock) {
-    if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
-      state.rawHtmlBlock = undefined;
-    } else {
-      const isClosingLine =
-        !state.rawHtmlBlock.endsAtBlank && rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line);
-      if (isClosingLine) state.rawHtmlBlock = undefined;
-      state.paragraphOpen = false;
-      return { isClosingLine, kind: 'raw-html' };
-    }
+const continueRawHtmlBlock = (line, state) => {
+  if (!state.rawHtmlBlock) return undefined;
+  if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
+    state.rawHtmlBlock = undefined;
+    return undefined;
   }
 
-  if (state.fence) {
-    const closingFence = new RegExp(
-      `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
-      'u'
-    );
-    const isClosingLine = closingFence.test(line);
-    if (isClosingLine) state.fence = undefined;
-    state.paragraphOpen = false;
-    return { isClosingLine, isOpeningLine: false, kind: 'fenced-code' };
-  }
+  const isClosingLine =
+    !state.rawHtmlBlock.endsAtBlank && rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line);
+  if (isClosingLine) state.rawHtmlBlock = undefined;
+  state.paragraphOpen = false;
+  return { isClosingLine, kind: 'raw-html' };
+};
+
+const isClosingFence = (line, fence) => {
+  const content = markdownBlockContent(line);
+  if (content === undefined) return false;
+  const markerLength = markerRunLength(content, 0, fence.character);
+  return markerLength >= fence.length && !content.slice(markerLength).trim();
+};
+
+const continueFencedCodeBlock = (line, state) => {
+  if (!state.fence) return undefined;
+  const isClosingLine = isClosingFence(line, state.fence);
+  if (isClosingLine) state.fence = undefined;
+  state.paragraphOpen = false;
+  return { isClosingLine, isOpeningLine: false, kind: 'fenced-code' };
+};
+
+const advanceBlockState = (line, state) => {
+  const rawHtmlBlock = continueRawHtmlBlock(line, state);
+  if (rawHtmlBlock) return rawHtmlBlock;
+
+  const fencedCodeBlock = continueFencedCodeBlock(line, state);
+  if (fencedCodeBlock) return fencedCodeBlock;
 
   const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
   if (openingFence) {
@@ -270,55 +368,66 @@ const findNextInlineCodeOpener = (line, lineIndex, cursor, openers) => {
   return -1;
 };
 
+const maskActiveHtmlComment = (line, cursor, characters, state) => {
+  const commentEnd = line.indexOf('-->', cursor);
+  const maskEnd = commentEnd === -1 ? line.length : commentEnd + 3;
+  maskRange(characters, cursor, maskEnd);
+  state.inHtmlComment = commentEnd === -1;
+  return maskEnd;
+};
+
+const maskActiveInlineCode = (line, cursor, characters, state) => {
+  const delimiterStart = line.indexOf('`', cursor);
+  if (delimiterStart === -1) {
+    maskRange(characters, cursor, line.length);
+    return line.length;
+  }
+  const delimiterLength = markerRunLength(line, delimiterStart, '`');
+  const maskEnd = delimiterStart + delimiterLength;
+  maskRange(characters, cursor, maskEnd);
+  if (delimiterLength === state.inlineCodeDelimiter) state.inlineCodeDelimiter = undefined;
+  return maskEnd;
+};
+
+const maskNewInlineCode = (line, start, characters, renderedContentLines, lineIndex, state) => {
+  const delimiterLength = markerRunLength(line, start, '`');
+  const delimiterEnd = start + delimiterLength;
+  maskRange(characters, start, delimiterEnd);
+  renderedContentLines.add(lineIndex);
+  state.inlineCodeDelimiter = delimiterLength;
+  return delimiterEnd;
+};
+
 const maskInlineCodeAndHtmlComments = (line, lineIndex, openers, renderedContentLines, state) => {
   const characters = line.split('');
   let cursor = 0;
 
   while (cursor < line.length) {
     if (state.inHtmlComment) {
-      const commentEnd = line.indexOf('-->', cursor);
-      if (commentEnd === -1) {
-        maskRange(characters, cursor, line.length);
-        break;
-      }
-      maskRange(characters, cursor, commentEnd + 3);
-      state.inHtmlComment = false;
-      cursor = commentEnd + 3;
+      cursor = maskActiveHtmlComment(line, cursor, characters, state);
       continue;
     }
 
     if (state.inlineCodeDelimiter) {
-      const delimiterStart = line.indexOf('`', cursor);
-      if (delimiterStart === -1) {
-        maskRange(characters, cursor, line.length);
-        break;
-      }
-      const delimiterLength = markerRunLength(line, delimiterStart, '`');
-      maskRange(characters, cursor, delimiterStart + delimiterLength);
-      cursor = delimiterStart + delimiterLength;
-      if (delimiterLength === state.inlineCodeDelimiter) state.inlineCodeDelimiter = undefined;
+      cursor = maskActiveInlineCode(line, cursor, characters, state);
       continue;
     }
 
     const commentStart = line.indexOf('<!--', cursor);
     const inlineCodeStart = findNextInlineCodeOpener(line, lineIndex, cursor, openers);
     if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
-      const delimiterLength = markerRunLength(line, inlineCodeStart, '`');
-      maskRange(characters, inlineCodeStart, inlineCodeStart + delimiterLength);
-      renderedContentLines.add(lineIndex);
-      state.inlineCodeDelimiter = delimiterLength;
-      cursor = inlineCodeStart + delimiterLength;
+      cursor = maskNewInlineCode(
+        line,
+        inlineCodeStart,
+        characters,
+        renderedContentLines,
+        lineIndex,
+        state
+      );
       continue;
     }
     if (commentStart === -1) break;
-    const commentEnd = line.indexOf('-->', commentStart + 4);
-    if (commentEnd === -1) {
-      maskRange(characters, commentStart, line.length);
-      state.inHtmlComment = true;
-      break;
-    }
-    maskRange(characters, commentStart, commentEnd + 3);
-    cursor = commentEnd + 3;
+    cursor = maskActiveHtmlComment(line, commentStart, characters, state);
   }
 
   return characters.join('');
@@ -345,6 +454,86 @@ const sameLineCodeSpanEnd = (line, markerIndex) => {
   return -1;
 };
 
+const advanceCollectionInlineCode = (line, cursor, state) => {
+  const delimiterStart = line.indexOf('`', cursor);
+  if (delimiterStart === -1) return line.length;
+  const delimiterLength = markerRunLength(line, delimiterStart, '`');
+  if (delimiterLength === state.inlineCodeDelimiter) state.inlineCodeDelimiter = undefined;
+  return delimiterStart + delimiterLength;
+};
+
+const maskCollectionComment = ({
+  characters,
+  line,
+  lineIndex,
+  lines,
+  maskUnclosedComments,
+  start,
+  state,
+}) => {
+  const commentEnd = line.indexOf('-->', start + 4);
+  if (commentEnd !== -1) {
+    maskRange(characters, start, commentEnd + 3);
+    return commentEnd + 3;
+  }
+
+  const closesLater = lines.slice(lineIndex + 1).some(candidate => candidate.includes('-->'));
+  if (!maskUnclosedComments && !closesLater) return line.length;
+  maskRange(characters, start, line.length);
+  state.inHtmlComment = true;
+  return line.length;
+};
+
+const maskCommentsOnCollectionLine = ({
+  line,
+  lineIndex,
+  lines,
+  maskUnclosedComments,
+  preliminaryOpeners,
+  state,
+}) => {
+  const characters = line.split('');
+  let cursor = 0;
+
+  while (cursor < line.length) {
+    if (state.inHtmlComment) {
+      cursor = maskActiveHtmlComment(line, cursor, characters, state);
+      continue;
+    }
+    if (state.inlineCodeDelimiter) {
+      cursor = advanceCollectionInlineCode(line, cursor, state);
+      continue;
+    }
+
+    const commentStart = line.indexOf('<!--', cursor);
+    const inlineCodeStart = findNextInlineCodeOpener(line, lineIndex, cursor, preliminaryOpeners);
+    if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
+      state.inlineCodeDelimiter = markerRunLength(line, inlineCodeStart, '`');
+      cursor = inlineCodeStart + state.inlineCodeDelimiter;
+      continue;
+    }
+    if (commentStart === -1) break;
+
+    const codeSpanEnd = sameLineCodeSpanEnd(characters.join(''), commentStart);
+    cursor =
+      codeSpanEnd === -1
+        ? maskCollectionComment({
+            characters,
+            line,
+            lineIndex,
+            lines,
+            maskUnclosedComments,
+            start: commentStart,
+            state,
+          })
+        : codeSpanEnd;
+  }
+
+  const commentMaskedLine = characters.join('');
+  state.paragraphOpen = leavesParagraphOpen(commentMaskedLine, /`/u.test(commentMaskedLine));
+  return commentMaskedLine;
+};
+
 const maskHtmlCommentsForOpenerCollection = (
   lines,
   preliminaryOpeners,
@@ -357,65 +546,28 @@ const maskHtmlCommentsForOpenerCollection = (
     paragraphOpen: false,
     rawHtmlBlock: undefined,
   };
-  return lines.map((line, lineIndex) => {
-    const characters = line.split('');
-    let cursor = 0;
+  const maskedLines = [];
+
+  for (const [lineIndex, line] of lines.entries()) {
     if (!state.inHtmlComment && !state.inlineCodeDelimiter) {
       const block = advanceBlockState(line, state);
-      if (block.kind !== 'content') return line;
+      if (block.kind !== 'content') {
+        maskedLines.push(line);
+        continue;
+      }
     }
-    while (cursor < line.length) {
-      if (state.inHtmlComment) {
-        const commentEnd = line.indexOf('-->', cursor);
-        if (commentEnd === -1) {
-          maskRange(characters, cursor, line.length);
-          break;
-        }
-        maskRange(characters, cursor, commentEnd + 3);
-        state.inHtmlComment = false;
-        cursor = commentEnd + 3;
-        continue;
-      }
-
-      if (state.inlineCodeDelimiter) {
-        const delimiterStart = line.indexOf('`', cursor);
-        if (delimiterStart === -1) break;
-        const delimiterLength = markerRunLength(line, delimiterStart, '`');
-        cursor = delimiterStart + delimiterLength;
-        if (delimiterLength === state.inlineCodeDelimiter) {
-          state.inlineCodeDelimiter = undefined;
-        }
-        continue;
-      }
-
-      const commentStart = line.indexOf('<!--', cursor);
-      const inlineCodeStart = findNextInlineCodeOpener(line, lineIndex, cursor, preliminaryOpeners);
-      if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
-        state.inlineCodeDelimiter = markerRunLength(line, inlineCodeStart, '`');
-        cursor = inlineCodeStart + state.inlineCodeDelimiter;
-        continue;
-      }
-      if (commentStart === -1) break;
-      const codeSpanEnd = sameLineCodeSpanEnd(characters.join(''), commentStart);
-      if (codeSpanEnd !== -1) {
-        cursor = codeSpanEnd;
-        continue;
-      }
-      const commentEnd = line.indexOf('-->', commentStart + 4);
-      if (commentEnd === -1) {
-        const closesLater = lines.slice(lineIndex + 1).some(candidate => candidate.includes('-->'));
-        if (!maskUnclosedComments && !closesLater) break;
-        maskRange(characters, commentStart, line.length);
-        state.inHtmlComment = true;
-        break;
-      }
-      maskRange(characters, commentStart, commentEnd + 3);
-      cursor = commentEnd + 3;
-    }
-    const commentMaskedLine = characters.join('');
-    state.paragraphOpen = leavesParagraphOpen(commentMaskedLine, /`/u.test(commentMaskedLine));
-    return commentMaskedLine;
-  });
+    maskedLines.push(
+      maskCommentsOnCollectionLine({
+        line,
+        lineIndex,
+        lines,
+        maskUnclosedComments,
+        preliminaryOpeners,
+        state,
+      })
+    );
+  }
+  return maskedLines;
 };
 
 const collectInlineCodeOpeners = lines => {
@@ -481,9 +633,76 @@ const maskNonRenderedMarkdown = (body, renderedContentLines = new Set()) => {
 
 const issue = (code, line, message) => ({ code, line, message });
 
+const isSetextHeadingLine = (line, index, structuralLines) =>
+  SETEXT_HEADING_PATTERN.test(line) && index > 0 && Boolean(structuralLines[index - 1]?.trim());
+
+const collectLineSyntaxIssues = ({ index, line, structuralLines }) => {
+  const lineNumber = index + 1;
+  const lineIssues = [];
+
+  if (LITERAL_NEWLINE_PATTERN.test(maskWindowsPathTokens(line))) {
+    lineIssues.push(
+      issue(
+        'literal-newline',
+        lineNumber,
+        String.raw`Replace the literal \n or \r\n separator with a real line break.`
+      )
+    );
+  }
+  if (INLINE_HEADING_PATTERN.test(line)) {
+    lineIssues.push(
+      issue('inline-heading', lineNumber, 'Start each Markdown heading on its own line.')
+    );
+  }
+  if (INLINE_TASK_ITEM_PATTERN.test(line)) {
+    lineIssues.push(
+      issue('inline-list', lineNumber, 'Start each Markdown task-list item on its own line.')
+    );
+  }
+
+  const heading = HEADING_PATTERN.test(line) || isSetextHeadingLine(line, index, structuralLines);
+  const nextLineHasContent =
+    index < structuralLines.length - 1 && structuralLines[index + 1]?.trim();
+  if (heading && nextLineHasContent) {
+    lineIssues.push(
+      issue('heading-spacing', lineNumber, 'Add a blank line after the Markdown heading.')
+    );
+  }
+  return lineIssues;
+};
+
+const collectListSpacingIssues = ({ index, line, state, structuralLines }) => {
+  const lineNumber = index + 1;
+  const lineIsBlank = !line.trim();
+  const listItem = !isSetextHeadingLine(line, index, structuralLines) && isTopLevelListItem(line);
+  const indentedContinuation = state.inListBlock && /^(?: {2,}|\t)\S/u.test(line);
+  const listIssues = [];
+
+  if (lineIsBlank) state.inListBlock = false;
+  if (listItem && !state.inListBlock && index > 0 && structuralLines[index - 1]?.trim()) {
+    listIssues.push(
+      issue('list-spacing-before', lineNumber, 'Add a blank line before the Markdown list.')
+    );
+  }
+  if (state.inListBlock && !listItem && !lineIsBlank && !indentedContinuation) {
+    listIssues.push(
+      issue(
+        'list-spacing-after',
+        state.lastListItemLine,
+        'Add a blank line after the Markdown list.'
+      )
+    );
+    state.inListBlock = false;
+  }
+  if (listItem) {
+    state.inListBlock = true;
+    state.lastListItemLine = lineNumber;
+  }
+  return listIssues;
+};
+
 export const validateMarkdownBody = body => {
   const normalizedBody = normalizeLineEndings(body);
-  const lines = normalizedBody.split('\n');
   const unquotedBody = stripBlockquotePrefixes(normalizedBody);
   const renderedContentLines = new Set();
   const structuralLines = maskNonRenderedMarkdown(unquotedBody, renderedContentLines);
@@ -506,71 +725,12 @@ export const validateMarkdownBody = body => {
     );
   }
 
-  let inListBlock = false;
-  let lastListItemLine = 1;
+  const listState = { inListBlock: false, lastListItemLine: 1 };
   for (const [index, line] of structuralLines.entries()) {
-    const lineNumber = index + 1;
-    const lineIsBlank = !line.trim();
-    const setextHeading =
-      SETEXT_HEADING_PATTERN.test(line) && index > 0 && Boolean(structuralLines[index - 1]?.trim());
-    const listItem = !setextHeading && isTopLevelListItem(line);
-    const indentedListContinuation = inListBlock && /^(?: {2,}|\t)\S/u.test(line);
-
-    if (lineIsBlank) inListBlock = false;
-
-    const lineWithoutWindowsPaths = maskWindowsPathTokens(line);
-    if (LITERAL_NEWLINE_PATTERN.test(lineWithoutWindowsPaths)) {
-      issues.push(
-        issue(
-          'literal-newline',
-          lineNumber,
-          'Replace the literal \\n or \\r\\n separator with a real line break.'
-        )
-      );
-    }
-
-    if (INLINE_HEADING_PATTERN.test(line)) {
-      issues.push(
-        issue('inline-heading', lineNumber, 'Start each Markdown heading on its own line.')
-      );
-    }
-
-    if (INLINE_TASK_ITEM_PATTERN.test(line)) {
-      issues.push(
-        issue('inline-list', lineNumber, 'Start each Markdown task-list item on its own line.')
-      );
-    }
-
-    const heading = HEADING_PATTERN.exec(line);
-    if (heading && index < lines.length - 1 && structuralLines[index + 1]?.trim() !== '') {
-      issues.push(
-        issue('heading-spacing', lineNumber, 'Add a blank line after the Markdown heading.')
-      );
-    }
-
-    if (setextHeading && index < lines.length - 1 && structuralLines[index + 1]?.trim() !== '') {
-      issues.push(
-        issue('heading-spacing', lineNumber, 'Add a blank line after the Markdown heading.')
-      );
-    }
-
-    if (listItem && !inListBlock && index > 0 && structuralLines[index - 1]?.trim()) {
-      issues.push(
-        issue('list-spacing-before', lineNumber, 'Add a blank line before the Markdown list.')
-      );
-    }
-
-    if (inListBlock && !listItem && !lineIsBlank && !indentedListContinuation) {
-      issues.push(
-        issue('list-spacing-after', lastListItemLine, 'Add a blank line after the Markdown list.')
-      );
-      inListBlock = false;
-    }
-
-    if (listItem) {
-      inListBlock = true;
-      lastListItemLine = lineNumber;
-    }
+    issues.push(
+      ...collectLineSyntaxIssues({ index, line, structuralLines }),
+      ...collectListSpacingIssues({ index, line, state: listState, structuralLines })
+    );
   }
 
   return issues;
@@ -620,15 +780,15 @@ const markdownStructure = body => {
     const isRawHtml = /^ {0,3}<\/?[A-Za-z][^>]*>/u.test(block[0]);
     const isIndentedCode = INDENTED_CODE_PATTERN.test(block[0]);
     const isLinkDefinition = isLinkDefinitionBlock(block);
-    const isTable = block.some(line => TABLE_DELIMITER_PATTERN.test(line));
-    const isThematicBreak = block.length === 1 && THEMATIC_BREAK_PATTERN.test(block[0]);
+    const isTable = block.some(isTableDelimiter);
+    const isThematicBreakBlock = block.length === 1 && isThematicBreak(block[0]);
     if (
       !containsList &&
       !isRawHtml &&
       !isIndentedCode &&
       !isLinkDefinition &&
       !isTable &&
-      !isThematicBreak
+      !isThematicBreakBlock
     ) {
       paragraphCount += 1;
     }
@@ -713,11 +873,8 @@ const runProcess = (command, args) =>
         return;
       }
       const errorOutput = Buffer.concat(stderr).toString('utf8').trim();
-      rejectProcess(
-        new Error(
-          `gh api failed with exit code ${exitCode}${errorOutput ? `: ${errorOutput}` : '.'}`
-        )
-      );
+      const errorDetail = errorOutput ? `: ${errorOutput}` : '.';
+      rejectProcess(new Error(`gh api failed with exit code ${exitCode}${errorDetail}`));
     });
   });
 

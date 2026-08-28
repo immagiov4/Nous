@@ -189,6 +189,48 @@ describe('GitHub body Markdown validation', () => {
     ).toEqual([]);
     expect(
       validateMarkdownBody(
+        '## Example\n\n <custom-tag>\nDescription ## Not-a-heading\n\nParagraph.\n'
+      )
+    ).toEqual([]);
+    for (const malformedTag of ['<span/foo>', '<span=foo>', '<span.foo>']) {
+      expect(
+        validateMarkdownBody(
+          `## Example\n\n${malformedTag}\nDescription ## Testing\n\nParagraph.\n`
+        ).map(candidate => candidate.code)
+      ).toContain('inline-heading');
+    }
+    expect(
+      validateMarkdownBody('## Example\n\n<span =foo>\nDescription ## Testing\n\nParagraph.\n').map(
+        candidate => candidate.code
+      )
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<custom-tag data-value="<">\nDescription ## Not-a-heading\n\nParagraph.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<custom-tag data-value=">">\nDescription ## Not-a-heading\n\nParagraph.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<span data-value=one>  \nDescription ## Not-a-heading\n\nParagraph.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<x data-value=one/two>\nDescription ## Testing\n\nParagraph.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Example\n\n<x data-value=one/>\nDescription ## Not-a-heading\n\nParagraph.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
         '## Example\n\n<details>\n<summary>More</summary>\n\nDescription ## Testing\n\n</details>\n'
       ).map(candidate => candidate.code)
     ).toContain('inline-heading');
