@@ -489,6 +489,17 @@ test('fenced-code planning keeps lone-CR sibling blocks and prose bounded', () =
   );
 });
 
+test('analysis projects accidental indentation after lone-CR boundaries', () => {
+  const content = 'Before\r\r    plain text\r\rAfter';
+  const analysis = parseMarkdownAnalysis(content);
+
+  assert.deepEqual(analysis.codeRanges, []);
+  assert.deepEqual(
+    analysis.rendererNormalizedIndentRanges.map(range => content.slice(range.start, range.end)),
+    ['    ']
+  );
+});
+
 test('analysis exposes Markdown syntax after an unclosed fence opener', () => {
   const content = ['~~~ts', '[Docs](https://example.com)'].join('\n');
   const destinationSlices = parseMarkdownAnalysis(content).linkDestinationRanges.map(range =>

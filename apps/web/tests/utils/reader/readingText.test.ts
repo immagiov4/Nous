@@ -103,6 +103,12 @@ describe('prepareMarkdownForSpeech', () => {
     expect(prepareMarkdownForSpeech(`Prima${lineEnding}- elemento`)).toBe(expected);
   });
 
+  test('reads lone-CR accidental indentation as visible prose', () => {
+    expect(prepareMarkdownForSpeech('Before\r\r    plain text\r\rAfter')).toBe(
+      'Before\n\nplain text\n\nAfter'
+    );
+  });
+
   test('reads bare code-like text that the renderer leaves as prose', () => {
     expect(
       prepareMarkdownForSpeech('Prima.\n\ncpp while (i < 5) { std::cout << i; }\n\nDopo.')
