@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 const useChatMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const generateLessonArtifactDraftMock = vi.fn();
+const stopMock = vi.fn();
 
 class MockDefaultChatTransport<UI_MESSAGE extends UIMessage> {
   api: string;
@@ -63,12 +64,14 @@ describe('useLibraryAssistantChat', () => {
     useChatMock.mockReset();
     addToolOutputMock.mockReset();
     generateLessonArtifactDraftMock.mockReset();
+    stopMock.mockReset();
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
       messages: [],
       sendMessage: vi.fn(),
       status: 'ready',
+      stop: stopMock,
     });
   });
 
@@ -119,6 +122,88 @@ describe('useLibraryAssistantChat', () => {
     placementByProjectId: {},
     rootNodes: [],
   };
+
+  test('exposes the active AI SDK cancellation through the library message sender', () => {
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+
+    act(() => result.current.sendLibraryMessage.stop?.());
+
+    expect(stopMock).toHaveBeenCalledOnce();
+  });
+
+  test('suppresses a deferred client-tool result and automatic continuation after stop', async () => {
+    let resolveProjects: (projects: never[]) => void = () => {};
+    const projectsRequest = new Promise<never[]>(resolve => {
+      resolveProjects = resolve;
+    });
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-deferred-tool',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Risposta parziale', state: 'streaming' }],
+        },
+      ],
+      sendMessage: vi.fn(),
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const { result, unmount } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(() => projectsRequest),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const chatOptions = useChatMock.mock.calls[0]?.[0];
+    let toolCallRequest: Promise<void> | undefined;
+
+    act(() => {
+      toolCallRequest = chatOptions.onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea uno schema.',
+          },
+          toolCallId: 'deferred-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    act(() => result.current.sendLibraryMessage.stop?.());
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'output-error',
+        toolCallId: 'deferred-artifact',
+      })
+    );
+    unmount();
+    await act(async () => {
+      resolveProjects([]);
+      await toolCallRequest;
+    });
+
+    expect(addToolOutputMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'deferred-artifact',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+    expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(false);
+  });
 
   test('sends the latest web-search preference through the initial transport instance', async () => {
     const stableFolders = [folder];

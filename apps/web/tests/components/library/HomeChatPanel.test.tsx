@@ -523,6 +523,58 @@ describe('HomeChatPanel', () => {
     );
   });
 
+  test('stops a streaming library response from the composer with the keyboard', async () => {
+    const user = userEvent.setup();
+    const stop = vi.fn();
+    const onLibraryMessageSend = Object.assign(
+      vi.fn(async () => {}),
+      { stop }
+    );
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      isLibraryModeLoading: true,
+      libraryMessages: [
+        {
+          id: 'assistant-streaming',
+          role: 'assistant' as const,
+          parts: [
+            { type: 'text' as const, text: 'Risposta parziale', state: 'streaming' as const },
+          ],
+        },
+      ],
+      onLibraryMessageSend,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+    stopButton.focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(onLibraryMessageSend).not.toHaveBeenCalled();
+    expect(stopButton).toBeDisabled();
+    expect(stopButton).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
+  });
+
+  test('uses the existing course cancellation for a generating new-course response', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      isNewCourseLoading: true,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /^(Cancel|Annulla)$/i }));
+
+    expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
+    expect(props.onSendAssessmentMessage).not.toHaveBeenCalled();
+  });
+
   test('replaces the current draft and selects the editable course name', async () => {
     const user = userEvent.setup();
     const props = {

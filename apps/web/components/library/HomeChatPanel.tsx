@@ -16,7 +16,10 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
-import HomeChatComposer, { type HomeChatSurfaceState } from './HomeChatComposer.tsx';
+import HomeChatComposer, {
+  type HomeChatSurfaceState,
+  type LibraryMessageSendHandler,
+} from './HomeChatComposer.tsx';
 import HomeChatConversation, { getActiveLibraryMessages } from './HomeChatConversation.tsx';
 
 interface HomeChatPanelProps {
@@ -59,7 +62,7 @@ interface HomeChatPanelProps {
   readonly onContinueAssessment?: () => void;
   readonly onConfirmGenerate: () => void;
   readonly onHomeChatModeChange: (mode: HomeChatMode) => void;
-  readonly onLibraryMessageSend: (message: string) => void | Promise<void>;
+  readonly onLibraryMessageSend: LibraryMessageSendHandler;
   readonly onLibraryArtifactNoteApprove?: (
     toolCallId: string,
     input: {
@@ -291,6 +294,8 @@ export default function HomeChatPanel({
   const reserveClearButtonSpace = showClearChat && hideHeaderCopy && hideModeSelector;
   const mobileChatStyle = getMobileChatStyle(isMobileViewport, viewportHeight, hasActiveChat);
   const isCompactSurface = compactWhenEmpty && !hasActiveChat;
+  const onStopGeneration =
+    homeChatMode === 'new-course' ? onCancelNewCourse : onLibraryMessageSend.stop;
 
   useEffect(() => {
     if (globalThis.window === undefined) return;
@@ -380,6 +385,7 @@ export default function HomeChatPanel({
         onLibraryMessageSend={onLibraryMessageSend}
         onLibraryWebSearchChange={onLibraryWebSearchChange}
         onSendAssessmentMessage={onSendAssessmentMessage}
+        onStopGeneration={onStopGeneration}
         onToggleLibraryContextRef={onToggleLibraryContextRef}
         onUploadSourceClick={onUploadSourceClick}
         pendingFileName={pendingFileName}

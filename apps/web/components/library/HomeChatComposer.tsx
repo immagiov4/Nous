@@ -1,4 +1,4 @@
-import { ArrowUp, Check, Globe, Loader2, Paperclip, Plus, Sparkles, X } from 'lucide-react';
+import { ArrowUp, Check, Globe, Loader2, Paperclip, Plus, Sparkles, Square, X } from 'lucide-react';
 import type { RefObject, SyntheticEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -9,6 +9,9 @@ import HomeChatLibraryContextPicker, {
 } from './HomeChatLibraryContextPicker.tsx';
 
 export type HomeChatSurfaceState = null | 'attachment-menu' | 'tool-menu';
+export type LibraryMessageSendHandler = ((message: string) => void | Promise<void>) & {
+  readonly stop?: () => void;
+};
 type MenuAlign = 'start' | 'end';
 type MenuVerticalPlacement = 'above' | 'below';
 
@@ -40,9 +43,10 @@ interface HomeChatComposerProps {
   readonly onClearPendingFile: () => void;
   readonly onActiveSurfaceChange: (surface: HomeChatSurfaceState) => void;
   readonly onLibraryGenerateArtifactsChange: (value: boolean) => void;
-  readonly onLibraryMessageSend: (message: string) => void | Promise<void>;
+  readonly onLibraryMessageSend: LibraryMessageSendHandler;
   readonly onLibraryWebSearchChange: (value: boolean) => void;
   readonly onSendAssessmentMessage: (message: string) => Promise<void>;
+  readonly onStopGeneration?: () => void;
   readonly onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
   readonly onUploadSourceClick: () => void;
   readonly pendingFileName: string | null;
@@ -406,6 +410,7 @@ export default function HomeChatComposer({
   onLibraryMessageSend,
   onLibraryWebSearchChange,
   onSendAssessmentMessage,
+  onStopGeneration,
   onToggleLibraryContextRef,
   onUploadSourceClick,
   pendingFileName,
@@ -428,6 +433,7 @@ export default function HomeChatComposer({
     'library-query': homeChatMode === 'library-query' ? draftTemplate?.value || '' : '',
     'new-course': homeChatMode === 'new-course' ? draftTemplate?.value || '' : '',
   });
+  const [hasRequestedStop, setHasRequestedStop] = useState(false);
   const [toolMenuAlign, setToolMenuAlign] = useState<MenuAlign>('start');
   const [attachmentMenuAlign, setAttachmentMenuAlign] = useState<MenuAlign>('start');
   const [toolMenuVerticalPlacement, setToolMenuVerticalPlacement] =
@@ -444,8 +450,11 @@ export default function HomeChatComposer({
     [libraryAttachedContextRefs, libraryTree]
   );
   const currentDraft = draftValueOverride ?? draftByMode[homeChatMode];
+  const isStoppingGeneration = isLoading && hasRequestedStop;
   const activeLibraryToolCount = Number(libraryWebSearch) + Number(libraryGenerateArtifacts);
   const closeMenus = () => onActiveSurfaceChange(null);
+  const sendButtonLabel = t(homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria');
+  const submitButtonLabel = isLoading && onStopGeneration ? t('Annulla') : sendButtonLabel;
 
   useLayoutEffect(() => {
     if (
@@ -545,6 +554,7 @@ export default function HomeChatComposer({
     event.preventDefault();
     const message = currentDraft.trim();
     if (!message) return;
+    setHasRequestedStop(false);
     updateDraft('');
     closeMenus();
     if (homeChatMode === 'new-course') {
@@ -552,6 +562,13 @@ export default function HomeChatComposer({
       return;
     }
     await onLibraryMessageSend(message);
+  };
+
+  const stopGeneration = () => {
+    if (!onStopGeneration || isStoppingGeneration) return;
+    setHasRequestedStop(true);
+    closeMenus();
+    onStopGeneration();
   };
 
   return (
@@ -625,18 +642,23 @@ export default function HomeChatComposer({
             variant="compact"
           />
           <button
-            type="submit"
+            type={isLoading && onStopGeneration ? 'button' : 'submit'}
             data-home-chat-target="submit"
-            disabled={isLoading || !currentDraft.trim()}
+            onClick={isLoading && onStopGeneration ? stopGeneration : undefined}
+            disabled={isLoading ? !onStopGeneration || isStoppingGeneration : !currentDraft.trim()}
+            aria-busy={isStoppingGeneration || undefined}
+            aria-label={submitButtonLabel}
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
               isLoading
                 ? 'bg-orange-500 text-white'
                 : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-200 disabled:text-gray-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-500'
             }`}
-            title={t(homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria')}
+            title={submitButtonLabel}
           >
-            {isLoading ? (
+            {isStoppingGeneration || (isLoading && !onStopGeneration) ? (
               <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isLoading ? (
+              <Square className="h-3.5 w-3.5 fill-current" />
             ) : (
               <ArrowUp className="h-4 w-4" />
             )}
