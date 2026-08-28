@@ -5162,6 +5162,100 @@ test('cancelAssessment suppresses a late submitAssessment snapshot', async () =>
 });
 
 test.each([
+  'user-answer',
+  'add-details',
+] as const)('cancelAssessment aborts an in-flight %s follow-up request', async followUpKind => {
+  let markSignalRequestStarted: () => void = () => {};
+  const signalRequestStarted = new Promise<void>(resolve => {
+    markSignalRequestStarted = resolve;
+  });
+  const sendSignal = vi.fn(
+    (
+      _input: unknown,
+      options?: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewAnswer
+      >[1]
+    ): Promise<CourseInterviewSnapshot> => {
+      const signal = options?.signal;
+      if (!signal) return Promise.reject(new Error('Missing follow-up cancellation signal.'));
+      markSignalRequestStarted();
+      return new Promise((_resolve, reject) => {
+        const rejectAbort = () => reject(new Error('Follow-up request aborted.'));
+        if (signal.aborted) {
+          rejectAbort();
+          return;
+        }
+        signal.addEventListener('abort', rejectAbort, { once: true });
+      });
+    }
+  );
+  const getActiveCourseInterview = vi.fn(
+    async (
+      _projectId: string,
+      options?: Parameters<
+        typeof import('../../../services/openrouter/index.ts').getActiveCourseInterview
+      >[1]
+    ) => {
+      options?.onRunStarted?.('interview-run');
+      return followUpKind === 'user-answer'
+        ? createInterviewSnapshot({ projectId: 'learn-project' })
+        : createProposalSnapshot('learn-project');
+    }
+  );
+  const cancelCourseInterview = vi.fn(async () => {});
+  const sendCourseInterviewAnswer = vi.fn(
+    (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewAnswer
+      >[0],
+      options?: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewAnswer
+      >[1]
+    ) => sendSignal(input, options)
+  );
+  const sendCourseInterviewDecision = vi.fn(
+    (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewDecision
+      >[0],
+      options?: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewDecision
+      >[1]
+    ) => sendSignal(input, options)
+  );
+  const { controller } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'learn-project' },
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview,
+      sendCourseInterviewAnswer,
+      sendCourseInterviewDecision,
+    },
+  });
+
+  const submitPromise = controller.submitAssessment('Continua con questi dettagli');
+  await signalRequestStarted;
+  await controller.cancelAssessment();
+  const result = await submitPromise;
+
+  const expectedSender =
+    followUpKind === 'user-answer' ? sendCourseInterviewAnswer : sendCourseInterviewDecision;
+  const unexpectedSender =
+    followUpKind === 'user-answer' ? sendCourseInterviewDecision : sendCourseInterviewAnswer;
+  expect(expectedSender).toHaveBeenCalledOnce();
+  expect(unexpectedSender).not.toHaveBeenCalled();
+  expect(sendSignal.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  expect(getActiveCourseInterview.mock.calls[0]?.[1]?.signal).toBe(
+    sendSignal.mock.calls[0]?.[1]?.signal
+  );
+  expect(cancelCourseInterview).toHaveBeenCalledWith({
+    projectId: 'learn-project',
+    runId: 'interview-run',
+  });
+  expect(result.outcome).toBe('abandoned');
+});
+
+test.each([
   'while-opening',
   'after-opened',
 ] as const)('cancelAssessment preserves a project %s during a pending Home follow-up', async stopTiming => {

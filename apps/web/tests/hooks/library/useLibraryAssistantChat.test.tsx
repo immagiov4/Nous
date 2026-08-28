@@ -147,7 +147,7 @@ describe('useLibraryAssistantChat', () => {
     const projectsRequest = new Promise<never[]>(resolve => {
       resolveProjects = resolve;
     });
-    const sendMessage = vi.fn();
+    const sendMessage = vi.fn(async () => {});
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -212,6 +212,101 @@ describe('useLibraryAssistantChat', () => {
       toolCallId: 'deferred-artifact',
       state: 'output-error',
       errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+  });
+
+  test('rejects a late stopped tool before starting the queued next response', async () => {
+    let resolveStoppedResponse: () => void = () => {};
+    const stoppedResponse = new Promise<void>(resolve => {
+      resolveStoppedResponse = resolve;
+    });
+    const sendMessage = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(() => stoppedResponse)
+      .mockResolvedValueOnce();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage,
+      status: 'streaming',
+      stop: stopMock,
+    });
+    const loadProjectsById = vi.fn(async () => []);
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById,
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    let stoppedSend: Promise<void> | undefined;
+    let nextSend: Promise<void> | undefined;
+
+    act(() => {
+      stoppedSend = result.current.sendLibraryMessage('Prima domanda');
+    });
+    act(() => result.current.sendLibraryMessage.stop?.());
+    act(() => {
+      nextSend = result.current.sendLibraryMessage('Seconda domanda');
+    });
+    expect(sendMessage).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea lo schema della prima risposta.',
+          },
+          toolCallId: 'late-stopped-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    expect(loadProjectsById).not.toHaveBeenCalled();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'late-stopped-artifact',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+
+    await act(async () => {
+      resolveStoppedResponse();
+      await stoppedSend;
+    });
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    await nextSend;
+
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea lo schema della seconda risposta.',
+          },
+          toolCallId: 'current-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    expect(loadProjectsById).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'current-artifact',
+      output: {
+        artifact: null,
+        error: expect.stringMatching(
+          /^(I couldn't find the target lesson\.|Non ho trovato la lezione target\.)$/
+        ),
+      },
     });
   });
 

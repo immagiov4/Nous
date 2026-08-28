@@ -1053,7 +1053,12 @@ export const createAssessmentPlanningCommands = (
     const runId = new Promise<string | null>(resolve => {
       resolveRunId = resolve;
     });
-    const pendingRun = { projectId, runId };
+    const requestAbortController = new AbortController();
+    const pendingRun = {
+      projectId,
+      runId,
+      startRequestAbortController: requestAbortController,
+    };
     pendingAssessmentInterviewRun = pendingRun;
     const reportRunStarted = (runId: string) => {
       if (hasResolvedRunId) return;
@@ -1065,22 +1070,32 @@ export const createAssessmentPlanningCommands = (
     try {
       const interview = await openRouter.getActiveCourseInterview(projectId, {
         onRunStarted: reportRunStarted,
+        signal: requestAbortController.signal,
       });
+      if (!state.isWorkflowCurrent('assessment', requestId)) {
+        return { outcome: 'abandoned' };
+      }
       if (!interview?.wait) throw new Error('L’intervista non è pronta per una risposta.');
       const snapshot =
         interview.wait.signalType === COURSE_INTERVIEW_USER_ANSWER_SIGNAL
-          ? await openRouter.sendCourseInterviewAnswer({
-              projectId,
-              runId: interview.runId,
-              text: trimmedInput,
-              waitId: interview.wait.waitId,
-            })
-          : await openRouter.sendCourseInterviewDecision({
-              decision: { details: trimmedInput, kind: 'add-details' },
-              projectId,
-              runId: interview.runId,
-              waitId: interview.wait.waitId,
-            });
+          ? await openRouter.sendCourseInterviewAnswer(
+              {
+                projectId,
+                runId: interview.runId,
+                text: trimmedInput,
+                waitId: interview.wait.waitId,
+              },
+              { signal: requestAbortController.signal }
+            )
+          : await openRouter.sendCourseInterviewDecision(
+              {
+                decision: { details: trimmedInput, kind: 'add-details' },
+                projectId,
+                runId: interview.runId,
+                waitId: interview.wait.waitId,
+              },
+              { signal: requestAbortController.signal }
+            );
       if (!state.isWorkflowCurrent('assessment', requestId)) {
         return { outcome: 'abandoned' };
       }

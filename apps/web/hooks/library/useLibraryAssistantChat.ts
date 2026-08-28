@@ -200,6 +200,7 @@ const resolveContextRefLabel = ({
 };
 const libraryAssistantRequestStateStore = new Map<symbol, LibraryAssistantRequestState>();
 const libraryAssistantResponseStateStore = new Map<symbol, LibraryAssistantResponseState>();
+const libraryAssistantResponseSettlementStore = new Map<symbol, Promise<void>>();
 const libraryAssistantActiveToolCallStore = new Map<symbol, Map<string, string>>();
 const LIBRARY_REPLACEMENT_DRAFT_PREFIX = 'library-replacement-draft';
 
@@ -317,6 +318,7 @@ export const useLibraryAssistantChat = ({
     libraryAssistantActiveToolCallStore.set(requestStateKey, new Map());
     return () => {
       libraryAssistantResponseStateStore.delete(requestStateKey);
+      libraryAssistantResponseSettlementStore.delete(requestStateKey);
       libraryAssistantActiveToolCallStore.delete(requestStateKey);
     };
   }, [requestStateKey]);
@@ -605,13 +607,30 @@ export const useLibraryAssistantChat = ({
   );
 
   const sendLibraryMessage = useCallback(
-    (text: string) => {
+    async (text: string) => {
+      const previousResponseSettlement =
+        libraryAssistantResponseSettlementStore.get(requestStateKey);
+      if (previousResponseSettlement) await previousResponseSettlement;
+
       const responseState = libraryAssistantResponseStateStore.get(requestStateKey);
       if (responseState) {
         responseState.canContinue = true;
         responseState.generation += 1;
       }
-      return sendMessage({ text });
+
+      const responsePromise = sendMessage({ text });
+      const responseSettlement = responsePromise.then(
+        () => undefined,
+        () => undefined
+      );
+      libraryAssistantResponseSettlementStore.set(requestStateKey, responseSettlement);
+      try {
+        await responsePromise;
+      } finally {
+        if (libraryAssistantResponseSettlementStore.get(requestStateKey) === responseSettlement) {
+          libraryAssistantResponseSettlementStore.delete(requestStateKey);
+        }
+      }
     },
     [requestStateKey, sendMessage]
   );
