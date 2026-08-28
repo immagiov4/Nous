@@ -464,12 +464,26 @@ const ContextMenu = ({
         return;
       }
 
-      setMoreActionsMenuStyle(getMoreActionsMenuStyle(triggerRect, menuHeight));
+      const nextStyle = getMoreActionsMenuStyle(triggerRect, menuHeight);
+      setMoreActionsMenuStyle(currentStyle =>
+        currentStyle?.bottom === nextStyle.bottom &&
+        currentStyle?.left === nextStyle.left &&
+        currentStyle?.top === nextStyle.top
+          ? currentStyle
+          : nextStyle
+      );
     };
 
     updateMoreActionsMenuPosition();
+    const menuElement = moreActionsMenuRef.current;
+    let menuResizeObserver: ResizeObserver | null = null;
+    if (menuElement && typeof ResizeObserver !== 'undefined') {
+      menuResizeObserver = new ResizeObserver(updateMoreActionsMenuPosition);
+      menuResizeObserver.observe(menuElement);
+    }
     globalThis.window.addEventListener('resize', updateMoreActionsMenuPosition);
     return () => {
+      menuResizeObserver?.disconnect();
       globalThis.window.removeEventListener('resize', updateMoreActionsMenuPosition);
     };
   }, [isMoreActionsOpen]);
