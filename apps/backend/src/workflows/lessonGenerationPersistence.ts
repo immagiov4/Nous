@@ -1,5 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import { deriveLegacyLessonContent } from '@shared/lessonContent';
+import {
+  canonicalizeLessonNodeContent,
+  ProjectSnapshotWireError,
+} from '@shared/projectSnapshotWire';
 
 import type { Sql } from 'postgres';
 
@@ -281,14 +285,19 @@ const restoredSectionPatch = (
   sectionId: string,
   previous: Record<string, unknown>
 ): NonNullable<TransactionProjectPatch['section']> => {
-  const contentBlocks = Array.isArray(previous.contentBlocks) ? previous.contentBlocks : null;
+  let content = typeof previous.content === 'string' ? previous.content : null;
+  let contentBlocks: unknown[] | null = null;
+  if (Array.isArray(previous.contentBlocks)) {
+    try {
+      const canonicalPrevious = canonicalizeLessonNodeContent(previous);
+      content = canonicalPrevious.content as string;
+      contentBlocks = canonicalPrevious.contentBlocks as unknown[];
+    } catch (error) {
+      if (!(error instanceof ProjectSnapshotWireError)) throw error;
+    }
+  }
   return {
-    content:
-      contentBlocks === null
-        ? typeof previous.content === 'string'
-          ? previous.content
-          : null
-        : deriveLegacyLessonContent(contentBlocks),
+    content,
     contentBlocks,
     generationWarnings: Array.isArray(previous.generationWarnings)
       ? previous.generationWarnings
