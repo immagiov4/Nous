@@ -83,8 +83,10 @@ Validate a pull-request or issue body from a Markdown file before publishing it:
 
 ```bash
 bun run github:body -- validate --body-file body.md
+bun run github:body -- verify --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 bun run github:body -- update --kind pr --repo immagiov4/Nous --number 123 --body-file body.md
 ```
 
-Use `--kind issue` for an issue. The update command sends the file through `gh api`, then verifies
-the remote raw body and GitHub-rendered HTML. It fails instead of accepting flattened Markdown.
+Use `--kind issue` for an issue. `verify` is read-only. The update command sends the file through
+`gh api`, then performs the same remote raw-body and GitHub-rendered HTML checks. Both commands fail
+on flattened Markdown or an unexpected remote difference.

@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { assertGitHubRendering, updateGitHubBody, validateMarkdownBody } from './github-body.mjs';
+import {
+  assertGitHubRendering,
+  updateGitHubBody,
+  validateMarkdownBody,
+  verifyGitHubBody,
+} from './github-body.mjs';
 
 const temporaryDirectories: string[] = [];
 
@@ -24,6 +29,13 @@ The body keeps its paragraphs separate.
 ## Testing
 
 The focused test passed.
+`;
+
+const managedCubicDescription = `
+
+<!-- This is an auto-generated description by cubic. -->
+<a href="https://cubic.dev/pr/example">Review in Cubic</a>
+<!-- End of auto-generated description by cubic. -->
 `;
 
 async function createBodyFile(body = validBody): Promise<string> {
@@ -109,7 +121,9 @@ describe('GitHub body remote update', () => {
     const runGhCommand = vi
       .fn<(args: string[]) => Promise<string>>()
       .mockResolvedValueOnce('')
-      .mockResolvedValueOnce(JSON.stringify({ body: validBody, body_html: renderedBody }));
+      .mockResolvedValueOnce(
+        JSON.stringify({ body: validBody + managedCubicDescription, body_html: renderedBody })
+      );
 
     await expect(
       updateGitHubBody({
@@ -135,7 +149,7 @@ describe('GitHub body remote update', () => {
       `body=@${resolve(bodyFile)}`,
       '--silent',
     ]);
-    expect(runGhCommand).toHaveBeenNthCalledWith(2, [
+    const readCommand = [
       'api',
       'repos/immagiov4/Nous/pulls/42',
       '--method',
@@ -144,16 +158,33 @@ describe('GitHub body remote update', () => {
       'Accept: application/vnd.github.full+json',
       '--header',
       'X-GitHub-Api-Version: 2022-11-28',
-    ]);
+    ];
+    expect(runGhCommand).toHaveBeenNthCalledWith(2, readCommand);
+
+    const verifyGhCommand = vi
+      .fn<(args: string[]) => Promise<string>>()
+      .mockResolvedValue(JSON.stringify({ body: validBody, body_html: renderedBody }));
+    await verifyGitHubBody({
+      bodyFile,
+      kind: 'pr',
+      number: 42,
+      repository: 'immagiov4/Nous',
+      runGhCommand: verifyGhCommand,
+    });
+    expect(verifyGhCommand).toHaveBeenCalledTimes(1);
+    expect(verifyGhCommand).toHaveBeenCalledWith(readCommand);
   });
 
-  test('fails when GitHub stores a different raw body', async () => {
+  test('does not allow the PR-only Cubic suffix on issue bodies', async () => {
     const bodyFile = await createBodyFile();
     const runGhCommand = vi
       .fn<(args: string[]) => Promise<string>>()
       .mockResolvedValueOnce('')
       .mockResolvedValueOnce(
-        JSON.stringify({ body: 'Different\n', body_html: '<p>Different</p>' })
+        JSON.stringify({
+          body: validBody + managedCubicDescription,
+          body_html: '<p>Unexpected issue suffix</p>',
+        })
       );
 
     await expect(

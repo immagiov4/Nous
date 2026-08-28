@@ -10,6 +10,8 @@ const LIST_ITEM_PATTERN = /^( {0,3})(?:[-+*]|\d{1,3}[.)])[ \t]+\S/u;
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{1,6}(?:[ \t]+\S|[ \t]*$)/u;
 const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,3}[.)])[ \t]+\[(?: |x|X)\][ \t]+\S/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
+const MANAGED_CUBIC_DESCRIPTION_PATTERN =
+  /\n\n<!-- This is an auto-generated description by cubic\. -->[\s\S]*?<!-- End of auto-generated description by cubic\. -->[ \t]*\n*$/u;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const SETEXT_HEADING_PATTERN = /^ {0,3}(=+|-+)[ \t]*$/u;
 const TABLE_DELIMITER_PATTERN = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$/u;
@@ -299,6 +301,50 @@ const endpointFor = ({ kind, number, repository }) => {
   return `repos/${repository}/${resource}/${number}`;
 };
 
+const verifyRemoteBody = async ({ endpoint, kind, localBody, number, runGhCommand }) => {
+  const remoteResponse = await runGhCommand([
+    'api',
+    endpoint,
+    '--method',
+    'GET',
+    '--header',
+    `Accept: ${GITHUB_FULL_MEDIA_TYPE}`,
+    '--header',
+    `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
+  ]);
+  const remote = JSON.parse(remoteResponse);
+  if (typeof remote.body !== 'string' || typeof remote.body_html !== 'string') {
+    throw new TypeError('GitHub did not return both raw and rendered body representations.');
+  }
+
+  const normalizedRemoteBody = normalizeLineEndings(remote.body);
+  const comparableRemoteBody =
+    kind === 'pr'
+      ? normalizedRemoteBody.replace(MANAGED_CUBIC_DESCRIPTION_PATTERN, '')
+      : normalizedRemoteBody;
+  if (comparableRemoteBody !== normalizeLineEndings(localBody)) {
+    throw new Error('GitHub raw body does not match the Markdown body file.');
+  }
+  assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`);
+  assertGitHubRendering(remote.body, remote.body_html);
+
+  return { endpoint, htmlLength: remote.body_html.length };
+};
+
+export const verifyGitHubBody = async ({
+  bodyFile,
+  kind,
+  number,
+  repository,
+  runGhCommand = runGh,
+}) => {
+  const absoluteBodyFile = resolve(bodyFile);
+  const localBody = await readFile(absoluteBodyFile, 'utf8');
+  assertValidMarkdownBody(localBody, absoluteBodyFile);
+  const endpoint = endpointFor({ kind, number, repository });
+  return verifyRemoteBody({ endpoint, kind, localBody, number, runGhCommand });
+};
+
 export const updateGitHubBody = async ({
   bodyFile,
   kind,
@@ -323,28 +369,7 @@ export const updateGitHubBody = async ({
     '--silent',
   ]);
 
-  const remoteResponse = await runGhCommand([
-    'api',
-    endpoint,
-    '--method',
-    'GET',
-    '--header',
-    `Accept: ${GITHUB_FULL_MEDIA_TYPE}`,
-    '--header',
-    `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
-  ]);
-  const remote = JSON.parse(remoteResponse);
-  if (typeof remote.body !== 'string' || typeof remote.body_html !== 'string') {
-    throw new TypeError('GitHub did not return both raw and rendered body representations.');
-  }
-
-  if (normalizeLineEndings(remote.body) !== normalizeLineEndings(localBody)) {
-    throw new Error('GitHub raw body does not match the Markdown body file after the update.');
-  }
-  assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`);
-  assertGitHubRendering(remote.body, remote.body_html);
-
-  return { endpoint, htmlLength: remote.body_html.length };
+  return verifyRemoteBody({ endpoint, kind, localBody, number, runGhCommand });
 };
 
 const parseFlags = args => {
@@ -390,6 +415,7 @@ const validateKind = kind => {
 
 const usage = `Usage:
   bun run github:body -- validate --body-file <path>
+  bun run github:body -- verify --kind <pr|issue> --repo <owner/repository> --number <number> --body-file <path>
   bun run github:body -- update --kind <pr|issue> --repo <owner/repository> --number <number> --body-file <path>`;
 
 export const runCli = async (args, dependencies = {}) => {
@@ -404,16 +430,18 @@ export const runCli = async (args, dependencies = {}) => {
     return;
   }
 
-  if (command === 'update') {
-    const result = await updateGitHubBody({
+  if (command === 'update' || command === 'verify') {
+    const target = {
       bodyFile,
       kind: validateKind(requiredFlag(flags, '--kind')),
       number: validateNumber(requiredFlag(flags, '--number')),
       repository: validateRepository(requiredFlag(flags, '--repo')),
       runGhCommand: dependencies.runGhCommand,
-    });
+    };
+    const result =
+      command === 'update' ? await updateGitHubBody(target) : await verifyGitHubBody(target);
     process.stdout.write(
-      `Updated and verified ${result.endpoint} (${result.htmlLength} rendered HTML bytes).\n`
+      `${command === 'update' ? 'Updated and verified' : 'Verified'} ${result.endpoint} (${result.htmlLength} rendered HTML bytes).\n`
     );
     return;
   }
