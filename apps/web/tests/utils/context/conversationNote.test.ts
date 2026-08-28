@@ -73,6 +73,18 @@ test('anchors rendered link text after nested unclosed fence openers', () => {
   );
 });
 
+test('anchors rendered link text after raw HTML reveals an unclosed fence', () => {
+  const content = ['<div>', '```ts', 'code', '</div>', '## After [Docs](https://e.test)'].join(
+    '\n'
+  );
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' }), true);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, { selectedText: 'https://e.test' }),
+    false
+  );
+});
+
 test('rejects note proposals whose text exists only in an unsupported viewer placeholder', () => {
   const placeholders = [
     {

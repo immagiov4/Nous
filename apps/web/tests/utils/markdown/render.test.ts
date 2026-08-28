@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { planMarkdownFencedCode } from '../../../utils/markdown/codeRanges.ts';
+import {
+  parseMarkdownAnalysis,
+  planMarkdownFencedCode,
+} from '../../../utils/markdown/codeRanges.ts';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
+
+const escapeFenceRun = (fence: string): string =>
+  [...fence].map(character => `\\${character}`).join('');
 
 test('normalizeMarkdownForRendering removes Delete control characters from inline LaTeX', () => {
   assert.equal(
@@ -292,7 +298,7 @@ test('normalizeMarkdownForRendering escapes an unclosed fence so following prose
     ['Prima', '```ts', 'const answer = 42;', '## Dopo il codice', 'Testo leggibile.'].join('\n')
   );
 
-  assert.match(output, /\\```ts/);
+  assert.ok(output.includes(`${escapeFenceRun('```')}ts`));
   assert.match(output, /## Dopo il codice/);
   assert.match(output, /Testo leggibile\./);
 });
@@ -300,7 +306,7 @@ test('normalizeMarkdownForRendering escapes an unclosed fence so following prose
 test('normalizeMarkdownForRendering does not promote an indented pseudo-closer', () => {
   const input = ['~~~ts', 'const answer = 42;', '    ~~~', '## Still code-like input'].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), `\\${input}`);
+  assert.equal(normalizeMarkdownForRendering(input), input.replace('~~~', escapeFenceRun('~~~')));
 });
 
 test('normalizeMarkdownForRendering escapes consecutive unclosed list fences independently', () => {
@@ -308,7 +314,9 @@ test('normalizeMarkdownForRendering escapes consecutive unclosed list fences ind
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    ['- \\```ts', '  first', '- \\```js', '  second'].join('\n')
+    [`- ${escapeFenceRun('```')}ts`, '  first', `- ${escapeFenceRun('```')}js`, '  second'].join(
+      '\n'
+    )
   );
 });
 
@@ -320,20 +328,34 @@ test('normalizeMarkdownForRendering neutralizes unclosed openers in indented lis
 
   inputs.forEach(lines => {
     const output = normalizeMarkdownForRendering(lines.join('\n'));
-    assert.equal(output.match(/\\```/gu)?.length, 2);
+    assert.equal(output.split('\n').filter(line => line.includes(escapeFenceRun('```'))).length, 2);
     assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
   });
 });
 
 test.each([
   {
+    expected: [
+      '&lt;div&gt;',
+      '```html',
+      '<span>literal</span>',
+      '```',
+      '&lt;/div&gt;',
+      'After',
+    ].join('\n'),
+    input: ['<div>', '```html', '<span>literal</span>', '```', '</div>', 'After'].join('\n'),
+    name: 'valid fenced HTML',
+  },
+  {
     input: ['- item', '    ```ts', '    code', '- sibling'].join('\n'),
-    expected: ['- item', '    \\```ts', '    code', '- sibling'].join('\n'),
+    expected: ['- item', `    ${escapeFenceRun('```')}ts`, '    code', '- sibling'].join('\n'),
     name: 'unordered list',
   },
   {
     input: ['> - item', '>     ```ts', '>     code', '> - sibling'].join('\n'),
-    expected: ['> - item', '>     \\```ts', '>     code', '> - sibling'].join('\n'),
+    expected: ['> - item', `>     ${escapeFenceRun('```')}ts`, '>     code', '> - sibling'].join(
+      '\n'
+    ),
     name: 'blockquote list',
   },
 ])('normalizeMarkdownForRendering retains $name context for unclosed fences', ({
@@ -351,7 +373,7 @@ test('normalizeMarkdownForRendering still processes a sibling after an unclosed 
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    ['- \\```ts', '  first', '- Header &lt;iostream&gt;'].join('\n')
+    [`- ${escapeFenceRun('```')}ts`, '  first', '- Header &lt;iostream&gt;'].join('\n')
   );
 });
 
@@ -360,8 +382,34 @@ test('normalizeMarkdownForRendering escapes disallowed HTML inside an unclosed f
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    ['\\```ts', '&lt;iframe src="https://example.com"&gt;&lt;/iframe&gt;'].join('\n')
+    [`${escapeFenceRun('```')}ts`, '&lt;iframe src="https://example.com"&gt;&lt;/iframe&gt;'].join(
+      '\n'
+    )
   );
+});
+
+test.each([
+  {
+    expected: [
+      '&lt;div&gt;',
+      `${escapeFenceRun('```')}ts`,
+      'code',
+      '&lt;/div&gt;',
+      '## After',
+    ].join('\n'),
+    input: ['<div>', '```ts', 'code', '</div>', '## After'].join('\n'),
+    name: 'escaped raw HTML',
+  },
+  {
+    expected: [`${escapeFenceRun('```')}ts`, 'code', '## After'].join('\n'),
+    input: ['    ```ts', '    code', '    ## After'].join('\n'),
+    name: 'normalized indentation',
+  },
+])('normalizeMarkdownForRendering neutralizes fences exposed by $name', ({ expected, input }) => {
+  const output = normalizeMarkdownForRendering(input);
+
+  assert.equal(output, expected);
+  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
 });
 
 test('normalizeMarkdownForRendering preserves HTML-like text in code after an unclosed opener', () => {
@@ -374,7 +422,48 @@ test('normalizeMarkdownForRendering preserves HTML-like text in code after an un
     'After.',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), `\\${input}`);
+  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', escapeFenceRun('```')));
+});
+
+test.each([
+  {
+    expected: [
+      `${escapeFenceRun('~~~')}outer`,
+      '&lt;div&gt;',
+      `${escapeFenceRun('```')}ts`,
+      'code',
+      '&lt;/div&gt;',
+    ].join('\n'),
+    input: ['~~~outer', '<div>', '```ts', 'code', '</div>'].join('\n'),
+    name: 'nested unclosed fence',
+  },
+  {
+    expected: [`${escapeFenceRun('~~~')}outer`, '&lt;div&gt;', '`<span>`', '&lt;/div&gt;'].join(
+      '\n'
+    ),
+    input: ['~~~outer', '<div>', '`<span>`', '</div>'].join('\n'),
+    name: 'inline code',
+  },
+  {
+    expected: [
+      `${escapeFenceRun('~~~')}outer`,
+      '&lt;div&gt;',
+      '```html',
+      '<span>literal</span>',
+      '```',
+      '&lt;/div&gt;',
+    ].join('\n'),
+    input: ['~~~outer', '<div>', '```html', '<span>literal</span>', '```', '</div>'].join('\n'),
+    name: 'nested valid fenced HTML',
+  },
+])('normalizeMarkdownForRendering preserves $name exposed by escaped HTML', ({
+  expected,
+  input,
+}) => {
+  const output = normalizeMarkdownForRendering(input);
+
+  assert.equal(output, expected);
+  assert.deepEqual(planMarkdownFencedCode(output).unclosedRanges, []);
 });
 
 test('normalizeMarkdownForRendering escapes nested unclosed fence openers to a fixed point', () => {
@@ -384,7 +473,38 @@ test('normalizeMarkdownForRendering escapes nested unclosed fence openers to a f
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    ['\\```ts', 'const first = true;', '\\```js', 'const second = true;', '## After'].join('\n')
+    [
+      `${escapeFenceRun('```')}ts`,
+      'const first = true;',
+      `${escapeFenceRun('```')}js`,
+      'const second = true;',
+      '## After',
+    ].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering leaves no inline-code delimiter in an escaped opener', () => {
+  const input = ['```js', 'alpha', '``'].join('\n');
+  const output = normalizeMarkdownForRendering(input);
+
+  assert.equal(output, [`${escapeFenceRun('```')}js`, 'alpha', '``'].join('\n'));
+  assert.deepEqual(parseMarkdownAnalysis(output).codeRanges, []);
+});
+
+test('normalizeMarkdownForRendering preserves a valid fence exposed by nested malformed openers', () => {
+  const input = ['`````', 'outer', '~~~~', 'middle', '```', 'inner', '```'].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      escapeFenceRun('`````'),
+      'outer',
+      escapeFenceRun('~~~~'),
+      'middle',
+      '```',
+      'inner',
+      '```',
+    ].join('\n')
   );
 });
 
@@ -393,7 +513,10 @@ test('normalizeMarkdownForRendering neutralizes many malformed openers in one pa
   const input = Array.from({ length: openerCount }, (_, index) => `\`\`\`lang${index}`).join('\n');
   const output = normalizeMarkdownForRendering(input);
 
-  assert.equal(output.match(/\\```lang/gu)?.length, openerCount);
+  assert.equal(
+    output.split('\n').filter(line => line.startsWith(`${escapeFenceRun('```')}lang`)).length,
+    openerCount
+  );
 });
 
 test('normalizeMarkdownForRendering does not turn indented plain-text fragments into code blocks', () => {
@@ -438,7 +561,7 @@ test('normalizeMarkdownForRendering leaves malformed JSON fences unrepaired', ()
     'Il vantaggio difensivo è chiaro.',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', '\\```'));
+  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', escapeFenceRun('```')));
 });
 
 test('normalizeMarkdownForRendering does not insert a JSON fence before later fence syntax', () => {
@@ -471,7 +594,7 @@ test('normalizeMarkdownForRendering escapes an unmatched fence after single-line
     'Il server conserva invece lo stato.',
   ].join('\n');
 
-  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', '\\```'));
+  assert.equal(normalizeMarkdownForRendering(input), input.replace('```', escapeFenceRun('```')));
 });
 
 test('normalizeMarkdownForRendering does not restore a JSON fence around invalid JSON', () => {

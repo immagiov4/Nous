@@ -106,6 +106,16 @@ describe('prepareMarkdownForSpeech', () => {
     );
   });
 
+  test('reads prose after escaped raw HTML reveals an unclosed fence', () => {
+    const input = ['<div>', '```ts', 'code', '</div>', '## After [Docs](https://e.test)'].join(
+      '\n'
+    );
+
+    expect(prepareMarkdownForSpeech(input)).toBe(
+      ['<div>', '```ts', 'code', '</div>', 'After Docs'].join('\n')
+    );
+  });
+
   test('drops media placeholders, code blocks, math, and ignored html while preserving inline code', () => {
     const input = [
       '# Titolo',

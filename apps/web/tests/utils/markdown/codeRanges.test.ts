@@ -475,6 +475,32 @@ test('analysis exposes Markdown syntax after an unclosed fence opener', () => {
   assert.deepEqual(destinationSlices, ['(https://example.com)']);
 });
 
+test('analysis exposes Markdown syntax after escaped raw HTML reveals an unclosed fence', () => {
+  const content = ['<div>', '```ts', 'code', '</div>', '## After [Docs](https://e.test)'].join(
+    '\n'
+  );
+  const analysis = parseMarkdownAnalysis(content);
+
+  assert.deepEqual(
+    analysis.escapedFenceOpenerRanges.map(range => content.slice(range.start, range.end)),
+    ['```']
+  );
+  assert.deepEqual(
+    analysis.linkDestinationRanges.map(range => content.slice(range.start, range.end)),
+    ['(https://e.test)']
+  );
+  assert.deepEqual(analysis.codeRanges, []);
+});
+
+test('analysis preserves a valid fence exposed by nested malformed openers', () => {
+  const content = ['`````', 'outer', '~~~~', 'middle', '```', 'inner', '```'].join('\n');
+  const codeSlices = parseMarkdownAnalysis(content).codeRanges.map(range =>
+    content.slice(range.start, range.end)
+  );
+
+  assert.deepEqual(codeSlices, [['```', 'inner', '```'].join('\n')]);
+});
+
 test('annotation ranges protect supported backslash math delimiters', () => {
   const content = String.raw`Prima \(x + y\) e poi \[z = 1\].`;
   const protectedText = getMarkdownAnnotationProtectedRanges(content).map(range =>
