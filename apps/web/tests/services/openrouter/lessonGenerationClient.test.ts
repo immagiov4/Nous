@@ -1158,30 +1158,52 @@ describe('generateDurableLesson', () => {
     expect(globalThis.sessionStorage).toHaveLength(0);
   });
 
-  test('does not repeat sublesson recovery after the caller resolved no retained request', async () => {
-    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
-      response(
-        {
-          id: 'run-sublesson',
+  test('does not repeat sublesson recovery after the caller resolved a sibling request', async () => {
+    globalThis.sessionStorage.setItem(
+      'nous:lesson-workflow-request:project-1:sublesson:lesson-1',
+      'sublesson-request'
+    );
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        response({
+          id: 'run-sibling',
           projectId: 'project-1',
-          result: { ...completedResult, sectionId: 'deep-lesson' },
-          sectionId: 'deep-lesson',
+          result: { ...completedResult, sectionId: 'sibling-lesson' },
+          sectionId: 'sibling-lesson',
           stage: 'verification',
           status: 'completed',
-        },
-        202
+        })
       )
-    );
+      .mockResolvedValueOnce(
+        response(
+          {
+            id: 'run-sublesson',
+            projectId: 'project-1',
+            result: { ...completedResult, sectionId: 'deep-lesson' },
+            sectionId: 'deep-lesson',
+            stage: 'verification',
+            status: 'completed',
+          },
+          202
+        )
+      );
 
+    const recovery = await resolveDurableSublessonRequestForSection(
+      'project-1',
+      'lesson-1',
+      'deep-lesson'
+    );
+    expect(recovery).toBeNull();
     await generateDurableLesson({
       parentSectionId: 'lesson-1',
       projectId: 'project-1',
-      recovery: null,
+      recovery,
       sectionId: 'deep-lesson',
     });
 
-    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
-    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
+      2,
       'http://localhost:3301/api/lesson-workflows/lessons',
       expect.objectContaining({ method: 'POST' }),
       { expectedStatuses: [409] }
