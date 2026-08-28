@@ -479,6 +479,31 @@ describe('courseInterviewClient', () => {
     );
   });
 
+  test('treats an already terminal interview as cancelled without another request', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      runStateResponse({ cleanupStatus: 'not-required', status: 'completed', waits: [] })
+    );
+
+    await expect(
+      cancelCourseInterview({ projectId: 'project-1', runId: 'interview-1' })
+    ).resolves.toBeUndefined();
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('accepts a cancellation rejection when the interview became terminal', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runStateResponse({ status: 'running' }))
+      .mockResolvedValueOnce(jsonResponse({ success: false }, 409))
+      .mockResolvedValueOnce(
+        runStateResponse({ cleanupStatus: 'not-required', status: 'completed', waits: [] })
+      );
+
+    await expect(
+      cancelCourseInterview({ projectId: 'project-1', runId: 'interview-1' })
+    ).resolves.toBeUndefined();
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(3);
+  });
+
   test('records the persisted support code when interview cleanup fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     fetchWithSupabaseAuthMock

@@ -54,11 +54,17 @@ import type {
 } from './types.ts';
 
 interface ProjectLifecycleDependencies {
+  beginHomeChatWorkspaceOpen: (projectId: string, openProjectRequestId: number) => Promise<void>;
   openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
   resumeRetainedSublesson: (parentSection: LessonNode) => Promise<unknown>;
   resumePlanGeneration: (projectId: string) => Promise<'not-found' | 'resumed'>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
   startLearnAssessment: () => Promise<void>;
+  settleHomeChatWorkspaceOpen: (
+    projectId: string,
+    openProjectRequestId: number,
+    opened: boolean
+  ) => void;
 }
 
 const OPEN_PROJECT_PDF_REPAIR_TIMEOUT_MS = 20_000;
@@ -102,11 +108,13 @@ const PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE = ['attachSource'] as const;
 export const createProjectLifecycleCommands = (
   context: WorkspaceControllerContext,
   {
+    beginHomeChatWorkspaceOpen,
     openSection,
     resumeRetainedSublesson,
     resumePlanGeneration,
     startAssessment,
     startLearnAssessment,
+    settleHomeChatWorkspaceOpen,
   }: ProjectLifecycleDependencies
 ) => {
   const { domain, openRouter, persistHydratedSnapshot, projectLibrary, state, stopAudio } = context;
@@ -431,6 +439,7 @@ export const createProjectLifecycleCommands = (
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }> {
     state.invalidateOpenSectionRequests();
     const requestId = state.beginWorkflow('openProject', t('Apertura progetto...'));
+    await beginHomeChatWorkspaceOpen(projectId, requestId);
     if (projectLibrary.getCurrentProjectId() !== projectId) {
       state.invalidateWorkflows([...PROJECT_NAVIGATION_WORKFLOWS_TO_INVALIDATE]);
     }
@@ -568,6 +577,7 @@ export const createProjectLifecycleCommands = (
         sourceKind: preparedSnapshot.source?.kind || null,
       });
       state.succeedWorkflow('openProject', requestId);
+      settleHomeChatWorkspaceOpen(projectId, requestId, true);
       didSettleOpenWorkflow = true;
       state.setOpeningProjectId(null);
       pushNousDebugTrace('open-project:settled-before-follow-up', { projectId, requestId });
@@ -729,6 +739,7 @@ export const createProjectLifecycleCommands = (
       }
       return { outcome: 'failed', errorMessage };
     } finally {
+      settleHomeChatWorkspaceOpen(projectId, requestId, false);
       // Azzeriamo openingProjectId anche quando il workflow è diventato stale
       // (es. l'utente ha rinavigato, una fetch è andata in timeout senza rigettare):
       // se non lo facciamo, shouldOpenProjectFromLocation continua a vedere
