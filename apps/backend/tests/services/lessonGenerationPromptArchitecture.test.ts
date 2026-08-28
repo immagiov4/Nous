@@ -1,4 +1,5 @@
 import {
+  LESSON_REFERENCE_SECTION_LABELS,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SOURCE_PRECEDENCE_RULE,
 } from '@shared/lessonWritingContract';
@@ -383,12 +384,20 @@ x = 1 \)`,
 describe('lesson writing prompt composition', () => {
   test('keeps language, personalization, and primary-source precedence in their contract order', () => {
     const prompt = buildLessonGenerationPrompt(LESSON_PROMPT_INPUT);
-    const personalizationIndex = prompt.indexOf('COURSE PERSONALIZATION NOTES (HIGH PRIORITY)');
+    const personalizationIndex = prompt.indexOf(
+      LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.primary
+    );
     const sourceIndex = prompt.indexOf('PRIMARY SOURCE MATERIAL, CONTENT TO ANALYZE');
     const writingContractIndex = prompt.indexOf('WRITING CONTRACT:');
 
     expect(prompt).toContain('- Language: Português (Brasil)');
     expect(personalizationIndex).toBeGreaterThan(-1);
+    expect(prompt).toContain(
+      LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias
+    );
+    expect(prompt).toContain(
+      `${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.primary} (${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias})`
+    );
     expect(sourceIndex).toBeGreaterThan(personalizationIndex);
     expect(writingContractIndex).toBeGreaterThan(sourceIndex);
     expect(prompt).toContain(LESSON_SOURCE_PRECEDENCE_RULE);

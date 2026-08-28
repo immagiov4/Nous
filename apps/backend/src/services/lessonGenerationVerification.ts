@@ -30,6 +30,7 @@ import {
   LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
   LESSON_POSITIVE_DEFINITION_RULE,
   LESSON_PRIMARY_SOURCE_INTEGRATION_RULE,
+  LESSON_REFERENCE_SECTION_LABELS,
   LESSON_RELEVANCE_STYLE_RULES,
   LESSON_RESEARCH_TRANSFORMATION_RULE,
   LESSON_SCOPE_RULES,
@@ -276,7 +277,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le NOTE DI PERSONALIZZAZIONE DEL CORSO o il CONTESTO DIDATTICO VINCOLANTE ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. ${ACTIVE_PAUSE_PLACEMENT_RULE} ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le ${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias} o il ${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias} ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. ${ACTIVE_PAUSE_PLACEMENT_RULE} ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':
