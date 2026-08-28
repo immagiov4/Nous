@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url';
 
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_FULL_MEDIA_TYPE = 'application/vnd.github.full+json';
+const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
+const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
 const HEADING_PATTERN = /^( {0,3})(#{1,6})(?:[ \t]+|$)/u;
 const LIST_ITEM_PATTERN = /^( {0,3})(?:[-+*]|\d{1,3}[.)])[ \t]+\S/u;
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{1,6}(?:[ \t]+\S|[ \t]*$)/u;
@@ -12,18 +14,24 @@ const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,3}[.)])[ \t]+\[(?: |x|X)
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
 const MANAGED_CUBIC_DESCRIPTION_PATTERN =
   /\n\n<!-- This is an auto-generated description by cubic\. -->[\s\S]*?<!-- End of auto-generated description by cubic\. -->[ \t]*\n*$/u;
+const BLOCKQUOTE_PREFIX_PATTERN = /^(?: {0,3}>[ \t]?)+/u;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const SETEXT_HEADING_PATTERN = /^ {0,3}(=+|-+)[ \t]*$/u;
 const TABLE_DELIMITER_PATTERN = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$/u;
 const THEMATIC_BREAK_PATTERN = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/u;
 
 const normalizeLineEndings = body => body.replace(/\r\n?/gu, '\n');
+const isTopLevelListItem = line =>
+  LIST_ITEM_PATTERN.test(line) && !THEMATIC_BREAK_PATTERN.test(line);
+const stripBlockquotePrefix = line => line.replace(BLOCKQUOTE_PREFIX_PATTERN, '');
+const stripBlockquotePrefixes = body =>
+  normalizeLineEndings(body).split('\n').map(stripBlockquotePrefix).join('\n');
 
 const maskRange = (characters, start, end) => {
   for (let index = start; index < end; index += 1) characters[index] = ' ';
 };
 
-const maskHtmlComments = (line, state) => {
+const maskInlineCodeAndHtmlComments = (line, state) => {
   const characters = line.split('');
   let cursor = 0;
 
@@ -41,6 +49,13 @@ const maskHtmlComments = (line, state) => {
     }
 
     const commentStart = line.indexOf('<!--', cursor);
+    const inlineCode = /(`+)([^`]*?)\1/u.exec(line.slice(cursor));
+    const inlineCodeStart = inlineCode ? cursor + inlineCode.index : -1;
+    if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
+      maskRange(characters, inlineCodeStart, inlineCodeStart + inlineCode[0].length);
+      cursor = inlineCodeStart + inlineCode[0].length;
+      continue;
+    }
     if (commentStart === -1) break;
     const commentEnd = line.indexOf('-->', commentStart + 4);
     if (commentEnd === -1) {
@@ -55,14 +70,14 @@ const maskHtmlComments = (line, state) => {
   return characters.join('');
 };
 
-const maskInlineCode = line => line.replace(/(`+)([^`]*?)\1/gu, match => ' '.repeat(match.length));
-
 const maskNonRenderedMarkdown = body => {
   const state = { fence: undefined, inHtmlComment: false };
 
   return normalizeLineEndings(body)
     .split('\n')
     .map(line => {
+      if (state.inHtmlComment) return maskInlineCodeAndHtmlComments(line, state);
+
       if (state.fence) {
         const closingFence = new RegExp(
           `^ {0,3}${state.fence.character}{${state.fence.length},}[ \\t]*$`,
@@ -79,7 +94,7 @@ const maskNonRenderedMarkdown = body => {
         return ' '.repeat(line.length);
       }
 
-      return maskInlineCode(maskHtmlComments(line, state));
+      return maskInlineCodeAndHtmlComments(line, state);
     });
 };
 
@@ -88,14 +103,14 @@ const issue = (code, line, message) => ({ code, line, message });
 export const validateMarkdownBody = body => {
   const normalizedBody = normalizeLineEndings(body);
   const lines = normalizedBody.split('\n');
-  const maskedLines = maskNonRenderedMarkdown(normalizedBody);
+  const structuralLines = maskNonRenderedMarkdown(stripBlockquotePrefixes(normalizedBody));
   const issues = [];
 
   if (normalizedBody.trim().length === 0) {
     return [issue('empty-body', 1, 'The body must contain Markdown content.')];
   }
 
-  const contentLineCount = maskedLines.filter(line => line.trim()).length;
+  const contentLineCount = structuralLines.filter(line => line.trim()).length;
   if (contentLineCount < 2) {
     issues.push(
       issue(
@@ -108,10 +123,10 @@ export const validateMarkdownBody = body => {
 
   let inListBlock = false;
   let lastListItemLine = 1;
-  for (const [index, line] of maskedLines.entries()) {
+  for (const [index, line] of structuralLines.entries()) {
     const lineNumber = index + 1;
     const lineIsBlank = !line.trim();
-    const listItem = LIST_ITEM_PATTERN.test(line);
+    const listItem = isTopLevelListItem(line);
     const indentedListContinuation = inListBlock && /^(?: {2,}|\t)\S/u.test(line);
 
     if (lineIsBlank) inListBlock = false;
@@ -139,13 +154,13 @@ export const validateMarkdownBody = body => {
     }
 
     const heading = HEADING_PATTERN.exec(line);
-    if (heading && index < lines.length - 1 && lines[index + 1]?.trim() !== '') {
+    if (heading && index < lines.length - 1 && structuralLines[index + 1]?.trim() !== '') {
       issues.push(
         issue('heading-spacing', lineNumber, 'Add a blank line after the Markdown heading.')
       );
     }
 
-    if (listItem && !inListBlock && index > 0 && maskedLines[index - 1]?.trim()) {
+    if (listItem && !inListBlock && index > 0 && structuralLines[index - 1]?.trim()) {
       issues.push(
         issue('list-spacing-before', lineNumber, 'Add a blank line before the Markdown list.')
       );
@@ -180,7 +195,7 @@ export const assertValidMarkdownBody = (body, bodyFile) => {
 };
 
 const markdownStructure = body => {
-  const lines = maskNonRenderedMarkdown(body);
+  const lines = maskNonRenderedMarkdown(stripBlockquotePrefixes(body));
   const headingLevels = [];
   let listItemCount = 0;
   let paragraphCount = 0;
@@ -196,7 +211,7 @@ const markdownStructure = body => {
       return;
     }
 
-    const containsList = block.some(line => LIST_ITEM_PATTERN.test(line));
+    const containsList = block.some(isTopLevelListItem);
     const isRawHtml = /^ {0,3}<\/?[A-Za-z][^>]*>/u.test(block[0]);
     const isIndentedCode = /^(?: {4,}|\t)\S/u.test(block[0]);
     const isLinkDefinition = block.every(line => /^ {0,3}\[[^\]]+\]:[ \t]+\S/u.test(line));
@@ -229,7 +244,7 @@ const markdownStructure = body => {
       continue;
     }
 
-    if (LIST_ITEM_PATTERN.test(line)) {
+    if (isTopLevelListItem(line)) {
       listItemCount += 1;
     }
     block.push(line);
@@ -297,7 +312,7 @@ const runProcess = (command, args) =>
 const runGh = args => runProcess('gh', args);
 
 const endpointFor = ({ kind, number, repository }) => {
-  const resource = kind === 'pr' ? 'pulls' : 'issues';
+  const resource = GITHUB_BODY_RESOURCES[kind];
   return `repos/${repository}/${resource}/${number}`;
 };
 
@@ -407,16 +422,16 @@ const validateNumber = value => {
 };
 
 const validateKind = kind => {
-  if (kind !== 'pr' && kind !== 'issue') {
-    throw new TypeError('--kind must be pr or issue.');
+  if (!Object.hasOwn(GITHUB_BODY_RESOURCES, kind)) {
+    throw new TypeError(`--kind must be ${GITHUB_BODY_KIND_USAGE}.`);
   }
   return kind;
 };
 
 const usage = `Usage:
   bun run github:body -- validate --body-file <path>
-  bun run github:body -- verify --kind <pr|issue> --repo <owner/repository> --number <number> --body-file <path>
-  bun run github:body -- update --kind <pr|issue> --repo <owner/repository> --number <number> --body-file <path>`;
+  bun run github:body -- verify --kind <${GITHUB_BODY_KIND_USAGE}> --repo <owner/repository> --number <number> --body-file <path>
+  bun run github:body -- update --kind <${GITHUB_BODY_KIND_USAGE}> --repo <owner/repository> --number <number> --body-file <path>`;
 
 export const runCli = async (args, dependencies = {}) => {
   const [command, ...flagArguments] = args;

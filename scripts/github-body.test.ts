@@ -49,6 +49,15 @@ async function createBodyFile(body = validBody): Promise<string> {
 describe('GitHub body Markdown validation', () => {
   test('accepts headings, paragraphs, and lists with explicit block boundaries', () => {
     expect(validateMarkdownBody(validBody)).toEqual([]);
+
+    const bodyWithThematicBreak = 'First paragraph.\n\n- - -\n\nSecond paragraph.\n';
+    expect(validateMarkdownBody(bodyWithThematicBreak)).toEqual([]);
+    expect(() =>
+      assertGitHubRendering(
+        bodyWithThematicBreak,
+        '<p>First paragraph.</p><hr><p>Second paragraph.</p>'
+      )
+    ).not.toThrow();
   });
 
   test('rejects literal newline separators from shell-flattened bodies', () => {
@@ -95,6 +104,16 @@ describe('GitHub body Markdown validation', () => {
     const body = '## Example\n\nUse `\\n` in a string.\n\n```text\n\\n\n```\n';
 
     expect(validateMarkdownBody(body)).toEqual([]);
+
+    const issues = validateMarkdownBody(
+      '## Example\n\nUse `<!--` literally.\n\nDescription ## Testing\n'
+    );
+    expect(issues.map(candidate => candidate.code)).toContain('inline-heading');
+
+    const commentIssues = validateMarkdownBody(
+      '## Example\n\nText.\n\n<!-- open\n```\n`-->`\nDescription ## Testing\n'
+    );
+    expect(commentIssues.map(candidate => candidate.code)).toContain('inline-heading');
   });
 
   test('accepts prose punctuation and wrapped list items', () => {
@@ -108,6 +127,40 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
 `;
 
     expect(validateMarkdownBody(body)).toEqual([]);
+
+    const blockquotedList = '> - First item\n> - Second item\n';
+    expect(validateMarkdownBody('> # Previous heading\n>\n> - [ ] Previous task\n')).toEqual([]);
+    expect(() =>
+      assertGitHubRendering(
+        blockquotedList,
+        '<blockquote><ul><li>First item</li><li>Second item</li></ul></blockquote>'
+      )
+    ).not.toThrow();
+
+    const blockquotedProse = '> ## Heading\n>\n> First paragraph.\n>\n> Second paragraph.\n';
+    expect(validateMarkdownBody(blockquotedProse)).toEqual([]);
+    expect(() =>
+      assertGitHubRendering(
+        blockquotedProse,
+        '<blockquote><h2>Heading</h2><p>First paragraph.</p><p>Second paragraph.</p></blockquote>'
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertGitHubRendering(
+        blockquotedProse,
+        '<blockquote><p>First paragraph.</p><p>Second paragraph.</p></blockquote>'
+      )
+    ).toThrow(/lost Markdown headings/u);
+    expect(() =>
+      assertGitHubRendering(
+        '> First paragraph.\n>\n> Second paragraph.\n',
+        '<blockquote><p>First paragraph. Second paragraph.</p></blockquote>'
+      )
+    ).toThrow(/collapsed paragraphs/u);
+
+    const blockquotedCode =
+      '> ## Example\n>\n> Code sample follows.\n>\n> ```text\n> \\n\n> Description ## Not-a-heading\n> ```\n';
+    expect(validateMarkdownBody(blockquotedCode)).toEqual([]);
   });
 });
 

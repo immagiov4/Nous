@@ -39,7 +39,9 @@ describe('pull request body workflow security contract', () => {
   });
 
   test('executes the trusted base revision without persisted credentials', () => {
-    const checkout = workflow.jobs.validate.steps.find(step => step.uses === 'actions/checkout@v4');
+    const checkout = workflow.jobs.validate.steps.find(
+      step => step.uses === 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262'
+    );
 
     expect(checkout?.with).toEqual({
       ref: `\${{ github.event.pull_request.base.sha }}`,
