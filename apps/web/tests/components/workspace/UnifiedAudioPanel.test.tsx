@@ -201,17 +201,14 @@ describe('UnifiedAudioPanel', () => {
     expect(voiceControl).toHaveClass('absolute', 'inset-0');
     expect(speedControl).toHaveAttribute('type', 'range');
     expect(speedControl).toHaveAttribute('min', '0.8');
-    expect(speedControl).toHaveAttribute('max', '1.6');
+    expect(speedControl).toHaveAttribute('max', '2');
     expect(speedControl).toHaveAttribute('step', '0.05');
     expect(speedControl).toHaveValue('1');
     expect(speedControl).toHaveAttribute('aria-valuetext', '1x');
     expect(speedControl).toHaveAttribute('aria-orientation', 'horizontal');
     expect(speedControl).toHaveClass('h-9', 'w-full', 'touch-pan-y');
     expect(container.querySelectorAll('[data-playback-rate-marker]')).toHaveLength(5);
-    expect(container.querySelector('[data-playback-rate-fill]')).toHaveStyle({
-      width: 'calc(25% + -5px)',
-    });
-    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '-15px' });
+    expect(container.querySelector('[data-playback-rate-fill]')).toBeInTheDocument();
   });
 
   test('keeps voice selection separate from playback-speed changes', async () => {
@@ -290,17 +287,17 @@ describe('UnifiedAudioPanel', () => {
         setIsMusicPlaying={() => {}}
         setMusicUrl={() => {}}
         setMusicVolume={() => {}}
-        tts={buildTtsModel({ onSpeedChange, playbackRate: 2 })}
+        tts={buildTtsModel({ onSpeedChange, playbackRate: 2.4 })}
       />
     );
 
-    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveValue('1.6');
-    expect(screen.getByText('1.6x')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveValue('2');
+    expect(screen.getByText('2x')).toBeInTheDocument();
     expect(onSpeedChange).toHaveBeenCalledOnce();
-    expect(onSpeedChange).toHaveBeenCalledWith(1.6);
+    expect(onSpeedChange).toHaveBeenCalledWith(2);
   });
 
-  test('keeps thumb and fill alignment continuous near playback-speed limits', () => {
+  test('keeps thumb, fill, and markers on one continuous playback-speed geometry', () => {
     const renderPanelAtSpeed = (playbackRate: number) => (
       <UnifiedAudioPanel
         initialTab="voce"
@@ -315,23 +312,28 @@ describe('UnifiedAudioPanel', () => {
       />
     );
     const { container, rerender } = render(renderPanelAtSpeed(0.8));
-    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
     const getFill = () => container.querySelector('[data-playback-rate-fill]');
+    const getMarker = (progress: number) =>
+      container.querySelector(`[data-playback-rate-marker="${progress}"]`);
 
-    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '0px' });
     expect(getFill()).toHaveStyle({ width: 'calc(0% + 20px)' });
+    expect(getMarker(0)).toHaveStyle({ left: 'calc(0% + 20px)' });
 
-    rerender(renderPanelAtSpeed(0.85));
-    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '-3.75px' });
-    expect(getFill()).toHaveStyle({ width: 'calc(6.25% + 13.75px)' });
+    rerender(renderPanelAtSpeed(1.1));
+    expect(getFill()).toHaveStyle({ width: 'calc(25% + 10px)' });
+    expect(getMarker(0.25)).toHaveStyle({ left: 'calc(25% + 10px)' });
 
-    rerender(renderPanelAtSpeed(1.55));
-    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '-3.75px' });
-    expect(getFill()).toHaveStyle({ width: 'calc(93.75% + -21.25px)' });
+    rerender(renderPanelAtSpeed(1.4));
+    expect(getFill()).toHaveStyle({ width: 'calc(50% + 0px)' });
+    expect(getMarker(0.5)).toHaveStyle({ left: 'calc(50% + 0px)' });
 
-    rerender(renderPanelAtSpeed(1.6));
-    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '0px' });
+    rerender(renderPanelAtSpeed(1.7));
+    expect(getFill()).toHaveStyle({ width: 'calc(75% + -10px)' });
+    expect(getMarker(0.75)).toHaveStyle({ left: 'calc(75% + -10px)' });
+
+    rerender(renderPanelAtSpeed(2));
     expect(getFill()).toHaveStyle({ width: 'calc(100% + -20px)' });
+    expect(getMarker(1)).toHaveStyle({ left: 'calc(100% + -20px)' });
   });
 
   test('adjusts the direct playback-speed control with keyboard controls and respects its bounds', async () => {
@@ -355,7 +357,7 @@ describe('UnifiedAudioPanel', () => {
     speedControl.focus();
     await user.keyboard('{ArrowRight}{ArrowUp}{ArrowLeft}{End}{ArrowRight}{Home}{ArrowLeft}');
 
-    expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.05, 1.1, 1.05, 1.6, 0.8]);
+    expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.05, 1.1, 1.05, 2, 0.8]);
   });
 
   test('changes playback speed directly through the wide range input', () => {
@@ -375,8 +377,8 @@ describe('UnifiedAudioPanel', () => {
     );
 
     const speedControl = screen.getByRole('slider', { name: 'Velocita' });
-    fireEvent.change(speedControl, { target: { value: '1.1' } });
-    expect(onSpeedChange).toHaveBeenCalledWith(1.1);
+    fireEvent.change(speedControl, { target: { value: '2' } });
+    expect(onSpeedChange).toHaveBeenCalledWith(2);
   });
 
   test('keeps the iframe lazy until the user starts background audio', async () => {

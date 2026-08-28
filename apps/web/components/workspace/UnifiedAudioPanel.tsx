@@ -14,7 +14,6 @@ import {
   X,
 } from 'lucide-react';
 import {
-  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useId,
@@ -84,15 +83,13 @@ const YOUTUBE_PLAYER_STATE = {
   BUFFERING: 3,
 } as const;
 const PLAYBACK_RATE_MIN = 0.8;
-const PLAYBACK_RATE_MAX = 1.6;
+const PLAYBACK_RATE_MAX = 2;
 const PLAYBACK_RATE_STEP = 0.05;
 const PLAYBACK_RATE_STEP_COUNT = Math.round(
   (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
 );
 const PLAYBACK_RATE_MARKER_COUNT = 5;
 const PLAYBACK_RATE_THUMB_SIZE_PX = 40;
-const PLAYBACK_RATE_THUMB_ALIGNMENT_RATIO = 0.375;
-const PLAYBACK_RATE_THUMB_ALIGNMENT_RANGE_PERCENT = 25;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -178,6 +175,9 @@ const normalizePlaybackRate = (value: number): number => {
 const clampPlaybackRate = (value: number): number =>
   Math.min(PLAYBACK_RATE_MAX, Math.max(PLAYBACK_RATE_MIN, normalizePlaybackRate(value)));
 
+const getPlaybackRateThumbCenterOffset = (progressPercent: number): number =>
+  PLAYBACK_RATE_THUMB_SIZE_PX * (0.5 - progressPercent / 100);
+
 const getPlaybackRateLabel = (playbackRate: number): string =>
   `${formatPlaybackRateLabel(clampPlaybackRate(playbackRate))}x`;
 
@@ -199,16 +199,7 @@ const PlaybackSpeedControl = ({
     (displayedPlaybackRate - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
   );
   const playbackRateProgress = (playbackRateStepIndex / PLAYBACK_RATE_STEP_COUNT) * 100;
-  const playbackRateThumbAlignmentStrength = Math.min(
-    1,
-    playbackRateProgress / PLAYBACK_RATE_THUMB_ALIGNMENT_RANGE_PERCENT,
-    (100 - playbackRateProgress) / PLAYBACK_RATE_THUMB_ALIGNMENT_RANGE_PERCENT
-  );
-  const playbackRateThumbShift =
-    -(PLAYBACK_RATE_THUMB_SIZE_PX * PLAYBACK_RATE_THUMB_ALIGNMENT_RATIO) *
-    playbackRateThumbAlignmentStrength;
-  const playbackRateFillOffset =
-    PLAYBACK_RATE_THUMB_SIZE_PX * (0.5 - playbackRateProgress / 100) + playbackRateThumbShift;
+  const playbackRateFillOffset = getPlaybackRateThumbCenterOffset(playbackRateProgress);
 
   useEffect(() => {
     currentPlaybackRateRef.current = displayedPlaybackRate;
@@ -260,22 +251,23 @@ const PlaybackSpeedControl = ({
           className="absolute inset-y-0 left-0 rounded-full bg-orange-500 dark:bg-orange-400"
           style={{ width: `calc(${playbackRateProgress}% + ${playbackRateFillOffset}px)` }}
         />
-        <span className="absolute inset-x-5 inset-y-0 flex items-center justify-between">
-          {Array.from({ length: PLAYBACK_RATE_MARKER_COUNT }, (_, index) => {
-            const markerProgress = index / (PLAYBACK_RATE_MARKER_COUNT - 1);
-            return (
-              <span
-                key={markerProgress}
-                data-playback-rate-marker={markerProgress}
-                className={`h-1.5 w-1.5 rounded-full ${
-                  markerProgress * 100 <= playbackRateProgress
-                    ? 'bg-orange-200 dark:bg-orange-100/80'
-                    : 'bg-gray-400 dark:bg-zinc-500'
-                }`}
-              />
-            );
-          })}
-        </span>
+        {Array.from({ length: PLAYBACK_RATE_MARKER_COUNT }, (_, index) => {
+          const markerProgress = index / (PLAYBACK_RATE_MARKER_COUNT - 1);
+          const markerProgressPercent = markerProgress * 100;
+          const markerOffset = getPlaybackRateThumbCenterOffset(markerProgressPercent);
+          return (
+            <span
+              key={markerProgress}
+              data-playback-rate-marker={markerProgress}
+              className={`absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${
+                markerProgressPercent <= playbackRateProgress
+                  ? 'bg-orange-200 dark:bg-orange-100/80'
+                  : 'bg-gray-400 dark:bg-zinc-500'
+              }`}
+              style={{ left: `calc(${markerProgressPercent}% + ${markerOffset}px)` }}
+            />
+          );
+        })}
       </div>
 
       <input
@@ -290,8 +282,7 @@ const PlaybackSpeedControl = ({
         step={PLAYBACK_RATE_STEP}
         value={displayedPlaybackRate}
         disabled={isDisabled}
-        style={{ '--playback-rate-thumb-shift': `${playbackRateThumbShift}px` } as CSSProperties}
-        className="absolute inset-0 z-10 m-0 h-9 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:translate-x-[var(--playback-rate-thumb-shift)] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-9 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:-mt-0.5 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:translate-x-[var(--playback-rate-thumb-shift)] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-300 motion-safe:[&::-moz-range-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-110 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-300 motion-safe:[&::-webkit-slider-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-110 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
+        className="absolute inset-0 z-10 m-0 h-9 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-9 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:-mt-0.5 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-300 motion-safe:[&::-moz-range-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-110 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-300 motion-safe:[&::-webkit-slider-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-110 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
         onChange={event => updatePlaybackRate(Number.parseFloat(event.target.value))}
         onKeyDown={isDisabled ? undefined : handleKeyDown}
       />
