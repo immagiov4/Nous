@@ -584,9 +584,13 @@ describe('useProjectLibrary', () => {
     );
   });
 
-  test('uses the full manifest count when a partial import rollback is incomplete', async () => {
+  test('reports only retained courses when a partial organization rollback is incomplete', async () => {
     const timestamp = '2026-04-02T10:00:00.000Z';
-    const projects = [buildSnapshot('course-one'), buildSnapshot('course-two')];
+    const projects = [
+      buildSnapshot('course-one'),
+      buildSnapshot('course-two'),
+      buildSnapshot('course-three'),
+    ];
     const archive = await createLibraryArchiveBlob(projects, {
       folders: [],
       placements: projects.map((project, index) => ({
@@ -602,7 +606,9 @@ describe('useProjectLibrary', () => {
       compression: 'STORE',
     });
     repositoryMocks.moveProjects.mockRejectedValueOnce(new Error('placement failed'));
-    repositoryMocks.deleteProject.mockRejectedValueOnce(new Error('cleanup failed'));
+    repositoryMocks.deleteProject
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cleanup failed'));
     const file = new File(
       [new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))],
       'library.nous-library.zip'
@@ -619,7 +625,12 @@ describe('useProjectLibrary', () => {
       code: 'LIBRARY_ARCHIVE_ROLLBACK_INCOMPLETE',
       message:
         'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
-      projectCount: 2,
+      projectCount: 3,
+      result: {
+        importedProjects: [expect.objectContaining({ id: 'course-one', projectIndex: 1 })],
+        notAttemptedProjects: [],
+        rejectedProjects: [expect.objectContaining({ id: 'course-two', projectIndex: 2 })],
+      },
       stage: 'rollback',
     });
 

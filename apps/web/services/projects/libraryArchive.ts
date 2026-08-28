@@ -115,7 +115,8 @@ export class LibraryArchivePartialImportError extends LibraryArchiveError {
       firstRejectedProject?.code ?? 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
       firstRejectedProject?.stage ?? 'project-import',
       firstRejectedProject?.projectIndex,
-      firstRejectedProject?.projectCount
+      firstRejectedProject?.projectCount,
+      firstRejectedProject?.limitBytes
     );
     this.name = 'LibraryArchivePartialImportError';
   }

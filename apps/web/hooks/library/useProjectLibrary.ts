@@ -1175,6 +1175,11 @@ export const useProjectLibrary = ({
         }
       }
 
+      const completedImportResult: LibraryArchiveImportResult = {
+        importedProjects,
+        notAttemptedProjects: [],
+        rejectedProjects: sortRejectedProjectsByPosition(rejectedProjects),
+      };
       const restorableOrganization = {
         folders: archive.folders,
         placements: archive.placements.filter(placement => projectIdMap.has(placement.projectId)),
@@ -1189,12 +1194,14 @@ export const useProjectLibrary = ({
         }
       } catch (error) {
         let rollbackFailed = error instanceof LibraryArchiveRollbackError;
+        const retainedImportedProjectIds = new Set<string>();
         const rollbackProjectIds = [...importedProjectIds].reverse();
         for (const projectId of rollbackProjectIds) {
           try {
             await projectRepositoryRef.current.deleteProject(projectId);
           } catch (cleanupError) {
             rollbackFailed = true;
+            retainedImportedProjectIds.add(projectId);
             console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
           }
         }
@@ -1211,7 +1218,13 @@ export const useProjectLibrary = ({
             error instanceof LibraryArchiveError ? error.projectIndex : undefined,
             error instanceof LibraryArchiveError
               ? (error.projectCount ?? archive.projectCount)
-              : archive.projectCount
+              : archive.projectCount,
+            {
+              ...completedImportResult,
+              importedProjects: importedProjects.filter(project =>
+                retainedImportedProjectIds.has(project.importedProjectId)
+              ),
+            }
           );
           setProjectSyncState({
             kind: 'import',
@@ -1225,11 +1238,7 @@ export const useProjectLibrary = ({
       }
       const partialImportError =
         rejectedProjects.length > 0
-          ? new LibraryArchivePartialImportError({
-              importedProjects,
-              notAttemptedProjects: [],
-              rejectedProjects: sortRejectedProjectsByPosition(rejectedProjects),
-            })
+          ? new LibraryArchivePartialImportError(completedImportResult)
           : null;
       try {
         await refreshLibraryState();

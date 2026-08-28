@@ -4,6 +4,7 @@ import { test } from 'vitest';
 import {
   createLibraryArchiveBlob,
   LibraryArchiveError,
+  LibraryArchivePartialImportError,
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
 } from '../../../services/projects/libraryArchive.ts';
@@ -418,6 +419,26 @@ test('library backup import identifies an unsupported manifest version', async (
     () => readLibraryArchive(archive),
     /La versione 99 del backup non è supportata\./
   );
+});
+
+test('partial library imports preserve a rejected course size limit', () => {
+  const error = new LibraryArchivePartialImportError({
+    importedProjects: [],
+    notAttemptedProjects: [],
+    rejectedProjects: [
+      {
+        code: 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE',
+        id: 'oversized-course',
+        limitBytes: 256_000_000,
+        projectCount: 1,
+        projectIndex: 1,
+        stage: 'nested-project-read',
+        title: 'Corso troppo grande',
+      },
+    ],
+  });
+
+  assert.equal(error.limitBytes, 256_000_000);
 });
 
 test('library backup import rejects cyclic folder hierarchies before importing projects', async () => {
