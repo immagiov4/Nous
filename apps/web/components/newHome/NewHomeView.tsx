@@ -64,6 +64,7 @@ export type NewHomePage = 'home' | 'library';
 const PHONE_VIEWPORT_MEDIA_QUERY = '(max-width: 639px)';
 const PHONE_RESUME_PROJECT_LIMIT = 1;
 const DEFAULT_RESUME_PROJECT_LIMIT = 3;
+const CHIP_SCROLL_PAGE_FRACTION = 0.85;
 
 const readIsPhoneViewport = (): boolean =>
   typeof globalThis.matchMedia === 'function' &&
@@ -911,7 +912,7 @@ const CourseList = ({
   const scrollChips = (direction: -1 | 1) => {
     chipViewportRef.current?.scrollBy({
       behavior: shouldAnimate ? 'smooth' : 'auto',
-      left: direction * (chipViewportRef.current.clientWidth * 0.85),
+      left: direction * (chipViewportRef.current.clientWidth * CHIP_SCROLL_PAGE_FRACTION),
     });
   };
   const chipScrollButtonClassName =
@@ -980,7 +981,7 @@ const CourseList = ({
             </Pressable>
           ) : null}
         </div>
-        <div className="relative flex min-w-0 flex-1 items-center">
+        <div className="relative flex min-w-0 flex-1 items-center px-11 sm:px-9">
           <button
             type="button"
             aria-hidden={!canScrollLeft}

@@ -348,8 +348,11 @@ describe('NewHomeView library interactions', () => {
       dispatchEvent: vi.fn(),
     }));
     const user = userEvent.setup();
+    let currentScrollLeft = 0;
     const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200);
-    const scrollLeft = vi.spyOn(HTMLElement.prototype, 'scrollLeft', 'get').mockReturnValue(100);
+    const scrollLeft = vi
+      .spyOn(HTMLElement.prototype, 'scrollLeft', 'get')
+      .mockImplementation(() => currentScrollLeft);
     const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(500);
     const scrollBy = vi.fn();
     const originalScrollBy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollBy');
@@ -380,10 +383,21 @@ describe('NewHomeView library interactions', () => {
       const nextFilters = await screen.findByRole('button', {
         name: /Mostra altri filtri|Show more filters/,
       });
-      const previousFilters = screen.getByRole('button', {
+      const chipViewport = nextFilters.parentElement?.querySelector('.new-home-filter-scroll');
+      expect(nextFilters.parentElement).toHaveClass('relative', 'px-11', 'sm:px-9');
+      expect(chipViewport).not.toHaveClass('pl-11', 'pr-11', 'sm:pl-9', 'sm:pr-9');
+      expect(
+        screen.queryByRole('button', {
+          name: /Mostra i filtri precedenti|Show previous filters/,
+        })
+      ).not.toBeInTheDocument();
+
+      currentScrollLeft = 100;
+      await act(async () => globalThis.window.dispatchEvent(new Event('resize')));
+      const previousFilters = await screen.findByRole('button', {
         name: /Mostra i filtri precedenti|Show previous filters/,
       });
-      expect(nextFilters.parentElement).toHaveClass('relative');
+      expect(nextFilters.parentElement).toHaveClass('px-11', 'sm:px-9');
       expect(previousFilters).toHaveClass('absolute', 'left-0', 'h-11', 'w-11');
       expect(nextFilters).toHaveClass(
         'absolute',
@@ -397,6 +411,10 @@ describe('NewHomeView library interactions', () => {
       expect(nextFilters).toHaveFocus();
       await user.keyboard('{Enter}');
       expect(scrollBy).toHaveBeenCalledWith({ behavior: expectedScrollBehavior, left: 170 });
+
+      const edgeFolderChip = screen.getByRole('button', { name: /^Frontend1$/ });
+      await user.click(edgeFolderChip);
+      expect(edgeFolderChip).toHaveAttribute('aria-pressed', 'true');
     } finally {
       clientWidth.mockRestore();
       scrollLeft.mockRestore();
