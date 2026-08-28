@@ -221,6 +221,10 @@ const PlaybackSpeedDial = ({ isDisabled, onSpeedChange, playbackRate }: Playback
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0) {
+      return;
+    }
+
     event.preventDefault();
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);

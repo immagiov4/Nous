@@ -304,6 +304,8 @@ describe('UnifiedAudioPanel', () => {
     fireEvent.pointerDown(speedDial, {
       clientX: 10,
       clientY: 20,
+      button: 0,
+      isPrimary: true,
       pointerId: 7,
       pointerType,
     });
@@ -330,6 +332,51 @@ describe('UnifiedAudioPanel', () => {
     fireEvent.pointerUp(speedDial, { pointerId: 7, pointerType });
 
     expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.1, 1]);
+  });
+
+  test('ignores secondary buttons and non-primary touch pointers', () => {
+    const onSpeedChange = vi.fn();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ onSpeedChange })}
+      />
+    );
+
+    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
+    fireEvent.pointerDown(speedDial, {
+      button: 2,
+      clientX: 10,
+      isPrimary: true,
+      pointerId: 7,
+      pointerType: 'mouse',
+    });
+    fireEvent.pointerMove(speedDial, {
+      clientX: 30,
+      pointerId: 7,
+      pointerType: 'mouse',
+    });
+    fireEvent.pointerDown(speedDial, {
+      button: 0,
+      clientX: 10,
+      isPrimary: false,
+      pointerId: 8,
+      pointerType: 'touch',
+    });
+    fireEvent.pointerMove(speedDial, {
+      clientX: 30,
+      pointerId: 8,
+      pointerType: 'touch',
+    });
+
+    expect(onSpeedChange).not.toHaveBeenCalled();
   });
 
   test('keeps the iframe lazy until the user starts background audio', async () => {
