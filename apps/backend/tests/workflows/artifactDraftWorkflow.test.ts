@@ -148,6 +148,7 @@ describe('artifact draft workflow', () => {
         title: input.sectionTitle,
         visualType: 'illustrative_image',
       },
+      preserveRasterConcept: true,
       projectId: input.projectId,
       sectionId: input.sectionId,
     });

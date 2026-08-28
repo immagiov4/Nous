@@ -159,6 +159,7 @@ const renderState = (
   kind: 'render',
   lessonMarkdown: input.lessonMarkdown,
   plan,
+  ...(input.requestedVisualKind === 'image' ? { preserveRasterConcept: true } : {}),
   projectId: input.projectId,
   sectionDescription: input.sectionDescription,
   sectionId: input.sectionId,

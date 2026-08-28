@@ -155,11 +155,16 @@ describe('lesson visual workflows', () => {
     const raster = getRenderRoute().cases.raster;
     if (raster?.kind !== 'step') throw new TypeError('Expected the raster step.');
     const stage = vi.fn(async () => assetRef(FIRST_ASSET_ID));
-    const services = makeServices({ assets: { stage } });
+    const generateRaster = vi.fn(async () => ({
+      bytes: new Uint8Array([1, 2, 3, 4]),
+      mediaType: 'image/png' as const,
+    }));
+    const services = makeServices({ assets: { stage }, generateRaster });
     const signal = new AbortController().signal;
     const rasterInput = {
       ...input,
       plan: { ...input.plan, visualType: 'illustrative_image' as const },
+      preserveRasterConcept: true,
     };
 
     const result = await raster.run({
@@ -179,6 +184,9 @@ describe('lesson visual workflows', () => {
       visual: { render: { asset: assetRef(FIRST_ASSET_ID), kind: 'image' } },
     });
     expect(JSON.stringify(result)).not.toContain('[1,2,3,4]');
+    expect(generateRaster).toHaveBeenCalledWith(
+      expect.objectContaining({ preserveRasterConcept: true })
+    );
     expect(stage).toHaveBeenCalledWith(
       expect.objectContaining({
         bytes: new Uint8Array([1, 2, 3, 4]),

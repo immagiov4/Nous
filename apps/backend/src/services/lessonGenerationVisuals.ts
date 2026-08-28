@@ -85,6 +85,7 @@ interface LessonVisualRenderInput {
   existingEmbeddedAssets?: readonly ProjectAssetRef[];
   lessonMarkdown: string;
   plan: LessonVisualRetryPlan;
+  preserveRasterConcept?: boolean;
   retryFeedback?: string;
   sectionDescription: string;
   sectionTitle: string;
@@ -416,6 +417,7 @@ export const generateLessonVisualRaster = (
       factualRequirements: input.plan.factualRequirements,
       lessonMarkdown: input.lessonMarkdown,
       pedagogicalGoal: input.plan.pedagogicalGoal,
+      preserveRasterConcept: input.preserveRasterConcept,
       sectionDescription: input.sectionDescription,
       sectionTitle: input.sectionTitle,
       visualDirection: input.plan.visualDirection,
