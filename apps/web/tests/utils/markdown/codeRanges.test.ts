@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   findInlineLinkDestinationEnd,
   getMarkdownAnnotationProtectedRanges,
@@ -15,7 +15,7 @@ import {
 test('synthetic link parsing rejects a later valid destination', () => {
   const content = '(destinazione non valida) poi [valido](https://example.com)';
 
-  assert.equal(findInlineLinkDestinationEnd(content, 0), -1);
+  expect(findInlineLinkDestinationEnd(content, 0)).toBe(-1);
 });
 
 test('normalizeMathSelectionArtifacts projects repeated math-like selection artifacts without regex scanning', () => {
@@ -26,42 +26,63 @@ test('normalizeMathSelectionArtifacts projects repeated math-like selection arti
   assert.equal(normalized, 'Ridurre Tcluster e Tupdate accelera.');
 });
 
-test('annotation ranges ignore malformed image openers before ordinary links', () => {
-  const content = 'Spiega ![ questo testo e poi [consulta la fonte](https://example.com).';
+test.each([
+  [
+    'annotation ranges ignore malformed image openers before ordinary links',
+    'Spiega ![ questo testo e poi [consulta la fonte](https://example.com).',
+    ['(https://example.com)'],
+  ],
+  [
+    'annotation ranges preserve a malformed marker before a complete marker',
+    'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo',
+    ['{{VISUAL_SLOT:slot-1}}'],
+  ],
+  [
+    'annotation ranges parse parenthesized ordinary-link titles',
+    '[schema](image.png (Titolo nascosto))',
+    ['(image.png (Titolo nascosto))'],
+  ],
+  [
+    'annotation ranges protect dollar math exposed by escaped raw html',
+    '<div>\n$x$\n</div>',
+    ['$x$'],
+  ],
+] as const)('%s', (_name, content, expectedSlices) => {
   const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['(https://example.com)']);
+  expect(protectedSlices).toStrictEqual(expectedSlices);
 });
 
-test('annotation ranges leave incomplete placeholder-like text anchorable', () => {
-  const content = 'Testo prima {{VISUAL_SLOT:bozza testo dopo';
-
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+test.each([
+  [
+    'annotation ranges leave incomplete placeholder-like text anchorable',
+    'Testo prima {{VISUAL_SLOT:bozza testo dopo',
+  ],
+  [
+    'annotation ranges leave placeholders with unknown options anchorable',
+    '{{PDF_IMAGE:asset-1|foo=bar}}',
+  ],
+  [
+    'annotation ranges leave renderer-visible malformed images anchorable',
+    '![testo ancora visibile](destinazione non valida)',
+  ],
+] as const)('%s', (_name, content) => {
+  expect(getMarkdownAnnotationProtectedRanges(content)).toStrictEqual([]);
 });
 
-test('annotation ranges protect closed placeholders with whitespace payloads', () => {
-  const content = '{{VISUAL_SLOT:   }}';
-
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
+test.each([
+  ['annotation ranges protect closed placeholders with whitespace payloads', '{{VISUAL_SLOT:   }}'],
+  ['annotation ranges parse parenthesized image titles', '![schema](image.png (Titolo nascosto))'],
+  [
+    'annotation ranges include definitions with a continued destination',
+    '[ref]:\n  /image.png "Titolo nascosto"',
+  ],
+] as const)('%s', (_name, content) => {
+  expect(getMarkdownAnnotationProtectedRanges(content)).toStrictEqual([
     { start: 0, end: content.length },
   ]);
-});
-
-test('annotation ranges preserve a malformed marker before a complete marker', () => {
-  const content = 'Prima {{VISUAL_SLOT:bozza poi {{VISUAL_SLOT:slot-1}} dopo';
-  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
-    content.slice(range.start, range.end)
-  );
-
-  assert.deepEqual(protectedSlices, ['{{VISUAL_SLOT:slot-1}}']);
-});
-
-test('annotation ranges leave placeholders with unknown options anchorable', () => {
-  const content = '{{PDF_IMAGE:asset-1|foo=bar}}';
-
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
 });
 
 test('annotation ranges parse balanced parentheses in image destinations', () => {
@@ -71,27 +92,10 @@ test('annotation ranges parse balanced parentheses in image destinations', () =>
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, [
+  expect(protectedSlices).toStrictEqual([
     '![diagramma](https://example.com/image_(large).png)',
     '![schema](<schema.png> )',
   ]);
-});
-
-test('annotation ranges parse parenthesized image titles', () => {
-  const content = '![schema](image.png (Titolo nascosto))';
-
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
-    { start: 0, end: content.length },
-  ]);
-});
-
-test('annotation ranges parse parenthesized ordinary-link titles', () => {
-  const content = '[schema](image.png (Titolo nascosto))';
-  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
-    content.slice(range.start, range.end)
-  );
-
-  assert.deepEqual(protectedSlices, ['(image.png (Titolo nascosto))']);
 });
 
 test('annotation ranges parse angle destinations with quoted and parenthesized titles', () => {
@@ -100,7 +104,7 @@ test('annotation ranges parse angle destinations with quoted and parenthesized t
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, [
+  expect(protectedSlices).toStrictEqual([
     '(<https://example.com> "Titolo")',
     '![due](<image.png> (Didascalia))',
   ]);
@@ -112,7 +116,7 @@ test('annotation ranges keep adjacent inline code separate from an image', () =>
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['![diagramma](image.png)', '`codice inline`']);
+  expect(protectedSlices).toStrictEqual(['![diagramma](image.png)', '`codice inline`']);
 });
 
 test('annotation ranges protect reference images and ordinary link destinations', () => {
@@ -126,14 +130,8 @@ test('annotation ranges protect reference images and ordinary link destinations'
     content.slice(range.start, range.end)
   );
 
-  assert.ok(protectedSlices.includes('![Schema nascosto][schema]'));
+  expect(protectedSlices.includes('![Schema nascosto][schema]')).toBeTruthy();
   assert.ok(protectedSlices.includes('(https://example.com/percorso-nascosto)'));
-});
-
-test('annotation ranges leave renderer-visible malformed images anchorable', () => {
-  const content = '![testo ancora visibile](destinazione non valida)';
-
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
 });
 
 test('annotation ranges preserve malformed definitions and angle destinations', () => {
@@ -144,24 +142,20 @@ test('annotation ranges preserve malformed definitions and angle destinations', 
     '![alt](<image.png>testo)',
   ].join('\n');
 
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
+  expect(getMarkdownAnnotationProtectedRanges(content)).toStrictEqual([]);
 });
 
-test('annotation ranges preserve empty reference labels and definitions inside raw html blocks', () => {
-  const contents = [
-    '[]: image.png',
-    '[   ]: image.png',
-    '<div>\n[ref]: image.png\n</div>',
-    '</div>\n[ref]: image.png',
-    '<custom>\n[ref]: image.png',
-    '<custom title="a>b">\n[ref]: image.png',
-    '</custom bad>\n[ref]: image.png',
-    '> <div>\n> [ref]: image.png\n> </div>',
-  ];
-
-  contents.forEach(content => {
-    assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
-  });
+test.each([
+  ['empty label', '[]: image.png'],
+  ['whitespace label', '[   ]: image.png'],
+  ['raw HTML block', '<div>\n[ref]: image.png\n</div>'],
+  ['unmatched closing HTML tag', '</div>\n[ref]: image.png'],
+  ['custom raw HTML block', '<custom>\n[ref]: image.png'],
+  ['quoted custom tag', '<custom title="a>b">\n[ref]: image.png'],
+  ['malformed closing custom tag', '</custom bad>\n[ref]: image.png'],
+  ['quoted raw HTML block', '> <div>\n> [ref]: image.png\n> </div>'],
+] as const)('annotation ranges preserve empty reference labels and definitions inside raw html blocks: %s', (_caseName, content) => {
+  expect(getMarkdownAnnotationProtectedRanges(content)).toStrictEqual([]);
 });
 
 test('html-looking fenced code does not hide a following reference definition', () => {
@@ -170,7 +164,7 @@ test('html-looking fenced code does not hide a following reference definition', 
     content.slice(range.start, range.end)
   );
 
-  assert.ok(protectedSlices.includes('[ref]: /image.png'));
+  expect(protectedSlices.includes('[ref]: /image.png')).toBeTruthy();
   assert.ok(protectedSlices.includes('![alt][ref]'));
 });
 
@@ -180,7 +174,7 @@ test('annotation ranges resolve escaped reference labels', () => {
     content.slice(range.start, range.end)
   );
 
-  assert.ok(protectedSlices.includes('![Alt nascosto][a\\]b]'));
+  expect(protectedSlices.includes('![Alt nascosto][a\\]b]')).toBeTruthy();
 });
 
 test('annotation ranges include complete multiline reference definitions', () => {
@@ -189,49 +183,33 @@ test('annotation ranges include complete multiline reference definitions', () =>
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, [content]);
+  expect(protectedSlices).toStrictEqual([content]);
 });
 
-test('annotation ranges include definitions with a continued destination', () => {
-  const content = '[ref]:\n  /image.png "Titolo nascosto"';
-
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
-    { start: 0, end: content.length },
-  ]);
+test.each([
+  ['zero-indent continuation', '![alt][ref]\n\n[ref]:\n/image.png "Titolo"'],
+  ['blockquote container', '> [ref]: /image.png\n>\n> ![alt][ref]'],
+  ['list container', '- [ref]: /image.png\n\n  ![alt][ref]'],
+] as const)('annotation ranges include zero-indent and container-scoped reference definitions: %s', (_caseName, content) => {
+  const protectedText = getMarkdownAnnotationProtectedRanges(content)
+    .map(range => content.slice(range.start, range.end))
+    .join('\n');
+  expect(protectedText).toMatch(/\[ref\]:/u);
+  assert.match(protectedText, /!\[alt\]\[ref\]/u);
 });
 
-test('annotation ranges include zero-indent and container-scoped reference definitions', () => {
-  const contents = [
-    '![alt][ref]\n\n[ref]:\n/image.png "Titolo"',
-    '> [ref]: /image.png\n>\n> ![alt][ref]',
-    '- [ref]: /image.png\n\n  ![alt][ref]',
-  ];
-
-  contents.forEach(content => {
-    const protectedText = getMarkdownAnnotationProtectedRanges(content)
-      .map(range => content.slice(range.start, range.end))
-      .join('\n');
-    assert.match(protectedText, /\[ref\]:/u);
-    assert.match(protectedText, /!\[alt\]\[ref\]/u);
-  });
-});
-
-test('annotation ranges preserve malformed continuations and missing reference labels', () => {
-  const contents = [
-    '[ref]:\nnot a destination with spaces',
-    '[ref]:\n- /visible-list-destination',
-    '[visibile][mancante]',
-  ];
-
-  contents.forEach(content => {
-    assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), []);
-  });
+test.each([
+  ['plain continuation', '[ref]:\nnot a destination with spaces'],
+  ['list continuation', '[ref]:\n- /visible-list-destination'],
+  ['missing label', '[visibile][mancante]'],
+] as const)('annotation ranges preserve malformed continuations and missing reference labels: %s', (_caseName, content) => {
+  expect(getMarkdownAnnotationProtectedRanges(content)).toStrictEqual([]);
 });
 
 test('annotation ranges follow renderer-normalized tab-indented definitions', () => {
   const content = '\t[ref]: /image.png';
 
-  assert.deepEqual(getMarkdownReferenceDefinitionRanges(content), [
+  expect(getMarkdownReferenceDefinitionRanges(content)).toStrictEqual([
     { start: 0, end: content.length },
   ]);
   assert.deepEqual(getMarkdownAnnotationProtectedRanges(content), [
@@ -245,7 +223,7 @@ test('annotation ranges protect footnote labels while preserving the visible def
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['[^nota]', '[^nota]: ']);
+  expect(protectedSlices).toStrictEqual(['[^nota]', '[^nota]: ']);
   assert.equal(
     getMarkdownAnnotationProtectedRanges(content).some(range =>
       content.slice(range.start, range.end).includes('/contenuto-visibile')
@@ -254,22 +232,13 @@ test('annotation ranges protect footnote labels while preserving the visible def
   );
 });
 
-test('annotation ranges protect dollar math exposed by escaped raw html', () => {
-  const content = '<div>\n$x$\n</div>';
-  const protectedSlices = getMarkdownAnnotationProtectedRanges(content).map(range =>
-    content.slice(range.start, range.end)
-  );
-
-  assert.deepEqual(protectedSlices, ['$x$']);
-});
-
 test('analysis hides renderer-hidden HTML inside escaped raw HTML', () => {
   const content = '<script>\n\n<!-- internal -->\n\n</script>';
   const hiddenSlices = parseMarkdownAnalysis(content).htmlSyntaxRanges.map(range =>
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(hiddenSlices, ['<!-- internal -->']);
+  expect(hiddenSlices).toStrictEqual(['<!-- internal -->']);
 });
 
 test('annotation ranges reuse every renderer-normalized math form', () => {
@@ -282,7 +251,7 @@ test('annotation ranges reuse every renderer-normalized math form', () => {
     content.slice(range.start, range.end)
   );
 
-  assert.ok(protectedSlices.includes(String.raw`(\text{velocity})`));
+  expect(protectedSlices.includes(String.raw`(\text{velocity})`)).toBeTruthy();
   assert.ok(protectedSlices.includes(String.raw`x = \frac{a}{b}`));
   assert.ok(protectedSlices.includes('[y_1 = z^2]'));
 });
@@ -299,7 +268,7 @@ test('annotation ranges leave prose lookalikes anchorable and bare math inside c
     content.slice(range.start, range.end)
   );
 
-  assert.ok(!protectedSlices.includes('(nota testuale)'));
+  expect(!protectedSlices.includes('(nota testuale)')).toBeTruthy();
   assert.ok(!protectedSlices.includes('[nota editoriale]'));
   assert.ok(!protectedSlices.includes(String.raw`(\text{code})`));
 });
@@ -310,7 +279,7 @@ test('markdown ranges keep inline code distinct from math inside escaped raw htm
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['`$x$`']);
+  expect(protectedSlices).toStrictEqual(['`$x$`']);
 });
 
 test('markdown ranges protect fenced code exposed by escaped raw html', () => {
@@ -319,7 +288,7 @@ test('markdown ranges protect fenced code exposed by escaped raw html', () => {
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['```\nsecret\n```']);
+  expect(protectedSlices).toStrictEqual(['```\nsecret\n```']);
 });
 
 test('annotation ranges protect images and link destinations exposed by escaped raw html', () => {
@@ -328,7 +297,7 @@ test('annotation ranges protect images and link destinations exposed by escaped 
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['![Schema](image.png)', '(https://example.com/hidden)']);
+  expect(protectedSlices).toStrictEqual(['![Schema](image.png)', '(https://example.com/hidden)']);
 });
 
 test('annotation ranges protect reference labels exposed by escaped raw html', () => {
@@ -337,7 +306,7 @@ test('annotation ranges protect reference labels exposed by escaped raw html', (
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['[ref]', '[ref]: https://example.com']);
+  expect(protectedSlices).toStrictEqual(['[ref]', '[ref]: https://example.com']);
 });
 
 test('annotation ranges protect footnote labels exposed by escaped raw html', () => {
@@ -346,17 +315,17 @@ test('annotation ranges protect footnote labels exposed by escaped raw html', ()
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedSlices, ['[^nota]', '[^nota]: ']);
+  expect(protectedSlices).toStrictEqual(['[^nota]', '[^nota]: ']);
 });
 
 test('code ranges exposed by escaped raw html stay in source order', () => {
   const content = '<div>\n`<mark>early</mark>`\n</div>\n\n`<mark>later</mark>`';
 
-  assert.equal(stripHighlightTagsInsideMarkdownCode(content), '<div>\n`early`\n</div>\n\n`later`');
+  expect(stripHighlightTagsInsideMarkdownCode(content)).toBe('<div>\n`early`\n</div>\n\n`later`');
 });
 
 test('annotation ranges protect URI and email autolinks', () => {
-  assert.deepEqual(getMarkdownAnnotationProtectedRanges('<https://example.com>'), [
+  expect(getMarkdownAnnotationProtectedRanges('<https://example.com>')).toStrictEqual([
     { start: 0, end: 21 },
   ]);
   assert.deepEqual(getMarkdownAnnotationProtectedRanges('<reader@example.com>'), [
@@ -367,7 +336,7 @@ test('annotation ranges protect URI and email autolinks', () => {
 test('annotation ranges preserve definition-like text indented as quoted code', () => {
   const content = '>     [ref]: /visible-code';
 
-  assert.deepEqual(getMarkdownReferenceDefinitionRanges(content), []);
+  expect(getMarkdownReferenceDefinitionRanges(content)).toStrictEqual([]);
 });
 
 test('annotation ranges respect list-relative continuations and nested tilde fences', () => {
@@ -397,7 +366,7 @@ test('annotation ranges respect list-relative continuations and nested tilde fen
     .map(range => content.slice(range.start, range.end))
     .join('\n');
 
-  assert.match(protectedText, /- \[ref\]:\n {4}\/image\.png/u);
+  expect(protectedText).toMatch(/- \[ref\]:\n {4}\/image\.png/u);
   assert.match(protectedText, /> ~~~md\n> \[falso\]: \/visibile-nel-codice\n> ~~~/u);
   assert.match(protectedText, /> - \[nested\]:\n> {5}\/nested\.png/u);
   assert.match(
@@ -557,7 +526,7 @@ test('annotation ranges protect supported backslash math delimiters', () => {
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(protectedText, [String.raw`\(x + y\)`, String.raw`\[z = 1\]`]);
+  expect(protectedText).toStrictEqual([String.raw`\(x + y\)`, String.raw`\[z = 1\]`]);
 });
 
 test('annotation ranges keep renderer indentation normalization outside fenced code', () => {
@@ -566,7 +535,7 @@ test('annotation ranges keep renderer indentation normalization outside fenced c
     .map(range => content.slice(range.start, range.end))
     .join('\n');
 
-  assert.match(protectedText, / {4}~~~\nhidden code/u);
+  expect(protectedText).toMatch(/ {4}~~~\nhidden code/u);
   assert.doesNotMatch(protectedText, /visible prose/u);
 });
 
@@ -585,7 +554,7 @@ test('annotation ranges protect non-text block syntax', () => {
     content.slice(range.start, range.end)
   );
 
-  assert.ok(protectedText.includes('==='));
+  expect(protectedText.includes('===')).toBeTruthy();
   assert.ok(protectedText.includes('---'));
   assert.ok(protectedText.includes('| --- | --- |'));
 });

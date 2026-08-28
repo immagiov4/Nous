@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 
 import {
   buildConversationNoteSaveCandidates,
@@ -42,8 +42,7 @@ test('keeps a single candidate when the refined selection matches the original a
 test('rejects note proposals whose text is absent or only belongs to an image', () => {
   const content = 'Testo della lezione.\n\n![Schema della pipeline](asset://pipeline)';
 
-  assert.equal(
-    hasAnchorableConversationNoteCandidate(content, { selectedText: 'Testo assente' }),
+  expect(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Testo assente' })).toBe(
     false
   );
   assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: '  ' }), false);
@@ -66,7 +65,7 @@ test('rejects note proposals whose text is absent or only belongs to an image', 
 test('anchors rendered link text after nested unclosed fence openers', () => {
   const content = ['```ts', '```js', '[Docs](https://example.com)'].join('\n');
 
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' }), true);
+  expect(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' })).toBe(true);
   assert.equal(
     hasAnchorableConversationNoteCandidate(content, { selectedText: 'https://example.com' }),
     false
@@ -78,7 +77,7 @@ test('anchors rendered link text after raw HTML reveals an unclosed fence', () =
     '\n'
   );
 
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' }), true);
+  expect(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' })).toBe(true);
   assert.equal(
     hasAnchorableConversationNoteCandidate(content, { selectedText: 'https://e.test' }),
     false
@@ -92,58 +91,39 @@ test('anchors visible text after a lone-CR line boundary', () => {
   );
 });
 
-test('rejects note proposals whose text exists only in an unsupported viewer placeholder', () => {
-  const placeholders = [
-    {
-      content: '{{PDF_IMAGE:asset-1|alt=Schema durevole}}',
-      selectedText: 'Schema durevole',
-    },
-    {
-      content: '{{VISUAL_EXAMPLE:visual-1|title=Schema durevole}}',
-      selectedText: 'Schema durevole',
-    },
-    {
-      content: '{{YOUTUBE_CLIP_SOURCE:1|START:10|END:20}}',
-      selectedText: 'START',
-    },
-    { content: '{{INLINE_QUIZ:1}}', selectedText: '1' },
-    {
-      content: '{{VISUAL_SLOT:slot-1|title=Schema durevole}}',
-      selectedText: 'Schema durevole',
-    },
-  ];
-
-  placeholders.forEach(({ content, selectedText }) => {
-    assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText }), false);
-  });
+test.each([
+  ['PDF image', '{{PDF_IMAGE:asset-1|alt=Schema durevole}}', 'Schema durevole'],
+  ['visual example', '{{VISUAL_EXAMPLE:visual-1|title=Schema durevole}}', 'Schema durevole'],
+  ['YouTube clip', '{{YOUTUBE_CLIP_SOURCE:1|START:10|END:20}}', 'START'],
+  ['inline quiz', '{{INLINE_QUIZ:1}}', '1'],
+  ['visual slot', '{{VISUAL_SLOT:slot-1|title=Schema durevole}}', 'Schema durevole'],
+] as const)('rejects note proposals whose text exists only in an unsupported viewer placeholder: %s', (_placeholderType, content, selectedText) => {
+  expect(hasAnchorableConversationNoteCandidate(content, { selectedText })).toBe(false);
 });
 
 test('accepts note proposals inside malformed placeholder-like text shown by the reader', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('{{PDF_IMAGE:asset-1|foo=bar}}', {
       selectedText: 'foo=bar',
-    }),
-    true
-  );
+    })
+  ).toBe(true);
 });
 
 test('rejects candidates that resolve only a visible fragment around protected text', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate(
       'Testo [fonte](https://example.com/percorso-nascosto) conclusivo.',
       { selectedText: 'Testo percorso nascosto conclusivo' }
-    ),
-    false
-  );
+    )
+  ).toBe(false);
 });
 
 test('rejects note proposals that would insert markup inside an autolink', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('Consulta <https://example.com> per i dettagli.', {
       selectedText: 'https://example.com',
-    }),
-    false
-  );
+    })
+  ).toBe(false);
   assert.equal(
     hasAnchorableConversationNoteCandidate('Scrivi a <reader@example.com>.', {
       selectedText: 'reader@example.com',
@@ -153,19 +133,17 @@ test('rejects note proposals that would insert markup inside an autolink', () =>
 });
 
 test('accepts complete candidates through loose case and accent normalization', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('Il Caffè resume il concetto.', {
       selectedText: 'CAFFE RESUME',
-    }),
-    true
-  );
+    })
+  ).toBe(true);
 });
 
 test('keeps meaningful operators when validating the complete anchor text', () => {
-  assert.equal(
-    hasAnchorableConversationNoteCandidate('Formula A/B valida', { selectedText: 'A+B' }),
-    false
-  );
+  expect(
+    hasAnchorableConversationNoteCandidate('Formula A/B valida', { selectedText: 'A+B' })
+  ).toBe(false);
   assert.equal(
     hasAnchorableConversationNoteCandidate('La cache – non il database', {
       selectedText: 'La cache - non il database',
@@ -175,8 +153,7 @@ test('keeps meaningful operators when validating the complete anchor text', () =
 });
 
 test('rejects task-list checkbox syntax as an annotation anchor', () => {
-  assert.equal(
-    hasAnchorableConversationNoteCandidate('- [x] Completato', { selectedText: 'x' }),
+  expect(hasAnchorableConversationNoteCandidate('- [x] Completato', { selectedText: 'x' })).toBe(
     false
   );
   assert.equal(
@@ -198,7 +175,7 @@ test('rejects task-list checkbox syntax as an annotation anchor', () => {
 test('accepts anchors in bare code-like text that the renderer leaves as prose', () => {
   const content = 'Spiegazione.\n\ncpp while (i < 5) { std::cout << i; }';
 
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), true);
+  expect(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' })).toBe(true);
 });
 
 test('keeps malformed JSON and its unmatched fence visible to note projection', () => {
@@ -211,7 +188,7 @@ test('keeps malformed JSON and its unmatched fence visible to note projection', 
     'Il ruolo resta visibile nella spiegazione.',
   ].join('\n');
 
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'admin' }), true);
+  expect(hasAnchorableConversationNoteCandidate(content, { selectedText: 'admin' })).toBe(true);
   assert.equal(
     hasAnchorableConversationNoteCandidate(content, {
       selectedText: 'ruolo resta visibile',
@@ -221,12 +198,11 @@ test('keeps malformed JSON and its unmatched fence visible to note projection', 
 });
 
 test('accepts rendered Markdown character references as anchorable text', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('Prima A &amp; B dopo.', {
       selectedText: 'A & B',
-    }),
-    true
-  );
+    })
+  ).toBe(true);
   assert.equal(
     hasAnchorableConversationNoteCandidate('<mark>\nA &amp; B\n</mark>', {
       selectedText: 'A & B',
@@ -242,62 +218,56 @@ test('accepts rendered Markdown character references as anchorable text', () => 
 });
 
 test('rejects anchors inside hidden HTML nested in escaped raw HTML', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('<script>\n\n<!-- internal -->\n\n</script>', {
       selectedText: 'internal',
-    }),
-    false
-  );
+    })
+  ).toBe(false);
 });
 
 test('rejects text rendered from renderer-normalized bare math', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate(String.raw`Prima (\text{velocity}) dopo.`, {
       selectedText: 'velocity',
-    }),
-    false
-  );
+    })
+  ).toBe(false);
 });
 
 test('keeps visible prose beside delimited inline math anchorable', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate(String.raw`x = $\frac{a}{b}$`, {
       selectedText: 'x =',
-    }),
-    true
-  );
+    })
+  ).toBe(true);
 });
 
 test('accepts complete candidates through KaTeX selection normalization', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('Ridurre soprattutto $T_{\\text{cluster}}$ accelera.', {
       selectedText: 'Ridurre soprattutto TclusterT_{\\text{cluster}}Tcluster accelera.',
-    }),
-    true
-  );
+    })
+  ).toBe(true);
 });
 
 test('rejects candidates found only in a reference definition', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate(
       '![Schema][schema]\n\n[schema]: https://example.com/percorso-nascosto',
       { selectedText: 'percorso nascosto' }
-    ),
-    false
-  );
+    )
+  ).toBe(false);
 });
 
 test('rejects candidates found only in a multiline reference definition title', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('[ref]: /image.png\n  "Titolo nascosto"', {
       selectedText: 'Titolo nascosto',
-    }),
-    false
-  );
+    })
+  ).toBe(false);
 });
 
 test('rejects candidates that name non-text Markdown block syntax', () => {
-  assert.equal(hasAnchorableConversationNoteCandidate('---', { selectedText: '---' }), false);
+  expect(hasAnchorableConversationNoteCandidate('---', { selectedText: '---' })).toBe(false);
   assert.equal(
     hasAnchorableConversationNoteCandidate('| Header |\n| --- |\n| Value |', {
       selectedText: '| --- |',
@@ -307,12 +277,11 @@ test('rejects candidates that name non-text Markdown block syntax', () => {
 });
 
 test('distinguishes visible footnote content from nested fenced code', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('Testo[^nota]\n\n[^nota]: Contenuto visibile', {
       selectedText: 'Contenuto visibile',
-    }),
-    true
-  );
+    })
+  ).toBe(true);
   assert.equal(
     hasAnchorableConversationNoteCandidate('> ~~~md\n> [falso]: /contenuto-nel-codice\n> ~~~', {
       selectedText: 'contenuto nel codice',
@@ -328,12 +297,11 @@ test('distinguishes visible footnote content from nested fenced code', () => {
 });
 
 test('anchors renderer-normalized prose and rejects backslash-math-only text', () => {
-  assert.equal(
+  expect(
     hasAnchorableConversationNoteCandidate('    Frase visibile normalizzata.', {
       selectedText: 'Frase visibile normalizzata',
-    }),
-    true
-  );
+    })
+  ).toBe(true);
   assert.equal(
     hasAnchorableConversationNoteCandidate(String.raw`Formula \(contenuto protetto\).`, {
       selectedText: 'contenuto protetto',
@@ -365,7 +333,7 @@ test('does not inherit stale boundary context when the proposed text changes', (
     toolInput: { note: 'Nota', selectedText: 'passaggio raffinato' },
   });
 
-  assert.deepEqual(candidates[0], {
+  expect(candidates[0]).toStrictEqual({
     fallbackSelection: {
       contextAfter: 'contesto vecchio dopo',
       contextBefore: 'contesto vecchio prima',
@@ -394,7 +362,7 @@ test('keeps a refined repeated phrase at the original occurrence', () => {
   })[0];
 
   assert.ok(candidate);
-  assert.equal(candidate.selectedTextStart, selectedTextStart);
+  expect(candidate.selectedTextStart).toBe(selectedTextStart);
   assert.equal(hasAnchorableConversationNoteCandidate(content, candidate), true);
   assert.deepEqual(resolveSelectedSegments({ content, ...candidate }), [
     { start: selectedTextStart, end: selectedTextStart + 'concetto chiave'.length },
@@ -412,7 +380,7 @@ test('uses the original occurrence for a refined repeated word', () => {
   })[0];
 
   assert.ok(candidate);
-  assert.deepEqual(resolveSelectedSegments({ content, ...candidate }), [
+  expect(resolveSelectedSegments({ content, ...candidate })).toStrictEqual([
     { start: sourceStart, end: sourceStart + 'termine'.length },
   ]);
 });
@@ -426,7 +394,7 @@ test('keeps a refined inner word inside the original selection', () => {
   })[0];
 
   assert.ok(candidate);
-  assert.equal(hasAnchorableConversationNoteCandidate(content, candidate), true);
+  expect(hasAnchorableConversationNoteCandidate(content, candidate)).toBe(true);
   assert.deepEqual(
     resolveSelectedSegments({
       content,

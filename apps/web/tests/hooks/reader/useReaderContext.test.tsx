@@ -107,7 +107,7 @@ test('keeps a mobile selection menu open when an interaction ends inside its por
       vi.runOnlyPendingTimers();
     });
 
-    assert.equal(result.current.contextMenu.visible, true);
+    expect(result.current.contextMenu.visible).toBe(true);
   } finally {
     unmount();
     portalElement.remove();
