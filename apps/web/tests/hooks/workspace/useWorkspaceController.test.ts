@@ -3086,6 +3086,269 @@ test('cancelAssessment keeps an abort-aware Home run available after cancellatio
   assert.equal(cancellationAttempts, 2);
 });
 
+test('cancelAssessment reports canceled-draft cleanup failure and retries it', async () => {
+  let resolveInterview: (snapshot: CourseInterviewSnapshot) => void = () => {};
+  let markInterviewStarted: () => void = () => {};
+  const interviewStarted = new Promise<void>(resolve => {
+    markInterviewStarted = resolve;
+  });
+  const interview = new Promise<CourseInterviewSnapshot>(resolve => {
+    resolveInterview = resolve;
+  });
+  let cleanupAttempts = 0;
+  const { controller, projectLibrary, state } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview: async () => {},
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async (_input, options) => {
+        options?.onRunStarted?.('interview-run');
+        markInterviewStarted();
+        return interview;
+      },
+    },
+    projectLibrary: {
+      deleteStoredProject: async () => {
+        cleanupAttempts += 1;
+        if (cleanupAttempts === 1) throw new Error('storage unavailable');
+      },
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare database' });
+  await interviewStarted;
+  const draftProjectId = projectLibrary.adapter.currentProjectId;
+  assert.ok(draftProjectId);
+  const cancellation = controller.cancelAssessment();
+  resolveInterview(
+    createInterviewSnapshot({
+      projectId: draftProjectId,
+      result: { kind: 'cancelled', projectId: draftProjectId },
+      status: 'completed',
+    })
+  );
+
+  await expect(cancellation).rejects.toThrow(t('Operazione non riuscita. Riprova.'));
+  assert.equal((await startPromise).outcome, 'failed');
+  assert.equal(projectLibrary.adapter.currentProjectId, draftProjectId);
+  assert.equal(state.internalState.workflowState.assessment.status, 'pending');
+
+  await controller.cancelAssessment();
+  assert.equal(cleanupAttempts, 2);
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
+});
+
+test('cancelAssessment deletes the cancelled draft after a different project opens', async () => {
+  let resolveInterview: (snapshot: CourseInterviewSnapshot) => void = () => {};
+  let markInterviewStarted: () => void = () => {};
+  const interviewStarted = new Promise<void>(resolve => {
+    markInterviewStarted = resolve;
+  });
+  const interview = new Promise<CourseInterviewSnapshot>(resolve => {
+    resolveInterview = resolve;
+  });
+  let cleanupAttempts = 0;
+  const successfullyDeletedProjectIds: string[] = [];
+  const openedProject = createProjectSnapshot({
+    id: 'project-opened-after-cleanup-failure',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller, projectLibrary, state } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview: async () => {},
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async (_input, options) => {
+        options?.onRunStarted?.('interview-run');
+        markInterviewStarted();
+        return interview;
+      },
+    },
+    projectLibrary: {
+      deleteStoredProject: async projectId => {
+        cleanupAttempts += 1;
+        if (cleanupAttempts === 1) throw new Error('storage unavailable');
+        successfullyDeletedProjectIds.push(projectId);
+      },
+      loadStoredProject: async projectId => (projectId === openedProject.id ? openedProject : null),
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare database' });
+  await interviewStarted;
+  const cancelledDraftProjectId = projectLibrary.adapter.currentProjectId;
+  assert.ok(cancelledDraftProjectId);
+  const firstCancellation = controller.cancelAssessment();
+  resolveInterview(
+    createInterviewSnapshot({
+      projectId: cancelledDraftProjectId,
+      result: { kind: 'cancelled', projectId: cancelledDraftProjectId },
+      status: 'completed',
+    })
+  );
+
+  await expect(firstCancellation).rejects.toThrow(t('Operazione non riuscita. Riprova.'));
+  assert.equal((await startPromise).outcome, 'failed');
+  assert.equal((await controller.openProject(openedProject.id)).outcome, 'opened');
+
+  await controller.cancelAssessment();
+
+  assert.deepEqual(successfullyDeletedProjectIds, [cancelledDraftProjectId]);
+  assert.equal(projectLibrary.adapter.currentProjectId, openedProject.id);
+  assert.equal(state.internalState.screenState, AppState.READING);
+});
+
+test('cancelAssessment preserves a cancelled draft reopened before a later Stop', async () => {
+  const interviewResolvers: Array<(snapshot: CourseInterviewSnapshot) => void> = [];
+  let cleanupAttempts = 0;
+  const successfullyDeletedProjectIds: string[] = [];
+  const startCourseInterview = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').startCourseInterview
+      >[0],
+      options?: Parameters<
+        typeof import('../../../services/openrouter/index.ts').startCourseInterview
+      >[1]
+    ) => {
+      options?.onRunStarted?.(`interview-run-${interviewResolvers.length + 1}`);
+      return new Promise<CourseInterviewSnapshot>(resolve => {
+        interviewResolvers.push(resolve);
+      });
+    }
+  );
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview: async () => {},
+      getActiveCourseInterview: async () => null,
+      startCourseInterview,
+    },
+    projectLibrary: {
+      deleteStoredProject: async projectId => {
+        cleanupAttempts += 1;
+        if (cleanupAttempts === 1) throw new Error('storage unavailable');
+        successfullyDeletedProjectIds.push(projectId);
+      },
+      loadStoredProject: async projectId =>
+        createProjectSnapshot({
+          id: projectId,
+          learningPlan: buildPlan(),
+          state: AppState.READING,
+        }),
+    },
+  });
+
+  const firstStart = controller.startHomeChat({ input: 'Voglio imparare database' });
+  await vi.waitFor(() => expect(interviewResolvers).toHaveLength(1));
+  const reopenedDraftProjectId = projectLibrary.adapter.currentProjectId;
+  assert.ok(reopenedDraftProjectId);
+  const firstCancellation = controller.cancelAssessment();
+  interviewResolvers[0]?.(
+    createInterviewSnapshot({
+      projectId: reopenedDraftProjectId,
+      result: { kind: 'cancelled', projectId: reopenedDraftProjectId },
+      status: 'completed',
+    })
+  );
+
+  await expect(firstCancellation).rejects.toThrow(t('Operazione non riuscita. Riprova.'));
+  assert.equal((await firstStart).outcome, 'failed');
+  assert.equal((await controller.openProject(reopenedDraftProjectId)).outcome, 'opened');
+
+  const secondStart = controller.startHomeChat({ input: 'Voglio imparare Rust' });
+  await vi.waitFor(() => expect(interviewResolvers).toHaveLength(2));
+  const secondDraftProjectId = projectLibrary.adapter.currentProjectId;
+  assert.ok(secondDraftProjectId);
+  assert.notEqual(secondDraftProjectId, reopenedDraftProjectId);
+  const secondCancellation = controller.cancelAssessment();
+  interviewResolvers[1]?.(
+    createInterviewSnapshot({
+      projectId: secondDraftProjectId,
+      result: { kind: 'cancelled', projectId: secondDraftProjectId },
+      status: 'completed',
+    })
+  );
+
+  await secondCancellation;
+  assert.equal((await secondStart).outcome, 'abandoned');
+  assert.deepEqual(successfullyDeletedProjectIds, [secondDraftProjectId]);
+});
+
+test('a draft reopen waits for an in-flight cancelled-draft cleanup retry', async () => {
+  let resolveInterview: (snapshot: CourseInterviewSnapshot) => void = () => {};
+  let markInterviewStarted: () => void = () => {};
+  let finishCleanupRetry: () => void = () => {};
+  const interviewStarted = new Promise<void>(resolve => {
+    markInterviewStarted = resolve;
+  });
+  const interview = new Promise<CourseInterviewSnapshot>(resolve => {
+    resolveInterview = resolve;
+  });
+  const cleanupRetryCanFinish = new Promise<void>(resolve => {
+    finishCleanupRetry = resolve;
+  });
+  const operations: string[] = [];
+  let cleanupAttempts = 0;
+  let wasDraftDeleted = false;
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview: async () => {},
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async (_input, options) => {
+        options?.onRunStarted?.('interview-run');
+        markInterviewStarted();
+        return interview;
+      },
+    },
+    projectLibrary: {
+      deleteStoredProject: async () => {
+        cleanupAttempts += 1;
+        if (cleanupAttempts === 1) throw new Error('storage unavailable');
+        operations.push('delete-started');
+        await cleanupRetryCanFinish;
+        wasDraftDeleted = true;
+        operations.push('delete-finished');
+      },
+      loadStoredProject: async projectId => {
+        operations.push('load-project');
+        return wasDraftDeleted
+          ? null
+          : createProjectSnapshot({
+              id: projectId,
+              learningPlan: buildPlan(),
+              state: AppState.READING,
+            });
+      },
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare database' });
+  await interviewStarted;
+  const draftProjectId = projectLibrary.adapter.currentProjectId;
+  assert.ok(draftProjectId);
+  const firstCancellation = controller.cancelAssessment();
+  resolveInterview(
+    createInterviewSnapshot({
+      projectId: draftProjectId,
+      result: { kind: 'cancelled', projectId: draftProjectId },
+      status: 'completed',
+    })
+  );
+  await expect(firstCancellation).rejects.toThrow(t('Operazione non riuscita. Riprova.'));
+  assert.equal((await startPromise).outcome, 'failed');
+
+  const cleanupRetry = controller.cancelAssessment();
+  await vi.waitFor(() => expect(operations).toEqual(['delete-started']));
+  const reopen = controller.openProject(draftProjectId);
+  await Promise.resolve();
+  assert.deepEqual(operations, ['delete-started']);
+
+  finishCleanupRetry();
+  const [, reopenResult] = await Promise.all([cleanupRetry, reopen]);
+
+  assert.equal(reopenResult.outcome, 'missing');
+  assert.deepEqual(operations, ['delete-started', 'delete-finished', 'load-project']);
+});
+
 test('a cancelled startHomeChat cannot clear a newer completed request', async () => {
   let resolveSourcePreparation: (
     value: Awaited<
@@ -3196,6 +3459,7 @@ test('a cancelled source preparation cannot clear a project opened afterward', a
 });
 
 test('cancelled draft cleanup cannot clear a project opened while deletion is pending', async () => {
+  const operationOrder: string[] = [];
   let resolveInterview: (snapshot: CourseInterviewSnapshot) => void = () => {};
   let markInterviewStarted: () => void = () => {};
   let markDeleteStarted: () => void = () => {};
@@ -3217,7 +3481,10 @@ test('cancelled draft cleanup cannot clear a project opened while deletion is pe
     learningPlan: buildPlan(),
     state: AppState.READING,
   });
-  const loadStoredProject = vi.fn(async () => openedProject);
+  const loadStoredProject = vi.fn(async () => {
+    operationOrder.push('load-project');
+    return openedProject;
+  });
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     loadedSnapshot: openedProject,
     openRouter: {
@@ -3230,8 +3497,10 @@ test('cancelled draft cleanup cannot clear a project opened while deletion is pe
     },
     projectLibrary: {
       deleteStoredProject: async () => {
+        operationOrder.push('delete-started');
         markDeleteStarted();
         await deleteCanFinish;
+        operationOrder.push('delete-finished');
       },
       loadStoredProject,
     },
@@ -3252,17 +3521,74 @@ test('cancelled draft cleanup cannot clear a project opened while deletion is pe
   await deleteStarted;
 
   const opening = controller.openProject(openedProject.id);
-  await Promise.resolve();
-  expect(loadStoredProject).not.toHaveBeenCalled();
   finishDelete();
   const openResult = await opening;
   const [cancelledResult] = await Promise.all([cancelledStart, cancellation]);
 
   assert.equal(openResult.outcome, 'opened');
+  assert.deepEqual(operationOrder.slice(0, 3), [
+    'delete-started',
+    'delete-finished',
+    'load-project',
+  ]);
   assert.equal(cancelledResult.outcome, 'abandoned');
   assert.equal(projectLibrary.adapter.currentProjectId, openedProject.id);
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.equal(domain.learningPlan?.title, openedProject.learningPlan?.title);
+});
+
+test('overlapping Home starts release every ownership waiting on the same project open', async () => {
+  let finishProjectOpen: () => void = () => {};
+  let markProjectOpenStarted: () => void = () => {};
+  let finishSourcePreparation: () => void = () => {};
+  const projectOpenStarted = new Promise<void>(resolve => {
+    markProjectOpenStarted = resolve;
+  });
+  const projectOpenCanFinish = new Promise<void>(resolve => {
+    finishProjectOpen = resolve;
+  });
+  const sourcePreparationCanFinish = new Promise<void>(resolve => {
+    finishSourcePreparation = resolve;
+  });
+  const openedProject = createProjectSnapshot({
+    id: 'project-opened-across-home-starts',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const { controller } = createControllerHarness({
+    loadedSnapshot: openedProject,
+    openRouter: {
+      buildAssessmentDocumentPrompt: async () => {
+        await sourcePreparationCanFinish;
+        return { content: 'Materiale sorgente', hasReliableSourceContext: true };
+      },
+    },
+    projectLibrary: {
+      loadStoredProject: async () => {
+        markProjectOpenStarted();
+        await projectOpenCanFinish;
+        return openedProject;
+      },
+    },
+  });
+
+  const opening = controller.openProject(openedProject.id);
+  await projectOpenStarted;
+  const firstStart = controller.startHomeChat({
+    input: 'Primo corso',
+    selectedFile: new File(['one'], 'one.md', { type: 'text/markdown' }),
+  });
+  const secondStart = controller.startHomeChat({
+    input: 'Secondo corso',
+    selectedFile: new File(['two'], 'two.md', { type: 'text/markdown' }),
+  });
+  await controller.cancelAssessment();
+  finishSourcePreparation();
+  finishProjectOpen();
+
+  assert.equal((await opening).outcome, 'opened');
+  assert.equal((await firstStart).outcome, 'abandoned');
+  assert.equal((await secondStart).outcome, 'abandoned');
 });
 
 test('cancelAssessment rolls back a backup import that finishes after Stop', async () => {
@@ -3317,6 +3643,61 @@ test('cancelAssessment rolls back a backup import that finishes after Stop', asy
   assert.deepEqual(projectLibrary.deletedProjectIds, [importedProjectId]);
   assert.deepEqual(state.internalState.assessmentMessages, []);
   assert.equal(projectLibrary.adapter.currentProjectId, null);
+});
+
+test('a canceled backup import cannot hydrate over a project opened after Stop', async () => {
+  const archivedSnapshot = createProjectSnapshot({
+    id: 'backup-project',
+    learningPlan: buildPlan({ title: 'Backup obsoleto' }),
+    source: createProjectSourceFromFile(pdfFile),
+    state: AppState.READING,
+  });
+  const openedProject = createProjectSnapshot({
+    id: 'newer-opened-project',
+    learningPlan: buildPlan({ title: 'Progetto più recente' }),
+    state: AppState.READING,
+  });
+  const archive = await createProjectArchiveBlob(archivedSnapshot);
+  const archiveFile = new File([await archive.arrayBuffer()], 'nous-backup.nous.zip', {
+    type: 'application/zip',
+  });
+  let importedProjectId = '';
+  let finishImport: () => void = () => {};
+  let markImportStarted: () => void = () => {};
+  const importStarted = new Promise<void>(resolve => {
+    markImportStarted = resolve;
+  });
+  const importCanFinish = new Promise<void>(resolve => {
+    finishImport = resolve;
+  });
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    loadedSnapshot: openedProject,
+    projectLibrary: {
+      importProjectArchive: async (_archive, targetProjectId) => {
+        importedProjectId = targetProjectId;
+        markImportStarted();
+        await importCanFinish;
+        return {
+          meta: buildMeta(targetProjectId),
+          snapshot: { ...archivedSnapshot, id: targetProjectId },
+        };
+      },
+    },
+  });
+
+  const startPromise = controller.startHomeChat({
+    input: 'Importa questo corso',
+    selectedFile: archiveFile,
+  });
+  await importStarted;
+  await controller.cancelAssessment();
+  assert.equal((await controller.openProject(openedProject.id)).outcome, 'opened');
+  finishImport();
+
+  assert.equal((await startPromise).outcome, 'abandoned');
+  assert.deepEqual(projectLibrary.deletedProjectIds, [importedProjectId]);
+  assert.equal(projectLibrary.adapter.currentProjectId, openedProject.id);
+  assert.equal(domain.learningPlan?.title, 'Progetto più recente');
 });
 
 test('cancelAssessment suppresses and cancels a late startHomeChat interview snapshot', async () => {

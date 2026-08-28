@@ -428,6 +428,7 @@ describe('useLibraryAssistantChat', () => {
   });
 
   test('exposes a semantic new-course handoff requested by the library model', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
     const { result } = renderHook(() =>
       useLibraryAssistantChat({
         folders: [folder],
@@ -437,6 +438,7 @@ describe('useLibraryAssistantChat', () => {
       })
     );
     const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    const sendAutomaticallyWhen = useChatMock.mock.calls[0]?.[0]?.sendAutomaticallyWhen;
 
     await act(async () => {
       await onToolCall({
@@ -450,6 +452,8 @@ describe('useLibraryAssistantChat', () => {
     });
 
     expect(result.current.courseAssessmentRequest).toEqual({ topic: 'pixel art' });
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(sendAutomaticallyWhen({ messages: [] })).toBe(false);
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'startCourseAssessment',
       toolCallId: 'course-assessment-1',
@@ -464,6 +468,69 @@ describe('useLibraryAssistantChat', () => {
     });
 
     expect(result.current.courseAssessmentRequest).toBeNull();
+  });
+
+  test('terminalizes a parallel client tool when the library hands off to a new course', async () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    let resolveProjects: (projects: never[]) => void = () => {};
+    const projectsRequest = new Promise<never[]>(resolve => {
+      resolveProjects = resolve;
+    });
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(() => projectsRequest),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+    let deferredToolCall: Promise<void> | undefined;
+
+    act(() => {
+      deferredToolCall = onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea uno schema.',
+          },
+          toolCallId: 'parallel-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: { topic: 'pixel art' },
+          toolCallId: 'course-assessment-1',
+          toolName: 'startCourseAssessment',
+        },
+      });
+    });
+
+    expect(result.current.courseAssessmentRequest).toEqual({ topic: 'pixel art' });
+    expect(stopMock).toHaveBeenCalledOnce();
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'generateLearningArtifact',
+      toolCallId: 'parallel-artifact',
+      state: 'output-error',
+      errorText: expect.stringMatching(/^(Cancelled|Annullato)$/),
+    });
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'startCourseAssessment',
+      toolCallId: 'course-assessment-1',
+      output: { handoffRequested: true, topic: 'pixel art' },
+    });
+
+    await act(async () => {
+      resolveProjects([]);
+      await deferredToolCall;
+    });
+    expect(addToolOutputMock).toHaveBeenCalledTimes(2);
   });
 
   test('reuses the source artifact identity across explicit regeneration attempts', async () => {

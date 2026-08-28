@@ -1375,7 +1375,8 @@ function ContextAnswerPanelSession({
   const isLoading = status === 'submitted' || status === 'streaming';
   const isStoppingResponse = isLoading && hasRequestedResponseStop;
   const isWaitingForNoteDecision = hasPendingAddToNotesRequest(messages);
-  const isComposerDisabled = status === 'submitted' || isWaitingForNoteDecision;
+  const isComposerDisabled =
+    status === 'submitted' || isStoppingResponse || isWaitingForNoteDecision;
   const hasActiveToolPreference =
     toolPreferences.annotate || toolPreferences.generateArtifacts || toolPreferences.webSearch;
 

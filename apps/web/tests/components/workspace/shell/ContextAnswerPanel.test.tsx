@@ -395,6 +395,9 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
     expect(stopButton).toBeDisabled();
     expect(stopButton).toHaveAttribute('aria-busy', 'true');
+    expect(chatTextComposerProps.at(-1)?.disabled).toBe(true);
+    await user.click(screen.getByTestId('chat-text-composer'));
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
   test('moves focus from the submitted send button to Stop', async () => {

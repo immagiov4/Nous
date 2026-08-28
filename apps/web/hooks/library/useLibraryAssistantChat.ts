@@ -224,6 +224,31 @@ const getLibraryToolPartName = (part: LibraryAssistantToolPart): string =>
     ? part.toolName
     : part.type.slice('tool-'.length);
 
+const terminalizePendingLibraryToolCalls = ({
+  completedToolCallId,
+  messages = [],
+  requestStateKey,
+  writeCancelledOutput,
+}: {
+  completedToolCallId?: string;
+  messages?: LibraryAssistantMessage[];
+  requestStateKey: symbol;
+  writeCancelledOutput: (toolCallId: string, tool: string) => void;
+}): void => {
+  const activeToolCalls = libraryAssistantActiveToolCallStore.get(requestStateKey);
+  const pendingToolCalls = new Map(activeToolCalls);
+  const activeResponseMessage = [...messages]
+    .reverse()
+    .find(message => message.role === 'assistant');
+  for (const part of activeResponseMessage?.parts.filter(isPendingLibraryToolPart) ?? []) {
+    pendingToolCalls.set(part.toolCallId, getLibraryToolPartName(part));
+  }
+  activeToolCalls?.clear();
+  for (const [toolCallId, tool] of pendingToolCalls) {
+    if (toolCallId !== completedToolCallId) writeCancelledOutput(toolCallId, tool);
+  }
+};
+
 export const useLibraryAssistantChat = ({
   folders,
   loadProjectsById,
@@ -490,11 +515,26 @@ export const useLibraryAssistantChat = ({
             return;
           }
 
+          const responseState = libraryAssistantResponseStateStore.get(requestStateKey);
+          if (responseState) responseState.canContinue = false;
           setCourseAssessmentRequest(input);
           void addToolOutput({
             tool: 'startCourseAssessment',
             toolCallId: toolCall.toolCallId,
             output: { handoffRequested: true, topic: input.topic },
+          });
+          stop();
+          terminalizePendingLibraryToolCalls({
+            completedToolCallId: toolCall.toolCallId,
+            requestStateKey,
+            writeCancelledOutput: (toolCallId, tool) => {
+              void addToolOutput({
+                tool,
+                toolCallId,
+                state: 'output-error',
+                errorText: t('Annullato'),
+              });
+            },
           });
           return;
         }
@@ -577,23 +617,18 @@ export const useLibraryAssistantChat = ({
     const responseState = libraryAssistantResponseStateStore.get(requestStateKey);
     if (responseState) responseState.canContinue = false;
     stop();
-    const activeToolCalls = libraryAssistantActiveToolCallStore.get(requestStateKey);
-    const pendingToolCalls = new Map(activeToolCalls);
-    const activeResponseMessage = [...messages]
-      .reverse()
-      .find(message => message.role === 'assistant');
-    for (const part of activeResponseMessage?.parts.filter(isPendingLibraryToolPart) ?? []) {
-      pendingToolCalls.set(part.toolCallId, getLibraryToolPartName(part));
-    }
-    activeToolCalls?.clear();
-    for (const [toolCallId, tool] of pendingToolCalls) {
-      void addToolOutput({
-        tool,
-        toolCallId,
-        state: 'output-error',
-        errorText: t('Annullato'),
-      });
-    }
+    terminalizePendingLibraryToolCalls({
+      messages,
+      requestStateKey,
+      writeCancelledOutput: (toolCallId, tool) => {
+        void addToolOutput({
+          tool,
+          toolCallId,
+          state: 'output-error',
+          errorText: t('Annullato'),
+        });
+      },
+    });
     return undefined;
   }, [addToolOutput, messages, requestStateKey, stop]);
   const libraryMessageSender = useMemo(

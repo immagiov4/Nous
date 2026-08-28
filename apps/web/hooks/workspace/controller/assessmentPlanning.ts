@@ -90,11 +90,16 @@ interface PendingWorkspaceOpen {
 }
 
 interface AssessmentWorkspaceOwnership {
-  adoptedOpenProjectRequestId: number | null;
+  readonly adoptedProjectIds: Set<string>;
   draftCleanupPromise: Promise<void> | null;
   draftProjectId: string | null;
   readonly pendingOpenProjects: Map<number, PendingWorkspaceOpen>;
   readonly requestToken: symbol;
+}
+
+interface PendingCancelledDraftCleanup {
+  readonly ownership: AssessmentWorkspaceOwnership;
+  readonly projectId: string;
 }
 
 class LateCourseInterviewCancellationError extends Error {}
@@ -131,8 +136,12 @@ export const createAssessmentPlanningCommands = (
   let activeHomeChatStartPromise: Promise<HomeChatStartResult> | null = null;
   let activeHomeChatWorkspaceOwnership: AssessmentWorkspaceOwnership | null = null;
   const openProjectAttempts = new Map<number, PendingWorkspaceOpen>();
-  const workspaceOwnershipByOpenProjectRequestId = new Map<number, AssessmentWorkspaceOwnership>();
+  const workspaceOwnershipByOpenProjectRequestId = new Map<
+    number,
+    Set<AssessmentWorkspaceOwnership>
+  >();
   const assessmentRunCancellationPromises = new Map<string, Promise<void>>();
+  let pendingCancelledDraftCleanup: PendingCancelledDraftCleanup | null = null;
   let pendingAssessmentInterviewRun: PendingAssessmentInterviewRun | null = null;
   let latestHomeChatRequestToken: symbol | null = null;
 
@@ -140,7 +149,7 @@ export const createAssessmentPlanningCommands = (
     requestToken: symbol
   ): AssessmentWorkspaceOwnership => {
     const ownership: AssessmentWorkspaceOwnership = {
-      adoptedOpenProjectRequestId: null,
+      adoptedProjectIds: new Set(),
       draftCleanupPromise: null,
       draftProjectId: null,
       pendingOpenProjects: new Map(),
@@ -150,7 +159,10 @@ export const createAssessmentPlanningCommands = (
     const pendingOpenProject = openProjectAttempts.get(openProjectRequestId);
     if (pendingOpenProject) {
       ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
-      workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, ownership);
+      const owners =
+        workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
+      owners.add(ownership);
+      workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
     }
     return ownership;
   };
@@ -445,13 +457,17 @@ export const createAssessmentPlanningCommands = (
     const homeChatWorkspaceOwnership = activeHomeChatWorkspaceOwnership;
     const isCancellingActiveHomeChat = Boolean(
       homeChatWorkspaceOwnership &&
-        latestHomeChatRequestToken === homeChatWorkspaceOwnership.requestToken
+        (latestHomeChatRequestToken === homeChatWorkspaceOwnership.requestToken ||
+          pendingCancelledDraftCleanup?.ownership === homeChatWorkspaceOwnership)
     );
-    const hasHomeChatWorkspaceBeenAdopted = () =>
-      Boolean(
-        homeChatWorkspaceOwnership?.adoptedOpenProjectRequestId != null &&
-          isCancellingActiveHomeChat
+    const hasHomeChatWorkspaceBeenAdopted = () => {
+      const currentProjectId = projectLibrary.getCurrentProjectId();
+      return Boolean(
+        isCancellingActiveHomeChat &&
+          currentProjectId &&
+          homeChatWorkspaceOwnership?.adoptedProjectIds.has(currentProjectId)
       );
+    };
     const waitForPendingWorkspaceOpen = async () => {
       while (homeChatWorkspaceOwnership?.pendingOpenProjects.size) {
         await Promise.all(
@@ -464,6 +480,34 @@ export const createAssessmentPlanningCommands = (
     latestHomeChatRequestToken = null;
     const cancellationRequestId = state.beginWorkflow('assessment', t('Caricamento...'));
     try {
+      const cancelledDraftCleanup = pendingCancelledDraftCleanup;
+      if (cancelledDraftCleanup) {
+        while (cancelledDraftCleanup.ownership.pendingOpenProjects.size) {
+          await Promise.all(
+            [...cancelledDraftCleanup.ownership.pendingOpenProjects.values()].map(
+              pendingOpenProject => pendingOpenProject.outcome
+            )
+          );
+        }
+        if (
+          !cancelledDraftCleanup.ownership.adoptedProjectIds.has(cancelledDraftCleanup.projectId)
+        ) {
+          const cleanupPromise = projectLibrary
+            .deleteStoredProject(cancelledDraftCleanup.projectId)
+            .then(() => projectLibrary.refreshLibraryState());
+          cancelledDraftCleanup.ownership.draftCleanupPromise = cleanupPromise;
+          try {
+            await cleanupPromise;
+          } finally {
+            if (cancelledDraftCleanup.ownership.draftCleanupPromise === cleanupPromise) {
+              cancelledDraftCleanup.ownership.draftCleanupPromise = null;
+            }
+          }
+        }
+        if (pendingCancelledDraftCleanup === cancelledDraftCleanup) {
+          pendingCancelledDraftCleanup = null;
+        }
+      }
       const currentProjectId = projectLibrary.getCurrentProjectId();
       const pendingRun = pendingAssessmentInterviewRun;
       pendingRun?.startRequestAbortController?.abort();
@@ -528,7 +572,10 @@ export const createAssessmentPlanningCommands = (
       }
       throw new Error(t('Operazione non riuscita. Riprova.'), { cause: error });
     } finally {
-      if (activeHomeChatWorkspaceOwnership === homeChatWorkspaceOwnership) {
+      if (
+        activeHomeChatWorkspaceOwnership === homeChatWorkspaceOwnership &&
+        pendingCancelledDraftCleanup?.ownership !== homeChatWorkspaceOwnership
+      ) {
         activeHomeChatWorkspaceOwnership = null;
       }
     }
@@ -571,14 +618,15 @@ export const createAssessmentPlanningCommands = (
     );
     const requestToken = Symbol('home-chat-request');
     latestHomeChatRequestToken = requestToken;
-    activeHomeChatWorkspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
+    const workspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
+    activeHomeChatWorkspaceOwnership = workspaceOwnership;
     let sourceWarnings: ProjectSourceWarning[] = [];
     let draftProjectId: string | null = null;
     const isRequestCurrent = () => state.isWorkflowCurrent('assessment', requestId);
     const abandonCancelledStart = async () => {
-      while (activeHomeChatWorkspaceOwnership?.pendingOpenProjects.size) {
+      while (workspaceOwnership.pendingOpenProjects.size) {
         await Promise.all(
-          [...activeHomeChatWorkspaceOwnership.pendingOpenProjects.values()].map(
+          [...workspaceOwnership.pendingOpenProjects.values()].map(
             pendingOpenProject => pendingOpenProject.outcome
           )
         );
@@ -587,27 +635,32 @@ export const createAssessmentPlanningCommands = (
       const hasBeenAdoptedByOpenProject =
         draftProjectId !== null &&
         currentProjectId === draftProjectId &&
-        activeHomeChatWorkspaceOwnership?.requestToken === requestToken &&
-        activeHomeChatWorkspaceOwnership.adoptedOpenProjectRequestId !== null;
+        workspaceOwnership.adoptedProjectIds.has(draftProjectId);
       if (draftProjectId && !hasBeenAdoptedByOpenProject) {
-        const ownership = activeHomeChatWorkspaceOwnership;
-        const cleanupPromise = (async () => {
-          try {
-            await projectLibrary.deleteStoredProject(draftProjectId);
-            await projectLibrary.refreshLibraryState();
-          } catch (cleanupError) {
-            pushNousDebugTrace('assessment:cancelled-draft-cleanup-failed', {
-              errorMessage: getErrorMessage(cleanupError),
-              projectId: draftProjectId,
-            });
+        const cleanupPromise = projectLibrary
+          .deleteStoredProject(draftProjectId)
+          .then(() => projectLibrary.refreshLibraryState());
+        workspaceOwnership.draftCleanupPromise = cleanupPromise;
+        try {
+          await cleanupPromise;
+        } catch (cleanupError) {
+          pendingCancelledDraftCleanup = {
+            ownership: workspaceOwnership,
+            projectId: draftProjectId,
+          };
+          pushNousDebugTrace('assessment:cancelled-draft-cleanup-failed', {
+            errorMessage: getErrorMessage(cleanupError),
+            projectId: draftProjectId,
+          });
+          return {
+            errorMessage: t('Operazione non riuscita. Riprova.'),
+            outcome: 'failed' as const,
+            sourceWarnings,
+          };
+        } finally {
+          if (workspaceOwnership.draftCleanupPromise === cleanupPromise) {
+            workspaceOwnership.draftCleanupPromise = null;
           }
-        })();
-        if (ownership?.requestToken === requestToken) {
-          ownership.draftCleanupPromise = cleanupPromise;
-        }
-        await cleanupPromise;
-        if (ownership?.draftCleanupPromise === cleanupPromise) {
-          ownership.draftCleanupPromise = null;
         }
       }
       const currentProjectIdAfterCleanup = projectLibrary.getCurrentProjectId();
@@ -651,12 +704,12 @@ export const createAssessmentPlanningCommands = (
 
           if (isBackupArchive) {
             state.setWorkflowMessage('assessment', requestId, t('Importazione backup...'));
-            const importedSnapshot = await importProjectBackupFile(context, selectedFile);
+            const importedSnapshot = await importProjectBackupFile(context, selectedFile, {
+              shouldHydrateWorkspace: isRequestCurrent,
+            });
             if (!isRequestCurrent()) {
               draftProjectId = importedSnapshot.id;
-              if (activeHomeChatWorkspaceOwnership?.requestToken === requestToken) {
-                activeHomeChatWorkspaceOwnership.draftProjectId = draftProjectId;
-              }
+              workspaceOwnership.draftProjectId = draftProjectId;
               return abandonCancelledStart();
             }
             state.succeedWorkflow('assessment', requestId);
@@ -705,9 +758,7 @@ export const createAssessmentPlanningCommands = (
         if (nextSource.kind === 'archive') {
           const projectId = createProjectId();
           draftProjectId = projectId;
-          if (activeHomeChatWorkspaceOwnership?.requestToken === requestToken) {
-            activeHomeChatWorkspaceOwnership.draftProjectId = draftProjectId;
-          }
+          workspaceOwnership.draftProjectId = draftProjectId;
           projectLibrary.setCurrentProjectId(projectId);
           const saved = await projectLibrary.persistSnapshot(
             createProjectSnapshot({
@@ -757,9 +808,7 @@ export const createAssessmentPlanningCommands = (
       if (!isRequestCurrent()) return abandonCancelledStart();
       const projectId = await ensureInterviewProject(mode, preparedSource);
       draftProjectId = projectId;
-      if (activeHomeChatWorkspaceOwnership?.requestToken === requestToken) {
-        activeHomeChatWorkspaceOwnership.draftProjectId = draftProjectId;
-      }
+      workspaceOwnership.draftProjectId = draftProjectId;
       if (!isRequestCurrent()) return abandonCancelledStart();
       let resolveRunId: (runId: string | null) => void = () => {};
       let hasResolvedRunId = false;
@@ -847,13 +896,17 @@ export const createAssessmentPlanningCommands = (
       () => {
         if (activeHomeChatStartPromise === startPromise) {
           activeHomeChatStartPromise = null;
-          activeHomeChatWorkspaceOwnership = null;
+          if (pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership) {
+            activeHomeChatWorkspaceOwnership = null;
+          }
         }
       },
       () => {
         if (activeHomeChatStartPromise === startPromise) {
           activeHomeChatStartPromise = null;
-          activeHomeChatWorkspaceOwnership = null;
+          if (pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership) {
+            activeHomeChatWorkspaceOwnership = null;
+          }
         }
       }
     );
@@ -874,11 +927,24 @@ export const createAssessmentPlanningCommands = (
       resolve: resolveOutcome,
     };
     openProjectAttempts.set(openProjectRequestId, pendingOpenProject);
-    const ownership = activeHomeChatWorkspaceOwnership;
-    if (!ownership) return;
-    ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
-    workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, ownership);
-    if (ownership.draftCleanupPromise) await ownership.draftCleanupPromise;
+    const owners = workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
+    const activeOwnership = activeHomeChatWorkspaceOwnership;
+    if (activeOwnership) {
+      activeOwnership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
+      owners.add(activeOwnership);
+    }
+    const pendingCleanup = pendingCancelledDraftCleanup;
+    if (pendingCleanup?.projectId === projectId) {
+      pendingCleanup.ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
+      owners.add(pendingCleanup.ownership);
+    }
+    if (owners.size === 0) return;
+    workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
+    await Promise.all(
+      [...owners]
+        .map(ownership => ownership.draftCleanupPromise)
+        .filter((cleanupPromise): cleanupPromise is Promise<void> => cleanupPromise !== null)
+    );
   }
 
   function settleHomeChatWorkspaceOpen(
@@ -888,10 +954,12 @@ export const createAssessmentPlanningCommands = (
   ): void {
     const pendingOpenProject = openProjectAttempts.get(openProjectRequestId);
     if (!pendingOpenProject || pendingOpenProject.projectId !== projectId) return;
-    const ownership = workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId);
-    if (ownership) {
-      if (opened) ownership.adoptedOpenProjectRequestId = openProjectRequestId;
-      ownership.pendingOpenProjects.delete(openProjectRequestId);
+    const owners = workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId);
+    if (owners) {
+      for (const ownership of owners) {
+        if (opened) ownership.adoptedProjectIds.add(projectId);
+        ownership.pendingOpenProjects.delete(openProjectRequestId);
+      }
       workspaceOwnershipByOpenProjectRequestId.delete(openProjectRequestId);
     }
     openProjectAttempts.delete(openProjectRequestId);
