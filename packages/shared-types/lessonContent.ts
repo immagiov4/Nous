@@ -4,14 +4,14 @@ interface LessonContentBlockLike {
 }
 
 export const LESSON_MARKDOWN_BLOCK_TYPE = 'markdown' as const;
-export const LESSON_CONTENT_BLOCK_TYPES = [
+const LESSON_CONTENT_BLOCK_TYPES = [
   LESSON_MARKDOWN_BLOCK_TYPE,
   'inline-quiz',
   'youtube-clips',
   'generated-visual',
 ] as const;
 
-export type LessonContentBlockType = (typeof LESSON_CONTENT_BLOCK_TYPES)[number];
+type LessonContentBlockType = (typeof LESSON_CONTENT_BLOCK_TYPES)[number];
 
 const lessonContentBlockTypes = new Set<string>(LESSON_CONTENT_BLOCK_TYPES);
 
