@@ -401,7 +401,7 @@ export const readExistingDossier = (project: ProjectSnapshot, sectionId: string)
 };
 
 export const readProjectLanguage = (project: ProjectSnapshot): string =>
-  project.userProfile?.language || 'Italiano';
+  project.userProfile?.language?.trim() || 'Italiano';
 
 const sourceKey = (source: ResearchSource): string => {
   if (source.sourceId?.trim()) return `source:${source.sourceId.trim()}`;

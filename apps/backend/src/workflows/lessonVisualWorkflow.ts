@@ -100,10 +100,6 @@ export type LessonVisualWorkflowInput = z.infer<typeof LessonVisualWorkflowInput
 export type LessonVisualWorkflowResult = z.infer<typeof LessonVisualWorkflowResultSchema>;
 export type LessonVisualRetryWorkflowResult = z.infer<typeof LessonVisualRetryWorkflowResultSchema>;
 
-export interface LessonVisualWorkflowOptions {
-  readonly preserveRasterConcept?: boolean;
-}
-
 export interface LessonVisualWorkflowServices {
   readonly assets: {
     stage(input: StageProjectAssetInput): Promise<ProjectAssetRef>;
@@ -275,7 +271,6 @@ export const createLessonVisualWorkflows = <
   Services extends LessonVisualWorkflowServices = LessonVisualWorkflowServices,
 >(
   executionDefaults: Config,
-  options: LessonVisualWorkflowOptions = {},
   configSchema: z.ZodType<Config> = LessonVisualWorkflowConfigSchema as z.ZodType<Config>
 ) => {
   const renderRaster = step<
@@ -290,10 +285,7 @@ export const createLessonVisualWorkflows = <
     outputSchema: LessonVisualWorkflowResultSchema,
     run: async ({ config, execution, idempotencyKey, input, providerEffect, services, signal }) => {
       const image = await runDurableImageProvider(providerEffect, () =>
-        services.generateRaster({
-          ...visualServiceInput(config, input, signal),
-          ...(options.preserveRasterConcept ? { preserveRasterConcept: true } : {}),
-        })
+        services.generateRaster(visualServiceInput(config, input, signal))
       );
       const asset = await stageAsset({
         bytes: new Uint8Array(Buffer.from(image.data, 'base64')),

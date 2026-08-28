@@ -170,7 +170,7 @@ export const createArtifactDraftWorkflow = (executionDefaults: ArtifactDraftWork
   const visualWorkflow = createLessonVisualWorkflows<
     ArtifactDraftWorkflowConfig,
     ArtifactDraftWorkflowServices
-  >(executionDefaults, { preserveRasterConcept: true }, ArtifactDraftWorkflowConfigSchema).render;
+  >(executionDefaults, ArtifactDraftWorkflowConfigSchema).render;
 
   const planArtifactDraft = step<
     typeof ArtifactDraftWorkflowInputSchema,

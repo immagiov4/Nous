@@ -79,7 +79,6 @@ interface LessonRasterImagePromptInput {
   factualRequirements: readonly string[];
   lessonMarkdown: string;
   pedagogicalGoal: string;
-  preserveRasterConcept?: boolean;
   sectionDescription: string;
   sectionTitle: string;
   visualDirection: string;
@@ -87,15 +86,12 @@ interface LessonRasterImagePromptInput {
 
 export const getLessonRasterImageSubject = (input: LessonRasterImagePromptInput): string => {
   const subject = input.concept.trim() || input.sectionDescription.trim() || input.sectionTitle;
-  if (input.preserveRasterConcept) return subject;
   const lines = subject.split('\n');
-  const lastLineIndex = lines.length - 1;
-  const hasTrailingRequestLine =
-    lastLineIndex > 0 &&
-    /^(?:request|richiesta):/u.test(lines[lastLineIndex]?.trimStart().toLowerCase() || '');
-  const subjectWithoutRequest = hasTrailingRequestLine
-    ? lines.slice(0, lastLineIndex).join('\n')
-    : subject;
+  const requestLineIndex = lines.findIndex(
+    (line, index) => index > 0 && line.trimStart().toLowerCase().startsWith('richiesta:')
+  );
+  const subjectWithoutRequest =
+    requestLineIndex < 0 ? subject : lines.slice(0, requestLineIndex).join('\n');
   return subjectWithoutRequest.trim() || input.sectionTitle;
 };
 

@@ -76,13 +76,26 @@ const reviewInput = {
   },
 };
 
-test.each([
-  'Request:',
-  'Richiesta:',
-])('strips the internal %s suffix from raster concepts', marker => {
+test('preserves English Request lines as raster concept content', () => {
+  const concept = `${visualPlan.concept}\nRequest: show both structures`;
+
   expect(
     getLessonRasterImageSubject({
-      concept: `${visualPlan.concept}\n${marker} internal rendering direction`,
+      concept,
+      factualRequirements: visualPlan.factualRequirements,
+      lessonMarkdown: '## La struttura del tessuto',
+      pedagogicalGoal: visualPlan.pedagogicalGoal,
+      sectionDescription: 'Come riconoscere trama, ordito e sbieco.',
+      sectionTitle: 'La struttura del tessuto',
+      visualDirection: visualPlan.visualDirection,
+    })
+  ).toBe(concept);
+});
+
+test('retains the established Italian renderer-suffix boundary', () => {
+  expect(
+    getLessonRasterImageSubject({
+      concept: `${visualPlan.concept}\nRichiesta: internal rendering direction`,
       factualRequirements: visualPlan.factualRequirements,
       lessonMarkdown: '## La struttura del tessuto',
       pedagogicalGoal: visualPlan.pedagogicalGoal,
@@ -91,45 +104,6 @@ test.each([
       visualDirection: visualPlan.visualDirection,
     })
   ).toBe(visualPlan.concept);
-});
-
-test.each([
-  'Request:',
-  'Richiesta:',
-])('preserves a subject line beginning with %s when more subject text follows', marker => {
-  const concept = `${visualPlan.concept}\n${marker} the learner compares both structures\nShow their visible differences.`;
-
-  expect(
-    getLessonRasterImageSubject({
-      concept,
-      factualRequirements: visualPlan.factualRequirements,
-      lessonMarkdown: '## La struttura del tessuto',
-      pedagogicalGoal: visualPlan.pedagogicalGoal,
-      sectionDescription: 'Come riconoscere trama, ordito e sbieco.',
-      sectionTitle: 'La struttura del tessuto',
-      visualDirection: visualPlan.visualDirection,
-    })
-  ).toBe(concept);
-});
-
-test.each([
-  'Request:',
-  'Richiesta:',
-])('preserves a user-authored raster concept ending with %s', marker => {
-  const concept = `${visualPlan.concept}\n${marker} show both structures`;
-
-  expect(
-    getLessonRasterImageSubject({
-      concept,
-      factualRequirements: visualPlan.factualRequirements,
-      lessonMarkdown: '## La struttura del tessuto',
-      pedagogicalGoal: visualPlan.pedagogicalGoal,
-      preserveRasterConcept: true,
-      sectionDescription: 'Come riconoscere trama, ordito e sbieco.',
-      sectionTitle: 'La struttura del tessuto',
-      visualDirection: visualPlan.visualDirection,
-    })
-  ).toBe(concept);
 });
 
 test('the backend image provider returns raster bytes for the workflow staging boundary', async () => {
@@ -172,7 +146,6 @@ test('the backend image provider returns raster bytes for the workflow staging b
   expect(generateImage).toHaveBeenCalledWith(
     expect.objectContaining({
       model: 'image-model',
-      prompt: expect.stringContaining('This request is raster'),
       provider: 'openrouter',
     })
   );

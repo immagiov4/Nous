@@ -6,8 +6,22 @@ import {
   mergeSources,
   parseResearchSource,
   readOriginalSourceNames,
+  readProjectLanguage,
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
+
+test('project language ignores whitespace-only profile values', () => {
+  expect(
+    readProjectLanguage({
+      id: 'project-language',
+      version: '1',
+      userProfile: { language: '   ' },
+      createdAt: '2026-08-28T00:00:00.000Z',
+      updatedAt: '2026-08-28T00:00:00.000Z',
+      lastOpenedAt: '2026-08-28T00:00:00.000Z',
+    })
+  ).toBe('Italiano');
+});
 
 test('PDF image extraction aborts after the approved 90 second soft timeout', async () => {
   vi.useFakeTimers();
