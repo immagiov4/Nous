@@ -101,9 +101,9 @@ const isValidGeneratedVisualBlock = (block: Record<string, unknown>): boolean =>
   const hasVisualId = block.visualId !== undefined;
   const hasRetryPlan = block.retryPlan !== undefined;
   return (
+    hasVisualId !== hasRetryPlan &&
     (!hasVisualId || isNonEmptyString(block.visualId)) &&
-    (!hasRetryPlan || isValidVisualRetryPlan(block.retryPlan, block.slotId)) &&
-    (hasVisualId || hasRetryPlan)
+    (!hasRetryPlan || isValidVisualRetryPlan(block.retryPlan, block.slotId))
   );
 };
 

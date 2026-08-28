@@ -241,6 +241,12 @@ test('wire decoding rejects malformed allowlisted lesson blocks before projectio
       slotId: 'slot-retry',
       type: 'generated-visual',
     },
+    {
+      retryPlan: validVisualRetryPlan,
+      slotId: 'slot-retry',
+      type: 'generated-visual',
+      visualId: 'visual-1',
+    },
   ];
 
   for (const block of malformedBlocks) {
@@ -316,6 +322,11 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
 test.each([
   { asset: projectAssetRef, kind: 'image' },
   { code: '<main>Visuale</main>', embeddedAssets: [], kind: 'html' },
+  {
+    code: `<img src="{{PROJECT_ASSET:${projectAssetRef.id}}}">`,
+    embeddedAssets: [projectAssetRef],
+    kind: 'html',
+  },
   { code: 'flowchart LR; A --> B', kind: 'mermaid' },
   { code: '<svg></svg>', kind: 'svg' },
 ])('wire decoding accepts a referenced durable $kind visual', render => {
@@ -335,7 +346,17 @@ test.each([
 test.each([
   { id: 'visual-1', slotId: 'slot-ready' },
   { id: 'visual-1', render: {}, slotId: 'slot-ready' },
-])('wire decoding rejects an incomplete referenced durable visual', generatedVisual => {
+  currentGeneratedVisual({
+    code: '<main>Placeholder mancante</main>',
+    embeddedAssets: [projectAssetRef],
+    kind: 'html',
+  }),
+  currentGeneratedVisual({
+    code: '{{PROJECT_ASSET:malformed}}',
+    embeddedAssets: [],
+    kind: 'html',
+  }),
+])('wire decoding rejects an invalid referenced durable visual', generatedVisual => {
   assert.throws(
     () =>
       decodeProjectSnapshotWire(

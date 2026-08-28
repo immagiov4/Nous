@@ -133,7 +133,7 @@ const isValidProjectVisual = (value: unknown): value is ProjectVisual => {
     return (
       isNonEmptyString(value.code) &&
       Array.isArray(value.embeddedAssets) &&
-      value.embeddedAssets.every(isValidProjectAssetRef)
+      validateProjectAssetHtmlReferences(value.code, value.embeddedAssets).valid
     );
   }
   return (value.kind === 'mermaid' || value.kind === 'svg') && isNonEmptyString(value.code);
