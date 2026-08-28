@@ -942,7 +942,7 @@ const CourseList = ({
   };
   const filterChipHeightClassName = 'h-[2.125rem]';
   const chipScrollButtonClassName =
-    "absolute top-1/2 z-10 isolate flex h-11 w-11 -translate-y-1/2 items-center justify-center transition-[opacity,transform] duration-200 before:pointer-events-none before:absolute before:left-1/2 before:top-1/2 before:h-48 before:w-48 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-[radial-gradient(circle,var(--bg-paper)_0%,transparent_100%)] before:opacity-[0.35] before:content-[''] motion-reduce:transition-none sm:h-9 sm:w-9";
+    "absolute top-1/2 z-10 isolate flex h-11 w-11 -translate-y-1/2 items-center justify-center transition-[opacity,transform] duration-200 before:pointer-events-none before:absolute before:left-1/2 before:top-1/2 before:h-48 before:w-48 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-[radial-gradient(circle_closest-side,var(--bg-paper)_0%,var(--bg-paper)_23%,transparent_100%)] before:opacity-[0.9] before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%)] before:content-[''] motion-reduce:transition-none sm:h-9 sm:w-9";
   const chipScrollArrowSurfaceClassName = `${filterChipHeightClassName} relative z-10 flex w-[2.125rem] items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 dark:border-white/10 dark:bg-stone-800 dark:text-stone-300`;
   const folderMenuGroup = groups.find(group => group.id === openFolderMenu?.id);
   const courseMenuProject = projects.find(project => project.id === openCourseMenu?.id);

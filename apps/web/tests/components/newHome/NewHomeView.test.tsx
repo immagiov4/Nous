@@ -440,9 +440,10 @@ describe('NewHomeView library interactions', () => {
         'before:w-48',
         'before:-translate-x-1/2',
         'before:-translate-y-1/2',
-        'before:opacity-[0.35]',
+        'before:opacity-[0.9]',
         'before:rounded-full',
-        'before:bg-[radial-gradient(circle,var(--bg-paper)_0%,transparent_100%)]'
+        'before:bg-[radial-gradient(circle_closest-side,var(--bg-paper)_0%,var(--bg-paper)_23%,transparent_100%)]',
+        'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%)]'
       );
       expect(nextFilters).toHaveClass(
         'absolute',
