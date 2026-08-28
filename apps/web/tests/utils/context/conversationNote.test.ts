@@ -85,8 +85,7 @@ test('anchors rendered link text after raw HTML reveals an unclosed fence', () =
 });
 
 test('anchors visible text after a lone-CR line boundary', () => {
-  assert.equal(
-    hasAnchorableConversationNoteCandidate('Prima\rDopo', { selectedText: 'Dopo' }),
+  expect(hasAnchorableConversationNoteCandidate('Prima\rDopo', { selectedText: 'Dopo' })).toBe(
     true
   );
 });

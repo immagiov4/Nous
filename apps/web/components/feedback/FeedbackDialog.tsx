@@ -242,9 +242,9 @@ function FeedbackDiagnostics({
 
 function FeedbackProductContextPreview({
   productContext,
-}: {
+}: Readonly<{
   productContext: NonNullable<FeedbackDiagnosticsSnapshot['productContext']>;
-}) {
+}>) {
   return (
     <div className="mt-3 border-t border-stone-200 pt-3 dark:border-zinc-700">
       <p className="font-semibold text-stone-700 dark:text-zinc-200">{t('Contesto prodotto')}</p>

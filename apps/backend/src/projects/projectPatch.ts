@@ -99,6 +99,25 @@ const patchLearningPlanSection = (
   throw new Error(LEARNING_PLAN_NOT_FOUND_ERROR);
 };
 
+const resolvePatchedLearningPlan = (
+  currentLearningPlan: ProjectSnapshot['learningPlan'],
+  learningPlanPatch: ProjectPatch['learningPlan']
+): ProjectSnapshot['learningPlan'] => {
+  if (learningPlanPatch === undefined) return currentLearningPlan;
+  if (learningPlanPatch === null) return null;
+  return canonicalizeLearningPlanContent(
+    learningPlanPatch as Record<string, unknown>
+  ) as ProjectSnapshot['learningPlan'];
+};
+
+const applyProjectTitlePatch = (snapshot: ProjectSnapshot, title: string | undefined): void => {
+  if (title === undefined) return;
+  snapshot.title = title;
+  if (snapshot.learningPlan) {
+    snapshot.learningPlan = { ...snapshot.learningPlan, title };
+  }
+};
+
 export const applyProjectPatch = (
   existing: ProjectSnapshot,
   patch: ProjectPatch,
@@ -109,20 +128,8 @@ export const applyProjectPatch = (
   if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
   if (patch.state !== undefined) snapshot.state = patch.state;
   if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
-  if (patch.learningPlan !== undefined) {
-    snapshot.learningPlan =
-      patch.learningPlan === null
-        ? null
-        : (canonicalizeLearningPlanContent(
-            patch.learningPlan as Record<string, unknown>
-          ) as ProjectSnapshot['learningPlan']);
-  }
-  if (patch.title !== undefined) {
-    snapshot.title = patch.title;
-    if (snapshot.learningPlan) {
-      snapshot.learningPlan = { ...snapshot.learningPlan, title: patch.title };
-    }
-  }
+  snapshot.learningPlan = resolvePatchedLearningPlan(snapshot.learningPlan, patch.learningPlan);
+  applyProjectTitlePatch(snapshot, patch.title);
   if (patch.userProfile !== undefined) {
     snapshot.userProfile = patch.userProfile as ProjectSnapshot['userProfile'];
   }

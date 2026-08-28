@@ -108,12 +108,12 @@ function SpeechErrorAlert({
   onDismiss,
   onRetry,
   presentation,
-}: {
+}: Readonly<{
   error: SpeechInputError;
   onDismiss: () => void;
   onRetry: () => void;
   presentation: 'inline' | 'viewport';
-}) {
+}>) {
   const isViewportAlert = presentation === 'viewport';
   return (
     <div

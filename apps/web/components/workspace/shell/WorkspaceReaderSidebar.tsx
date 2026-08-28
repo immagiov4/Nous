@@ -71,6 +71,42 @@ const getSectionStatusLabel = ({
   return t('Lezione non ancora generata');
 };
 
+const getSidebarSectionState = ({
+  activeSectionId,
+  generatingSectionId,
+  isActiveSectionLoading,
+  pendingSectionId,
+  section,
+}: Readonly<{
+  activeSectionId: string | null;
+  generatingSectionId: string | null;
+  isActiveSectionLoading: boolean;
+  pendingSectionId: string | null;
+  section: PathNode;
+}>) => {
+  const isActive = activeSectionId === section.id;
+  const hasGeneratedContent = section.kind === 'lesson' && Boolean(section.content?.trim());
+  const isGenerationInProgress = section.kind === 'lesson' && generatingSectionId === section.id;
+  const isFirstTimeGeneration = isGenerationInProgress && !hasGeneratedContent;
+  const isCachedLessonLoading = isGenerationInProgress && hasGeneratedContent;
+  const hasAnotherGeneratingSection =
+    generatingSectionId !== null && generatingSectionId !== section.id;
+  const isLessonLoading =
+    pendingSectionId === section.id ||
+    (!hasAnotherGeneratingSection &&
+      ((isActive && isActiveSectionLoading) || isCachedLessonLoading));
+  const isDisabled =
+    generatingSectionId !== null && !hasGeneratedContent && !isGenerationInProgress;
+
+  return {
+    hasGeneratedContent,
+    isActive,
+    isDisabled,
+    isFirstTimeGeneration,
+    isLessonLoading,
+  };
+};
+
 const getExerciseStatusLabel = (exercise: ApplicationExerciseNode, isActive: boolean) => {
   if (exercise.isCompleted) {
     return exercise.bestScore !== undefined
@@ -434,28 +470,23 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                   {isExpanded ? (
                     <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 pl-4 dark:border-zinc-700/80">
                       {group.sections.map((section: PathNode) => {
-                        const isActive = activeSectionId === section.id;
                         const depth = group.sectionDepthById[section.id] ?? 0;
-                        const hasGeneratedContent =
-                          section.kind === 'lesson' && Boolean(section.content?.trim());
-                        const isGenerationInProgress =
-                          section.kind === 'lesson' && generatingSectionId === section.id;
-                        const isFirstTimeGeneration =
-                          isGenerationInProgress && !hasGeneratedContent;
-                        const isCachedLessonLoading = isGenerationInProgress && hasGeneratedContent;
-                        const hasAnotherGeneratingSection =
-                          generatingSectionId !== null && generatingSectionId !== section.id;
-                        const isLessonLoading =
-                          pendingSectionId === section.id ||
-                          (!hasAnotherGeneratingSection &&
-                            ((isActive && isActiveSectionLoading) || isCachedLessonLoading));
+                        const {
+                          hasGeneratedContent,
+                          isActive,
+                          isDisabled,
+                          isFirstTimeGeneration,
+                          isLessonLoading,
+                        } = getSidebarSectionState({
+                          activeSectionId,
+                          generatingSectionId,
+                          isActiveSectionLoading,
+                          pendingSectionId,
+                          section,
+                        });
                         // Disabled only when a different section is being
                         // generated — otherwise all sections are clickable
                         // (to start generation or navigate).
-                        const isDisabled =
-                          generatingSectionId !== null &&
-                          !hasGeneratedContent &&
-                          !isGenerationInProgress;
                         const statusLabel =
                           section.kind === 'exercise'
                             ? getExerciseStatusLabel(section, isActive)

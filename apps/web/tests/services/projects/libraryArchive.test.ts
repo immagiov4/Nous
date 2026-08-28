@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   createLibraryArchiveBlob,
   LibraryArchiveError,
@@ -438,7 +438,7 @@ test('partial library imports preserve a rejected course size limit', () => {
     ],
   });
 
-  assert.equal(error.limitBytes, 256_000_000);
+  expect(error.limitBytes).toBe(256_000_000);
 });
 
 test('library backup import rejects cyclic folder hierarchies before importing projects', async () => {
@@ -490,8 +490,8 @@ test('library backup import isolates a missing nested course with its position',
 
   const imported = await readLibraryArchive(archive);
 
-  assert.deepEqual(imported.projectArchives, []);
-  assert.deepEqual(imported.rejectedProjects, [
+  expect(imported.projectArchives).toStrictEqual([]);
+  expect(imported.rejectedProjects).toStrictEqual([
     {
       code: 'LIBRARY_ARCHIVE_ENTRY_MISSING',
       id: 'missing',
@@ -518,16 +518,17 @@ test('library backup import isolates a corrupt nested course without reporting i
   const archiveBytes = Buffer.from(await archive.arrayBuffer());
   const zip = await JSZip.loadAsync(archiveBytes);
   const nestedEntry = zip.file('projects/001-course.nous.zip');
-  assert(nestedEntry);
+  expect(nestedEntry).toBeTruthy();
+  if (!nestedEntry) throw new Error('Nested project archive is missing.');
   const nestedBytes = Buffer.from(await nestedEntry.async('uint8array'));
   const nestedOffset = archiveBytes.indexOf(nestedBytes);
-  assert.notEqual(nestedOffset, -1);
+  expect(nestedOffset).not.toBe(-1);
   archiveBytes[nestedOffset] ^= 1;
 
   const imported = await readLibraryArchive(new Blob([archiveBytes]));
 
-  assert.deepEqual(imported.projectArchives, []);
-  assert.deepEqual(imported.rejectedProjects, [
+  expect(imported.projectArchives).toStrictEqual([]);
+  expect(imported.rejectedProjects).toStrictEqual([
     {
       code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
       id: 'course',
@@ -564,12 +565,9 @@ test('library backup import preserves a valid course when another nested archive
 
   const imported = await readLibraryArchive(archiveWithCorruptCourse);
 
-  assert.equal(imported.projectCount, 2);
-  assert.deepEqual(
-    imported.projectArchives.map(project => project.id),
-    ['course-1']
-  );
-  assert.deepEqual(imported.rejectedProjects, [
+  expect(imported.projectCount).toBe(2);
+  expect(imported.projectArchives.map(project => project.id)).toStrictEqual(['course-1']);
+  expect(imported.rejectedProjects).toStrictEqual([
     {
       code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
       id: 'course-2',

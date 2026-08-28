@@ -396,8 +396,8 @@ test('code ranges do not synthesize fences for bare code-like or malformed input
   const bareCode = 'cpp while (i < 5) { std::cout << i; }';
   const malformedFence = ['{ "userId": 42 }', '```', '', 'Testo visibile.'].join('\n');
 
-  assert.deepEqual(parseMarkdownAnalysis(bareCode).codeRanges, []);
-  assert.deepEqual(parseMarkdownAnalysis(malformedFence).codeRanges, []);
+  expect(parseMarkdownAnalysis(bareCode).codeRanges).toStrictEqual([]);
+  expect(parseMarkdownAnalysis(malformedFence).codeRanges).toStrictEqual([]);
 });
 
 test('fenced-code planning follows Markdown indentation for closing fences', () => {
@@ -410,26 +410,28 @@ test('fenced-code planning follows Markdown indentation for closing fences', () 
     ['>   ```ts', '> value', '> ```'].join('\n'),
   ];
 
-  assert.deepEqual(planMarkdownFencedCode(indentedPseudoCloser), {
+  expect(planMarkdownFencedCode(indentedPseudoCloser)).toStrictEqual({
     closedRanges: [],
     unclosedRanges: [{ start: 0, end: indentedPseudoCloser.length }],
   });
-  assert.deepEqual(parseMarkdownAnalysis(indentedPseudoCloser).codeRanges, []);
-  assert.deepEqual(parseMarkdownAnalysis(indentedPseudoCloser).rendererNormalizedIndentRanges, []);
-  assert.deepEqual(planMarkdownFencedCode(quotedPseudoCloser), {
+  expect(parseMarkdownAnalysis(indentedPseudoCloser).codeRanges).toStrictEqual([]);
+  expect(parseMarkdownAnalysis(indentedPseudoCloser).rendererNormalizedIndentRanges).toStrictEqual(
+    []
+  );
+  expect(planMarkdownFencedCode(quotedPseudoCloser)).toStrictEqual({
     closedRanges: [],
     unclosedRanges: [{ start: 0, end: quotedPseudoCloser.length }],
   });
-  assert.deepEqual(planMarkdownFencedCode(quotedClosedFence), {
+  expect(planMarkdownFencedCode(quotedClosedFence)).toStrictEqual({
     closedRanges: [{ start: 0, end: quotedClosedFence.length }],
     unclosedRanges: [],
   });
-  assert.deepEqual(planMarkdownFencedCode(loneCarriageReturnClosedFence), {
+  expect(planMarkdownFencedCode(loneCarriageReturnClosedFence)).toStrictEqual({
     closedRanges: [{ start: 0, end: loneCarriageReturnClosedFence.length }],
     unclosedRanges: [],
   });
   differentlyIndentedClosedFences.forEach(content => {
-    assert.deepEqual(planMarkdownFencedCode(content), {
+    expect(planMarkdownFencedCode(content)).toStrictEqual({
       closedRanges: [{ start: 0, end: content.length }],
       unclosedRanges: [],
     });
@@ -437,8 +439,8 @@ test('fenced-code planning follows Markdown indentation for closing fences', () 
 
   const unclosedListItems = ['- ```ts', '  first', '- ```js', '  second'].join('\n');
   const listPlan = planMarkdownFencedCode(unclosedListItems);
-  assert.equal(listPlan.unclosedRanges.length, 2);
-  assert.ok(listPlan.unclosedRanges[0].end <= listPlan.unclosedRanges[1].start);
+  expect(listPlan.unclosedRanges).toHaveLength(2);
+  expect(listPlan.unclosedRanges[0].end).toBeLessThanOrEqual(listPlan.unclosedRanges[1].start);
 });
 
 test('fenced-code planning keeps lone-CR sibling blocks and prose bounded', () => {
@@ -446,27 +448,22 @@ test('fenced-code planning keeps lone-CR sibling blocks and prose bounded', () =
   const secondBlock = ['```b', 'two', '```'].join('\r');
   const content = [firstBlock, 'visible prose', secondBlock].join('\r');
 
-  assert.deepEqual(
-    planMarkdownFencedCode(content).closedRanges.map(range =>
-      content.slice(range.start, range.end)
-    ),
-    [firstBlock, secondBlock]
-  );
-  assert.deepEqual(
-    parseMarkdownAnalysis(content).codeRanges.map(range => content.slice(range.start, range.end)),
-    [firstBlock, secondBlock]
-  );
+  expect(
+    planMarkdownFencedCode(content).closedRanges.map(range => content.slice(range.start, range.end))
+  ).toStrictEqual([firstBlock, secondBlock]);
+  expect(
+    parseMarkdownAnalysis(content).codeRanges.map(range => content.slice(range.start, range.end))
+  ).toStrictEqual([firstBlock, secondBlock]);
 });
 
 test('analysis projects accidental indentation after lone-CR boundaries', () => {
   const content = 'Before\r\r    plain text\r\rAfter';
   const analysis = parseMarkdownAnalysis(content);
 
-  assert.deepEqual(analysis.codeRanges, []);
-  assert.deepEqual(
-    analysis.rendererNormalizedIndentRanges.map(range => content.slice(range.start, range.end)),
-    ['    ']
-  );
+  expect(analysis.codeRanges).toStrictEqual([]);
+  expect(
+    analysis.rendererNormalizedIndentRanges.map(range => content.slice(range.start, range.end))
+  ).toStrictEqual(['    ']);
 });
 
 test('analysis exposes Markdown syntax after an unclosed fence opener', () => {
@@ -475,7 +472,7 @@ test('analysis exposes Markdown syntax after an unclosed fence opener', () => {
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(destinationSlices, ['(https://example.com)']);
+  expect(destinationSlices).toStrictEqual(['(https://example.com)']);
 });
 
 test('projects a batch of lone-CR malformed fence openers in one pass', () => {
@@ -486,12 +483,11 @@ test('projects a batch of lone-CR malformed fence openers in one pass', () => {
 
   const projection = projectUnclosedMarkdownFenceOpeners(content);
 
-  assert.equal(projection.escapedOpenerRanges.length, openerCount);
-  assert.deepEqual(planMarkdownFencedCode(projection.content).unclosedRanges, []);
-  assert.deepEqual(
-    projection.escapedOpenerRanges.map(range => content.slice(range.start, range.end)),
-    Array.from({ length: openerCount }, () => '```')
-  );
+  expect(projection.escapedOpenerRanges).toHaveLength(openerCount);
+  expect(planMarkdownFencedCode(projection.content).unclosedRanges).toStrictEqual([]);
+  expect(
+    projection.escapedOpenerRanges.map(range => content.slice(range.start, range.end))
+  ).toStrictEqual(Array.from({ length: openerCount }, () => '```'));
 });
 
 test('analysis exposes Markdown syntax after escaped raw HTML reveals an unclosed fence', () => {
@@ -500,15 +496,13 @@ test('analysis exposes Markdown syntax after escaped raw HTML reveals an unclose
   );
   const analysis = parseMarkdownAnalysis(content);
 
-  assert.deepEqual(
-    analysis.escapedFenceOpenerRanges.map(range => content.slice(range.start, range.end)),
-    ['```']
-  );
-  assert.deepEqual(
-    analysis.linkDestinationRanges.map(range => content.slice(range.start, range.end)),
-    ['(https://e.test)']
-  );
-  assert.deepEqual(analysis.codeRanges, []);
+  expect(
+    analysis.escapedFenceOpenerRanges.map(range => content.slice(range.start, range.end))
+  ).toStrictEqual(['```']);
+  expect(
+    analysis.linkDestinationRanges.map(range => content.slice(range.start, range.end))
+  ).toStrictEqual(['(https://e.test)']);
+  expect(analysis.codeRanges).toStrictEqual([]);
 });
 
 test('analysis preserves a valid fence exposed by nested malformed openers', () => {
@@ -517,7 +511,7 @@ test('analysis preserves a valid fence exposed by nested malformed openers', () 
     content.slice(range.start, range.end)
   );
 
-  assert.deepEqual(codeSlices, [['```', 'inner', '```'].join('\n')]);
+  expect(codeSlices).toStrictEqual([['```', 'inner', '```'].join('\n')]);
 });
 
 test('annotation ranges protect supported backslash math delimiters', () => {

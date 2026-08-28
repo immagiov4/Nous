@@ -6,7 +6,7 @@ import {
 } from './mathNormalization.ts';
 
 const processNormalizedMarkdownSegment = (segment: string): string => {
-  const lines = normalizeMathMarkdownSegment(segment).replaceAll(/\r/g, '').split('\n');
+  const lines = normalizeMathMarkdownSegment(segment).replaceAll('\r', '').split('\n');
   const output: string[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {

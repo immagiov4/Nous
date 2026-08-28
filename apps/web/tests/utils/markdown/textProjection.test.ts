@@ -157,9 +157,9 @@ test('buildVisibleProjection preserves lone-CR line boundaries and source indexe
   const content = 'Prima\rDopo';
   const projection = buildVisibleProjection(content);
 
-  assert.equal(projection.text, 'Prima\nDopo');
-  assert.equal(projection.sourceIndexes[5], content.indexOf('\r'));
-  assert.equal(projection.sourceIndexes[6], content.indexOf('Dopo'));
+  expect(projection.text).toBe('Prima\nDopo');
+  expect(projection.sourceIndexes[5]).toBe(content.indexOf('\r'));
+  expect(projection.sourceIndexes[6]).toBe(content.indexOf('Dopo'));
 });
 
 test('buildVisibleProjection decodes CommonMark character references outside code', () => {

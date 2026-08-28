@@ -99,7 +99,7 @@ test('applySectionAnnotation does not insert markup inside renderer-normalized b
     selectedText: 'velocity',
   });
 
-  expect(result).toBe(null);
+  expect(result).toBeNull();
 });
 
 test('materialized annotations skip hidden boundaries and preserve adjacent emphasis', () => {

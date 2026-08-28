@@ -387,14 +387,14 @@ const MARKDOWN_LINE_BREAK_PATTERN = /\r\n?|\n/u;
 
 const hasClosingFence = (source: string, parsedCode: string): boolean => {
   const lines = source.split(MARKDOWN_LINE_BREAK_PATTERN);
-  const openingMatch = lines[0]?.match(MARKDOWN_FENCE_OPENER_PATTERN);
+  const openingMatch = MARKDOWN_FENCE_OPENER_PATTERN.exec(lines[0] ?? '');
   if (!openingMatch || lines.length < 2) {
     return false;
   }
 
   const openingFence = openingMatch[1];
   const closingFence = new RegExp(
-    `^[\\t >]*${openingFence[0]}{${openingFence.length},}[\\t ]*$`,
+    String.raw`^[\t >]*${openingFence[0]}{${openingFence.length},}[\t ]*$`,
     'u'
   );
   const parsedCodeLineCount =
@@ -449,7 +449,7 @@ const getFenceOpeningRange = (content: string, range: MarkdownRange): MarkdownRa
     openingLineEnd === -1 ? range.end : openingLineEnd
   );
   const openingFenceStart = range.start + Math.max(openingLine.search(/[`~]/u), 0);
-  const openingFenceLength = content.slice(openingFenceStart).match(/^[`~]+/u)?.[0].length ?? 0;
+  const openingFenceLength = /^[`~]+/u.exec(content.slice(openingFenceStart))?.[0].length ?? 0;
   return { start: openingFenceStart, end: openingFenceStart + openingFenceLength };
 };
 
@@ -471,6 +471,28 @@ interface MarkdownLine {
   content: string;
   start: number;
 }
+
+const getProjectionFenceCandidate = (
+  line: MarkdownLine,
+  firstOpeningRange: MarkdownRange
+): ProjectionFenceCandidate | undefined => {
+  const match = CONTAINER_FENCE_LINE_PATTERN.exec(line.content);
+  if (!match) return undefined;
+
+  const [, containerPrefix, fence, info] = match;
+  const normalizedInfo = info.trim();
+  const start = line.start + containerPrefix.length;
+  const hasValidInfo = fence.startsWith('~') || !normalizedInfo.includes('`');
+  const hasValidIndentation = CONTAINER_FENCE_INDENTATION_PATTERN.test(containerPrefix);
+  if (start === firstOpeningRange.start || !hasValidInfo || !hasValidIndentation) return undefined;
+
+  return {
+    start,
+    end: start + fence.length,
+    fenceCharacter: fence[0],
+    isMarkerOnly: normalizedInfo.length === 0,
+  };
+};
 
 const getMarkdownLines = (content: string, sourceStart: number): MarkdownLine[] => {
   const lines: MarkdownLine[] = [];
@@ -498,22 +520,8 @@ const getProjectionOpeningRanges = (
     const rangeContent = content.slice(unclosedRange.start, unclosedRange.end);
     const candidates: ProjectionFenceCandidate[] = [];
     for (const line of getMarkdownLines(rangeContent, unclosedRange.start)) {
-      const match = line.content.match(CONTAINER_FENCE_LINE_PATTERN);
-      if (match) {
-        const [, containerPrefix, fence, info] = match;
-        const normalizedInfo = info.trim();
-        const start = line.start + containerPrefix.length;
-        const hasValidInfo = fence[0] === '~' || !normalizedInfo.includes('`');
-        const hasValidIndentation = CONTAINER_FENCE_INDENTATION_PATTERN.test(containerPrefix);
-        if (start !== firstOpeningRange.start && hasValidInfo && hasValidIndentation) {
-          candidates.push({
-            start,
-            end: start + fence.length,
-            fenceCharacter: fence[0],
-            isMarkerOnly: normalizedInfo.length === 0,
-          });
-        }
-      }
+      const candidate = getProjectionFenceCandidate(line, firstOpeningRange);
+      if (candidate) candidates.push(candidate);
     }
 
     const openingRanges = [firstOpeningRange];

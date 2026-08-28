@@ -20,20 +20,25 @@ interface SourceLine {
 const getSourceLines = (content: string): SourceLine[] => {
   const lines: SourceLine[] = [];
   let lineStart = 0;
+  let cursor = 0;
 
-  for (let cursor = 0; cursor < content.length; cursor += 1) {
+  while (cursor < content.length) {
     const character = content[cursor];
-    if (character !== '\r' && character !== '\n') continue;
+    if (character !== '\r' && character !== '\n') {
+      cursor += 1;
+      continue;
+    }
 
-    const lineBreakEnd =
-      character === '\r' && content[cursor + 1] === '\n' ? cursor + 2 : cursor + 1;
+    const lineEnd = cursor;
+    const hasCarriageReturnPair = character === '\r' && content[cursor + 1] === '\n';
+    const lineBreakEnd = cursor + (hasCarriageReturnPair ? 2 : 1);
     lines.push({
-      content: content.slice(lineStart, cursor),
-      lineBreak: content.slice(cursor, lineBreakEnd),
+      content: content.slice(lineStart, lineEnd),
+      lineBreak: content.slice(lineEnd, lineBreakEnd),
       start: lineStart,
     });
-    cursor = lineBreakEnd - 1;
     lineStart = lineBreakEnd;
+    cursor = lineBreakEnd;
   }
   lines.push({ content: content.slice(lineStart), lineBreak: '', start: lineStart });
 

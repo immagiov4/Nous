@@ -238,9 +238,9 @@ function FeedbackDiagnostics({ report }: { report: AdminFeedbackReport }) {
 
 function FeedbackProductContextDetails({
   productContext,
-}: {
+}: Readonly<{
   productContext: NonNullable<AdminFeedbackReport['diagnostics']['productContext']>;
-}) {
+}>) {
   return (
     <div>
       <dt className="text-xs text-stone-400 dark:text-zinc-500">{t('Contesto prodotto')}</dt>
