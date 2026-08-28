@@ -207,6 +207,27 @@ test('wire decoding rejects malformed allowlisted lesson blocks before projectio
   }
 });
 
+test('wire decoding rejects authoritative lesson block collections without Markdown text', () => {
+  const textlessCollections = [
+    [],
+    [{ markdown: '   ', type: 'markdown' }],
+    [{ clips: [], type: 'youtube-clips' }],
+    [
+      {
+        quiz: { correctIndex: 0, options: ['Prima'], question: 'Domanda' },
+        type: 'inline-quiz',
+      },
+    ],
+  ];
+
+  for (const contentBlocks of textlessCollections) {
+    assert.throws(
+      () => decodeProjectSnapshotWire(projectWithLessonBlocks(contentBlocks)),
+      /blocchi contenuto lezione senza testo Markdown/iu
+    );
+  }
+});
+
 test('wire decoding preserves every valid lesson block while deriving legacy Markdown', () => {
   const retryPlan = {
     complexity: 'moderate',

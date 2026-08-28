@@ -169,9 +169,13 @@ export const canonicalizeLessonNodeContent = <Node extends Record<string, unknow
 ): Node => {
   if (!Array.isArray(node.contentBlocks)) return node;
   const contentBlocks = canonicalizeLessonContentBlocks(node.contentBlocks);
+  const content = deriveLegacyLessonContent(contentBlocks);
+  if (!content) {
+    throw new ProjectSnapshotWireError('Blocchi contenuto lezione senza testo Markdown.');
+  }
   return {
     ...node,
-    content: deriveLegacyLessonContent(contentBlocks),
+    content,
     contentBlocks,
   } as Node;
 };
@@ -521,7 +525,7 @@ const validateLearningPlan = (value: Record<string, unknown>): void => {
   }
 };
 
-const canonicalizeLearningPlanContent = (
+export const canonicalizeLearningPlanContent = (
   learningPlan: Record<string, unknown>
 ): Record<string, unknown> => ({
   ...learningPlan,

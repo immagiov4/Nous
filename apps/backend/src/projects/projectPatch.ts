@@ -1,4 +1,7 @@
-import { canonicalizeLessonNodeContent } from '@shared/projectSnapshotWire';
+import {
+  canonicalizeLearningPlanContent,
+  canonicalizeLessonNodeContent,
+} from '@shared/projectSnapshotWire';
 
 import { isRecord } from '../utils/validation.js';
 import type {
@@ -107,7 +110,12 @@ export const applyProjectPatch = (
   if (patch.state !== undefined) snapshot.state = patch.state;
   if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
   if (patch.learningPlan !== undefined) {
-    snapshot.learningPlan = patch.learningPlan as ProjectSnapshot['learningPlan'];
+    snapshot.learningPlan =
+      patch.learningPlan === null
+        ? null
+        : (canonicalizeLearningPlanContent(
+            patch.learningPlan as Record<string, unknown>
+          ) as ProjectSnapshot['learningPlan']);
   }
   if (patch.title !== undefined) {
     snapshot.title = patch.title;

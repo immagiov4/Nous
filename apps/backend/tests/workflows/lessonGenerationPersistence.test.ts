@@ -453,6 +453,9 @@ describe('durable lesson generation persistence', () => {
 
   test('undo restores the prior lesson without clobbering other lesson assets and is idempotent', async () => {
     const snapshot = project();
+    const historicalLesson = snapshot.learningPlan?.modules?.[0]?.children?.[0];
+    if (!historicalLesson) throw new Error('Missing historical test lesson.');
+    historicalLesson.content = 'Copia storica divergente';
     const input = visualsState(snapshot);
     const execution = context(input).execution;
     const state = await createLessonPersistenceStage({
@@ -464,27 +467,16 @@ describe('durable lesson generation persistence', () => {
       buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
       NOW
     );
-    const historicalState = {
-      ...state,
-      previous: {
-        ...state.previous,
-        sectionJson: JSON.stringify({
-          ...JSON.parse(state.previous.sectionJson),
-          content: 'Copia storica divergente',
-        }),
-      },
-    };
-
     const undoPatch = buildLessonGenerationUndoPatch(
       { revision: 5, snapshot: committed },
       input,
-      historicalState,
+      state,
       execution
     );
     expect(undoPatch).not.toBeNull();
     const restored = applyProjectPatch(committed, undoPatch ?? {}, NOW);
     expect(restored.learningPlan?.modules?.[0]?.children?.[0]?.content).toBe('Lezione precedente');
-    expect(buildLessonGenerationTargetFingerprint(restored, 'lesson-1')).toBe(
+    expect(buildLessonGenerationTargetFingerprint(restored, 'lesson-1')).not.toBe(
       input.targetFingerprint
     );
     expect(restored.documentAssets).toMatchObject({

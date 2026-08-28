@@ -320,14 +320,18 @@ const isAlreadyUndone = (
   input: LessonVisualsState,
   state: LessonPersistenceState
 ): boolean => {
+  const sectionId = input.request.sectionId;
+  const previousSection = parseRecord(state.previous.sectionJson);
+  const restoredProject = applyProjectPatch(
+    project,
+    { section: restoredSectionPatch(sectionId, previousSection) },
+    project.updatedAt
+  );
   const previousDossier = parseOptionalJson(state.previous.researchDossierJson);
   return (
-    buildLessonGenerationTargetFingerprint(project, input.request.sectionId) ===
-      input.targetFingerprint &&
-    isDeepStrictEqual(
-      project.researchDossiersBySectionId?.[input.request.sectionId],
-      previousDossier
-    )
+    buildLessonGenerationTargetFingerprint(project, sectionId) ===
+      buildLessonGenerationTargetFingerprint(restoredProject, sectionId) &&
+    isDeepStrictEqual(project.researchDossiersBySectionId?.[sectionId], previousDossier)
   );
 };
 
