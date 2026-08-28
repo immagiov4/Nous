@@ -172,6 +172,14 @@ test('buildVisibleProjection decodes CommonMark character references outside cod
   assert.equal(projection.sourceEnds[firstAmpersand], content.indexOf('&amp;') + '&amp;'.length);
 });
 
+test('buildVisibleProjection keeps UTF-16 source maps aligned for decoded astral characters', () => {
+  const projection = buildVisibleProjection('Prima &#x1F600; dopo');
+
+  expect(projection.text).toBe('Prima 😀 dopo');
+  expect(projection.sourceIndexes).toHaveLength(projection.text.length);
+  expect(projection.sourceEnds).toHaveLength(projection.text.length);
+});
+
 test('buildVisibleProjection decodes references in raw html bodies but not escaped tag syntax', () => {
   expect(buildVisibleProjection('<mark>\nA &amp; B\n</mark>').text).toBe('\nA & B\n');
   assert.equal(
