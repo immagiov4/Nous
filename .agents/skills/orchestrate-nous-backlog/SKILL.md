@@ -67,6 +67,17 @@ For an authorized PR batch, make the post-PR ownership explicit: the agent must 
 PR through CI and review cycles until it is merged or reaches a concrete blocker that needs a user
 decision. Opening a PR, reporting an initially green CI run, or waiting for an optional reviewer is
 not a completion condition.
+
+### Persistent task goals
+
+Every delegated task that can outlive one immediate action must create a Codex goal before it begins
+implementation, review, or babysitting. The goal names the concrete outcome, such as a verified
+merge, a created evidence-backed issue, or a bounded investigation report. Keep that goal active
+across pauses, CI/review cycles, shared-gate queues, and handoffs. A task may report a dependency,
+but it does not complete merely because it is waiting: it keeps monitoring the dependency, pursues
+any independent safe work, and resumes at the next executable action. Complete the goal only after
+the stated outcome is verified; mark it blocked only for a repeated concrete blocker that genuinely
+requires user input or an external change.
 Use `$poteto-mode` when its style is suitable; do not force it when a narrower skill is the better
 fit.
 
