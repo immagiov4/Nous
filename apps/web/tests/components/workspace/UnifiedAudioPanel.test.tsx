@@ -173,7 +173,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  test('shows the playback speed as a direct dial without a secondary slider', () => {
+  test('shows playback speed as a direct horizontal control without a secondary slider', () => {
     render(
       <UnifiedAudioPanel
         initialTab="voce"
@@ -188,13 +188,14 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
-    expect(speedDial).toHaveAttribute('aria-valuemin', '0.8');
-    expect(speedDial).toHaveAttribute('aria-valuemax', '1.6');
-    expect(speedDial).toHaveAttribute('aria-valuenow', '1');
-    expect(speedDial).toHaveAttribute('aria-valuetext', '1x');
-    expect(speedDial).toHaveTextContent('1x');
-    expect(speedDial).toHaveClass('h-11', 'w-11');
+    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    expect(speedControl).toHaveAttribute('aria-valuemin', '0.8');
+    expect(speedControl).toHaveAttribute('aria-valuemax', '1.6');
+    expect(speedControl).toHaveAttribute('aria-valuenow', '1');
+    expect(speedControl).toHaveAttribute('aria-valuetext', '1x');
+    expect(speedControl).toHaveAttribute('aria-orientation', 'horizontal');
+    expect(speedControl).toHaveTextContent('1x');
+    expect(speedControl).toHaveClass('h-11', 'w-11', 'touch-pan-y', 'cursor-ew-resize');
     expect(document.querySelector('input[type="range"][min="0.8"]')).toBeNull();
   });
 
@@ -215,14 +216,14 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
-    expect(speedDial).toHaveAttribute('aria-disabled', 'true');
-    expect(speedDial).toHaveAttribute('tabindex', '-1');
+    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    expect(speedControl).toHaveAttribute('aria-disabled', 'true');
+    expect(speedControl).toHaveAttribute('tabindex', '-1');
 
-    speedDial.focus();
+    speedControl.focus();
     await user.keyboard('{ArrowRight}');
-    fireEvent.pointerDown(speedDial, { clientX: 10, pointerId: 7, pointerType: 'touch' });
-    fireEvent.pointerMove(speedDial, { clientX: 30, pointerId: 7, pointerType: 'touch' });
+    fireEvent.pointerDown(speedControl, { clientX: 10, pointerId: 7, pointerType: 'touch' });
+    fireEvent.pointerMove(speedControl, { clientX: 30, pointerId: 7, pointerType: 'touch' });
 
     expect(onSpeedChange).not.toHaveBeenCalled();
   });
@@ -251,7 +252,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onSpeedChange).toHaveBeenCalledWith(1.6);
   });
 
-  test('adjusts the direct playback-speed dial with keyboard controls and respects its bounds', async () => {
+  test('adjusts the direct playback-speed control with keyboard controls and respects its bounds', async () => {
     const user = userEvent.setup();
     const onSpeedChange = vi.fn();
     render(
@@ -268,8 +269,8 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
-    speedDial.focus();
+    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    speedControl.focus();
     await user.keyboard('{ArrowRight}{ArrowUp}{ArrowLeft}{End}{ArrowRight}{Home}{ArrowLeft}');
 
     expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.05, 1.1, 1.05, 1.6, 0.8]);
@@ -278,7 +279,7 @@ describe('UnifiedAudioPanel', () => {
   test.each([
     'mouse',
     'touch',
-  ] as const)('adjusts the playback-speed dial right and left with %s pointers', pointerType => {
+  ] as const)('adjusts the playback-speed control right and left with %s pointers', pointerType => {
     const onSpeedChange = vi.fn();
     render(
       <UnifiedAudioPanel
@@ -294,14 +295,14 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
-    Object.assign(speedDial, {
+    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    Object.assign(speedControl, {
       hasPointerCapture: () => true,
       releasePointerCapture: vi.fn(),
       setPointerCapture: vi.fn(),
     });
 
-    fireEvent.pointerDown(speedDial, {
+    fireEvent.pointerDown(speedControl, {
       clientX: 10,
       clientY: 20,
       button: 0,
@@ -309,7 +310,7 @@ describe('UnifiedAudioPanel', () => {
       pointerId: 7,
       pointerType,
     });
-    fireEvent.pointerMove(speedDial, {
+    fireEvent.pointerMove(speedControl, {
       clientX: 12,
       clientY: 20,
       pointerId: 7,
@@ -317,19 +318,19 @@ describe('UnifiedAudioPanel', () => {
     });
     expect(onSpeedChange).not.toHaveBeenCalled();
 
-    fireEvent.pointerMove(speedDial, {
+    fireEvent.pointerMove(speedControl, {
       clientX: 30,
       clientY: 20,
       pointerId: 7,
       pointerType,
     });
-    fireEvent.pointerMove(speedDial, {
+    fireEvent.pointerMove(speedControl, {
       clientX: 10,
       clientY: 20,
       pointerId: 7,
       pointerType,
     });
-    fireEvent.pointerUp(speedDial, { pointerId: 7, pointerType });
+    fireEvent.pointerUp(speedControl, { pointerId: 7, pointerType });
 
     expect(onSpeedChange.mock.calls.map(([speed]) => speed)).toEqual([1.1, 1]);
   });
@@ -350,27 +351,27 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
-    fireEvent.pointerDown(speedDial, {
+    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    fireEvent.pointerDown(speedControl, {
       button: 2,
       clientX: 10,
       isPrimary: true,
       pointerId: 7,
       pointerType: 'mouse',
     });
-    fireEvent.pointerMove(speedDial, {
+    fireEvent.pointerMove(speedControl, {
       clientX: 30,
       pointerId: 7,
       pointerType: 'mouse',
     });
-    fireEvent.pointerDown(speedDial, {
+    fireEvent.pointerDown(speedControl, {
       button: 0,
       clientX: 10,
       isPrimary: false,
       pointerId: 8,
       pointerType: 'touch',
     });
-    fireEvent.pointerMove(speedDial, {
+    fireEvent.pointerMove(speedControl, {
       clientX: 30,
       pointerId: 8,
       pointerType: 'touch',
@@ -395,17 +396,17 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
-    Object.assign(speedDial, { setPointerCapture: vi.fn() });
-    fireEvent.pointerDown(speedDial, {
+    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    Object.assign(speedControl, { setPointerCapture: vi.fn() });
+    fireEvent.pointerDown(speedControl, {
       button: 0,
       clientX: 10,
       isPrimary: true,
       pointerId: 7,
       pointerType: 'touch',
     });
-    fireEvent.lostPointerCapture(speedDial, { pointerId: 8, pointerType: 'touch' });
-    fireEvent.pointerMove(speedDial, {
+    fireEvent.lostPointerCapture(speedControl, { pointerId: 8, pointerType: 'touch' });
+    fireEvent.pointerMove(speedControl, {
       clientX: 30,
       pointerId: 7,
       pointerType: 'touch',

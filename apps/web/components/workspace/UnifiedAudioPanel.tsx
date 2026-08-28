@@ -86,9 +86,7 @@ const YOUTUBE_PLAYER_STATE = {
 const PLAYBACK_RATE_MIN = 0.8;
 const PLAYBACK_RATE_MAX = 1.6;
 const PLAYBACK_RATE_STEP = 0.05;
-const PLAYBACK_RATE_DIAL_START_DEGREES = -135;
-const PLAYBACK_RATE_DIAL_RANGE_DEGREES = 270;
-// Preserve the established speed track's full-range travel so the compact dial is not more sensitive.
+// Preserve the established speed track's full-range travel so the compact control is not more sensitive.
 const PLAYBACK_RATE_DRAG_TRAVEL_PIXELS = 144;
 type AudioTab = 'voce' | 'ambiente';
 
@@ -175,13 +173,10 @@ const normalizePlaybackRate = (value: number): number => {
 const clampPlaybackRate = (value: number): number =>
   Math.min(PLAYBACK_RATE_MAX, Math.max(PLAYBACK_RATE_MIN, normalizePlaybackRate(value)));
 
-const getPlaybackRateDialAngle = (playbackRate: number): number => {
-  const progress =
-    (clampPlaybackRate(playbackRate) - PLAYBACK_RATE_MIN) / (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN);
-  return PLAYBACK_RATE_DIAL_START_DEGREES + progress * PLAYBACK_RATE_DIAL_RANGE_DEGREES;
-};
+const getPlaybackRateProgress = (playbackRate: number): number =>
+  (clampPlaybackRate(playbackRate) - PLAYBACK_RATE_MIN) / (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN);
 
-interface PlaybackSpeedDialProps {
+interface PlaybackSpeedControlProps {
   readonly isDisabled: boolean;
   readonly onSpeedChange: (speed: number) => void;
   readonly playbackRate: number;
@@ -193,12 +188,16 @@ interface PlaybackSpeedDragState {
   rawPlaybackRate: number;
 }
 
-const PlaybackSpeedDial = ({ isDisabled, onSpeedChange, playbackRate }: PlaybackSpeedDialProps) => {
+const PlaybackSpeedControl = ({
+  isDisabled,
+  onSpeedChange,
+  playbackRate,
+}: PlaybackSpeedControlProps) => {
   const dragStateRef = useRef<PlaybackSpeedDragState | null>(null);
   const currentPlaybackRateRef = useRef(clampPlaybackRate(playbackRate));
   const displayedPlaybackRate = clampPlaybackRate(playbackRate);
   const playbackRateLabel = `${formatPlaybackRateLabel(displayedPlaybackRate)}x`;
-  const dialAngle = getPlaybackRateDialAngle(displayedPlaybackRate);
+  const playbackRateProgress = getPlaybackRateProgress(displayedPlaybackRate);
 
   useEffect(() => {
     if (!dragStateRef.current) {
@@ -299,9 +298,10 @@ const PlaybackSpeedDial = ({ isDisabled, onSpeedChange, playbackRate }: Playback
       aria-valuemax={PLAYBACK_RATE_MAX}
       aria-valuenow={displayedPlaybackRate}
       aria-valuetext={playbackRateLabel}
+      aria-orientation="horizontal"
       title={`${t('Velocita')}: ${playbackRateLabel}`}
-      className={`relative mx-1 flex h-11 w-11 touch-none select-none items-center justify-center rounded-full border border-gray-300 bg-gray-50 text-gray-700 shadow-inner outline-none transition-colors hover:border-gray-400 focus-visible:ring-2 focus-visible:ring-gray-300 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus-visible:ring-zinc-500 ${
-        isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-grab active:cursor-grabbing'
+      className={`group relative mx-1 flex h-11 w-11 touch-pan-y select-none items-center justify-center rounded-lg text-gray-700 outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:text-zinc-200 dark:focus-visible:ring-zinc-500 ${
+        isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'
       }`}
       onKeyDown={isDisabled ? undefined : handleKeyDown}
       onPointerDown={isDisabled ? undefined : handlePointerDown}
@@ -314,15 +314,19 @@ const PlaybackSpeedDial = ({ isDisabled, onSpeedChange, playbackRate }: Playback
         }
       }}
     >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-1 rounded-full"
-        style={{ transform: `rotate(${dialAngle}deg)` }}
-      >
-        <span className="absolute left-1/2 top-0 h-1.5 w-0.5 -translate-x-1/2 rounded-full bg-gray-700 dark:bg-zinc-200" />
-      </span>
-      <span className="pointer-events-none relative text-[10px] font-semibold tabular-nums">
-        {playbackRateLabel}
+      <span className="pointer-events-none flex h-8 w-10 flex-col items-center justify-center gap-1 rounded-lg border border-gray-300 bg-gray-50 shadow-inner transition-colors group-hover:border-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:group-hover:border-zinc-500">
+        <span className="text-[10px] font-semibold leading-none tabular-nums">
+          {playbackRateLabel}
+        </span>
+        <span
+          aria-hidden="true"
+          className="relative h-0.5 w-7 rounded-full bg-gray-300 dark:bg-zinc-600"
+        >
+          <span
+            className="absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gray-700 dark:bg-zinc-200"
+            style={{ left: `${playbackRateProgress * 100}%` }}
+          />
+        </span>
       </span>
     </div>
   );
@@ -813,7 +817,7 @@ const UnifiedAudioPanel = ({
 
                       <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600" />
 
-                      <PlaybackSpeedDial
+                      <PlaybackSpeedControl
                         isDisabled={ttsDisabled}
                         onSpeedChange={tts.onSpeedChange}
                         playbackRate={tts.playbackRate}
