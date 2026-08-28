@@ -78,6 +78,19 @@ but it does not complete merely because it is waiting: it keeps monitoring the d
 any independent safe work, and resumes at the next executable action. Complete the goal only after
 the stated outcome is verified; mark it blocked only for a repeated concrete blocker that genuinely
 requires user input or an external change.
+
+### Active waiting is work
+
+Treat a live dependency as an active loop, not a reason to end a delegated turn. While CI, review,
+an external job, a shared-gate queue, or another owned task can change without user input, keep the
+goal active and poll the verified handle with the native waiting mechanism at a proportionate cadence
+(normally about two minutes). Process the result, take the next safe action, then wait again. A task
+does not self-pause merely because the last poll was unchanged.
+
+Use `blocked` only when the same concrete user-decision or external-state blocker has recurred under
+the platform's blocked audit and there is no executable safe work left. In that state, name the exact
+decision or state change that resumes the task; the orchestrator must revive it immediately when that
+condition arrives. A goal is a durable outcome contract, never a timer or a substitute for monitoring.
 Use `$poteto-mode` when its style is suitable; do not force it when a narrower skill is the better
 fit.
 
