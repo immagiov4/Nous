@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useId,
@@ -89,7 +90,9 @@ const PLAYBACK_RATE_STEP_COUNT = Math.round(
   (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
 );
 const PLAYBACK_RATE_MARKER_COUNT = 5;
-const PLAYBACK_RATE_THUMB_SIZE_PX = 32;
+const PLAYBACK_RATE_THUMB_SIZE_PX = 40;
+const PLAYBACK_RATE_THUMB_ALIGNMENT_RATIO = 0.375;
+const PLAYBACK_RATE_THUMB_ALIGNMENT_RANGE_PERCENT = 25;
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -196,7 +199,16 @@ const PlaybackSpeedControl = ({
     (displayedPlaybackRate - PLAYBACK_RATE_MIN) / PLAYBACK_RATE_STEP
   );
   const playbackRateProgress = (playbackRateStepIndex / PLAYBACK_RATE_STEP_COUNT) * 100;
-  const playbackRateFillOffset = PLAYBACK_RATE_THUMB_SIZE_PX * (0.5 - playbackRateProgress / 100);
+  const playbackRateThumbAlignmentStrength = Math.min(
+    1,
+    playbackRateProgress / PLAYBACK_RATE_THUMB_ALIGNMENT_RANGE_PERCENT,
+    (100 - playbackRateProgress) / PLAYBACK_RATE_THUMB_ALIGNMENT_RANGE_PERCENT
+  );
+  const playbackRateThumbShift =
+    -(PLAYBACK_RATE_THUMB_SIZE_PX * PLAYBACK_RATE_THUMB_ALIGNMENT_RATIO) *
+    playbackRateThumbAlignmentStrength;
+  const playbackRateFillOffset =
+    PLAYBACK_RATE_THUMB_SIZE_PX * (0.5 - playbackRateProgress / 100) + playbackRateThumbShift;
 
   useEffect(() => {
     currentPlaybackRateRef.current = displayedPlaybackRate;
@@ -278,7 +290,8 @@ const PlaybackSpeedControl = ({
         step={PLAYBACK_RATE_STEP}
         value={displayedPlaybackRate}
         disabled={isDisabled}
-        className="absolute inset-0 z-10 m-0 h-9 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-8 [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-9 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:mt-0.5 [&::-webkit-slider-thumb]:h-8 [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-150 motion-safe:[&::-moz-range-thumb]:ease-out motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-105 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-150 motion-safe:[&::-webkit-slider-thumb]:ease-out motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-105 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
+        style={{ '--playback-rate-thumb-shift': `${playbackRateThumbShift}px` } as CSSProperties}
+        className="absolute inset-0 z-10 m-0 h-9 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:translate-x-[var(--playback-rate-thumb-shift)] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-9 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:-mt-0.5 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:translate-x-[var(--playback-rate-thumb-shift)] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-300 motion-safe:[&::-moz-range-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-110 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-300 motion-safe:[&::-webkit-slider-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-110 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
         onChange={event => updatePlaybackRate(Number.parseFloat(event.target.value))}
         onKeyDown={isDisabled ? undefined : handleKeyDown}
       />
@@ -757,6 +770,7 @@ const UnifiedAudioPanel = ({
                       <div className="relative min-h-10">
                         <select
                           aria-label={t('Voce')}
+                          title={t('Voce')}
                           value={tts.currentVoice}
                           onChange={event =>
                             tts.onVoiceChange(event.target.value as VoiceProfileId)
@@ -773,18 +787,18 @@ const UnifiedAudioPanel = ({
 
                         <div
                           aria-hidden="true"
-                          className={`pointer-events-none flex min-h-10 items-center justify-between gap-3 px-1 text-sm font-medium ${
+                          className={`pointer-events-none flex min-h-10 items-center gap-2 px-1 text-sm font-medium ${
                             ttsDisabled
                               ? 'text-gray-400 dark:text-zinc-500'
                               : 'text-gray-700 dark:text-zinc-200'
                           }`}
                         >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="min-w-0 truncate">{currentVoiceLabel}</span>
-                            <span className="text-gray-300 dark:text-zinc-600">•</span>
-                            <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+                          <span className="flex min-w-0 items-center gap-1">
+                            <span className="truncate">{currentVoiceLabel}</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
                           </span>
-                          <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
+                          <span className="text-gray-300 dark:text-zinc-600">•</span>
+                          <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
                         </div>
                       </div>
 

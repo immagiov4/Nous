@@ -197,6 +197,8 @@ describe('UnifiedAudioPanel', () => {
     expect(voiceSpeedControl).toHaveTextContent('•');
     expect(voiceSpeedControl).toHaveTextContent('1x');
     expect(voiceControl).toHaveValue('alloy');
+    expect(voiceControl).toHaveAttribute('title', 'Voce');
+    expect(voiceControl).toHaveClass('absolute', 'inset-0');
     expect(speedControl).toHaveAttribute('type', 'range');
     expect(speedControl).toHaveAttribute('min', '0.8');
     expect(speedControl).toHaveAttribute('max', '1.6');
@@ -207,8 +209,9 @@ describe('UnifiedAudioPanel', () => {
     expect(speedControl).toHaveClass('h-9', 'w-full', 'touch-pan-y');
     expect(container.querySelectorAll('[data-playback-rate-marker]')).toHaveLength(5);
     expect(container.querySelector('[data-playback-rate-fill]')).toHaveStyle({
-      width: 'calc(25% + 8px)',
+      width: 'calc(25% + -5px)',
     });
+    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '-15px' });
   });
 
   test('keeps voice selection separate from playback-speed changes', async () => {
@@ -295,6 +298,40 @@ describe('UnifiedAudioPanel', () => {
     expect(screen.getByText('1.6x')).toBeInTheDocument();
     expect(onSpeedChange).toHaveBeenCalledOnce();
     expect(onSpeedChange).toHaveBeenCalledWith(1.6);
+  });
+
+  test('keeps thumb and fill alignment continuous near playback-speed limits', () => {
+    const renderPanelAtSpeed = (playbackRate: number) => (
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ playbackRate })}
+      />
+    );
+    const { container, rerender } = render(renderPanelAtSpeed(0.8));
+    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    const getFill = () => container.querySelector('[data-playback-rate-fill]');
+
+    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '0px' });
+    expect(getFill()).toHaveStyle({ width: 'calc(0% + 20px)' });
+
+    rerender(renderPanelAtSpeed(0.85));
+    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '-3.75px' });
+    expect(getFill()).toHaveStyle({ width: 'calc(6.25% + 13.75px)' });
+
+    rerender(renderPanelAtSpeed(1.55));
+    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '-3.75px' });
+    expect(getFill()).toHaveStyle({ width: 'calc(93.75% + -21.25px)' });
+
+    rerender(renderPanelAtSpeed(1.6));
+    expect(speedControl).toHaveStyle({ '--playback-rate-thumb-shift': '0px' });
+    expect(getFill()).toHaveStyle({ width: 'calc(100% + -20px)' });
   });
 
   test('adjusts the direct playback-speed control with keyboard controls and respects its bounds', async () => {
