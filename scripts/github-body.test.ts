@@ -189,6 +189,10 @@ describe('GitHub body Markdown validation', () => {
         '## Example\n\nCode follows.\n\n    Description ## Not-a-heading\n    \\n\n'
       )
     ).toEqual([]);
+    expect(validateMarkdownBody('\t  first\n\t  second\n')).toEqual([]);
+    expect(() =>
+      assertGitHubRendering('\t  first\n\t  second\n', '<pre><code>first\nsecond\n</code></pre>')
+    ).not.toThrow();
     expect(
       validateMarkdownBody(
         '## Example\n\n<details><summary>Why ## Not a heading</summary></details>\n'
@@ -376,6 +380,11 @@ describe('GitHub body Markdown validation', () => {
       ).map(candidate => candidate.code)
     ).toContain('inline-heading');
     expect(
+      validateMarkdownBody(
+        '## Summary\n\nDescription \\<!-- ## Testing -->\n\nMore context.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
       validateMarkdownBody('## Summary\n\nText.\n\n<!-- open\nDescription ## Not-a-heading\n')
     ).toEqual([]);
 
@@ -472,6 +481,16 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
         'First <span title="Why ## this matters">label</span>.\n\nSecond paragraph.\n'
       )
     ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        'First <span\n title="Why ## this matters">label</span>.\n\nSecond paragraph.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        'First \\<span title="Why ## Testing">label\\</span>.\n\nSecond paragraph.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
     expect(
       validateMarkdownBody(
         'First <span title="metadata">label</span>. Description ## Testing\n\nSecond paragraph.\n'
@@ -614,6 +633,7 @@ describe('GitHub body remote update', () => {
     ];
     let uploadedBody = '';
     const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      if (args[1] === 'markdown') return renderedBody;
       if (args.includes('PATCH')) {
         const bodyArgument = args.find(argument => argument.startsWith('body=@'));
         if (!bodyArgument) throw new Error('Expected body file argument.');
@@ -642,6 +662,20 @@ describe('GitHub body remote update', () => {
     expect(runGhCommand).toHaveBeenNthCalledWith(1, readCommand);
     expect(runGhCommand).toHaveBeenNthCalledWith(2, [
       'api',
+      'markdown',
+      '--method',
+      'POST',
+      '--header',
+      'X-GitHub-Api-Version: 2022-11-28',
+      '--field',
+      expect.stringMatching(/^text=@.+nous-github-body-upload-.+body\.md$/u),
+      '--field',
+      'mode=gfm',
+      '--field',
+      'context=immagiov4/Nous',
+    ]);
+    expect(runGhCommand).toHaveBeenNthCalledWith(3, [
+      'api',
       'repos/immagiov4/Nous/pulls/42',
       '--method',
       'PATCH',
@@ -651,7 +685,7 @@ describe('GitHub body remote update', () => {
       expect.stringMatching(/^body=@.+nous-github-body-upload-.+body\.md$/u),
       '--silent',
     ]);
-    expect(runGhCommand).toHaveBeenNthCalledWith(3, readCommand);
+    expect(runGhCommand).toHaveBeenNthCalledWith(4, readCommand);
     expect(uploadedBody).toBe(validBody + managedCubicDescription);
 
     const verifyGhCommand = vi
@@ -708,18 +742,29 @@ describe('GitHub body remote update', () => {
     });
   });
 
-  test('uses the requested body file directly when no managed suffix exists', async () => {
+  test('uploads the validated snapshot when the source file changes during preflight', async () => {
     const bodyFile = await createBodyFile();
     const renderedBody =
       '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
       '<ul><li>First item</li><li>Second item</li></ul>' +
       '<h2>Testing</h2><p>The focused test passed.</p>';
-    const remoteResponse = JSON.stringify({ body: validBody, body_html: renderedBody });
-    const runGhCommand = vi
-      .fn<(args: string[]) => Promise<string>>()
-      .mockResolvedValueOnce(JSON.stringify({ body: null, body_html: null }))
-      .mockResolvedValueOnce('')
-      .mockResolvedValueOnce(remoteResponse);
+    let uploadedBody = '';
+    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      if (args[1] === 'markdown') {
+        await writeFile(bodyFile, 'Changed after validation.\n', 'utf8');
+        return renderedBody;
+      }
+      if (args.includes('PATCH')) {
+        const bodyArgument = args.find(argument => argument.startsWith('body=@'));
+        if (!bodyArgument) throw new Error('Expected body file argument.');
+        uploadedBody = await readFile(bodyArgument.slice('body=@'.length), 'utf8');
+        return '';
+      }
+      return JSON.stringify({
+        body: uploadedBody || null,
+        body_html: uploadedBody ? renderedBody : null,
+      });
+    });
 
     await updateGitHubBody({
       bodyFile,
@@ -729,7 +774,12 @@ describe('GitHub body remote update', () => {
       runGhCommand,
     });
 
-    expect(runGhCommand.mock.calls[1]?.[0]).toContain(`body=@${bodyFile}`);
+    expect(uploadedBody).toBe(validBody);
+    const patchArgument = runGhCommand.mock.calls
+      .find(([args]) => args.includes('PATCH'))?.[0]
+      .find(argument => argument.startsWith('body=@'));
+    expect(patchArgument).toMatch(/^body=@.+nous-github-body-upload-.+body\.md$/u);
+    expect(patchArgument).not.toBe(`body=@${bodyFile}`);
   });
 
   test('reports rendered HTML size in UTF-8 bytes', async () => {
@@ -770,6 +820,7 @@ describe('GitHub body remote update', () => {
       '<p><a>Review in Cubic</a></p><h2>Summary by Bot</h2><p>Managed text.</p>';
     let uploadedBody = '';
     const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      if (args[1] === 'markdown') return renderedBody;
       if (args.includes('PATCH')) {
         const bodyArgument = args.find(argument => argument.startsWith('body=@'));
         if (!bodyArgument) throw new Error('Expected body file argument.');
@@ -819,6 +870,28 @@ describe('GitHub body remote update', () => {
     ).rejects.toThrow('literal-newline');
     expect(runGhCommand).toHaveBeenCalledTimes(1);
     expect(runGhCommand.mock.calls[0]?.[0]).toContain('GET');
+  });
+
+  test('rejects GitHub-sanitized raw HTML before PATCH', async () => {
+    const body = '## Summary\n\n<script>alert(1)</script>\n\nMore context.\n';
+    const bodyFile = await createBodyFile(body);
+    const renderedPreview = '<h2>Summary</h2><p>More context.</p>';
+    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      if (args[1] === 'markdown') return renderedPreview;
+      return JSON.stringify({ body, body_html: renderedPreview });
+    });
+
+    await expect(
+      updateGitHubBody({
+        bodyFile,
+        kind: 'pr',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand,
+      })
+    ).rejects.toThrow('expected 1 <script>, received 0');
+    expect(runGhCommand).toHaveBeenCalledTimes(2);
+    expect(runGhCommand.mock.calls.some(([args]) => args.includes('PATCH'))).toBe(false);
   });
 
   test('rejects a pull request passed as an issue before any remote mutation', async () => {

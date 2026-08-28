@@ -20,7 +20,7 @@ const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
 const MANAGED_PR_SUFFIX_PATTERN =
   /(?:\r?\n){2}<!-- This is an auto-generated description by cubic\. -->[\s\S]*$/u;
 const BLOCKQUOTE_PREFIX_PATTERN = /^(?: {0,3}>[ \t]?)+/u;
-const INDENTED_CODE_PATTERN = /^(?: {4,}|\t)\S/u;
+const INDENTED_CODE_PATTERN = /^(?: {4,}| {0,3}\t)[ \t]*\S/u;
 const RAW_HTML_TAG_START_PATTERN = /^ {0,3}<(\/)?([A-Za-z][A-Za-z0-9-]*)(?=[ \t/>]|$)/u;
 const RAW_HTML_CLOSING_TAG_PATTERN = /^ {0,3}<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$/u;
 const HTML_ATTRIBUTE_NAME_START_PATTERN = /^[A-Za-z_:]$/u;
@@ -512,6 +512,10 @@ const maskInlineCodeAndHtmlComments = (
       continue;
     }
     if (commentStart === -1) break;
+    if (isMarkdownEscaped(line, commentStart)) {
+      cursor = commentStart + 4;
+      continue;
+    }
     const hasValidEnd = line.includes('-->', commentStart + 4) || closesLater;
     if (!hasValidEnd && !isBlockHtmlCommentStart(line, commentStart)) {
       cursor = commentStart + 4;
@@ -595,6 +599,10 @@ const maskCommentsOnCollectionLine = ({
       continue;
     }
     if (commentStart === -1) break;
+    if (isMarkdownEscaped(line, commentStart)) {
+      cursor = commentStart + 4;
+      continue;
+    }
 
     while (codeSpans[codeSpanIndex]?.end <= commentStart) codeSpanIndex += 1;
     const codeSpan = codeSpans[codeSpanIndex];
@@ -922,6 +930,21 @@ const maskInlineLinks = (line, linkDefinitionIdentifiers) => {
   return characters.join('');
 };
 
+const skipInlineHtmlWhitespace = (value, start) => {
+  let cursor = start;
+  while (/[\t\n\f\r ]/u.test(value[cursor] ?? '')) cursor += 1;
+  return cursor;
+};
+
+const inlineHtmlAttributeEnd = (value, start) => {
+  if (!HTML_ATTRIBUTE_NAME_START_PATTERN.test(value[start] ?? '')) return -1;
+  let cursor = start + 1;
+  while (HTML_ATTRIBUTE_NAME_CHARACTER_PATTERN.test(value[cursor] ?? '')) cursor += 1;
+  const equalsSign = skipInlineHtmlWhitespace(value, cursor);
+  if (value[equalsSign] !== '=') return cursor;
+  return htmlAttributeValueEnd(value, skipInlineHtmlWhitespace(value, equalsSign + 1));
+};
+
 const inlineHtmlTagEnd = (line, start) => {
   let cursor = start + 1;
   const isClosingTag = line[cursor] === '/';
@@ -931,18 +954,18 @@ const inlineHtmlTagEnd = (line, start) => {
   while (/^[A-Za-z0-9-]$/u.test(line[cursor] ?? '')) cursor += 1;
 
   if (isClosingTag) {
-    cursor = skipHtmlWhitespace(line, cursor);
+    cursor = skipInlineHtmlWhitespace(line, cursor);
     return line[cursor] === '>' ? cursor + 1 : -1;
   }
 
   while (cursor < line.length) {
-    const attributeStart = skipHtmlWhitespace(line, cursor);
+    const attributeStart = skipInlineHtmlWhitespace(line, cursor);
     if (line[attributeStart] === '>') return attributeStart + 1;
     if (line[attributeStart] === '/' && line[attributeStart + 1] === '>') {
       return attributeStart + 2;
     }
     if (attributeStart === cursor) return -1;
-    cursor = htmlAttributeEnd(line, attributeStart);
+    cursor = inlineHtmlAttributeEnd(line, attributeStart);
     if (cursor === -1) return -1;
   }
   return -1;
@@ -954,6 +977,10 @@ const maskInlineHtmlTags = line => {
   while (cursor < line.length) {
     const tagStart = line.indexOf('<', cursor);
     if (tagStart === -1) break;
+    if (isMarkdownEscaped(line, tagStart)) {
+      cursor = tagStart + 1;
+      continue;
+    }
     const tagEnd = inlineHtmlTagEnd(line, tagStart);
     if (tagEnd === -1) {
       cursor = tagStart + 1;
@@ -971,10 +998,10 @@ const maskInlineLinksByBlock = (lines, linkDefinitionIdentifiers) => {
 
   const maskBlock = () => {
     if (blockIndexes.length === 0) return;
-    const maskedBlock = maskInlineLinks(
-      blockIndexes.map(index => lines[index]).join('\n'),
-      linkDefinitionIdentifiers
-    ).split('\n');
+    const block = blockIndexes.map(index => lines[index]).join('\n');
+    const maskedBlock = maskInlineHtmlTags(maskInlineLinks(block, linkDefinitionIdentifiers)).split(
+      '\n'
+    );
     for (const [offset, index] of blockIndexes.entries()) maskedLines[index] = maskedBlock[offset];
     blockIndexes = [];
   };
@@ -1157,7 +1184,7 @@ export const validateMarkdownBody = body => {
       ...collectLineSyntaxIssues({
         index,
         line,
-        lineWithoutLinks: maskInlineHtmlTags(syntaxLine),
+        lineWithoutLinks: syntaxLine,
         setextHeadingLines,
         structuralLines,
       }),
@@ -1416,6 +1443,22 @@ const bodyWithPreservedManagedSuffix = ({ kind, localBody, remoteBody }) => {
   return `${normalizeLineEndings(localBody).replace(MANAGED_PR_SUFFIX_PATTERN, '')}${managedSuffix}`;
 };
 
+const renderGitHubMarkdown = ({ bodyFile, repository, runGhCommand }) =>
+  runGhCommand([
+    'api',
+    'markdown',
+    '--method',
+    'POST',
+    '--header',
+    `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
+    '--field',
+    `text=@${bodyFile}`,
+    '--field',
+    'mode=gfm',
+    '--field',
+    `context=${repository}`,
+  ]);
+
 export const verifyGitHubBody = async ({
   bodyFile,
   kind,
@@ -1453,14 +1496,17 @@ export const updateGitHubBody = async ({
   });
   assertValidMarkdownBody(uploadBody, `${absoluteBodyFile} with remote managed suffix`);
   let temporaryDirectory;
-  let uploadFile = absoluteBodyFile;
 
   try {
-    if (uploadBody !== localBody) {
-      temporaryDirectory = await mkdtemp(join(tmpdir(), 'nous-github-body-upload-'));
-      uploadFile = join(temporaryDirectory, 'body.md');
-      await writeFile(uploadFile, uploadBody, 'utf8');
-    }
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'nous-github-body-upload-'));
+    const uploadFile = join(temporaryDirectory, 'body.md');
+    await writeFile(uploadFile, uploadBody, 'utf8');
+    const renderedPreview = await renderGitHubMarkdown({
+      bodyFile: uploadFile,
+      repository,
+      runGhCommand,
+    });
+    assertGitHubRendering(uploadBody, renderedPreview);
     await runGhCommand([
       'api',
       endpoint,
