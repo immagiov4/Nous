@@ -17,7 +17,7 @@ import {
   type ProjectSnapshotWire,
 } from '@shared/projectSnapshotWire';
 import JSZip from 'jszip';
-import { expectTypeOf, test } from 'vitest';
+import { expect, expectTypeOf, test } from 'vitest';
 import {
   exportProjectData,
   normalizeImportedProject,
@@ -34,6 +34,67 @@ const limits = {
 const legacyProject = JSON.parse(
   readFileSync(resolve('apps/web/tests/fixtures/projects/legacy-codebase-project.json'), 'utf8')
 ) as Record<string, unknown>;
+
+const projectWithLessonBlocks = (contentBlocks: unknown[], generatedVisuals?: unknown[]) => ({
+  id: 'lesson-block-project',
+  learningPlan: {
+    modules: [
+      {
+        children: [
+          {
+            content: 'Contenuto legacy da preservare.',
+            contentBlocks,
+            ...(generatedVisuals === undefined ? {} : { generatedVisuals }),
+            id: 'lesson-1',
+            kind: 'lesson',
+            title: 'Lezione',
+          },
+        ],
+        id: 'module-1',
+        title: 'Modulo',
+      },
+    ],
+    title: 'Corso',
+  },
+  version: '4.1',
+});
+
+const validVisualRetryPlan = {
+  complexity: 'moderate',
+  concept: 'Confronto tra stati',
+  coverage: 'single_complex',
+  coverageRationale: 'Rende visibile la differenza.',
+  factualRequirements: ['Due stati distinti'],
+  interactionLevel: 'none',
+  pedagogicalGoal: 'Confrontare i due stati.',
+  reason: 'Il confronto beneficia di una visuale.',
+  requiresDepiction: false,
+  slotId: 'slot-retry',
+  visualDirection: 'Mostra due colonne affiancate.',
+  visualType: 'structural_svg',
+};
+
+const legacyGeneratedVisual = {
+  code: '<svg viewBox="0 0 10 10"></svg>',
+  createdAt: '2026-08-28T12:00:00.000Z',
+  id: 'legacy-visual-1',
+  kind: 'svg',
+  title: 'Visuale storica',
+};
+
+const projectAssetRef = {
+  byteSize: 1,
+  hash: 'a'.repeat(64),
+  id: 'a'.repeat(64),
+  mediaType: 'image/png',
+};
+
+const currentGeneratedVisual = (render: unknown) => ({
+  createdAt: '2026-08-28T12:00:00.000Z',
+  id: 'visual-1',
+  render,
+  slotId: 'slot-ready',
+});
 
 const readMigratedFiles = (project: ReturnType<typeof decodeProjectSnapshotWire>) => {
   assert.equal(project.source?.kind, 'document');
@@ -109,6 +170,297 @@ test('historical archive import and canonical re-export preserve lesson round-tr
     readMigratedFiles(decodeProjectSnapshotWire(decodedCanonical.project)),
     readMigratedFiles(decodeProjectSnapshotWire(canonicalExport))
   );
+});
+
+test('legacy lesson migration derives Markdown content from structured blocks across round trips', () => {
+  const canonicalContent =
+    '## Timer\n\n```lua\nlocal tempo = 0\n\nlocal delta = 1\n```\n\nConclusione.';
+  const inconsistentLegacyProject = {
+    id: 'legacy-divergent-lesson',
+    learningPlan: {
+      modules: [
+        {
+          children: [
+            {
+              content: '## Timer\n\nlocal tempo = 0\n```lua\n\nlocal delta = 1\n```',
+              contentBlocks: [{ kind: 'markdown', markdown: canonicalContent }],
+              id: 'lesson-1',
+              kind: 'lesson',
+              title: 'Timer',
+            },
+          ],
+          id: 'module-1',
+          title: 'Modulo',
+        },
+      ],
+      title: 'Corso',
+    },
+    version: '4.1',
+  };
+
+  const migrated = normalizeImportedProject(inconsistentLegacyProject);
+  const roundTripped = normalizeImportedProject(exportProjectData(migrated));
+
+  expect(flattenLessons(migrated.learningPlan?.modules)[0]?.content).toBe(canonicalContent);
+  expect(flattenLessons(migrated.learningPlan?.modules)[0]?.contentBlocks).toStrictEqual([
+    { markdown: canonicalContent, type: 'markdown' },
+  ]);
+  expect(flattenLessons(roundTripped.learningPlan?.modules)[0]?.content).toBe(canonicalContent);
+  expect(flattenLessons(roundTripped.learningPlan?.modules)[0]?.contentBlocks).toStrictEqual([
+    { markdown: canonicalContent, type: 'markdown' },
+  ]);
+});
+
+test('wire decoding rejects unsupported lesson content block types before projection', () => {
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks([{ markdown: 'Contenuto strutturato.', type: 'markdwon' }])
+    )
+  ).toThrow(/tipo blocco contenuto lezione non supportato/iu);
+});
+
+test('wire decoding rejects malformed allowlisted lesson blocks before projection', () => {
+  const malformedBlocks = [
+    { kind: 'markdown', markdown: 'Contenuto legacy.', type: 7 },
+    { type: 'inline-quiz' },
+    {
+      quiz: { correctIndex: 0, options: ['Una sola opzione'], question: 'Domanda' },
+      type: 'inline-quiz',
+    },
+    {
+      clips: [{ endSeconds: 5, sourceIndex: 0, startSeconds: 10 }],
+      type: 'youtube-clips',
+    },
+    { type: 'generated-visual' },
+    { slotId: 'slot-1', type: 'generated-visual' },
+    { retryPlan: {}, slotId: 'slot-1', type: 'generated-visual' },
+    {
+      retryPlan: { ...validVisualRetryPlan, reason: '   ' },
+      slotId: 'slot-retry',
+      type: 'generated-visual',
+    },
+    {
+      retryPlan: validVisualRetryPlan,
+      slotId: 'slot-retry',
+      type: 'generated-visual',
+      visualId: 'visual-1',
+    },
+  ];
+
+  for (const block of malformedBlocks) {
+    expect(() => decodeProjectSnapshotWire(projectWithLessonBlocks([block]))).toThrow(
+      /blocco contenuto lezione non valido/iu
+    );
+  }
+});
+
+test('wire decoding rejects authoritative lesson block collections without Markdown text', () => {
+  const textlessCollections = [
+    [],
+    [{ markdown: '   ', type: 'markdown' }],
+    [{ clips: [], type: 'youtube-clips' }],
+    [
+      {
+        quiz: {
+          correctIndex: 0,
+          options: ['Prima', 'Seconda', 'Terza', 'Quarta'],
+          question: 'Domanda',
+        },
+        type: 'inline-quiz',
+      },
+    ],
+  ];
+
+  for (const contentBlocks of textlessCollections) {
+    expect(() => decodeProjectSnapshotWire(projectWithLessonBlocks(contentBlocks))).toThrow(
+      /blocchi contenuto lezione senza testo Markdown/iu
+    );
+  }
+});
+
+test('wire decoding preserves every valid lesson block while deriving legacy Markdown', () => {
+  const contentBlocks = [
+    { markdown: '## Contenuto strutturato', type: 'markdown' },
+    { markdown: '', type: 'markdown' },
+    {
+      quiz: {
+        correctIndex: 1,
+        exerciseType: 'concept-check',
+        options: ['Prima', 'Seconda', 'Terza', 'Quarta'],
+        question: 'Quale opzione e corretta?',
+      },
+      type: 'inline-quiz',
+    },
+    {
+      clips: [{ endSeconds: 20, sourceIndex: 0, startSeconds: 10, title: 'Estratto' }],
+      type: 'youtube-clips',
+    },
+    { clips: [], type: 'youtube-clips' },
+    { slotId: 'slot-ready', type: 'generated-visual', visualId: 'visual-1' },
+    { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+  ];
+
+  const decoded = decodeProjectSnapshotWire(
+    projectWithLessonBlocks(contentBlocks, [
+      currentGeneratedVisual({ code: '<svg></svg>', kind: 'svg' }),
+    ])
+  );
+  const lesson = (
+    decoded.learningPlan as {
+      modules: Array<{ children: Array<{ content: string; contentBlocks: unknown[] }> }>;
+    }
+  ).modules[0]?.children[0];
+
+  expect(lesson?.content).toBe('## Contenuto strutturato');
+  expect(lesson?.contentBlocks).toStrictEqual(contentBlocks);
+});
+
+test.each([
+  { asset: projectAssetRef, kind: 'image' },
+  { code: '<main>Visuale</main>', embeddedAssets: [], kind: 'html' },
+  {
+    code: `<img src="{{PROJECT_ASSET:${projectAssetRef.id}}}">`,
+    embeddedAssets: [projectAssetRef],
+    kind: 'html',
+  },
+  { code: 'flowchart LR; A --> B', kind: 'mermaid' },
+  { code: '<svg></svg>', kind: 'svg' },
+])('wire decoding accepts a referenced durable $kind visual', render => {
+  assert.doesNotThrow(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-ready', type: 'generated-visual', visualId: 'visual-1' },
+        ],
+        [currentGeneratedVisual(render)]
+      )
+    )
+  );
+});
+
+test.each([
+  { id: 'visual-1', slotId: 'slot-ready' },
+  { id: 'visual-1', render: {}, slotId: 'slot-ready' },
+  currentGeneratedVisual({
+    code: '<main>Placeholder mancante</main>',
+    embeddedAssets: [projectAssetRef],
+    kind: 'html',
+  }),
+  currentGeneratedVisual({
+    code: '{{PROJECT_ASSET:malformed}}',
+    embeddedAssets: [],
+    kind: 'html',
+  }),
+])('wire decoding rejects an invalid referenced durable visual', generatedVisual => {
+  assert.throws(
+    () =>
+      decodeProjectSnapshotWire(
+        projectWithLessonBlocks(
+          [
+            { markdown: 'Contenuto strutturato.', type: 'markdown' },
+            { slotId: 'slot-ready', type: 'generated-visual', visualId: 'visual-1' },
+          ],
+          [generatedVisual]
+        )
+      ),
+    /riferimenti visuali della lezione non validi/iu
+  );
+});
+
+test('wire decoding rejects duplicate generated visual slots', () => {
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks([
+        { markdown: 'Contenuto strutturato.', type: 'markdown' },
+        { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+        { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+      ])
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
+});
+
+test('wire decoding rejects a legacy visual referenced from multiple slots', () => {
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+          { slotId: 'slot-b', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+        ],
+        [legacyGeneratedVisual]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
+});
+
+test('wire decoding rejects generated visual references assigned to another slot', () => {
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-b' },
+        ],
+        [{ id: 'visual-b', slotId: 'slot-b' }]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
+});
+
+test('wire decoding rejects unrecognized slotless visual records', () => {
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
+        ],
+        [{ id: 'visual-a' }]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
+});
+
+test('wire decoding rejects slotless durable visuals with legacy-shaped fields', () => {
+  expect(() =>
+    decodeProjectSnapshotWire(
+      projectWithLessonBlocks(
+        [
+          { markdown: 'Contenuto strutturato.', type: 'markdown' },
+          { slotId: 'slot-a', type: 'generated-visual', visualId: 'visual-a' },
+        ],
+        [
+          {
+            ...legacyGeneratedVisual,
+            id: 'visual-a',
+            render: { code: '<svg></svg>', kind: 'svg' },
+          },
+        ]
+      )
+    )
+  ).toThrow(/riferimenti visuali della lezione non validi/iu);
+});
+
+test('import and round trip preserve references to recognizable legacy generated visuals', () => {
+  const contentBlocks = [
+    { markdown: 'Contenuto strutturato.', type: 'markdown' },
+    { slotId: 'legacy-slot-1', type: 'generated-visual', visualId: legacyGeneratedVisual.id },
+  ];
+
+  const decoded = decodeProjectSnapshotWire(
+    projectWithLessonBlocks(contentBlocks, [legacyGeneratedVisual])
+  );
+  const imported = normalizeImportedProject(decoded);
+  const roundTripped = normalizeImportedProject(exportProjectData(imported));
+  const importedLesson = flattenLessons(imported.learningPlan?.modules)[0];
+  const roundTrippedLesson = flattenLessons(roundTripped.learningPlan?.modules)[0];
+
+  expect(importedLesson?.contentBlocks).toStrictEqual(contentBlocks);
+  expect(importedLesson?.generatedVisuals).toStrictEqual([legacyGeneratedVisual]);
+  expect(roundTrippedLesson?.contentBlocks).toStrictEqual(contentBlocks);
+  expect(roundTrippedLesson?.generatedVisuals).toStrictEqual([legacyGeneratedVisual]);
 });
 
 test('canonical payloads reject unknown fields and unsupported versions instead of dropping them', () => {

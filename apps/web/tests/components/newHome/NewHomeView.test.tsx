@@ -332,6 +332,177 @@ describe('NewHomeView library interactions', () => {
     );
   });
 
+  test.each([
+    { expectedScrollBehavior: 'smooth', prefersReducedMotion: false },
+    { expectedScrollBehavior: 'auto', prefersReducedMotion: true },
+  ])('overlays overflow controls without shrinking the filter-chip viewport when reduced motion is $prefersReducedMotion', async ({
+    expectedScrollBehavior,
+    prefersReducedMotion,
+  }) => {
+    globalThis.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? prefersReducedMotion : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const user = userEvent.setup();
+    const chipViewportWidthPx = 200;
+    const chipScrollWidthPx = 500;
+    const startScrollLeftPx = 0;
+    const intermediateScrollLeftPx = 100;
+    const endScrollLeftPx = chipScrollWidthPx - chipViewportWidthPx;
+    const expectedPageScrollOffsetPx = 170;
+    let currentScrollLeft = startScrollLeftPx;
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(chipViewportWidthPx);
+    const scrollLeft = vi
+      .spyOn(HTMLElement.prototype, 'scrollLeft', 'get')
+      .mockImplementation(() => currentScrollLeft);
+    const scrollWidth = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockReturnValue(chipScrollWidthPx);
+    const scrollBy = vi.fn();
+    const originalScrollBy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollBy');
+    Object.defineProperty(HTMLElement.prototype, 'scrollBy', {
+      configurable: true,
+      value: scrollBy,
+    });
+    try {
+      render(
+        <NewHomeView
+          chatProps={chatProps}
+          isDarkMode={false}
+          isExportingProject={false}
+          isLibraryLoading={false}
+          libraryFolders={[folder]}
+          libraryTree={tree}
+          loadProjectCover={vi.fn(async () => null)}
+          loadProjectSource={vi.fn(async () => null)}
+          loadProjectsById={vi.fn(async () => [])}
+          onCreateFolder={vi.fn(async () => {})}
+          onOpenProject={vi.fn()}
+          onToggleDarkMode={vi.fn()}
+          openingProjectId={null}
+          projects={[project]}
+          saveProjectCover={vi.fn(async () => {})}
+        />
+      );
+      const nextFilters = await screen.findByRole('button', {
+        name: /Mostra altri filtri|Show more filters/,
+      });
+      const chipViewportWrapper = nextFilters.parentElement;
+      const chipViewport = chipViewportWrapper?.querySelector('.new-home-filter-scroll');
+      const readChipViewportLayout = () => {
+        const inFlowChildren = [...(chipViewportWrapper?.children || [])].filter(
+          child => !child.classList.contains('absolute')
+        );
+        return {
+          inFlowChildCount: inFlowChildren.length,
+          viewportClassName: chipViewport?.className,
+          viewportIsOnlyInFlowChild: inFlowChildren[0] === chipViewport,
+          wrapperClassName: chipViewportWrapper?.className,
+        };
+      };
+      const expectedChipViewportLayout = {
+        inFlowChildCount: 1,
+        viewportClassName: 'new-home-filter-scroll flex min-w-0 flex-1 gap-2 overflow-x-auto py-1',
+        viewportIsOnlyInFlowChild: true,
+        wrapperClassName: 'relative flex min-w-0 flex-1 items-center',
+      };
+      expect(readChipViewportLayout()).toEqual(expectedChipViewportLayout);
+      expect(
+        screen.queryByRole('button', {
+          name: /Mostra i filtri precedenti|Show previous filters/,
+        })
+      ).not.toBeInTheDocument();
+
+      currentScrollLeft = intermediateScrollLeftPx;
+      await act(async () => globalThis.window.dispatchEvent(new Event('resize')));
+      const previousFilters = await screen.findByRole('button', {
+        name: /Mostra i filtri precedenti|Show previous filters/,
+      });
+      const previousArrowSurface = previousFilters.firstElementChild;
+      const nextArrowSurface = nextFilters.firstElementChild;
+      expect(readChipViewportLayout()).toEqual(expectedChipViewportLayout);
+      expect(previousFilters).toHaveClass(
+        'absolute',
+        'isolate',
+        'left-0',
+        'h-11',
+        'w-11',
+        'before:absolute',
+        'before:left-1/2',
+        'before:top-1/2',
+        'before:h-48',
+        'before:w-48',
+        'before:-translate-x-1/2',
+        'before:-translate-y-1/2',
+        'before:opacity-[0.9]',
+        'before:rounded-full',
+        'before:bg-[radial-gradient(circle_closest-side,var(--bg-paper)_0%,var(--bg-paper)_23%,transparent_100%)]',
+        'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%),linear-gradient(to_right,black_0%,black_61.5%,transparent_92.5%)]',
+        'before:[mask-composite:intersect]'
+      );
+      expect(nextFilters).toHaveClass(
+        'absolute',
+        'isolate',
+        'right-0',
+        'h-11',
+        'w-11',
+        'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%),linear-gradient(to_left,black_0%,black_61.5%,transparent_92.5%)]',
+        'before:[mask-composite:intersect]',
+        'motion-reduce:transition-none'
+      );
+      expect(previousArrowSurface).toHaveClass(
+        'relative',
+        'z-10',
+        'h-[2.125rem]',
+        'w-[2.125rem]',
+        'rounded-full',
+        'bg-white'
+      );
+      expect(nextArrowSurface).toHaveClass('h-[2.125rem]', 'w-[2.125rem]');
+      expect(chipViewport?.children).toHaveLength(3);
+      for (const chip of chipViewport?.children || []) {
+        expect(chip).toHaveClass('h-[2.125rem]');
+        expect(chip).not.toHaveClass('py-2');
+      }
+
+      nextFilters.focus();
+      expect(nextFilters).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(scrollBy).toHaveBeenCalledWith({
+        behavior: expectedScrollBehavior,
+        left: expectedPageScrollOffsetPx,
+      });
+
+      const edgeFolderChip = screen.getByRole('button', { name: /^Frontend1$/ });
+      currentScrollLeft = endScrollLeftPx;
+      await act(async () => chipViewport?.dispatchEvent(new Event('scroll')));
+      expect(edgeFolderChip).toHaveFocus();
+      expect(nextFilters).toHaveAttribute('aria-disabled', 'true');
+      expect(nextFilters).toHaveAttribute('aria-hidden', 'true');
+      expect(nextFilters).toHaveAttribute('tabindex', '-1');
+      nextFilters.click();
+      expect(scrollBy).toHaveBeenCalledTimes(1);
+
+      await user.click(edgeFolderChip);
+      expect(edgeFolderChip).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      clientWidth.mockRestore();
+      scrollLeft.mockRestore();
+      scrollWidth.mockRestore();
+      if (originalScrollBy) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollBy', originalScrollBy);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'scrollBy');
+      }
+    }
+  });
+
   test('repositions an open course menu and restores focus on Escape', async () => {
     const user = userEvent.setup();
     const { container } = render(

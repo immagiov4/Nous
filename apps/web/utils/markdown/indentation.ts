@@ -11,6 +11,40 @@ interface SourceRange {
   start: number;
 }
 
+interface SourceLine {
+  content: string;
+  lineBreak: string;
+  start: number;
+}
+
+const getSourceLines = (content: string): SourceLine[] => {
+  const lines: SourceLine[] = [];
+  let lineStart = 0;
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const character = content[cursor];
+    if (character !== '\r' && character !== '\n') {
+      cursor += 1;
+      continue;
+    }
+
+    const lineEnd = cursor;
+    const hasCarriageReturnPair = character === '\r' && content[cursor + 1] === '\n';
+    const lineBreakEnd = cursor + (hasCarriageReturnPair ? 2 : 1);
+    lines.push({
+      content: content.slice(lineStart, lineEnd),
+      lineBreak: content.slice(lineEnd, lineBreakEnd),
+      start: lineStart,
+    });
+    lineStart = lineBreakEnd;
+    cursor = lineBreakEnd;
+  }
+  lines.push({ content: content.slice(lineStart), lineBreak: '', start: lineStart });
+
+  return lines;
+};
+
 const isProtectedLine = (
   lineStart: number,
   lineLength: number,
@@ -33,26 +67,28 @@ const shouldRemoveAccidentalIndentation = (line: string): boolean => {
 };
 
 export const removeAccidentalPlainTextIndentation = (content: string): string =>
-  content
-    .split('\n')
-    .map(line => (shouldRemoveAccidentalIndentation(line) ? line.trimStart() : line))
-    .join('\n');
+  getSourceLines(content)
+    .map(line => {
+      const normalizedContent = shouldRemoveAccidentalIndentation(line.content)
+        ? line.content.trimStart()
+        : line.content;
+      return normalizedContent + line.lineBreak;
+    })
+    .join('');
 
 export const getAccidentalPlainTextIndentationRanges = (
   content: string,
   protectedRanges: readonly SourceRange[] = []
 ): Array<{ end: number; start: number }> => {
   const ranges: Array<{ end: number; start: number }> = [];
-  let lineStart = 0;
-  for (const line of content.split('\n')) {
+  for (const line of getSourceLines(content)) {
     if (
-      !isProtectedLine(lineStart, line.length, protectedRanges) &&
-      shouldRemoveAccidentalIndentation(line)
+      !isProtectedLine(line.start, line.content.length, protectedRanges) &&
+      shouldRemoveAccidentalIndentation(line.content)
     ) {
-      const indentationLength = line.length - line.trimStart().length;
-      ranges.push({ start: lineStart, end: lineStart + indentationLength });
+      const indentationLength = line.content.length - line.content.trimStart().length;
+      ranges.push({ start: line.start, end: line.start + indentationLength });
     }
-    lineStart += line.length + 1;
   }
   return ranges;
 };
@@ -68,22 +104,21 @@ export const projectAccidentalPlainTextIndentation = (
 ): MarkdownIndentationProjection => {
   const characters: string[] = [];
   const sourceOffsets: number[] = [];
-  let lineStart = 0;
-  for (const line of content.split('\n')) {
+  for (const line of getSourceLines(content)) {
     const indentationLength =
-      !isProtectedLine(lineStart, line.length, protectedRanges) &&
-      shouldRemoveAccidentalIndentation(line)
-        ? line.length - line.trimStart().length
+      !isProtectedLine(line.start, line.content.length, protectedRanges) &&
+      shouldRemoveAccidentalIndentation(line.content)
+        ? line.content.length - line.content.trimStart().length
         : 0;
-    for (let index = indentationLength; index < line.length; index += 1) {
-      characters.push(line[index]);
-      sourceOffsets.push(lineStart + index);
+    for (let index = indentationLength; index < line.content.length; index += 1) {
+      characters.push(line.content[index]);
+      sourceOffsets.push(line.start + index);
     }
-    if (lineStart + line.length < content.length) {
-      characters.push('\n');
-      sourceOffsets.push(lineStart + line.length);
+    const lineBreakStart = line.start + line.content.length;
+    for (let index = 0; index < line.lineBreak.length; index += 1) {
+      characters.push(line.lineBreak[index]);
+      sourceOffsets.push(lineBreakStart + index);
     }
-    lineStart += line.length + 1;
   }
   sourceOffsets.push(content.length);
   return { content: characters.join(''), sourceOffsets };

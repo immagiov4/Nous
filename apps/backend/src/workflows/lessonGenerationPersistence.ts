@@ -1,4 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
+import { deriveLegacyLessonContent } from '@shared/lessonContent';
+import {
+  canonicalizeLessonNodeContent,
+  ProjectSnapshotWireError,
+} from '@shared/projectSnapshotWire';
 
 import type { Sql } from 'postgres';
 
@@ -84,7 +89,7 @@ const sectionCommitPatch = (
   input: LessonVisualsState,
   runId: string
 ): NonNullable<TransactionProjectPatch['section']> => ({
-  content: input.content,
+  content: deriveLegacyLessonContent(input.contentBlocks),
   contentBlocks: input.contentBlocks,
   generationWarnings: input.warnings,
   generatedVisuals: input.generatedVisuals,
@@ -143,7 +148,7 @@ const buildPersistenceState = (
       sectionJson: canonicalJson(snapshotLessonGenerationTarget(project, sectionId)),
     },
     result: {
-      content: input.content,
+      content: deriveLegacyLessonContent(input.contentBlocks),
       contentBlocks: input.contentBlocks,
       documentAssets: input.documentAssets,
       generatedVisuals: input.generatedVisuals,
@@ -279,21 +284,42 @@ export const buildLessonGenerationCommitPatch = (
 const restoredSectionPatch = (
   sectionId: string,
   previous: Record<string, unknown>
-): NonNullable<TransactionProjectPatch['section']> => ({
-  content: typeof previous.content === 'string' ? previous.content : null,
-  contentBlocks: Array.isArray(previous.contentBlocks) ? previous.contentBlocks : null,
-  generationWarnings: Array.isArray(previous.generationWarnings)
-    ? previous.generationWarnings
-    : null,
-  generatedVisuals: Array.isArray(previous.generatedVisuals) ? previous.generatedVisuals : null,
-  imageRefs: Array.isArray(previous.imageRefs) ? previous.imageRefs : null,
-  learningAids: Array.isArray(previous.learningAids) ? previous.learningAids : null,
-  lastGenerationRunId:
-    typeof previous.lastGenerationRunId === 'string' ? previous.lastGenerationRunId : null,
-  quiz: Array.isArray(previous.quiz) ? previous.quiz : null,
-  sectionId,
-  visualPlanningDecision: previous.visualPlanningDecision ?? null,
-});
+): NonNullable<TransactionProjectPatch['section']> => {
+  let content = typeof previous.content === 'string' ? previous.content : null;
+  let contentBlocks: unknown[] | null = null;
+  let generatedVisuals = Array.isArray(previous.generatedVisuals)
+    ? previous.generatedVisuals
+    : null;
+  if (Array.isArray(previous.contentBlocks)) {
+    try {
+      const canonicalPrevious = canonicalizeLessonNodeContent(previous, {
+        recoverHistoricalArtifactDraftVisualSlots: true,
+      });
+      content = canonicalPrevious.content as string;
+      contentBlocks = canonicalPrevious.contentBlocks as unknown[];
+      generatedVisuals = Array.isArray(canonicalPrevious.generatedVisuals)
+        ? canonicalPrevious.generatedVisuals
+        : null;
+    } catch (error) {
+      if (!(error instanceof ProjectSnapshotWireError)) throw error;
+    }
+  }
+  return {
+    content,
+    contentBlocks,
+    generationWarnings: Array.isArray(previous.generationWarnings)
+      ? previous.generationWarnings
+      : null,
+    generatedVisuals,
+    imageRefs: Array.isArray(previous.imageRefs) ? previous.imageRefs : null,
+    learningAids: Array.isArray(previous.learningAids) ? previous.learningAids : null,
+    lastGenerationRunId:
+      typeof previous.lastGenerationRunId === 'string' ? previous.lastGenerationRunId : null,
+    quiz: Array.isArray(previous.quiz) ? previous.quiz : null,
+    sectionId,
+    visualPlanningDecision: previous.visualPlanningDecision ?? null,
+  };
+};
 
 const restoredDossiers = (
   project: ProjectSnapshot,
@@ -311,14 +337,18 @@ const isAlreadyUndone = (
   input: LessonVisualsState,
   state: LessonPersistenceState
 ): boolean => {
+  const sectionId = input.request.sectionId;
+  const previousSection = parseRecord(state.previous.sectionJson);
+  const restoredProject = applyProjectPatch(
+    project,
+    { section: restoredSectionPatch(sectionId, previousSection) },
+    project.updatedAt
+  );
   const previousDossier = parseOptionalJson(state.previous.researchDossierJson);
   return (
-    buildLessonGenerationTargetFingerprint(project, input.request.sectionId) ===
-      input.targetFingerprint &&
-    isDeepStrictEqual(
-      project.researchDossiersBySectionId?.[input.request.sectionId],
-      previousDossier
-    )
+    buildLessonGenerationTargetFingerprint(project, sectionId) ===
+      buildLessonGenerationTargetFingerprint(restoredProject, sectionId) &&
+    isDeepStrictEqual(project.researchDossiersBySectionId?.[sectionId], previousDossier)
   );
 };
 

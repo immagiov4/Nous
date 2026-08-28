@@ -999,6 +999,7 @@ export const useWorkspaceReaderActions = ({
 
       const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
         artifactId,
+        contentBlocks: section.contentBlocks,
         replacementVisual: visual,
         visuals: section.generatedVisuals,
       });

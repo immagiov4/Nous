@@ -530,6 +530,21 @@ const retireTerminalRetainedSublessonRequest = async (
   clearLessonRequestState(retained.storageKey, retained.requestKey);
 };
 
+const resolveSublessonRecovery = async ({
+  parentSectionId,
+  projectId,
+  recovery,
+  sectionId,
+}: {
+  parentSectionId: string;
+  projectId: string;
+  recovery: DurableLessonRecovery | null | undefined;
+  sectionId: string;
+}): Promise<DurableLessonRecovery | null> => {
+  if (recovery !== undefined) return recovery;
+  return resolveDurableSublessonRequestForSection(projectId, parentSectionId, sectionId);
+};
+
 export const generateDurableLesson = async ({
   forceRegenerate = false,
   onProgressStage,
@@ -570,14 +585,12 @@ export const generateDurableLesson = async ({
     clearLessonRequestState(retainedLessonRequest.storageKey, retainedLessonRequest.requestKey);
   }
   if (parentSectionId) {
-    let sublessonRecovery = recovery;
-    if (sublessonRecovery === undefined) {
-      sublessonRecovery = await resolveDurableSublessonRequestForSection(
-        projectId,
-        parentSectionId,
-        sectionId
-      );
-    }
+    const sublessonRecovery = await resolveSublessonRecovery({
+      parentSectionId,
+      projectId,
+      recovery,
+      sectionId,
+    });
     if (sublessonRecovery) {
       return resumeRetainedLessonRequest({
         onProgressStage,

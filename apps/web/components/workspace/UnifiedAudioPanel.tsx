@@ -572,7 +572,19 @@ const UnifiedAudioPanel = ({
     ? 'fixed left-1/2 top-20 z-50 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 sm:absolute sm:right-0 sm:top-[calc(100%+0.75rem)] sm:left-auto sm:w-[22rem] sm:translate-x-0'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[22rem]';
 
-  const isAnyAudioActive = isMusicPlaying || tts.isPlaying;
+  const isAudioMenuButtonActive = isOpen || isMusicPlaying || tts.isPlaying;
+  let audioMenuButtonClassName: string;
+
+  if (isMobileViewport) {
+    audioMenuButtonClassName = isAudioMenuButtonActive
+      ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-gray-100/80 p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:bg-zinc-700/50 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-200'
+      : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-2 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200';
+  } else {
+    const desktopAudioMenuStateClassName = isAudioMenuButtonActive
+      ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-200'
+      : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800 dark:hover:text-gray-300';
+    audioMenuButtonClassName = `cursor-pointer rounded-full border p-2 transition-colors ${desktopAudioMenuStateClassName}`;
+  }
 
   return (
     <div ref={containerRef} className="relative">
@@ -581,17 +593,7 @@ const UnifiedAudioPanel = ({
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-label={t(isOpen ? 'Chiudi menu audio' : 'Apri menu audio')}
-        className={
-          isMobileViewport
-            ? isOpen || isAnyAudioActive
-              ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-gray-100/80 p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:bg-zinc-700/50 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-200'
-              : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-2 text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
-            : `cursor-pointer rounded-full border p-2 transition-colors ${
-                isOpen || isAnyAudioActive
-                  ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-200'
-                  : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800 dark:hover:text-gray-300'
-              }`
-        }
+        className={audioMenuButtonClassName}
         title={t(isOpen ? 'Chiudi menu audio' : 'Menu audio')}
       >
         <Headphones className={isMobileViewport ? 'reader-mobile-control-icon' : 'h-5 w-5'} />

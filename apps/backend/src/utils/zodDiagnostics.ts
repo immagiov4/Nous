@@ -18,13 +18,11 @@ export const firstSanitizedZodIssue = (error: z.ZodError): SanitizedZodIssue => 
   };
 };
 
-export const formatValidationPath = (path: readonly (number | string)[]): string =>
-  path.reduce<string>(
-    (formatted, segment) =>
-      typeof segment === 'number'
-        ? `${formatted}[${segment}]`
-        : formatted
-          ? `${formatted}.${segment}`
-          : segment,
-    ''
-  ) || '<root>';
+export const formatValidationPath = (path: readonly (number | string)[]): string => {
+  const formattedPath = path.reduce<string>((formatted, segment) => {
+    if (typeof segment === 'number') return `${formatted}[${segment}]`;
+    if (formatted) return `${formatted}.${segment}`;
+    return segment;
+  }, '');
+  return formattedPath || '<root>';
+};

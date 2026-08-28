@@ -1,3 +1,8 @@
+import {
+  canonicalizeLearningPlanContent,
+  canonicalizeLessonNodeContent,
+} from '@shared/projectSnapshotWire';
+
 import { isRecord } from '../utils/validation.js';
 import type {
   LearningPlanNodeSnapshot,
@@ -27,33 +32,34 @@ export const isNavigationProjectPatch = (patch: ProjectPatch): boolean => {
 const applySectionPatchToNode = (
   node: LearningPlanNodeSnapshot,
   sectionPatch: SectionPatch
-): LearningPlanNodeSnapshot => ({
-  ...node,
-  ...(sectionPatch.annotations !== undefined ? { annotations: sectionPatch.annotations } : {}),
-  ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
-  ...(sectionPatch.contentBlocks === undefined
-    ? {}
-    : { contentBlocks: sectionPatch.contentBlocks }),
-  ...(sectionPatch.generationWarnings === undefined
-    ? {}
-    : { generationWarnings: sectionPatch.generationWarnings }),
-  ...(sectionPatch.generatedVisuals !== undefined
-    ? { generatedVisuals: sectionPatch.generatedVisuals }
-    : {}),
-  ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
-  ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
-  ...(sectionPatch.instructionPacks !== undefined
-    ? { instructionPacks: sectionPatch.instructionPacks }
-    : {}),
-  ...(sectionPatch.learningAids !== undefined ? { learningAids: sectionPatch.learningAids } : {}),
-  ...(sectionPatch.lastGenerationRunId !== undefined
-    ? { lastGenerationRunId: sectionPatch.lastGenerationRunId }
-    : {}),
-  ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
-  ...(sectionPatch.visualPlanningDecision !== undefined
-    ? { visualPlanningDecision: sectionPatch.visualPlanningDecision }
-    : {}),
-});
+): LearningPlanNodeSnapshot =>
+  canonicalizeLessonNodeContent({
+    ...node,
+    ...(sectionPatch.annotations !== undefined ? { annotations: sectionPatch.annotations } : {}),
+    ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
+    ...(sectionPatch.contentBlocks === undefined
+      ? {}
+      : { contentBlocks: sectionPatch.contentBlocks }),
+    ...(sectionPatch.generationWarnings === undefined
+      ? {}
+      : { generationWarnings: sectionPatch.generationWarnings }),
+    ...(sectionPatch.generatedVisuals !== undefined
+      ? { generatedVisuals: sectionPatch.generatedVisuals }
+      : {}),
+    ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
+    ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
+    ...(sectionPatch.instructionPacks !== undefined
+      ? { instructionPacks: sectionPatch.instructionPacks }
+      : {}),
+    ...(sectionPatch.learningAids !== undefined ? { learningAids: sectionPatch.learningAids } : {}),
+    ...(sectionPatch.lastGenerationRunId !== undefined
+      ? { lastGenerationRunId: sectionPatch.lastGenerationRunId }
+      : {}),
+    ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
+    ...(sectionPatch.visualPlanningDecision !== undefined
+      ? { visualPlanningDecision: sectionPatch.visualPlanningDecision }
+      : {}),
+  });
 
 const patchLearningPlanSection = (
   learningPlan: LearningPlanSnapshot | null | undefined,
@@ -93,6 +99,25 @@ const patchLearningPlanSection = (
   throw new Error(LEARNING_PLAN_NOT_FOUND_ERROR);
 };
 
+const resolvePatchedLearningPlan = (
+  currentLearningPlan: ProjectSnapshot['learningPlan'],
+  learningPlanPatch: ProjectPatch['learningPlan']
+): ProjectSnapshot['learningPlan'] => {
+  if (learningPlanPatch === undefined) return currentLearningPlan;
+  if (learningPlanPatch === null) return null;
+  return canonicalizeLearningPlanContent(
+    learningPlanPatch as Record<string, unknown>
+  ) as ProjectSnapshot['learningPlan'];
+};
+
+const applyProjectTitlePatch = (snapshot: ProjectSnapshot, title: string | undefined): void => {
+  if (title === undefined) return;
+  snapshot.title = title;
+  if (snapshot.learningPlan) {
+    snapshot.learningPlan = { ...snapshot.learningPlan, title };
+  }
+};
+
 export const applyProjectPatch = (
   existing: ProjectSnapshot,
   patch: ProjectPatch,
@@ -103,15 +128,8 @@ export const applyProjectPatch = (
   if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
   if (patch.state !== undefined) snapshot.state = patch.state;
   if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
-  if (patch.learningPlan !== undefined) {
-    snapshot.learningPlan = patch.learningPlan as ProjectSnapshot['learningPlan'];
-  }
-  if (patch.title !== undefined) {
-    snapshot.title = patch.title;
-    if (snapshot.learningPlan) {
-      snapshot.learningPlan = { ...snapshot.learningPlan, title: patch.title };
-    }
-  }
+  snapshot.learningPlan = resolvePatchedLearningPlan(snapshot.learningPlan, patch.learningPlan);
+  applyProjectTitlePatch(snapshot, patch.title);
   if (patch.userProfile !== undefined) {
     snapshot.userProfile = patch.userProfile as ProjectSnapshot['userProfile'];
   }

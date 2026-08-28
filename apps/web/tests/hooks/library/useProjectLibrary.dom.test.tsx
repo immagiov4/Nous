@@ -2511,6 +2511,10 @@ describe('useProjectLibrary', () => {
       snapshot: buildSnapshot('project-1', {
         learningPlan: buildTestLearningPlan([
           buildTestLesson({
+            contentBlocks: [
+              { markdown: 'Contenuto della lezione.', type: 'markdown' },
+              { slotId: 'lesson-slot-1', type: 'generated-visual', visualId: visualOne.id },
+            ],
             id: 'lesson-1',
             generatedVisuals: [visualOne, visualTwo],
           }),
@@ -2547,11 +2551,11 @@ describe('useProjectLibrary', () => {
         lessonId: 'lesson-1',
         projectId: 'project-1',
         visual: {
-          id: 'visual-draft-9',
-          title: 'mappa_nuova',
-          kind: 'svg',
-          code: '<svg data-new="true"></svg>',
           createdAt: '2026-05-02T10:00:00.000Z',
+          id: 'visual-draft-9',
+          render: { code: '<svg data-new="true"></svg>', kind: 'svg' },
+          slotId: 'artifact-draft',
+          title: 'mappa_nuova',
         },
       });
     });
@@ -2565,7 +2569,8 @@ describe('useProjectLibrary', () => {
             expect.objectContaining({
               id: 'visual-1',
               title: 'mappa_nuova',
-              code: '<svg data-new="true"></svg>',
+              render: { code: '<svg data-new="true"></svg>', kind: 'svg' },
+              slotId: 'lesson-slot-1',
             }),
             visualTwo,
           ],

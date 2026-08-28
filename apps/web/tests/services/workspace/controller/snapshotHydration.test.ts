@@ -80,7 +80,7 @@ test('prepareSnapshotForHydrationResult reports legacy plan migrations explicitl
   assert.equal(result.snapshot.activeSectionId, 'legacy-lesson');
 });
 
-test('prepareSnapshotForHydration normalizes persisted lesson markdown code blocks', () => {
+test('prepareSnapshotForHydration preserves bare code-like lesson markdown', () => {
   const snapshot: ProjectSnapshot = {
     id: 'project-1',
     version: '1',
@@ -114,7 +114,7 @@ test('prepareSnapshotForHydration normalizes persisted lesson markdown code bloc
 
   assert.equal(
     flattenLessons(prepared.learningPlan?.modules)[0]?.content,
-    'Esempio:\n\n```cpp\nMapNode Map::getNode(v3s16 p, bool *is_valid_position)\n```\n\nLa funzione restituisce un nodo.'
+    'Esempio:\n\ncpp\nMapNode Map::getNode(v3s16 p, bool *is_valid_position)\n\nLa funzione restituisce un nodo.'
   );
 });
 
