@@ -395,7 +395,7 @@ describe('ContextAnswerPanel', () => {
     expect(stopButton).toHaveAttribute('aria-busy', 'true');
   });
 
-  test('drops a deferred artifact tool result after stop instead of continuing the response', async () => {
+  test('does not revive a stopped artifact tool when a follow-up starts', async () => {
     const user = userEvent.setup();
     let resolveDraft: (draft: typeof generatedDraftArtifact) => void = () => {};
     const draftRequest = new Promise<typeof generatedDraftArtifact>(resolve => {
@@ -413,6 +413,7 @@ describe('ContextAnswerPanel', () => {
       }) => Promise<void>;
       sendAutomaticallyWhen: (args: { messages: [] }) => boolean;
     }> = [];
+    let chatStatus: 'ready' | 'streaming' = 'streaming';
     useChatMock.mockImplementation(options => {
       capturedChatOptions.push(options);
       return {
@@ -426,11 +427,12 @@ describe('ContextAnswerPanel', () => {
           },
         ],
         sendMessage: sendMessageMock,
-        status: 'streaming',
+        status: chatStatus,
         stop: stopMock,
       };
     });
-    render(<ContextAnswerPanel {...buildProps()} />);
+    const props = buildProps();
+    const { rerender } = render(<ContextAnswerPanel {...props} />);
     const chatOptions = capturedChatOptions[0];
     expect(chatOptions).toBeDefined();
     if (!chatOptions) throw new Error('Context chat options were not captured.');
@@ -453,6 +455,12 @@ describe('ContextAnswerPanel', () => {
         toolCallId: 'deferred-context-artifact',
       })
     );
+    chatStatus = 'ready';
+    rerender(<ContextAnswerPanel {...props} />);
+    sendMessageMock.mockClear();
+    await user.type(screen.getByRole('textbox'), 'Nuovo follow-up');
+    await user.click(screen.getByTestId('chat-text-composer'));
+    expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Nuovo follow-up' });
     await act(async () => {
       resolveDraft(generatedDraftArtifact);
       await toolCallRequest;
@@ -468,6 +476,55 @@ describe('ContextAnswerPanel', () => {
     });
     expect(chatOptions.sendAutomaticallyWhen({ messages: [] })).toBe(false);
     expect(screen.queryByRole('button', { name: /Apri schema nuovo/i })).not.toBeInTheDocument();
+  });
+
+  test('drops a deferred artifact result after the context panel unmounts', async () => {
+    let resolveDraft: (draft: typeof generatedDraftArtifact) => void = () => {};
+    const draftRequest = new Promise<typeof generatedDraftArtifact>(resolve => {
+      resolveDraft = resolve;
+    });
+    generateLessonArtifactDraftMock.mockReturnValue(draftRequest);
+    let onToolCall:
+      | ((args: {
+          toolCall: {
+            dynamic: false;
+            input: { prompt: string };
+            toolCallId: string;
+            toolName: 'generateCurrentLessonArtifact';
+          };
+        }) => Promise<void>)
+      | undefined;
+    useChatMock.mockImplementation(options => {
+      onToolCall = options.onToolCall;
+      return {
+        addToolOutput: addToolOutputMock,
+        error: undefined,
+        messages: [],
+        sendMessage: sendMessageMock,
+        status: 'streaming',
+        stop: stopMock,
+      };
+    });
+    const { unmount } = render(<ContextAnswerPanel {...buildProps()} />);
+    let toolCallRequest: Promise<void> | undefined;
+
+    act(() => {
+      toolCallRequest = onToolCall?.({
+        toolCall: {
+          dynamic: false,
+          input: { prompt: 'Crea uno schema.' },
+          toolCallId: 'unmounted-context-artifact',
+          toolName: 'generateCurrentLessonArtifact',
+        },
+      });
+    });
+    unmount();
+    await act(async () => {
+      resolveDraft(generatedDraftArtifact);
+      await toolCallRequest;
+    });
+
+    expect(addToolOutputMock).not.toHaveBeenCalled();
   });
 
   test('preserves the desktop panel placement, size, and resize handle', () => {

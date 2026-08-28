@@ -138,11 +138,12 @@ describe('useLibraryAssistantChat', () => {
     expect(stopMock).toHaveBeenCalledOnce();
   });
 
-  test('suppresses a deferred client-tool result and automatic continuation after stop', async () => {
+  test('does not revive a stopped client tool when a new library message starts', async () => {
     let resolveProjects: (projects: never[]) => void = () => {};
     const projectsRequest = new Promise<never[]>(resolve => {
       resolveProjects = resolve;
     });
+    const sendMessage = vi.fn();
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -153,11 +154,11 @@ describe('useLibraryAssistantChat', () => {
           parts: [{ type: 'text', text: 'Risposta parziale', state: 'streaming' }],
         },
       ],
-      sendMessage: vi.fn(),
+      sendMessage,
       status: 'streaming',
       stop: stopMock,
     });
-    const { result, unmount } = renderHook(() =>
+    const { result } = renderHook(() =>
       useLibraryAssistantChat({
         folders: [],
         loadProjectsById: vi.fn(() => projectsRequest),
@@ -189,7 +190,10 @@ describe('useLibraryAssistantChat', () => {
         toolCallId: 'deferred-artifact',
       })
     );
-    unmount();
+    act(() => {
+      void result.current.sendLibraryMessage('Nuova domanda');
+    });
+    expect(sendMessage).toHaveBeenCalledWith({ text: 'Nuova domanda' });
     await act(async () => {
       resolveProjects([]);
       await toolCallRequest;

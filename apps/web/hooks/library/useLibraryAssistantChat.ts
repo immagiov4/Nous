@@ -140,6 +140,11 @@ interface LibraryAssistantRequestState {
   toolPreferences: HomeChatToolPreferences;
 }
 
+interface LibraryAssistantResponseState {
+  canContinue: boolean;
+  generation: number;
+}
+
 const readGenerateLearningArtifactInput = (
   value: unknown
 ): GenerateLearningArtifactInput | null => {
@@ -194,12 +199,20 @@ const resolveContextRefLabel = ({
   return projects.find(project => project.id === reference.id)?.title || reference.label;
 };
 const libraryAssistantRequestStateStore = new Map<symbol, LibraryAssistantRequestState>();
-const libraryAssistantResponseContinuationStore = new Map<symbol, boolean>();
+const libraryAssistantResponseStateStore = new Map<symbol, LibraryAssistantResponseState>();
 const libraryAssistantActiveToolCallStore = new Map<symbol, Map<string, string>>();
 const LIBRARY_REPLACEMENT_DRAFT_PREFIX = 'library-replacement-draft';
 
-const shouldContinueLibraryResponse = (requestStateKey: symbol): boolean =>
-  libraryAssistantResponseContinuationStore.get(requestStateKey) === true;
+const shouldContinueLibraryResponse = (
+  requestStateKey: symbol,
+  responseGeneration?: number
+): boolean => {
+  const responseState = libraryAssistantResponseStateStore.get(requestStateKey);
+  return (
+    responseState?.canContinue === true &&
+    (responseGeneration === undefined || responseState.generation === responseGeneration)
+  );
+};
 
 const isPendingLibraryToolPart = (
   part: LibraryAssistantMessage['parts'][number]
@@ -271,10 +284,13 @@ export const useLibraryAssistantChat = ({
   const requestStateKey = useMemo(() => Symbol('library-assistant-request-state'), []);
 
   useEffect(() => {
-    libraryAssistantResponseContinuationStore.set(requestStateKey, true);
+    libraryAssistantResponseStateStore.set(requestStateKey, {
+      canContinue: true,
+      generation: 0,
+    });
     libraryAssistantActiveToolCallStore.set(requestStateKey, new Map());
     return () => {
-      libraryAssistantResponseContinuationStore.delete(requestStateKey);
+      libraryAssistantResponseStateStore.delete(requestStateKey);
       libraryAssistantActiveToolCallStore.delete(requestStateKey);
     };
   }, [requestStateKey]);
@@ -339,7 +355,11 @@ export const useLibraryAssistantChat = ({
           return;
         }
 
-        if (!shouldContinueLibraryResponse(requestStateKey)) {
+        const responseGeneration =
+          libraryAssistantResponseStateStore.get(requestStateKey)?.generation;
+        if (responseGeneration === undefined) return;
+
+        if (!shouldContinueLibraryResponse(requestStateKey, responseGeneration)) {
           void addToolOutput({
             tool: toolCall.toolName,
             toolCallId: toolCall.toolCallId,
@@ -371,7 +391,7 @@ export const useLibraryAssistantChat = ({
           }
 
           const [snapshot] = await awaitTrackedToolCall(() => loadProjectsById([input.projectId]));
-          if (!shouldContinueLibraryResponse(requestStateKey)) return;
+          if (!shouldContinueLibraryResponse(requestStateKey, responseGeneration)) return;
           const lesson = flattenLessons(snapshot?.learningPlan?.modules).find(
             section => section.id === input.lessonId
           );
@@ -423,7 +443,7 @@ export const useLibraryAssistantChat = ({
               sourceArtifactId: input.sourceArtifactId,
             })
           );
-          if (!shouldContinueLibraryResponse(requestStateKey)) return;
+          if (!shouldContinueLibraryResponse(requestStateKey, responseGeneration)) return;
           if (!draft) {
             void addToolOutput({
               tool: 'generateLearningArtifact',
@@ -502,7 +522,7 @@ export const useLibraryAssistantChat = ({
             toolName,
           })
         );
-        if (!shouldContinueLibraryResponse(requestStateKey)) return;
+        if (!shouldContinueLibraryResponse(requestStateKey, responseGeneration)) return;
 
         if (toolName === 'getLearningArtifacts') {
           setArtifactPayloadsByToolCallId(currentPayloads => ({
@@ -544,13 +564,18 @@ export const useLibraryAssistantChat = ({
 
   const sendLibraryMessage = useCallback(
     (text: string) => {
-      libraryAssistantResponseContinuationStore.set(requestStateKey, true);
+      const responseState = libraryAssistantResponseStateStore.get(requestStateKey);
+      if (responseState) {
+        responseState.canContinue = true;
+        responseState.generation += 1;
+      }
       return sendMessage({ text });
     },
     [requestStateKey, sendMessage]
   );
   const stopLibraryMessage = useCallback(() => {
-    libraryAssistantResponseContinuationStore.set(requestStateKey, false);
+    const responseState = libraryAssistantResponseStateStore.get(requestStateKey);
+    if (responseState) responseState.canContinue = false;
     stop();
     const activeToolCalls = libraryAssistantActiveToolCallStore.get(requestStateKey);
     const pendingToolCalls = new Map(activeToolCalls);

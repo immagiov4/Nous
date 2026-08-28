@@ -317,6 +317,11 @@ interface ContextRequestState {
   toolPreferences: ContextChatToolPreferences;
 }
 
+interface ContextResponseState {
+  canContinue: boolean;
+  generation: number;
+}
+
 const serializeContextSourceReferences = (
   references: ContextAnswerState['documentSourceReferences']
 ): ContextSourceReference[] | undefined =>
@@ -502,7 +507,10 @@ function ContextAnswerPanelSession({
     new Set()
   );
   const hasSubmittedInitialQuestionRef = useRef(false);
-  const shouldContinueActiveResponseRef = useRef(true);
+  const activeResponseStateRef = useRef<ContextResponseState>({
+    canContinue: true,
+    generation: 0,
+  });
   const activeContextToolCallsRef = useRef(new Map<string, string>());
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -512,6 +520,17 @@ function ContextAnswerPanelSession({
     selectedText: contextAnswer.selectedText,
     selectedTextStart: contextAnswer.selectedTextStart,
   });
+
+  useEffect(() => {
+    const responseState = activeResponseStateRef.current;
+    const activeToolCalls = activeContextToolCallsRef.current;
+    responseState.canContinue = true;
+    return () => {
+      responseState.canContinue = false;
+      responseState.generation += 1;
+      activeToolCalls.clear();
+    };
+  }, []);
 
   // Tracks when each requestAddToNotes part entered input-available without
   // valid input, so we can show fallback buttons after GRACE and auto-reject
@@ -628,12 +647,17 @@ function ContextAnswerPanelSession({
     transport,
     experimental_throttle: 96,
     sendAutomaticallyWhen: ({ messages }) =>
-      shouldContinueActiveResponseRef.current && shouldContinueContextResponse(messages),
+      activeResponseStateRef.current.canContinue && shouldContinueContextResponse(messages),
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
         return;
       }
-      if (!shouldContinueActiveResponseRef.current) {
+      const responseGeneration = activeResponseStateRef.current.generation;
+      const shouldContinueToolCall = () => {
+        const responseState = activeResponseStateRef.current;
+        return responseState.canContinue && responseState.generation === responseGeneration;
+      };
+      if (!shouldContinueToolCall()) {
         void addToolOutput({
           tool: toolCall.toolName,
           toolCallId: toolCall.toolCallId,
@@ -775,16 +799,20 @@ function ContextAnswerPanelSession({
             })
           );
         } catch (generationError) {
-          console.error('[Nous][Context artifact] Generation failed.', generationError);
+          if (shouldContinueToolCall()) {
+            console.error('[Nous][Context artifact] Generation failed.', generationError);
+          }
         } finally {
-          setGeneratingArtifactToolCallIds(prev => {
-            if (!prev.has(toolCall.toolCallId)) return prev;
-            const next = new Set(prev);
-            next.delete(toolCall.toolCallId);
-            return next;
-          });
+          if (shouldContinueToolCall()) {
+            setGeneratingArtifactToolCallIds(prev => {
+              if (!prev.has(toolCall.toolCallId)) return prev;
+              const next = new Set(prev);
+              next.delete(toolCall.toolCallId);
+              return next;
+            });
+          }
         }
-        if (!shouldContinueActiveResponseRef.current) return;
+        if (!shouldContinueToolCall()) return;
 
         if (!draft) {
           void addToolOutput({
@@ -832,8 +860,8 @@ function ContextAnswerPanelSession({
             })
           );
         } catch (toolError) {
+          if (!shouldContinueToolCall()) return;
           console.error('[Nous][Context library] Tool execution failed.', toolError);
-          if (!shouldContinueActiveResponseRef.current) return;
           void addToolOutput({
             tool: toolCall.toolName,
             toolCallId: toolCall.toolCallId,
@@ -842,7 +870,7 @@ function ContextAnswerPanelSession({
           });
           return;
         }
-        if (!shouldContinueActiveResponseRef.current) return;
+        if (!shouldContinueToolCall()) return;
 
         if (toolName === 'getLearningArtifacts') {
           setArtifactPayloadsByToolCallId(currentPayloads => ({
@@ -1367,7 +1395,8 @@ function ContextAnswerPanelSession({
       document.activeElement.blur();
     }
 
-    shouldContinueActiveResponseRef.current = true;
+    activeResponseStateRef.current.canContinue = true;
+    activeResponseStateRef.current.generation += 1;
     setHasRequestedResponseStop(false);
     setInput('');
     setIsToolMenuOpen(false);
@@ -1376,9 +1405,10 @@ function ContextAnswerPanelSession({
 
   const handleStopResponse = () => {
     if (!isLoading || isStoppingResponse) return;
-    shouldContinueActiveResponseRef.current = false;
+    activeResponseStateRef.current.canContinue = false;
     setHasRequestedResponseStop(true);
     setIsToolMenuOpen(false);
+    setGeneratingArtifactToolCallIds(new Set());
     stop();
     const pendingToolCalls = new Map(activeContextToolCallsRef.current);
     for (const part of messages
