@@ -314,13 +314,14 @@ describe('ContextMenu', () => {
   test('repositions rare actions when content height and viewport geometry change', async () => {
     const user = userEvent.setup();
     const menuGap = 8;
+    const viewportPadding = 12;
     const initialMenuHeight = 40;
     const wrappedMenuHeight = 72;
     const triggerHeight = 32;
     const triggerRight = 300;
     const triggerWidth = 32;
     let menuHeight = initialMenuHeight;
-    let triggerTop = 60;
+    let triggerTop = initialMenuHeight + menuGap + viewportPadding;
     let resizeObserverCallback: ResizeObserverCallback | null = null;
     let resizeObserver: ResizeObserver | null = null;
     const observeMenu = vi.fn();
@@ -364,6 +365,12 @@ describe('ContextMenu', () => {
     expect(submenu.style.top).toBe('');
     expect(submenu.style.bottom).toBe(`${globalThis.innerHeight - triggerTop + menuGap}px`);
     expect(observeMenu).toHaveBeenCalledWith(submenu);
+
+    triggerTop = initialMenuHeight + menuGap + viewportPadding - 1;
+    fireEvent(globalThis.window, new Event('resize'));
+
+    expect(submenu.style.top).toBe(`${triggerTop + triggerHeight + menuGap}px`);
+    expect(submenu.style.bottom).toBe('');
 
     menuHeight = wrappedMenuHeight;
     act(() => {

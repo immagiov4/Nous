@@ -108,7 +108,7 @@ const getMoreActionsMenuStyle = (triggerRect: DOMRect, menuHeight: number): CSSP
     )
   );
 
-  return triggerRect.top >= menuHeight + MORE_ACTIONS_MENU_GAP
+  return triggerRect.top >= menuHeight + MORE_ACTIONS_MENU_GAP + CONTEXT_MENU_VIEWPORT_PADDING
     ? {
         bottom: globalThis.window.innerHeight - triggerRect.top + MORE_ACTIONS_MENU_GAP,
         left,
