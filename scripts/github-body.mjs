@@ -3,142 +3,40 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_FULL_MEDIA_TYPE = 'application/vnd.github.full+json';
 const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
-const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES)
-  .toSorted((left, right) => left.localeCompare(right))
-  .join('|');
-const HEADING_PATTERN = /^( {0,3})(#{1,6})(?:[ \t]+|$)/u;
-const LIST_ITEM_PATTERN = /^( {0,3})(?:[-+*]|\d{1,9}[.)])(?:[ \t]+\S|[ \t]*$)/u;
-const PARAGRAPH_INTERRUPT_LIST_PATTERN = /^( {0,3})(?:[-+*]|1[.)])(?:[ \t]+\S|[ \t]*$)/u;
-// A single # in prose is indistinguishable from a flattened H1; H2+ matches the repository's PR sections without rejecting normal prose.
-const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
-const INLINE_TASK_ITEM_PATTERN = /\S[ \t]+(?:[-+*]|\d{1,9}[.)])[ \t]+\[[ xX]\][ \t]+\S/u;
-const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/u;
+const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
+const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
+const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
+const PROTECTED_AST_TYPES = new Set([
+  'code',
+  'definition',
+  'html',
+  'image',
+  'imageReference',
+  'inlineCode',
+  'link',
+  'linkReference',
+]);
 const MANAGED_PR_SUFFIX_START = '<!-- This is an auto-generated description by cubic. -->';
 const MANAGED_PR_SUFFIX_END = '<!-- End of auto-generated description by cubic. -->';
-const BLOCKQUOTE_PREFIX_PATTERN = /^(?: {0,3}>[ \t]?)+/u;
-const INDENTED_CODE_PATTERN = /^(?: {4,}| {0,3}\t)[ \t]*\S/u;
-const RAW_HTML_TAG_START_PATTERN = /^ {0,3}<(\/)?([A-Za-z][A-Za-z0-9-]*)(?=[ \t/>]|$)/u;
-const RAW_HTML_CLOSING_TAG_PATTERN = /^ {0,3}<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$/u;
-const HTML_ATTRIBUTE_NAME_START_PATTERN = /^[A-Za-z_:]$/u;
-const HTML_ATTRIBUTE_NAME_CHARACTER_PATTERN = /^[A-Za-z0-9_.:-]$/u;
-const HTML_UNQUOTED_ATTRIBUTE_CHARACTER_PATTERN = /^[^ \t\n\f\r/"'`<>=]$/u;
-const RAW_HTML_BLOCK_TAGS = new Set([
-  'address',
-  'article',
-  'aside',
-  'base',
-  'basefont',
-  'blockquote',
-  'body',
-  'caption',
-  'center',
-  'col',
-  'colgroup',
-  'dd',
-  'details',
-  'dialog',
-  'dir',
-  'div',
-  'dl',
-  'dt',
-  'fieldset',
-  'figcaption',
-  'figure',
-  'footer',
-  'form',
-  'frame',
-  'frameset',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'head',
-  'header',
-  'hr',
-  'html',
-  'iframe',
-  'legend',
-  'li',
-  'link',
-  'main',
-  'menu',
-  'menuitem',
-  'nav',
-  'noframes',
-  'ol',
-  'optgroup',
-  'option',
-  'p',
-  'param',
-  'search',
-  'section',
-  'summary',
-  'table',
-  'tbody',
-  'td',
-  'tfoot',
-  'th',
-  'thead',
-  'title',
-  'track',
-  'tr',
-  'ul',
-]);
-const RAW_HTML_UNINTERRUPTED_TAGS = new Set(['pre', 'script', 'style', 'textarea']);
-const WINDOWS_PATH_TOKEN_PATTERN = /[^\s<>()[\]{}"`]+/gu;
-const LITERAL_NEWLINE_CANDIDATE_PATTERN = /\\(?:r\\n|n)/gu;
-const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
-const SETEXT_HEADING_PATTERN = /^ {0,3}(=+|-+)[ \t]*$/u;
-const TABLE_DELIMITER_CELL_PATTERN = /^:?-+:?$/u;
+const markdownParser = unified().use(remarkParse).use(remarkGfm).freeze();
 
 const normalizeLineEndings = body => body.replace(/\r\n?/gu, '\n');
-const markdownBlockContent = line => {
-  const leadingSpaces = /^ */u.exec(line)?.[0].length ?? 0;
-  if (leadingSpaces > 3 || line[leadingSpaces] === '\t') return undefined;
-  return line.slice(leadingSpaces);
+const issue = (code, line, message) => ({ code, line, message });
+const nodeOffset = (node, boundary) => node.position?.[boundary]?.offset;
+
+const walkAst = (node, ancestors, visitor) => {
+  visitor(node, ancestors);
+  for (const child of node.children ?? []) walkAst(child, [...ancestors, node], visitor);
 };
 
-const isThematicBreak = line => {
-  const content = markdownBlockContent(line);
-  if (content === undefined) return false;
-  const compactMarker = content.replace(/[ \t]/gu, '');
-  if (compactMarker.length < 3) return false;
-  return ['*', '-', '_'].some(marker => compactMarker === marker.repeat(compactMarker.length));
-};
-
-const isTableDelimiter = line => {
-  const content = markdownBlockContent(line);
-  if (content === undefined) return false;
-  const trimmedLine = content.trimEnd();
-  if (!trimmedLine.includes('|')) return false;
-  const cells = trimmedLine.replace(/^\|/u, '').replace(/\|$/u, '').split('|');
-  return cells.length > 1 && cells.every(cell => TABLE_DELIMITER_CELL_PATTERN.test(cell.trim()));
-};
-
-const isTopLevelListItem = line => LIST_ITEM_PATTERN.test(line) && !isThematicBreak(line);
-const isParagraphInterruptingListItem = line =>
-  PARAGRAPH_INTERRUPT_LIST_PATTERN.test(line) && !isThematicBreak(line);
-const stripBlockquotePrefix = line => line.replace(BLOCKQUOTE_PREFIX_PATTERN, '');
-const stripBlockquotePrefixes = body =>
-  normalizeLineEndings(body).split('\n').map(stripBlockquotePrefix).join('\n');
-
-const leavesParagraphOpen = (line, hasRenderedInlineContent = false) => {
-  if (!line.trim()) return hasRenderedInlineContent;
-  return !(
-    HEADING_PATTERN.test(line) ||
-    isTopLevelListItem(line) ||
-    SETEXT_HEADING_PATTERN.test(line) ||
-    isTableDelimiter(line) ||
-    isThematicBreak(line) ||
-    Boolean(linkDefinitionPrefix(line))
-  );
-};
+const parseMarkdown = body => markdownParser.parse(normalizeLineEndings(body));
 
 const maskRange = (characters, start, end) => {
   for (let index = start; index < end; index += 1) {
@@ -146,1250 +44,104 @@ const maskRange = (characters, start, end) => {
   }
 };
 
-const markerRunLength = (line, start, marker) => {
-  let end = start;
-  while (line[end] === marker) end += 1;
-  return end - start;
-};
-
-const rawHtmlClosingPattern = tag => new RegExp(String.raw`</${tag}[ \t]*>`, 'iu');
-
-const specialRawHtmlBlock = line => {
-  const content = markdownBlockContent(line);
-  if (content === undefined) return undefined;
-  if (content.startsWith('<?')) return { closingMarker: '?>', rendersContent: false };
-  if (content.startsWith('<![CDATA[')) return { closingMarker: ']]>', rendersContent: false };
-  if (/^<![A-Z]/u.test(content)) return { closingMarker: '>', rendersContent: false };
-  return undefined;
-};
-
-const skipHtmlWhitespace = (value, start) => {
-  let cursor = start;
-  while (value[cursor] === ' ' || value[cursor] === '\t') cursor += 1;
-  return cursor;
-};
-
-const trimTrailingHtmlWhitespace = value => {
-  let end = value.length;
-  while (value[end - 1] === ' ' || value[end - 1] === '\t') end -= 1;
-  return value.slice(0, end);
-};
-
-const htmlAttributeValueEnd = (value, start) => {
-  const quote = value[start];
-  if (quote === '"' || quote === "'") {
-    const closingQuote = value.indexOf(quote, start + 1);
-    return closingQuote === -1 ? -1 : closingQuote + 1;
-  }
-
-  let cursor = start;
-  while (HTML_UNQUOTED_ATTRIBUTE_CHARACTER_PATTERN.test(value[cursor] ?? '')) cursor += 1;
-  return cursor === start ? -1 : cursor;
-};
-
-const htmlAttributeEnd = (value, start) => {
-  if (!HTML_ATTRIBUTE_NAME_START_PATTERN.test(value[start] ?? '')) return -1;
-  let cursor = start + 1;
-  while (HTML_ATTRIBUTE_NAME_CHARACTER_PATTERN.test(value[cursor] ?? '')) cursor += 1;
-
-  const equalsSign = skipHtmlWhitespace(value, cursor);
-  if (value[equalsSign] !== '=') return cursor;
-  const attributeValue = skipHtmlWhitespace(value, equalsSign + 1);
-  return htmlAttributeValueEnd(value, attributeValue);
-};
-
-const isCompleteRawHtmlOpeningTag = line => {
-  const blockContent = markdownBlockContent(line);
-  const value = blockContent === undefined ? undefined : trimTrailingHtmlWhitespace(blockContent);
-  if (!value?.startsWith('<') || value.startsWith('</')) return false;
-
-  let cursor = 1;
-  if (!/^[A-Za-z]$/u.test(value[cursor] ?? '')) return false;
-  cursor += 1;
-  while (/^[A-Za-z0-9-]$/u.test(value[cursor] ?? '')) cursor += 1;
-
-  while (cursor < value.length) {
-    const attributeStart = skipHtmlWhitespace(value, cursor);
-    if (value[attributeStart] === '>' && attributeStart === value.length - 1) return true;
-    if (value[attributeStart] === '/' && value.slice(attributeStart) === '/>') return true;
-    if (attributeStart === cursor) return false;
-    cursor = htmlAttributeEnd(value, attributeStart);
-    if (cursor === -1) return false;
-  }
-  return false;
-};
-
-const isCompleteRawHtmlTagLine = line => {
-  if (RAW_HTML_CLOSING_TAG_PATTERN.test(line)) return true;
-  return isCompleteRawHtmlOpeningTag(line);
-};
-
-const isWindowsPathToken = token => {
-  if (/^(?:[A-Za-z]:\\|\\\\)/u.test(token)) return true;
-  const separatorCount = token.match(/\\/gu)?.length ?? 0;
-  return separatorCount >= 2 && /\\(?!n|r\\n)/u.test(token);
-};
-
-const structuralLiteralNewlineIndex = token => {
-  for (const match of token.matchAll(LITERAL_NEWLINE_CANDIDATE_PATTERN)) {
-    const suffix = token.slice(match.index + match[0].length);
-    if (HEADING_PATTERN.test(suffix) || LIST_ITEM_PATTERN.test(suffix)) return match.index;
-  }
-  return -1;
-};
-
-const maskWindowsPathTokens = line =>
-  line.replace(WINDOWS_PATH_TOKEN_PATTERN, token => {
-    if (!isWindowsPathToken(token)) return token;
-    const separatorIndex = structuralLiteralNewlineIndex(token);
-    if (separatorIndex === -1) return ' '.repeat(token.length);
-    return ' '.repeat(separatorIndex) + token.slice(separatorIndex);
+const sourceWithoutProtectedMarkdown = (body, root) => {
+  const characters = body.split('');
+  walkAst(root, [], node => {
+    if (!PROTECTED_AST_TYPES.has(node.type)) return;
+    const start = nodeOffset(node, 'start');
+    const end = nodeOffset(node, 'end');
+    if (start !== undefined && end !== undefined) maskRange(characters, start, end);
   });
-
-const openRawHtmlBlock = (line, state, canStartTypeSeven) => {
-  const specialBlock = specialRawHtmlBlock(line);
-  if (specialBlock) {
-    if (!line.includes(specialBlock.closingMarker)) {
-      state.rawHtmlBlock = { endsAtBlank: false, ...specialBlock };
-    }
-    return { rendersContent: specialBlock.rendersContent };
-  }
-
-  const openingTag = RAW_HTML_TAG_START_PATTERN.exec(line);
-  if (!openingTag) return false;
-  const tag = openingTag[2].toLowerCase();
-  if (RAW_HTML_BLOCK_TAGS.has(tag)) {
-    state.rawHtmlBlock = { endsAtBlank: true, rendersContent: true, tag };
-    return { rendersContent: true, tag: openingTag[1] ? undefined : tag };
-  }
-  if (!openingTag[1] && RAW_HTML_UNINTERRUPTED_TAGS.has(tag)) {
-    if (!rawHtmlClosingPattern(tag).test(line)) {
-      state.rawHtmlBlock = { endsAtBlank: false, rendersContent: true, tag };
-    }
-    return { rendersContent: true, tag };
-  }
-  if (canStartTypeSeven && isCompleteRawHtmlTagLine(line)) {
-    state.rawHtmlBlock = { endsAtBlank: true, rendersContent: true, tag };
-    return { rendersContent: true, tag };
-  }
-  return false;
-};
-
-const continueRawHtmlBlock = (line, state) => {
-  if (!state.rawHtmlBlock) return undefined;
-  if (!line.trim() && state.rawHtmlBlock.endsAtBlank) {
-    state.rawHtmlBlock = undefined;
-    return undefined;
-  }
-
-  const isClosingLine =
-    !state.rawHtmlBlock.endsAtBlank &&
-    (state.rawHtmlBlock.closingMarker
-      ? line.includes(state.rawHtmlBlock.closingMarker)
-      : rawHtmlClosingPattern(state.rawHtmlBlock.tag).test(line));
-  const rendersContent = state.rawHtmlBlock.rendersContent;
-  if (isClosingLine) state.rawHtmlBlock = undefined;
-  state.paragraphOpen = false;
-  return { isClosingLine, kind: 'raw-html', rendersContent };
-};
-
-const isClosingFence = (line, fence) => {
-  const content = markdownBlockContent(line);
-  if (content === undefined) return false;
-  const markerLength = markerRunLength(content, 0, fence.character);
-  return markerLength >= fence.length && !content.slice(markerLength).trim();
-};
-
-const continueFencedCodeBlock = (line, state) => {
-  if (!state.fence) return undefined;
-  const isClosingLine = isClosingFence(line, state.fence);
-  if (isClosingLine) state.fence = undefined;
-  state.paragraphOpen = false;
-  return { isClosingLine, isOpeningLine: false, kind: 'fenced-code' };
-};
-
-const advanceBlockState = (line, state) => {
-  const rawHtmlBlock = continueRawHtmlBlock(line, state);
-  if (rawHtmlBlock) return rawHtmlBlock;
-
-  const fencedCodeBlock = continueFencedCodeBlock(line, state);
-  if (fencedCodeBlock) return fencedCodeBlock;
-
-  const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
-  if (openingFence) {
-    const marker = openingFence[1];
-    const infoString = line.slice((openingFence.index ?? 0) + marker.length);
-    if (marker[0] !== '`' || !infoString.includes('`')) {
-      state.fence = { character: marker[0], length: marker.length };
-      state.paragraphOpen = false;
-      return { isClosingLine: false, isOpeningLine: true, kind: 'fenced-code' };
-    }
-  }
-
-  if (!line.trim()) {
-    state.paragraphOpen = false;
-    return { kind: 'blank' };
-  }
-
-  if (!state.paragraphOpen && INDENTED_CODE_PATTERN.test(line)) {
-    state.paragraphOpen = false;
-    return { kind: 'indented-code' };
-  }
-
-  const openedRawHtmlBlock = openRawHtmlBlock(line, state, !state.paragraphOpen);
-  if (openedRawHtmlBlock) {
-    state.paragraphOpen = false;
-    return {
-      isClosingLine: false,
-      isOpeningLine: true,
-      kind: 'raw-html',
-      ...openedRawHtmlBlock,
-    };
-  }
-
-  return { kind: 'content' };
-};
-
-const managedPrSuffix = body => {
-  const normalizedBody = normalizeLineEndings(body);
-  const lines = normalizedBody.split('\n');
-  const state = { fence: undefined, paragraphOpen: false, rawHtmlBlock: undefined };
-  let pendingStart = -1;
-  let suffixStart = -1;
-  let lineStart = 0;
-
-  for (const [index, line] of lines.entries()) {
-    const block = advanceBlockState(line, state);
-    if (block.kind === 'content') {
-      const hasBlankBoundary = index > 0 && !lines[index - 1].trim();
-      if (line === MANAGED_PR_SUFFIX_START && hasBlankBoundary) {
-        pendingStart = lineStart >= 2 ? lineStart - 2 : lineStart;
-      } else if (line === MANAGED_PR_SUFFIX_END && pendingStart !== -1) {
-        suffixStart = pendingStart;
-        pendingStart = -1;
-      }
-      state.paragraphOpen = leavesParagraphOpen(line);
-    }
-    lineStart += line.length + 1;
-  }
-
-  return suffixStart === -1 ? undefined : normalizedBody.slice(suffixStart);
-};
-
-const bodyWithoutManagedPrSuffix = body => {
-  const normalizedBody = normalizeLineEndings(body);
-  const suffix = managedPrSuffix(normalizedBody);
-  return suffix ? normalizedBody.slice(0, -suffix.length) : normalizedBody;
-};
-
-const inlineRunKey = (lineIndex, column) => `${lineIndex}:${column}`;
-
-const isMarkdownEscaped = (value, index) => {
-  let backslashCount = 0;
-  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
-    backslashCount += 1;
-  }
-  return backslashCount % 2 === 1;
-};
-
-const pairedDelimiterRuns = runs => {
-  const indexesByLength = new Map();
-  for (const [index, run] of runs.entries()) {
-    const indexes = indexesByLength.get(run.length) ?? [];
-    indexes.push(index);
-    indexesByLength.set(run.length, indexes);
-  }
-
-  const nextPositionByLength = new Map();
-  const pairs = [];
-  let openerIndex = 0;
-  while (openerIndex < runs.length) {
-    const openingRun = runs[openerIndex];
-    if (openingRun.escaped) {
-      openerIndex += 1;
-      continue;
-    }
-    const matchingIndexes = indexesByLength.get(openingRun.length);
-    let nextPosition = nextPositionByLength.get(openingRun.length) ?? 0;
-    while (matchingIndexes[nextPosition] <= openerIndex) nextPosition += 1;
-    nextPositionByLength.set(openingRun.length, nextPosition);
-    const closingIndex = matchingIndexes[nextPosition];
-    if (closingIndex === undefined) {
-      openerIndex += 1;
-      continue;
-    }
-    pairs.push([openingRun, runs[closingIndex]]);
-    openerIndex = closingIndex + 1;
-  }
-  return pairs;
-};
-
-const collectRawInlineCodeOpeners = lines => {
-  const openers = new Set();
-  const state = { fence: undefined, paragraphOpen: false, rawHtmlBlock: undefined };
-  let blockRuns = [];
-
-  const recordBlockOpeners = () => {
-    for (const [openingRun] of pairedDelimiterRuns(blockRuns)) {
-      openers.add(openingRun.key);
-    }
-    blockRuns = [];
-  };
-
-  for (const [lineIndex, line] of lines.entries()) {
-    const block = advanceBlockState(line, state);
-    if (block.kind !== 'content') {
-      recordBlockOpeners();
-      continue;
-    }
-    for (const run of line.matchAll(/`+/gu)) {
-      blockRuns.push({
-        key: inlineRunKey(lineIndex, run.index),
-        length: run[0].length,
-        escaped: isMarkdownEscaped(line, run.index),
-      });
-    }
-    state.paragraphOpen = leavesParagraphOpen(line, /`/u.test(line));
-    if (!state.paragraphOpen) recordBlockOpeners();
-  }
-  recordBlockOpeners();
-  return openers;
-};
-
-const findNextInlineCodeOpener = (line, lineIndex, cursor, openers) => {
-  let delimiterStart = line.indexOf('`', cursor);
-  while (delimiterStart !== -1) {
-    if (openers.has(inlineRunKey(lineIndex, delimiterStart))) return delimiterStart;
-    delimiterStart = line.indexOf('`', delimiterStart + markerRunLength(line, delimiterStart, '`'));
-  }
-  return -1;
-};
-
-const maskActiveHtmlComment = (line, cursor, characters, state) => {
-  const commentEnd = line.indexOf('-->', cursor);
-  const maskEnd = commentEnd === -1 ? line.length : commentEnd + 3;
-  maskRange(characters, cursor, maskEnd);
-  state.inHtmlComment = commentEnd === -1;
-  return maskEnd;
-};
-
-const maskActiveInlineCode = (line, cursor, characters, state) => {
-  const delimiterStart = line.indexOf('`', cursor);
-  if (delimiterStart === -1) {
-    maskRange(characters, cursor, line.length);
-    return line.length;
-  }
-  const delimiterLength = markerRunLength(line, delimiterStart, '`');
-  const maskEnd = delimiterStart + delimiterLength;
-  maskRange(characters, cursor, maskEnd);
-  if (delimiterLength === state.inlineCodeDelimiter) state.inlineCodeDelimiter = undefined;
-  return maskEnd;
-};
-
-const maskNewInlineCode = (line, start, characters, renderedContentLines, lineIndex, state) => {
-  const delimiterLength = markerRunLength(line, start, '`');
-  const delimiterEnd = start + delimiterLength;
-  maskRange(characters, start, delimiterEnd);
-  renderedContentLines.add(lineIndex);
-  state.inlineCodeDelimiter = delimiterLength;
-  return delimiterEnd;
-};
-
-const isBlockHtmlCommentStart = (line, start) => start <= 3 && !line.slice(0, start).trim();
-
-const markerSeenAfterLines = (lines, marker) => {
-  const markerSeenAfterLine = Array.from({ length: lines.length });
-  let markerSeen = false;
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    markerSeenAfterLine[index] = markerSeen;
-    if (lines[index].includes(marker)) markerSeen = true;
-  }
-  return markerSeenAfterLine;
-};
-
-const maskInlineCodeAndHtmlComments = (
-  line,
-  lineIndex,
-  openers,
-  renderedContentLines,
-  closesLater,
-  state
-) => {
-  const characters = line.split('');
-  let cursor = 0;
-
-  while (cursor < line.length) {
-    if (state.inHtmlComment) {
-      cursor = maskActiveHtmlComment(line, cursor, characters, state);
-      continue;
-    }
-
-    if (state.inlineCodeDelimiter) {
-      if (line.trim()) renderedContentLines.add(lineIndex);
-      cursor = maskActiveInlineCode(line, cursor, characters, state);
-      continue;
-    }
-
-    const commentStart = line.indexOf('<!--', cursor);
-    const inlineCodeStart = findNextInlineCodeOpener(line, lineIndex, cursor, openers);
-    if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
-      cursor = maskNewInlineCode(
-        line,
-        inlineCodeStart,
-        characters,
-        renderedContentLines,
-        lineIndex,
-        state
-      );
-      continue;
-    }
-    if (commentStart === -1) break;
-    if (isMarkdownEscaped(line, commentStart)) {
-      cursor = commentStart + 4;
-      continue;
-    }
-    const hasValidEnd = line.includes('-->', commentStart + 4) || closesLater;
-    if (!hasValidEnd && !isBlockHtmlCommentStart(line, commentStart)) {
-      cursor = commentStart + 4;
-      continue;
-    }
-    cursor = maskActiveHtmlComment(line, commentStart, characters, state);
-  }
-
   return characters.join('');
 };
 
-const sameLineCodeSpans = line => {
-  const runs = [...line.matchAll(/`+/gu)].map(run => ({
-    escaped: isMarkdownEscaped(line, run.index),
-    length: run[0].length,
-    start: run.index,
-  }));
-  return pairedDelimiterRuns(runs).map(([openingRun, closingRun]) => ({
-    end: closingRun.start + closingRun.length,
-    start: openingRun.start,
-  }));
-};
+const lineForOffset = (body, offset) => body.slice(0, offset).split('\n').length;
 
-const advanceCollectionInlineCode = (line, cursor, state) => {
-  const delimiterStart = line.indexOf('`', cursor);
-  if (delimiterStart === -1) return line.length;
-  const delimiterLength = markerRunLength(line, delimiterStart, '`');
-  if (delimiterLength === state.inlineCodeDelimiter) state.inlineCodeDelimiter = undefined;
-  return delimiterStart + delimiterLength;
-};
-
-const maskCollectionComment = ({
-  characters,
-  closesLater,
-  line,
-  maskUnclosedComments,
-  start,
-  state,
-}) => {
-  const commentEnd = line.indexOf('-->', start + 4);
-  if (commentEnd !== -1) {
-    maskRange(characters, start, commentEnd + 3);
-    return commentEnd + 3;
-  }
-
-  const isBlockComment = isBlockHtmlCommentStart(line, start);
-  if (!closesLater && (!maskUnclosedComments || !isBlockComment)) return line.length;
-  maskRange(characters, start, line.length);
-  state.inHtmlComment = true;
-  return line.length;
-};
-
-const maskCommentsOnCollectionLine = ({
-  closesLater,
-  line,
-  lineIndex,
-  maskUnclosedComments,
-  preliminaryOpeners,
-  state,
-}) => {
-  const characters = line.split('');
-  const codeSpans = sameLineCodeSpans(line);
-  let codeSpanIndex = 0;
-  let cursor = 0;
-
-  while (cursor < line.length) {
-    if (state.inHtmlComment) {
-      cursor = maskActiveHtmlComment(line, cursor, characters, state);
-      continue;
-    }
-    if (state.inlineCodeDelimiter) {
-      cursor = advanceCollectionInlineCode(line, cursor, state);
-      continue;
-    }
-
-    const commentStart = line.indexOf('<!--', cursor);
-    const inlineCodeStart = findNextInlineCodeOpener(line, lineIndex, cursor, preliminaryOpeners);
-    if (inlineCodeStart !== -1 && (commentStart === -1 || inlineCodeStart < commentStart)) {
-      state.inlineCodeDelimiter = markerRunLength(line, inlineCodeStart, '`');
-      cursor = inlineCodeStart + state.inlineCodeDelimiter;
-      continue;
-    }
-    if (commentStart === -1) break;
-    if (isMarkdownEscaped(line, commentStart)) {
-      cursor = commentStart + 4;
-      continue;
-    }
-
-    while (codeSpans[codeSpanIndex]?.end <= commentStart) codeSpanIndex += 1;
-    const codeSpan = codeSpans[codeSpanIndex];
-    const codeSpanEnd =
-      codeSpan?.start < commentStart && codeSpan.end > commentStart ? codeSpan.end : -1;
-    cursor =
-      codeSpanEnd === -1
-        ? maskCollectionComment({
-            characters,
-            closesLater,
-            line,
-            maskUnclosedComments,
-            start: commentStart,
-            state,
-          })
-        : codeSpanEnd;
-  }
-
-  const commentMaskedLine = characters.join('');
-  state.paragraphOpen = leavesParagraphOpen(commentMaskedLine, /`/u.test(commentMaskedLine));
-  return commentMaskedLine;
-};
-
-const maskHtmlCommentsForOpenerCollection = (
-  lines,
-  preliminaryOpeners,
-  maskUnclosedComments = true
-) => {
-  const state = {
-    fence: undefined,
-    inHtmlComment: false,
-    inlineCodeDelimiter: undefined,
-    paragraphOpen: false,
-    rawHtmlBlock: undefined,
-  };
-  const maskedLines = [];
-  const closesAfterLine = markerSeenAfterLines(lines, '-->');
-
-  for (const [lineIndex, line] of lines.entries()) {
-    if (!state.inHtmlComment && !state.inlineCodeDelimiter) {
-      const block = advanceBlockState(line, state);
-      if (block.kind !== 'content') {
-        maskedLines.push(line);
-        continue;
-      }
-    }
-    maskedLines.push(
-      maskCommentsOnCollectionLine({
-        closesLater: closesAfterLine[lineIndex],
-        line,
-        lineIndex,
-        maskUnclosedComments,
-        preliminaryOpeners,
-        state,
-      })
-    );
-  }
-  return maskedLines;
-};
-
-const collectInlineCodeOpeners = lines => {
-  const rawOpeners = collectRawInlineCodeOpeners(lines);
-  const closedCommentMaskedLines = maskHtmlCommentsForOpenerCollection(lines, rawOpeners, false);
-  const preliminaryOpeners = collectRawInlineCodeOpeners(closedCommentMaskedLines);
-  const commentMaskedLines = maskHtmlCommentsForOpenerCollection(lines, preliminaryOpeners);
-  return collectRawInlineCodeOpeners(commentMaskedLines);
-};
-
-const maskNonRenderedMarkdown = (
-  body,
-  renderedContentLines = new Set(),
-  renderedBlockTags = []
-) => {
-  const state = {
-    fence: undefined,
-    inHtmlComment: false,
-    inlineCodeDelimiter: undefined,
-    paragraphOpen: false,
-    rawHtmlBlock: undefined,
-  };
-  const lines = normalizeLineEndings(body).split('\n');
-  const inlineCodeOpeners = collectInlineCodeOpeners(lines);
-  const commentClosesAfterLine = markerSeenAfterLines(lines, '-->');
-
-  return lines.map((line, lineIndex) => {
-    if (state.inHtmlComment || state.inlineCodeDelimiter) {
-      return maskInlineCodeAndHtmlComments(
-        line,
-        lineIndex,
-        inlineCodeOpeners,
-        renderedContentLines,
-        commentClosesAfterLine[lineIndex],
-        state
-      );
-    }
-
-    const block = advanceBlockState(line, state);
-    if (block.kind === 'raw-html') {
-      if (block.isOpeningLine && block.rendersContent && block.tag) {
-        renderedBlockTags.push(block.tag);
-      }
-      if (block.rendersContent && line.trim() && !block.isClosingLine) {
-        renderedContentLines.add(lineIndex);
-      }
-      return ' '.repeat(line.length);
-    }
-    if (block.kind === 'fenced-code') {
-      if (block.isOpeningLine) renderedBlockTags.push('pre');
-      if (block.isOpeningLine || (line.trim() && !block.isClosingLine)) {
-        renderedContentLines.add(lineIndex);
-      }
-      return ' '.repeat(line.length);
-    }
-    if (block.kind === 'indented-code') {
-      renderedContentLines.add(lineIndex);
-      return ' '.repeat(line.length);
-    }
-    if (block.kind === 'blank') {
-      return ' '.repeat(line.length);
-    }
-
-    const maskedLine = maskInlineCodeAndHtmlComments(
-      line,
-      lineIndex,
-      inlineCodeOpeners,
-      renderedContentLines,
-      commentClosesAfterLine[lineIndex],
-      state
-    );
-    state.paragraphOpen = leavesParagraphOpen(maskedLine, renderedContentLines.has(lineIndex));
-    return maskedLine;
-  });
-};
-
-const issue = (code, line, message) => ({ code, line, message });
-const COMMONMARK_ESCAPABLE_PUNCTUATION = new Set([
-  ...String.raw`!"#$%&'()*+,-./:;<=>?@[\]^_\`{|}~`,
-]);
-const isEscapableMarkdownPunctuation = character => COMMONMARK_ESCAPABLE_PUNCTUATION.has(character);
-
-const normalizedLinkIdentifier = identifier =>
-  identifier
-    .replace(/\\(.)/gu, (escapedPair, character) =>
-      isEscapableMarkdownPunctuation(character) ? character : escapedPair
+const collectLiteralNewlineIssues = (body, root) => {
+  const searchableBody = sourceWithoutProtectedMarkdown(body, root);
+  return [...searchableBody.matchAll(LITERAL_NEWLINE_PATTERN)].map(match =>
+    issue(
+      'literal-newline',
+      lineForOffset(body, match.index),
+      String.raw`Replace the literal \n or \r\n separator with a real line break.`
     )
-    .trim()
-    .replace(/[ \t\n]+/gu, ' ')
-    .toLowerCase();
-
-const closingDelimiterIndex = (value, start, opening, closing) => {
-  let depth = 0;
-  for (let cursor = start; cursor < value.length; cursor += 1) {
-    if (value[cursor] === '\\' && isEscapableMarkdownPunctuation(value[cursor + 1])) {
-      cursor += 1;
-      continue;
-    }
-    if (value[cursor] === opening) depth += 1;
-    if (value[cursor] !== closing) continue;
-    depth -= 1;
-    if (depth === 0) return cursor;
-  }
-  return -1;
+  );
 };
 
-const markdownTitleEnd = (value, start) => {
-  const delimiter = value[start];
-  if (delimiter === '(') {
-    const end = closingDelimiterIndex(value, start, '(', ')');
-    return end === -1 ? -1 : end + 1;
-  }
-  if (delimiter !== '"' && delimiter !== "'") return -1;
-  for (let cursor = start + 1; cursor < value.length; cursor += 1) {
-    if (value[cursor] === '\\' && isEscapableMarkdownPunctuation(value[cursor + 1])) {
-      cursor += 1;
-      continue;
+const collectRootBlockSpacingIssues = (root, lines) => {
+  const issues = [];
+  for (const node of root.children ?? []) {
+    const startLine = node.position?.start.line;
+    const endLine = node.position?.end.line;
+    if (startLine === undefined || endLine === undefined) continue;
+
+    if (node.type === 'heading' && lines[endLine]?.trim()) {
+      issues.push(
+        issue('heading-spacing', endLine, 'Add a blank line after the Markdown heading.')
+      );
     }
-    if (value[cursor] === delimiter) return cursor + 1;
-  }
-  return -1;
-};
-
-const skipMarkdownWhitespace = (value, start) => {
-  let cursor = start;
-  while (/[\t\n ]/u.test(value[cursor] ?? '')) cursor += 1;
-  return cursor;
-};
-
-const markdownDestinationEnd = (value, start, stopAtOuterParenthesis) => {
-  if (value[start] === '<') {
-    for (let cursor = start + 1; cursor < value.length; cursor += 1) {
-      if (value[cursor] === '\\' && isEscapableMarkdownPunctuation(value[cursor + 1])) {
-        cursor += 1;
-        continue;
-      }
-      if (value[cursor] === '>') return cursor + 1;
-      if (value[cursor] === '<' || /[\t\n\r ]/u.test(value[cursor])) return -1;
+    if (node.type !== 'list') continue;
+    if (startLine > 1 && lines[startLine - 2]?.trim()) {
+      issues.push(
+        issue('list-spacing-before', startLine, 'Add a blank line before the Markdown list.')
+      );
     }
-    return -1;
-  }
-
-  let depth = 0;
-  let cursor = start;
-  while (cursor < value.length && !/[\t\n\r ]/u.test(value[cursor])) {
-    if (value[cursor] === '\\' && isEscapableMarkdownPunctuation(value[cursor + 1])) {
-      cursor += 2;
-      continue;
+    if (lines[endLine]?.trim()) {
+      issues.push(
+        issue('list-spacing-after', endLine, 'Add a blank line after the Markdown list.')
+      );
     }
-    if (value[cursor] === '(') depth += 1;
-    if (value[cursor] === ')') {
-      if (depth === 0) return stopAtOuterParenthesis ? cursor : -1;
-      depth -= 1;
-    }
-    cursor += 1;
   }
-  return cursor === start || depth !== 0 ? -1 : cursor;
-};
-
-const parseDestinationAndTitle = (value, start, outerParenthesis) => {
-  let cursor = skipMarkdownWhitespace(value, start);
-  if (outerParenthesis && value[cursor] === ')') {
-    return { end: cursor + 1, hasTitle: false };
-  }
-  const destinationEnd = markdownDestinationEnd(value, cursor, outerParenthesis);
-  if (destinationEnd === -1) return undefined;
-  cursor = destinationEnd;
-  if (outerParenthesis && value[cursor] === ')') {
-    return { end: cursor + 1, hasTitle: false };
-  }
-  if (!outerParenthesis && cursor === value.length) {
-    return { end: cursor, hasTitle: false };
-  }
-
-  const titleStart = skipMarkdownWhitespace(value, cursor);
-  if (titleStart === cursor) return undefined;
-  if (outerParenthesis && value[titleStart] === ')') {
-    return { end: titleStart + 1, hasTitle: false };
-  }
-  if (!outerParenthesis && titleStart === value.length) {
-    return { end: titleStart, hasTitle: false };
-  }
-  const titleEnd = markdownTitleEnd(value, titleStart);
-  if (titleEnd === -1) return undefined;
-  cursor = skipMarkdownWhitespace(value, titleEnd);
-  if (outerParenthesis) {
-    return value[cursor] === ')' ? { end: cursor + 1, hasTitle: true } : undefined;
-  }
-  return cursor === value.length ? { end: cursor, hasTitle: true } : undefined;
-};
-
-function linkDefinitionPrefix(line) {
-  const content = markdownBlockContent(line);
-  if (!content?.startsWith('[')) return undefined;
-  const labelEnd = closingDelimiterIndex(content, 0, '[', ']');
-  if (labelEnd <= 1 || content[labelEnd + 1] !== ':') return undefined;
-  return { content, destinationStart: labelEnd + 2, identifier: content.slice(1, labelEnd) };
-}
-
-const parseTitleOnlyLine = line => {
-  if (!/^ {1,3}\S/u.test(line)) return false;
-  const content = markdownBlockContent(line);
-  if (content === undefined) return false;
-  const titleEnd = markdownTitleEnd(content, 0);
-  return titleEnd !== -1 && skipHtmlWhitespace(content, titleEnd) === content.length;
-};
-
-function parseLinkDefinitionAt(lines, index) {
-  const prefix = linkDefinitionPrefix(lines[index] ?? '');
-  if (!prefix) return undefined;
-  let parsed = parseDestinationAndTitle(prefix.content, prefix.destinationStart, false);
-  let nextIndex = index + 1;
-  if (!parsed) {
-    if (prefix.content.slice(prefix.destinationStart).trim()) return undefined;
-    const destinationLine = lines[index + 1] ?? '';
-    if (!/^ {1,3}\S/u.test(destinationLine)) return undefined;
-    const destinationContent = markdownBlockContent(destinationLine);
-    if (destinationContent === undefined) return undefined;
-    parsed = parseDestinationAndTitle(destinationContent, 0, false);
-    if (!parsed) return undefined;
-    nextIndex += 1;
-  }
-  if (!parsed.hasTitle && parseTitleOnlyLine(lines[nextIndex] ?? '')) nextIndex += 1;
-  return { identifier: prefix.identifier, nextIndex };
-}
-
-const maskInlineLinks = (line, linkDefinitionIdentifiers) => {
-  const characters = line.split('');
-  let cursor = 0;
-  while (cursor < line.length) {
-    const labelStart = line.indexOf('[', cursor);
-    if (labelStart === -1) break;
-    if (isMarkdownEscaped(line, labelStart)) {
-      cursor = labelStart + 1;
-      continue;
-    }
-    const labelEnd = closingDelimiterIndex(line, labelStart, '[', ']');
-    if (labelEnd === -1) break;
-    const label = line.slice(labelStart + 1, labelEnd);
-    let linkEnd;
-    if (line[labelEnd + 1] === '(') {
-      linkEnd = parseDestinationAndTitle(line, labelEnd + 2, true)?.end;
-    } else if (line[labelEnd + 1] === '[') {
-      const identifierEnd = closingDelimiterIndex(line, labelEnd + 1, '[', ']');
-      if (identifierEnd !== -1) {
-        const identifier = line.slice(labelEnd + 2, identifierEnd) || label;
-        if (linkDefinitionIdentifiers.has(normalizedLinkIdentifier(identifier))) {
-          linkEnd = identifierEnd + 1;
-        }
-      }
-    } else if (linkDefinitionIdentifiers.has(normalizedLinkIdentifier(label))) {
-      linkEnd = labelEnd + 1;
-    }
-
-    if (linkEnd !== undefined) {
-      const imageStart = labelStart - 1;
-      const linkStart =
-        imageStart >= 0 && line[imageStart] === '!' && !isMarkdownEscaped(line, imageStart)
-          ? imageStart
-          : labelStart;
-      maskRange(characters, linkStart, linkEnd);
-      cursor = linkEnd;
-      continue;
-    }
-    cursor = labelEnd + 1;
-  }
-  return characters.join('');
-};
-
-const skipInlineHtmlWhitespace = (value, start) => {
-  let cursor = start;
-  while (/[\t\n\f\r ]/u.test(value[cursor] ?? '')) cursor += 1;
-  return cursor;
-};
-
-const inlineHtmlAttributeEnd = (value, start) => {
-  if (!HTML_ATTRIBUTE_NAME_START_PATTERN.test(value[start] ?? '')) return -1;
-  let cursor = start + 1;
-  while (HTML_ATTRIBUTE_NAME_CHARACTER_PATTERN.test(value[cursor] ?? '')) cursor += 1;
-  const equalsSign = skipInlineHtmlWhitespace(value, cursor);
-  if (value[equalsSign] !== '=') return cursor;
-  return htmlAttributeValueEnd(value, skipInlineHtmlWhitespace(value, equalsSign + 1));
-};
-
-const inlineHtmlTagEnd = (line, start) => {
-  let cursor = start + 1;
-  const isClosingTag = line[cursor] === '/';
-  if (isClosingTag) cursor += 1;
-  if (!/^[A-Za-z]$/u.test(line[cursor] ?? '')) return -1;
-  cursor += 1;
-  while (/^[A-Za-z0-9-]$/u.test(line[cursor] ?? '')) cursor += 1;
-
-  if (isClosingTag) {
-    cursor = skipInlineHtmlWhitespace(line, cursor);
-    return line[cursor] === '>' ? cursor + 1 : -1;
-  }
-
-  while (cursor < line.length) {
-    const attributeStart = skipInlineHtmlWhitespace(line, cursor);
-    if (line[attributeStart] === '>') return attributeStart + 1;
-    if (line[attributeStart] === '/' && line[attributeStart + 1] === '>') {
-      return attributeStart + 2;
-    }
-    if (attributeStart === cursor) return -1;
-    cursor = inlineHtmlAttributeEnd(line, attributeStart);
-    if (cursor === -1) return -1;
-  }
-  return -1;
-};
-
-const maskInlineHtmlTags = line => {
-  const characters = line.split('');
-  let cursor = 0;
-  while (cursor < line.length) {
-    const tagStart = line.indexOf('<', cursor);
-    if (tagStart === -1) break;
-    if (isMarkdownEscaped(line, tagStart)) {
-      cursor = tagStart + 1;
-      continue;
-    }
-    const tagEnd = inlineHtmlTagEnd(line, tagStart);
-    if (tagEnd === -1) {
-      cursor = tagStart + 1;
-      continue;
-    }
-    maskRange(characters, tagStart, tagEnd);
-    cursor = tagEnd;
-  }
-  return characters.join('');
-};
-
-const maskInlineLinksByBlock = (lines, linkDefinitionIdentifiers) => {
-  const maskedLines = [...lines];
-  let blockIndexes = [];
-
-  const maskBlock = () => {
-    if (blockIndexes.length === 0) return;
-    const block = blockIndexes.map(index => lines[index]).join('\n');
-    const maskedBlock = maskInlineHtmlTags(maskInlineLinks(block, linkDefinitionIdentifiers)).split(
-      '\n'
-    );
-    for (const [offset, index] of blockIndexes.entries()) maskedLines[index] = maskedBlock[offset];
-    blockIndexes = [];
-  };
-
-  for (const [index, line] of lines.entries()) {
-    if (!line.trim()) {
-      maskBlock();
-      continue;
-    }
-    const standaloneBlock = HEADING_PATTERN.test(line) || isThematicBreak(line);
-    if (standaloneBlock || isParagraphInterruptingListItem(line)) maskBlock();
-    blockIndexes.push(index);
-    if (standaloneBlock) maskBlock();
-  }
-  maskBlock();
-  return maskedLines;
-};
-
-const collectLineSyntaxIssues = ({
-  index,
-  line,
-  lineWithoutLinks,
-  setextHeadingLines,
-  structuralLines,
-}) => {
-  const lineNumber = index + 1;
-  const lineIssues = [];
-
-  if (LITERAL_NEWLINE_PATTERN.test(maskWindowsPathTokens(line))) {
-    lineIssues.push(
-      issue(
-        'literal-newline',
-        lineNumber,
-        String.raw`Replace the literal \n or \r\n separator with a real line break.`
-      )
-    );
-  }
-  if (INLINE_HEADING_PATTERN.test(lineWithoutLinks)) {
-    lineIssues.push(
-      issue('inline-heading', lineNumber, 'Start each Markdown heading on its own line.')
-    );
-  }
-  if (INLINE_TASK_ITEM_PATTERN.test(lineWithoutLinks)) {
-    lineIssues.push(
-      issue('inline-list', lineNumber, 'Start each Markdown task-list item on its own line.')
-    );
-  }
-
-  const heading = HEADING_PATTERN.test(line) || setextHeadingLines.has(index);
-  const nextLineHasContent =
-    index < structuralLines.length - 1 && structuralLines[index + 1]?.trim();
-  if (heading && nextLineHasContent) {
-    lineIssues.push(
-      issue('heading-spacing', lineNumber, 'Add a blank line after the Markdown heading.')
-    );
-  }
-  return lineIssues;
-};
-
-const collectLinkDefinitions = (sourceLines, structuralLines) => {
-  const identifiers = new Set();
-  const lineIndexes = new Set();
-  let index = 0;
-  while (index < sourceLines.length) {
-    const start = index;
-    if (!structuralLines[index]?.trim()) {
-      index += 1;
-      continue;
-    }
-    const definition = parseLinkDefinitionAt(sourceLines, index);
-    if (!definition) {
-      index += 1;
-      continue;
-    }
-    index = definition.nextIndex;
-    for (let lineIndex = start; lineIndex < index; lineIndex += 1) {
-      lineIndexes.add(lineIndex);
-    }
-    identifiers.add(normalizedLinkIdentifier(definition.identifier));
-  }
-  return { identifiers, lineIndexes };
-};
-
-const collectListSpacingIssues = ({
-  index,
-  line,
-  nextContentLine,
-  setextHeadingLines,
-  state,
-  structuralLines,
-}) => {
-  const lineNumber = index + 1;
-  const lineIsBlank = !line.trim();
-  const listLikeLine = !setextHeadingLines.has(index) && isTopLevelListItem(line);
-  const listItem =
-    listLikeLine &&
-    (state.inListBlock || !state.paragraphOpen || isParagraphInterruptingListItem(line));
-  const indentedContinuation = state.inListBlock && /^(?: {2,}|\t)\S/u.test(line);
-  const listIssues = [];
-
-  const continuesLooseList =
-    lineIsBlank && state.inListBlock && /^(?: {2,}|\t)\S/u.test(nextContentLine ?? '');
-  if (lineIsBlank && !continuesLooseList) state.inListBlock = false;
-  if (listItem && !state.inListBlock && index > 0 && structuralLines[index - 1]?.trim()) {
-    listIssues.push(
-      issue('list-spacing-before', lineNumber, 'Add a blank line before the Markdown list.')
-    );
-  }
-  if (state.inListBlock && !listItem && !lineIsBlank && !indentedContinuation) {
-    listIssues.push(
-      issue(
-        'list-spacing-after',
-        state.lastListItemLine,
-        'Add a blank line after the Markdown list.'
-      )
-    );
-    state.inListBlock = false;
-  }
-  if (listItem) {
-    state.inListBlock = true;
-    state.lastListItemLine = lineNumber;
-  }
-  if (state.inListBlock || lineIsBlank || listItem) {
-    state.paragraphOpen = false;
-  } else {
-    state.paragraphOpen = listLikeLine || leavesParagraphOpen(line);
-  }
-  return listIssues;
-};
-
-function collectSetextHeadingLineIndexes(lines) {
-  const headingLines = new Set();
-  let block = [];
-  for (const [index, line] of lines.entries()) {
-    if (!line.trim() || HEADING_PATTERN.test(line)) {
-      block = [];
-      continue;
-    }
-    if (SETEXT_HEADING_PATTERN.test(line) && isParagraphBlock(block)) {
-      headingLines.add(index);
-      block = [];
-      continue;
-    }
-    if (isThematicBreak(line)) {
-      block = [];
-      continue;
-    }
-    block.push(line);
-  }
-  return headingLines;
-}
-
-const nextNonBlankLines = lines => {
-  const nextLines = Array.from({ length: lines.length });
-  let nextLine;
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    nextLines[index] = nextLine;
-    if (lines[index].trim()) nextLine = lines[index];
-  }
-  return nextLines;
+  return issues;
 };
 
 export const validateMarkdownBody = body => {
   const normalizedBody = normalizeLineEndings(body);
-  const unquotedBody = stripBlockquotePrefixes(normalizedBody);
-  const unquotedLines = unquotedBody.split('\n');
-  const renderedContentLines = new Set();
-  const structuralLines = maskNonRenderedMarkdown(unquotedBody, renderedContentLines);
-  const linkDefinitions = collectLinkDefinitions(unquotedLines, structuralLines);
-  const linkMaskedLines = maskInlineLinksByBlock(structuralLines, linkDefinitions.identifiers);
-  const syntaxLines = linkMaskedLines.map((line, index) =>
-    linkDefinitions.lineIndexes.has(index) ? ' '.repeat(line.length) : line
-  );
-  const setextHeadingLines = collectSetextHeadingLineIndexes(structuralLines);
-  const nextContentLines = nextNonBlankLines(syntaxLines);
+  if (!normalizedBody.trim()) {
+    return [issue('empty-body', 1, 'The Markdown body must not be empty.')];
+  }
+
   const issues = [];
-
-  if (normalizedBody.trim().length === 0) {
-    return [issue('empty-body', 1, 'The body must contain Markdown content.')];
-  }
-
-  const contentLineCount = structuralLines.filter(
-    (line, index) =>
-      !linkDefinitions.lineIndexes.has(index) && (line.trim() || renderedContentLines.has(index))
-  ).length;
-  if (contentLineCount < 2) {
+  if (!normalizedBody.includes('\n')) {
     issues.push(
-      issue(
-        'missing-real-newline',
-        1,
-        'The body must contain at least two content lines separated by a real line break.'
-      )
+      issue('missing-newline', 1, 'Use real line breaks to structure the Markdown body.')
     );
   }
-
-  const listState = { inListBlock: false, lastListItemLine: 1, paragraphOpen: false };
-  for (const [index, line] of structuralLines.entries()) {
-    const syntaxLine = syntaxLines[index];
-    issues.push(
-      ...collectLineSyntaxIssues({
-        index,
-        line,
-        lineWithoutLinks: syntaxLine,
-        setextHeadingLines,
-        structuralLines,
-      }),
-      ...collectListSpacingIssues({
-        index,
-        line: syntaxLine,
-        nextContentLine: nextContentLines[index],
-        setextHeadingLines,
-        state: listState,
-        structuralLines: syntaxLines,
-      })
-    );
-  }
-
+  const root = parseMarkdown(normalizedBody);
+  issues.push(...collectLiteralNewlineIssues(normalizedBody, root));
+  issues.push(...collectRootBlockSpacingIssues(root, normalizedBody.split('\n')));
   return issues;
 };
 
-export const formatValidationIssues = (issues, bodyFile = 'body.md') => {
-  const details = issues.map(
-    candidate => `- ${bodyFile}:${candidate.line} [${candidate.code}] ${candidate.message}`
-  );
-  return ['GitHub body validation failed:', ...details].join('\n');
-};
+export const formatValidationIssues = (issues, bodyFile = 'body.md') =>
+  issues.map(({ line, message }) => `${bodyFile}:${line}: ${message}`).join('\n');
 
 export const assertValidMarkdownBody = (body, bodyFile) => {
   const issues = validateMarkdownBody(body);
   if (issues.length > 0) throw new Error(formatValidationIssues(issues, bodyFile));
 };
 
-function isLinkDefinitionBlock(block) {
-  let index = 0;
-  while (index < block.length) {
-    const definition = parseLinkDefinitionAt(block, index);
-    if (!definition) return false;
-    index = definition.nextIndex;
+const expectedRenderedTags = body => {
+  const root = parseMarkdown(body);
+  const counts = new Map();
+  const increment = tag => counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  for (const node of root.children ?? []) {
+    if (node.type === 'paragraph') increment('p');
   }
-  return true;
-}
-
-function isParagraphBlock(block) {
-  if (block.length === 0) return false;
-  return !(
-    block.some(isTopLevelListItem) ||
-    INDENTED_CODE_PATTERN.test(block[0]) ||
-    isLinkDefinitionBlock(block) ||
-    block.some(isTableDelimiter) ||
-    block.some(isThematicBreak)
-  );
-}
-
-const markdownStructure = body => {
-  const renderedBlockTags = [];
-  const lines = maskNonRenderedMarkdown(
-    stripBlockquotePrefixes(body),
-    new Set(),
-    renderedBlockTags
-  );
-  const headingLevels = [];
-  let listItemCount = 0;
-  let paragraphCount = 0;
-  let block = [];
-  let inListBlock = false;
-
-  const recordBlock = () => {
-    if (block.length === 0) return;
-    if (isParagraphBlock(block)) paragraphCount += 1;
-    block = [];
-    inListBlock = false;
-  };
-
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    if (!trimmedLine) {
-      recordBlock();
-      continue;
-    }
-
-    const heading = HEADING_PATTERN.exec(line);
-    if (heading) {
-      recordBlock();
-      headingLevels.push(heading[2].length);
-      continue;
-    }
-
-    const setextHeading = SETEXT_HEADING_PATTERN.exec(line);
-    if (setextHeading && isParagraphBlock(block)) {
-      block = [];
-      headingLevels.push(setextHeading[1].startsWith('=') ? 1 : 2);
-      continue;
-    }
-
-    if (isThematicBreak(line)) {
-      recordBlock();
-      renderedBlockTags.push('hr');
-      block.push(line);
-      recordBlock();
-      continue;
-    }
-
-    const listLikeLine = isTopLevelListItem(line);
-    const listItem =
-      listLikeLine && (inListBlock || block.length === 0 || isParagraphInterruptingListItem(line));
-    if (listItem) {
-      if (!inListBlock && block.length > 0) recordBlock();
-      listItemCount += 1;
-      inListBlock = true;
-    }
-    block.push(line);
-  }
-  recordBlock();
-
-  return { headingLevels, listItemCount, paragraphCount, renderedBlockTags };
+  walkAst(root, [], node => {
+    if (node.type === 'heading') increment(`h${node.depth}`);
+    if (node.type === 'listItem') increment('li');
+  });
+  return counts;
 };
 
-const countMatches = (value, pattern) => [...value.matchAll(pattern)].length;
+const renderedTagCount = (renderedHtml, tag) =>
+  [...renderedHtml.matchAll(new RegExp(`<${tag}(?:[ >])`, 'giu'))].length;
 
 export const assertGitHubRendering = (body, renderedHtml) => {
   if (!renderedHtml.trim()) throw new Error('GitHub returned an empty rendered body.');
-
-  const expected = markdownStructure(body);
-  const expectedHeadingCounts = new Map();
-  for (const level of expected.headingLevels) {
-    expectedHeadingCounts.set(level, (expectedHeadingCounts.get(level) ?? 0) + 1);
-  }
-  for (const [level, expectedCount] of expectedHeadingCounts) {
-    const actualCount = countMatches(renderedHtml, new RegExp(`<h${level}(?:[ >])`, 'giu'));
-    if (actualCount < expectedCount) {
-      throw new Error(
-        `GitHub rendering lost Markdown headings: expected ${expectedCount} h${level}, received ${actualCount}.`
-      );
-    }
-  }
-
-  const renderedListItems = countMatches(renderedHtml, /<li(?:[ >])/giu);
-  if (renderedListItems < expected.listItemCount) {
-    throw new Error(
-      `GitHub rendering lost list items: expected ${expected.listItemCount}, received ${renderedListItems}.`
-    );
-  }
-
-  const renderedParagraphs = countMatches(renderedHtml, /<p(?:[ >])/giu);
-  if (renderedParagraphs < expected.paragraphCount) {
-    throw new Error(
-      `GitHub rendering collapsed paragraphs: expected ${expected.paragraphCount}, received ${renderedParagraphs}.`
-    );
-  }
-
-  const expectedBlockTagCounts = new Map();
-  for (const tag of expected.renderedBlockTags) {
-    expectedBlockTagCounts.set(tag, (expectedBlockTagCounts.get(tag) ?? 0) + 1);
-  }
-  for (const [tag, expectedCount] of expectedBlockTagCounts) {
-    const actualCount = countMatches(renderedHtml, new RegExp(`<${tag}(?:[ >])`, 'giu'));
+  for (const [tag, expectedCount] of expectedRenderedTags(body)) {
+    const actualCount = renderedTagCount(renderedHtml, tag);
     if (actualCount < expectedCount) {
       throw new Error(
         `GitHub rendering lost Markdown blocks: expected ${expectedCount} <${tag}>, received ${actualCount}.`
@@ -1403,228 +155,22 @@ const runProcess = (command, args) =>
     const child = spawn(command, args, { shell: false, windowsHide: true });
     const stdout = [];
     const stderr = [];
-
     child.stdout.on('data', chunk => stdout.push(chunk));
     child.stderr.on('data', chunk => stderr.push(chunk));
     child.on('error', rejectProcess);
     child.on('close', exitCode => {
-      const output = Buffer.concat(stdout).toString('utf8');
       if (exitCode === 0) {
-        resolveProcess(output);
+        resolveProcess(Buffer.concat(stdout).toString('utf8'));
         return;
       }
-      const errorOutput = Buffer.concat(stderr).toString('utf8').trim();
-      const errorDetail = errorOutput ? `: ${errorOutput}` : '.';
-      rejectProcess(new Error(`gh api failed with exit code ${exitCode}${errorDetail}`));
+      const detail = Buffer.concat(stderr).toString('utf8').trim();
+      rejectProcess(
+        new Error(`gh api failed with exit code ${exitCode}${detail ? `: ${detail}` : '.'}`)
+      );
     });
   });
 
 const runGh = args => runProcess('gh', args);
-
-const endpointFor = ({ kind, number, repository }) => {
-  const resource = GITHUB_BODY_RESOURCES[kind];
-  return `repos/${repository}/${resource}/${number}`;
-};
-
-const fetchRemoteBody = async ({ endpoint, runGhCommand }) => {
-  const remoteResponse = await runGhCommand([
-    'api',
-    endpoint,
-    '--method',
-    'GET',
-    '--header',
-    `Accept: ${GITHUB_FULL_MEDIA_TYPE}`,
-    '--header',
-    `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
-  ]);
-  const remote = JSON.parse(remoteResponse);
-  if (
-    (remote.body !== null && typeof remote.body !== 'string') ||
-    (remote.body_html !== null && typeof remote.body_html !== 'string')
-  ) {
-    throw new TypeError('GitHub did not return both raw and rendered body representations.');
-  }
-  return { ...remote, body: remote.body ?? '', body_html: remote.body_html ?? '' };
-};
-
-const assertRemoteKind = (remote, kind, number) => {
-  if (kind === 'issue' && Object.hasOwn(remote, 'pull_request')) {
-    throw new TypeError(
-      `GitHub issue #${number} is a pull request; use --kind pr to mutate its body.`
-    );
-  }
-};
-
-const verifyRemoteSnapshot = ({
-  endpoint,
-  exactBodyMatch = false,
-  kind,
-  localBody,
-  number,
-  remote,
-}) => {
-  assertRemoteKind(remote, kind, number);
-
-  const normalizedRemoteBody = normalizeLineEndings(remote.body);
-  const normalizedLocalBody = normalizeLineEndings(localBody);
-  const comparableRemoteBody =
-    kind === 'pr' && !exactBodyMatch
-      ? bodyWithoutManagedPrSuffix(normalizedRemoteBody)
-      : normalizedRemoteBody;
-  const comparableLocalBody =
-    kind === 'pr' && !exactBodyMatch
-      ? bodyWithoutManagedPrSuffix(normalizedLocalBody)
-      : normalizedLocalBody;
-  if (comparableRemoteBody !== comparableLocalBody) {
-    throw new Error('GitHub raw body does not match the Markdown body file.');
-  }
-  assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`);
-  assertGitHubRendering(remote.body, remote.body_html);
-
-  return { endpoint, htmlLength: Buffer.byteLength(remote.body_html, 'utf8') };
-};
-
-const verifyRemoteBody = async ({ endpoint, kind, localBody, number, runGhCommand }) => {
-  const remote = await fetchRemoteBody({ endpoint, runGhCommand });
-  return verifyRemoteSnapshot({ endpoint, kind, localBody, number, remote });
-};
-
-const bodyWithPreservedManagedSuffix = ({ kind, localBody, remoteBody }) => {
-  if (kind !== 'pr') return localBody;
-  const managedSuffix = managedPrSuffix(remoteBody);
-  if (!managedSuffix) return localBody;
-  return `${bodyWithoutManagedPrSuffix(localBody)}${managedSuffix}`;
-};
-
-const renderGitHubMarkdown = ({ bodyFile, repository, runGhCommand }) =>
-  runGhCommand([
-    'api',
-    'markdown',
-    '--method',
-    'POST',
-    '--header',
-    `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
-    '--field',
-    `text=@${bodyFile}`,
-    '--field',
-    'mode=gfm',
-    '--field',
-    `context=${repository}`,
-  ]);
-
-export const previewGitHubBody = async ({ bodyFile, repository, runGhCommand = runGh }) => {
-  const absoluteBodyFile = resolve(bodyFile);
-  const body = await readFile(absoluteBodyFile, 'utf8');
-  assertValidMarkdownBody(body, absoluteBodyFile);
-  let temporaryDirectory;
-  try {
-    temporaryDirectory = await mkdtemp(join(tmpdir(), 'nous-github-body-preview-'));
-    const previewFile = join(temporaryDirectory, 'body.md');
-    await writeFile(previewFile, body, 'utf8');
-    const renderedPreview = await renderGitHubMarkdown({
-      bodyFile: previewFile,
-      repository,
-      runGhCommand,
-    });
-    assertGitHubRendering(body, renderedPreview);
-    return { htmlLength: Buffer.byteLength(renderedPreview, 'utf8') };
-  } finally {
-    if (temporaryDirectory) await rm(temporaryDirectory, { force: true, recursive: true });
-  }
-};
-
-export const verifyGitHubBody = async ({
-  bodyFile,
-  kind,
-  number,
-  repository,
-  runGhCommand = runGh,
-}) => {
-  const absoluteBodyFile = resolve(bodyFile);
-  const localBody = await readFile(absoluteBodyFile, 'utf8');
-  assertValidMarkdownBody(localBody, absoluteBodyFile);
-  const endpoint = endpointFor({ kind, number, repository });
-  return verifyRemoteBody({ endpoint, kind, localBody, number, runGhCommand });
-};
-
-export const updateGitHubBody = async ({
-  bodyFile,
-  kind,
-  number,
-  repository,
-  runGhCommand = runGh,
-}) => {
-  const absoluteBodyFile = resolve(bodyFile);
-  const localBody = await readFile(absoluteBodyFile, 'utf8');
-  const localBodyWithoutManagedSuffix =
-    kind === 'pr' ? bodyWithoutManagedPrSuffix(localBody) : localBody;
-  assertValidMarkdownBody(localBodyWithoutManagedSuffix, absoluteBodyFile);
-
-  const endpoint = endpointFor({ kind, number, repository });
-  const remoteBeforeUpdate = await fetchRemoteBody({ endpoint, runGhCommand });
-  assertRemoteKind(remoteBeforeUpdate, kind, number);
-  const uploadBody = bodyWithPreservedManagedSuffix({
-    kind,
-    localBody,
-    remoteBody: remoteBeforeUpdate.body,
-  });
-  assertValidMarkdownBody(uploadBody, `${absoluteBodyFile} with remote managed suffix`);
-  let temporaryDirectory;
-
-  try {
-    temporaryDirectory = await mkdtemp(join(tmpdir(), 'nous-github-body-upload-'));
-    const uploadFile = join(temporaryDirectory, 'body.md');
-    await writeFile(uploadFile, uploadBody, 'utf8');
-    const renderedPreview = await renderGitHubMarkdown({
-      bodyFile: uploadFile,
-      repository,
-      runGhCommand,
-    });
-    assertGitHubRendering(uploadBody, renderedPreview);
-    await runGhCommand([
-      'api',
-      endpoint,
-      '--method',
-      'PATCH',
-      '--header',
-      `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
-      '--field',
-      `body=@${uploadFile}`,
-      '--silent',
-    ]);
-  } finally {
-    if (temporaryDirectory) await rm(temporaryDirectory, { force: true, recursive: true });
-  }
-
-  const remoteAfterUpdate = await fetchRemoteBody({ endpoint, runGhCommand });
-  return verifyRemoteSnapshot({
-    endpoint,
-    exactBodyMatch: true,
-    kind,
-    localBody: uploadBody,
-    number,
-    remote: remoteAfterUpdate,
-  });
-};
-
-const parseFlags = args => {
-  const flags = new Map();
-  for (let index = 0; index < args.length; index += 2) {
-    const flag = args[index];
-    const value = args[index + 1];
-    if (!flag?.startsWith('--') || value === undefined || value.startsWith('--')) {
-      throw new TypeError(`Expected --name value arguments, received: ${args.join(' ')}`);
-    }
-    flags.set(flag, value);
-  }
-  return flags;
-};
-
-const requiredFlag = (flags, name) => {
-  const value = flags.get(name);
-  if (!value) throw new TypeError(`Missing required argument: ${name}`);
-  return value;
-};
 
 const validateRepository = repository => {
   if (!REPOSITORY_PATTERN.test(repository)) {
@@ -1648,6 +194,241 @@ const validateKind = kind => {
   return kind;
 };
 
+const endpointFor = ({ kind, number, repository }) => {
+  const validKind = validateKind(kind);
+  return `repos/${validateRepository(repository)}/${GITHUB_BODY_RESOURCES[validKind]}/${validateNumber(number)}`;
+};
+
+const fetchRemoteBody = async ({ endpoint, runGhCommand }) => {
+  const response = await runGhCommand([
+    'api',
+    endpoint,
+    '--method',
+    'GET',
+    '--header',
+    `Accept: ${GITHUB_FULL_MEDIA_TYPE}`,
+    '--header',
+    `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
+  ]);
+  const remote = JSON.parse(response);
+  if (
+    !remote ||
+    typeof remote !== 'object' ||
+    (remote.body !== null && typeof remote.body !== 'string') ||
+    (remote.body_html !== null && typeof remote.body_html !== 'string')
+  ) {
+    throw new TypeError('GitHub did not return both raw and rendered body representations.');
+  }
+  return { ...remote, body: remote.body ?? '', body_html: remote.body_html ?? '' };
+};
+
+const assertRemoteKind = (remote, kind, number) => {
+  if (kind === 'issue' && Object.hasOwn(remote, 'pull_request')) {
+    throw new TypeError(`GitHub issue #${number} is a pull request; use --kind pr.`);
+  }
+};
+
+const managedPrSuffix = body => {
+  const normalizedBody = normalizeLineEndings(body);
+  const root = parseMarkdown(normalizedBody);
+  const children = root.children ?? [];
+  const occurrenceCount = (value, marker) => value.split(marker).length - 1;
+  let activeStartCount = 0;
+  let activeEndCount = 0;
+  walkAst(root, [], node => {
+    if (node.type !== 'html') return;
+    activeStartCount += occurrenceCount(node.value, MANAGED_PR_SUFFIX_START);
+    activeEndCount += occurrenceCount(node.value, MANAGED_PR_SUFFIX_END);
+  });
+  if (activeStartCount === 0 && activeEndCount === 0) return undefined;
+
+  const markerIndexes = marker =>
+    children.flatMap((node, index) =>
+      node.type === 'html' && node.value.trim() === marker ? [index] : []
+    );
+  const startIndexes = markerIndexes(MANAGED_PR_SUFFIX_START);
+  const endIndexes = markerIndexes(MANAGED_PR_SUFFIX_END);
+  if (
+    activeStartCount !== 1 ||
+    activeEndCount !== 1 ||
+    startIndexes.length !== 1 ||
+    endIndexes.length !== 1 ||
+    startIndexes[0] >= endIndexes[0]
+  ) {
+    throw new Error('The managed pull request body markers are incomplete or ambiguous.');
+  }
+  const suffixStart = nodeOffset(children[startIndexes[0]], 'start');
+  if (suffixStart === undefined) {
+    throw new Error('The managed pull request body start marker has no source position.');
+  }
+  return normalizedBody.slice(suffixStart);
+};
+
+const bodyWithoutManagedPrSuffix = body => {
+  const normalizedBody = normalizeLineEndings(body);
+  const suffix = managedPrSuffix(normalizedBody);
+  return suffix ? normalizedBody.slice(0, -suffix.length).trimEnd() : normalizedBody;
+};
+
+const bodyWithPreservedManagedSuffix = ({ kind, localBody, remoteBody }) => {
+  if (kind !== 'pr') return localBody;
+  const suffix = managedPrSuffix(remoteBody);
+  if (!suffix) return localBody;
+  return `${bodyWithoutManagedPrSuffix(localBody).trimEnd()}\n\n${suffix}`;
+};
+
+const comparableBody = (body, kind, exactBodyMatch) =>
+  kind === 'pr' && !exactBodyMatch ? bodyWithoutManagedPrSuffix(body) : normalizeLineEndings(body);
+
+const verifyRemoteSnapshot = ({ exactBodyMatch = false, kind, localBody, number, remote }) => {
+  assertRemoteKind(remote, kind, number);
+  if (
+    comparableBody(remote.body, kind, exactBodyMatch) !==
+    comparableBody(localBody, kind, exactBodyMatch)
+  ) {
+    throw new Error('GitHub raw body does not match the Markdown body file.');
+  }
+  assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`);
+  assertGitHubRendering(remote.body, remote.body_html);
+  return { htmlLength: Buffer.byteLength(remote.body_html, 'utf8') };
+};
+
+const renderGitHubMarkdown = ({ bodyFile, repository, runGhCommand }) =>
+  runGhCommand([
+    'api',
+    'markdown',
+    '--method',
+    'POST',
+    '--header',
+    `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
+    '--field',
+    `text=@${bodyFile}`,
+    '--field',
+    'mode=gfm',
+    '--field',
+    `context=${repository}`,
+  ]);
+
+const withBodySnapshot = async (prefix, body, operation) => {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  const bodyFile = join(directory, 'body.md');
+  try {
+    await writeFile(bodyFile, body, 'utf8');
+    return await operation(bodyFile);
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+};
+
+export const previewGitHubBody = async ({ bodyFile, repository, runGhCommand = runGh }) => {
+  const body = await readFile(resolve(bodyFile), 'utf8');
+  assertValidMarkdownBody(body, resolve(bodyFile));
+  const validRepository = validateRepository(repository);
+  return withBodySnapshot('nous-github-body-preview-', body, async snapshotFile => {
+    const rendered = await renderGitHubMarkdown({
+      bodyFile: snapshotFile,
+      repository: validRepository,
+      runGhCommand,
+    });
+    assertGitHubRendering(body, rendered);
+    return { htmlLength: Buffer.byteLength(rendered, 'utf8') };
+  });
+};
+
+export const verifyGitHubBody = async ({
+  bodyFile,
+  kind,
+  number,
+  repository,
+  runGhCommand = runGh,
+}) => {
+  const localBody = await readFile(resolve(bodyFile), 'utf8');
+  assertValidMarkdownBody(localBody, resolve(bodyFile));
+  const endpoint = endpointFor({ kind, number, repository });
+  const remote = await fetchRemoteBody({ endpoint, runGhCommand });
+  return { endpoint, ...verifyRemoteSnapshot({ kind, localBody, number, remote }) };
+};
+
+export const updateGitHubBody = async ({
+  bodyFile,
+  kind,
+  number,
+  repository,
+  runGhCommand = runGh,
+}) => {
+  const absoluteBodyFile = resolve(bodyFile);
+  const localBody = await readFile(absoluteBodyFile, 'utf8');
+  assertValidMarkdownBody(
+    kind === 'pr' ? bodyWithoutManagedPrSuffix(localBody) : localBody,
+    absoluteBodyFile
+  );
+  const endpoint = endpointFor({ kind, number, repository });
+  const remoteBefore = await fetchRemoteBody({ endpoint, runGhCommand });
+  assertRemoteKind(remoteBefore, kind, number);
+  const uploadBody = bodyWithPreservedManagedSuffix({
+    kind,
+    localBody,
+    remoteBody: remoteBefore.body,
+  });
+  assertValidMarkdownBody(uploadBody, `${absoluteBodyFile} with remote managed suffix`);
+
+  await withBodySnapshot('nous-github-body-upload-', uploadBody, async snapshotFile => {
+    const rendered = await renderGitHubMarkdown({
+      bodyFile: snapshotFile,
+      repository,
+      runGhCommand,
+    });
+    assertGitHubRendering(uploadBody, rendered);
+    const remoteBeforePatch = await fetchRemoteBody({ endpoint, runGhCommand });
+    assertRemoteKind(remoteBeforePatch, kind, number);
+    if (normalizeLineEndings(remoteBeforePatch.body) !== normalizeLineEndings(remoteBefore.body)) {
+      throw new Error('GitHub body changed during update; no changes were applied.');
+    }
+    await runGhCommand([
+      'api',
+      endpoint,
+      '--method',
+      'PATCH',
+      '--header',
+      `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
+      '--field',
+      `body=@${snapshotFile}`,
+      '--silent',
+    ]);
+  });
+
+  const remoteAfter = await fetchRemoteBody({ endpoint, runGhCommand });
+  return {
+    endpoint,
+    ...verifyRemoteSnapshot({
+      exactBodyMatch: true,
+      kind,
+      localBody: uploadBody,
+      number,
+      remote: remoteAfter,
+    }),
+  };
+};
+
+const parseFlags = args => {
+  const flags = new Map();
+  for (let index = 0; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (!flag?.startsWith('--') || value === undefined || value.startsWith('--')) {
+      throw new TypeError(`Expected --name value arguments, received: ${args.join(' ')}`);
+    }
+    flags.set(flag, value);
+  }
+  return flags;
+};
+
+const requiredFlag = (flags, name) => {
+  const value = flags.get(name);
+  if (!value) throw new TypeError(`Missing required argument: ${name}`);
+  return value;
+};
+
 const usage = `Usage:
   bun run github:body -- validate --body-file <path>
   bun run github:body -- preview --repo <owner/repository> --body-file <path>
@@ -1658,40 +439,34 @@ export const runCli = async (args, dependencies = {}) => {
   const [command, ...flagArguments] = args;
   const flags = parseFlags(flagArguments);
   const bodyFile = requiredFlag(flags, '--body-file');
-
   if (command === 'validate') {
-    const body = await readFile(bodyFile, 'utf8');
-    assertValidMarkdownBody(body, bodyFile);
+    assertValidMarkdownBody(await readFile(bodyFile, 'utf8'), bodyFile);
     process.stdout.write(`Validated GitHub body: ${bodyFile}\n`);
     return;
   }
-
   if (command === 'preview') {
     const result = await previewGitHubBody({
       bodyFile,
-      repository: validateRepository(requiredFlag(flags, '--repo')),
+      repository: requiredFlag(flags, '--repo'),
       runGhCommand: dependencies.runGhCommand,
     });
     process.stdout.write(`Previewed GitHub body (${result.htmlLength} rendered HTML bytes).\n`);
     return;
   }
-
   if (command === 'update' || command === 'verify') {
-    const target = {
+    const operation = command === 'update' ? updateGitHubBody : verifyGitHubBody;
+    const result = await operation({
       bodyFile,
-      kind: validateKind(requiredFlag(flags, '--kind')),
-      number: validateNumber(requiredFlag(flags, '--number')),
-      repository: validateRepository(requiredFlag(flags, '--repo')),
+      kind: requiredFlag(flags, '--kind'),
+      number: requiredFlag(flags, '--number'),
+      repository: requiredFlag(flags, '--repo'),
       runGhCommand: dependencies.runGhCommand,
-    };
-    const result =
-      command === 'update' ? await updateGitHubBody(target) : await verifyGitHubBody(target);
+    });
     process.stdout.write(
       `${command === 'update' ? 'Updated and verified' : 'Verified'} ${result.endpoint} (${result.htmlLength} rendered HTML bytes).\n`
     );
     return;
   }
-
   throw new TypeError(usage);
 };
 
@@ -1699,8 +474,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     await runCli(process.argv.slice(2));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   }
 }

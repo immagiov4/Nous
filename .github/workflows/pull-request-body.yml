@@ -26,6 +26,14 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install trusted dependencies
+        run: bun install --frozen-lockfile --ignore-scripts --production
+
       - name: Read body from pull request event
         env:
           BODY_FILE: ${{ runner.temp }}/pull-request-body.md
@@ -41,5 +49,5 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: >-
-          node scripts/github-body.mjs verify --kind pr --repo "$REPOSITORY"
+          bun scripts/github-body.mjs verify --kind pr --repo "$REPOSITORY"
           --number "$PR_NUMBER" --body-file "$BODY_FILE"

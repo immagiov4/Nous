@@ -11,15 +11,6 @@ import {
   verifyGitHubBody,
 } from './github-body.mjs';
 
-const temporaryDirectories: string[] = [];
-
-afterEach(async () => {
-  vi.restoreAllMocks();
-  await Promise.all(
-    temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true }))
-  );
-});
-
 const validBody = `## Summary
 
 The body keeps its paragraphs separate.
@@ -32,609 +23,105 @@ The body keeps its paragraphs separate.
 The focused test passed.
 `;
 
-const managedCubicDescription = `
+const validRenderedBody =
+  '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
+  '<ul><li>First item</li><li>Second item</li></ul>' +
+  '<h2>Testing</h2><p>The focused test passed.</p>';
 
-<!-- This is an auto-generated description by cubic. -->
-<a href="https://cubic.dev/pr/example">Review in Cubic</a>
+const managedSuffix = `<!-- This is an auto-generated description by cubic. -->
+
+Generated review context.
+
 <!-- End of auto-generated description by cubic. -->
+
+[Review in Cubic](https://www.cubic.dev/)
 `;
 
-async function createBodyFile(body = validBody): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'nous-github-body-'));
+const managedRenderedBody =
+  `${validRenderedBody}<p>Generated review context.</p>` +
+  '<p><a href="https://www.cubic.dev/">Review in Cubic</a></p>';
+
+const temporaryDirectories: string[] = [];
+
+const createBodyFile = async (body = validBody) => {
+  const directory = await mkdtemp(join(tmpdir(), 'nous-github-body-test-'));
   temporaryDirectories.push(directory);
   const bodyFile = join(directory, 'body.md');
   await writeFile(bodyFile, body, 'utf8');
   return bodyFile;
-}
+};
 
-describe('GitHub body Markdown validation', () => {
-  test('accepts headings, paragraphs, and lists with explicit block boundaries', () => {
-    expect(validateMarkdownBody(validBody)).toEqual([]);
+const issueCodes = (body: string) => new Set(validateMarkdownBody(body).map(issue => issue.code));
 
-    const bodyWithThematicBreak = 'First paragraph.\n\n- - -\n\nSecond paragraph.\n';
-    expect(validateMarkdownBody(bodyWithThematicBreak)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(
-        bodyWithThematicBreak,
-        '<p>First paragraph.</p><hr><p>Second paragraph.</p>'
-      )
-    ).not.toThrow();
-    expect(
-      validateMarkdownBody('- First paragraph\n\n  Second paragraph\n- Second item\n')
-    ).toEqual([]);
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await Promise.all(
+    temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true }))
+  );
+});
 
-    const setextBody = 'Title\n=====\n\nParagraph.\n';
-    expect(validateMarkdownBody(setextBody)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(setextBody, '<h1>Title</h1><p>Paragraph.</p>')
-    ).not.toThrow();
-    expect(() => assertGitHubRendering(setextBody, '<p>Title Paragraph.</p>')).toThrow(
-      /lost Markdown headings/u
-    );
-    const multilineSetextBody = 'First heading line\nsecond heading line\n---\n\nParagraph.\n';
-    expect(() =>
-      assertGitHubRendering(
-        multilineSetextBody,
-        '<h2>First heading line second heading line</h2><p>Paragraph.</p>'
-      )
-    ).not.toThrow();
+describe('GitHub body Markdown contract', () => {
+  test('accepts explicit blocks while leaving literal notation inside code to Remark', () => {
+    const bodyWithCode = `${validBody}
+Use \`C:\\new\\notes\` as a documented path.
 
-    expect(() => assertGitHubRendering('[docs]: /url\n---\n', '<hr>')).not.toThrow();
-    expect(() => assertGitHubRendering('***\n---\n', '<hr><hr>')).not.toThrow();
-    expect(validateMarkdownBody('[docs]: /url\n---\n\nParagraph.\n')).toEqual([]);
-    expect(validateMarkdownBody('***\n---\n')).toEqual([]);
-    expect(validateMarkdownBody('Title\n---\nText.\n').map(candidate => candidate.code)).toContain(
-      'heading-spacing'
-    );
-    expect(() => assertGitHubRendering('Title\n---\n', '<p>Title</p><hr>')).toThrow(
-      /lost Markdown headings/u
-    );
-  });
-
-  test('rejects literal newline separators from shell-flattened bodies', () => {
-    const issues = validateMarkdownBody('## Summary\\nText\\n\\n## Testing\\n- bun run test');
-
-    expect(issues.map(candidate => candidate.code)).toContain('missing-real-newline');
-    expect(issues.map(candidate => candidate.code)).toContain('literal-newline');
-    expect(validateMarkdownBody('## Summary\n\nUse C:\\new\\file as an example.\n')).toEqual([]);
-    expect(validateMarkdownBody('## Summary\n\nUse docs\\new\\file as an example.\n')).toEqual([]);
-    expect(
-      validateMarkdownBody('## Summary\n\nChanged docs\\new\\file\\n## Testing\n\nDone.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('literal-newline');
-    expect(
-      validateMarkdownBody(
-        '## Summary\n\nfirst paragraph\\nsecond paragraph\n\n## Testing\n\nDone.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('literal-newline');
-    expect(
-      validateMarkdownBody('## Summary\n\nSummary:\\ntext\n').map(candidate => candidate.code)
-    ).toContain('literal-newline');
-  });
-
-  test('rejects a single flattened content line even with an editor newline at EOF', () => {
-    const issues = validateMarkdownBody('Everything was flattened into one content line.\n');
-
-    expect(issues.map(candidate => candidate.code)).toContain('missing-real-newline');
-    expect(
-      validateMarkdownBody('<!-- one -->\n<!-- two -->\n').map(candidate => candidate.code)
-    ).toContain('missing-real-newline');
-  });
-
-  test('rejects headings and list items flattened into a paragraph', () => {
-    const issues = validateMarkdownBody(
-      '## Summary\n\nDescription ## Testing\n\n- [ ] bun run test - [ ] git diff --check\n'
-    );
-
-    expect(issues.map(candidate => candidate.code)).toContain('inline-heading');
-    expect(issues.map(candidate => candidate.code)).toContain('inline-list');
-  });
-
-  test('rejects repeated task items flattened after paragraph text', () => {
-    const issues = validateMarkdownBody(
-      'Tasks - [ ] run tests - [ ] inspect rendering\n\nSecond content line.\n'
-    );
-
-    expect(issues.map(candidate => candidate.code)).toContain('inline-list');
-    expect(
-      validateMarkdownBody('Tasks 123456789. [ ] run tests\n\nSecond content line.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-list');
-  });
-
-  test('requires a blank line after headings and around list blocks', () => {
-    const issues = validateMarkdownBody('## Summary\nText\n- First\nParagraph\n');
-
-    expect(issues.map(candidate => candidate.code)).toEqual([
-      'heading-spacing',
-      'list-spacing-before',
-      'list-spacing-after',
-    ]);
-    expect(
-      validateMarkdownBody('Title\n=====\nParagraph\n').map(candidate => candidate.code)
-    ).toContain('heading-spacing');
-    const wrappedOrderedProse =
-      'Release notes\n2026. Migration remains supported.\n2. Compatibility remains supported.\n';
-    expect(validateMarkdownBody(wrappedOrderedProse)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(
-        wrappedOrderedProse,
-        '<p>Release notes\n2026. Migration remains supported.\n2. Compatibility remains supported.</p>'
-      )
-    ).not.toThrow();
-  });
-
-  test('allows literal newline notation inside code', () => {
-    const body = '## Example\n\nUse `\\n` in a string.\n\n```text\n\\n\n```\n';
-
-    expect(validateMarkdownBody(body)).toEqual([]);
-    expect(validateMarkdownBody('## Example\n\nUse # for headings in prose.\n')).toEqual([]);
-    expect(
-      validateMarkdownBody('## Example\n\nUse ``text ` marker ## not-a-heading`` safely.\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nUse \\`text ## Testing\\` literally.\n\nMore context.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nUse \\\\`text ## Not-a-heading\\\\` as code.\n\nMore context.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody('## Example\n\nUse `first line\nDescription ## Not-a-heading` safely.\n')
-    ).toEqual([]);
-    expect(validateMarkdownBody('`first line\nsecond line`\n')).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nCode follows.\n\n    Description ## Not-a-heading\n    \\n\n'
-      )
-    ).toEqual([]);
-    expect(validateMarkdownBody('\t  first\n\t  second\n')).toEqual([]);
-    expect(() =>
-      assertGitHubRendering('\t  first\n\t  second\n', '<pre><code>first\nsecond\n</code></pre>')
-    ).not.toThrow();
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<details><summary>Why ## Not a heading</summary></details>\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody('## Example\n\n<div>\nDescription ## Not-a-heading\n</div>\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody('## Example\n\n<div>\ntext\n</div>\nDescription ## Not-a-heading\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<div></div>\nDescription ## Not-a-heading\n\nParagraph.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<span>Label</span> Description ## Testing\n\nParagraph.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('## Example\n\n<br> Description ## Testing\n\nParagraph.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nParagraph\n<span>\nDescription ## Testing\n\nMore.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('```text\ncode\n```\n<span>\nDescription ## Not-a-heading\n\nMore.\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n <custom-tag>\nDescription ## Not-a-heading\n\nParagraph.\n'
-      )
-    ).toEqual([]);
-    for (const malformedTag of ['<span/foo>', '<span=foo>', '<span.foo>']) {
-      expect(
-        validateMarkdownBody(
-          `## Example\n\n${malformedTag}\nDescription ## Testing\n\nParagraph.\n`
-        ).map(candidate => candidate.code)
-      ).toContain('inline-heading');
-    }
-    expect(
-      validateMarkdownBody('## Example\n\n<span =foo>\nDescription ## Testing\n\nParagraph.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<custom-tag data-value="<">\nDescription ## Not-a-heading\n\nParagraph.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<custom-tag data-value=">">\nDescription ## Not-a-heading\n\nParagraph.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<span data-value=one>  \nDescription ## Not-a-heading\n\nParagraph.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<x data-value=one/two>\nDescription ## Testing\n\nParagraph.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<x data-value=one/>\nDescription ## Not-a-heading\n\nParagraph.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<details>\n<summary>More</summary>\n\nDescription ## Testing\n\n</details>\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(validateMarkdownBody('## Example\n\n```text\nsample\n```\n')).toEqual([]);
-    expect(validateMarkdownBody('```text\nfirst\nsecond\n```\n')).toEqual([]);
-    expect(validateMarkdownBody('<div>\nfirst\nsecond\n</div>\n')).toEqual([]);
-    expect(
-      validateMarkdownBody('## Example\n\n<div\nclass="note">\nWhy ## Not-a-heading\n</div>\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<custom-tag\nclass="note">\nDescription ## Testing\n\nParagraph.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    for (const rawBlock of [
-      '<?processing\nWhy ## Not-a-heading?>',
-      '<!DECLARATION\nWhy ## Not-a-heading>',
-      '<![CDATA[\nWhy ## Not-a-heading]]>',
-    ]) {
-      expect(validateMarkdownBody(`## Example\n\nParagraph.\n\n${rawBlock}\n`)).toEqual([]);
-    }
-    expect(
-      validateMarkdownBody('```text`\nDescription ## Testing\n\nSecond paragraph.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('```text`\nSummary\\n## Testing\n\nParagraph.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('literal-newline');
-
-    const issues = validateMarkdownBody(
-      '## Example\n\nUse `<!--` literally.\n\nDescription ## Testing\n'
-    );
-    expect(issues.map(candidate => candidate.code)).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('## Example\n\nNote <!-- ` --> and `text ## Not-a-heading` here.\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nNote <!-- ` --> and `<!--` then.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n`closed` <!-- ` --> and `<!--` then.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nUse `ok` <!-- ` --> and `<!--` literal. Description ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nUse `` ` inner `` <!-- note --> and `<!--` literal. Description ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nUse `` ` `` <!-- `work` --> then `<!--` literally.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nUse `` ` `` <!-- `work` --> then `text ## Not-a-heading`.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nUse `code\n<!-- still code\nends` here.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\nNote <!-- ` --> and `code\n<!-- literal\nends` here.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<!--\n```\n-->\nUse `code\n<!-- still code\nends` here.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n```\n<!--\n```\nUse `<!--` literally.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Example\n\n<!--\n```\n-->\nUse `<!--` literally.\n\nDescription ## Testing\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    const unmatchedCodeIssues = validateMarkdownBody(
-      '## Example\n\nUse an unmatched ` marker.\n\nDescription ## Testing\n'
-    );
-    expect(unmatchedCodeIssues.map(candidate => candidate.code)).toContain('inline-heading');
-
-    const commentIssues = validateMarkdownBody(
-      '## Example\n\nText.\n\n<!-- open\n```\n`-->`\nDescription ## Testing\n'
-    );
-    expect(commentIssues.map(candidate => candidate.code)).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Summary\n\nFirst <!-- Description ## Testing\n\nMore context.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '## Summary\n\nDescription \\<!-- ## Testing -->\n\nMore context.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('## Summary\n\nText.\n\n<!-- open\nDescription ## Not-a-heading\n')
-    ).toEqual([]);
-
-    const repeatedCommentAndCodeSpans = Array.from(
-      { length: 500 },
-      () => '`<!--` <!-- hidden -->'
-    ).join(' ');
-    expect(
-      validateMarkdownBody(`## Example\n\n${repeatedCommentAndCodeSpans}\n\nMore context.\n`)
-    ).toEqual([]);
-  });
-
-  test('accepts prose punctuation and wrapped list items', () => {
-    const body = `## Summary
-
-Node + Bun are supported. The update is safe - it avoids shell interpolation.
-
-- First item
-  with a wrapped continuation
-- Second item
+\`\`\`text
+Literal \\n stays inside this example.
+\`\`\`
 `;
 
-    expect(validateMarkdownBody(body)).toEqual([]);
-
-    const markerOnlyList = '-\n  First item\n';
-    expect(validateMarkdownBody(markerOnlyList)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(markerOnlyList, '<ul><li>First item</li></ul>')
-    ).not.toThrow();
-
-    const referenceDefinition =
-      '[docs]: https://example.com\n  "Documentation"\n\nSee [docs].\n\nMore context.\n';
-    expect(validateMarkdownBody(referenceDefinition)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(
-        referenceDefinition,
-        '<p>See <a href="https://example.com" title="Documentation">docs</a>.</p><p>More context.</p>'
-      )
-    ).not.toThrow();
-    const splitReferenceDefinition =
-      '[docs]:\n  https://example.com\n  "Documentation"\n\nSee [docs].\n\nMore context.\n';
-    expect(validateMarkdownBody(splitReferenceDefinition)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(
-        splitReferenceDefinition,
-        '<p>See <a href="https://example.com" title="Documentation">docs</a>.</p><p>More context.</p>'
-      )
-    ).not.toThrow();
-
-    const blockquotedList = '> - First item\n> - Second item\n';
-    expect(validateMarkdownBody('> # Previous heading\n>\n> - [ ] Previous task\n')).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(
-        blockquotedList,
-        '<blockquote><ul><li>First item</li><li>Second item</li></ul></blockquote>'
-      )
-    ).not.toThrow();
-
-    const blockquotedProse = '> ## Heading\n>\n> First paragraph.\n>\n> Second paragraph.\n';
-    expect(validateMarkdownBody(blockquotedProse)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(
-        blockquotedProse,
-        '<blockquote><h2>Heading</h2><p>First paragraph.</p><p>Second paragraph.</p></blockquote>'
-      )
-    ).not.toThrow();
-    expect(() =>
-      assertGitHubRendering(
-        blockquotedProse,
-        '<blockquote><p>First paragraph.</p><p>Second paragraph.</p></blockquote>'
-      )
-    ).toThrow(/lost Markdown headings/u);
-    expect(() =>
-      assertGitHubRendering(
-        '> First paragraph.\n>\n> Second paragraph.\n',
-        '<blockquote><p>First paragraph. Second paragraph.</p></blockquote>'
-      )
-    ).toThrow(/collapsed paragraphs/u);
-
-    const blockquotedCode =
-      '> ## Example\n>\n> Code sample follows.\n>\n> ```text\n> \\n\n> Description ## Not-a-heading\n> ```\n';
-    expect(validateMarkdownBody(blockquotedCode)).toEqual([]);
-
-    expect(
-      validateMarkdownBody('## Links\n\nSee [docs](https://example.com "Why ## this matters").\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        '## Links\n\nSee [docs](https://example.com "Why ## this matters") then Description ## Testing.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        'First <span title="Why ## this matters">label</span>.\n\nSecond paragraph.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        'First <span\n title="Why ## this matters">label</span>.\n\nSecond paragraph.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody(
-        'First \\<span title="Why ## Testing">label\\</span>.\n\nSecond paragraph.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        'First <span title="metadata">label</span>. Description ## Testing\n\nSecond paragraph.\n'
-      ).map(candidate => candidate.code)
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody(
-        '[docs]: https://example.com "Why ## this matters"\n\nSee [docs].\n\nMore context.\n'
-      )
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody('See [Why ## this matters][docs].\n\n[docs]: /url\n\nMore context.\n')
-    ).toEqual([]);
-    expect(
-      validateMarkdownBody('See [Why ## this matters](a(b(c)d)e).\n\nMore context.\n')
-    ).toEqual([]);
-    expect(validateMarkdownBody('See [Why \\] ## this matters](/url).\n\nMore context.\n')).toEqual(
-      []
-    );
-    expect(
-      validateMarkdownBody('See \\[Description ## Testing](/url).\n\nMore context.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(validateMarkdownBody('See \\\\[Why ## this matters](/url).\n\nMore context.\n')).toEqual(
-      []
-    );
-    for (const multilineLink of [
-      'See [Why\nDescription ## this matters](/url).\n\nMore context.\n',
-      'See [Why ## this matters](\n/url\n).\n\nMore context.\n',
-      'See [Why ## this matters](/url\n  "title").\n\nMore context.\n',
-      'See [Why\n[id]: Description ## this matters](/url).\n\nMore context.\n',
-      'See [Why ## this matters\n2. continuation](/url).\n\nMore context.\n',
-      'See [Why ## this matters\n| --- | --- |\ncontinued](/url).\n\nMore context.\n',
-    ]) {
-      expect(validateMarkdownBody(multilineLink)).toEqual([]);
-    }
-    expect(
-      validateMarkdownBody('See [Why\n\nDescription ## Testing](/url).\n\nMore context.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('Description [x ## Testing](a\\ b)\n\nSecond content line.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('[ab]: /url\n\nDescription [x ## Testing][a\\b]\n\nMore context.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('Description [x ## Testing](not valid)\n\nSecond content line.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('inline-heading');
-    expect(
-      validateMarkdownBody('[one]: /one\n[two]: /two\n').map(candidate => candidate.code)
-    ).toContain('missing-real-newline');
-    expect(
-      validateMarkdownBody('[one]: /one\n\nOnly one rendered line.\n').map(
-        candidate => candidate.code
-      )
-    ).toContain('missing-real-newline');
-    expect(validateMarkdownBody('```text\n[first]: /one\n[second]: /two\n```\n')).toEqual([]);
-    expect(validateMarkdownBody('[one]: not valid\n[two]: also invalid\n')).toEqual([]);
-    expect(validateMarkdownBody('[one]: /a(b\n[two]: /c(d\n')).toEqual([]);
-    expect(validateMarkdownBody('[id]: /a(b\n  /valid\n\nOnly one rendered line.\n')).toEqual([]);
+    expect(validateMarkdownBody(validBody)).toEqual([]);
+    expect(validateMarkdownBody(bodyWithCode)).toEqual([]);
   });
 
-  test('keeps indented paragraph continuations in the open paragraph', () => {
-    const body = 'First line\n    continuation\nthird line\n';
-
-    expect(validateMarkdownBody(body)).toEqual([]);
-    expect(() =>
-      assertGitHubRendering(body, '<p>First line\ncontinuation\nthird line</p>')
-    ).not.toThrow();
-    expect(validateMarkdownBody('First line\n\n    code line\n')).toEqual([]);
-  });
-
-  test('aggregates repeated heading levels when checking rendered HTML', () => {
-    const body = '## One\n\nText.\n\n## Two\n\nText.\n\n### Three\n\nText.\n';
-
-    expect(() => assertGitHubRendering(body, '<h2>One</h2><h3>Three</h3><p>Text.</p>')).toThrow(
-      'expected 2 h2, received 1'
+  test('rejects empty, single-line, and literal-newline bodies', () => {
+    expect(issueCodes('')).toContain('empty-body');
+    expect(issueCodes('Only one physical line')).toContain('missing-newline');
+    expect(issueCodes('## Summary\n\nText\\n## Testing\\n- item\n\nDone.\n')).toContain(
+      'literal-newline'
     );
   });
 
-  test('checks rendered fenced code, raw HTML, and thematic breaks', () => {
-    expect(() =>
-      assertGitHubRendering('```text\ncode\n```\n\nParagraph.\n', '<p>Paragraph.</p>')
-    ).toThrow('expected 1 <pre>, received 0');
-    expect(() =>
-      assertGitHubRendering(
-        '<details>\n<summary>More</summary>\n</details>\n\nParagraph.\n',
-        '<p>Paragraph.</p>'
-      )
-    ).toThrow('expected 1 <details>, received 0');
-    expect(() =>
-      assertGitHubRendering(
-        'First paragraph.\n\n---\n\nSecond paragraph.\n',
-        '<p>First</p><p>Second</p>'
-      )
-    ).toThrow('expected 1 <hr>, received 0');
-    expect(() =>
-      assertGitHubRendering('</div>\n\nParagraph.\n', '</div><p>Paragraph.</p>')
-    ).not.toThrow();
+  test('uses AST blocks without treating ordinary prose as flattened Markdown', () => {
+    const ordinaryProse = `${validBody}
+Use # tags in GitHub.
+Compare old - new behavior, or use option 1) now.
+`;
+
+    expect(validateMarkdownBody(ordinaryProse)).toEqual([]);
   });
 
-  test('counts incomplete HTML-looking text as paragraph content', () => {
-    const body = '<custom\ntext\n\nSecond.\n';
+  test('requires blank boundaries after headings and around top-level lists', () => {
+    expect(issueCodes('## Summary\nText.\n')).toContain('heading-spacing');
+    const listIssues = issueCodes('Text.\n- First\n- Second\nNext.\n');
+    expect(listIssues).toContain('list-spacing-before');
+    expect(validateMarkdownBody(validBody)).toEqual([]);
+  });
 
-    expect(() => assertGitHubRendering(body, '<p>&lt;custom text Second.</p>')).toThrow(
-      'expected 2, received 1'
+  test('verifies the rendered heading, paragraph, and list structure', () => {
+    expect(() => assertGitHubRendering(validBody, validRenderedBody)).not.toThrow();
+    expect(() => assertGitHubRendering(validBody, '<h2>Summary</h2><p>Collapsed.</p>')).toThrow(
+      'GitHub rendering lost Markdown blocks'
     );
-    expect(
-      validateMarkdownBody('<custom\n---\nText.\n').map(candidate => candidate.code)
-    ).toContain('heading-spacing');
   });
 });
 
-describe('GitHub body remote update', () => {
-  test('previews the exact file snapshot through GitHub rendering', async () => {
+describe('GitHub body remote lifecycle', () => {
+  test('previews an immutable file snapshot through GitHub rendering', async () => {
     const bodyFile = await createBodyFile();
-    const renderedBody =
-      '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
-      '<ul><li>First item</li><li>Second item</li></ul>' +
-      '<h2>Testing</h2><p>The focused test passed.</p>';
-    const runGhCommand = vi
-      .fn<(args: string[]) => Promise<string>>()
-      .mockResolvedValue(renderedBody);
+    let snapshotBody = '';
+    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      const bodyArgument = args.find(argument => argument.startsWith('text=@'));
+      if (!bodyArgument) throw new Error('Expected a Markdown snapshot.');
+      snapshotBody = await readFile(bodyArgument.slice('text=@'.length), 'utf8');
+      await writeFile(bodyFile, 'Changed after snapshot.\n', 'utf8');
+      return validRenderedBody;
+    });
 
     await expect(
-      previewGitHubBody({
-        bodyFile,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).resolves.toEqual({ htmlLength: renderedBody.length });
+      previewGitHubBody({ bodyFile, repository: 'immagiov4/Nous', runGhCommand })
+    ).resolves.toEqual({ htmlLength: Buffer.byteLength(validRenderedBody, 'utf8') });
+    expect(snapshotBody).toBe(validBody);
     expect(runGhCommand).toHaveBeenCalledWith([
       'api',
       'markdown',
@@ -651,308 +138,25 @@ describe('GitHub body remote update', () => {
     ]);
   });
 
-  test('preserves the managed suffix, uploads from a file, then verifies remote raw and HTML', async () => {
+  test('uploads one snapshot, preserves the managed suffix, then verifies raw and rendered data', async () => {
     const bodyFile = await createBodyFile();
-    const renderedBody =
-      '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
-      '<ul><li>First item</li><li>Second item</li></ul>' +
-      '<h2>Testing</h2><p>The focused test passed.</p>' +
-      '<p><a>Review in Cubic</a></p>';
-    const readCommand = [
-      'api',
-      'repos/immagiov4/Nous/pulls/42',
-      '--method',
-      'GET',
-      '--header',
-      'Accept: application/vnd.github.full+json',
-      '--header',
-      'X-GitHub-Api-Version: 2022-11-28',
-    ];
+    let remoteBody = `${validBody.trimEnd()}\n\n${managedSuffix}`;
     let uploadedBody = '';
-    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
-      if (args[1] === 'markdown') return renderedBody;
-      if (args.includes('PATCH')) {
-        const bodyArgument = args.find(argument => argument.startsWith('body=@'));
-        if (!bodyArgument) throw new Error('Expected body file argument.');
-        uploadedBody = await readFile(bodyArgument.slice('body=@'.length), 'utf8');
-        return '';
-      }
-      return JSON.stringify({
-        body: uploadedBody || validBody + managedCubicDescription,
-        body_html: renderedBody,
-      });
-    });
-
-    await expect(
-      updateGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).resolves.toEqual({
-      endpoint: 'repos/immagiov4/Nous/pulls/42',
-      htmlLength: renderedBody.length,
-    });
-
-    expect(runGhCommand).toHaveBeenNthCalledWith(1, readCommand);
-    expect(runGhCommand).toHaveBeenNthCalledWith(2, [
-      'api',
-      'markdown',
-      '--method',
-      'POST',
-      '--header',
-      'X-GitHub-Api-Version: 2022-11-28',
-      '--field',
-      expect.stringMatching(/^text=@.+nous-github-body-upload-.+body\.md$/u),
-      '--field',
-      'mode=gfm',
-      '--field',
-      'context=immagiov4/Nous',
-    ]);
-    expect(runGhCommand).toHaveBeenNthCalledWith(3, [
-      'api',
-      'repos/immagiov4/Nous/pulls/42',
-      '--method',
-      'PATCH',
-      '--header',
-      'X-GitHub-Api-Version: 2022-11-28',
-      '--field',
-      expect.stringMatching(/^body=@.+nous-github-body-upload-.+body\.md$/u),
-      '--silent',
-    ]);
-    expect(runGhCommand).toHaveBeenNthCalledWith(4, readCommand);
-    expect(uploadedBody).toBe(validBody + managedCubicDescription);
-
-    const verifyGhCommand = vi
-      .fn<(args: string[]) => Promise<string>>()
-      .mockResolvedValue(JSON.stringify({ body: validBody, body_html: renderedBody }));
-    await verifyGitHubBody({
-      bodyFile,
-      kind: 'pr',
-      number: 42,
-      repository: 'immagiov4/Nous',
-      runGhCommand: verifyGhCommand,
-    });
-    expect(verifyGhCommand).toHaveBeenCalledTimes(1);
-    expect(verifyGhCommand).toHaveBeenCalledWith(readCommand);
-
-    const managedBodyFile = await createBodyFile(validBody + managedCubicDescription);
-    const verifyManagedGhCommand = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
-      JSON.stringify({
-        body: validBody + managedCubicDescription,
-        body_html: renderedBody,
-      })
-    );
-    await expect(
-      verifyGitHubBody({
-        bodyFile: managedBodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand: verifyManagedGhCommand,
-      })
-    ).resolves.toEqual({
-      endpoint: 'repos/immagiov4/Nous/pulls/42',
-      htmlLength: renderedBody.length,
-    });
-
-    const plainBodyFile = await createBodyFile(validBody);
-    const verifyAppendedGhCommand = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
-      JSON.stringify({
-        body: validBody + managedCubicDescription,
-        body_html: renderedBody,
-      })
-    );
-    await expect(
-      verifyGitHubBody({
-        bodyFile: plainBodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand: verifyAppendedGhCommand,
-      })
-    ).resolves.toEqual({
-      endpoint: 'repos/immagiov4/Nous/pulls/42',
-      htmlLength: renderedBody.length,
-    });
-  });
-
-  test('uploads the validated snapshot when the source file changes during preflight', async () => {
-    const bodyFile = await createBodyFile();
-    const renderedBody =
-      '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
-      '<ul><li>First item</li><li>Second item</li></ul>' +
-      '<h2>Testing</h2><p>The focused test passed.</p>';
-    let uploadedBody = '';
+    let patchCount = 0;
     const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
       if (args[1] === 'markdown') {
-        await writeFile(bodyFile, 'Changed after validation.\n', 'utf8');
-        return renderedBody;
+        await writeFile(bodyFile, 'Changed after snapshot.\n', 'utf8');
+        return managedRenderedBody;
       }
       if (args.includes('PATCH')) {
         const bodyArgument = args.find(argument => argument.startsWith('body=@'));
-        if (!bodyArgument) throw new Error('Expected body file argument.');
+        if (!bodyArgument) throw new Error('Expected a body file argument.');
         uploadedBody = await readFile(bodyArgument.slice('body=@'.length), 'utf8');
+        remoteBody = uploadedBody;
+        patchCount += 1;
         return '';
       }
-      return JSON.stringify({
-        body: uploadedBody || null,
-        body_html: uploadedBody ? renderedBody : null,
-      });
-    });
-
-    await updateGitHubBody({
-      bodyFile,
-      kind: 'pr',
-      number: 42,
-      repository: 'immagiov4/Nous',
-      runGhCommand,
-    });
-
-    expect(uploadedBody).toBe(validBody);
-    const patchArgument = runGhCommand.mock.calls
-      .find(([args]) => args.includes('PATCH'))?.[0]
-      .find(argument => argument.startsWith('body=@'));
-    expect(patchArgument).toMatch(/^body=@.+nous-github-body-upload-.+body\.md$/u);
-    expect(patchArgument).not.toBe(`body=@${bodyFile}`);
-  });
-
-  test('reports rendered HTML size in UTF-8 bytes', async () => {
-    const bodyFile = await createBodyFile();
-    const renderedBody =
-      '<h2>Summary</h2><p>Résumé.</p><ul><li>One</li><li>Two</li></ul>' +
-      '<h2>Testing</h2><p>Passed.</p>';
-    const runGhCommand = vi
-      .fn<(args: string[]) => Promise<string>>()
-      .mockResolvedValue(JSON.stringify({ body: validBody, body_html: renderedBody }));
-
-    await expect(
-      verifyGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).resolves.toEqual({
-      endpoint: 'repos/immagiov4/Nous/pulls/42',
-      htmlLength: Buffer.byteLength(renderedBody, 'utf8'),
-    });
-  });
-
-  test('keeps the current remote managed suffix when the file contains an older copy', async () => {
-    const olderManagedDescription = managedCubicDescription
-      .replace('/example', '/older')
-      .replace('Review in Cubic', 'Review\\n## Broken');
-    const bodyFile = await createBodyFile(
-      (validBody + olderManagedDescription).replace(/\n/gu, '\r\n')
-    );
-    const remoteManagedSuffix = `${managedCubicDescription}\n## Summary by Bot\n\nManaged text.\n`;
-    const renderedBody =
-      '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
-      '<ul><li>First item</li><li>Second item</li></ul>' +
-      '<h2>Testing</h2><p>The focused test passed.</p>' +
-      '<p><a>Review in Cubic</a></p><h2>Summary by Bot</h2><p>Managed text.</p>';
-    let uploadedBody = '';
-    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
-      if (args[1] === 'markdown') return renderedBody;
-      if (args.includes('PATCH')) {
-        const bodyArgument = args.find(argument => argument.startsWith('body=@'));
-        if (!bodyArgument) throw new Error('Expected body file argument.');
-        uploadedBody = await readFile(bodyArgument.slice('body=@'.length), 'utf8');
-        return '';
-      }
-      return JSON.stringify({
-        body: uploadedBody || validBody + remoteManagedSuffix,
-        body_html: renderedBody,
-      });
-    });
-
-    await updateGitHubBody({
-      bodyFile,
-      kind: 'pr',
-      number: 42,
-      repository: 'immagiov4/Nous',
-      runGhCommand,
-    });
-
-    expect(uploadedBody).toBe(validBody + remoteManagedSuffix);
-    expect(uploadedBody).not.toContain('/older');
-    expect(uploadedBody).not.toContain('Review\\n## Broken');
-  });
-
-  test('preserves managed-marker examples inside fenced code', async () => {
-    const markerExample =
-      `${validBody}\n\`\`\`html\n${'<!-- This is an auto-generated description by cubic. -->'}\n` +
-      '```\n\n## Later section\n\nKeep this text.\n';
-    const bodyFile = await createBodyFile(markerExample);
-    const renderedBody =
-      '<h2>Summary</h2><p>The body keeps its paragraphs separate.</p>' +
-      '<ul><li>First item</li><li>Second item</li></ul>' +
-      '<h2>Testing</h2><p>The focused test passed.</p><pre><code>marker</code></pre>' +
-      '<h2>Later section</h2><p>Keep this text.</p><p><a>Review in Cubic</a></p>';
-    let uploadedBody = '';
-    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
-      if (args[1] === 'markdown') return renderedBody;
-      if (args.includes('PATCH')) {
-        const bodyArgument = args.find(argument => argument.startsWith('body=@'));
-        if (!bodyArgument) throw new Error('Expected body file argument.');
-        uploadedBody = await readFile(bodyArgument.slice('body=@'.length), 'utf8');
-        return '';
-      }
-      return JSON.stringify({
-        body: uploadedBody || validBody + managedCubicDescription,
-        body_html: renderedBody,
-      });
-    });
-
-    await updateGitHubBody({
-      bodyFile,
-      kind: 'pr',
-      number: 42,
-      repository: 'immagiov4/Nous',
-      runGhCommand,
-    });
-
-    expect(uploadedBody).toBe(markerExample + managedCubicDescription);
-    expect(uploadedBody).toContain('## Later section');
-  });
-
-  test('rejects an invalid managed suffix before PATCH', async () => {
-    const bodyFile = await createBodyFile();
-    const invalidManagedSuffix = managedCubicDescription.replace(
-      'Review in Cubic',
-      'Review\\n## Broken'
-    );
-    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
-      JSON.stringify({
-        body: validBody + invalidManagedSuffix,
-        body_html: '<p>Existing body</p>',
-      })
-    );
-
-    await expect(
-      updateGitHubBody({
-        bodyFile,
-        kind: 'pr',
-        number: 42,
-        repository: 'immagiov4/Nous',
-        runGhCommand,
-      })
-    ).rejects.toThrow('literal-newline');
-    expect(runGhCommand).toHaveBeenCalledTimes(1);
-    expect(runGhCommand.mock.calls[0]?.[0]).toContain('GET');
-  });
-
-  test('rejects GitHub-sanitized raw HTML before PATCH', async () => {
-    const body = '## Summary\n\n<script>alert(1)</script>\n\nMore context.\n';
-    const bodyFile = await createBodyFile(body);
-    const renderedPreview = '<h2>Summary</h2><p>More context.</p>';
-    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
-      if (args[1] === 'markdown') return renderedPreview;
-      return JSON.stringify({ body, body_html: renderedPreview });
+      return JSON.stringify({ body: remoteBody, body_html: managedRenderedBody });
     });
 
     await expect(
@@ -963,56 +167,129 @@ describe('GitHub body remote update', () => {
         repository: 'immagiov4/Nous',
         runGhCommand,
       })
-    ).rejects.toThrow('expected 1 <script>, received 0');
-    expect(runGhCommand).toHaveBeenCalledTimes(2);
+    ).resolves.toMatchObject({ endpoint: 'repos/immagiov4/Nous/pulls/42' });
+    expect(uploadedBody).toBe(`${validBody.trimEnd()}\n\n${managedSuffix}`);
+    expect(patchCount).toBe(1);
+  });
+
+  test('rejects a collapsed GitHub preview before PATCH', async () => {
+    const bodyFile = await createBodyFile();
+    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      if (args[1] === 'markdown') return '<p>Collapsed.</p>';
+      if (args.includes('PATCH')) throw new Error('PATCH must not run.');
+      return JSON.stringify({ body: validBody, body_html: validRenderedBody });
+    });
+
+    await expect(
+      updateGitHubBody({
+        bodyFile,
+        kind: 'pr',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand,
+      })
+    ).rejects.toThrow('GitHub rendering lost Markdown blocks');
     expect(runGhCommand.mock.calls.some(([args]) => args.includes('PATCH'))).toBe(false);
   });
 
-  test('rejects a pull request passed as an issue before any remote mutation', async () => {
+  test('aborts before PATCH when the remote body changes during preflight', async () => {
     const bodyFile = await createBodyFile();
-    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
-      JSON.stringify({
-        body: validBody,
-        body_html: '<p>Pull request body</p>',
-        pull_request: { url: 'https://api.github.test/pulls/7' },
-      })
-    );
+    let getCount = 0;
+    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>(async args => {
+      if (args[1] === 'markdown') return validRenderedBody;
+      if (args.includes('PATCH')) throw new Error('PATCH must not run.');
+      getCount += 1;
+      const body = getCount === 1 ? validBody : validBody.replace('focused', 'remote');
+      return JSON.stringify({ body, body_html: validRenderedBody });
+    });
 
     await expect(
       updateGitHubBody({
         bodyFile,
-        kind: 'issue',
-        number: 7,
+        kind: 'pr',
+        number: 42,
         repository: 'immagiov4/Nous',
         runGhCommand,
       })
-    ).rejects.toThrow('is a pull request; use --kind pr');
-    expect(runGhCommand).toHaveBeenCalledTimes(1);
-    expect(runGhCommand.mock.calls[0]?.[0]).toContain('GET');
+    ).rejects.toThrow('GitHub body changed during update');
+    expect(runGhCommand.mock.calls.some(([args]) => args.includes('PATCH'))).toBe(false);
+  });
+
+  test('rejects incomplete or structurally ambiguous managed markers before mutation', async () => {
+    const bodyFile = await createBodyFile();
+    const unsafeBodies = [
+      `${validBody}\n<!-- This is an auto-generated description by cubic. -->`,
+      `${validBody}\n> <!-- This is an auto-generated description by cubic. -->\n> text\n> <!-- End of auto-generated description by cubic. -->`,
+      `${validBody}\n<!-- This is an auto-generated description by cubic. --><!-- End of auto-generated description by cubic. -->`,
+    ];
+
+    for (const remoteBody of unsafeBodies) {
+      const runGhCommand = vi
+        .fn()
+        .mockResolvedValue(JSON.stringify({ body: remoteBody, body_html: validRenderedBody }));
+      await expect(
+        updateGitHubBody({
+          bodyFile,
+          kind: 'pr',
+          number: 42,
+          repository: 'immagiov4/Nous',
+          runGhCommand,
+        })
+      ).rejects.toThrow('managed pull request body markers are incomplete');
+      expect(runGhCommand).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test('fails verification when the remote raw body differs from the file', async () => {
+    const bodyFile = await createBodyFile();
+    const runGhCommand = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        body: validBody.replace('focused test passed', 'remote body changed'),
+        body_html: validRenderedBody,
+      })
+    );
 
     await expect(
       verifyGitHubBody({
         bodyFile,
-        kind: 'issue',
-        number: 7,
+        kind: 'pr',
+        number: 42,
         repository: 'immagiov4/Nous',
         runGhCommand,
       })
-    ).rejects.toThrow('is a pull request; use --kind pr');
-    expect(runGhCommand).toHaveBeenCalledTimes(2);
+    ).rejects.toThrow('GitHub raw body does not match');
   });
 
-  test('fails when GitHub rendering drops Markdown structure', () => {
-    expect(() => assertGitHubRendering(validBody, '<p>Everything became one block.</p>')).toThrow(
-      'lost Markdown headings'
-    );
-  });
+  test('rejects unsupported targets and pull requests passed as issues before mutation', async () => {
+    const bodyFile = await createBodyFile();
+    const unsupportedRun = vi.fn();
+    await expect(
+      updateGitHubBody({
+        bodyFile,
+        kind: 'discussion',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand: unsupportedRun,
+      })
+    ).rejects.toThrow('--kind must be issue|pr');
+    expect(unsupportedRun).not.toHaveBeenCalled();
 
-  test('fails when GitHub rendering collapses separate paragraphs', () => {
-    const body = 'First paragraph.\n\nSecond paragraph.\n';
-
-    expect(() => assertGitHubRendering(body, '<p>First paragraph. Second paragraph.</p>')).toThrow(
-      'collapsed paragraphs'
+    const issueRun = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
+      JSON.stringify({
+        body: validBody,
+        body_html: validRenderedBody,
+        pull_request: { url: 'https://api.github.test/pulls/42' },
+      })
     );
+    await expect(
+      updateGitHubBody({
+        bodyFile,
+        kind: 'issue',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand: issueRun,
+      })
+    ).rejects.toThrow('is a pull request');
+    expect(issueRun).toHaveBeenCalledTimes(1);
   });
 });

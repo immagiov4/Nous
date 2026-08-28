@@ -55,16 +55,25 @@ describe('pull request body workflow security contract', () => {
       ref: `\${{ github.event.pull_request.base.sha }}`,
       'persist-credentials': false,
     });
+    expect(workflow.jobs.validate.steps[1]).toEqual({
+      name: 'Set up Bun',
+      uses: 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6',
+      with: { 'bun-version': '1.4.0' },
+    });
+    expect(workflow.jobs.validate.steps[2]).toEqual({
+      name: 'Install trusted dependencies',
+      run: 'bun install --frozen-lockfile --ignore-scripts --production',
+    });
   });
 
   test('reads untrusted body text from the event file instead of shell interpolation', () => {
-    expect(workflow.jobs.validate.steps).toHaveLength(3);
-    expect(workflow.jobs.validate.steps[1]).toEqual({
+    expect(workflow.jobs.validate.steps).toHaveLength(5);
+    expect(workflow.jobs.validate.steps[3]).toEqual({
       name: 'Read body from pull request event',
       env: { BODY_FILE: `\${{ runner.temp }}/pull-request-body.md` },
       run: `node -e "const fs = require('node:fs'); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')); fs.writeFileSync(process.env.BODY_FILE, event.pull_request.body ?? '', 'utf8');"`,
     });
-    expect(workflow.jobs.validate.steps[2]).toEqual({
+    expect(workflow.jobs.validate.steps[4]).toEqual({
       name: 'Verify remote pull request body',
       env: {
         BODY_FILE: `\${{ runner.temp }}/pull-request-body.md`,
@@ -72,7 +81,7 @@ describe('pull request body workflow security contract', () => {
         PR_NUMBER: `\${{ github.event.pull_request.number }}`,
         REPOSITORY: `\${{ github.repository }}`,
       },
-      run: 'node scripts/github-body.mjs verify --kind pr --repo "$REPOSITORY" --number "$PR_NUMBER" --body-file "$BODY_FILE"',
+      run: 'bun scripts/github-body.mjs verify --kind pr --repo "$REPOSITORY" --number "$PR_NUMBER" --body-file "$BODY_FILE"',
     });
   });
 });
