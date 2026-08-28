@@ -443,7 +443,8 @@ describe('NewHomeView library interactions', () => {
         'before:opacity-[0.9]',
         'before:rounded-full',
         'before:bg-[radial-gradient(circle_closest-side,var(--bg-paper)_0%,var(--bg-paper)_23%,transparent_100%)]',
-        'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%)]'
+        'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%),linear-gradient(to_right,black_0%,black_61.5%,transparent_92.5%)]',
+        'before:[mask-composite:intersect]'
       );
       expect(nextFilters).toHaveClass(
         'absolute',
@@ -451,6 +452,8 @@ describe('NewHomeView library interactions', () => {
         'right-0',
         'h-11',
         'w-11',
+        'before:[mask-image:linear-gradient(to_bottom,transparent_34%,black_38.5%,black_61.5%,transparent_66%),linear-gradient(to_left,black_0%,black_61.5%,transparent_92.5%)]',
+        'before:[mask-composite:intersect]',
         'motion-reduce:transition-none'
       );
       expect(previousArrowSurface).toHaveClass(
