@@ -1,6 +1,7 @@
 import type { FeedbackProductSurface } from '@shared/feedbackDiagnosticsContract';
 import { useEffect } from 'react';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
+import { getNewHomePageFromPathname } from '../components/newHome/NewHomeView.tsx';
 import LoadingScreen from '../components/shared/LoadingScreen';
 import SurfaceErrorBoundary from '../components/shared/SurfaceErrorBoundary.tsx';
 import { ReadingScreenContainer } from '../components/workspace/ReadingScreenContainer.tsx';
@@ -21,10 +22,12 @@ import { useAppDialogs } from './useAppDialogs.tsx';
 export const getFeedbackProductSurface = ({
   hasContextAnswer,
   isAssessmentActive,
+  pathname,
   screenState,
 }: {
   hasContextAnswer: boolean;
   isAssessmentActive: boolean;
+  pathname: string;
   screenState: AppState;
 }): FeedbackProductSurface => {
   if (
@@ -35,7 +38,7 @@ export const getFeedbackProductSurface = ({
   }
   if (screenState === AppState.PLANNING) return 'planning';
   if (screenState === AppState.READING) return hasContextAnswer ? 'contextual-chat' : 'reader';
-  return globalThis.location.pathname === '/' ? 'home' : 'library';
+  return getNewHomePageFromPathname(pathname);
 };
 
 const AppContent = () => {
@@ -106,6 +109,7 @@ const AppContent = () => {
         hasContextAnswer: Boolean(readerState.readerContext.contextAnswer),
         isAssessmentActive:
           controller.assessmentMessages.length > 0 || workflowState.assessment.status === 'pending',
+        pathname: globalThis.location.pathname,
         screenState,
       }),
     });

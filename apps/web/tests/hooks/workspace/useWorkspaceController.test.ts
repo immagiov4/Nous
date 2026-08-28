@@ -3314,45 +3314,52 @@ test('startHomeChat reports each unusable source while continuing with valid mat
 test('submitAssessment sends the durable user-answer signal and applies the proposal', async () => {
   vi.stubGlobal('location', new URL('https://nous.test/'));
   feedbackDiagnostics.clearFeedbackDiagnostics();
-  feedbackDiagnostics.setFeedbackProductContext({
-    project: { id: 'learn-project' },
-    surface: 'assessment',
-  });
-  const sendCourseInterviewAnswer = vi.fn(
-    async (
-      _input: Parameters<
-        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewAnswer
-      >[0]
-    ) => createProposalSnapshot('learn-project')
-  );
-  const { controller, domain, state } = createControllerHarness({
-    projectLibrary: {
-      currentProjectId: 'learn-project',
-    },
-    openRouter: {
-      getActiveCourseInterview: async () => createInterviewSnapshot({ projectId: 'learn-project' }),
-      sendCourseInterviewAnswer,
-    },
-  });
+  try {
+    feedbackDiagnostics.setFeedbackProductContext({
+      project: { id: 'learn-project' },
+      surface: 'assessment',
+    });
+    const sendCourseInterviewAnswer = vi.fn(
+      async (
+        _input: Parameters<
+          typeof import('../../../services/openrouter/index.ts').sendCourseInterviewAnswer
+        >[0]
+      ) => createProposalSnapshot('learn-project')
+    );
+    const { controller, domain, state } = createControllerHarness({
+      projectLibrary: {
+        currentProjectId: 'learn-project',
+      },
+      openRouter: {
+        getActiveCourseInterview: async () =>
+          createInterviewSnapshot({ projectId: 'learn-project' }),
+        sendCourseInterviewAnswer,
+      },
+    });
 
-  const result = await controller.submitAssessment('Fammi imparare TypeScript');
+    const result = await controller.submitAssessment('Fammi imparare TypeScript');
 
-  assert.equal(result.outcome, 'assessment-complete');
-  assert.equal(state.internalState.courseProposal?.topic, 'TypeScript');
-  assert.equal(domain.userProfile, null);
-  assert.deepEqual(sendCourseInterviewAnswer.mock.calls[0]?.[0], {
-    projectId: 'learn-project',
-    runId: 'interview-run',
-    text: 'Fammi imparare TypeScript',
-    waitId: 'answer-wait',
-  });
-  assert.deepEqual(feedbackDiagnostics.getFeedbackDiagnosticsSnapshot().productContext?.workflow, {
-    operation: 'assessment-interview',
-    runId: 'interview-run',
-    status: 'waiting',
-  });
-  feedbackDiagnostics.clearFeedbackDiagnostics();
-  vi.unstubAllGlobals();
+    assert.equal(result.outcome, 'assessment-complete');
+    assert.equal(state.internalState.courseProposal?.topic, 'TypeScript');
+    assert.equal(domain.userProfile, null);
+    assert.deepEqual(sendCourseInterviewAnswer.mock.calls[0]?.[0], {
+      projectId: 'learn-project',
+      runId: 'interview-run',
+      text: 'Fammi imparare TypeScript',
+      waitId: 'answer-wait',
+    });
+    assert.deepEqual(
+      feedbackDiagnostics.getFeedbackDiagnosticsSnapshot().productContext?.workflow,
+      {
+        operation: 'assessment-interview',
+        runId: 'interview-run',
+        status: 'waiting',
+      }
+    );
+  } finally {
+    feedbackDiagnostics.clearFeedbackDiagnostics();
+    vi.unstubAllGlobals();
+  }
 });
 
 test('submitAssessment sends add-details when the durable proposal awaits a decision', async () => {

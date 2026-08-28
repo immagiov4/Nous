@@ -162,4 +162,14 @@ describe('LibraryScreenContainer route fallback', () => {
       },
     });
   });
+
+  test('preserves the assessment surface while the interview remains active', () => {
+    const props = buildProps();
+    props.controller.assessmentMessages = [{ role: 'model', text: 'Prima domanda' }] as never;
+
+    render(<LibraryScreenContainer {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Apri libreria' }));
+
+    expect(getFeedbackDiagnosticsSnapshot().productContext?.surface).toBe('assessment');
+  });
 });

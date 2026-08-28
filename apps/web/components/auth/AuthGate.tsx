@@ -299,24 +299,32 @@ interface AuthGateState {
   session: SupabaseUserSession | null;
 }
 
-const clearAccountScopedStateForTransition = (
+const shouldClearAccountScopedStateForTransition = (
   previousSession: SupabaseUserSession | null,
   nextSession: SupabaseUserSession | null
-): void => {
+): boolean => {
   const previousUserId = previousSession?.user?.id;
   const currentUserId = nextSession?.user?.id;
   const sessionBoundary = previousSession === null || nextSession === null;
   const accountChanged =
     previousUserId !== undefined && currentUserId !== undefined && previousUserId !== currentUserId;
-  if (isSupabaseAuthEnabled() && (sessionBoundary || accountChanged)) {
-    clearAllDurableLessonRequests();
-    clearFeedbackDiagnostics();
-  }
+  return isSupabaseAuthEnabled() && (sessionBoundary || accountChanged);
+};
+
+const clearAccountScopedStateForTransition = (
+  previousSession: SupabaseUserSession | null,
+  nextSession: SupabaseUserSession | null
+): void => {
+  if (!shouldClearAccountScopedStateForTransition(previousSession, nextSession)) return;
+  clearAllDurableLessonRequests();
+  clearFeedbackDiagnostics();
 };
 
 const readInitialAuthGateState = (): {
   authState: AuthGateState;
   currentSession: SupabaseUserSession | null;
+  previousSession: SupabaseUserSession | null;
+  requiresAccountScopedStateClear: boolean;
 } => {
   if (isSupabaseAuthEnabled()) {
     const previousSession = readSupabaseSession();
@@ -325,22 +333,35 @@ const readInitialAuthGateState = (): {
       callbackError: callback.status === 'error',
       session: callback.session,
     };
-    clearAccountScopedStateForTransition(previousSession, authState.session);
-    return { authState, currentSession: authState.session };
+    return {
+      authState,
+      currentSession: authState.session,
+      previousSession,
+      requiresAccountScopedStateClear: shouldClearAccountScopedStateForTransition(
+        previousSession,
+        authState.session
+      ),
+    };
   }
 
   const session = isLocalAuthBypassEnabled() ? { accessToken: 'local-bypass' } : null;
   return {
     authState: { callbackError: false, session },
     currentSession: session,
+    previousSession: session,
+    requiresAccountScopedStateClear: false,
   };
 };
 
 export default function AuthGate({ children }: AuthGateProps) {
   const [initialState] = useState(readInitialAuthGateState);
   const [authState, setAuthState] = useState<AuthGateState>(initialState.authState);
+  const [isInitialAccountStateReady, setIsInitialAccountStateReady] = useState(
+    !initialState.requiresAccountScopedStateClear
+  );
   const { callbackError, session } = authState;
   const previousSessionRef = useRef(initialState.currentSession);
+  const initialAccountStateClearAppliedRef = useRef(false);
 
   const clearAccountScopedStateForSession = useCallback(
     (nextSession: SupabaseUserSession | null) => {
@@ -350,6 +371,19 @@ export default function AuthGate({ children }: AuthGateProps) {
     },
     []
   );
+
+  useEffect(() => {
+    if (
+      isInitialAccountStateReady ||
+      initialAccountStateClearAppliedRef.current ||
+      !initialState.requiresAccountScopedStateClear
+    ) {
+      return;
+    }
+    initialAccountStateClearAppliedRef.current = true;
+    clearAccountScopedStateForTransition(initialState.previousSession, initialState.currentSession);
+    setIsInitialAccountStateReady(true);
+  }, [initialState, isInitialAccountStateReady]);
 
   useEffect(() => {
     if (!isSupabaseAuthEnabled()) {
@@ -417,6 +451,8 @@ export default function AuthGate({ children }: AuthGateProps) {
       unsubscribe();
     };
   }, [clearAccountScopedStateForSession]);
+
+  if (!isInitialAccountStateReady) return null;
 
   const shouldShowPublicLanding = globalThis.window?.location.pathname === '/landing';
 

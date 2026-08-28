@@ -100,6 +100,8 @@ export const LibraryScreenContainer = ({
     submitAssessment,
   } = controller;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
+  const isAssessmentActive =
+    assessmentMessages.length > 0 || controller.workflowState.assessment.status === 'pending';
   const visibleHomeChatMode = assessmentMessages.length > 0 ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
   const currentProjectRevision = savedProjects.find(
@@ -226,10 +228,15 @@ export const LibraryScreenContainer = ({
             }
           : {}),
         ...(controller.activeSection ? { section: { id: controller.activeSection.id } } : {}),
-        surface: page,
+        surface: isAssessmentActive ? 'assessment' : page,
       });
     },
-    [controller.activeSection, controller.currentProjectId, currentProjectRevision]
+    [
+      controller.activeSection,
+      controller.currentProjectId,
+      currentProjectRevision,
+      isAssessmentActive,
+    ]
   );
 
   return (

@@ -15,6 +15,7 @@ import {
   type AdminFeedbackStatus,
   loadAdminFeedbackScreenshot,
 } from '../../services/admin/adminApi.ts';
+import { createFeedbackBreadcrumbListItems } from '../../services/feedback/feedbackBreadcrumbList.ts';
 import {
   getFeedbackBreadcrumbOperationLabel,
   getFeedbackProductSurfaceLabel,
@@ -259,17 +260,17 @@ function FeedbackDiagnostics({ report }: { report: AdminFeedbackReport }) {
               ) : null}
               {diagnostics.productContext.breadcrumbs?.length ? (
                 <ul className="space-y-1">
-                  {diagnostics.productContext.breadcrumbs.map(breadcrumb => (
-                    <li
-                      key={`${breadcrumb.timestamp}-${breadcrumb.operation}-${breadcrumb.projectId || ''}-${breadcrumb.sectionId || ''}`}
-                    >
-                      {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
-                      {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
-                      {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
-                      {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
-                      {breadcrumb.timestamp}
-                    </li>
-                  ))}
+                  {createFeedbackBreadcrumbListItems(diagnostics.productContext.breadcrumbs).map(
+                    ({ breadcrumb, key }) => (
+                      <li key={key}>
+                        {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
+                        {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
+                        {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
+                        {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
+                        {breadcrumb.timestamp}
+                      </li>
+                    )
+                  )}
                 </ul>
               ) : null}
             </dd>

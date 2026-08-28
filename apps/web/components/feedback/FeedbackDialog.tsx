@@ -13,6 +13,7 @@ import {
   type SubmittedFeedback,
   submitFeedback,
 } from '../../services/feedback/feedbackApi.ts';
+import { createFeedbackBreadcrumbListItems } from '../../services/feedback/feedbackBreadcrumbList.ts';
 import {
   getFeedbackBreadcrumbOperationLabel,
   getFeedbackProductSurfaceLabel,
@@ -257,17 +258,17 @@ function FeedbackDiagnostics({
             </ul>
             {productContext.breadcrumbs?.length ? (
               <ul className="mt-2 space-y-1">
-                {productContext.breadcrumbs.map(breadcrumb => (
-                  <li
-                    key={`${breadcrumb.timestamp}-${breadcrumb.operation}-${breadcrumb.projectId || ''}-${breadcrumb.sectionId || ''}`}
-                  >
-                    {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
-                    {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
-                    {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
-                    {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
-                    {breadcrumb.timestamp}
-                  </li>
-                ))}
+                {createFeedbackBreadcrumbListItems(productContext.breadcrumbs).map(
+                  ({ breadcrumb, key }) => (
+                    <li key={key}>
+                      {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
+                      {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
+                      {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
+                      {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
+                      {breadcrumb.timestamp}
+                    </li>
+                  )
+                )}
               </ul>
             ) : null}
           </div>

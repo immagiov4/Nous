@@ -69,12 +69,11 @@ const readIsPhoneViewport = (): boolean =>
   typeof globalThis.matchMedia === 'function' &&
   globalThis.matchMedia(PHONE_VIEWPORT_MEDIA_QUERY).matches;
 
+export const getNewHomePageFromPathname = (pathname: string): NewHomePage =>
+  pathname === '/library' || pathname.startsWith('/newhome/library') ? 'library' : 'home';
+
 const getNewHomePageFromLocation = (): NewHomePage =>
-  typeof globalThis.window !== 'undefined' &&
-  (globalThis.window.location.pathname === '/library' ||
-    globalThis.window.location.pathname.startsWith('/newhome/library'))
-    ? 'library'
-    : 'home';
+  getNewHomePageFromPathname(globalThis.window?.location.pathname || '/');
 
 const GENERATED_COURSE_COVER_BY_TITLE: Record<string, string> = {
   'Cloud Computing: dai sistemi distribuiti alle architetture cloud':

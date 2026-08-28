@@ -7,6 +7,7 @@ test('classifies the active course interview as assessment while rendered in the
     getFeedbackProductSurface({
       hasContextAnswer: false,
       isAssessmentActive: true,
+      pathname: '/',
       screenState: AppState.LIBRARY,
     })
   ).toBe('assessment');
@@ -20,7 +21,24 @@ test.each([
     getFeedbackProductSurface({
       hasContextAnswer: false,
       isAssessmentActive: true,
+      pathname: '/',
       screenState,
     })
   ).toBe(screenState === AppState.PLANNING ? 'planning' : 'reader');
+});
+
+test.each([
+  ['/newhome', 'home'],
+  ['/newhome/course', 'home'],
+  ['/newhome/library', 'library'],
+  ['/newhome/library/favorites', 'library'],
+] as const)('classifies %s with the New Home route contract', (pathname, surface) => {
+  expect(
+    getFeedbackProductSurface({
+      hasContextAnswer: false,
+      isAssessmentActive: false,
+      pathname,
+      screenState: AppState.LIBRARY,
+    })
+  ).toBe(surface);
 });
