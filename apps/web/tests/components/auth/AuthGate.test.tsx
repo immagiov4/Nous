@@ -5,6 +5,11 @@ import { beforeEach, expect, test, vi } from 'vitest';
 
 import AuthGate from '../../../components/auth/AuthGate.tsx';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
+import {
+  clearFeedbackDiagnostics,
+  getFeedbackDiagnosticsSnapshot,
+  setFeedbackProductContext,
+} from '../../../services/feedback/browserDiagnostics.ts';
 
 const fetchMock = vi.fn();
 
@@ -36,6 +41,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   clearSupabaseSession();
+  clearFeedbackDiagnostics();
 });
 
 test('keeps the public landing available to signed-in testers at /landing', () => {
@@ -154,6 +160,11 @@ test('AuthGate clears retained lesson requests when the account changes', async 
     'nous:lesson-workflow-request:project-1:lesson-1',
     'old-account-request'
   );
+  setFeedbackProductContext({
+    project: { id: 'project-1' },
+    section: { id: 'lesson-1' },
+    surface: 'reader',
+  });
 
   act(() => {
     saveSupabaseSession({
@@ -167,6 +178,45 @@ test('AuthGate clears retained lesson requests when the account changes', async 
       globalThis.sessionStorage.getItem('nous:lesson-workflow-request:project-1:lesson-1')
     ).toBeNull()
   );
+  expect(getFeedbackDiagnosticsSnapshot().productContext).toBeUndefined();
+});
+
+test('password login clears diagnostics before exposing the authenticated app', async () => {
+  let firstAuthenticatedSnapshot: ReturnType<typeof getFeedbackDiagnosticsSnapshot> | undefined;
+  const AuthenticatedContent = () => {
+    firstAuthenticatedSnapshot ??= getFeedbackDiagnosticsSnapshot();
+    return <p>Area autenticata</p>;
+  };
+  setFeedbackProductContext({
+    project: { id: 'previous-project' },
+    section: { id: 'previous-section' },
+    surface: 'reader',
+  });
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        access_token: createAccessToken({ userId: 'new-user' }),
+        expires_in: 3600,
+        refresh_token: 'new-refresh-token',
+      }),
+      { status: 200 }
+    )
+  );
+
+  render(
+    <AuthGate>
+      <AuthenticatedContent />
+    </AuthGate>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Accedi' }));
+  fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new-user@example.com' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
+  const loginForm = screen.getByLabelText('Password').closest('form');
+  expect(loginForm).not.toBeNull();
+  fireEvent.submit(loginForm as HTMLFormElement);
+
+  await waitFor(() => expect(screen.getByText('Area autenticata')).toBeInTheDocument());
+  expect(firstAuthenticatedSnapshot?.productContext).toBeUndefined();
 });
 
 test('AuthGate synchronizes logout events received from another tab', async () => {

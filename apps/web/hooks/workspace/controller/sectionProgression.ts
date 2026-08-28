@@ -14,6 +14,7 @@ import {
   withGeneratedExerciseBrief,
   withUpdatedExerciseDeliverable,
 } from '../../../services/exercises/plan.ts';
+import { recordFeedbackWorkflowSnapshot } from '../../../services/feedback/browserDiagnostics.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
 import {
   type DurableLessonRecovery,
@@ -648,6 +649,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         onProgressStage: progressObserver.setStage,
         onWorkflowSnapshot: snapshot => {
           if (!isGenerationViewCurrent()) return;
+          recordFeedbackWorkflowSnapshot({
+            operation: 'load-section',
+            projectId: snapshot.projectId,
+            runId: snapshot.id,
+            sectionId: snapshot.sectionId,
+            status: snapshot.status,
+          });
           progressBridge.updateFromWorkflow(snapshot);
         },
         ...(section.parentId
@@ -911,7 +919,15 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       if (!isGenerationCurrent()) return;
       generatedSectionId = snapshot.sectionId;
       state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
-      if (isGenerationViewCurrent()) progressBridge.updateFromWorkflow(snapshot);
+      if (!isGenerationViewCurrent()) return;
+      recordFeedbackWorkflowSnapshot({
+        operation: 'create-lesson',
+        projectId: snapshot.projectId,
+        runId: snapshot.id,
+        sectionId: snapshot.sectionId,
+        status: snapshot.status,
+      });
+      progressBridge.updateFromWorkflow(snapshot);
     };
 
     const generateSublessonResult = async (): Promise<DurableLessonResult | null> => {

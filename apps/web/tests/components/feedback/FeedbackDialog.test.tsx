@@ -41,7 +41,27 @@ describe('FeedbackDialog', () => {
       consoleEntries: [
         { level: 'error', message: '[Nous] errore recente', timestamp: '2026-07-16T10:00:00Z' },
       ],
+      correlationIds: ['123e4567-e89b-42d3-a456-426614174000'],
       pageUrl: 'https://nous.test/library',
+      productContext: {
+        breadcrumbs: [
+          {
+            operation: 'opened-section',
+            projectId: 'project-12345678',
+            sectionId: 'section-12345678',
+            surface: 'reader',
+            timestamp: '2026-07-16T10:00:00Z',
+          },
+        ],
+        project: { id: 'project-12345678', revision: 4 },
+        section: { id: 'section-12345678' },
+        surface: 'reader',
+        workflow: {
+          operation: 'load-section',
+          runId: '123e4567-e89b-42d3-a456-426614174000',
+          status: 'failed',
+        },
+      },
     });
   });
 
@@ -66,7 +86,27 @@ describe('FeedbackDialog', () => {
               timestamp: '2026-07-16T10:00:00Z',
             },
           ],
+          correlationIds: ['123e4567-e89b-42d3-a456-426614174000'],
           pageUrl: 'https://nous.test/library',
+          productContext: {
+            breadcrumbs: [
+              {
+                operation: 'opened-section',
+                projectId: 'project-12345678',
+                sectionId: 'section-12345678',
+                surface: 'reader',
+                timestamp: '2026-07-16T10:00:00Z',
+              },
+            ],
+            project: { id: 'project-12345678', revision: 4 },
+            section: { id: 'section-12345678' },
+            surface: 'reader',
+            workflow: {
+              operation: 'load-section',
+              runId: '123e4567-e89b-42d3-a456-426614174000',
+              status: 'failed',
+            },
+          },
         },
         screenshot: undefined,
       })
@@ -74,14 +114,26 @@ describe('FeedbackDialog', () => {
     expect(await screen.findByText('Segnalazione inviata')).toBeInTheDocument();
   });
 
-  test('keeps diagnostics and screenshots out of suggestions', async () => {
+  test('sends a consented product-context snapshot with a suggestion', async () => {
     const user = userEvent.setup();
     submitFeedbackMock.mockResolvedValue({ id: '44', status: 'pending' });
     render(<FeedbackDialog onClose={vi.fn()} />);
 
     await user.click(screen.getByRole('button', { name: 'Suggerimento' }));
-    expect(screen.queryByRole('checkbox', { name: /Allega diagnostica tecnica/ })).toBeNull();
+    expect(
+      screen.getByRole('checkbox', { name: /Allega diagnostica tecnica/ })
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Aggiungi uno screenshot' })).toBeNull();
+    expect(screen.getByText('Contesto prodotto')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Codici assistenza.*123e4567-e89b-42d3-a456-426614174000/)
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/project-12345678/)).toHaveLength(2);
+    expect(screen.getAllByText(/123e4567-e89b-42d3-a456-426614174000/)).toHaveLength(2);
+    expect(screen.getAllByText(/Lettore/)).toHaveLength(2);
+    expect(screen.getByText(/Caricamento lezione/)).toBeInTheDocument();
+    expect(screen.queryByText(/load-section/)).toBeNull();
+    await user.click(screen.getByRole('checkbox', { name: /Allega diagnostica tecnica/ }));
     await user.type(
       screen.getByRole('textbox', { name: 'Descrizione' }),
       'Vorrei una scorciatoia per la libreria.'
@@ -92,10 +144,54 @@ describe('FeedbackDialog', () => {
       expect(submitFeedbackMock).toHaveBeenCalledWith({
         category: 'enhancement',
         description: 'Vorrei una scorciatoia per la libreria.',
-        diagnostics: undefined,
+        diagnostics: expect.objectContaining({
+          productContext: expect.objectContaining({
+            project: expect.objectContaining({ id: 'project-12345678', revision: 4 }),
+            section: expect.objectContaining({ id: 'section-12345678' }),
+            surface: 'reader',
+          }),
+        }),
         screenshot: undefined,
       })
     );
+  });
+
+  test('submits the exact diagnostics snapshot shown after consent', async () => {
+    const user = userEvent.setup();
+    const initialSnapshot = {
+      consoleEntries: [],
+      pageUrl: 'https://nous.test/initial',
+    };
+    const consentedSnapshot = {
+      consoleEntries: [],
+      pageUrl: 'https://nous.test/consented',
+      productContext: { surface: 'library' as const },
+    };
+    getFeedbackDiagnosticsSnapshotMock
+      .mockReset()
+      .mockReturnValueOnce(initialSnapshot)
+      .mockReturnValueOnce(consentedSnapshot)
+      .mockReturnValue({
+        consoleEntries: [{ level: 'error', message: 'later', timestamp: 'later' }],
+        pageUrl: 'https://nous.test/later',
+      });
+    submitFeedbackMock.mockResolvedValue({ id: '45', status: 'pending' });
+    render(<FeedbackDialog onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('checkbox', { name: /Allega diagnostica tecnica/ }));
+    expect(screen.getByText('https://nous.test/consented')).toBeInTheDocument();
+    await user.type(
+      screen.getByRole('textbox', { name: 'Descrizione' }),
+      'Controllo lo snapshot consentito.'
+    );
+    await user.click(screen.getByRole('button', { name: 'Invia segnalazione' }));
+
+    await waitFor(() =>
+      expect(submitFeedbackMock).toHaveBeenCalledWith(
+        expect.objectContaining({ diagnostics: consentedSnapshot })
+      )
+    );
+    expect(getFeedbackDiagnosticsSnapshotMock).toHaveBeenCalledTimes(2);
   });
 
   test('does not block submission when optional screenshot capture fails', async () => {

@@ -59,7 +59,7 @@ type ChatProps = ComponentProps<typeof HomeChatPanel>;
 type ChatDraftTemplate = NonNullable<ChatProps['draftTemplate']>;
 type CourseFilter = 'all' | 'favorites' | `folder:${string}`;
 type SourceFilter = 'all' | SourceLibraryItem['kind'];
-type NewHomePage = 'home' | 'library';
+export type NewHomePage = 'home' | 'library';
 
 const PHONE_VIEWPORT_MEDIA_QUERY = '(max-width: 639px)';
 const PHONE_RESUME_PROJECT_LIMIT = 1;
@@ -69,12 +69,11 @@ const readIsPhoneViewport = (): boolean =>
   typeof globalThis.matchMedia === 'function' &&
   globalThis.matchMedia(PHONE_VIEWPORT_MEDIA_QUERY).matches;
 
+export const getNewHomePageFromPathname = (pathname: string): NewHomePage =>
+  pathname === '/library' || pathname.startsWith('/newhome/library') ? 'library' : 'home';
+
 const getNewHomePageFromLocation = (): NewHomePage =>
-  typeof globalThis.window !== 'undefined' &&
-  (globalThis.window.location.pathname === '/library' ||
-    globalThis.window.location.pathname.startsWith('/newhome/library'))
-    ? 'library'
-    : 'home';
+  getNewHomePageFromPathname(globalThis.window?.location.pathname || '/');
 
 const GENERATED_COURSE_COVER_BY_TITLE: Record<string, string> = {
   'Cloud Computing: dai sistemi distribuiti alle architetture cloud':
@@ -118,6 +117,7 @@ interface NewHomeViewProps {
   readonly onImportLibraryBackup?: (file: File) => Promise<number>;
   readonly onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onOpenProject: (projectId: string) => void;
+  readonly onPageChange?: (page: NewHomePage) => void;
   readonly openingProjectId: string | null;
   readonly onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
   readonly onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
@@ -1973,6 +1973,7 @@ export const NewHomeView = ({
   onImportLibraryBackup,
   onImportProjectFile,
   onOpenProject,
+  onPageChange,
   openingProjectId,
   onRenameFolder,
   onRenameProject,
@@ -1988,6 +1989,7 @@ export const NewHomeView = ({
     globalThis.window.addEventListener('popstate', handlePopState);
     return () => globalThis.window.removeEventListener('popstate', handlePopState);
   }, []);
+  useEffect(() => onPageChange?.(activePage), [activePage, onPageChange]);
   useEffect(() => {
     if (typeof globalThis.matchMedia !== 'function') {
       return;

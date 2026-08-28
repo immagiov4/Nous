@@ -13,6 +13,13 @@ import {
   type SubmittedFeedback,
   submitFeedback,
 } from '../../services/feedback/feedbackApi.ts';
+import { createFeedbackBreadcrumbListItems } from '../../services/feedback/feedbackBreadcrumbList.ts';
+import {
+  getFeedbackBreadcrumbOperationLabel,
+  getFeedbackProductSurfaceLabel,
+  getFeedbackWorkflowOperationLabel,
+  getFeedbackWorkflowStatusLabel,
+} from '../../services/feedback/feedbackDiagnosticsLabels.ts';
 import {
   appendSpeechTranscription,
   default as SpeechInputButton,
@@ -182,7 +189,7 @@ function FeedbackDiagnostics({
   includeDiagnostics: boolean;
   onChange: (checked: boolean) => void;
 }) {
-  const latestConsoleEntries = diagnostics.consoleEntries.slice(-5);
+  const productContext = diagnostics.productContext;
 
   return (
     <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
@@ -199,32 +206,85 @@ function FeedbackDiagnostics({
           </span>
           <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
             {t(
-              'Include pagina e log recenti raccolti da Nous. Token, email e parametri degli URL vengono rimossi.'
+              'Include pagina, contesto del corso e log recenti raccolti da Nous. Token, email e parametri degli URL vengono rimossi.'
             )}
           </span>
         </span>
       </label>
-      {includeDiagnostics ? (
-        <details className="mt-3 border-t border-stone-200 pt-3 text-xs text-stone-500 dark:border-zinc-700 dark:text-zinc-400">
-          <summary className="cursor-pointer font-semibold text-stone-700 dark:text-zinc-200">
-            {t('Anteprima diagnostica ({entryCount} log)', {
-              entryCount: diagnostics.consoleEntries.length,
-            })}
-          </summary>
-          <p className="mt-2 break-all">{diagnostics.pageUrl}</p>
-          {latestConsoleEntries.length > 0 ? (
-            <ul className="mt-2 space-y-1 font-mono">
-              {latestConsoleEntries.map(entry => (
-                <li key={`${entry.timestamp}-${entry.level}`} className="break-words">
-                  [{entry.level}] {entry.message}
+      <details className="mt-3 border-t border-stone-200 pt-3 text-xs text-stone-500 dark:border-zinc-700 dark:text-zinc-400">
+        <summary className="cursor-pointer font-semibold text-stone-700 dark:text-zinc-200">
+          {t('Anteprima diagnostica ({entryCount} log)', {
+            entryCount: diagnostics.consoleEntries.length,
+          })}
+        </summary>
+        <p className="mt-2 break-all">{diagnostics.pageUrl}</p>
+        {diagnostics.correlationIds?.length ? (
+          <p className="mt-2 break-all">
+            {t('Codici assistenza')}: {diagnostics.correlationIds.join(', ')}
+          </p>
+        ) : null}
+        {productContext ? (
+          <div className="mt-3 border-t border-stone-200 pt-3 dark:border-zinc-700">
+            <p className="font-semibold text-stone-700 dark:text-zinc-200">
+              {t('Contesto prodotto')}
+            </p>
+            <ul className="mt-2 space-y-1">
+              {productContext.project ? (
+                <li>
+                  {t('Corso')}: {productContext.project.id}
+                  {productContext.project.revision === undefined
+                    ? ''
+                    : ` · ${t('Revisione')} ${productContext.project.revision}`}
                 </li>
-              ))}
+              ) : null}
+              {productContext.section ? (
+                <li>
+                  {t('Lezione')}: {productContext.section.id}
+                </li>
+              ) : null}
+              {productContext.surface ? (
+                <li>
+                  {t('Area')}: {getFeedbackProductSurfaceLabel(productContext.surface)}
+                </li>
+              ) : null}
+              {productContext.workflow ? (
+                <li>
+                  {t('Attività')}:{' '}
+                  {getFeedbackWorkflowOperationLabel(productContext.workflow.operation)} (
+                  {getFeedbackWorkflowStatusLabel(productContext.workflow.status)}) ·{' '}
+                  {productContext.workflow.runId}
+                </li>
+              ) : null}
             </ul>
-          ) : (
-            <p className="mt-2">{t('Nessun log recente disponibile.')}</p>
-          )}
-        </details>
-      ) : null}
+            {productContext.breadcrumbs?.length ? (
+              <ul className="mt-2 space-y-1">
+                {createFeedbackBreadcrumbListItems(productContext.breadcrumbs).map(
+                  ({ breadcrumb, key }) => (
+                    <li key={key}>
+                      {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
+                      {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
+                      {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
+                      {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
+                      {breadcrumb.timestamp}
+                    </li>
+                  )
+                )}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+        {diagnostics.consoleEntries.length > 0 ? (
+          <ul className="mt-2 space-y-1 font-mono">
+            {diagnostics.consoleEntries.map(entry => (
+              <li key={`${entry.timestamp}-${entry.level}`} className="break-words">
+                [{entry.level}] {entry.message}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2">{t('Nessun log recente disponibile.')}</p>
+        )}
+      </details>
     </div>
   );
 }
@@ -379,21 +439,19 @@ function FeedbackForm(props: FeedbackFormProps) {
         onChange={props.onDescriptionChange}
         onTranscription={props.onTranscription}
       />
+      <FeedbackDiagnostics
+        diagnostics={props.diagnostics}
+        includeDiagnostics={props.includeDiagnostics}
+        onChange={props.onDiagnosticsChange}
+      />
       {props.category === 'bug' ? (
-        <>
-          <FeedbackDiagnostics
-            diagnostics={props.diagnostics}
-            includeDiagnostics={props.includeDiagnostics}
-            onChange={props.onDiagnosticsChange}
-          />
-          <FeedbackScreenshotAttachment
-            isCapturing={props.isCapturing}
-            onCapture={props.onScreenshotCapture}
-            onRemove={props.onScreenshotRemove}
-            screenshot={props.screenshot}
-            screenshotError={props.screenshotError}
-          />
-        </>
+        <FeedbackScreenshotAttachment
+          isCapturing={props.isCapturing}
+          onCapture={props.onScreenshotCapture}
+          onRemove={props.onScreenshotRemove}
+          screenshot={props.screenshot}
+          screenshotError={props.screenshotError}
+        />
       ) : null}
       {props.errorMessage ? (
         <p
@@ -472,7 +530,6 @@ export default function FeedbackDialog({ onClose }: FeedbackDialogProps) {
   const handleCategoryChange = (nextCategory: FeedbackCategory) => {
     setCategory(nextCategory);
     if (nextCategory === 'enhancement') {
-      setIncludeDiagnostics(false);
       setScreenshot(null);
       setScreenshotError('');
     }
@@ -501,10 +558,11 @@ export default function FeedbackDialog({ onClose }: FeedbackDialogProps) {
     setIsSubmitting(true);
     setErrorMessage('');
     try {
+      const submittedDiagnostics = includeDiagnostics ? diagnostics : undefined;
       const feedback = await submitFeedback({
         category,
         description: trimmedDescription,
-        diagnostics: category === 'bug' && includeDiagnostics ? diagnostics : undefined,
+        diagnostics: submittedDiagnostics,
         screenshot: category === 'bug' ? screenshot || undefined : undefined,
       });
       setSubmittedFeedback(feedback);

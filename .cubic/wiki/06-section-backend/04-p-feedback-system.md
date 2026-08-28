@@ -11,6 +11,9 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/services/feedbackService.ts](../../../apps/backend/src/services/feedbackService.ts)
 - [apps/backend/src/services/githubFeedback.ts](../../../apps/backend/src/services/githubFeedback.ts)
 - [apps/backend/src/services/feedbackStore.ts](../../../apps/backend/src/services/feedbackStore.ts)
+- [apps/backend/src/routes/feedback.ts](../../../apps/backend/src/routes/feedback.ts)
+- [apps/web/services/feedback/browserDiagnostics.ts](../../../apps/web/services/feedback/browserDiagnostics.ts)
+- [apps/web/components/feedback/FeedbackDialog.tsx](../../../apps/web/components/feedback/FeedbackDialog.tsx)
 - [apps/web/components/admin/AdminFeedbackView.tsx](../../../apps/web/components/admin/AdminFeedbackView.tsx)
 - [apps/backend/tests/routes/feedback.test.ts](../../../apps/backend/tests/routes/feedback.test.ts)
 - [apps/backend/tests/services/githubFeedback.test.ts](../../../apps/backend/tests/services/githubFeedback.test.ts)
@@ -118,6 +121,14 @@ Security is enforced at multiple layers:
 - **Signed Markers**: Feedback IDs in GitHub bodies are suffixed with a HMAC signature to prevent external users from spoofing feedback reports by manually editing GitHub issues.
 
 Sources: [apps/backend/src/services/githubFeedback.ts:68-75](../../../apps/backend/src/services/githubFeedback.ts#L68-L75), [apps/backend/tests/routes/feedback.test.ts:98-115](../../../apps/backend/tests/routes/feedback.test.ts#L98-L115), [apps/backend/src/services/githubFeedback.ts:50-65](../../../apps/backend/src/services/githubFeedback.ts#L50-L65)
+
+## Product context diagnostics
+
+The feedback dialog shows the product context before the user consents to attach diagnostics. The snapshot records the current project and lesson identifiers, project revision, application area, and the latest durable workflow state when available. It does not attach human-readable titles or derived labels.
+
+The browser keeps the 25 most recent breadcrumbs. Each breadcrumb contains only its operation, application area, project or lesson identifiers, and timestamp. The feedback route accepts only the declared areas, operations, workflow states, timestamps, and safe identifiers. It drops unknown fields, including arbitrary text, before storage.
+
+Sources: [apps/web/services/feedback/browserDiagnostics.ts](../../../apps/web/services/feedback/browserDiagnostics.ts), [apps/web/components/feedback/FeedbackDialog.tsx](../../../apps/web/components/feedback/FeedbackDialog.tsx), [apps/backend/src/routes/feedback.ts](../../../apps/backend/src/routes/feedback.ts)
 
 ## Error Handling & Resiliency
 

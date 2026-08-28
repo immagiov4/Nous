@@ -7,10 +7,11 @@ import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceN
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
+import { setFeedbackProductContext } from '../../services/feedback/browserDiagnostics.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
-import { NewHomeView } from '../newHome/NewHomeView.tsx';
+import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -99,8 +100,13 @@ export const LibraryScreenContainer = ({
     submitAssessment,
   } = controller;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
+  const isAssessmentActive =
+    assessmentMessages.length > 0 || controller.workflowState.assessment.status === 'pending';
   const visibleHomeChatMode = assessmentMessages.length > 0 ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
+  const currentProjectRevision = savedProjects.find(
+    project => project.id === controller.currentProjectId
+  )?.revision;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = sortSourceFiles(Array.from(event.target.files || []));
@@ -208,6 +214,31 @@ export const LibraryScreenContainer = ({
     });
   };
 
+  const handlePageChange = useCallback(
+    (page: NewHomePage) => {
+      setFeedbackProductContext({
+        ...(controller.currentProjectId
+          ? {
+              project: {
+                id: controller.currentProjectId,
+                ...(currentProjectRevision === undefined
+                  ? {}
+                  : { revision: currentProjectRevision }),
+              },
+            }
+          : {}),
+        ...(controller.activeSection ? { section: { id: controller.activeSection.id } } : {}),
+        surface: isAssessmentActive ? 'assessment' : page,
+      });
+    },
+    [
+      controller.activeSection,
+      controller.currentProjectId,
+      currentProjectRevision,
+      isAssessmentActive,
+    ]
+  );
+
   return (
     <>
       <input
@@ -287,6 +318,7 @@ export const LibraryScreenContainer = ({
         onOpenProject={projectId => {
           void navigation.handleOpenProject(projectId, { source: 'library' });
         }}
+        onPageChange={handlePageChange}
         openingProjectId={openingProjectId}
         onRenameFolder={projectLibrary.renameFolder}
         onRenameProject={handleRenameProject}

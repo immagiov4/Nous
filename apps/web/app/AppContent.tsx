@@ -1,5 +1,10 @@
+import type {
+  FeedbackProductContext,
+  FeedbackProductSurface,
+} from '@shared/feedbackDiagnosticsContract';
 import { useEffect } from 'react';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
+import { getNewHomePageFromPathname } from '../components/newHome/NewHomeView.tsx';
 import LoadingScreen from '../components/shared/LoadingScreen';
 import SurfaceErrorBoundary from '../components/shared/SurfaceErrorBoundary.tsx';
 import { ReadingScreenContainer } from '../components/workspace/ReadingScreenContainer.tsx';
@@ -12,9 +17,54 @@ import { useWorkspaceFileActions } from '../hooks/workspace/useWorkspaceFileActi
 import { useWorkspaceNavigation } from '../hooks/workspace/useWorkspaceNavigation.ts';
 import { useWorkspaceReaderState } from '../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../i18n/uiMessages.ts';
+import { setFeedbackProductContext } from '../services/feedback/browserDiagnostics.ts';
 import { selectBlockingProgress, selectBlockingReasoning } from '../services/workspace/workflow.ts';
 import { AppState } from '../types';
 import { useAppDialogs } from './useAppDialogs.tsx';
+
+export const getFeedbackProductSurface = ({
+  hasContextAnswer,
+  isAssessmentActive,
+  pathname,
+  screenState,
+}: {
+  hasContextAnswer: boolean;
+  isAssessmentActive: boolean;
+  pathname: string;
+  screenState: AppState;
+}): FeedbackProductSurface => {
+  if (
+    screenState === AppState.ASSESSMENT ||
+    (screenState === AppState.LIBRARY && isAssessmentActive)
+  ) {
+    return 'assessment';
+  }
+  if (screenState === AppState.PLANNING) return 'planning';
+  if (screenState === AppState.READING) return hasContextAnswer ? 'contextual-chat' : 'reader';
+  return getNewHomePageFromPathname(pathname);
+};
+
+export const getFeedbackProductReferences = ({
+  activeSectionId,
+  currentProjectId,
+  openingProjectId,
+  savedProjects,
+}: {
+  activeSectionId: string | null;
+  currentProjectId: string | null;
+  openingProjectId: string | null;
+  savedProjects: ReadonlyArray<{ id: string; revision?: number }>;
+}): Pick<FeedbackProductContext, 'project' | 'section'> => {
+  const projectId = openingProjectId || currentProjectId;
+  if (!projectId) return {};
+  const revision = savedProjects.find(project => project.id === projectId)?.revision;
+  const isOpeningDifferentProject =
+    openingProjectId !== null && openingProjectId !== currentProjectId;
+  return {
+    project: { id: projectId, ...(revision === undefined ? {} : { revision }) },
+    ...(!isOpeningDifferentProject && activeSectionId ? { section: { id: activeSectionId } } : {}),
+  };
+};
 
 const AppContent = () => {
   const { appOverlays, notify, requestConfirmation } = useAppDialogs();
@@ -58,6 +108,33 @@ const AppContent = () => {
 
   const { isLibraryLoading, openingProjectId, savedProjects, screenState, workflowState } =
     controller;
+
+  useEffect(() => {
+    setFeedbackProductContext({
+      ...getFeedbackProductReferences({
+        activeSectionId: controller.activeSection?.id || null,
+        currentProjectId: controller.currentProjectId,
+        openingProjectId,
+        savedProjects,
+      }),
+      surface: getFeedbackProductSurface({
+        hasContextAnswer: Boolean(readerState.readerContext.contextAnswer),
+        isAssessmentActive:
+          controller.assessmentMessages.length > 0 || workflowState.assessment.status === 'pending',
+        pathname: globalThis.location.pathname,
+        screenState,
+      }),
+    });
+  }, [
+    controller.activeSection,
+    controller.currentProjectId,
+    controller.assessmentMessages.length,
+    openingProjectId,
+    readerState.readerContext.contextAnswer,
+    savedProjects,
+    screenState,
+    workflowState.assessment.status,
+  ]);
 
   useEffect(() => {
     const syncState = projectLibrary.projectSyncState;

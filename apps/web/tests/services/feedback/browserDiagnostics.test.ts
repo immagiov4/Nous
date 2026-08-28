@@ -5,7 +5,9 @@ import {
   getFeedbackDiagnosticsSnapshot,
   initializeFeedbackDiagnostics,
   logBackendFailureCorrelationId,
+  recordFeedbackWorkflowSnapshot,
   sanitizeFeedbackDiagnosticText,
+  setFeedbackProductContext,
 } from '../../../services/feedback/browserDiagnostics.ts';
 
 describe('browser feedback diagnostics', () => {
@@ -113,6 +115,116 @@ describe('browser feedback diagnostics', () => {
 
     clearFeedbackDiagnostics();
     expect(getFeedbackDiagnosticsSnapshot().consoleEntries).toHaveLength(0);
+  });
+
+  test('captures bounded product breadcrumbs without free text or development traces', () => {
+    const unsafeContext = {
+      project: {
+        id: 'project-12345678',
+        revision: 7,
+        title: 'private course content',
+      },
+      section: { id: 'section-00000001', title: 'private lesson content' },
+      surface: 'reader',
+    } as Parameters<typeof setFeedbackProductContext>[0];
+    setFeedbackProductContext(unsafeContext);
+    for (let index = 2; index <= 27; index += 1) {
+      setFeedbackProductContext({
+        project: { id: 'project-12345678', revision: 7 },
+        section: { id: `section-${String(index).padStart(8, '0')}` },
+        surface: 'reader',
+      });
+    }
+    setFeedbackProductContext({
+      project: {
+        id: 'project-12345678',
+        revision: 7,
+      },
+      section: { id: 'section-00000027' },
+      surface: 'reader',
+    });
+    recordFeedbackWorkflowSnapshot({
+      operation: 'load-section',
+      projectId: 'project-12345678',
+      runId: '123e4567-e89b-42d3-a456-426614174000',
+      sectionId: 'section-00000027',
+      status: 'failed',
+    });
+
+    const snapshot = getFeedbackDiagnosticsSnapshot();
+
+    expect(snapshot.productContext).toMatchObject({
+      project: {
+        id: 'project-12345678',
+        revision: 7,
+      },
+      section: { id: 'section-00000027' },
+      surface: 'reader',
+      workflow: {
+        operation: 'load-section',
+        runId: '123e4567-e89b-42d3-a456-426614174000',
+        status: 'failed',
+      },
+    });
+    expect(snapshot.productContext?.breadcrumbs).toHaveLength(25);
+    expect(snapshot.productContext?.breadcrumbs?.every(entry => 'title' in entry)).toBe(false);
+    expect(JSON.stringify(snapshot.productContext)).not.toContain('private course content');
+    expect(JSON.stringify(snapshot.productContext)).not.toContain('private lesson content');
+  });
+
+  test('clears a workflow snapshot after section navigation', () => {
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-00000001' },
+      surface: 'reader',
+    });
+    recordFeedbackWorkflowSnapshot({
+      operation: 'load-section',
+      projectId: 'project-12345678',
+      runId: '123e4567-e89b-42d3-a456-426614174000',
+      sectionId: 'section-00000001',
+      status: 'failed',
+    });
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-00000002' },
+      surface: 'reader',
+    });
+
+    expect(getFeedbackDiagnosticsSnapshot().productContext).not.toHaveProperty('workflow');
+  });
+
+  test('preserves a workflow while navigation opens its generated section', () => {
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-parent' },
+      surface: 'reader',
+    });
+    recordFeedbackWorkflowSnapshot({
+      operation: 'create-lesson',
+      projectId: 'project-12345678',
+      runId: '123e4567-e89b-42d3-a456-426614174000',
+      sectionId: 'section-generated',
+      status: 'completed',
+    });
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-generated' },
+      surface: 'reader',
+    });
+
+    expect(getFeedbackDiagnosticsSnapshot().productContext?.workflow).toMatchObject({
+      operation: 'create-lesson',
+      runId: '123e4567-e89b-42d3-a456-426614174000',
+      status: 'completed',
+    });
+
+    setFeedbackProductContext({
+      project: { id: 'project-12345678' },
+      section: { id: 'section-unrelated' },
+      surface: 'reader',
+    });
+    expect(getFeedbackDiagnosticsSnapshot().productContext).not.toHaveProperty('workflow');
   });
 
   test('redacts quoted and unquoted credential fields', () => {

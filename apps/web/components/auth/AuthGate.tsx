@@ -1,4 +1,11 @@
-import { type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  type SyntheticEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   completeSupabasePasswordSetup,
@@ -18,6 +25,7 @@ import {
   signInWithPassword,
   subscribeToSupabaseSession,
 } from '../../services/auth/supabaseAuth.ts';
+import { clearFeedbackDiagnostics } from '../../services/feedback/browserDiagnostics.ts';
 import { clearAllDurableLessonRequests } from '../../services/openrouter/lessonGenerationClient.ts';
 import LandingPage from '../marketing/LandingPage.tsx';
 
@@ -291,43 +299,91 @@ interface AuthGateState {
   session: SupabaseUserSession | null;
 }
 
-const readInitialAuthGateState = (): AuthGateState => {
+const shouldClearAccountScopedStateForTransition = (
+  previousSession: SupabaseUserSession | null,
+  nextSession: SupabaseUserSession | null
+): boolean => {
+  const previousUserId = previousSession?.user?.id;
+  const currentUserId = nextSession?.user?.id;
+  const sessionBoundary = previousSession === null || nextSession === null;
+  const accountChanged =
+    previousUserId !== undefined && currentUserId !== undefined && previousUserId !== currentUserId;
+  return isSupabaseAuthEnabled() && (sessionBoundary || accountChanged);
+};
+
+const clearAccountScopedStateForTransition = (
+  previousSession: SupabaseUserSession | null,
+  nextSession: SupabaseUserSession | null
+): void => {
+  if (!shouldClearAccountScopedStateForTransition(previousSession, nextSession)) return;
+  clearAllDurableLessonRequests();
+  clearFeedbackDiagnostics();
+};
+
+const readInitialAuthGateState = (): {
+  authState: AuthGateState;
+  currentSession: SupabaseUserSession | null;
+  previousSession: SupabaseUserSession | null;
+  requiresAccountScopedStateClear: boolean;
+} => {
   if (isSupabaseAuthEnabled()) {
+    const previousSession = readSupabaseSession();
     const callback = readSupabaseAuthCallbackFromUrl();
-    return {
+    const authState = {
       callbackError: callback.status === 'error',
       session: callback.session,
     };
+    return {
+      authState,
+      currentSession: authState.session,
+      previousSession,
+      requiresAccountScopedStateClear: shouldClearAccountScopedStateForTransition(
+        previousSession,
+        authState.session
+      ),
+    };
   }
 
+  const session = isLocalAuthBypassEnabled() ? { accessToken: 'local-bypass' } : null;
   return {
-    callbackError: false,
-    session: isLocalAuthBypassEnabled() ? { accessToken: 'local-bypass' } : null,
+    authState: { callbackError: false, session },
+    currentSession: session,
+    previousSession: session,
+    requiresAccountScopedStateClear: false,
   };
 };
 
 export default function AuthGate({ children }: AuthGateProps) {
-  const [initialPreviousSession] = useState(() =>
-    isSupabaseAuthEnabled() ? readSupabaseSession() : null
+  const [initialState] = useState(readInitialAuthGateState);
+  const [authState, setAuthState] = useState<AuthGateState>(initialState.authState);
+  const [isInitialAccountStateReady, setIsInitialAccountStateReady] = useState(
+    !initialState.requiresAccountScopedStateClear
   );
-  const [authState, setAuthState] = useState<AuthGateState>(readInitialAuthGateState);
   const { callbackError, session } = authState;
-  const previousSessionRef = useRef(initialPreviousSession);
+  const previousSessionRef = useRef(initialState.currentSession);
+  const initialAccountStateClearAppliedRef = useRef(false);
+
+  const clearAccountScopedStateForSession = useCallback(
+    (nextSession: SupabaseUserSession | null) => {
+      const previousSession = previousSessionRef.current;
+      clearAccountScopedStateForTransition(previousSession, nextSession);
+      previousSessionRef.current = nextSession;
+    },
+    []
+  );
 
   useEffect(() => {
-    const previousSession = previousSessionRef.current;
-    const previousUserId = previousSession?.user?.id;
-    const currentUserId = session?.user?.id;
-    const sessionBoundary = previousSession === null || session === null;
-    const accountChanged =
-      previousUserId !== undefined &&
-      currentUserId !== undefined &&
-      previousUserId !== currentUserId;
-    if (isSupabaseAuthEnabled() && (sessionBoundary || accountChanged)) {
-      clearAllDurableLessonRequests();
+    if (
+      isInitialAccountStateReady ||
+      initialAccountStateClearAppliedRef.current ||
+      !initialState.requiresAccountScopedStateClear
+    ) {
+      return;
     }
-    previousSessionRef.current = session;
-  }, [session]);
+    initialAccountStateClearAppliedRef.current = true;
+    clearAccountScopedStateForTransition(initialState.previousSession, initialState.currentSession);
+    setIsInitialAccountStateReady(true);
+  }, [initialState, isInitialAccountStateReady]);
 
   useEffect(() => {
     if (!isSupabaseAuthEnabled()) {
@@ -351,6 +407,7 @@ export default function AuthGate({ children }: AuthGateProps) {
       }
 
       cancelScheduledRefresh();
+      clearAccountScopedStateForSession(nextSession);
       setAuthState(current => ({ ...current, session: nextSession }));
       cancelScheduledRefresh = nextSession
         ? scheduleSupabaseSessionRefresh(nextSession, async () => {
@@ -371,6 +428,7 @@ export default function AuthGate({ children }: AuthGateProps) {
             return;
           }
           cancelScheduledRefresh();
+          clearAccountScopedStateForSession(null);
           setAuthState({ callbackError: true, session: null });
           return;
         }
@@ -392,7 +450,9 @@ export default function AuthGate({ children }: AuthGateProps) {
       cancelScheduledRefresh();
       unsubscribe();
     };
-  }, []);
+  }, [clearAccountScopedStateForSession]);
+
+  if (!isInitialAccountStateReady) return null;
 
   const shouldShowPublicLanding = globalThis.window?.location.pathname === '/landing';
 
@@ -403,9 +463,10 @@ export default function AuthGate({ children }: AuthGateProps) {
         loginPanel={
           <LoginPanel
             callbackError={callbackError}
-            onAuthenticated={nextSession =>
-              setAuthState({ callbackError: false, session: nextSession })
-            }
+            onAuthenticated={nextSession => {
+              clearAccountScopedStateForSession(nextSession);
+              setAuthState({ callbackError: false, session: nextSession });
+            }}
           />
         }
       />
@@ -421,7 +482,10 @@ export default function AuthGate({ children }: AuthGateProps) {
         loginPanel={
           <PasswordSetupPanel
             action={passwordSetupAction}
-            onSessionExpired={() => setAuthState({ callbackError: true, session: null })}
+            onSessionExpired={() => {
+              clearAccountScopedStateForSession(null);
+              setAuthState({ callbackError: true, session: null });
+            }}
           />
         }
       />
@@ -454,9 +518,10 @@ export default function AuthGate({ children }: AuthGateProps) {
       loginPanel={
         <LoginPanel
           callbackError={callbackError}
-          onAuthenticated={nextSession =>
-            setAuthState({ callbackError: false, session: nextSession })
-          }
+          onAuthenticated={nextSession => {
+            clearAccountScopedStateForSession(nextSession);
+            setAuthState({ callbackError: false, session: nextSession });
+          }}
         />
       }
     />

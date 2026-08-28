@@ -128,6 +128,31 @@ describe('/api/feedback', () => {
           ],
           correlationIds: ['job-123', 'job-123'],
           pageUrl: 'https://nous.example/course/42?access_token=secret#section',
+          productContext: {
+            breadcrumbs: Array.from({ length: 27 }, (_, index) => ({
+              operation: 'opened-section',
+              projectId: 'project-12345678',
+              sectionId: `section-${String(index).padStart(8, '0')}`,
+              surface: 'reader',
+              timestamp: '2026-07-16T10:00:00Z',
+              title: 'private lesson content',
+            })),
+            project: {
+              id: 'project-12345678',
+              revision: 4,
+              title: 'private course content that must not be persisted',
+            },
+            section: {
+              id: 'section-12345678',
+              title: 'private lesson content that must not be persisted',
+            },
+            surface: 'reader',
+            workflow: {
+              operation: 'load-section',
+              runId: '123e4567-e89b-42d3-a456-426614174000',
+              status: 'failed',
+            },
+          },
         },
         screenshot: { dataUrl: `data:image/webp;base64,${webpBytes.toString('base64')}` },
       });
@@ -158,11 +183,45 @@ describe('/api/feedback', () => {
         ],
         correlationIds: ['job-123'],
         pageUrl: 'https://nous.example/course/[ID]',
-        userAgent: 'Nous test browser',
+        productContext: {
+          breadcrumbs: expect.arrayContaining([
+            {
+              operation: 'opened-section',
+              projectId: 'project-12345678',
+              sectionId: 'section-00000002',
+              surface: 'reader',
+              timestamp: '2026-07-16T10:00:00.000Z',
+            },
+          ]),
+          project: {
+            id: 'project-12345678',
+            revision: 4,
+          },
+          section: {
+            id: 'section-12345678',
+          },
+          surface: 'reader',
+          workflow: {
+            operation: 'load-section',
+            runId: '123e4567-e89b-42d3-a456-426614174000',
+            status: 'failed',
+          },
+        },
       },
       screenshot: { bytes: webpBytes, mimeType: 'image/webp' },
     });
     expect(storedInput.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(storedInput.diagnostics.productContext?.breadcrumbs).toHaveLength(25);
+    expect(storedInput.diagnostics.productContext?.breadcrumbs?.[0]?.sectionId).toBe(
+      'section-00000002'
+    );
+    expect(storedInput.diagnostics.productContext?.breadcrumbs?.at(-1)?.sectionId).toBe(
+      'section-00000026'
+    );
+    expect(storedInput.diagnostics).not.toHaveProperty('requestId');
+    expect(storedInput.diagnostics).not.toHaveProperty('userAgent');
+    expect(JSON.stringify(storedInput.diagnostics.productContext)).not.toContain('private lesson');
+    expect(JSON.stringify(storedInput.diagnostics.productContext)).not.toContain('private course');
     expect(store.markSubmitted).not.toHaveBeenCalled();
   });
 
@@ -228,7 +287,7 @@ describe('/api/feedback', () => {
     });
   });
 
-  test('discards diagnostics and screenshots from suggestions at the backend boundary', async () => {
+  test('keeps only sanitized consented diagnostics from suggestions at the backend boundary', async () => {
     const { service, store } = createService();
     setFeedbackServiceForTesting(service);
 
@@ -238,14 +297,69 @@ describe('/api/feedback', () => {
       .send({
         category: 'enhancement',
         description: 'Aggiungere una scorciatoia.',
-        diagnostics: { consoleEntries: [{ level: 'error', message: 'password=secret' }] },
+        diagnostics: {
+          consoleEntries: [{ level: 'error', message: 'password=secret' }],
+          productContext: {
+            project: { id: 'project-12345678', title: 'private suggestion content' },
+            surface: 'library',
+          },
+        },
         screenshot: { dataUrl: 'data:image/webp;base64,not-an-image' },
       });
 
     expect(response.status).toBe(201);
     const storedInput = store.create.mock.calls[0]?.[0];
-    expect(storedInput).toMatchObject({ diagnostics: {} });
+    expect(storedInput).toMatchObject({
+      diagnostics: {
+        consoleEntries: [{ level: 'error', message: 'password=[REDACTED]' }],
+        productContext: {
+          project: { id: 'project-12345678' },
+          surface: 'library',
+        },
+      },
+    });
     expect(storedInput).not.toHaveProperty('screenshot');
+  });
+
+  test('does not derive diagnostics when the client omitted the consented payload', async () => {
+    const { service, store } = createService();
+    setFeedbackServiceForTesting(service);
+
+    const response = await request(createApp())
+      .post('/api/feedback')
+      .set('Authorization', `Bearer ${createToken()}`)
+      .set('User-Agent', 'Nous test browser')
+      .send({ category: 'enhancement', description: 'Aggiungere una scorciatoia.' });
+
+    expect(response.status).toBe(201);
+    expect(store.create.mock.calls[0]?.[0].diagnostics).toEqual({});
+  });
+
+  test('preserves valid short product identifiers', async () => {
+    const { service, store } = createService();
+    setFeedbackServiceForTesting(service);
+
+    const response = await request(createApp())
+      .post('/api/feedback')
+      .set('Authorization', `Bearer ${createToken()}`)
+      .send({
+        category: 'bug',
+        description: 'La lezione non si apre.',
+        diagnostics: {
+          productContext: {
+            project: { id: 'project-1' },
+            section: { id: 'lesson-1' },
+            surface: 'reader',
+          },
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(store.create.mock.calls[0]?.[0].diagnostics.productContext).toMatchObject({
+      project: { id: 'project-1' },
+      section: { id: 'lesson-1' },
+      surface: 'reader',
+    });
   });
 
   test('keeps a persisted report pending when asynchronous GitHub delivery fails', async () => {

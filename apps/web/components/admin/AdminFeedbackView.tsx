@@ -15,6 +15,13 @@ import {
   type AdminFeedbackStatus,
   loadAdminFeedbackScreenshot,
 } from '../../services/admin/adminApi.ts';
+import { createFeedbackBreadcrumbListItems } from '../../services/feedback/feedbackBreadcrumbList.ts';
+import {
+  getFeedbackBreadcrumbOperationLabel,
+  getFeedbackProductSurfaceLabel,
+  getFeedbackWorkflowOperationLabel,
+  getFeedbackWorkflowStatusLabel,
+} from '../../services/feedback/feedbackDiagnosticsLabels.ts';
 
 const STATUS_LABELS: Record<AdminFeedbackStatus, () => string> = {
   failed: () => t('Invio fallito'),
@@ -218,6 +225,54 @@ function FeedbackDiagnostics({ report }: { report: AdminFeedbackReport }) {
             <dt className="text-xs text-stone-400 dark:text-zinc-500">Correlation ID</dt>
             <dd className="break-all text-stone-700 dark:text-zinc-200">
               {diagnostics.correlationIds.join(', ')}
+            </dd>
+          </div>
+        ) : null}
+        {diagnostics.productContext ? (
+          <div>
+            <dt className="text-xs text-stone-400 dark:text-zinc-500">{t('Contesto prodotto')}</dt>
+            <dd className="mt-1 space-y-1 text-stone-700 dark:text-zinc-200">
+              {diagnostics.productContext.project ? (
+                <p>
+                  {t('Corso')}: {diagnostics.productContext.project.id}
+                  {diagnostics.productContext.project.revision === undefined
+                    ? ''
+                    : ` · ${t('Revisione')} ${diagnostics.productContext.project.revision}`}
+                </p>
+              ) : null}
+              {diagnostics.productContext.section ? (
+                <p>
+                  {t('Lezione')}: {diagnostics.productContext.section.id}
+                </p>
+              ) : null}
+              {diagnostics.productContext.surface ? (
+                <p>
+                  {t('Area')}: {getFeedbackProductSurfaceLabel(diagnostics.productContext.surface)}
+                </p>
+              ) : null}
+              {diagnostics.productContext.workflow ? (
+                <p>
+                  {t('Attività')}:{' '}
+                  {getFeedbackWorkflowOperationLabel(diagnostics.productContext.workflow.operation)}{' '}
+                  ({getFeedbackWorkflowStatusLabel(diagnostics.productContext.workflow.status)}) ·{' '}
+                  {diagnostics.productContext.workflow.runId}
+                </p>
+              ) : null}
+              {diagnostics.productContext.breadcrumbs?.length ? (
+                <ul className="space-y-1">
+                  {createFeedbackBreadcrumbListItems(diagnostics.productContext.breadcrumbs).map(
+                    ({ breadcrumb, key }) => (
+                      <li key={key}>
+                        {getFeedbackBreadcrumbOperationLabel(breadcrumb.operation)} ·{' '}
+                        {getFeedbackProductSurfaceLabel(breadcrumb.surface)}
+                        {breadcrumb.projectId ? ` · ${breadcrumb.projectId}` : ''}
+                        {breadcrumb.sectionId ? ` · ${breadcrumb.sectionId}` : ''} ·{' '}
+                        {breadcrumb.timestamp}
+                      </li>
+                    )
+                  )}
+                </ul>
+              ) : null}
             </dd>
           </div>
         ) : null}

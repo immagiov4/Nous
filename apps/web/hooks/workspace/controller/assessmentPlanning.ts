@@ -11,6 +11,7 @@ import type {
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
+import { recordFeedbackWorkflowSnapshot } from '../../../services/feedback/browserDiagnostics.ts';
 import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
@@ -79,6 +80,12 @@ export const createAssessmentPlanningCommands = (
   const { domain, openRouter, projectLibrary, state } = context;
 
   const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
+    recordFeedbackWorkflowSnapshot({
+      operation: 'assessment-interview',
+      projectId: snapshot.projectId,
+      runId: snapshot.runId,
+      status: snapshot.status,
+    });
     state.setAssessmentMessages([...snapshot.messages]);
     state.setCourseProposal(
       snapshot.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL ? snapshot.proposal : null
@@ -254,6 +261,13 @@ export const createAssessmentPlanningCommands = (
         onProgressStage: feedback.progressObserver.setStage,
         onWorkflowSnapshot: snapshot => {
           if (!state.isWorkflowCurrent('generatePlan', requestId)) return;
+          recordFeedbackWorkflowSnapshot({
+            operation: 'generate-course',
+            projectId: snapshot.projectId,
+            runId: snapshot.id,
+            sectionId: snapshot.result?.firstSectionId,
+            status: snapshot.status,
+          });
           feedback.progressBridge.updateFromWorkflow(snapshot);
         },
       });
@@ -578,12 +592,13 @@ export const createAssessmentPlanningCommands = (
       requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
       state.setScreenState(AppState.PLANNING);
       progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
-      await openRouter.sendCourseInterviewDecision({
+      const approvedInterview = await openRouter.sendCourseInterviewDecision({
         decision: { kind: 'approve' },
         projectId,
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
+      applyInterviewSnapshot(approvedInterview);
       const generated = await runDurableCourse({
         execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
         profile: courseProposal,

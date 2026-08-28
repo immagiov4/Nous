@@ -578,6 +578,25 @@ describe('AdminPanel', () => {
               { level: 'error', message: '[Nous] save failed', timestamp: '2026-07-16T10:00:00Z' },
             ],
             pageUrl: 'https://nous.test/course/123',
+            productContext: {
+              breadcrumbs: [
+                {
+                  operation: 'opened-section',
+                  projectId: 'project-12345678',
+                  sectionId: 'section-12345678',
+                  surface: 'reader',
+                  timestamp: '2026-07-16T10:00:00Z',
+                },
+              ],
+              project: { id: 'project-12345678', revision: 7 },
+              section: { id: 'section-12345678' },
+              surface: 'reader',
+              workflow: {
+                operation: 'load-section',
+                runId: 'workflow-12345678',
+                status: 'failed',
+              },
+            },
             requestId: 'request-123',
           },
           githubLabels: [],
@@ -598,6 +617,10 @@ describe('AdminPanel', () => {
       (await screen.findAllByText('La lezione si blocca dopo il salvataggio.')).length
     ).toBeGreaterThan(0);
     expect(screen.getByText('request-123')).toBeInTheDocument();
+    expect(screen.getByText('Contesto prodotto')).toBeInTheDocument();
+    expect(screen.getAllByText(/project-12345678/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/project-12345678 · Revisione 7/)).toBeInTheDocument();
+    expect(screen.getByText(/workflow-12345678/)).toHaveTextContent('Caricamento lezione');
     await user.click(screen.getByText(/Log della console/));
     expect(screen.getByText(/save failed/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Riprova pubblicazione' }));
