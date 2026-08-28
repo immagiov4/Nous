@@ -10,7 +10,7 @@ import { unified } from 'unified';
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_FULL_MEDIA_TYPE = 'application/vnd.github.full+json';
 const GITHUB_BODY_RESOURCES = Object.freeze({ issue: 'issues', pr: 'pulls' });
-const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).toSorted().join('|');
+const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES).join('|');
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
 const INLINE_HEADING_PATTERN = /\S[ \t]+#{2,6}(?:[ \t]+\S|[ \t]*$)/u;
@@ -190,7 +190,7 @@ const expectedRenderedTags = body => {
 };
 
 const renderedTagCount = (renderedHtml, tag) =>
-  [...renderedHtml.matchAll(new RegExp(`<${tag}(?=[\\s/>])`, 'giu'))].length;
+  [...renderedHtml.matchAll(new RegExp(String.raw`<${tag}(?=[\s/>])`, 'giu'))].length;
 export const assertGitHubRendering = (body, renderedHtml) => {
   if (!renderedHtml.trim()) throw new Error('GitHub returned an empty rendered body.');
   for (const [tag, expectedCount] of expectedRenderedTags(body)) {
