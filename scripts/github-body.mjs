@@ -516,9 +516,8 @@ const advanceCollectionInlineCode = (line, cursor, state) => {
 
 const maskCollectionComment = ({
   characters,
+  closesLater,
   line,
-  lineIndex,
-  lines,
   maskUnclosedComments,
   start,
   state,
@@ -529,7 +528,6 @@ const maskCollectionComment = ({
     return commentEnd + 3;
   }
 
-  const closesLater = lines.slice(lineIndex + 1).some(candidate => candidate.includes('-->'));
   if (!maskUnclosedComments && !closesLater) return line.length;
   maskRange(characters, start, line.length);
   state.inHtmlComment = true;
@@ -537,9 +535,9 @@ const maskCollectionComment = ({
 };
 
 const maskCommentsOnCollectionLine = ({
+  closesLater,
   line,
   lineIndex,
-  lines,
   maskUnclosedComments,
   preliminaryOpeners,
   state,
@@ -571,9 +569,8 @@ const maskCommentsOnCollectionLine = ({
       codeSpanEnd === -1
         ? maskCollectionComment({
             characters,
+            closesLater,
             line,
-            lineIndex,
-            lines,
             maskUnclosedComments,
             start: commentStart,
             state,
@@ -599,6 +596,12 @@ const maskHtmlCommentsForOpenerCollection = (
     rawHtmlBlock: undefined,
   };
   const maskedLines = [];
+  const closesAfterLine = Array.from({ length: lines.length });
+  let closingMarkerSeen = false;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    closesAfterLine[index] = closingMarkerSeen;
+    if (lines[index].includes('-->')) closingMarkerSeen = true;
+  }
 
   for (const [lineIndex, line] of lines.entries()) {
     if (!state.inHtmlComment && !state.inlineCodeDelimiter) {
@@ -610,9 +613,9 @@ const maskHtmlCommentsForOpenerCollection = (
     }
     maskedLines.push(
       maskCommentsOnCollectionLine({
+        closesLater: closesAfterLine[lineIndex],
         line,
         lineIndex,
-        lines,
         maskUnclosedComments,
         preliminaryOpeners,
         state,
@@ -1307,7 +1310,7 @@ const verifyRemoteSnapshot = ({
   assertValidMarkdownBody(remote.body, `${kind} #${number} raw body`);
   assertGitHubRendering(remote.body, remote.body_html);
 
-  return { endpoint, htmlLength: remote.body_html.length };
+  return { endpoint, htmlLength: Buffer.byteLength(remote.body_html, 'utf8') };
 };
 
 const verifyRemoteBody = async ({ endpoint, kind, localBody, number, runGhCommand }) => {

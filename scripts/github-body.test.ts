@@ -697,6 +697,29 @@ describe('GitHub body remote update', () => {
     expect(runGhCommand.mock.calls[1]?.[0]).toContain(`body=@${bodyFile}`);
   });
 
+  test('reports rendered HTML size in UTF-8 bytes', async () => {
+    const bodyFile = await createBodyFile();
+    const renderedBody =
+      '<h2>Summary</h2><p>Résumé.</p><ul><li>One</li><li>Two</li></ul>' +
+      '<h2>Testing</h2><p>Passed.</p>';
+    const runGhCommand = vi
+      .fn<(args: string[]) => Promise<string>>()
+      .mockResolvedValue(JSON.stringify({ body: validBody, body_html: renderedBody }));
+
+    await expect(
+      verifyGitHubBody({
+        bodyFile,
+        kind: 'pr',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand,
+      })
+    ).resolves.toEqual({
+      endpoint: 'repos/immagiov4/Nous/pulls/42',
+      htmlLength: Buffer.byteLength(renderedBody, 'utf8'),
+    });
+  });
+
   test('keeps the current remote managed suffix when the file contains an older copy', async () => {
     const olderManagedDescription = managedCubicDescription.replace('/example', '/older');
     const bodyFile = await createBodyFile(
