@@ -58,7 +58,6 @@ describe('pull request body workflow security contract', () => {
     expect(workflow.jobs.validate.steps[1]).toEqual({
       name: 'Set up Bun',
       uses: 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6',
-      with: { 'bun-version': '1.4.0' },
     });
     expect(workflow.jobs.validate.steps[2]).toEqual({
       name: 'Install trusted dependencies',

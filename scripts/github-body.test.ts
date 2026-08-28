@@ -77,7 +77,14 @@ Literal \\n stays inside this example.
   test('rejects empty, single-line, and literal-newline bodies', () => {
     expect(issueCodes('')).toContain('empty-body');
     expect(issueCodes('Only one physical line')).toContain('missing-newline');
+    expect(issueCodes('Only one physical line\n')).toContain('missing-newline');
     expect(issueCodes('## Summary\n\nText\\n## Testing\\n- item\n\nDone.\n')).toContain(
+      'literal-newline'
+    );
+    expect(issueCodes('## Summary\n\n[Text\\nNext](https://example.com)\n')).toContain(
+      'literal-newline'
+    );
+    expect(issueCodes('## Summary\n\n<details>Text\\nNext</details>\n')).toContain(
       'literal-newline'
     );
   });
@@ -93,8 +100,9 @@ Compare old - new behavior, or use option 1) now.
 
   test('requires blank boundaries after headings and around top-level lists', () => {
     expect(issueCodes('## Summary\nText.\n')).toContain('heading-spacing');
-    const listIssues = issueCodes('Text.\n- First\n- Second\nNext.\n');
+    const listIssues = issueCodes('Text.\n- First\n- Second\n## Next\n\nDone.\n');
     expect(listIssues).toContain('list-spacing-before');
+    expect(listIssues).toContain('list-spacing-after');
     expect(validateMarkdownBody(validBody)).toEqual([]);
   });
 
@@ -139,7 +147,11 @@ describe('GitHub body remote lifecycle', () => {
   });
 
   test('uploads one snapshot, preserves the managed suffix, then verifies raw and rendered data', async () => {
-    const bodyFile = await createBodyFile();
+    const staleLocalSuffix = managedSuffix.replace(
+      'Generated review context.',
+      'Stale local review context.'
+    );
+    const bodyFile = await createBodyFile(`${validBody.trimEnd()}\n\n${staleLocalSuffix}`);
     let remoteBody = `${validBody.trimEnd()}\n\n${managedSuffix}`;
     let uploadedBody = '';
     let patchCount = 0;
@@ -242,12 +254,30 @@ describe('GitHub body remote lifecycle', () => {
 
   test('fails verification when the remote raw body differs from the file', async () => {
     const bodyFile = await createBodyFile();
-    const runGhCommand = vi.fn().mockResolvedValue(
-      JSON.stringify({
-        body: validBody.replace('focused test passed', 'remote body changed'),
-        body_html: validRenderedBody,
+    const runGhCommand = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          body: `${validBody.trimEnd()}\n\n${managedSuffix}`,
+          body_html: managedRenderedBody,
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          body: validBody.replace('focused test passed', 'remote body changed'),
+          body_html: validRenderedBody,
+        })
+      );
+
+    await expect(
+      verifyGitHubBody({
+        bodyFile,
+        kind: 'pr',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand,
       })
-    );
+    ).resolves.toMatchObject({ endpoint: 'repos/immagiov4/Nous/pulls/42' });
 
     await expect(
       verifyGitHubBody({

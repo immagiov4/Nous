@@ -15,16 +15,7 @@ const GITHUB_BODY_KIND_USAGE = Object.keys(GITHUB_BODY_RESOURCES)
   .join('|');
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const LITERAL_NEWLINE_PATTERN = /\\(?:r\\n|n)/gu;
-const PROTECTED_AST_TYPES = new Set([
-  'code',
-  'definition',
-  'html',
-  'image',
-  'imageReference',
-  'inlineCode',
-  'link',
-  'linkReference',
-]);
+const PROTECTED_AST_TYPES = new Set(['code', 'definition', 'inlineCode']);
 const MANAGED_PR_SUFFIX_START = '<!-- This is an auto-generated description by cubic. -->';
 const MANAGED_PR_SUFFIX_END = '<!-- End of auto-generated description by cubic. -->';
 const markdownParser = unified().use(remarkParse).use(remarkGfm).freeze();
@@ -57,17 +48,19 @@ const sourceWithoutProtectedMarkdown = (body, root) => {
   return characters.join('');
 };
 
-const lineForOffset = (body, offset) => body.slice(0, offset).split('\n').length;
-
 const collectLiteralNewlineIssues = (body, root) => {
   const searchableBody = sourceWithoutProtectedMarkdown(body, root);
-  return [...searchableBody.matchAll(LITERAL_NEWLINE_PATTERN)].map(match =>
-    issue(
+  let line = 1;
+  let previousOffset = 0;
+  return [...searchableBody.matchAll(LITERAL_NEWLINE_PATTERN)].map(match => {
+    line += searchableBody.slice(previousOffset, match.index).split('\n').length - 1;
+    previousOffset = match.index;
+    return issue(
       'literal-newline',
-      lineForOffset(body, match.index),
+      line,
       String.raw`Replace the literal \n or \r\n separator with a real line break.`
-    )
-  );
+    );
+  });
 };
 
 const collectRootBlockSpacingIssues = (root, lines) => {
@@ -104,7 +97,7 @@ export const validateMarkdownBody = body => {
   }
 
   const root = parseMarkdown(normalizedBody);
-  const missingNewlineIssues = normalizedBody.includes('\n')
+  const missingNewlineIssues = normalizedBody.trim().includes('\n')
     ? []
     : [issue('missing-newline', 1, 'Use real line breaks to structure the Markdown body.')];
   return [
@@ -272,13 +265,17 @@ const bodyWithoutManagedPrSuffix = body => {
 
 const bodyWithPreservedManagedSuffix = ({ kind, localBody, remoteBody }) => {
   if (kind !== 'pr') return localBody;
+  const localBodyWithoutManagedSuffix = bodyWithoutManagedPrSuffix(localBody).trimEnd();
   const suffix = managedPrSuffix(remoteBody);
-  if (!suffix) return localBody;
-  return `${bodyWithoutManagedPrSuffix(localBody).trimEnd()}\n\n${suffix}`;
+  return suffix ? `${localBodyWithoutManagedSuffix}\n\n${suffix}` : localBodyWithoutManagedSuffix;
 };
 
-const comparableBody = (body, kind, exactBodyMatch) =>
-  kind === 'pr' && !exactBodyMatch ? bodyWithoutManagedPrSuffix(body) : normalizeLineEndings(body);
+const comparableBody = (body, kind, exactBodyMatch) => {
+  const normalizedBody = normalizeLineEndings(body);
+  return kind === 'pr' && !exactBodyMatch
+    ? bodyWithoutManagedPrSuffix(normalizedBody).trimEnd()
+    : normalizedBody;
+};
 
 const verifyRemoteSnapshot = ({ exactBodyMatch = false, kind, localBody, number, remote }) => {
   assertRemoteKind(remote, kind, number);
