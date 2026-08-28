@@ -360,32 +360,46 @@ const isMarkdownEscaped = (value, index) => {
   return backslashCount % 2 === 1;
 };
 
+const pairedDelimiterRuns = runs => {
+  const indexesByLength = new Map();
+  for (const [index, run] of runs.entries()) {
+    const indexes = indexesByLength.get(run.length) ?? [];
+    indexes.push(index);
+    indexesByLength.set(run.length, indexes);
+  }
+
+  const nextPositionByLength = new Map();
+  const pairs = [];
+  let openerIndex = 0;
+  while (openerIndex < runs.length) {
+    const openingRun = runs[openerIndex];
+    if (openingRun.escaped) {
+      openerIndex += 1;
+      continue;
+    }
+    const matchingIndexes = indexesByLength.get(openingRun.length);
+    let nextPosition = nextPositionByLength.get(openingRun.length) ?? 0;
+    while (matchingIndexes[nextPosition] <= openerIndex) nextPosition += 1;
+    nextPositionByLength.set(openingRun.length, nextPosition);
+    const closingIndex = matchingIndexes[nextPosition];
+    if (closingIndex === undefined) {
+      openerIndex += 1;
+      continue;
+    }
+    pairs.push([openingRun, runs[closingIndex]]);
+    openerIndex = closingIndex + 1;
+  }
+  return pairs;
+};
+
 const collectRawInlineCodeOpeners = lines => {
   const openers = new Set();
   const state = { fence: undefined, paragraphOpen: false, rawHtmlBlock: undefined };
   let blockRuns = [];
 
   const recordBlockOpeners = () => {
-    let openerIndex = 0;
-    while (openerIndex < blockRuns.length) {
-      const openingRun = blockRuns[openerIndex];
-      if (openingRun.escaped) {
-        openerIndex += 1;
-        continue;
-      }
-      let closingIndex = openerIndex + 1;
-      while (
-        closingIndex < blockRuns.length &&
-        blockRuns[closingIndex].length !== openingRun.length
-      ) {
-        closingIndex += 1;
-      }
-      if (closingIndex === blockRuns.length) {
-        openerIndex += 1;
-        continue;
-      }
+    for (const [openingRun] of pairedDelimiterRuns(blockRuns)) {
       openers.add(openingRun.key);
-      openerIndex = closingIndex + 1;
     }
     blockRuns = [];
   };
@@ -449,7 +463,26 @@ const maskNewInlineCode = (line, start, characters, renderedContentLines, lineIn
   return delimiterEnd;
 };
 
-const maskInlineCodeAndHtmlComments = (line, lineIndex, openers, renderedContentLines, state) => {
+const isBlockHtmlCommentStart = (line, start) => start <= 3 && !line.slice(0, start).trim();
+
+const markerSeenAfterLines = (lines, marker) => {
+  const markerSeenAfterLine = Array.from({ length: lines.length });
+  let markerSeen = false;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    markerSeenAfterLine[index] = markerSeen;
+    if (lines[index].includes(marker)) markerSeen = true;
+  }
+  return markerSeenAfterLine;
+};
+
+const maskInlineCodeAndHtmlComments = (
+  line,
+  lineIndex,
+  openers,
+  renderedContentLines,
+  closesLater,
+  state
+) => {
   const characters = line.split('');
   let cursor = 0;
 
@@ -479,31 +512,27 @@ const maskInlineCodeAndHtmlComments = (line, lineIndex, openers, renderedContent
       continue;
     }
     if (commentStart === -1) break;
+    const hasValidEnd = line.includes('-->', commentStart + 4) || closesLater;
+    if (!hasValidEnd && !isBlockHtmlCommentStart(line, commentStart)) {
+      cursor = commentStart + 4;
+      continue;
+    }
     cursor = maskActiveHtmlComment(line, commentStart, characters, state);
   }
 
   return characters.join('');
 };
 
-const sameLineCodeSpanEnd = (line, markerIndex) => {
-  const runs = [...line.matchAll(/`+/gu)];
-  let openerIndex = 0;
-  while (openerIndex < runs.length) {
-    const openingRun = runs[openerIndex];
-    const closingIndex = runs.findIndex(
-      (run, index) => index > openerIndex && run[0].length === openingRun[0].length
-    );
-    if (closingIndex === -1) {
-      openerIndex += 1;
-      continue;
-    }
-    const closingRun = runs[closingIndex];
-    if (openingRun.index < markerIndex && closingRun.index > markerIndex) {
-      return closingRun.index + closingRun[0].length;
-    }
-    openerIndex = closingIndex + 1;
-  }
-  return -1;
+const sameLineCodeSpans = line => {
+  const runs = [...line.matchAll(/`+/gu)].map(run => ({
+    escaped: isMarkdownEscaped(line, run.index),
+    length: run[0].length,
+    start: run.index,
+  }));
+  return pairedDelimiterRuns(runs).map(([openingRun, closingRun]) => ({
+    end: closingRun.start + closingRun.length,
+    start: openingRun.start,
+  }));
 };
 
 const advanceCollectionInlineCode = (line, cursor, state) => {
@@ -528,7 +557,8 @@ const maskCollectionComment = ({
     return commentEnd + 3;
   }
 
-  if (!maskUnclosedComments && !closesLater) return line.length;
+  const isBlockComment = isBlockHtmlCommentStart(line, start);
+  if (!closesLater && (!maskUnclosedComments || !isBlockComment)) return line.length;
   maskRange(characters, start, line.length);
   state.inHtmlComment = true;
   return line.length;
@@ -543,6 +573,8 @@ const maskCommentsOnCollectionLine = ({
   state,
 }) => {
   const characters = line.split('');
+  const codeSpans = sameLineCodeSpans(line);
+  let codeSpanIndex = 0;
   let cursor = 0;
 
   while (cursor < line.length) {
@@ -564,7 +596,10 @@ const maskCommentsOnCollectionLine = ({
     }
     if (commentStart === -1) break;
 
-    const codeSpanEnd = sameLineCodeSpanEnd(characters.join(''), commentStart);
+    while (codeSpans[codeSpanIndex]?.end <= commentStart) codeSpanIndex += 1;
+    const codeSpan = codeSpans[codeSpanIndex];
+    const codeSpanEnd =
+      codeSpan?.start < commentStart && codeSpan.end > commentStart ? codeSpan.end : -1;
     cursor =
       codeSpanEnd === -1
         ? maskCollectionComment({
@@ -596,12 +631,7 @@ const maskHtmlCommentsForOpenerCollection = (
     rawHtmlBlock: undefined,
   };
   const maskedLines = [];
-  const closesAfterLine = Array.from({ length: lines.length });
-  let closingMarkerSeen = false;
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    closesAfterLine[index] = closingMarkerSeen;
-    if (lines[index].includes('-->')) closingMarkerSeen = true;
-  }
+  const closesAfterLine = markerSeenAfterLines(lines, '-->');
 
   for (const [lineIndex, line] of lines.entries()) {
     if (!state.inHtmlComment && !state.inlineCodeDelimiter) {
@@ -647,6 +677,7 @@ const maskNonRenderedMarkdown = (
   };
   const lines = normalizeLineEndings(body).split('\n');
   const inlineCodeOpeners = collectInlineCodeOpeners(lines);
+  const commentClosesAfterLine = markerSeenAfterLines(lines, '-->');
 
   return lines.map((line, lineIndex) => {
     if (state.inHtmlComment || state.inlineCodeDelimiter) {
@@ -655,6 +686,7 @@ const maskNonRenderedMarkdown = (
         lineIndex,
         inlineCodeOpeners,
         renderedContentLines,
+        commentClosesAfterLine[lineIndex],
         state
       );
     }
@@ -689,6 +721,7 @@ const maskNonRenderedMarkdown = (
       lineIndex,
       inlineCodeOpeners,
       renderedContentLines,
+      commentClosesAfterLine[lineIndex],
       state
     );
     state.paragraphOpen = leavesParagraphOpen(maskedLine, renderedContentLines.has(lineIndex));
@@ -889,6 +922,49 @@ const maskInlineLinks = (line, linkDefinitionIdentifiers) => {
   return characters.join('');
 };
 
+const inlineHtmlTagEnd = (line, start) => {
+  let cursor = start + 1;
+  const isClosingTag = line[cursor] === '/';
+  if (isClosingTag) cursor += 1;
+  if (!/^[A-Za-z]$/u.test(line[cursor] ?? '')) return -1;
+  cursor += 1;
+  while (/^[A-Za-z0-9-]$/u.test(line[cursor] ?? '')) cursor += 1;
+
+  if (isClosingTag) {
+    cursor = skipHtmlWhitespace(line, cursor);
+    return line[cursor] === '>' ? cursor + 1 : -1;
+  }
+
+  while (cursor < line.length) {
+    const attributeStart = skipHtmlWhitespace(line, cursor);
+    if (line[attributeStart] === '>') return attributeStart + 1;
+    if (line[attributeStart] === '/' && line[attributeStart + 1] === '>') {
+      return attributeStart + 2;
+    }
+    if (attributeStart === cursor) return -1;
+    cursor = htmlAttributeEnd(line, attributeStart);
+    if (cursor === -1) return -1;
+  }
+  return -1;
+};
+
+const maskInlineHtmlTags = line => {
+  const characters = line.split('');
+  let cursor = 0;
+  while (cursor < line.length) {
+    const tagStart = line.indexOf('<', cursor);
+    if (tagStart === -1) break;
+    const tagEnd = inlineHtmlTagEnd(line, tagStart);
+    if (tagEnd === -1) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    maskRange(characters, tagStart, tagEnd);
+    cursor = tagEnd;
+  }
+  return characters.join('');
+};
+
 const maskInlineLinksByBlock = (lines, linkDefinitionIdentifiers) => {
   const maskedLines = [...lines];
   let blockIndexes = [];
@@ -985,7 +1061,10 @@ const collectLinkDefinitions = (sourceLines, structuralLines) => {
 const collectListSpacingIssues = ({ index, line, setextHeadingLines, state, structuralLines }) => {
   const lineNumber = index + 1;
   const lineIsBlank = !line.trim();
-  const listItem = !setextHeadingLines.has(index) && isTopLevelListItem(line);
+  const listLikeLine = !setextHeadingLines.has(index) && isTopLevelListItem(line);
+  const listItem =
+    listLikeLine &&
+    (state.inListBlock || !state.paragraphOpen || isParagraphInterruptingListItem(line));
   const indentedContinuation = state.inListBlock && /^(?: {2,}|\t)\S/u.test(line);
   const listIssues = [];
 
@@ -1008,6 +1087,11 @@ const collectListSpacingIssues = ({ index, line, setextHeadingLines, state, stru
   if (listItem) {
     state.inListBlock = true;
     state.lastListItemLine = lineNumber;
+  }
+  if (state.inListBlock || lineIsBlank || listItem) {
+    state.paragraphOpen = false;
+  } else {
+    state.paragraphOpen = listLikeLine || leavesParagraphOpen(line);
   }
   return listIssues;
 };
@@ -1066,14 +1150,14 @@ export const validateMarkdownBody = body => {
     );
   }
 
-  const listState = { inListBlock: false, lastListItemLine: 1 };
+  const listState = { inListBlock: false, lastListItemLine: 1, paragraphOpen: false };
   for (const [index, line] of structuralLines.entries()) {
     const syntaxLine = syntaxLines[index];
     issues.push(
       ...collectLineSyntaxIssues({
         index,
         line,
-        lineWithoutLinks: syntaxLine,
+        lineWithoutLinks: maskInlineHtmlTags(syntaxLine),
         setextHeadingLines,
         structuralLines,
       }),
@@ -1134,11 +1218,13 @@ const markdownStructure = body => {
   let listItemCount = 0;
   let paragraphCount = 0;
   let block = [];
+  let inListBlock = false;
 
   const recordBlock = () => {
     if (block.length === 0) return;
     if (isParagraphBlock(block)) paragraphCount += 1;
     block = [];
+    inListBlock = false;
   };
 
   for (const line of lines) {
@@ -1170,8 +1256,13 @@ const markdownStructure = body => {
       continue;
     }
 
-    if (isTopLevelListItem(line)) {
+    const listLikeLine = isTopLevelListItem(line);
+    const listItem =
+      listLikeLine && (inListBlock || block.length === 0 || isParagraphInterruptingListItem(line));
+    if (listItem) {
+      if (!inListBlock && block.length > 0) recordBlock();
       listItemCount += 1;
+      inListBlock = true;
     }
     block.push(line);
   }
@@ -1348,7 +1439,9 @@ export const updateGitHubBody = async ({
 }) => {
   const absoluteBodyFile = resolve(bodyFile);
   const localBody = await readFile(absoluteBodyFile, 'utf8');
-  assertValidMarkdownBody(localBody, absoluteBodyFile);
+  const localBodyWithoutManagedSuffix =
+    kind === 'pr' ? localBody.replace(MANAGED_PR_SUFFIX_PATTERN, '') : localBody;
+  assertValidMarkdownBody(localBodyWithoutManagedSuffix, absoluteBodyFile);
 
   const endpoint = endpointFor({ kind, number, repository });
   const remoteBeforeUpdate = await fetchRemoteBody({ endpoint, runGhCommand });
@@ -1358,6 +1451,7 @@ export const updateGitHubBody = async ({
     localBody,
     remoteBody: remoteBeforeUpdate.body,
   });
+  assertValidMarkdownBody(uploadBody, `${absoluteBodyFile} with remote managed suffix`);
   let temporaryDirectory;
   let uploadFile = absoluteBodyFile;
 

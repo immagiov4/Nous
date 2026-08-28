@@ -151,6 +151,15 @@ describe('GitHub body Markdown validation', () => {
     expect(
       validateMarkdownBody('Title\n=====\nParagraph\n').map(candidate => candidate.code)
     ).toContain('heading-spacing');
+    const wrappedOrderedProse =
+      'Release notes\n2026. Migration remains supported.\n2. Compatibility remains supported.\n';
+    expect(validateMarkdownBody(wrappedOrderedProse)).toEqual([]);
+    expect(() =>
+      assertGitHubRendering(
+        wrappedOrderedProse,
+        '<p>Release notes\n2026. Migration remains supported.\n2. Compatibility remains supported.</p>'
+      )
+    ).not.toThrow();
   });
 
   test('allows literal newline notation inside code', () => {
@@ -361,6 +370,22 @@ describe('GitHub body Markdown validation', () => {
       '## Example\n\nText.\n\n<!-- open\n```\n`-->`\nDescription ## Testing\n'
     );
     expect(commentIssues.map(candidate => candidate.code)).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        '## Summary\n\nFirst <!-- Description ## Testing\n\nMore context.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody('## Summary\n\nText.\n\n<!-- open\nDescription ## Not-a-heading\n')
+    ).toEqual([]);
+
+    const repeatedCommentAndCodeSpans = Array.from(
+      { length: 500 },
+      () => '`<!--` <!-- hidden -->'
+    ).join(' ');
+    expect(
+      validateMarkdownBody(`## Example\n\n${repeatedCommentAndCodeSpans}\n\nMore context.\n`)
+    ).toEqual([]);
   });
 
   test('accepts prose punctuation and wrapped list items', () => {
@@ -440,6 +465,16 @@ Node + Bun are supported. The update is safe - it avoids shell interpolation.
     expect(
       validateMarkdownBody(
         '## Links\n\nSee [docs](https://example.com "Why ## this matters") then Description ## Testing.\n'
+      ).map(candidate => candidate.code)
+    ).toContain('inline-heading');
+    expect(
+      validateMarkdownBody(
+        'First <span title="Why ## this matters">label</span>.\n\nSecond paragraph.\n'
+      )
+    ).toEqual([]);
+    expect(
+      validateMarkdownBody(
+        'First <span title="metadata">label</span>. Description ## Testing\n\nSecond paragraph.\n'
       ).map(candidate => candidate.code)
     ).toContain('inline-heading');
     expect(
@@ -721,7 +756,9 @@ describe('GitHub body remote update', () => {
   });
 
   test('keeps the current remote managed suffix when the file contains an older copy', async () => {
-    const olderManagedDescription = managedCubicDescription.replace('/example', '/older');
+    const olderManagedDescription = managedCubicDescription
+      .replace('/example', '/older')
+      .replace('Review in Cubic', 'Review\\n## Broken');
     const bodyFile = await createBodyFile(
       (validBody + olderManagedDescription).replace(/\n/gu, '\r\n')
     );
@@ -755,6 +792,33 @@ describe('GitHub body remote update', () => {
 
     expect(uploadedBody).toBe(validBody + remoteManagedSuffix);
     expect(uploadedBody).not.toContain('/older');
+    expect(uploadedBody).not.toContain('Review\\n## Broken');
+  });
+
+  test('rejects an invalid managed suffix before PATCH', async () => {
+    const bodyFile = await createBodyFile();
+    const invalidManagedSuffix = managedCubicDescription.replace(
+      'Review in Cubic',
+      'Review\\n## Broken'
+    );
+    const runGhCommand = vi.fn<(args: string[]) => Promise<string>>().mockResolvedValue(
+      JSON.stringify({
+        body: validBody + invalidManagedSuffix,
+        body_html: '<p>Existing body</p>',
+      })
+    );
+
+    await expect(
+      updateGitHubBody({
+        bodyFile,
+        kind: 'pr',
+        number: 42,
+        repository: 'immagiov4/Nous',
+        runGhCommand,
+      })
+    ).rejects.toThrow('literal-newline');
+    expect(runGhCommand).toHaveBeenCalledTimes(1);
+    expect(runGhCommand.mock.calls[0]?.[0]).toContain('GET');
   });
 
   test('rejects a pull request passed as an issue before any remote mutation', async () => {
