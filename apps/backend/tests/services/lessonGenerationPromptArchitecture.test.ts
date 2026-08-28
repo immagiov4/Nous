@@ -395,8 +395,9 @@ describe('lesson writing prompt composition', () => {
     expect(prompt).toContain(
       LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias
     );
+    expect(prompt).toContain(LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.primary);
     expect(prompt).toContain(
-      `${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.primary} (${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias})`
+      LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias
     );
     expect(sourceIndex).toBeGreaterThan(personalizationIndex);
     expect(writingContractIndex).toBeGreaterThan(sourceIndex);

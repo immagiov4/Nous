@@ -24,6 +24,7 @@ import type {
   ProjectStore,
   StoredProjectSourceFile,
 } from '../projects/types.js';
+import { readProjectLanguage } from '../services/lessonGenerationSources.js';
 import {
   type ProjectSourceMaterial,
   readProjectSourceMaterial,
@@ -246,6 +247,7 @@ const buildFocusPrompt = (
   return `LEARNING PATH: ${project.learningPlan?.title || project.title || 'Unavailable.'}
 MODULE: ${parent.moduleTitle || 'Unavailable.'}
 STUDENT PROFILE: ${readProfileSummary(project)}
+OUTPUT LANGUAGE: ${readProjectLanguage(project)}
 
 PARENT LESSON: "${parent.title}"
 PARENT LESSON DESCRIPTION: "${parent.description}"

@@ -214,7 +214,7 @@ export const buildUserGenerationNotesBlock = (notes: string | undefined | null):
 
   return `
 ${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.primary} (HIGH PRIORITY):
-(${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias})
+ACTIVE-PAUSE VERIFIER COMPATIBILITY LABEL: "${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias}"
 """
 ${clipped}
 """
