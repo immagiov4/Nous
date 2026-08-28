@@ -153,6 +153,15 @@ test('buildVisibleProjection preserves malformed email autolink brackets', () =>
   assert.equal(buildVisibleProjection('<https://example.com>').text, '<https://example.com>');
 });
 
+test('buildVisibleProjection preserves lone-CR line boundaries and source indexes', () => {
+  const content = 'Prima\rDopo';
+  const projection = buildVisibleProjection(content);
+
+  assert.equal(projection.text, 'Prima\nDopo');
+  assert.equal(projection.sourceIndexes[5], content.indexOf('\r'));
+  assert.equal(projection.sourceIndexes[6], content.indexOf('Dopo'));
+});
+
 test('buildVisibleProjection decodes CommonMark character references outside code', () => {
   const content = 'A &amp; B, &#38; C, &#x26; D, &not-a-reference; e `&amp;`';
   const projection = buildVisibleProjection(content);

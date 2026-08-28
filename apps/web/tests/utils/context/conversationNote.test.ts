@@ -63,6 +63,35 @@ test('rejects note proposals whose text is absent or only belongs to an image', 
   );
 });
 
+test('anchors rendered link text after nested unclosed fence openers', () => {
+  const content = ['```ts', '```js', '[Docs](https://example.com)'].join('\n');
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' }), true);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, { selectedText: 'https://example.com' }),
+    false
+  );
+});
+
+test('anchors rendered link text after raw HTML reveals an unclosed fence', () => {
+  const content = ['<div>', '```ts', 'code', '</div>', '## After [Docs](https://e.test)'].join(
+    '\n'
+  );
+
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'Docs' }), true);
+  assert.equal(
+    hasAnchorableConversationNoteCandidate(content, { selectedText: 'https://e.test' }),
+    false
+  );
+});
+
+test('anchors visible text after a lone-CR line boundary', () => {
+  assert.equal(
+    hasAnchorableConversationNoteCandidate('Prima\rDopo', { selectedText: 'Dopo' }),
+    true
+  );
+});
+
 test('rejects note proposals whose text exists only in an unsupported viewer placeholder', () => {
   const placeholders = [
     {
@@ -166,37 +195,13 @@ test('rejects task-list checkbox syntax as an annotation anchor', () => {
   );
 });
 
-test('rejects anchors inside code blocks synthesized by the renderer', () => {
+test('accepts anchors in bare code-like text that the renderer leaves as prose', () => {
   const content = 'Spiegazione.\n\ncpp while (i < 5) { std::cout << i; }';
 
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), false);
-  assert.equal(
-    hasAnchorableConversationNoteCandidate('La parola while resta nella prosa.', {
-      selectedText: 'while',
-    }),
-    true
-  );
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), true);
 });
 
-test('rejects renderer-synthesized code after normalized display math', () => {
-  const content = '[x = y + z]\n\ncpp while (i < 5) { std::cout << i; }';
-
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), false);
-});
-
-test('keeps inline math inside a line classified as renderer-synthesized code', () => {
-  const content = 'cpp printf("$x$");';
-
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'printf' }), false);
-});
-
-test('maps renderer-synthesized code ranges back through CRLF input', () => {
-  const content = 'Prima.\r\n\r\ncpp while (i < 5) { std::cout << i; }';
-
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'while' }), false);
-});
-
-test('rejects anchors inside JSON whose missing opening fence is restored by the renderer', () => {
+test('keeps malformed JSON and its unmatched fence visible to note projection', () => {
   const content = [
     'Dati della sessione:',
     '',
@@ -206,7 +211,7 @@ test('rejects anchors inside JSON whose missing opening fence is restored by the
     'Il ruolo resta visibile nella spiegazione.',
   ].join('\n');
 
-  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'admin' }), false);
+  assert.equal(hasAnchorableConversationNoteCandidate(content, { selectedText: 'admin' }), true);
   assert.equal(
     hasAnchorableConversationNoteCandidate(content, {
       selectedText: 'ruolo resta visibile',

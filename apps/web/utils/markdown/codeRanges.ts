@@ -12,9 +12,7 @@ import {
   getAccidentalPlainTextIndentationRanges,
   projectAccidentalPlainTextIndentation,
 } from './indentation.ts';
-import { planMissingJsonOpeningFenceRepairs } from './jsonFenceRepair.ts';
 import { getRenderedMathSourceRanges } from './mathNormalization.ts';
-import { planMarkdownSegmentRendering } from './segment.ts';
 
 export { getMarkdownMathRangeAt } from './mathSyntax.ts';
 
@@ -313,11 +311,13 @@ interface MarkdownAstNode {
   position?: MarkdownAstPosition;
   type: string;
   url?: string;
+  value?: string;
 }
 
 export interface MarkdownAnalysis {
   annotationOnlyRanges: MarkdownRange[];
   codeRanges: MarkdownRange[];
+  escapedFenceOpenerRanges: MarkdownRange[];
   htmlSyntaxRanges: MarkdownRange[];
   imageRanges: MarkdownRange[];
   inlineBoundaryRanges: MarkdownRange[];
@@ -351,28 +351,282 @@ const getNodeRange = (node: MarkdownAstNode, sourceOffsets: number[]): MarkdownR
 };
 
 const expandToLineBounds = (content: string, range: MarkdownRange): MarkdownRange => {
-  const lineStart = content.lastIndexOf('\n', range.start - 1) + 1;
-  const lineBreak = content.indexOf('\n', range.end);
+  const previousLineFeed = content.lastIndexOf('\n', range.start - 1);
+  const previousCarriageReturn = content.lastIndexOf('\r', range.start - 1);
+  const lineStart = Math.max(previousLineFeed, previousCarriageReturn) + 1;
+  if (range.end > range.start) {
+    const finalCharacter = content[range.end - 1];
+    if (finalCharacter === '\n') return { start: lineStart, end: range.end };
+    if (finalCharacter === '\r') {
+      const lineBreakEnd = content[range.end] === '\n' ? range.end + 1 : range.end;
+      return { start: lineStart, end: lineBreakEnd };
+    }
+  }
+  const nextLineFeed = content.indexOf('\n', range.end);
+  const nextCarriageReturn = content.indexOf('\r', range.end);
+  let lineBreak = nextLineFeed;
+  if (lineBreak === -1 || (nextCarriageReturn !== -1 && nextCarriageReturn < lineBreak)) {
+    lineBreak = nextCarriageReturn;
+  }
   return { start: lineStart, end: lineBreak === -1 ? content.length : lineBreak };
 };
 
-const getRawFencedCodeRanges = (content: string): MarkdownRange[] => {
+export interface MarkdownFencedCodePlan {
+  closedRanges: MarkdownRange[];
+  unclosedRanges: MarkdownRange[];
+}
+
+const CLOSED_FENCE_BOUNDARY_LINE_COUNT = 2;
+export const MIN_MARKDOWN_FENCE_LENGTH = 3;
+const MAX_MARKDOWN_BLOCK_INDENTATION = 3;
+const MARKDOWN_FENCE_OPENER_PATTERN = new RegExp(
+  `^(\`{${MIN_MARKDOWN_FENCE_LENGTH},}|~{${MIN_MARKDOWN_FENCE_LENGTH},})`,
+  'u'
+);
+const MARKDOWN_LINE_BREAK_PATTERN = /\r\n?|\n/u;
+
+const hasClosingFence = (source: string, parsedCode: string): boolean => {
+  const lines = source.split(MARKDOWN_LINE_BREAK_PATTERN);
+  const openingMatch = lines[0]?.match(MARKDOWN_FENCE_OPENER_PATTERN);
+  if (!openingMatch || lines.length < 2) {
+    return false;
+  }
+
+  const openingFence = openingMatch[1];
+  const closingFence = new RegExp(
+    `^[\\t >]*${openingFence[0]}{${openingFence.length},}[\\t ]*$`,
+    'u'
+  );
+  const parsedCodeLineCount =
+    parsedCode.length === 0 ? 0 : parsedCode.split(MARKDOWN_LINE_BREAK_PATTERN).length;
+  return (
+    closingFence.test(lines.at(-1) ?? '') &&
+    lines.length >= parsedCodeLineCount + CLOSED_FENCE_BOUNDARY_LINE_COUNT
+  );
+};
+
+interface ParsedMarkdownCode {
+  codeRanges: MarkdownRange[];
+  fencedCodePlan: MarkdownFencedCodePlan;
+}
+
+const parseMarkdownCode = (content: string): ParsedMarkdownCode => {
   const root = markdownParser.runSync(markdownParser.parse(content)) as MarkdownAstNode;
-  const ranges: MarkdownRange[] = [];
+  const codeRanges: MarkdownRange[] = [];
+  const fencedCodePlan: MarkdownFencedCodePlan = { closedRanges: [], unclosedRanges: [] };
   const visit = (node: MarkdownAstNode): void => {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
+    if (node.type === 'inlineCode' && start !== undefined && end !== undefined) {
+      codeRanges.push({ start, end });
+    }
     if (node.type === 'code' && start !== undefined && end !== undefined) {
+      const range = expandToLineBounds(content, { start, end });
       const source = content.slice(start, end);
-      if (/^ {0,3}(?:`{3,}|~{3,})/u.test(source)) {
-        ranges.push(expandToLineBounds(content, { start, end }));
+      if (MARKDOWN_FENCE_OPENER_PATTERN.test(source)) {
+        const isClosed = hasClosingFence(source, node.value ?? '');
+        const target = isClosed ? fencedCodePlan.closedRanges : fencedCodePlan.unclosedRanges;
+        target.push(range);
+        if (isClosed) codeRanges.push(range);
+      } else {
+        codeRanges.push(range);
       }
     }
     node.children?.forEach(visit);
   };
   visit(root);
-  return ranges;
+  codeRanges.sort((left, right) => left.start - right.start || left.end - right.end);
+  return { codeRanges, fencedCodePlan };
 };
+
+export const planMarkdownFencedCode = (content: string): MarkdownFencedCodePlan =>
+  parseMarkdownCode(content).fencedCodePlan;
+
+const getFenceOpeningRange = (content: string, range: MarkdownRange): MarkdownRange => {
+  const openingLineEnd = content.indexOf('\n', range.start);
+  const openingLine = content.slice(
+    range.start,
+    openingLineEnd === -1 ? range.end : openingLineEnd
+  );
+  const openingFenceStart = range.start + Math.max(openingLine.search(/[`~]/u), 0);
+  const openingFenceLength = content.slice(openingFenceStart).match(/^[`~]+/u)?.[0].length ?? 0;
+  return { start: openingFenceStart, end: openingFenceStart + openingFenceLength };
+};
+
+const CONTAINER_FENCE_LINE_PATTERN = new RegExp(
+  `^([\\t >+*().\\d-]*)(\`{${MIN_MARKDOWN_FENCE_LENGTH},}|~{${MIN_MARKDOWN_FENCE_LENGTH},})(.*)$`,
+  'u'
+);
+const CONTAINER_FENCE_INDENTATION_PATTERN = new RegExp(
+  `^ {0,${MAX_MARKDOWN_BLOCK_INDENTATION}}$`,
+  'u'
+);
+
+interface ProjectionFenceCandidate extends MarkdownRange {
+  fenceCharacter: string;
+  isMarkerOnly: boolean;
+}
+
+interface MarkdownLine {
+  content: string;
+  start: number;
+}
+
+const getMarkdownLines = (content: string, sourceStart: number): MarkdownLine[] => {
+  const lines: MarkdownLine[] = [];
+  let lineStart = 0;
+
+  for (let cursor = 0; cursor < content.length; cursor += 1) {
+    const character = content[cursor];
+    if (character !== '\r' && character !== '\n') continue;
+
+    lines.push({ content: content.slice(lineStart, cursor), start: sourceStart + lineStart });
+    if (character === '\r' && content[cursor + 1] === '\n') cursor += 1;
+    lineStart = cursor + 1;
+  }
+  lines.push({ content: content.slice(lineStart), start: sourceStart + lineStart });
+
+  return lines;
+};
+
+const getProjectionOpeningRanges = (
+  content: string,
+  unclosedRanges: readonly MarkdownRange[]
+): MarkdownRange[] =>
+  unclosedRanges.flatMap(unclosedRange => {
+    const firstOpeningRange = getFenceOpeningRange(content, unclosedRange);
+    const rangeContent = content.slice(unclosedRange.start, unclosedRange.end);
+    const candidates: ProjectionFenceCandidate[] = [];
+    for (const line of getMarkdownLines(rangeContent, unclosedRange.start)) {
+      const match = line.content.match(CONTAINER_FENCE_LINE_PATTERN);
+      if (match) {
+        const [, containerPrefix, fence, info] = match;
+        const normalizedInfo = info.trim();
+        const start = line.start + containerPrefix.length;
+        const hasValidInfo = fence[0] === '~' || !normalizedInfo.includes('`');
+        const hasValidIndentation = CONTAINER_FENCE_INDENTATION_PATTERN.test(containerPrefix);
+        if (start !== firstOpeningRange.start && hasValidInfo && hasValidIndentation) {
+          candidates.push({
+            start,
+            end: start + fence.length,
+            fenceCharacter: fence[0],
+            isMarkerOnly: normalizedInfo.length === 0,
+          });
+        }
+      }
+    }
+
+    const openingRanges = [firstOpeningRange];
+    let candidateIndex = 0;
+    while (candidateIndex < candidates.length) {
+      const opener = candidates[candidateIndex];
+      let closerIndex = candidateIndex + 1;
+      while (closerIndex < candidates.length) {
+        const closer = candidates[closerIndex];
+        if (
+          closer.isMarkerOnly &&
+          closer.fenceCharacter === opener.fenceCharacter &&
+          closer.end - closer.start >= opener.end - opener.start
+        ) {
+          break;
+        }
+        closerIndex += 1;
+      }
+      if (closerIndex === candidates.length) {
+        openingRanges.push({ start: opener.start, end: opener.end });
+        candidateIndex += 1;
+      } else {
+        candidateIndex = closerIndex + 1;
+      }
+    }
+    return openingRanges;
+  });
+
+const projectFenceOpeners = (
+  content: string,
+  openingRanges: readonly MarkdownRange[]
+): { content: string; sourceOffsets: number[] } => {
+  const characters: string[] = [];
+  const sourceOffsets: number[] = [];
+  let cursor = 0;
+  const appendSource = (start: number, end: number): void => {
+    for (let index = start; index < end; index += 1) {
+      characters.push(content[index]);
+      sourceOffsets.push(index);
+    }
+  };
+
+  for (const range of [...openingRanges].sort((left, right) => left.start - right.start)) {
+    const openingFenceStart = range.start;
+    if (openingFenceStart < cursor) continue;
+    appendSource(cursor, openingFenceStart);
+    for (let index = range.start; index < range.end; index += 1) {
+      characters.push('\\', content[index]);
+      sourceOffsets.push(index, index);
+    }
+    cursor = range.end;
+  }
+  appendSource(cursor, content.length);
+  sourceOffsets.push(content.length);
+  return { content: characters.join(''), sourceOffsets };
+};
+
+export interface UnclosedFenceProjection {
+  codeRanges: MarkdownRange[];
+  content: string;
+  escapedOpenerRanges: MarkdownRange[];
+  sourceOffsets: number[];
+}
+
+export const projectUnclosedMarkdownFenceOpeners = (content: string): UnclosedFenceProjection => {
+  let projectedContent = content;
+  let sourceOffsets = Array.from({ length: content.length + 1 }, (_, index) => index);
+  const escapedOpenerRanges: MarkdownRange[] = [];
+
+  while (true) {
+    const parsedMarkdownCode = parseMarkdownCode(projectedContent);
+    if (parsedMarkdownCode.fencedCodePlan.unclosedRanges.length === 0) {
+      const htmlProjection = projectDisallowedRawHtml(projectedContent);
+      let codeRanges = parsedMarkdownCode.codeRanges;
+      if (htmlProjection.content !== projectedContent) {
+        const htmlFenceProjection = projectUnclosedMarkdownFenceOpeners(htmlProjection.content);
+        const htmlSourceOffsets = htmlFenceProjection.sourceOffsets.map(
+          offset => htmlProjection.sourceOffsets[offset] ?? offset
+        );
+        codeRanges = mergeOverlappingMarkdownRanges([
+          ...codeRanges,
+          ...htmlFenceProjection.codeRanges.map(range => ({
+            start: htmlSourceOffsets[range.start] ?? range.start,
+            end: htmlSourceOffsets[range.end] ?? range.end,
+          })),
+        ]);
+      }
+      return {
+        codeRanges,
+        content: projectedContent,
+        escapedOpenerRanges,
+        sourceOffsets,
+      };
+    }
+
+    const projectedOpeningRanges = getProjectionOpeningRanges(
+      projectedContent,
+      parsedMarkdownCode.fencedCodePlan.unclosedRanges
+    );
+    escapedOpenerRanges.push(
+      ...projectedOpeningRanges.map(range => ({
+        start: sourceOffsets[range.start] ?? range.start,
+        end: sourceOffsets[range.end] ?? range.end,
+      }))
+    );
+    const projection = projectFenceOpeners(projectedContent, projectedOpeningRanges);
+    projectedContent = projection.content;
+    sourceOffsets = projection.sourceOffsets.map(offset => sourceOffsets[offset] ?? offset);
+  }
+};
+
+export const escapeUnclosedMarkdownFenceOpeners = (content: string): string =>
+  projectUnclosedMarkdownFenceOpeners(content).content;
 
 const getTableDelimiterRange = (
   content: string,
@@ -483,46 +737,13 @@ const collectPlaceholderRanges = (content: string): MarkdownRange[] =>
     return ranges;
   });
 
-const getRendererSynthesizedCodeRanges = (
-  content: string,
-  fencedCodeRanges: MarkdownRange[]
-): MarkdownRange[] => {
-  const ranges: MarkdownRange[] = [];
-  let cursor = 0;
-  const collectSegment = (end: number) => {
-    if (cursor >= end) return;
-    const plan = planMarkdownSegmentRendering(content.slice(cursor, end));
-    ranges.push(
-      ...plan.synthesizedCodeRanges.map(range => ({
-        start: cursor + range.start,
-        end: cursor + range.end,
-      }))
-    );
-  };
-
-  for (const fencedRange of fencedCodeRanges) {
-    collectSegment(fencedRange.start);
-    cursor = Math.max(cursor, fencedRange.end);
-  }
-  collectSegment(content.length);
-  return ranges;
-};
-
-const isWholeLineRange = (content: string, range: MarkdownRange): boolean => {
-  const lineStart = content.lastIndexOf('\n', Math.max(0, range.start - 1)) + 1;
-  const nextLineBreak = content.indexOf('\n', range.end);
-  const lineEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
-  return (
-    content.slice(lineStart, range.start).trim() === '' &&
-    content.slice(range.end, lineEnd).trim() === ''
-  );
-};
-
 export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
-  const rawFencedCodeRanges = getRawFencedCodeRanges(content);
+  const fencedCodePlan = planMarkdownFencedCode(content);
+  const fencedCodeRanges = [...fencedCodePlan.closedRanges, ...fencedCodePlan.unclosedRanges];
   const analysis: MarkdownAnalysis = {
     annotationOnlyRanges: [],
     codeRanges: [],
+    escapedFenceOpenerRanges: [],
     htmlSyntaxRanges: [],
     imageRanges: [],
     inlineBoundaryRanges: [],
@@ -532,59 +753,50 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
     referenceLinkLabelRanges: [],
     rendererNormalizedIndentRanges: getAccidentalPlainTextIndentationRanges(
       content,
-      rawFencedCodeRanges
+      fencedCodeRanges
     ),
     structuralRanges: [],
   };
-  const indentationProjection = projectAccidentalPlainTextIndentation(content, rawFencedCodeRanges);
-  const projectedFencedCodeRanges = getRawFencedCodeRanges(indentationProjection.content);
-  const jsonFenceRepairPlan = planMissingJsonOpeningFenceRepairs(indentationProjection.content);
-  const rendererCodeRanges = [
-    ...projectedFencedCodeRanges,
-    ...jsonFenceRepairPlan.sourceCodeRanges,
-    ...getRenderedMathSourceRanges(indentationProjection.content).filter(range =>
-      isWholeLineRange(indentationProjection.content, range)
-    ),
-  ].sort((left, right) => left.start - right.start);
-  const rendererSynthesizedCodeRanges = getRendererSynthesizedCodeRanges(
-    indentationProjection.content,
-    rendererCodeRanges
-  ).map(range => ({
+  const indentationProjection = projectAccidentalPlainTextIndentation(content, fencedCodeRanges);
+  const fenceProjection = projectUnclosedMarkdownFenceOpeners(indentationProjection.content);
+  analysis.escapedFenceOpenerRanges = fenceProjection.escapedOpenerRanges.map(range => ({
     start: indentationProjection.sourceOffsets[range.start] ?? range.start,
     end: indentationProjection.sourceOffsets[range.end] ?? range.end,
   }));
-  const repairedJsonCodeRanges = jsonFenceRepairPlan.sourceCodeRanges.map(range => ({
-    start: indentationProjection.sourceOffsets[range.start] ?? range.start,
-    end: indentationProjection.sourceOffsets[range.end] ?? range.end,
-  }));
-  analysis.codeRanges.push(...rendererSynthesizedCodeRanges, ...repairedJsonCodeRanges);
-  const startsAtRepairedJsonClosingFence = (range: MarkdownRange): boolean =>
-    repairedJsonCodeRanges.some(
-      repairedRange => range.start >= repairedRange.start && range.start < repairedRange.end
-    );
-  const htmlProjection = projectDisallowedRawHtml(indentationProjection.content);
-  const htmlSourceOffsets = htmlProjection.sourceOffsets.map(
+  const markdownSourceOffsets = fenceProjection.sourceOffsets.map(
     offset => indentationProjection.sourceOffsets[offset] ?? offset
+  );
+  const htmlProjection = projectDisallowedRawHtml(fenceProjection.content);
+  const htmlProjectionSourceOffsets = htmlProjection.sourceOffsets.map(
+    offset => markdownSourceOffsets[offset] ?? offset
+  );
+  const htmlFenceProjection = projectUnclosedMarkdownFenceOpeners(htmlProjection.content);
+  analysis.escapedFenceOpenerRanges.push(
+    ...htmlFenceProjection.escapedOpenerRanges.map(range => ({
+      start: htmlProjectionSourceOffsets[range.start] ?? range.start,
+      end: htmlProjectionSourceOffsets[range.end] ?? range.end,
+    }))
+  );
+  const htmlSourceOffsets = htmlFenceProjection.sourceOffsets.map(
+    offset => htmlProjectionSourceOffsets[offset] ?? offset
   );
   const escapedHtmlContentRanges: MarkdownRange[] = [];
   const root = markdownParser.runSync(
-    markdownParser.parse(indentationProjection.content)
+    markdownParser.parse(fenceProjection.content)
   ) as MarkdownAstNode;
   const visit = (node: MarkdownAstNode): void => {
-    const range = getNodeRange(node, indentationProjection.sourceOffsets);
+    const range = getNodeRange(node, markdownSourceOffsets);
     if (range) {
       if (node.type === 'inlineCode') {
         analysis.codeRanges.push(range);
       }
       if (node.type === 'code') {
-        if (!startsAtRepairedJsonClosingFence(range)) {
-          const blockRange = expandToLineBounds(content, range);
-          analysis.codeRanges.push(blockRange);
-        }
+        const blockRange = expandToLineBounds(content, range);
+        analysis.codeRanges.push(blockRange);
       }
       if (node.type === 'math' || node.type === 'inlineMath') analysis.mathRanges.push(range);
       analysis.structuralRanges.push(
-        ...getStructuralRangesForNode(content, node, range, indentationProjection.sourceOffsets)
+        ...getStructuralRangesForNode(content, node, range, markdownSourceOffsets)
       );
       if (node.type === 'footnoteReference') analysis.inlineBoundaryRanges.push(range);
       if (node.type === 'image' || node.type === 'imageReference') {
@@ -616,18 +828,13 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
             content,
             node,
             range,
-            indentationProjection.sourceOffsets
+            markdownSourceOffsets
           );
           if (destinationRange) analysis.linkDestinationRanges.push(destinationRange);
         }
       }
       if (node.type === 'linkReference') {
-        const labelRange = getReferenceLabelRange(
-          content,
-          node,
-          range,
-          indentationProjection.sourceOffsets
-        );
+        const labelRange = getReferenceLabelRange(content, node, range, markdownSourceOffsets);
         if (labelRange) analysis.referenceLinkLabelRanges.push(labelRange);
       }
     }
@@ -635,7 +842,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
   };
   visit(root);
   const htmlRoot = markdownParser.runSync(
-    markdownParser.parse(htmlProjection.content)
+    markdownParser.parse(htmlFenceProjection.content)
   ) as MarkdownAstNode;
   const visitEscapedHtml = (node: MarkdownAstNode): void => {
     const range = getNodeRange(node, htmlSourceOffsets);
@@ -658,7 +865,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       ) {
         analysis.codeRanges.push(range);
       }
-      if (node.type === 'code' && !startsAtRepairedJsonClosingFence(range)) {
+      if (node.type === 'code') {
         const blockRange = expandToLineBounds(content, range);
         if (
           !analysis.codeRanges.some(
@@ -787,6 +994,7 @@ export const getMarkdownAnnotationProtectedRanges = (
   ]);
 
 export const stripHighlightTagsInsideMarkdownCode = (content: string): string => {
+  if (!content.includes('<mark') && !content.includes('</mark')) return content;
   const ranges = mergeOverlappingMarkdownRanges(parseMarkdownAnalysis(content).codeRanges);
   if (ranges.length === 0) return content;
   let result = '';
