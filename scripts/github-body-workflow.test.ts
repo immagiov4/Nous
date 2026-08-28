@@ -12,6 +12,10 @@ type WorkflowStep = {
 };
 
 type Workflow = {
+  concurrency: {
+    'cancel-in-progress': boolean;
+    group: string;
+  };
   jobs: {
     validate: {
       name: string;
@@ -36,6 +40,10 @@ describe('pull request body workflow security contract', () => {
       pull_request_target: { types: ['opened', 'edited', 'reopened'] },
     });
     expect(workflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
+    expect(workflow.concurrency).toEqual({
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number }}`,
+      'cancel-in-progress': true,
+    });
   });
 
   test('executes the trusted base revision without persisted credentials', () => {
@@ -50,14 +58,21 @@ describe('pull request body workflow security contract', () => {
   });
 
   test('reads untrusted body text from the event file instead of shell interpolation', () => {
-    const serializedSteps = JSON.stringify(workflow.jobs.validate.steps);
-    const commands = workflow.jobs.validate.steps
-      .flatMap(step => (step.run ? [step.run] : []))
-      .join('\n');
-
-    expect(commands).toContain('process.env.GITHUB_EVENT_PATH');
-    expect(commands).toContain('node scripts/github-body.mjs verify --kind pr');
-    expect(serializedSteps).toContain(`"GH_TOKEN":"\${{ github.token }}"`);
-    expect(serializedSteps).not.toContain('github.event.pull_request.body');
+    expect(workflow.jobs.validate.steps).toHaveLength(3);
+    expect(workflow.jobs.validate.steps[1]).toEqual({
+      name: 'Read body from pull request event',
+      env: { BODY_FILE: `\${{ runner.temp }}/pull-request-body.md` },
+      run: `node -e "const fs = require('node:fs'); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')); fs.writeFileSync(process.env.BODY_FILE, event.pull_request.body ?? '', 'utf8');"`,
+    });
+    expect(workflow.jobs.validate.steps[2]).toEqual({
+      name: 'Verify remote pull request body',
+      env: {
+        BODY_FILE: `\${{ runner.temp }}/pull-request-body.md`,
+        GH_TOKEN: `\${{ github.token }}`,
+        PR_NUMBER: `\${{ github.event.pull_request.number }}`,
+        REPOSITORY: `\${{ github.repository }}`,
+      },
+      run: 'node scripts/github-body.mjs verify --kind pr --repo "$REPOSITORY" --number "$PR_NUMBER" --body-file "$BODY_FILE"',
+    });
   });
 });
