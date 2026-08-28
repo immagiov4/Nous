@@ -182,6 +182,7 @@ const getPlaybackRateDialAngle = (playbackRate: number): number => {
 };
 
 interface PlaybackSpeedDialProps {
+  readonly isDisabled: boolean;
   readonly onSpeedChange: (speed: number) => void;
   readonly playbackRate: number;
 }
@@ -192,7 +193,7 @@ interface PlaybackSpeedDragState {
   rawPlaybackRate: number;
 }
 
-const PlaybackSpeedDial = ({ onSpeedChange, playbackRate }: PlaybackSpeedDialProps) => {
+const PlaybackSpeedDial = ({ isDisabled, onSpeedChange, playbackRate }: PlaybackSpeedDialProps) => {
   const dragStateRef = useRef<PlaybackSpeedDragState | null>(null);
   const currentPlaybackRateRef = useRef(clampPlaybackRate(playbackRate));
   const displayedPlaybackRate = clampPlaybackRate(playbackRate);
@@ -287,19 +288,22 @@ const PlaybackSpeedDial = ({ onSpeedChange, playbackRate }: PlaybackSpeedDialPro
   return (
     <div
       role="slider"
-      tabIndex={0}
+      tabIndex={isDisabled ? -1 : 0}
+      aria-disabled={isDisabled}
       aria-label={t('Velocita')}
       aria-valuemin={PLAYBACK_RATE_MIN}
       aria-valuemax={PLAYBACK_RATE_MAX}
       aria-valuenow={displayedPlaybackRate}
       aria-valuetext={playbackRateLabel}
       title={`${t('Velocita')}: ${playbackRateLabel}`}
-      className="relative mx-1 flex h-9 w-9 touch-none cursor-grab select-none items-center justify-center rounded-full border border-gray-300 bg-gray-50 text-gray-700 shadow-inner outline-none transition-colors hover:border-gray-400 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-gray-300 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus-visible:ring-zinc-500"
-      onKeyDown={handleKeyDown}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={stopPointerDrag}
-      onPointerCancel={stopPointerDrag}
+      className={`relative mx-1 flex h-11 w-11 touch-none select-none items-center justify-center rounded-full border border-gray-300 bg-gray-50 text-gray-700 shadow-inner outline-none transition-colors hover:border-gray-400 focus-visible:ring-2 focus-visible:ring-gray-300 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus-visible:ring-zinc-500 ${
+        isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-grab active:cursor-grabbing'
+      }`}
+      onKeyDown={isDisabled ? undefined : handleKeyDown}
+      onPointerDown={isDisabled ? undefined : handlePointerDown}
+      onPointerMove={isDisabled ? undefined : handlePointerMove}
+      onPointerUp={isDisabled ? undefined : stopPointerDrag}
+      onPointerCancel={isDisabled ? undefined : stopPointerDrag}
       onLostPointerCapture={() => {
         dragStateRef.current = null;
       }}
@@ -804,6 +808,7 @@ const UnifiedAudioPanel = ({
                       <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600" />
 
                       <PlaybackSpeedDial
+                        isDisabled={ttsDisabled}
                         onSpeedChange={tts.onSpeedChange}
                         playbackRate={tts.playbackRate}
                       />

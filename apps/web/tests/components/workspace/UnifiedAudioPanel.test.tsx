@@ -194,7 +194,37 @@ describe('UnifiedAudioPanel', () => {
     expect(speedDial).toHaveAttribute('aria-valuenow', '1');
     expect(speedDial).toHaveAttribute('aria-valuetext', '1x');
     expect(speedDial).toHaveTextContent('1x');
+    expect(speedDial).toHaveClass('h-11', 'w-11');
     expect(document.querySelector('input[type="range"][min="0.8"]')).toBeNull();
+  });
+
+  test('disables direct speed input while TTS is unavailable', async () => {
+    const user = userEvent.setup();
+    const onSpeedChange = vi.fn();
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ onSpeedChange, ttsConnected: false })}
+      />
+    );
+
+    const speedDial = screen.getByRole('slider', { name: 'Velocita' });
+    expect(speedDial).toHaveAttribute('aria-disabled', 'true');
+    expect(speedDial).toHaveAttribute('tabindex', '-1');
+
+    speedDial.focus();
+    await user.keyboard('{ArrowRight}');
+    fireEvent.pointerDown(speedDial, { clientX: 10, pointerId: 7, pointerType: 'touch' });
+    fireEvent.pointerMove(speedDial, { clientX: 30, pointerId: 7, pointerType: 'touch' });
+
+    expect(onSpeedChange).not.toHaveBeenCalled();
   });
 
   test('synchronizes an out-of-range playback speed through the existing update path', () => {
