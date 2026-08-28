@@ -178,6 +178,8 @@ test('buildVisibleProjection keeps UTF-16 source maps aligned for decoded astral
   expect(projection.text).toBe('Prima 😀 dopo');
   expect(projection.sourceIndexes).toHaveLength(projection.text.length);
   expect(projection.sourceEnds).toHaveLength(projection.text.length);
+  expect(projection.sourceIndexes.slice(6, 8)).toStrictEqual([6, 6]);
+  expect(projection.sourceEnds.slice(6, 8)).toStrictEqual([15, 15]);
 });
 
 test('buildVisibleProjection decodes references in raw html bodies but not escaped tag syntax', () => {
