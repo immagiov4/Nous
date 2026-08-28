@@ -34,8 +34,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && Boolean(value.trim());
 
-const isString = (value: unknown): value is string => typeof value === 'string';
-
 const isOptionalString = (value: unknown): boolean =>
   value === undefined || typeof value === 'string';
 
@@ -48,7 +46,7 @@ const isValidInlineQuizBlock = (block: Record<string, unknown>): boolean => {
   return (
     isNonEmptyString(question) &&
     Array.isArray(options) &&
-    options.length > 0 &&
+    options.length === 4 &&
     options.every(option => typeof option === 'string') &&
     Number.isInteger(correctIndex) &&
     (correctIndex as number) >= 0 &&
@@ -86,7 +84,7 @@ const isValidVisualRetryPlan = (value: unknown, slotId: string): boolean => {
   return (
     value.slotId === slotId &&
     isNonEmptyString(value.concept) &&
-    requiredStrings.every(key => isString(value[key])) &&
+    requiredStrings.every(key => isNonEmptyString(value[key])) &&
     optionalStrings.every(key => isOptionalString(value[key])) &&
     isAllowedString(value.complexity, visualComplexities) &&
     isAllowedString(value.coverage, visualCoverage) &&

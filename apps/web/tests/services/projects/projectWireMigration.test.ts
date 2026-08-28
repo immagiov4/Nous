@@ -58,6 +58,21 @@ const projectWithLessonBlocks = (contentBlocks: unknown[]) => ({
   version: '4.1',
 });
 
+const validVisualRetryPlan = {
+  complexity: 'moderate',
+  concept: 'Confronto tra stati',
+  coverage: 'single_complex',
+  coverageRationale: 'Rende visibile la differenza.',
+  factualRequirements: ['Due stati distinti'],
+  interactionLevel: 'none',
+  pedagogicalGoal: 'Confrontare i due stati.',
+  reason: 'Il confronto beneficia di una visuale.',
+  requiresDepiction: false,
+  slotId: 'slot-retry',
+  visualDirection: 'Mostra due colonne affiancate.',
+  visualType: 'structural_svg',
+};
+
 const readMigratedFiles = (project: ReturnType<typeof decodeProjectSnapshotWire>) => {
   assert.equal(project.source?.kind, 'document');
   assert.ok(Array.isArray(project.source.sources));
@@ -187,7 +202,7 @@ test('wire decoding rejects malformed allowlisted lesson blocks before projectio
   const malformedBlocks = [
     { type: 'inline-quiz' },
     {
-      quiz: { correctIndex: 1, options: ['Una sola opzione'], question: 'Domanda' },
+      quiz: { correctIndex: 0, options: ['Una sola opzione'], question: 'Domanda' },
       type: 'inline-quiz',
     },
     {
@@ -197,6 +212,11 @@ test('wire decoding rejects malformed allowlisted lesson blocks before projectio
     { type: 'generated-visual' },
     { slotId: 'slot-1', type: 'generated-visual' },
     { retryPlan: {}, slotId: 'slot-1', type: 'generated-visual' },
+    {
+      retryPlan: { ...validVisualRetryPlan, reason: '   ' },
+      slotId: 'slot-retry',
+      type: 'generated-visual',
+    },
   ];
 
   for (const block of malformedBlocks) {
@@ -214,7 +234,11 @@ test('wire decoding rejects authoritative lesson block collections without Markd
     [{ clips: [], type: 'youtube-clips' }],
     [
       {
-        quiz: { correctIndex: 0, options: ['Prima'], question: 'Domanda' },
+        quiz: {
+          correctIndex: 0,
+          options: ['Prima', 'Seconda', 'Terza', 'Quarta'],
+          question: 'Domanda',
+        },
         type: 'inline-quiz',
       },
     ],
@@ -229,20 +253,6 @@ test('wire decoding rejects authoritative lesson block collections without Markd
 });
 
 test('wire decoding preserves every valid lesson block while deriving legacy Markdown', () => {
-  const retryPlan = {
-    complexity: 'moderate',
-    concept: 'Confronto tra stati',
-    coverage: 'single_complex',
-    coverageRationale: 'Rende visibile la differenza.',
-    factualRequirements: ['Due stati distinti'],
-    interactionLevel: 'none',
-    pedagogicalGoal: 'Confrontare i due stati.',
-    reason: 'Il confronto beneficia di una visuale.',
-    requiresDepiction: false,
-    slotId: 'slot-retry',
-    visualDirection: 'Mostra due colonne affiancate.',
-    visualType: 'structural_svg',
-  };
   const contentBlocks = [
     { markdown: '## Contenuto strutturato', type: 'markdown' },
     { markdown: '', type: 'markdown' },
@@ -250,7 +260,7 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
       quiz: {
         correctIndex: 1,
         exerciseType: 'concept-check',
-        options: ['Prima', 'Seconda'],
+        options: ['Prima', 'Seconda', 'Terza', 'Quarta'],
         question: 'Quale opzione e corretta?',
       },
       type: 'inline-quiz',
@@ -261,7 +271,7 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
     },
     { clips: [], type: 'youtube-clips' },
     { slotId: 'slot-ready', type: 'generated-visual', visualId: 'visual-1' },
-    { retryPlan, slotId: 'slot-retry', type: 'generated-visual' },
+    { retryPlan: validVisualRetryPlan, slotId: 'slot-retry', type: 'generated-visual' },
   ];
 
   const decoded = decodeProjectSnapshotWire(projectWithLessonBlocks(contentBlocks));
