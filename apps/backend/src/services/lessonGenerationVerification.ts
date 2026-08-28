@@ -89,6 +89,7 @@ type VerifiedLessonContentDraft = LessonContentDraft & {
 };
 
 type LessonVerificationInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
+type LessonVerificationChecklistItem = ReturnType<typeof buildLessonVerificationChecklist>[number];
 
 type LessonVerificationCheckContext = Pick<
   LessonGenerationInput,
@@ -287,35 +288,34 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
   }
 };
 
-const buildLessonVerificationPrompt = (
-  input: LessonVerificationInput,
-  draft: LessonContentDraft
-): string => {
-  const hasReferenceMaterial = Boolean(
-    input.sourceContext || input.researchContext || input.sources.length > 0
-  );
-  const isResearchOnly =
-    !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
-  const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item => {
-    if (item.checkId === 'core.coverage' && input.sourceContext) {
-      return {
-        ...item,
-        instruction: `${item.instruction} ${LESSON_PRIMARY_SOURCE_INTEGRATION_RULE}`,
-      };
-    }
-    if (item.checkId === 'core.progression') {
+const applyLessonVerificationContext = (
+  item: LessonVerificationChecklistItem,
+  context: {
+    hasReferenceMaterial: boolean;
+    input: LessonVerificationInput;
+    isResearchOnly: boolean;
+  }
+): LessonVerificationChecklistItem => {
+  const { hasReferenceMaterial, input, isResearchOnly } = context;
+  switch (item.checkId) {
+    case 'core.coverage':
+      return input.sourceContext
+        ? {
+            ...item,
+            instruction: `${item.instruction} ${LESSON_PRIMARY_SOURCE_INTEGRATION_RULE}`,
+          }
+        : item;
+    case 'core.progression':
       return {
         ...item,
         instruction: `${LOCAL_PROPEDEUTIC_VERIFICATION_RULES} ${LESSON_GUIDED_NOVICE_RULE}`,
       };
-    }
-    if (item.checkId === 'core.clarity') {
+    case 'core.clarity':
       return {
         ...item,
         instruction: `${item.instruction} ${LANGUAGE_CLARITY_VERIFICATION_RULES}`,
       };
-    }
-    if (item.checkId === 'core.correctness') {
+    case 'core.correctness': {
       const sourceRules = [
         input.sourceContext ? LESSON_SOURCE_PRECEDENCE_RULE : '',
         hasReferenceMaterial ? LESSON_NAMED_SOURCE_ATTRIBUTION_RULE : '',
@@ -324,7 +324,7 @@ const buildLessonVerificationPrompt = (
         .join(' ');
       return sourceRules ? { ...item, instruction: `${item.instruction} ${sourceRules}` } : item;
     }
-    if (item.checkId === 'core.structure') {
+    case 'core.structure': {
       const structureRules = [
         item.instruction,
         hasReferenceMaterial ? LESSON_TECHNICAL_SOURCE_STRUCTURE_RULE : '',
@@ -335,14 +335,28 @@ const buildLessonVerificationPrompt = (
         .join(' ');
       return { ...item, instruction: structureRules };
     }
-    if (item.checkId === 'core.relevance') {
+    case 'core.relevance':
       return {
         ...item,
         instruction: RELEVANCE_STYLE_VERIFICATION_RULES,
       };
-    }
-    return item;
-  });
+    default:
+      return item;
+  }
+};
+
+const buildLessonVerificationPrompt = (
+  input: LessonVerificationInput,
+  draft: LessonContentDraft
+): string => {
+  const hasReferenceMaterial = Boolean(
+    input.sourceContext || input.researchContext || input.sources.length > 0
+  );
+  const isResearchOnly =
+    !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
+  const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item =>
+    applyLessonVerificationContext(item, { hasReferenceMaterial, input, isResearchOnly })
+  );
   const structuralCheckIds = buildRequiredLessonVerificationStructuralCheckIds(input, draft);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
