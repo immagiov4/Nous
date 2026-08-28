@@ -543,6 +543,7 @@ test('library backup import preserves a valid course when another nested archive
 
   const imported = await readLibraryArchive(archiveWithCorruptCourse);
 
+  assert.equal(imported.projectCount, 2);
   assert.deepEqual(
     imported.projectArchives.map(project => project.id),
     ['course-1']

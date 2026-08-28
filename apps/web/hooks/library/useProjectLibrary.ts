@@ -1122,7 +1122,12 @@ export const useProjectLibrary = ({
             projectIndex: project.projectIndex,
             title: project.title,
           });
-        } catch {
+        } catch (error) {
+          console.warn('[Nous] Failed to import a course from a library archive.', {
+            error,
+            projectId: project.id,
+            projectIndex: project.projectIndex,
+          });
           rejectedProjects.push({
             code: 'LIBRARY_ARCHIVE_PROJECT_IMPORT_FAILED',
             id: project.id,
@@ -1205,8 +1210,8 @@ export const useProjectLibrary = ({
           const rollbackError = new LibraryArchiveRollbackError(
             error instanceof LibraryArchiveError ? error.projectIndex : undefined,
             error instanceof LibraryArchiveError
-              ? (error.projectCount ?? archive.projects.length)
-              : archive.projects.length
+              ? (error.projectCount ?? archive.projectCount)
+              : archive.projectCount
           );
           setProjectSyncState({
             kind: 'import',

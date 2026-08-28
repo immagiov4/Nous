@@ -143,6 +143,7 @@ const isValidOrder = (value: unknown): value is number =>
 
 export interface LibraryArchiveData {
   projects: LibraryArchiveProjectEntry[];
+  projectCount: number;
   projectArchives: Array<{
     archive: Blob;
     id: string;
@@ -513,6 +514,11 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
         title: project.title,
       });
     } catch (error) {
+      console.warn('[Nous] Rejected a course archive during library import.', {
+        error,
+        projectId: project.id,
+        projectIndex,
+      });
       const tooLarge = error instanceof ZipEntryTooLargeError;
       rejectedProjects.push({
         code: tooLarge ? 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE' : 'LIBRARY_ARCHIVE_PROJECT_INVALID',
@@ -528,6 +534,7 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
 
   return {
     projects,
+    projectCount: manifest.projects.length,
     projectArchives,
     rejectedProjects,
     folders: manifest.folders,

@@ -584,15 +584,29 @@ describe('useProjectLibrary', () => {
     );
   });
 
-  test('reports an incomplete rollback and refreshes visible library state', async () => {
+  test('uses the full manifest count when a partial import rollback is incomplete', async () => {
     const timestamp = '2026-04-02T10:00:00.000Z';
-    const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
+    const projects = [buildSnapshot('course-one'), buildSnapshot('course-two')];
+    const archive = await createLibraryArchiveBlob(projects, {
       folders: [],
-      placements: [{ projectId: 'course-one', folderId: null, order: 0, updatedAt: timestamp }],
+      placements: projects.map((project, index) => ({
+        projectId: project.id,
+        folderId: null,
+        order: index,
+        updatedAt: timestamp,
+      })),
+    });
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    zip.file('projects/002-course-two.nous.zip', new Uint8Array([0x6e, 0x6f, 0x75, 0x73]), {
+      binary: true,
+      compression: 'STORE',
     });
     repositoryMocks.moveProjects.mockRejectedValueOnce(new Error('placement failed'));
     repositoryMocks.deleteProject.mockRejectedValueOnce(new Error('cleanup failed'));
-    const file = new File([archive], 'library.nous-library.zip');
+    const file = new File(
+      [new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))],
+      'library.nous-library.zip'
+    );
     const { result } = renderHook(() =>
       useProjectLibrary({
         domainState: createEmptyWorkspaceDomainState(),
@@ -605,7 +619,7 @@ describe('useProjectLibrary', () => {
       code: 'LIBRARY_ARCHIVE_ROLLBACK_INCOMPLETE',
       message:
         'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
-      projectCount: 1,
+      projectCount: 2,
       stage: 'rollback',
     });
 
