@@ -6,8 +6,7 @@ import {
   projectUnclosedMarkdownFenceOpeners,
   stripHighlightTagsInsideMarkdownCode,
 } from './codeRanges.ts';
-import { escapeDisallowedRawHtml } from './html.ts';
-import { processMarkdownSegment } from './segment.ts';
+import { processMarkdownSegment, processMarkdownSegmentPreservingIndentation } from './segment.ts';
 
 const DELETE_CONTROL_CHARACTER = '\u007f';
 const ANSI_ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
@@ -20,42 +19,32 @@ const POTENTIAL_MARKDOWN_FENCE_PATTERN = new RegExp(
 const introducesPotentialFence = (original: string, processed: string): boolean =>
   processed !== original && POTENTIAL_MARKDOWN_FENCE_PATTERN.test(processed);
 
+const processMarkdownRangeOutsideCode = (
+  content: string,
+  codeRanges: readonly MarkdownRange[],
+  bounds: MarkdownRange = { start: 0, end: content.length },
+  processSegment = processMarkdownSegment
+): string => {
+  const parts: string[] = [];
+  let cursor = bounds.start;
+  for (const range of codeRanges) {
+    if (range.end <= cursor) continue;
+    if (range.start >= bounds.end) break;
+    const protectedStart = Math.max(cursor, range.start);
+    const protectedEnd = Math.min(bounds.end, range.end);
+    parts.push(processSegment(content.slice(cursor, protectedStart)));
+    parts.push(content.slice(protectedStart, protectedEnd));
+    cursor = protectedEnd;
+  }
+  parts.push(processSegment(content.slice(cursor, bounds.end)));
+  return parts.join('');
+};
+
 const processMarkdownOutsideCode = (content: string): string => {
   if (!POTENTIAL_MARKDOWN_FENCE_PATTERN.test(content)) return processMarkdownSegment(content);
   const codeRanges = parseMarkdownAnalysis(content).codeRanges;
   if (codeRanges.length === 0) return processMarkdownSegment(content);
-
-  const parts: string[] = [];
-  let cursor = 0;
-  for (const range of codeRanges) {
-    if (range.start < cursor) continue;
-    parts.push(processMarkdownSegment(content.slice(cursor, range.start)));
-    parts.push(content.slice(range.start, range.end));
-    cursor = range.end;
-  }
-  parts.push(processMarkdownSegment(content.slice(cursor)));
-  return parts.join('');
-};
-
-const escapeDisallowedRawHtmlOutsideCode = (
-  content: string,
-  codeRanges: readonly MarkdownRange[],
-  start: number,
-  end: number
-): string => {
-  const parts: string[] = [];
-  let cursor = start;
-  for (const range of codeRanges) {
-    if (range.end <= cursor) continue;
-    if (range.start >= end) break;
-    const protectedStart = Math.max(cursor, range.start);
-    const protectedEnd = Math.min(end, range.end);
-    parts.push(escapeDisallowedRawHtml(content.slice(cursor, protectedStart)));
-    parts.push(content.slice(protectedStart, protectedEnd));
-    cursor = protectedEnd;
-  }
-  parts.push(escapeDisallowedRawHtml(content.slice(cursor, end)));
-  return parts.join('');
+  return processMarkdownRangeOutsideCode(content, codeRanges);
 };
 
 const getProjectedOffset = (
@@ -113,16 +102,16 @@ export const normalizeMarkdownForRendering = (content: string): string => {
     }
 
     const unclosedContent = projectedContent.slice(start, end);
-    const escapedUnclosedContent = escapeDisallowedRawHtmlOutsideCode(
+    const processedUnclosedContent = processMarkdownRangeOutsideCode(
       projectedContent,
       projectedCodeRanges,
-      start,
-      end
+      { start, end },
+      processMarkdownSegmentPreservingIndentation
     );
-    if (introducesPotentialFence(unclosedContent, escapedUnclosedContent)) {
+    if (introducesPotentialFence(unclosedContent, processedUnclosedContent)) {
       shouldReplanAfterSegmentProcessing = true;
     }
-    parts.push(escapedUnclosedContent);
+    parts.push(processedUnclosedContent);
     cursor = end;
   }
 

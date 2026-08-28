@@ -403,6 +403,29 @@ test('normalizeMarkdownForRendering escapes disallowed HTML inside an unclosed f
   );
 });
 
+test('normalizeMarkdownForRendering processes prose recovered from an unclosed fence', () => {
+  const input = [
+    '```outer',
+    '\\(x\\)',
+    '~~~ts',
+    '    literal code',
+    '~~~',
+    '    recovered prose',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      `${escapeFenceRun('```')}outer`,
+      '$x$',
+      '~~~ts',
+      '    literal code',
+      '~~~',
+      '    recovered prose',
+    ].join('\n')
+  );
+});
+
 test.each([
   {
     expected: [

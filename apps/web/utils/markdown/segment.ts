@@ -5,10 +5,8 @@ import {
   normalizeMathMarkdownSegment,
 } from './mathNormalization.ts';
 
-export const processMarkdownSegment = (segment: string): string => {
-  const lines = normalizeMathMarkdownSegment(removeAccidentalPlainTextIndentation(segment))
-    .replaceAll(/\r/g, '')
-    .split('\n');
+const processNormalizedMarkdownSegment = (segment: string): string => {
+  const lines = normalizeMathMarkdownSegment(segment).replaceAll(/\r/g, '').split('\n');
   const output: string[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -39,3 +37,9 @@ export const processMarkdownSegment = (segment: string): string => {
 
   return output.join('\n');
 };
+
+export const processMarkdownSegment = (segment: string): string =>
+  processNormalizedMarkdownSegment(removeAccidentalPlainTextIndentation(segment));
+
+export const processMarkdownSegmentPreservingIndentation = (segment: string): string =>
+  processNormalizedMarkdownSegment(segment);
