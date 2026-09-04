@@ -51,7 +51,8 @@ export const useHomeChatPanelState = ({
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
   const isLoading = homeChatMode === 'new-course' ? isNewCourseLoading : isLibraryModeLoading;
-  const hasActiveChat = activeMessages.length > 0 || isLoading || assessmentComplete;
+  const hasActiveChat =
+    activeMessages.length > 0 || isLoading || (homeChatMode === 'new-course' && assessmentComplete);
   const showClearChat =
     (homeChatMode === 'library-query' &&
       visibleLibraryMessages.length > 0 &&

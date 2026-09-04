@@ -265,6 +265,27 @@ describe('HomeChatPanel', () => {
     expect(composer).not.toHaveClass('border-0', 'p-0');
   });
 
+  test('keeps an empty library query compact after the course assessment completes', () => {
+    const { container } = render(
+      <HomeChatPanel
+        {...buildProps()}
+        assessmentComplete
+        assessmentMessages={[]}
+        compactWhenEmpty
+        hideHeaderCopy
+        hideModeSelector
+        homeChatMode="library-query"
+        libraryMessages={[]}
+      />
+    );
+
+    expect(container.querySelector('section')).toHaveClass(
+      'rounded-none',
+      'bg-transparent',
+      'shadow-none'
+    );
+  });
+
   test('can cancel an active new-course interview from the trash action', async () => {
     const user = userEvent.setup();
     const props = buildProps();
