@@ -4,7 +4,7 @@ export const LIBRARY_ARCHIVE_FORMAT = 'nous-library-archive';
 export const LIBRARY_ARCHIVE_VERSION = 2;
 export const LIBRARY_ARCHIVE_EXTENSION = '.nous-library.zip';
 export const LIBRARY_ARCHIVE_MANIFEST_PATH = 'library.json';
-export const LIBRARY_ARCHIVE_PROJECTS_DIR = 'projects';
+const LIBRARY_ARCHIVE_PROJECTS_DIR = 'projects';
 export const LIBRARY_ARCHIVE_MIME_TYPE = 'application/zip';
 
 export interface LibraryArchiveProjectEntry {
