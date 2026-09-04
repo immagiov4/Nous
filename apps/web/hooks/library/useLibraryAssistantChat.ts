@@ -239,7 +239,8 @@ const terminalizePendingLibraryToolCalls = ({
   const activeToolCalls = libraryAssistantActiveToolCallStore.get(requestStateKey);
   const pendingToolCalls = new Map(activeToolCalls);
   const latestUserMessageIndex = messages.map(message => message.role).lastIndexOf('user');
-  const activeResponseMessage = [...messages.slice(latestUserMessageIndex + 1)]
+  const activeResponseMessage = messages
+    .slice(latestUserMessageIndex + 1)
     .reverse()
     .find(message => message.role === 'assistant');
   for (const part of activeResponseMessage?.parts.filter(isPendingLibraryToolPart) ?? []) {
@@ -610,7 +611,7 @@ export const useLibraryAssistantChat = ({
     async (text: string) => {
       const previousResponseSettlement =
         libraryAssistantResponseSettlementStore.get(requestStateKey);
-      if (previousResponseSettlement) await previousResponseSettlement;
+      if (previousResponseSettlement !== undefined) await previousResponseSettlement;
 
       const responseState = libraryAssistantResponseStateStore.get(requestStateKey);
       if (responseState) {
