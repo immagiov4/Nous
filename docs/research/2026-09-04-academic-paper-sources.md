@@ -44,44 +44,23 @@ Le cifre su corpus, quote e prezzi sono fotografie della data di verifica e vann
 - Tre revisioni separate in sola lettura hanno riesaminato rispettivamente il percorso interno di Nous, i quattro fornitori principali e le alternative con diritti, quote e riservatezza.
 - Il commit locale esaminato coincideva con `HEAD` remoto al termine della ricerca. Il controllo meccanico degli spazi e la rilettura strutturale del nuovo file non hanno segnalato problemi.
 
-## Percorso attuale delle fonti in Nous
+## Implicazioni per l'integrazione in Nous
 
-### Ricerca del corso
+La descrizione stabile del percorso di ricerca e delle fonti è mantenuta nella pagina Cubic [Course Generation Workflow](../../.cubic/wiki/03-section-features/01-p-course-gen.md#research-and-source-flow). Questo rapporto conserva soltanto le lacune e le conseguenze specifiche per un fornitore accademico.
 
-1. **FATTO — raccolta:** `researchCourseWeb` invia a un modello di ricerca l'argomento, il contesto dell'utente e, quando presente, il materiale originale; abilita la ricerca sul web e chiede un titolo, un URL e l'uso di ogni fonte ([prompt](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationResearch.ts#L88-L101), [chiamata](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationResearch.ts#L181-L197)). In parallelo viene eseguita la ricerca YouTube ([raccolta dei due rami](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationResearch.ts#L371-L390)).
-2. **FATTO — contratto:** una fonte del corso contiene soltanto `title`, `url`, `note` e gli eventuali campi video; non ha DOI, autori, data, sede editoriale, fornitore, licenza o stato di ritrattazione ([schema](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L145-L167)).
-3. **FATTO — identità e selezione:** fonti web e video vengono unite in una mappa indicizzata dall'URL esatto. In modalità `learn`, il piano può citare soltanto URL presenti nella mappa ([raccolta e controllo](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationPlanning.ts#L64-L94)); nelle modalità documentali il vincolo resta un'istruzione del prompt e gli URL non vengono persistiti nel piano di ricerca ([diramazione](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationPlanning.ts#L135-L172)).
-4. **INFERENZA:** questa convalida impedisce al modello di inventare una fonte fuori dall'insieme raccolto, ma considera diversi `doi.org`, URL editoriali, parametri di tracciamento e copie in repository come opere diverse.
+- **FATTO:** il contratto corrente conserva titolo, URL, nota e campi video facoltativi, ma non DOI, autori, data, sede editoriale, fornitore, licenza o stato di ritrattazione ([schema](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L145-L167)).
+- **FATTO:** la raccolta del corso usa l'URL esatto come identità; la fusione delle fonti della lezione preferisce `sourceId`, poi l'URL minuscolo senza barre finali e infine il titolo normalizzato. Non esiste un'identità per opera che riconcili DOI, pagina editoriale, parametri o copie in repository ([raccolta](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationPlanning.ts#L64-L94), [fusione](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/services/lessonGenerationSources.ts#L412-L442)).
+- **FATTO:** `researchCourseWeb` riceve materiale originale per le strategie non `archive`; la strategia `archive` passa invece un insieme vuoto ([chiamata](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationResearch.ts#L181-L197)). Il pilota proposto non deve inviare alcun materiale originale al fornitore accademico.
+- **INFERENZA:** il punto di acquisizione più stretto è sul server, accanto al ramo `research-course-web` e prima che il piano costruisca l'insieme citabile. L'adattatore deve produrre un URL stabile oppure la raccolta deve essere estesa esplicitamente per usare DOI o ID del fornitore come identità.
 
-### Materiale originale
-
-1. **FATTO — preparazione:** in modalità documentale, la preparazione carica le fonti persistite, mantiene soltanto gli identificatori ancora utilizzabili e sceglie una strategia a fonte singola o insieme di fonti ([preparazione](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationPreparation.ts#L97-L128)).
-2. **FATTO — separazione:** ogni materiale originale viene ordinato e serializzato in un blocco `<source>` distinto, con nome, eventuale indice ed estratto ([formattazione](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/courseGenerationSources.ts#L59-L79)).
-3. **INFERENZA:** un indice accademico deve arricchire la ricerca esterna senza sostituire, inviare al fornitore o confondere con essa la fonte originale scelta dall'utente.
-
-### Ricerca e persistenza della lezione
-
-1. **FATTO — decisione di ricerca:** una lezione senza fonti, con lacune o da aggiornare abilita la ricerca web; una lezione con fonti ritenute sufficienti usa solo il contesto fornito ([modalità](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/services/lessonGenerationModel.ts#L201-L245)).
-2. **FATTO — risultato del modello:** anche qui ogni fonte web è soltanto `note`, `title`, `url` ([contratto](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/services/lessonResearchContract.ts#L11-L26)).
-3. **FATTO — normalizzazione:** le fonti web prodotte dalla ricerca vengono limitate a URL HTTP/HTTPS, ricevono se necessario un titolo di ripiego dal dominio e vengono fuse nel dossier della sezione ([normalizzazione e dossier](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/services/lessonGenerationResearch.ts#L112-L131), [fusione](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/services/lessonGenerationResearch.ts#L171-L210)).
-4. **FATTO — deduplicazione:** la chiave è prima `sourceId`, altrimenti l'URL minuscolo senza barre finali, altrimenti il titolo normalizzato. Non vengono normalizzati DOI, alias, parametri o versioni dell'opera ([implementazione](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/services/lessonGenerationSources.ts#L412-L442)).
-5. **FATTO — stesura:** il dossier e le fonti selezionate alimentano la stesura della lezione ([passaggio ricerca-stesura](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/backend/src/workflows/lessonGenerationStageServices.ts#L534-L610)).
-6. **FATTO — interfaccia:** il lettore riceve le fonti persistite della sezione e mostra, per una fonte esterna, soltanto titolo collegato e nota ([passaggio al lettore](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/web/app/useReaderShellProps.ts#L496-L504), [resa](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L830-L915)). Anche il tipo del client non contiene metadati accademici ([tipo](https://github.com/immagiov4/Nous/blob/8cd5956ec2fb05806db71fcbf0719a603eee64d0/apps/web/types.ts#L32-L42)).
-
-### Punto minimo di integrazione
-
-**INFERENZA:** il punto di acquisizione più stretto e coerente è sul server, accanto al ramo `research-course-web`, prima che `courseGenerationPlanning` costruisca l'insieme citabile. Il modello riceve un insieme chiuso di URL e, in modalità `learn`, il piano rifiuta URL estranei; un ramo accademico può quindi produrre candidati verificabili senza affidare al modello l'invenzione degli identificatori.
-
-Con il contratto corrente, l'adattatore deve produrre almeno un URL stabile, per esempio quello del risolutore DOI quando il DOI esiste o la pagina dell'opera OpenAlex quando manca: `collectResearchSources` elimina i record privi di URL. In alternativa, la raccolta dovrà essere modificata esplicitamente per usare DOI o ID del fornitore come identità.
-
-Non conviene nascondere OpenAlex dentro una generica nota web: si perderebbero provenienza, DOI e informazioni sui diritti. La minima superficie durevole comprende:
+Non conviene comprimere OpenAlex in una generica nota web: si perderebbero provenienza, DOI e informazioni sui diritti. La minima superficie durevole comprende:
 
 - un adattatore di acquisizione lato server, iniettato nei servizi della ricerca del corso;
 - un tipo normalizzato condiviso che conservi almeno fornitore, identificatore del record, DOI originale, chiave locale di confronto del DOI, autori, anno o data, sede, tipo di opera, stato di ritrattazione con fornitore e data di recupero, e localizzazioni con versione/licenza;
 - propagazione di quei campi attraverso piano, ricerca della lezione e dossier;
 - una citazione leggibile nel lettore, separando attribuzione bibliografica, provenienza dei metadati e diritto del singolo testo.
 
-**INFERENZA:** il pilota può arrestarsi prima di questa propagazione e produrre un reperto di valutazione separato. L'integrazione di produzione, invece, non è onesta se comprime i metadati accademici in `note`.
+**INFERENZA:** il pilota può arrestarsi prima di questa propagazione e produrre un reperto di valutazione separato. L'integrazione di produzione, invece, richiede un contratto esplicito per i metadati accademici.
 
 ## Confronto sintetico
 
