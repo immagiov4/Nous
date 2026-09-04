@@ -125,8 +125,37 @@ test('normalizes persisted placeholders whose text contains a legacy opening bra
     'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {A|caption=Insieme {A}} dopo'
   );
 
-  expect(restored).toBe('Prima {{PDF_IMAGE:pdf-img-001|alt=Set  A|caption=Insieme  A}} dopo');
+  expect(restored).toBe('Prima {{PDF_IMAGE:pdf-img-001|alt=Set A|caption=Insieme A}} dopo');
   assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
+});
+
+test('normalizes a persisted placeholder whose alt contains balanced braces', () => {
+  const restored = restoreLegacyPdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {A}}} dopo'
+  );
+
+  expect(restored).toBe('Prima {{PDF_IMAGE:pdf-img-001|alt=Set A}} dopo');
+  expect(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type).toBe('image');
+  const rendered = replacePdfImagePlaceholders(restored, { 'pdf-img-001': asset });
+  assert.match(rendered, /data-pdf-asset-id="pdf-img-001"/u);
+  assert.match(rendered, /dopo$/u);
+});
+
+test('normalizes balanced alt and caption without consuming the next placeholder', () => {
+  const restored = restoreLegacyPdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {A}|caption=Insieme {A}}} tra {{PDF_IMAGE:pdf-img-001|alt=Seconda}} dopo'
+  );
+
+  expect(restored).toBe(
+    'Prima {{PDF_IMAGE:pdf-img-001|alt=Set A|caption=Insieme A}} tra {{PDF_IMAGE:pdf-img-001|alt=Seconda}} dopo'
+  );
+  expect(
+    parsePdfContentParts(restored, { 'pdf-img-001': asset }).filter(part => part.type === 'image')
+  ).toHaveLength(2);
+  const rendered = replacePdfImagePlaceholders(restored, { 'pdf-img-001': asset });
+  expect(rendered.match(/data-pdf-asset-id="pdf-img-001"/gu)).toHaveLength(2);
+  assert.match(rendered, / tra /u);
+  assert.match(rendered, / dopo$/u);
 });
 
 test('does not let an incomplete legacy marker consume the next complete placeholder', () => {

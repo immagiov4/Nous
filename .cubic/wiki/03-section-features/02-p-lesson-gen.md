@@ -145,7 +145,11 @@ The `normalizeLessonStructure` function performs critical cleanup:
 1. **Markdown Sanitization:** Replaces internal `assetId` strings with user-friendly labels (e.g., "Figure 1") and removes unauthorized embedded image tags.
 2. **Quiz Validation:** Ensures quizzes are placed after explanatory markdown and do not exceed the `MAX_LESSON_QUIZ_QUESTIONS` limit.
 3. **Visual Mapping:** Associates successfully rendered visuals with their respective `slotId` in the content blocks.
-Sources: [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts)
+4. **PDF Image Placement:** Resolves anchors from parsed Markdown heading nodes, so heading-like text inside fenced or indented code is never a placement target. References selected by the draft must resolve to exactly one heading. Automatically selected fallback references are optional and are omitted individually when they have no unique anchor.
+
+The normalizer writes each retained PDF reference through the shared canonical `PDF_IMAGE` placeholder serializer. The resulting `contentBlocks`, their derived legacy `content`, and `imageRefs` therefore describe the same placed images before the workflow filters `documentAssets.usedImages` and persists the lesson.
+
+Sources: [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts), [packages/shared-types/markdownHeadings.ts](../../../packages/shared-types/markdownHeadings.ts), [packages/shared-types/pdfImagePlaceholder.ts](../../../packages/shared-types/pdfImagePlaceholder.ts), [apps/backend/src/workflows/lessonGenerationNormalizationStage.ts](../../../apps/backend/src/workflows/lessonGenerationNormalizationStage.ts)
 
 ### Workflow Schemas
 The pipeline relies on Zod schemas to ensure contract safety between stages.
