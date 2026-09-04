@@ -88,6 +88,15 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
       return;
     }
 
+    const previouslyFocusedElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableControls = Array.from(
+      regenerateConfirmPanelRef.current?.querySelectorAll<HTMLButtonElement>(
+        'button:not([disabled])'
+      ) ?? []
+    );
+    focusableControls[0]?.focus();
+
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (
@@ -101,9 +110,31 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
       setIsRegenerateConfirmOpen(false);
     };
 
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || focusableControls.length === 0) {
+        return;
+      }
+
+      const activeIndex = focusableControls.indexOf(document.activeElement as HTMLButtonElement);
+      const shouldWrapBackward = event.shiftKey && activeIndex <= 0;
+      const shouldWrapForward =
+        !event.shiftKey && (activeIndex === -1 || activeIndex === focusableControls.length - 1);
+      if (!shouldWrapBackward && !shouldWrapForward) {
+        return;
+      }
+
+      event.preventDefault();
+      (shouldWrapBackward ? focusableControls.at(-1) : focusableControls[0])?.focus();
+    };
+
     document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleTab);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleTab);
+      if (previouslyFocusedElement?.isConnected) {
+        previouslyFocusedElement.focus();
+      }
     };
   }, [isRegenerateConfirmVisible]);
 
@@ -243,8 +274,9 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             {isMobileViewport && isRegenerateConfirmVisible && portalContainer
               ? createPortal(
                   <div
-                    className="fixed bottom-0 left-1/2 top-0 z-50 flex w-full -translate-x-1/2 items-start justify-center pt-24"
+                    className={`fixed bottom-0 left-1/2 top-0 z-50 flex w-full -translate-x-1/2 items-start justify-center pt-24 ${isDarkMode ? 'dark' : ''}`}
                     role="dialog"
+                    aria-modal="true"
                     aria-label={t('Conferma rigenerazione contenuto')}
                   >
                     <div ref={regenerateConfirmPanelRef}>

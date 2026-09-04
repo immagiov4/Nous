@@ -100,6 +100,31 @@ describe('WorkspaceReaderHeader', () => {
     expect(dialog).toHaveClass('-translate-x-1/2');
   });
 
+  test('keeps mobile dark mode and keyboard focus inside the portaled confirmation', async () => {
+    const user = userEvent.setup();
+
+    render(<WorkspaceReaderHeader {...buildProps()} isDarkMode isMobileViewport />);
+
+    const trigger = screen.getByRole('button', { name: /Rigenera la/i });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
+    const cancelButton = within(dialog).getByRole('button', { name: 'Annulla' });
+    const confirmButton = within(dialog).getByRole('button', { name: /^Rigenera$/i });
+    expect(dialog).toHaveClass('dark');
+    expect(cancelButton).toHaveFocus();
+
+    await user.tab();
+    expect(confirmButton).toHaveFocus();
+    await user.tab();
+    expect(cancelButton).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(confirmButton).toHaveFocus();
+
+    await user.click(cancelButton);
+    expect(trigger).toHaveFocus();
+  });
+
   test('dismisses the mobile regeneration confirmation when pressing outside its card', async () => {
     const user = userEvent.setup();
     const props = buildProps();
