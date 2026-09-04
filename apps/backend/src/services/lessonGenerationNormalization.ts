@@ -7,6 +7,7 @@ import {
 import type { PdfImageContext } from '@shared/lessonPdfImageSelection';
 import { unwrapWholeQuizCodeFormatting } from '@shared/lessonQuizFormatting';
 import {
+  buildPdfImagePlaceholder,
   normalizePdfImagePlaceholder,
   rewritePdfImagePlaceholders,
 } from '@shared/pdfImagePlaceholder';
@@ -41,14 +42,25 @@ const sanitizeMarkdownBlock = (
   markdown: string,
   visibleLabelByAssetId: ReadonlyMap<string, string>
 ): string => {
+  // Metadata may contain image-markup delimiters; keep it opaque during wrapper removal.
+  const protectedPlaceholders = new Map<string, string>();
+  const protectedMarkdown = rewritePdfImagePlaceholders(markdown, occurrence => {
+    const temporaryId = String(protectedPlaceholders.size);
+    protectedPlaceholders.set(temporaryId, normalizePdfImagePlaceholder(occurrence));
+    return buildPdfImagePlaceholder({ assetId: temporaryId });
+  });
   const retainPlaceholders = (imageMarkup: string) =>
     rewritePdfImagePlaceholders(imageMarkup, normalizePdfImagePlaceholder, () => '');
-  const withoutDirectImages = markdown
+  const withoutDirectImages = protectedMarkdown
     .replaceAll(/!\[[^\n]*?\]\([^)\n]*\)/gu, retainPlaceholders)
     .replaceAll(/<img\b[^>]*>/giu, retainPlaceholders);
   const sanitized = rewritePdfImagePlaceholders(
     withoutDirectImages,
-    normalizePdfImagePlaceholder,
+    ({ assetId }) => {
+      const originalPlaceholder = protectedPlaceholders.get(assetId);
+      if (originalPlaceholder === undefined) throw new Error('Unknown protected PDF placeholder.');
+      return originalPlaceholder;
+    },
     text => {
       let sanitizedText = text;
       for (const [assetId, visibleLabel] of visibleLabelByAssetId) {

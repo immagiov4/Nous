@@ -387,6 +387,26 @@ test('PDF normalization stores accepted brace metadata in a reader-compatible fo
   expect(parts[2]).toMatchObject({ content: '\n\nDopo.', type: 'markdown' });
 });
 
+test.each([
+  [
+    '![x]({{PDF_IMAGE:pdf-img-candidate|caption=Grafico (A)}})',
+    '{{PDF_IMAGE:pdf-img-candidate|caption=Grafico (A)}}',
+  ],
+  [
+    '<img src="{{PDF_IMAGE:pdf-img-candidate|caption=A > B}}" />',
+    '{{PDF_IMAGE:pdf-img-candidate|caption=A > B}}',
+  ],
+])('PDF normalization preserves metadata delimiters inside %s', (wrapper, placeholder) => {
+  const result = normalizePdfDraft(`Prima.\n\n${wrapper}\n\nDopo.`, [selectedPdfImage()]);
+
+  expect(result.content).toBe(`Prima.\n\n${placeholder}\n\nDopo.`);
+  expect(
+    parsePdfContentParts(result.content, { 'pdf-img-candidate': pdfImageCandidate() }).map(
+      part => part.type
+    )
+  ).toEqual(['markdown', 'image', 'markdown']);
+});
+
 test('PDF normalization checks the selected asset rather than any placeholder', () => {
   expect(() => normalizePdfDraft('{{PDF_IMAGE:another-image}}', [selectedPdfImage()])).toThrow(
     'Selected PDF image is missing its placeholder in lesson content.'
