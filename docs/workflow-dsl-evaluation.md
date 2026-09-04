@@ -30,11 +30,12 @@ The main authoring cost is repeated input and output schemas, explicit context g
 values.
 
 `sequence` propagates one `Config` and `Services` context through `FirstNodeContext` and
-`CompatibleNodes` ([definition.ts:72](../apps/backend/src/workflows/definition.ts#L72),
+`CompatibleNodes` ([definition.ts:119](../apps/backend/src/workflows/definition.ts#L119),
 [definition.ts:142](../apps/backend/src/workflows/definition.ts#L142)). Compile-time tests reject mixed service
 contexts, incompatible roots, and invalid configuration overrides ([workflowTypes.test.ts:95](../apps/backend/tests/workflows/workflowTypes.test.ts#L95)).
 The interview definition has two explicit `as unknown as WorkflowNode` casts around signal waits
-([courseInterviewWorkflow.ts:531](../apps/backend/src/workflows/courseInterviewWorkflow.ts#L531)).
+([courseInterviewWorkflow.ts:536](../apps/backend/src/workflows/courseInterviewWorkflow.ts#L536),
+[courseInterviewWorkflow.ts:549](../apps/backend/src/workflows/courseInterviewWorkflow.ts#L549)).
 
 The production registry creates six top-level definitions and historical variants
 ([workflowRuntimeComposition.ts:189](../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts#L189)).
@@ -56,8 +57,10 @@ hash tests remain useful evidence, but they are not the sole compatibility oracl
 [workflowDefinitions.test.ts:129](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L129),
 [workflowDefinitions.test.ts:255](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L255)).
 
-Historical definitions resolve by exact workflow ID, definition hash, and hash version. A new source form must
-not replace the old definition needed to resume a persisted run ([definition.ts:403](../apps/backend/src/workflows/definition.ts#L403),
+The registry resolves historical definitions by exact workflow ID and definition hash. Resume and claim
+boundaries then compare the stored hash version before using that definition. A new source form must not
+replace the old definition needed to resume a persisted run ([definition.ts:501](../apps/backend/src/workflows/definition.ts#L501),
+[workflowStepResolution.ts:89](../apps/backend/src/workflows/workflowStepResolution.ts#L89),
 [workflowDefinitions.test.ts:273](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L273)).
 
 ## Alternatives
