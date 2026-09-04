@@ -1,11 +1,48 @@
 import { Moon, RefreshCw, Settings2, SidebarOpen, Sun } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
 import { HeaderLearningAids, MobileLearningAids } from './LessonLearningAids.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
+
+interface RegenerateConfirmationCardProps {
+  readonly onCancel: () => void;
+  readonly onConfirm: () => void;
+}
+
+function RegenerateConfirmationCard({ onCancel, onConfirm }: RegenerateConfirmationCardProps) {
+  return (
+    <>
+      <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+        {t('Rigenerare questa lezione?')}
+      </p>
+      <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
+        {t(
+          'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'
+        )}
+      </p>
+      <div className="mt-4 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        >
+          {t('Annulla')}
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+        >
+          {t('Rigenera')}
+        </button>
+      </div>
+    </>
+  );
+}
 
 const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   hasActiveSection,
@@ -41,7 +78,8 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const [isMobileLearningAidsOpen, setIsMobileLearningAidsOpen] = useState(false);
-  const regenerateConfirmRef = useRef<HTMLDivElement>(null);
+  const regenerateConfirmPanelRef = useRef<HTMLDivElement>(null);
+  const regenerateTriggerRef = useRef<HTMLDivElement>(null);
   const canRegenerate = hasActiveSection;
   const isRegenerateConfirmVisible = isRegenerateConfirmOpen && canRegenerate && !isLoading;
 
@@ -52,7 +90,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (!(target instanceof Node) || regenerateConfirmRef.current?.contains(target)) {
+      if (
+        !(target instanceof Node) ||
+        regenerateConfirmPanelRef.current?.contains(target) ||
+        regenerateTriggerRef.current?.contains(target)
+      ) {
         return;
       }
 
@@ -112,6 +154,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const regenerateDialogClassName = isMobileViewport
     ? 'mx-auto w-[min(20rem,calc(100vw-2rem))]'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))]';
+  const portalContainer = typeof document === 'undefined' ? null : document.body;
 
   const courseNotesBinding = useMemo(
     () => ({
@@ -175,7 +218,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
         >
           {!isMobileViewport ? loadingBadge : null}
 
-          <div ref={regenerateConfirmRef} className="relative">
+          <div ref={regenerateTriggerRef} className="relative">
             <button
               type="button"
               onClick={handleRegenerateIntent}
@@ -197,76 +240,45 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               {!isMobileViewport ? <span>{t('Rigenera')}</span> : null}
             </button>
 
-            {isMobileViewport && isRegenerateConfirmVisible ? (
-              <div
-                className="fixed bottom-0 left-1/2 top-0 z-50 flex w-full -translate-x-1/2 items-start justify-center pt-24"
-                role="dialog"
-                aria-label={t('Conferma rigenerazione contenuto')}
-              >
-                <div
-                  className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
-                >
-                  <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                    {t('Rigenerare questa lezione?')}
-                  </p>
-                  <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                    {t(
-                      'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'
-                    )}
-                  </p>
-                  <div className="mt-4 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsRegenerateConfirmOpen(false)}
-                      className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                    >
-                      {t('Annulla')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleConfirmRegenerate}
-                      className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                    >
-                      {t('Rigenera')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
+            {isMobileViewport && isRegenerateConfirmVisible && portalContainer
+              ? createPortal(
+                  <div
+                    className="fixed bottom-0 left-1/2 top-0 z-50 flex w-full -translate-x-1/2 items-start justify-center pt-24"
+                    role="dialog"
+                    aria-label={t('Conferma rigenerazione contenuto')}
+                  >
+                    <div ref={regenerateConfirmPanelRef}>
+                      <MotionPopover
+                        isOpen={isRegenerateConfirmVisible}
+                        originX="top center"
+                        className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
+                      >
+                        <RegenerateConfirmationCard
+                          onCancel={() => setIsRegenerateConfirmOpen(false)}
+                          onConfirm={handleConfirmRegenerate}
+                        />
+                      </MotionPopover>
+                    </div>
+                  </div>,
+                  portalContainer
+                )
+              : null}
 
             {!isMobileViewport ? (
-              <MotionPopover
-                isOpen={isRegenerateConfirmVisible}
-                originX="top right"
-                role="dialog"
-                aria-label={t('Conferma rigenerazione contenuto')}
-                className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
-              >
-                <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                  {t('Rigenerare questa lezione?')}
-                </p>
-                <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                  {t(
-                    'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'
-                  )}
-                </p>
-                <div className="mt-4 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsRegenerateConfirmOpen(false)}
-                    className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                  >
-                    {t('Annulla')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmRegenerate}
-                    className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                  >
-                    {t('Rigenera')}
-                  </button>
-                </div>
-              </MotionPopover>
+              <div ref={regenerateConfirmPanelRef}>
+                <MotionPopover
+                  isOpen={isRegenerateConfirmVisible}
+                  originX="top right"
+                  role="dialog"
+                  aria-label={t('Conferma rigenerazione contenuto')}
+                  className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
+                >
+                  <RegenerateConfirmationCard
+                    onCancel={() => setIsRegenerateConfirmOpen(false)}
+                    onConfirm={handleConfirmRegenerate}
+                  />
+                </MotionPopover>
+              </div>
             ) : null}
           </div>
 

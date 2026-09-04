@@ -100,6 +100,82 @@ describe('WorkspaceReaderHeader', () => {
     expect(dialog).toHaveClass('-translate-x-1/2');
   });
 
+  test('dismisses the mobile regeneration confirmation when pressing outside its card', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+
+    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
+
+    await user.click(screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i }));
+
+    expect(
+      screen.queryByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
+    ).not.toBeInTheDocument();
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+  });
+
+  test('keeps the mobile regeneration confirmation open when pressing its card', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+
+    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
+    await user.click(within(dialog).getByText('Rigenerare questa lezione?'));
+
+    expect(dialog).toBeInTheDocument();
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+  });
+
+  test('dismisses the desktop regeneration confirmation when pressing outside its card', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /Rigenera/i }));
+    await user.click(document.body);
+
+    expect(
+      screen.queryByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
+    ).not.toBeInTheDocument();
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+  });
+
+  test('keeps the desktop regeneration confirmation open when pressing its card', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /Rigenera/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
+    await user.click(within(dialog).getByText('Rigenerare questa lezione?'));
+
+    expect(dialog).toBeInTheDocument();
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+  });
+
+  test('cancels the regeneration confirmation without regenerating', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /Rigenera/i }));
+    await user.click(screen.getByRole('button', { name: 'Annulla' }));
+
+    expect(
+      screen.queryByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
+    ).not.toBeInTheDocument();
+    expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
+  });
+
   test('hides the regeneration confirmation while the lesson is loading', async () => {
     const user = userEvent.setup();
     const props = buildProps();
