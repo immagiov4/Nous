@@ -162,11 +162,11 @@ subagents. Use a local subagent only for a short, read-only verification that su
 chat; never use one to implement, publish, or own a backlog issue. Keep roughly 8-10 tasks or fewer
 active and queue excess work.
 
-1. Group overlapping issues by subsystem before creating tasks. Select the model deliberately:
-   use `gpt-5.6-sol` with `high` reasoning for complex/high-impact implementation,
-   `gpt-5.6-terra` with `high` reasoning for medium implementation, and `gpt-5.6-luna` only for
-   bounded exploration (`medium`/`high`, or `xhigh` when complex) or simple documentation-only
-   implementation (`high`). Do not use Luna for non-trivial code implementation.
+1. Group overlapping issues by subsystem before creating tasks. Use `gpt-6-astra` for all tasks:
+   `low` reasoning for simple, bounded work such as a small UI change expected to take about
+   5-10 minutes; `medium` for normal work; `high` for difficult or high-impact work.
+   The user's "Light" level maps to `low`. Keep `high` as the maximum unless the user explicitly
+   changes this policy. Apply this selection when resuming existing tasks as well as creating them.
 2. Give each agent a concrete outcome, exact issue(s), validation expectations, exclusive
    file/module ownership where possible, and the applicable installed skills from the routing
    table above.
