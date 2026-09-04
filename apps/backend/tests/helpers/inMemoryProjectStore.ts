@@ -120,6 +120,15 @@ export class InMemoryProjectStore implements ProjectStore {
       .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
   }
 
+  async readLibraryExportSnapshot(userId: string) {
+    const [projects, folders, placements] = await Promise.all([
+      this.listProjects(userId),
+      this.listFolders(userId),
+      this.listPlacements(userId),
+    ]);
+    return { folders, placements, projects };
+  }
+
   async listProjectImportDiagnostics(correlationId?: string): Promise<ProjectImportDiagnostic[]> {
     const cutoff = Date.now() - PROJECT_IMPORT_DIAGNOSTIC_RETENTION_MS;
     return clone(this.projectImportDiagnostics)

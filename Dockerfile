@@ -45,8 +45,8 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
     && BUN_INSTALL=/usr/local bun add --global "@openai/codex@${CODEX_VERSION}" \
-    && mkdir -p /home/bun/.codex \
-    && chown bun:bun /home/bun/.codex \
+    && mkdir -p /home/bun/.codex /var/lib/nous/library-exports \
+    && chown bun:bun /home/bun/.codex /var/lib/nous/library-exports \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production \

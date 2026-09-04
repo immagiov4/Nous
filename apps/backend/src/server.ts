@@ -8,18 +8,27 @@ import {
   loadServerConfig,
 } from './config/serverConfig.js';
 import { createApp } from './index.js';
+import { createLibraryExportApi } from './projects/libraryExport.js';
+import { PostgresLibraryExportRunStore } from './projects/libraryExportRunStore.js';
+import { getProjectStore } from './projects/projectStore.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
 import { startFeedbackOutboxWorker, stopFeedbackOutboxWorker } from './services/feedbackService.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 import { createWorkflowRuntimeComposition } from './workflows/runtime/workflowRuntimeComposition.js';
 
 const workflowRuntime = createWorkflowRuntimeComposition();
+const libraryExportApi = createLibraryExportApi({
+  assetReader: workflowRuntime.projectAssetReader,
+  projectStore: getProjectStore(),
+  runStore: new PostgresLibraryExportRunStore(),
+});
 const app = createApp({
   artifactDraftApi: workflowRuntime.artifactDraftApi,
   courseGenerationApi: workflowRuntime.courseGenerationApi,
   courseInterviewApi: workflowRuntime.courseInterviewApi,
   lessonGenerationApi: workflowRuntime.lessonGenerationApi,
   lessonVisualRetryStarter: workflowRuntime.lessonVisualRetryStarter,
+  libraryExportApi,
   pdfMappingRepairApi: workflowRuntime.pdfMappingRepairApi,
   projectAssetReader: workflowRuntime.projectAssetReader,
   workflowOutboxAdmin: workflowRuntime.workflowOutboxAdmin,
@@ -33,6 +42,15 @@ try {
   await workflowRuntime.start();
 } catch (error) {
   console.error('[Backend] Workflow runtime failed to start.', error);
+  await workflowRuntime.close();
+  throw error;
+}
+try {
+  await libraryExportApi.recoverPendingRuns();
+} catch (error) {
+  console.error('[Backend] Library export recovery failed.', {
+    errorType: error instanceof Error ? error.name : 'UnknownError',
+  });
   await workflowRuntime.close();
   throw error;
 }

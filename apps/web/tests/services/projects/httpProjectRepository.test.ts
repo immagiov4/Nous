@@ -5,6 +5,7 @@ import { decodeProjectSnapshotWire } from '@shared/projectSnapshotWire';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
+
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,

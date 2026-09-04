@@ -113,6 +113,16 @@ often than the receiving-session TTL. The current in-memory admission/session re
 validated single backend replica in `compose.yml`; multiple backend replicas require shared session
 coordination before scaling horizontally.
 
+### Durable full-library export workspace
+
+Full-library exports use the backend-owned `library-exports` named volume mounted at
+`/var/lib/nous/library-exports`. Project archives, completed checkpoints, and the final archive
+therefore survive a backend restart or container recreation and do not compete with the 1 GB `/tmp`
+filesystem used by backup imports. Compose `down` and normal redeployment preserve this volume;
+successful downloads and cancelled runs remove their own workspace after recording durable cleanup
+state. Do not use `down -v` during normal operations because that would remove resumable export
+files while their PostgreSQL run records remain.
+
 Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is
 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable

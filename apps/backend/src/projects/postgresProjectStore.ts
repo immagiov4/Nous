@@ -75,6 +75,7 @@ import {
   streamSourceArchive,
 } from './sourceArchive.js';
 import type {
+  LibraryExportSnapshot,
   LibraryFolder,
   LibraryPlacement,
   ProjectCoverFile,
@@ -409,7 +410,14 @@ export class PostgresProjectStore implements ProjectStore {
 
   async listProjects(userId: string): Promise<SavedProjectMeta[]> {
     this.startQueuedSourceDeletionDrain();
-    const rows = await this.sql<ProjectMetaRow[]>`
+    return this.listProjectsWithClient(this.sql, userId);
+  }
+
+  private async listProjectsWithClient(
+    sql: PostgresMutationSql,
+    userId: string
+  ): Promise<SavedProjectMeta[]> {
+    const rows = await sql<ProjectMetaRow[]>`
       select meta, revision
       from public.projects
       where user_id = ${userId}
@@ -419,6 +427,16 @@ export class PostgresProjectStore implements ProjectStore {
     return rows
       .map(mergeProjectMetaRow)
       .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
+  }
+
+  async readLibraryExportSnapshot(userId: string): Promise<LibraryExportSnapshot> {
+    this.startQueuedSourceDeletionDrain();
+    await this.ensureAllProjectPlacements(userId);
+    return this.sql.begin('isolation level repeatable read read only', async sql => ({
+      folders: await this.listFoldersWithClient(sql, userId),
+      placements: await this.listPlacementsWithoutRepairWithClient(sql, userId),
+      projects: await this.listProjectsWithClient(sql, userId),
+    }));
   }
 
   async listProjectImportDiagnostics(correlationId?: string): Promise<ProjectImportDiagnostic[]> {

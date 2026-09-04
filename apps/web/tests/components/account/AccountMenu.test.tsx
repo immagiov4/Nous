@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import AccountMenu from '../../../components/account/AccountMenu.tsx';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
 import { LibraryArchiveError } from '../../../services/projects/libraryArchive.ts';
+import type { LibraryExportProgressListener } from '../../../services/projects/projectRepository.ts';
 
 const fetchMock = vi.fn();
 
@@ -170,7 +171,23 @@ describe('AccountMenu', () => {
 
   test('exports and imports the complete course backup from the account menu', async () => {
     const user = userEvent.setup();
-    const onExportLibraryBackup = vi.fn().mockResolvedValue(2);
+    let finishExport!: () => void;
+    const onExportLibraryBackup = vi.fn(
+      (onProgress?: LibraryExportProgressListener) =>
+        new Promise<number>(resolve => {
+          onProgress?.({
+            bytesWritten: 321,
+            completedProjectCount: 1,
+            correlationId: '98de2539-25d9-497a-b612-49fa7813cb50',
+            currentProjectId: 'course-2',
+            phase: 'project-archive',
+            projectCount: 2,
+            runId: '3207883a-862a-447f-b9ed-6148effeb8ea',
+            status: 'running',
+          });
+          finishExport = () => resolve(2);
+        })
+    );
     const onImportLibraryBackup = vi.fn().mockResolvedValue(2);
     saveAccountSession(['email']);
     fetchMock.mockResolvedValueOnce(accountResponse('email'));
@@ -188,8 +205,13 @@ describe('AccountMenu', () => {
     await user.click(screen.getByRole('button', { name: 'Esporta tutti i corsi' }));
 
     expect(onExportLibraryBackup).toHaveBeenCalledTimes(1);
-    expect((await screen.findByRole('status')).textContent).toContain(
-      'Backup di 2 corsi esportato.'
+    expect(screen.getByRole('button', { name: 'Esportazione 1 di 2...' })).toBeDisabled();
+    expect(screen.getByText('321 byte elaborati dal server.')).not.toBeNull();
+    finishExport();
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain(
+        'Download del backup di 2 corsi avviato.'
+      )
     );
 
     const backup = new File(['backup'], 'courses.nous-library.zip', {
