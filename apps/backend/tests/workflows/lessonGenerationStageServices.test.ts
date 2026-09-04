@@ -11,6 +11,7 @@ import {
 import {
   LessonContextStateSchema,
   LessonDraftStateSchema,
+  LessonResearchStateSchema,
   LessonReviewedStateSchema,
   LessonSourcesStateSchema,
   LessonYouTubeStateSchema,
@@ -587,6 +588,44 @@ describe('lesson generation production stages', () => {
     expect(researchYouTube.mock.calls.map(call => call[2])).toEqual(
       expectedQueries.map(() => signal)
     );
+  });
+
+  test('persists model image references without requiring a placement anchor', async () => {
+    const generatedDraft = {
+      contentBlocks: [
+        { markdown: 'Prima.\n\n{{PDF_IMAGE:pdf-1}}\n\nDopo.', type: 'markdown' as const },
+      ],
+      generatedVisuals: [],
+      imageRefs: [{ alt: 'Diagramma', assetId: 'pdf-1', caption: 'Diagramma' }],
+    };
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        generateContent: vi.fn(async () => generatedDraft),
+        reviewContent: vi.fn(async () => generatedDraft),
+      })
+    );
+    const research = LessonResearchStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      lessonSources: [],
+      research: { context: '', summary: null, youtube: null },
+      stage: 'research',
+    });
+
+    const written = LessonDraftStateSchema.parse(
+      await services.draftLesson(stageContext(research))
+    );
+    const reviewed = LessonReviewedStateSchema.parse(
+      await services.reviewLesson(stageContext(written))
+    );
+
+    for (const result of [written, reviewed]) {
+      expect(result.draft.contentBlocks).toEqual(generatedDraft.contentBlocks);
+      expect(result.draft.imageRefs).toEqual([
+        { ...generatedDraft.imageRefs[0], anchorHeading: '' },
+      ]);
+    }
+    expect(generatedDraft.imageRefs[0]).not.toHaveProperty('anchorHeading');
   });
 
   test('passes only selected YouTube transcripts to lesson writing', async () => {

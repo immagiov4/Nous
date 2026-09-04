@@ -92,6 +92,7 @@ describe('durable lesson normalization', () => {
         imageRefs: [
           {
             alt: 'Schema del concetto',
+            anchorHeading: '',
             assetId: 'pdf-image-1',
             caption: 'Schema del concetto',
           },
