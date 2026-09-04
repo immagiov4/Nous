@@ -146,7 +146,7 @@ export const LessonPdfImageReferenceSchema = z.object({
 
 const LessonDraftImageReferenceSchema = z.object({
   alt: z.string(),
-  anchorHeading: z.string(),
+  anchorHeading: z.string().optional(),
   assetId: LessonIdentifierSchema,
   caption: z.string(),
 });

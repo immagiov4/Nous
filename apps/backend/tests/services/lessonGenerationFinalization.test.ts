@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
+import { parsePdfContentParts } from '../../../web/utils/pdf/imagePlaceholders';
 import type { GlobalModelConfig } from '../../src/config/modelConfig.js';
 import { LessonGenerationCorrectionError } from '../../src/services/lessonGenerationCorrection.js';
 import {
@@ -312,308 +313,13 @@ test('normalization removes a quiz when image cleanup removes its explanatory ma
   expect(result.quiz).toEqual([]);
 });
 
-test('PDF normalization places a selected image exactly once at its resolved heading', () => {
-  const result = normalizeLessonStructure({
+const normalizePdfDraft = (markdown: string, imageRefs: LessonContentDraft['imageRefs']) =>
+  normalizeLessonStructure({
     availableImages: [pdfImageCandidate()],
-    draft: {
-      contentBlocks: [
-        {
-          markdown:
-            '## Introduzione\n\nContesto.\n\n## Figura   {pertinente}\n\nConfronta i dettagli.',
-          type: 'markdown',
-        },
-      ],
-      generatedVisuals: [],
-      imageRefs: [
-        {
-          alt: 'Figura pertinente',
-          anchorHeading: 'Figura   {pertinente}',
-          assetId: 'pdf-img-candidate',
-          caption: 'Figura pertinente',
-        },
-      ],
-    },
-    generatedAt: '2026-07-27T00:00:00.000Z',
-    sectionDescription: 'Descrizione.',
-    sectionTitle: 'Figura',
-    sources: [],
-    visualsBySlotId: new Map(),
-  });
-
-  expect(result.imageRefs.map(reference => reference.assetId)).toEqual(['pdf-img-candidate']);
-  const placeholder =
-    '{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente|caption=Figura pertinente}}';
-  expect(result.content.split(placeholder)).toHaveLength(2);
-  expect(result.content).toContain(
-    `## Figura   {pertinente}\n\n${placeholder}\n\nConfronta i dettagli.`
-  );
-  expect(result.contentBlocks).toEqual([
-    {
-      markdown: `## Introduzione\n\nContesto.\n\n## Figura   {pertinente}\n\n${placeholder}\n\nConfronta i dettagli.`,
-      type: 'markdown',
-    },
-  ]);
-});
-
-test('PDF normalization rebuilds a pre-existing placeholder at the canonical anchor', () => {
-  const result = normalizeLessonStructure({
-    availableImages: [pdfImageCandidate()],
-    draft: {
-      contentBlocks: [
-        {
-          markdown:
-            '{{PDF_IMAGE:pdf-img-candidate|alt=Set {A}|caption=Insieme {A}}} Testo preservato.\n\n## Figura\n\nConfronta i dettagli.',
-          type: 'markdown',
-        },
-      ],
-      generatedVisuals: [],
-      imageRefs: [
-        {
-          alt: 'Figura {pertinente}',
-          anchorHeading: 'Figura',
-          assetId: 'pdf-img-candidate',
-          caption: 'Insieme {A}',
-        },
-      ],
-    },
-    generatedAt: '2026-07-27T00:00:00.000Z',
-    sectionDescription: 'Descrizione.',
-    sectionTitle: 'Figura',
-    sources: [],
-    visualsBySlotId: new Map(),
-  });
-
-  expect(result.content.match(/\{\{PDF_IMAGE:/gu)).toHaveLength(1);
-  expect(result.content).toContain(
-    'Testo preservato.\n\n## Figura\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente|caption=Insieme A}}\n\nConfronta i dettagli.'
-  );
-  expect(result.content).not.toContain('Set {A}');
-  expect(result.content).not.toContain('Insieme {A}');
-  expect(result.imageRefs).toEqual([
-    {
-      alt: 'Figura {pertinente}',
-      anchorHeading: 'Figura',
-      assetId: 'pdf-img-candidate',
-      caption: 'Insieme {A}',
-    },
-  ]);
-});
-
-test('PDF normalization removes a closed pre-existing marker with unknown options', () => {
-  const result = normalizeLessonStructure({
-    availableImages: [{ ...pdfImageCandidate(), id: 'pdf-img' }],
-    draft: {
-      contentBlocks: [
-        {
-          markdown: '## Figura\n\n{{PDF_IMAGE:pdf-img|foo=bar}} Testo.',
-          type: 'markdown',
-        },
-      ],
-      generatedVisuals: [],
-      imageRefs: [
-        {
-          alt: 'Figura pertinente',
-          anchorHeading: 'Figura',
-          assetId: 'pdf-img',
-          caption: 'Figura pertinente',
-        },
-      ],
-    },
-    generatedAt: '2026-07-27T00:00:00.000Z',
-    sectionDescription: 'Descrizione.',
-    sectionTitle: 'Figura',
-    sources: [],
-    visualsBySlotId: new Map(),
-  });
-
-  expect(result.content.match(/\{\{PDF_IMAGE:/gu)).toHaveLength(1);
-  expect(result.content).toContain(
-    '## Figura\n\n{{PDF_IMAGE:pdf-img|alt=Figura pertinente|caption=Figura pertinente}}\n\n Testo.'
-  );
-  expect(result.content).not.toContain('foo=bar');
-});
-
-test('PDF normalization rejects an ambiguous image anchor instead of guessing placement', () => {
-  expect(() =>
-    normalizeLessonStructure({
-      availableImages: [pdfImageCandidate()],
-      draft: {
-        contentBlocks: [
-          {
-            markdown: '## Figura\n\nPrima spiegazione.\n\n## Figura\n\nSeconda spiegazione.',
-            type: 'markdown',
-          },
-        ],
-        generatedVisuals: [],
-        imageRefs: [
-          {
-            alt: 'Figura pertinente',
-            anchorHeading: 'Figura',
-            assetId: 'pdf-img-candidate',
-            caption: 'Figura pertinente',
-          },
-        ],
-      },
-      generatedAt: '2026-07-27T00:00:00.000Z',
-      sectionDescription: 'Descrizione.',
-      sectionTitle: 'Figura',
-      sources: [],
-      visualsBySlotId: new Map(),
-    })
-  ).toThrow('Selected PDF image anchor must match exactly one Markdown heading.');
-});
-
-test.each([
-  ['missing', '## Altro tema\n\nSpiegazione.'],
-  [
-    'ambiguous',
-    '## Percezione motoria\n\nPrima spiegazione.\n\n## Percezione motoria\n\nSeconda spiegazione.',
-  ],
-])('PDF normalization omits an optional fallback with a %s anchor', (_case, markdown) => {
-  const result = normalizeLessonStructure({
-    availableImages: [
-      {
-        ...pdfImageCandidate(),
-        caption: 'Schema della percezione motoria',
-        textBefore: 'percezione motoria',
-      },
-    ],
     draft: {
       contentBlocks: [{ markdown, type: 'markdown' }],
       generatedVisuals: [],
-      imageRefs: [],
-    },
-    generatedAt: '2026-07-27T00:00:00.000Z',
-    sectionDescription: 'Comprendere la percezione motoria.',
-    sectionTitle: 'Percezione motoria',
-    sources: [],
-    visualsBySlotId: new Map(),
-  });
-
-  expect(result.imageRefs).toEqual([]);
-  expect(result.content).not.toContain('{{PDF_IMAGE:');
-});
-
-test('PDF normalization keeps placeable fallbacks while omitting only unplaceable ones', () => {
-  const result = normalizeLessonStructure({
-    availableImages: [
-      {
-        ...pdfImageCandidate(),
-        caption: 'Percezione e controllo motorio',
-        id: 'pdf-img-placeable',
-        textBefore: 'percezione e controllo motorio',
-      },
-      {
-        ...pdfImageCandidate(),
-        caption: 'Memoria dichiarativa',
-        id: 'pdf-img-unplaceable',
-        sourceOrder: 2,
-        textBefore: 'memoria dichiarativa',
-      },
-    ],
-    draft: {
-      contentBlocks: [{ markdown: '## Controllo motorio\n\nSpiegazione.', type: 'markdown' }],
-      generatedVisuals: [],
-      imageRefs: [],
-    },
-    generatedAt: '2026-07-27T00:00:00.000Z',
-    sectionDescription: 'Memoria',
-    sectionTitle: 'Percezione',
-    sources: [],
-    visualsBySlotId: new Map(),
-  });
-
-  expect(result.imageRefs.map(reference => reference.assetId)).toEqual(['pdf-img-placeable']);
-  expect(result.content).toContain('{{PDF_IMAGE:pdf-img-placeable|');
-  expect(result.content).not.toContain('pdf-img-unplaceable');
-});
-
-test('PDF normalization omits an unplaceable fallback after invalid draft references are discarded', () => {
-  const result = normalizeLessonStructure({
-    availableImages: [
-      {
-        ...pdfImageCandidate(),
-        caption: 'Schema della percezione motoria',
-        textBefore: 'percezione motoria',
-      },
-    ],
-    draft: {
-      contentBlocks: [{ markdown: '## Altro tema\n\nSpiegazione.', type: 'markdown' }],
-      generatedVisuals: [],
-      imageRefs: [
-        {
-          alt: 'Risorsa inesistente',
-          anchorHeading: 'Altro tema',
-          assetId: 'pdf-img-missing',
-          caption: 'Risorsa inesistente',
-        },
-      ],
-    },
-    generatedAt: '2026-07-27T00:00:00.000Z',
-    sectionDescription: 'Comprendere la percezione motoria.',
-    sectionTitle: 'Percezione motoria',
-    sources: [],
-    visualsBySlotId: new Map(),
-  });
-
-  expect(result.imageRefs).toEqual([]);
-  expect(result.content).not.toContain('{{PDF_IMAGE:');
-});
-
-test('PDF normalization still rejects a draft-selected image without an anchor', () => {
-  expect(() =>
-    normalizeLessonStructure({
-      availableImages: [pdfImageCandidate()],
-      draft: {
-        contentBlocks: [{ markdown: '## Figura\n\nSpiegazione.', type: 'markdown' }],
-        generatedVisuals: [],
-        imageRefs: [
-          {
-            alt: 'Figura pertinente',
-            anchorHeading: '',
-            assetId: 'pdf-img-candidate',
-            caption: 'Figura pertinente',
-          },
-        ],
-      },
-      generatedAt: '2026-07-27T00:00:00.000Z',
-      sectionDescription: 'Descrizione.',
-      sectionTitle: 'Figura',
-      sources: [],
-      visualsBySlotId: new Map(),
-    })
-  ).toThrow('Selected PDF image is missing its Markdown heading anchor.');
-});
-
-test('PDF normalization ignores heading-like lines inside fenced and indented code', () => {
-  const result = normalizeLessonStructure({
-    availableImages: [pdfImageCandidate()],
-    draft: {
-      contentBlocks: [
-        {
-          markdown: [
-            '```md',
-            '## Figura',
-            '```',
-            '',
-            '    ## Figura',
-            '',
-            '## Figura',
-            '',
-            'Spiegazione.',
-          ].join('\n'),
-          type: 'markdown',
-        },
-      ],
-      generatedVisuals: [],
-      imageRefs: [
-        {
-          alt: 'Figura pertinente',
-          anchorHeading: 'Figura',
-          assetId: 'pdf-img-candidate',
-          caption: 'Figura pertinente',
-        },
-      ],
+      imageRefs,
     },
     generatedAt: '2026-07-27T00:00:00.000Z',
     sectionDescription: 'Descrizione.',
@@ -622,59 +328,64 @@ test('PDF normalization ignores heading-like lines inside fenced and indented co
     visualsBySlotId: new Map(),
   });
 
-  const placeholder =
-    '{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente|caption=Figura pertinente}}';
-  expect(result.content.split(placeholder)).toHaveLength(2);
-  expect(result.content).toContain(`    ## Figura\n\n## Figura\n\n${placeholder}`);
-  expect(result.content).toContain('```md\n## Figura\n```');
+const selectedPdfImage = () => ({
+  alt: 'Figura pertinente',
+  assetId: 'pdf-img-candidate',
+  caption: 'Figura pertinente',
 });
 
-test.each([
-  'draft',
-  'fallback',
-] as const)('PDF normalization preserves fence state across Markdown blocks for a %s reference', imageRefSource => {
-  const result = normalizeLessonStructure({
-    availableImages: [
-      {
-        ...pdfImageCandidate(),
-        caption: 'Schema della percezione motoria',
-        textBefore: 'percezione motoria',
-      },
-    ],
-    draft: {
-      contentBlocks: [
-        { markdown: '```md', type: 'markdown' },
-        {
-          markdown: '## Percezione motoria\n```\n\n## Percezione motoria\n\nSpiegazione.',
-          type: 'markdown',
-        },
-      ],
-      generatedVisuals: [],
-      imageRefs:
-        imageRefSource === 'draft'
-          ? [
-              {
-                alt: 'Schema della percezione motoria',
-                anchorHeading: 'Percezione motoria',
-                assetId: 'pdf-img-candidate',
-                caption: 'Percezione motoria',
-              },
-            ]
-          : [],
-    },
-    generatedAt: '2026-07-27T00:00:00.000Z',
-    sectionDescription: 'Comprendere la percezione motoria.',
-    sectionTitle: 'Percezione motoria',
-    sources: [],
-    visualsBySlotId: new Map(),
-  });
+test('PDF normalization preserves the model placeholder without a heading anchor', () => {
+  const markdown = 'Spiegazione prima.\n\n{{PDF_IMAGE:pdf-img-candidate}}\n\nSpiegazione dopo.';
+  const result = normalizePdfDraft(markdown, [selectedPdfImage()]);
 
-  expect(result.content.match(/\{\{PDF_IMAGE:/gu)).toHaveLength(1);
-  expect(result.imageRefs).toHaveLength(1);
-  const closingFenceIndex = result.content.indexOf('\n```');
-  const realHeadingIndex = result.content.lastIndexOf('## Percezione motoria');
-  const placeholderIndex = result.content.indexOf('{{PDF_IMAGE:');
-  expect(result.content.slice(0, closingFenceIndex)).not.toContain('{{PDF_IMAGE:');
-  expect(realHeadingIndex).toBeGreaterThan(closingFenceIndex);
-  expect(placeholderIndex).toBeGreaterThan(realHeadingIndex);
+  expect(result.content).toBe(markdown);
+  expect(result.contentBlocks).toEqual([{ markdown, type: 'markdown' }]);
+  expect(result.imageRefs.map(reference => reference.assetId)).toEqual(['pdf-img-candidate']);
+  const reloaded = JSON.parse(JSON.stringify(result)) as typeof result;
+  const parts = parsePdfContentParts(
+    reloaded.content,
+    { 'pdf-img-candidate': pdfImageCandidate() },
+    Object.fromEntries(reloaded.imageRefs.map(reference => [reference.assetId, reference]))
+  );
+  expect(parts.map(part => part.type)).toEqual(['markdown', 'image', 'markdown']);
+  expect(parts[1]).toMatchObject({ asset: { id: 'pdf-img-candidate' }, type: 'image' });
+});
+
+test('PDF normalization rejects a selected image missing from the generated text', () => {
+  expect(() =>
+    normalizePdfDraft('## Figura\n\nSpiegazione senza immagine.', [selectedPdfImage()])
+  ).toThrow('Selected PDF image is missing its placeholder in lesson content.');
+});
+
+test('PDF normalization checks the selected asset rather than any placeholder', () => {
+  expect(() => normalizePdfDraft('{{PDF_IMAGE:another-image}}', [selectedPdfImage()])).toThrow(
+    'Selected PDF image is missing its placeholder in lesson content.'
+  );
+});
+
+test('PDF normalization does not enforce occurrence counts or relocate legacy anchors', () => {
+  const markdown =
+    '{{PDF_IMAGE:pdf-img-candidate}}\n\n## Figura\n\nTesto.\n\n{{PDF_IMAGE:pdf-img-candidate}}';
+  const result = normalizePdfDraft(markdown, [{ ...selectedPdfImage(), anchorHeading: 'Figura' }]);
+
+  expect(result.content).toBe(markdown);
+});
+
+test('PDF normalization does not select or insert images the model did not choose', () => {
+  const markdown = '## Figura pertinente\n\nFigura pertinente.';
+  const result = normalizePdfDraft(markdown, []);
+
+  expect(result.imageRefs).toEqual([]);
+  expect(result.content).toBe(markdown);
+});
+
+test('PDF normalization keeps placeholders while sanitizing technical IDs in prose', () => {
+  const result = normalizePdfDraft(
+    'Risorsa pdf-img-candidate.\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente}}',
+    [selectedPdfImage()]
+  );
+
+  expect(result.content).toBe(
+    'Risorsa "Figura pertinente".\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente}}'
+  );
 });

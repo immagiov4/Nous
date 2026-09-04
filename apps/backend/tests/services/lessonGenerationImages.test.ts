@@ -43,7 +43,7 @@ test('PDF image candidates exclude unclear figures and preserve relevance orderi
   );
 });
 
-test('a relevant clear PDF figure is restored when the model returns no image placements', () => {
+test('no PDF figure is selected when the model returns no image references', () => {
   const images = [
     image('grain-map', 1, {
       caption: 'Mappa del tessuto con drittofilo, trama e cimosa',
@@ -59,15 +59,13 @@ test('a relevant clear PDF figure is restored when the model returns no image pl
     sectionTitle: 'La struttura del tessuto',
   });
 
-  assert.equal(refs.length, 1);
-  assert.equal(refs[0]?.assetId, 'grain-map');
-  assert.equal(refs[0]?.anchorHeading, 'Drittofilo e cimosa');
+  assert.deepEqual(refs, []);
 });
 
 test('model-selected PDF figures are deduplicated and restricted to available assets', () => {
   const images = [image('valid', 1, { caption: 'Struttura del tessuto' })];
   const refs = resolveLessonImageRefs({
-    contentMarkdown: '## Struttura\n\nContenuto.',
+    contentMarkdown: '## Struttura\n\nContenuto.\n\n{{PDF_IMAGE:valid}}',
     draftRefs: [
       { alt: 'Figura valida', anchorHeading: 'Struttura', assetId: 'valid', caption: '' },
       { alt: 'Duplicata', anchorHeading: '', assetId: 'valid', caption: '' },
@@ -90,7 +88,7 @@ test('all verified PDF image placements survive without a per-lesson cap', () =>
     image(`figure-${index + 1}`, index, { caption: `Figura verificata ${index + 1}` })
   );
   const refs = resolveLessonImageRefs({
-    contentMarkdown: '## Figure\n\nContenuto.',
+    contentMarkdown: images.map(item => `{{PDF_IMAGE:${item.id}}}`).join('\n\n'),
     draftRefs: images.map(item => ({
       alt: item.caption || '',
       anchorHeading: 'Figure',

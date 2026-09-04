@@ -1,7 +1,13 @@
-import { getMarkdownHeadings } from './markdownHeadings';
+import { rewritePdfImagePlaceholders } from './pdfImagePlaceholder';
 import { getSearchKeywords, normalizeSearchText } from './searchText';
 
-export { getMarkdownHeadings } from './markdownHeadings';
+export const getMarkdownHeadings = (contentMarkdown: string): string[] =>
+  contentMarkdown
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => /^(#{1,6})\s+/u.test(line))
+    .map(line => line.replace(/^(#{1,6})\s+/u, '').trim())
+    .filter(Boolean);
 
 export interface PdfImageContext {
   caption?: string;
@@ -19,15 +25,6 @@ export interface PdfImageReference {
   assetId: string;
   caption?: string;
 }
-
-export type PdfImageReferenceSource = 'draft' | 'fallback';
-
-export interface PdfImageReferenceResolution {
-  imageRefs: PdfImageReference[];
-  source: PdfImageReferenceSource;
-}
-
-const MIN_FALLBACK_IMAGE_SCORE = 2;
 
 const getPdfImageSearchText = (image: PdfImageContext): string =>
   [image.caption || '', image.textBefore, image.textCurrent || '', image.textAfter]
@@ -69,8 +66,6 @@ const trimAfterSentencePunctuation = (value: string): string => {
 };
 
 const normalizeImageMetadataText = (value: string): string => value.replaceAll(/\s+/gu, ' ').trim();
-
-const normalizeImageAnchorHeading = (value: string): string => value.trim();
 
 const buildImageContextSummary = (
   image: PdfImageContext,
@@ -132,86 +127,32 @@ export const selectCandidatePdfImages = <T extends PdfImageContext>(
   return relevant.length > 0 ? relevant : scored.map(item => item.image);
 };
 
-const pickFallbackAnchorHeading = (
-  image: PdfImageContext,
-  headings: string[],
-  sectionTitle: string,
-  sectionDescription: string
-): string | undefined => {
-  if (headings.length === 0) return undefined;
-  const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
-  const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const bestHeading = headings
-    .map(heading => ({
-      heading,
-      score:
-        scoreKeywordHits(imageHaystack, getSearchKeywords(heading)) * 2 +
-        scoreKeywordHits(normalizeSearchText(heading), sectionKeywords),
-    }))
-    .sort((left, right) => right.score - left.score)[0];
-  return bestHeading && bestHeading.score > 0 ? bestHeading.heading : undefined;
-};
-
-export const buildFallbackImageRefs = <T extends PdfImageContext>(
-  images: T[],
-  sectionTitle: string,
-  sectionDescription: string,
-  contentMarkdown: string,
-  visibleLabelByAssetId: ReadonlyMap<string, string>
-): PdfImageReference[] => {
-  const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const headings = getMarkdownHeadings(contentMarkdown);
-  return images
-    .map(image => {
-      const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
-      const headingScore = headings.reduce(
-        (highest, heading) =>
-          Math.max(highest, scoreKeywordHits(imageHaystack, getSearchKeywords(heading))),
-        0
-      );
-      return {
-        image,
-        score: scoreKeywordHits(imageHaystack, sectionKeywords) * 2 + headingScore,
-      };
-    })
-    .filter(item => item.score >= MIN_FALLBACK_IMAGE_SCORE)
-    .sort((left, right) =>
-      right.score === left.score
-        ? left.image.sourceOrder - right.image.sourceOrder
-        : right.score - left.score
-    )
-    .map(({ image }) => ({
-      alt: normalizeImageMetadataText(
-        buildImageContextSummary(image, sectionTitle, sectionDescription) ||
-          `Figura dal PDF: ${sectionTitle}`
-      ),
-      anchorHeading: pickFallbackAnchorHeading(image, headings, sectionTitle, sectionDescription),
-      assetId: image.id,
-      caption: normalizeImageMetadataText(visibleLabelByAssetId.get(image.id) || ''),
-    }));
-};
-
 type ResolvePdfImageRefsInput = {
   contentMarkdown: string;
-  draftRefs: Array<{ alt: string; anchorHeading: string; assetId: string; caption: string }>;
+  draftRefs: Array<{ alt: string; anchorHeading?: string; assetId: string; caption: string }>;
   images: PdfImageContext[];
   sectionDescription: string;
   sectionTitle: string;
 };
 
-export const resolvePdfImageRefsWithSource = ({
+export const resolvePdfImageRefs = ({
   contentMarkdown,
   draftRefs,
   images,
   sectionDescription,
   sectionTitle,
-}: ResolvePdfImageRefsInput): PdfImageReferenceResolution => {
+}: ResolvePdfImageRefsInput): PdfImageReference[] => {
   const availableAssetIds = new Set(images.map(image => image.id));
   const visibleLabelByAssetId = new Map(
     images.map(image => [image.id, buildVisibleImageLabel(image, sectionTitle, sectionDescription)])
   );
   const seenAssetIds = new Set<string>();
-  const normalized = draftRefs.flatMap(reference => {
+  const placeholderAssetIds = new Set<string>();
+  rewritePdfImagePlaceholders(contentMarkdown, ({ assetId, fullMatch }) => {
+    placeholderAssetIds.add(assetId.trim());
+    return fullMatch;
+  });
+  return draftRefs.flatMap(reference => {
     if (!availableAssetIds.has(reference.assetId) || seenAssetIds.has(reference.assetId)) return [];
     const alt = normalizeImageMetadataText(reference.alt || 'Figura dal PDF');
     if (!alt) return [];
@@ -219,28 +160,15 @@ export const resolvePdfImageRefsWithSource = ({
     const caption = normalizeImageMetadataText(
       reference.caption || visibleLabelByAssetId.get(reference.assetId) || ''
     );
-    const anchorHeading = normalizeImageAnchorHeading(reference.anchorHeading || '');
+    if (!placeholderAssetIds.has(reference.assetId)) {
+      throw new Error('Selected PDF image is missing its placeholder in lesson content.');
+    }
     return [
       {
         alt,
-        ...(anchorHeading ? { anchorHeading } : {}),
         assetId: reference.assetId,
         ...(caption ? { caption } : {}),
       },
     ];
   });
-  if (normalized.length > 0) return { imageRefs: normalized, source: 'draft' };
-  return {
-    imageRefs: buildFallbackImageRefs(
-      images,
-      sectionTitle,
-      sectionDescription,
-      contentMarkdown,
-      visibleLabelByAssetId
-    ),
-    source: 'fallback',
-  };
 };
-
-export const resolvePdfImageRefs = (input: ResolvePdfImageRefsInput): PdfImageReference[] =>
-  resolvePdfImageRefsWithSource(input).imageRefs;

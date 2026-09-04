@@ -4,26 +4,12 @@ import {
   MAX_GENERATED_VISUALS_PER_LESSON,
   MAX_LESSON_QUIZ_QUESTIONS,
 } from '@shared/lessonGenerationPolicy';
-import type {
-  PdfImageContext,
-  PdfImageReference,
-  PdfImageReferenceSource,
-} from '@shared/lessonPdfImageSelection';
+import type { PdfImageContext } from '@shared/lessonPdfImageSelection';
 import { unwrapWholeQuizCodeFormatting } from '@shared/lessonQuizFormatting';
-import {
-  getMarkdownHeadingLocations,
-  type MarkdownHeadingLocation,
-} from '@shared/markdownHeadings';
-import {
-  buildPdfImagePlaceholder,
-  removeClosedPdfImagePlaceholders,
-} from '@shared/pdfImagePlaceholder';
+import { rewritePdfImagePlaceholders } from '@shared/pdfImagePlaceholder';
 import { isYouTubeClipWithinTranscriptBounds } from '@shared/youtubeTranscript';
 
-import {
-  buildVisibleImageLabel,
-  resolveLessonImageRefsWithSource,
-} from './lessonGenerationImages.js';
+import { buildVisibleImageLabel, resolveLessonImageRefs } from './lessonGenerationImages.js';
 import type { ResearchSource } from './lessonGenerationSources.js';
 import type {
   LessonGenerationDraft,
@@ -52,15 +38,21 @@ const sanitizeMarkdownBlock = (
   markdown: string,
   visibleLabelByAssetId: ReadonlyMap<string, string>
 ): string => {
-  let sanitized = removeClosedPdfImagePlaceholders(markdown);
-  for (const [assetId, visibleLabel] of visibleLabelByAssetId) {
-    sanitized = sanitized.replaceAll(assetId, `"${visibleLabel}"`);
-  }
-  const withoutEmbeddedImages = sanitized
-    .replaceAll(/!\[[^\n]*?\]\([^)\n]*\)/gu, '')
-    .replaceAll(/<img\b[^>]*>/giu, '');
+  const sanitized = rewritePdfImagePlaceholders(
+    markdown,
+    ({ fullMatch }) => fullMatch,
+    text => {
+      let sanitizedText = text;
+      for (const [assetId, visibleLabel] of visibleLabelByAssetId) {
+        sanitizedText = sanitizedText.replaceAll(assetId, `"${visibleLabel}"`);
+      }
+      return sanitizedText
+        .replaceAll(/!\[[^\n]*?\]\([^)\n]*\)/gu, '')
+        .replaceAll(/<img\b[^>]*>/giu, '');
+    }
+  );
   const compactLines: string[] = [];
-  for (const line of withoutEmbeddedImages.split('\n')) {
+  for (const line of sanitized.split('\n')) {
     const trimmedLine = line.trimEnd();
     if (trimmedLine || compactLines.at(-1) !== '') compactLines.push(trimmedLine);
   }
@@ -87,12 +79,6 @@ const normalizeYouTubeBlock = (
 
 interface StoredVisualReference {
   readonly id: string;
-}
-
-type AnchoredPdfImageReference = PdfImageReference & { anchorHeading: string };
-
-interface ContentBlockHeadingLocation extends MarkdownHeadingLocation {
-  blockIndex: number;
 }
 
 const normalizeGeneratedVisualBlock = <Visual extends StoredVisualReference>(
@@ -201,99 +187,6 @@ const normalizeContentBlocks = <Visual extends StoredVisualReference>({
   return contentBlocks;
 };
 
-const getContentBlockHeadingLocations = (
-  contentBlocks: NormalizedLessonBlock[]
-): ContentBlockHeadingLocation[] => {
-  const blockLocationByContentLine = new Map<number, { blockIndex: number; lineIndex: number }>();
-  let contentLineIndex = 0;
-  for (let blockIndex = 0; blockIndex < contentBlocks.length; blockIndex += 1) {
-    const block = contentBlocks[blockIndex];
-    if (block?.type !== 'markdown') continue;
-    const markdown = block.markdown.trim();
-    if (!markdown) continue;
-
-    if (contentLineIndex > 0) contentLineIndex += 1;
-    const blockLines = markdown.split(/\r\n?|\n/u);
-    for (let lineIndex = 0; lineIndex < blockLines.length; lineIndex += 1) {
-      blockLocationByContentLine.set(contentLineIndex + lineIndex, { blockIndex, lineIndex });
-    }
-    contentLineIndex += blockLines.length;
-  }
-
-  return getMarkdownHeadingLocations(deriveLegacyLessonContent(contentBlocks)).flatMap(location => {
-    const blockLocation = blockLocationByContentLine.get(location.lineIndex);
-    return blockLocation ? [{ ...location, ...blockLocation }] : [];
-  });
-};
-
-const placePdfImageRefs = (
-  contentBlocks: NormalizedLessonBlock[],
-  imageRefs: PdfImageReference[],
-  imageRefSource: PdfImageReferenceSource
-): { contentBlocks: NormalizedLessonBlock[]; imageRefs: PdfImageReference[] } => {
-  if (imageRefs.length === 0) return { contentBlocks, imageRefs };
-
-  const headingLocationsByBlock = new Map<number, MarkdownHeadingLocation[]>();
-  const headingCounts = new Map<string, number>();
-  for (const { blockIndex, heading, lineIndex } of getContentBlockHeadingLocations(contentBlocks)) {
-    const blockLocations = headingLocationsByBlock.get(blockIndex) ?? [];
-    blockLocations.push({ heading, lineIndex });
-    headingLocationsByBlock.set(blockIndex, blockLocations);
-    headingCounts.set(heading, (headingCounts.get(heading) ?? 0) + 1);
-  }
-
-  const placeableImageRefs = imageRefs.flatMap<AnchoredPdfImageReference>(reference => {
-    if (!reference.anchorHeading) {
-      if (imageRefSource === 'draft') {
-        throw new Error('Selected PDF image is missing its Markdown heading anchor.');
-      }
-      return [];
-    }
-    if (headingCounts.get(reference.anchorHeading) !== 1) {
-      if (imageRefSource === 'draft') {
-        throw new Error('Selected PDF image anchor must match exactly one Markdown heading.');
-      }
-      return [];
-    }
-    return [{ ...reference, anchorHeading: reference.anchorHeading }];
-  });
-
-  const refsByHeading = new Map<string, PdfImageReference[]>();
-  for (const reference of placeableImageRefs) {
-    const { anchorHeading } = reference;
-    const anchoredRefs = refsByHeading.get(anchorHeading) ?? [];
-    anchoredRefs.push(reference);
-    refsByHeading.set(anchorHeading, anchoredRefs);
-  }
-
-  const placedContentBlocks = contentBlocks.map((block, blockIndex) => {
-    if (block.type !== 'markdown') return block;
-    const lines = block.markdown.split('\n');
-    const headingsByLineIndex = new Map(
-      (headingLocationsByBlock.get(blockIndex) ?? []).map(location => [
-        location.lineIndex,
-        location.heading,
-      ])
-    );
-    const placedLines: string[] = [];
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index] ?? '';
-      placedLines.push(line);
-      const heading = headingsByLineIndex.get(index);
-      const anchoredRefs = heading ? refsByHeading.get(heading) : undefined;
-      if (!anchoredRefs) continue;
-
-      while (index + 1 < lines.length && (lines[index + 1] ?? '').trim() === '') index += 1;
-      placedLines.push(
-        '',
-        ...anchoredRefs.flatMap(reference => [buildPdfImagePlaceholder(reference), ''])
-      );
-    }
-    return { ...block, markdown: placedLines.join('\n').trim() };
-  });
-  return { contentBlocks: placedContentBlocks, imageRefs: placeableImageRefs };
-};
-
 export const normalizeLessonStructure = <
   Image extends PdfImageContext,
   Visual extends StoredVisualReference,
@@ -313,7 +206,7 @@ export const normalizeLessonStructure = <
       buildVisibleImageLabel(image, input.sectionTitle, input.sectionDescription),
     ])
   );
-  const normalizedContentBlocks = normalizeContentBlocks({
+  const contentBlocks = normalizeContentBlocks({
     draft: input.draft,
     plansBySlotId,
     sources: input.sources,
@@ -321,15 +214,13 @@ export const normalizeLessonStructure = <
     visualsBySlotId: input.visualsBySlotId,
   });
   const referencedVisualSlots = new Set(
-    normalizedContentBlocks.flatMap(block =>
-      block.type === 'generated-visual' ? [block.slotId] : []
-    )
+    contentBlocks.flatMap(block => (block.type === 'generated-visual' ? [block.slotId] : []))
   );
   const generatedVisuals = [...input.visualsBySlotId.entries()].flatMap(([slotId, visual]) =>
     referencedVisualSlots.has(slotId) ? [visual] : []
   );
-  const normalizedContent = toLessonContent(normalizedContentBlocks);
-  if (!normalizedContent) throw new Error('Generated lesson content is empty.');
+  const content = toLessonContent(contentBlocks);
+  if (!content) throw new Error('Generated lesson content is empty.');
   const visualPlans = [...plansBySlotId.values()].map(plan => ({
     anchorHeading: plan.anchorHeading.trim() || null,
     concept: plan.concept.trim(),
@@ -344,25 +235,18 @@ export const normalizeLessonStructure = <
       ? `${generatedVisuals.length} di ${visualPlans.length} visuali pianificati sono stati generati; gli altri restano ritentabili nella lezione.`
       : 'Nessun visuale è stato pianificato per questa lezione.',
   };
-  const imageRefResolution = resolveLessonImageRefsWithSource({
-    contentMarkdown: normalizedContent,
+  const imageRefs = resolveLessonImageRefs({
+    contentMarkdown: content,
     draftRefs: input.draft.imageRefs,
     images: input.availableImages,
     sectionDescription: input.sectionDescription,
     sectionTitle: input.sectionTitle,
   });
-  const placement = placePdfImageRefs(
-    normalizedContentBlocks,
-    imageRefResolution.imageRefs,
-    imageRefResolution.source
-  );
-  const { contentBlocks } = placement;
-  const content = toLessonContent(contentBlocks);
   return {
     content,
     contentBlocks,
     generatedVisuals,
-    imageRefs: placement.imageRefs,
+    imageRefs,
     quiz: contentBlocks.flatMap(block => (block.type === 'inline-quiz' ? [block.quiz] : [])),
     visualPlanningDecision: {
       initial: visualPlanningPass,

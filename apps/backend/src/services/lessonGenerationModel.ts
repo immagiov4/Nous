@@ -163,11 +163,10 @@ const LESSON_JOB_RESPONSE_SCHEMA = {
           additionalProperties: false,
           properties: {
             alt: { type: 'string' },
-            anchorHeading: { type: 'string' },
             assetId: { type: 'string' },
             caption: { type: 'string' },
           },
-          required: ['assetId', 'alt', 'caption', 'anchorHeading'],
+          required: ['assetId', 'alt', 'caption'],
           type: 'object',
         },
         type: 'array',

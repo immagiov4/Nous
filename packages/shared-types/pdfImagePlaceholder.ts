@@ -79,7 +79,8 @@ const rewriteClosedPdfImagePlaceholders = (
   rewrite: (input: {
     fullMatch: string;
     occurrence: PdfImagePlaceholderOccurrence | null;
-  }) => string
+  }) => string,
+  rewriteText: (text: string) => string = text => text
 ): string => {
   const rewritten: string[] = [];
   let retainedUntil = 0;
@@ -94,21 +95,24 @@ const rewriteClosedPdfImagePlaceholders = (
     }
     const fullMatch = content.slice(startIndex, endIndex);
     const occurrence = parsePdfImagePlaceholder(content, startIndex, endIndex);
-    rewritten.push(content.slice(retainedUntil, startIndex), rewrite({ fullMatch, occurrence }));
+    rewritten.push(
+      rewriteText(content.slice(retainedUntil, startIndex)),
+      rewrite({ fullMatch, occurrence })
+    );
     retainedUntil = endIndex;
     searchFrom = endIndex;
   }
-  rewritten.push(content.slice(retainedUntil));
+  rewritten.push(rewriteText(content.slice(retainedUntil)));
   return rewritten.join('');
 };
 
 export const rewritePdfImagePlaceholders = (
   content: string,
-  rewrite: (occurrence: PdfImagePlaceholderOccurrence) => string
+  rewrite: (occurrence: PdfImagePlaceholderOccurrence) => string,
+  rewriteText: (text: string) => string = text => text
 ): string =>
-  rewriteClosedPdfImagePlaceholders(content, ({ fullMatch, occurrence }) =>
-    occurrence ? rewrite(occurrence) : fullMatch
+  rewriteClosedPdfImagePlaceholders(
+    content,
+    ({ fullMatch, occurrence }) => (occurrence ? rewrite(occurrence) : rewriteText(fullMatch)),
+    rewriteText
   );
-
-export const removeClosedPdfImagePlaceholders = (content: string): string =>
-  rewriteClosedPdfImagePlaceholders(content, () => '');

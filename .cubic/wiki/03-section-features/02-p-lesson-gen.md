@@ -145,11 +145,11 @@ The `normalizeLessonStructure` function performs critical cleanup:
 1. **Markdown Sanitization:** Replaces internal `assetId` strings with user-friendly labels (e.g., "Figure 1") and removes unauthorized embedded image tags.
 2. **Quiz Validation:** Ensures quizzes are placed after explanatory markdown and do not exceed the `MAX_LESSON_QUIZ_QUESTIONS` limit.
 3. **Visual Mapping:** Associates successfully rendered visuals with their respective `slotId` in the content blocks.
-4. **PDF Image Placement:** Resolves anchors from parsed Markdown heading nodes, so heading-like text inside fenced or indented code is never a placement target. References selected by the draft must resolve to exactly one heading. Automatically selected fallback references are optional and are omitted individually when they have no unique anchor.
+4. **PDF Image Presence:** The generative model inserts each selected image's `{{PDF_IMAGE:assetId}}` placeholder in Markdown. Normalization preserves that position and rejects selected references whose placeholder is absent. It does not resolve heading anchors, enforce occurrence counts, or select and insert images automatically.
 
-The normalizer writes each retained PDF reference through the shared canonical `PDF_IMAGE` placeholder serializer. The resulting `contentBlocks`, their derived legacy `content`, and `imageRefs` therefore describe the same placed images before the workflow filters `documentAssets.usedImages` and persists the lesson.
+The normalizer protects recognized `PDF_IMAGE` placeholders while sanitizing the surrounding prose. It checks presence in the resulting canonical `contentBlocks`, whose Markdown produces the legacy `content`. The workflow filters `documentAssets.usedImages` from the retained references before persisting the lesson. Older optional PDF anchor metadata is accepted but does not determine placement.
 
-Sources: [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts), [packages/shared-types/markdownHeadings.ts](../../../packages/shared-types/markdownHeadings.ts), [packages/shared-types/pdfImagePlaceholder.ts](../../../packages/shared-types/pdfImagePlaceholder.ts), [apps/backend/src/workflows/lessonGenerationNormalizationStage.ts](../../../apps/backend/src/workflows/lessonGenerationNormalizationStage.ts)
+Sources: [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts), [packages/shared-types/lessonPdfImageSelection.ts](../../../packages/shared-types/lessonPdfImageSelection.ts), [packages/shared-types/pdfImagePlaceholder.ts](../../../packages/shared-types/pdfImagePlaceholder.ts), [apps/backend/src/workflows/lessonGenerationNormalizationStage.ts](../../../apps/backend/src/workflows/lessonGenerationNormalizationStage.ts)
 
 ### Workflow Schemas
 The pipeline relies on Zod schemas to ensure contract safety between stages.

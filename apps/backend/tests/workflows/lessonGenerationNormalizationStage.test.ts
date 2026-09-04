@@ -77,13 +77,14 @@ const lesson = LessonAidsStateSchema.parse({
 });
 
 describe('durable lesson normalization', () => {
-  test('makes a selected durable PDF image reachable from canonical content', async () => {
+  test('preserves the model placement of a selected durable PDF image', async () => {
     const pdfImageLesson = LessonAidsStateSchema.parse({
       ...lesson,
       draft: {
         contentBlocks: [
           {
-            markdown: '## Introduzione\n\nContesto.\n\n## Concetto\n\nSpiegazione.',
+            markdown:
+              '## Introduzione\n\nContesto.\n\n{{PDF_IMAGE:pdf-image-1}}\n\n## Concetto\n\nSpiegazione.',
             type: 'markdown',
           },
         ],
@@ -91,7 +92,6 @@ describe('durable lesson normalization', () => {
         imageRefs: [
           {
             alt: 'Schema del concetto',
-            anchorHeading: 'Concetto',
             assetId: 'pdf-image-1',
             caption: 'Schema del concetto',
           },
@@ -139,11 +139,10 @@ describe('durable lesson normalization', () => {
       signal: new AbortController().signal,
     });
 
-    const placeholder =
-      '{{PDF_IMAGE:pdf-image-1|alt=Schema del concetto|caption=Schema del concetto}}';
+    const placeholder = '{{PDF_IMAGE:pdf-image-1}}';
     expect(output.content.split(placeholder)).toHaveLength(2);
     expect(output.contentBlocks).toContainEqual({
-      markdown: `## Introduzione\n\nContesto.\n\n## Concetto\n\n${placeholder}\n\nSpiegazione.`,
+      markdown: `## Introduzione\n\nContesto.\n\n${placeholder}\n\n## Concetto\n\nSpiegazione.`,
       type: 'markdown',
     });
     expect(output.documentAssets?.usedImages.map(image => image.id)).toEqual(['pdf-image-1']);
