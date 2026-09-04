@@ -42,6 +42,7 @@ export const useHomeChatPanelState = ({
   const [activeSurface, setActiveSurface] = useState<HomeChatSurfaceState>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(readIsMobileViewport);
   const inputRef = useRef<HTMLInputElement>(null);
+  const previousHomeChatModeRef = useRef(homeChatMode);
   const { viewportHeight } = useMobileKeyboardOffset();
   const visibleLibraryMessages = useMemo(
     () => getActiveLibraryMessages(libraryMessages),
@@ -56,6 +57,12 @@ export const useHomeChatPanelState = ({
       visibleLibraryMessages.length > 0 &&
       Boolean(onClearLibraryMessages)) ||
     (homeChatMode === 'new-course' && assessmentMessages.length > 0 && Boolean(onCancelNewCourse));
+
+  useEffect(() => {
+    if (previousHomeChatModeRef.current === homeChatMode) return;
+    previousHomeChatModeRef.current = homeChatMode;
+    setActiveSurface(null);
+  }, [homeChatMode]);
 
   useEffect(() => {
     if (globalThis.window === undefined) return;

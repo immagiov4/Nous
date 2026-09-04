@@ -811,6 +811,23 @@ describe('HomeChatPanel', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  test('does not restore an open library surface after a parent-driven mode change', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+    const { rerender } = render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    rerender(<HomeChatPanel {...props} homeChatMode="new-course" />);
+    rerender(<HomeChatPanel {...props} />);
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   test('toggles web search from the library tools menu', async () => {
     const user = userEvent.setup();
     const props = {
