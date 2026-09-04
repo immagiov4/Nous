@@ -20,6 +20,7 @@ import {
   type PointerEvent,
   type RefObject,
   type TouchEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -168,6 +169,18 @@ const ContextMenu = ({
   const moreActionsMenuItemRef = useRef<HTMLButtonElement>(null);
   const lessonCancelButtonRef = useRef<HTMLButtonElement>(null);
   const isMobileSheet = placement === 'mobile-sheet';
+
+  const restoreMoreActionsButtonFocus = useCallback(() => {
+    const moreActionsButton = moreActionsButtonRef.current;
+    if (moreActionsButton && !moreActionsButton.disabled) {
+      moreActionsButton.focus();
+      return;
+    }
+
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
   const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
   const isLessonMode = type === 'lesson';
@@ -212,7 +225,7 @@ const ContextMenu = ({
     isAnnotationMode && hasSavedAnnotationContent && !isNoteEditorOpen;
   const isAnnotationEditingMode = isAnnotationMode && !isAnnotationPreviewMode;
   const canEditNoteAttachments = !isLessonMode && !isAnnotationPreviewMode;
-  const isNotePanelVisible = isNoteEditorOpen || isAnnotationPreviewMode;
+  const isNotePanelVisible = !isLessonConfirmOpen && (isNoteEditorOpen || isAnnotationPreviewMode);
   const canDeleteAnnotationFromCurrentState =
     !isLessonMode && isAnnotationMode && hasSavedAnnotationContent;
   const shouldShowToolbarNoteButton =
@@ -390,6 +403,7 @@ const ContextMenu = ({
     event.preventDefault();
     event.stopPropagation();
     setIsLessonConfirmOpen(false);
+    globalThis.window.requestAnimationFrame(restoreMoreActionsButtonFocus);
   };
 
   const handleCreate = (event: MouseEvent<HTMLButtonElement>) => {
@@ -439,7 +453,7 @@ const ContextMenu = ({
       if (isMoreActionsOpen) {
         event.preventDefault();
         setIsMoreActionsOpen(false);
-        globalThis.window.requestAnimationFrame(() => moreActionsButtonRef.current?.focus());
+        globalThis.window.requestAnimationFrame(restoreMoreActionsButtonFocus);
         return;
       }
 
@@ -450,7 +464,7 @@ const ContextMenu = ({
     return () => {
       globalThis.window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isMoreActionsOpen, onClose]);
+  }, [isMoreActionsOpen, onClose, restoreMoreActionsButtonFocus]);
 
   useLayoutEffect(() => {
     if (!isMoreActionsOpen) {
@@ -843,7 +857,11 @@ const ContextMenu = ({
     }
 
     return (
-      <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
+      <div
+        className={noteEditorClassName}
+        aria-hidden={!isNotePanelVisible}
+        inert={!isNotePanelVisible || undefined}
+      >
         <div className={noteEditorBodyClassName}>
           <div className={isAnnotationPreviewMode ? 'mb-3 space-y-1' : 'space-y-1'}>
             <p className="text-sm font-semibold text-stone-900 text-center dark:text-stone-100">
@@ -1097,7 +1115,11 @@ const ContextMenu = ({
       <div className={isNotePanelVisible ? 'w-full' : 'pl-[3.375rem]'}>
         {renderNoteEditor()}
 
-        <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
+        <div
+          className={lessonConfirmationClassName}
+          aria-hidden={!isLessonConfirmOpen}
+          inert={!isLessonConfirmOpen || undefined}
+        >
           <div className="space-y-2 px-4 py-3">
             <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
               {lessonConfirmationTitle}
@@ -1230,7 +1252,11 @@ const ContextMenu = ({
 
       {renderNoteEditor()}
 
-      <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
+      <div
+        className={lessonConfirmationClassName}
+        aria-hidden={!isLessonConfirmOpen}
+        inert={!isLessonConfirmOpen || undefined}
+      >
         <div className="space-y-2 px-4 py-3">
           <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
             {lessonConfirmationTitle}
