@@ -103,6 +103,8 @@ Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:680-750
 ### Interaction Handling Logic
 Interaction is centralized through the `useWorkspaceReaderActions` hook, which manages the relationship between text selection, annotations, and AI-driven deep research.
 
+When a user opens sublesson creation from an annotation with a saved note, the creation confirmation replaces the note panel for that interaction. The saved note and its attachments remain in memory and return when the confirmation closes.
+
 ```mermaid
 graph TD
     Selection[User Text Selection] --> ContextMenu[Context Menu Open]
