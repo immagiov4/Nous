@@ -2996,7 +2996,7 @@ test('cancelAssessment invalidates source preparation before startHomeChat persi
   await cancellation;
   const result = await startPromise;
 
-  assert.equal(result.outcome, 'abandoned');
+  expect(result.outcome).toBe('abandoned');
   assert.equal(projectLibrary.persistedSnapshots.length, 0);
   assert.equal(startCourseInterview.mock.calls.length, 0);
   assert.deepEqual(state.internalState.assessmentMessages, []);
@@ -3114,7 +3114,7 @@ test('cancelAssessment prevents delayed PDF preparation from recreating a projec
     { mode: 'new-project' }
   );
   await sourcePreparationStarted;
-  assert.equal(projectLibrary.persistedSnapshots.length, 1);
+  expect(projectLibrary.persistedSnapshots).toHaveLength(1);
 
   await controller.cancelAssessment();
   finishSourcePreparation();
@@ -3587,7 +3587,7 @@ test('a cancelled startHomeChat cannot clear a newer completed request', async (
   const newerResult = await controller.startHomeChat({ input: 'Voglio imparare Rust' });
   const newerProjectId = projectLibrary.adapter.currentProjectId;
 
-  assert.equal(newerResult.outcome, 'continued');
+  expect(newerResult.outcome).toBe('continued');
   assert.equal(cancelledResult.outcome, 'abandoned');
   assert.ok(newerProjectId);
   assert.equal(projectLibrary.adapter.currentProjectId, newerProjectId);
@@ -3644,7 +3644,7 @@ test('a cancelled source preparation cannot clear a project opened afterward', a
   const cancelledResult = await cancelledStart;
   const openResult = await controller.openProject(openedProject.id);
 
-  assert.equal(openResult.outcome, 'opened');
+  expect(openResult.outcome).toBe('opened');
   assert.equal(cancelledResult.outcome, 'abandoned');
   assert.equal(projectLibrary.adapter.currentProjectId, openedProject.id);
   assert.equal(state.internalState.screenState, AppState.READING);
@@ -3718,7 +3718,7 @@ test('cancelled draft cleanup cannot clear a project opened while deletion is pe
   const openResult = await opening;
   const [cancelledResult] = await Promise.all([cancelledStart, cancellation]);
 
-  assert.equal(openResult.outcome, 'opened');
+  expect(openResult.outcome).toBe('opened');
   assert.deepEqual(operationOrder.slice(0, 3), [
     'delete-started',
     'delete-finished',
@@ -3780,7 +3780,7 @@ test('overlapping Home starts release every ownership waiting on the same projec
   finishProjectOpen();
   await cancellation;
 
-  assert.equal((await opening).outcome, 'opened');
+  expect((await opening).outcome).toBe('opened');
   assert.equal((await firstStart).outcome, 'abandoned');
   assert.equal((await secondStart).outcome, 'abandoned');
 });
@@ -3832,7 +3832,7 @@ test('cancelAssessment rolls back a backup import that finishes after Stop', asy
   await cancellation;
   const result = await startPromise;
 
-  assert.equal(result.outcome, 'abandoned');
+  expect(result.outcome).toBe('abandoned');
   assert.notEqual(importedProjectId, '');
   assert.deepEqual(projectLibrary.deletedProjectIds, [importedProjectId]);
   assert.deepEqual(state.internalState.assessmentMessages, []);
@@ -3951,7 +3951,7 @@ test('a canceled backup import cannot hydrate over a project opened after Stop',
   const cancellation = controller.cancelAssessment();
   finishImport();
   await cancellation;
-  assert.equal((await controller.openProject(openedProject.id)).outcome, 'opened');
+  expect((await controller.openProject(openedProject.id)).outcome).toBe('opened');
 
   assert.equal((await startPromise).outcome, 'abandoned');
   assert.deepEqual(projectLibrary.deletedProjectIds, [importedProjectId]);
@@ -4000,7 +4000,7 @@ test('cancelAssessment suppresses and cancels a late startHomeChat interview sna
   await cancellation;
   const result = await startPromise;
 
-  assert.equal(result.outcome, 'abandoned');
+  expect(result.outcome).toBe('abandoned');
   assert.deepEqual(cancelCourseInterview.mock.calls[0]?.[0], {
     projectId,
     runId: 'interview-run',
@@ -4129,7 +4129,7 @@ test('cancelAssessment accepts a terminal late start after idempotent cancellati
   await cancellation;
   const result = await startPromise;
 
-  assert.equal(result.outcome, 'abandoned');
+  expect(result.outcome).toBe('abandoned');
   assert.equal(cancelCourseInterview.mock.calls.length, 1);
   assert.deepEqual(projectLibrary.deletedProjectIds, [projectId]);
   assert.equal(state.internalState.workflowState.assessment.status, 'idle');
