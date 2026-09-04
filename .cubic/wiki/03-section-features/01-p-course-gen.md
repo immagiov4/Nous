@@ -9,12 +9,16 @@ wiki_page_id: "p-course-gen"
 The following files were used as context for generating this wiki page:
 
 - [apps/backend/src/workflows/courseGenerationWorkflow.ts](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts)
+- [apps/backend/src/workflows/courseGenerationResearch.ts](../../../apps/backend/src/workflows/courseGenerationResearch.ts)
 - [apps/backend/src/workflows/courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts)
 - [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
 - [apps/backend/src/workflows/courseSourceFinalization.ts](../../../apps/backend/src/workflows/courseSourceFinalization.ts)
 - [apps/backend/src/workflows/courseGenerationPreparation.ts](../../../apps/backend/src/workflows/courseGenerationPreparation.ts)
 - [apps/backend/src/workflows/courseGenerationProduction.ts](../../../apps/backend/src/workflows/courseGenerationProduction.ts)
 - [apps/backend/src/services/lessonGenerationPrompt.ts](../../../apps/backend/src/services/lessonGenerationPrompt.ts)
+- [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
+- [apps/backend/src/services/lessonGenerationResearch.ts](../../../apps/backend/src/services/lessonGenerationResearch.ts)
+- [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts)
 - [apps/backend/src/services/lessonGenerationVerification.ts](../../../apps/backend/src/services/lessonGenerationVerification.ts)
 - [packages/shared-types/lessonInstructionPacks.ts](../../../packages/shared-types/lessonInstructionPacks.ts)
 - [packages/shared-types/lessonWritingContract.ts](../../../packages/shared-types/lessonWritingContract.ts)
@@ -68,6 +72,16 @@ The workflow transitions through several defined states, each serving as the inp
 | **Persistence** | Contains fingerprints and IDs for the committed database records. | `CoursePersistenceStateSchema` |
 
 Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:251-365](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L251-L365)
+
+## Research and Source Flow
+
+Course-level research fans out into web and YouTube branches and joins their results before planning. The web branch receives the topic and learner context. It also receives serialized original source material for non-archive strategies; the archive strategy deliberately passes no original material to that branch. The resulting course-source contract carries a title, URL, note, and optional video fields, but no academic identifiers or bibliographic metadata.
+
+Planning indexes collected web and video sources by exact URL. In `learn` mode, each lesson may cite only URLs present in that closed set; an unknown URL causes corrective retry. Document strategies retain the original material separately and do not persist the research URLs in the research plan.
+
+Lesson generation decides whether to enable web research from the available source context, declared coverage gaps, and refresh request. Researched HTTP or HTTPS sources are normalized and merged into the lesson dossier. Source identity prefers `sourceId`, then a lowercased URL without trailing slashes, then a normalized title. The reader receives the persisted section sources and presents an external source as a linked title and note.
+
+Sources: [apps/backend/src/workflows/courseGenerationResearch.ts:88-101](../../../apps/backend/src/workflows/courseGenerationResearch.ts#L88-L101), [apps/backend/src/workflows/courseGenerationResearch.ts:181-197](../../../apps/backend/src/workflows/courseGenerationResearch.ts#L181-L197), [apps/backend/src/workflows/courseGenerationResearch.ts:371-390](../../../apps/backend/src/workflows/courseGenerationResearch.ts#L371-L390), [apps/backend/src/workflows/courseGenerationPlanning.ts:64-94](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L64-L94), [apps/backend/src/workflows/courseGenerationPlanning.ts:135-172](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L135-L172), [apps/backend/src/services/lessonGenerationModel.ts:201-245](../../../apps/backend/src/services/lessonGenerationModel.ts#L201-L245), [apps/backend/src/services/lessonGenerationResearch.ts:112-131](../../../apps/backend/src/services/lessonGenerationResearch.ts#L112-L131), [apps/backend/src/services/lessonGenerationResearch.ts:171-210](../../../apps/backend/src/services/lessonGenerationResearch.ts#L171-L210), [apps/backend/src/services/lessonGenerationSources.ts:412-442](../../../apps/backend/src/services/lessonGenerationSources.ts#L412-L442)
 
 ## Planning and Quality Verification
 
