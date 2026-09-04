@@ -77,6 +77,79 @@ const lesson = LessonAidsStateSchema.parse({
 });
 
 describe('durable lesson normalization', () => {
+  test('makes a selected durable PDF image reachable from canonical content', async () => {
+    const pdfImageLesson = LessonAidsStateSchema.parse({
+      ...lesson,
+      draft: {
+        contentBlocks: [
+          {
+            markdown: '## Introduzione\n\nContesto.\n\n## Concetto\n\nSpiegazione.',
+            type: 'markdown',
+          },
+        ],
+        generatedVisuals: [],
+        imageRefs: [
+          {
+            alt: 'Schema del concetto',
+            anchorHeading: 'Concetto',
+            assetId: 'pdf-image-1',
+            caption: 'Schema del concetto',
+          },
+        ],
+      },
+      lessonInputData: {
+        ...lesson.lessonInputData,
+        imageCandidates: [
+          {
+            caption: 'Schema del concetto',
+            id: 'pdf-image-1',
+            sourceOrder: 1,
+            textAfter: '',
+            textBefore: '',
+            visibleLabel: 'Schema del concetto',
+          },
+        ],
+      },
+      pdfImages: [
+        {
+          asset: {
+            byteSize: 5,
+            hash: '1'.repeat(64),
+            id: '2'.repeat(64),
+            mediaType: 'image/png',
+          },
+          caption: 'Schema del concetto',
+          id: 'pdf-image-1',
+          sourceOrder: 1,
+          textAfter: '',
+          textBefore: '',
+        },
+      ],
+    });
+
+    const output = await createLessonNormalizationStage({
+      now: () => '2026-07-29T22:00:00.000Z',
+    })({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'normalize', runId: 'run-1' },
+      idempotencyKey: 'normalize-pdf-image',
+      input: { lesson: pdfImageLesson, stage: 'visual-results', visualResults: [] },
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+
+    const placeholder =
+      '{{PDF_IMAGE:pdf-image-1|alt=Schema del concetto|caption=Schema del concetto}}';
+    expect(output.content.split(placeholder)).toHaveLength(2);
+    expect(output.contentBlocks).toContainEqual({
+      markdown: `## Introduzione\n\nContesto.\n\n## Concetto\n\n${placeholder}\n\nSpiegazione.`,
+      type: 'markdown',
+    });
+    expect(output.documentAssets?.usedImages.map(image => image.id)).toEqual(['pdf-image-1']);
+    expect(output.imageRefs.map(reference => reference.assetId)).toEqual(['pdf-image-1']);
+  });
+
   test('keeps a valid YouTube clip that spans multiple transcript cues', async () => {
     const youtubeLesson = LessonAidsStateSchema.parse({
       ...lesson,

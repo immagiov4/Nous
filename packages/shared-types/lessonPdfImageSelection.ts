@@ -61,6 +61,19 @@ const trimAfterSentencePunctuation = (value: string): string => {
 export const sanitizeImagePlaceholderValue = (value: string): string =>
   value.replaceAll(/[|}]/gu, ' ').replaceAll(/\s+/gu, ' ').trim();
 
+const sanitizePdfImagePlaceholderField = (value: string): string =>
+  value.replaceAll(/[|{}]/gu, ' ').replaceAll(/\s+/gu, ' ').trim();
+
+const normalizeImageAnchorHeading = (value: string): string => value.trim();
+
+export const buildPdfImagePlaceholder = (reference: PdfImageReference): string => {
+  const alt = sanitizePdfImagePlaceholderField(reference.alt || 'Figura dal PDF');
+  const caption = sanitizePdfImagePlaceholderField(reference.caption || '');
+  return caption
+    ? `{{PDF_IMAGE:${reference.assetId}|alt=${alt}|caption=${caption}}}`
+    : `{{PDF_IMAGE:${reference.assetId}|alt=${alt}}}`;
+};
+
 export const getMarkdownHeadings = (contentMarkdown: string): string[] =>
   contentMarkdown
     .split('\n')
@@ -214,7 +227,7 @@ export const resolvePdfImageRefs = ({
     const caption = sanitizeImagePlaceholderValue(
       reference.caption || visibleLabelByAssetId.get(reference.assetId) || ''
     );
-    const anchorHeading = sanitizeImagePlaceholderValue(reference.anchorHeading || '');
+    const anchorHeading = normalizeImageAnchorHeading(reference.anchorHeading || '');
     return [
       {
         alt,

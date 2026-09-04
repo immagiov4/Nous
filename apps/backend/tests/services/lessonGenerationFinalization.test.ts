@@ -34,6 +34,16 @@ const sourceFreeDraft = (): LessonContentDraft => ({
   imageRefs: [],
 });
 
+const pdfImageCandidate = () => ({
+  caption: 'Figura pertinente',
+  dataUrl: 'data:image/png;base64,AA==',
+  id: 'pdf-img-candidate',
+  mimeType: 'image/png',
+  sourceOrder: 1,
+  textAfter: '',
+  textBefore: '',
+});
+
 test('durable verification propagates provider failure instead of approving an unreviewed draft', async () => {
   const draft = sourceFreeDraft();
 
@@ -302,22 +312,14 @@ test('normalization removes a quiz when image cleanup removes its explanatory ma
   expect(result.quiz).toEqual([]);
 });
 
-test('PDF normalization keeps only referenced images and hides internal asset ids', () => {
-  const candidate = {
-    caption: 'Figura pertinente',
-    dataUrl: 'data:image/png;base64,AA==',
-    id: 'pdf-img-candidate',
-    mimeType: 'image/png',
-    sourceOrder: 1,
-    textAfter: '',
-    textBefore: '',
-  };
+test('PDF normalization places a selected image exactly once at its resolved heading', () => {
   const result = normalizeLessonStructure({
-    availableImages: [candidate],
+    availableImages: [pdfImageCandidate()],
     draft: {
       contentBlocks: [
         {
-          markdown: '## Figura\n\nOsserva pdf-img-candidate per confrontare i dettagli.',
+          markdown:
+            '## Introduzione\n\nContesto.\n\n## Figura   {pertinente}\n\nConfronta i dettagli.',
           type: 'markdown',
         },
       ],
@@ -325,7 +327,7 @@ test('PDF normalization keeps only referenced images and hides internal asset id
       imageRefs: [
         {
           alt: 'Figura pertinente',
-          anchorHeading: 'Figura',
+          anchorHeading: 'Figura   {pertinente}',
           assetId: 'pdf-img-candidate',
           caption: 'Figura pertinente',
         },
@@ -339,6 +341,80 @@ test('PDF normalization keeps only referenced images and hides internal asset id
   });
 
   expect(result.imageRefs.map(reference => reference.assetId)).toEqual(['pdf-img-candidate']);
-  expect(result.content).toContain('"Figura pertinente"');
-  expect(result.content).not.toContain('pdf-img-candidate');
+  const placeholder =
+    '{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente|caption=Figura pertinente}}';
+  expect(result.content.split(placeholder)).toHaveLength(2);
+  expect(result.content).toContain(
+    `## Figura   {pertinente}\n\n${placeholder}\n\nConfronta i dettagli.`
+  );
+  expect(result.contentBlocks).toEqual([
+    {
+      markdown: `## Introduzione\n\nContesto.\n\n## Figura   {pertinente}\n\n${placeholder}\n\nConfronta i dettagli.`,
+      type: 'markdown',
+    },
+  ]);
+});
+
+test('PDF normalization rebuilds a pre-existing placeholder at the canonical anchor', () => {
+  const result = normalizeLessonStructure({
+    availableImages: [pdfImageCandidate()],
+    draft: {
+      contentBlocks: [
+        {
+          markdown:
+            '{{PDF_IMAGE:pdf-img-candidate|alt=Vecchia posizione}}\n\n## Figura\n\nConfronta i dettagli.',
+          type: 'markdown',
+        },
+      ],
+      generatedVisuals: [],
+      imageRefs: [
+        {
+          alt: 'Figura {pertinente}',
+          anchorHeading: 'Figura',
+          assetId: 'pdf-img-candidate',
+          caption: 'Figura pertinente',
+        },
+      ],
+    },
+    generatedAt: '2026-07-27T00:00:00.000Z',
+    sectionDescription: 'Descrizione.',
+    sectionTitle: 'Figura',
+    sources: [],
+    visualsBySlotId: new Map(),
+  });
+
+  expect(result.content.match(/\{\{PDF_IMAGE:/gu)).toHaveLength(1);
+  expect(result.content).toContain(
+    '## Figura\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente|caption=Figura pertinente}}'
+  );
+});
+
+test('PDF normalization rejects an ambiguous image anchor instead of guessing placement', () => {
+  expect(() =>
+    normalizeLessonStructure({
+      availableImages: [pdfImageCandidate()],
+      draft: {
+        contentBlocks: [
+          {
+            markdown: '## Figura\n\nPrima spiegazione.\n\n## Figura\n\nSeconda spiegazione.',
+            type: 'markdown',
+          },
+        ],
+        generatedVisuals: [],
+        imageRefs: [
+          {
+            alt: 'Figura pertinente',
+            anchorHeading: 'Figura',
+            assetId: 'pdf-img-candidate',
+            caption: 'Figura pertinente',
+          },
+        ],
+      },
+      generatedAt: '2026-07-27T00:00:00.000Z',
+      sectionDescription: 'Descrizione.',
+      sectionTitle: 'Figura',
+      sources: [],
+      visualsBySlotId: new Map(),
+    })
+  ).toThrow('Selected PDF image anchor must match exactly one Markdown heading.');
 });
