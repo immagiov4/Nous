@@ -9,7 +9,7 @@ export interface PdfImagePlaceholderOccurrence extends PdfImagePlaceholderInput 
 }
 
 const PDF_IMAGE_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
-const PDF_IMAGE_PLACEHOLDER_PAYLOAD = /^([^|{}]+)(?:\|alt=([^|]*))?(?:\|caption=(.*))?$/u;
+const PDF_IMAGE_PLACEHOLDER_PAYLOAD = /^([^|{}]+)(?:\|alt=([^|]*))?(?:\|caption=(.*))?$/su;
 
 const sanitizePdfImagePlaceholderField = (value: string): string =>
   value.replaceAll(/[|{}]/gu, ' ').replaceAll(/\s+/gu, ' ').trim();
@@ -23,6 +23,12 @@ export const buildPdfImagePlaceholder = (input: PdfImagePlaceholderInput): strin
     : `{{PDF_IMAGE:${assetId}|alt=${alt}}}`;
 };
 
+/** Retain canonical tokens and serialize brace-bearing legacy metadata for the reader. */
+export const normalizePdfImagePlaceholder = (occurrence: PdfImagePlaceholderOccurrence): string =>
+  occurrence.alt?.includes('{') || occurrence.caption?.includes('{')
+    ? buildPdfImagePlaceholder(occurrence)
+    : occurrence.fullMatch;
+
 const findPdfImagePlaceholderEnd = (content: string, startIndex: number): number | null => {
   let braceDepth = 0;
   let legacyEndCandidate: number | null = null;
@@ -31,11 +37,7 @@ const findPdfImagePlaceholderEnd = (content: string, startIndex: number): number
     index < content.length;
     index += 1
   ) {
-    if (
-      content[index] === '\n' ||
-      content[index] === '\r' ||
-      content.startsWith(PDF_IMAGE_PLACEHOLDER_PREFIX, index)
-    ) {
+    if (content.startsWith(PDF_IMAGE_PLACEHOLDER_PREFIX, index)) {
       return legacyEndCandidate;
     }
     if (content[index] === '{') {
@@ -53,6 +55,7 @@ const findPdfImagePlaceholderEnd = (content: string, startIndex: number): number
       continue;
     }
     if (closesPlaceholder) return index + 2;
+    return null;
   }
   return legacyEndCandidate;
 };

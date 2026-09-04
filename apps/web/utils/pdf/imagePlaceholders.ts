@@ -1,4 +1,8 @@
-import { buildPdfImagePlaceholder, rewritePdfImagePlaceholders } from '@shared/pdfImagePlaceholder';
+import {
+  buildPdfImagePlaceholder,
+  normalizePdfImagePlaceholder,
+  rewritePdfImagePlaceholders,
+} from '@shared/pdfImagePlaceholder';
 
 import type {
   LessonImageRef,
@@ -118,13 +122,7 @@ export const stripPdfImagePlaceholders = (content: string): string =>
   content.replaceAll(PDF_IMAGE_PLACEHOLDER_REGEX, ' ');
 
 export const restoreLegacyPdfImagePlaceholders = (content: string): string => {
-  const placeholdersRestored = rewritePdfImagePlaceholders(
-    content,
-    ({ alt, assetId, caption, fullMatch }) => {
-      if (!alt?.includes('{') && !caption?.includes('{')) return fullMatch;
-      return buildPdfImagePlaceholder({ alt, assetId, caption });
-    }
-  );
+  const placeholdersRestored = rewritePdfImagePlaceholders(content, normalizePdfImagePlaceholder);
   const figuresRestored = placeholdersRestored.replaceAll(LEGACY_PDF_FIGURE_REGEX, figureHtml => {
     const imageTag = figureHtml.match(/<img\b[^>]*data-pdf-asset-id=(["'])[^"'<>]+\1[^>]*>/i)?.[0];
     const assetId = imageTag ? extractAttribute(imageTag, 'data-pdf-asset-id') : undefined;

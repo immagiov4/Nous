@@ -166,3 +166,18 @@ test('does not let an incomplete legacy marker consume the next complete placeho
   expect(restored).toMatch(/\{\{PDF_IMAGE:bozza\|alt=Set \{A poi/u);
   assert.equal(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type, 'image');
 });
+
+test('leaves a malformed legacy marker and its following prose untouched', () => {
+  const content = 'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {A} errore } testo estraneo }} dopo';
+
+  expect(restoreLegacyPdfImagePlaceholders(content)).toBe(content);
+});
+
+test('restores multiline legacy metadata without losing the image', () => {
+  const restored = restoreLegacyPdfImagePlaceholders(
+    'Prima {{PDF_IMAGE:pdf-img-001|alt=Set {\nA|caption=Insieme {\nA}} dopo'
+  );
+
+  expect(restored).toBe('Prima {{PDF_IMAGE:pdf-img-001|alt=Set A|caption=Insieme A}} dopo');
+  expect(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type).toBe('image');
+});

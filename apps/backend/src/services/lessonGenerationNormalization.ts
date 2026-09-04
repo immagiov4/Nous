@@ -6,7 +6,10 @@ import {
 } from '@shared/lessonGenerationPolicy';
 import type { PdfImageContext } from '@shared/lessonPdfImageSelection';
 import { unwrapWholeQuizCodeFormatting } from '@shared/lessonQuizFormatting';
-import { rewritePdfImagePlaceholders } from '@shared/pdfImagePlaceholder';
+import {
+  normalizePdfImagePlaceholder,
+  rewritePdfImagePlaceholders,
+} from '@shared/pdfImagePlaceholder';
 import { isYouTubeClipWithinTranscriptBounds } from '@shared/youtubeTranscript';
 
 import { buildVisibleImageLabel, resolveLessonImageRefs } from './lessonGenerationImages.js';
@@ -38,17 +41,20 @@ const sanitizeMarkdownBlock = (
   markdown: string,
   visibleLabelByAssetId: ReadonlyMap<string, string>
 ): string => {
+  const retainPlaceholders = (imageMarkup: string) =>
+    rewritePdfImagePlaceholders(imageMarkup, normalizePdfImagePlaceholder, () => '');
+  const withoutDirectImages = markdown
+    .replaceAll(/!\[[^\n]*?\]\([^)\n]*\)/gu, retainPlaceholders)
+    .replaceAll(/<img\b[^>]*>/giu, retainPlaceholders);
   const sanitized = rewritePdfImagePlaceholders(
-    markdown,
-    ({ fullMatch }) => fullMatch,
+    withoutDirectImages,
+    normalizePdfImagePlaceholder,
     text => {
       let sanitizedText = text;
       for (const [assetId, visibleLabel] of visibleLabelByAssetId) {
         sanitizedText = sanitizedText.replaceAll(assetId, `"${visibleLabel}"`);
       }
-      return sanitizedText
-        .replaceAll(/!\[[^\n]*?\]\([^)\n]*\)/gu, '')
-        .replaceAll(/<img\b[^>]*>/giu, '');
+      return sanitizedText;
     }
   );
   const compactLines: string[] = [];

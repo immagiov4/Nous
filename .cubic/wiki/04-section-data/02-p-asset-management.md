@@ -35,7 +35,7 @@ PDF lesson generation follows the same path. The document stage uploads all sele
 
 The generative model places PDF image placeholders in canonical lesson `contentBlocks`. Normalization preserves their positions and rejects a selected `imageRef` when its placeholder is absent; it does not choose a heading or insert missing placeholders. The normalization stage derives `documentAssets.usedImages` from the retained references, and persistence adopts the corresponding staged binary assets.
 
-Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:5-40](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L5-L40), [apps/backend/src/projects/projectAssetReconciliation.ts:10-30](../../../apps/backend/src/projects/projectAssetReconciliation.ts#L10-L30), [apps/backend/src/workflows/lessonGenerationNormalizationStage.ts](../../../apps/backend/src/workflows/lessonGenerationNormalizationStage.ts), [apps/backend/src/workflows/lessonGenerationPersistence.ts](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts)
+Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:5-40](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L5-L40), [apps/backend/src/projects/projectAssetReconciliation.ts:10-30](../../../apps/backend/src/projects/projectAssetReconciliation.ts#L10-L30), [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts), [apps/backend/src/workflows/lessonGenerationNormalizationStage.ts](../../../apps/backend/src/workflows/lessonGenerationNormalizationStage.ts), [apps/backend/src/workflows/lessonGenerationPersistence.ts](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts)
 
 ```mermaid
 flowchart TD

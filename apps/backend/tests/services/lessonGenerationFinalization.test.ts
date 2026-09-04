@@ -357,6 +357,36 @@ test('PDF normalization rejects a selected image missing from the generated text
   ).toThrow('Selected PDF image is missing its placeholder in lesson content.');
 });
 
+test.each([
+  ['Markdown image', '![Diagramma]({{PDF_IMAGE:pdf-img-candidate}})'],
+  ['HTML image', '<img src="{{PDF_IMAGE:pdf-img-candidate}}" alt="Diagramma" />'],
+])('PDF normalization removes a %s wrapper without losing its placeholder', (_kind, wrapper) => {
+  const result = normalizePdfDraft(`Prima.\n\n${wrapper}\n\nDopo.`, [selectedPdfImage()]);
+
+  expect(result.content).toBe('Prima.\n\n{{PDF_IMAGE:pdf-img-candidate}}\n\nDopo.');
+  expect(
+    parsePdfContentParts(result.content, { 'pdf-img-candidate': pdfImageCandidate() }).map(
+      part => part.type
+    )
+  ).toEqual(['markdown', 'image', 'markdown']);
+});
+
+test('PDF normalization stores accepted brace metadata in a reader-compatible format', () => {
+  const result = normalizePdfDraft(
+    'Prima.\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Set {A}}}\n\nDopo.',
+    [selectedPdfImage()]
+  );
+  const markdown = result.contentBlocks[0];
+  if (markdown?.type !== 'markdown') throw new Error('Expected canonical Markdown content.');
+
+  const parts = parsePdfContentParts(markdown.markdown, {
+    'pdf-img-candidate': pdfImageCandidate(),
+  });
+  expect(parts.map(part => part.type)).toEqual(['markdown', 'image', 'markdown']);
+  expect(parts[1]).toMatchObject({ alt: 'Set A', type: 'image' });
+  expect(parts[2]).toMatchObject({ content: '\n\nDopo.', type: 'markdown' });
+});
+
 test('PDF normalization checks the selected asset rather than any placeholder', () => {
   expect(() => normalizePdfDraft('{{PDF_IMAGE:another-image}}', [selectedPdfImage()])).toThrow(
     'Selected PDF image is missing its placeholder in lesson content.'
