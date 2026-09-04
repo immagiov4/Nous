@@ -10,6 +10,8 @@ The following files were used as context for generating this wiki page:
 
 - [apps/web/components/marketing/LandingPage.tsx](../../../apps/web/components/marketing/LandingPage.tsx)
 - [apps/web/components/marketing/LandingProductDemo.tsx](../../../apps/web/components/marketing/LandingProductDemo.tsx)
+- [apps/web/components/marketing/LandingProductComposition.tsx](../../../apps/web/components/marketing/LandingProductComposition.tsx)
+- [apps/web/components/marketing/LandingDemoCursor.tsx](../../../apps/web/components/marketing/LandingDemoCursor.tsx)
 - [apps/web/components/marketing/WaitlistForm.tsx](../../../apps/web/components/marketing/WaitlistForm.tsx)
 - [apps/web/components/marketing/marketing.css](../../../apps/web/components/marketing/marketing.css)
 - [AGENTS.md](../../../AGENTS.md)
@@ -40,6 +42,12 @@ flowchart TD
 ```
 
 Sources: [LandingPage.tsx:75-199](../../../apps/web/components/marketing/LandingPage.tsx#L75-L199)
+
+### Remotion composition boundary
+
+The exported Remotion composition keeps its frame-driven scene state, DOM target measurements, and artifact portal in the same rendering tree. Unlike the interactive home chat, it does not own a user conversation, request lifecycle, or mutable attachment state. Splitting those timeline-coupled values into the home-chat state modules would create an artificial shared contract and make deterministic video rendering depend on interactive UI behavior. The composition may still extract stable visual helpers such as the cursor, but its frame coordination remains local to the Remotion tree.
+
+Sources: [LandingProductComposition.tsx](../../../apps/web/components/marketing/LandingProductComposition.tsx), [LandingDemoCursor.tsx:270-344](../../../apps/web/components/marketing/LandingDemoCursor.tsx#L270-L344)
 
 ### Component Descriptions
 

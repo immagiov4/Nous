@@ -793,6 +793,24 @@ describe('HomeChatPanel', () => {
     expect(screen.queryByText(/Contesto libreria/i)).not.toBeInTheDocument();
   });
 
+  test('closes the desktop attachment menu before switching back to new-course mode', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /Nuovo corso/i }));
+
+    expect(props.onHomeChatModeChange).toHaveBeenCalledWith('new-course');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   test('toggles web search from the library tools menu', async () => {
     const user = userEvent.setup();
     const props = {
