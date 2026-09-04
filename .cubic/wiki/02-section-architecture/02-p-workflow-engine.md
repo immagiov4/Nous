@@ -15,6 +15,7 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/tests/workflows/postgresWorkflowObservability.test.ts](../../../apps/backend/tests/workflows/postgresWorkflowObservability.test.ts)
 - [apps/backend/src/workflows/workflowStepRunner.ts](../../../apps/backend/src/workflows/workflowStepRunner.ts)
 - [apps/backend/src/workflows/jsonSnapshot.ts](../../../apps/backend/src/workflows/jsonSnapshot.ts)
+
 </details>
 
 # Postgres Workflow Engine
@@ -63,11 +64,14 @@ Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:511-57
 
 ## Workflow Materialization and Persistence
 
-Workflows are materialised into a set of database rows representing nodes (steps), waits, and events. This allows the engine to track the granular state of every execution path.
+Materialization first produces in-memory records for nodes, waits, and events. `PostgresWorkflowStore.createRun`
+then persists those records in one transaction. The store calls `insertMaterializedNode` for each materialized
+node before it inserts waits, outbox events, and the ready notification.
 
 ### Node Persistence
 
-Each node within a workflow is persisted in the `public.workflow_node_runs` table. This includes input/output data, runtime state, and execution constraints like timeouts and retry limits.
+Each materialized node is persisted in the `public.workflow_node_runs` table. The row includes input/output data,
+runtime state, and execution constraints such as timeouts and retry limits.
 
 ```typescript
 export const insertMaterializedNode = async (
@@ -93,7 +97,7 @@ export const insertMaterializedNode = async (
 };
 ```
 
-Sources: [apps/backend/src/workflows/postgresWorkflowPersistence.ts:31-50](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L31-L50)
+Sources: [apps/backend/src/workflows/postgresWorkflowPersistence.ts:31-50](../../../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L31-L50), [apps/backend/src/workflows/materialization.ts:472-544](../../../apps/backend/src/workflows/materialization.ts#L472-L544), [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:467-525](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L467-L525)
 
 ## Execution Lifecycle and Worker Fencing
 
@@ -148,9 +152,23 @@ Workflow definitions are hashed using SHA-256. The run stores this hash and resu
 
 Sources: [apps/backend/src/workflows/validation.ts:26-32, 545-562](../../../apps/backend/src/workflows/validation.ts#L26-L32)
 
+### Authoring and compatibility contract
+
+An authoring facade is compatible with an existing workflow only when it produces the same durable node kinds,
+IDs, namespaces, order, schemas, event and signal declarations, and compatibility identity. The facade may hide
+how the definition is assembled, but it must not change the manifest inputs used by the registry.
+
+The definition manifest excludes callback bodies. A matching definition hash therefore proves structural equality,
+not equivalent callback behavior. Compatibility review must compare callback behavior and `compatibilityId` intent,
+or use behavioral coverage in addition to manifest and hash checks. Historical definitions remain separate
+registered boundaries because a current definition cannot replace an older callback or schema contract.
+
+Sources: [apps/backend/src/workflows/validation.ts:362-424](../../../apps/backend/src/workflows/validation.ts#L362-L424), [apps/backend/src/workflows/definition.ts:403-448](../../../apps/backend/src/workflows/definition.ts#L403-L448), [apps/backend/tests/workflows/workflowDefinitions.test.ts:129-271](../../../apps/backend/tests/workflows/workflowDefinitions.test.ts#L129-L271)
+
 ### Node Kind Validation
 
 The engine validates that every node in a workflow definition belongs to one of the supported types:
+
 - `emit`: Sends durable or transient events.
 - `fanOut`: Executes a worker node for a collection of items.
 - `repeat`: Iterates logic based on a decision schema.
@@ -168,6 +186,7 @@ The engine implements a decoupled logging system. Workflow events (creation, cla
 ### Logged Actions
 
 The system tracks granular actions for debugging and monitoring:
+
 - **workflow.run**: created, deduplicated, cancellation-requested.
 - **workflow.attempt**: claimed, completed, retry-scheduled, recovered.
 - **workflow.wait**: created, signal-replayed, expired.

@@ -1,113 +1,72 @@
 # Typed workflow DSL evaluation
 
 This document records the design investigation for [issue #9](https://github.com/immagiov4/Nous/issues/9).
-It evaluates ways to reduce the amount of type and graph plumbing in workflow definitions. It does not
-change the DSL, the workflow runtime, or any persisted definition.
+It evaluates ways to reduce the type and graph plumbing required to define a workflow. It does not change the
+DSL or the workflow runtime.
 
 Evidence baseline: commit `8cd5956ec2fb05806db71fcbf0719a603eee64d0`.
 
-## Result
+## Decision
 
-The main cost is in the authoring interface. The durable runtime has separate responsibilities that should
-remain intact: definition validation, schema fingerprints, node materialization, PostgreSQL persistence,
-leases, retries, provider-effect replay, signals, undo, and historical definition resolution.
+The evidence supports a pipeline-first facade for linear workflows. The facade would infer each step's input
+from the preceding output while keeping output schemas, stable node IDs, effects, commits, undo, and policies
+visible.
 
-The best first direction is a pipeline-first facade for linear workflows. It can infer each step's input from
-the preceding step while keeping output schemas, stable node IDs, effects, commits, undo, and policies visible.
 The existing structural constructors should remain available for branches, fan-out, loops, waits, nested
-workflows, and historical definitions.
+workflows, and historical definitions. This is a design direction, not an approved implementation.
 
-This recommendation needs owner approval. The required compatibility condition is that the facade lowers to
-the same durable node structure and manifest when the workflow's behavior has not changed.
+## Architecture context
 
-## Verified architecture
+The [Postgres Workflow Engine page](../.cubic/wiki/02-section-architecture/02-p-workflow-engine.md) is the
+authoritative description of validation, schema fingerprints, in-memory materialization, PostgreSQL
+persistence, leases, retries, provider effects, signals, undo, and historical definition resolution. This
+report records only the findings that affect the DSL decision.
 
-### Definition interface
+## Findings for #9
 
-The public definition module exports eight constructors: `step`, `sequence`, `emit`, `waitForSignal`, `fanOut`,
+The definition module exposes eight constructors: `step`, `sequence`, `emit`, `waitForSignal`, `fanOut`,
 `routeBy`, `repeat`, and `workflow` ([definition.ts:40](../apps/backend/src/workflows/definition.ts#L40)).
+The main authoring cost is repeated input and output schemas, explicit context generics, and nested structural
+values.
 
-`step` carries data schemas, a callback, optional configuration overrides, retry and timeout policies,
-external-effect classification, commit, and undo ([definition.ts:40](../apps/backend/src/workflows/definition.ts#L40)).
-`sequence` infers its boundary types and enforces one `Config` and `Services` context at the type level through
-`FirstNodeContext` and `CompatibleNodes` ([definition.ts:72](../apps/backend/src/workflows/definition.ts#L72),
-[definition.ts:142](../apps/backend/src/workflows/definition.ts#L142)).
+`sequence` propagates one `Config` and `Services` context through `FirstNodeContext` and
+`CompatibleNodes` ([definition.ts:72](../apps/backend/src/workflows/definition.ts#L72),
+[definition.ts:142](../apps/backend/src/workflows/definition.ts#L142)). Compile-time tests reject mixed service
+contexts, incompatible roots, and invalid configuration overrides ([workflowTypes.test.ts:95](../apps/backend/tests/workflows/workflowTypes.test.ts#L95)).
+The interview definition has two explicit `as unknown as WorkflowNode` casts around signal waits
+([courseInterviewWorkflow.ts:531](../apps/backend/src/workflows/courseInterviewWorkflow.ts#L531)).
 
-The type-level contract is real. The tests reject mixed service contexts, incompatible workflow roots, and
-invalid configuration overrides ([workflowTypes.test.ts:95](../apps/backend/tests/workflows/workflowTypes.test.ts#L95)).
-The same file verifies recursively immutable runtime configuration ([workflowTypes.test.ts:141](../apps/backend/tests/workflows/workflowTypes.test.ts#L141)).
+The production registry creates six top-level definitions and historical variants
+([workflowRuntimeComposition.ts:189](../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts#L189)).
+The starters resolve the current definition, parse the input and configuration, materialize the run, and pass
+the definition hash to the store ([workflowStart.ts:41](../apps/backend/src/workflows/workflowStart.ts#L41)).
+A facade therefore needs to change definition modules first. The API, worker, and database can remain unchanged
+if the lowered result keeps the existing runtime contract.
 
-The interface also exposes structural concerns directly. Production definitions build nested sequences,
-routes, fan-outs, repeats, signal waits, events, and nested workflows in the course, lesson, interview,
-visual, artifact, and PDF repair workflow modules. The interview workflow contains two explicit
-`as unknown as WorkflowNode` casts around signal waits ([courseInterviewWorkflow.ts:531](../apps/backend/src/workflows/courseInterviewWorkflow.ts#L531)).
+Materialization produces in-memory node records. `PostgresWorkflowStore.createRun` later persists those
+records through `insertMaterializedNode` ([materialization.ts:472](../apps/backend/src/workflows/materialization.ts#L472),
+[postgresWorkflowStore.ts:467](../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L467),
+[postgresWorkflowPersistence.ts:26](../apps/backend/src/workflows/postgresWorkflowPersistence.ts#L26)).
 
-### Runtime boundary
+The definition manifest contains structural data and excludes callback bodies. A matching manifest hash is
+therefore necessary but not sufficient evidence that a rewritten definition behaves the same. The compatibility
+review must also compare callback and `compatibilityId` intent, or provide behavioral coverage. Structural
+hash tests remain useful evidence, but they are not the sole compatibility oracle
+([validation.ts:362](../apps/backend/src/workflows/validation.ts#L362),
+[workflowDefinitions.test.ts:129](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L129),
+[workflowDefinitions.test.ts:255](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L255)).
 
-`WorkflowNode` deliberately erases callback types for validators, registries, and persistence. Its `never`
-callback types prevent internal code from invoking a callback before crossing a validated schema boundary
-([types.ts:255](../apps/backend/src/workflows/types.ts#L255)).
-
-Registration validates the complete tree, snapshots it, creates a structural manifest, and computes a
-versioned hash ([definition.ts:433](../apps/backend/src/workflows/definition.ts#L433)). Runtime validation checks
-root boundaries, adjacent sequence schemas, route cases, fan-out workers, repeat decisions, events, signals,
-configuration, and duplicate IDs ([validation.ts:191](../apps/backend/src/workflows/validation.ts#L191),
-[validation.ts:280](../apps/backend/src/workflows/validation.ts#L280),
-[validation.ts:477](../apps/backend/src/workflows/validation.ts#L477)).
-
-Materialization parses inputs at every node, creates durable node rows, selects route cases, expands fan-outs,
-records repeat state, and creates waits and events ([materialization.ts:429](../apps/backend/src/workflows/materialization.ts#L429),
-[materialization.ts:472](../apps/backend/src/workflows/materialization.ts#L472)). Node IDs are indexed with namespaces
-for nested workflows ([workflowNodeIndex.ts:21](../apps/backend/src/workflows/workflowNodeIndex.ts#L21)).
-
-### Real consumers
-
-The production registry constructs six top-level workflow definitions and their historical variants
-([workflowRuntimeComposition.ts:189](../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts#L189),
-[workflowRuntimeComposition.ts:247](../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts#L247)). The runtime
-composition passes the registry to the APIs, starters, and worker ([workflowRuntimeComposition.ts:376](../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts#L376)). Each starter resolves the current definition, parses the input and configuration, materializes the run, and
-persists its definition hash ([workflowStart.ts:41](../apps/backend/src/workflows/workflowStart.ts#L41)).
-
-The backend route layer consumes the workflow APIs through the application composition
-([index.ts:292](../apps/backend/src/index.ts#L292)). A DSL change therefore affects workflow definition
-modules and their tests first, then the registry boundary. It does not automatically require changes to
-routes, the worker, or the database if the lowered manifest remains compatible.
-
-## Constraints to preserve
-
-Every alternative must keep these contracts:
-
-- A node ID is stable and unique within its workflow namespace. Persisted runs refer to node definition IDs,
-  not source-code positions ([20260729113844_create_workflow_runtime.sql:1](../supabase/migrations/20260729113844_create_workflow_runtime.sql#L1),
-  [workflowNodeIndex.ts:21](../apps/backend/src/workflows/workflowNodeIndex.ts#L21)).
-- The compiler-facing contract rejects incompatible `Config` and `Services` contexts. Runtime validation still
-  rejects disconnected schemas, even when a manually constructed value bypasses the type checker
-  ([workflowDefinitions.test.ts:926](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L926)).
-- Durable schemas remain canonical, deterministic, JSON-safe schemas. The fingerprint code rejects lossy
-  transforms, coercion, custom callbacks, recursive schemas, and unsupported values
-  ([schemaFingerprint.ts:63](../apps/backend/src/workflows/schemaFingerprint.ts#L63)).
-- `commit`, `undo`, retry, timeout, lease, cancellation, provider-effect persistence, and idempotency remain
-  runtime semantics. A provider result can be persisted and replayed before a later attempt continues
-  ([workflowStepRunner.ts:241](../apps/backend/src/workflows/workflowStepRunner.ts#L241)).
-- Events and signals remain declared, versioned, and schema-checked. A signal wait is completed through the
-  typed signal path, not as an ordinary step continuation ([continuation.ts:627](../apps/backend/src/workflows/continuation.ts#L627)).
-- The definition hash, request fingerprint, and domain-specific content fingerprints remain separate values.
-  Structural changes alter the definition hash, while callback-only changes do not
-  ([workflowDefinitions.test.ts:129](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L129),
-  [workflowDefinitions.test.ts:255](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L255)).
-- Historical definitions remain registered by their exact `(workflowId, definitionHash, definitionHashVersion)`
-  boundary. The current definition cannot reconstruct every previous schema and callback contract by itself
-  ([definition.ts:403](../apps/backend/src/workflows/definition.ts#L403),
-  [workflowDefinitions.test.ts:273](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L273)).
+Historical definitions resolve by exact workflow ID, definition hash, and hash version. A new source form must
+not replace the old definition needed to resume a persisted run ([definition.ts:403](../apps/backend/src/workflows/definition.ts#L403),
+[workflowDefinitions.test.ts:273](../apps/backend/tests/workflows/workflowDefinitions.test.ts#L273)).
 
 ## Alternatives
 
-The following alternatives are design sketches. None has been implemented or runtime-tested.
+These are design sketches. None has been implemented or runtime-tested.
 
 ### A. Minimal typed node specification
 
-Keep `step` as the only callback constructor and use one `defineWorkflow` entry point. Represent structural
-nodes as a typed recursive value:
+Interface:
 
 ```ts
 step({ id, inputSchema, outputSchema, run, ...options });
@@ -123,23 +82,17 @@ defineWorkflow({
 });
 ```
 
-`NodeSpec` would contain typed variants for sequence, route, fan-out, repeat, emit, signal wait, and nested
-workflow. The lowerer would produce the existing `WorkflowNode` union.
+`NodeSpec` would be a typed recursive union for sequence, route, fan-out, repeat, emit, signal wait, and
+nested workflow. The lowerer would produce the existing `WorkflowNode` union.
 
-The type boundary must still enforce shared configuration and service contexts, schema-compatible edges,
-declared events and signals, stable IDs, and the existing failure policies. Registration and materialization
-errors would keep their current categories: invalid definitions, unknown events or signals, disconnected
-schemas, duplicate IDs, invalid fan-out keys, and invalid repeat state.
-
-This option gives the smallest named interface and a deep implementation boundary. Its main cost is that the
-recursive value still exposes most advanced fields. It reduces the number of entry points more than it reduces
-the amount of information an advanced workflow author must provide. It has medium-to-high migration cost,
-although the runtime and database can remain unchanged if the lowerer emits the same manifest.
+The lowerer must retain the existing type checks, validation errors, IDs, schemas, event and signal declarations,
+and failure policies. It would depend on the existing registry, validator, materializer, and persistence path.
+The interface is smaller by name, but advanced authors still provide most structural fields. Migration cost is
+medium to high.
 
 ### B. Pipeline-first facade
 
-Make the common linear case a typed pipeline. Bind `Config` and `Services` once, infer each step's input from
-the previous output, and require only the output schema for each transition:
+Interface:
 
 ```ts
 defineWorkflow({
@@ -157,22 +110,19 @@ defineWorkflow({
 });
 ```
 
-The facade would lower to an ordinary `sequence`. `branch`, `fanOut`, `repeat`, `wait`, `emit`, and nested
-workflow operations would remain explicit escape hatches rather than becoming hidden behavior.
+The facade would lower the chain to an ordinary `sequence`. Branch, fan-out, repeat, wait, emit, and nested
+workflow operations would remain explicit. The type must infer the input of each step and reject a transition
+whose output does not match the next input. Runtime validation must still reject malformed values assembled
+outside the facade.
 
-The facade must preserve the declared workflow input and output schemas, stable IDs, output parsing, context
-types, effects, commit and undo, and the same runtime error boundaries. A type error must stop a step whose
-input does not match the preceding output. Registration must still catch malformed values assembled outside
-the facade.
-
-This option has the best leverage for the repeated linear chains in lesson and course workflows. It improves
-locality without forcing a rewrite of advanced or historical definitions. Its cost is medium: the pipeline
-type and lowerer need focused compile-time tests, and root IDs must remain configurable for compatible manifests.
-Its main risk is a builder whose type machinery becomes as difficult to understand as the constructors it hides.
+The facade hides only sequence assembly and repeated input schemas. It keeps effects, commits, undo, policies,
+stable IDs, and output schemas visible. It depends on a small lowerer over the existing definition module.
+Migration cost is medium for linear definitions and low for advanced or historical definitions if they remain
+unchanged. Its main risk is reproducing the existing context type machinery in a harder-to-read builder.
 
 ### C. Workflow plan with codecs and adapters
 
-Make the definition a plan with explicit identity, durable codecs, graph operations, and service adapters:
+Interface:
 
 ```ts
 defineWorkflowPlan({
@@ -184,57 +134,51 @@ defineWorkflowPlan({
 });
 ```
 
-Each adapter would declare its durable input and output contract, manifest contribution, compatibility identity,
+Adapters would declare durable input and output contracts, manifest contributions, compatibility identities,
 and provider or persistence behavior. Standard graph operations would cover task, sequence, branch, map, loop,
 wait, emit, and nested calls.
 
-The plan would need the same schema, ID, error, retry, idempotency, event, signal, and historical-resolution
-invariants as the existing DSL. Unknown adapters and non-deterministic manifests would become new registration
-errors. The plan interpreter would hide indexing, materialization, checkpoints, leases, provider-effect replay,
-undo, observability, and the registry.
-
-This can form a deep seam, but it introduces the largest public vocabulary and the highest adapter burden. A
-new graph kind that cannot lower to an existing persisted kind would require changes to the database and worker.
-Migration cost is high for the six production definitions and their historical variants. This option is not
-justified by a consumer need shown in the inspected code.
+The plan interpreter would hide indexing, materialization, checkpoints, leases, provider-effect replay, undo,
+observability, and registry integration. It would need new typed codec and adapter contracts, plus stable
+errors for unknown adapters and invalid manifests. It has the largest interface and the highest migration cost.
+A graph operation that cannot lower to an existing persisted node kind would also require database and worker
+changes. No current consumer requires that extension point.
 
 ## Comparison
 
-| Option | Depth and locality | Type and runtime fit | Migration and compatibility risk |
+| Option | Depth and locality | Type and runtime fit | Cost and risk |
 | --- | --- | --- | --- |
-| Current constructors | Deep runtime, shallow authoring for advanced details | Proven and fully exercised | No migration cost; authoring cost remains |
-| A. Typed node specification | Deep lowerer; better entry-point locality | Can preserve the existing union if all variants stay typed | Medium to high; advanced fields remain visible |
-| B. Pipeline-first facade | Deep for linear chains; best common-case locality | Preserves the current node and manifest model | Medium; advanced and historical definitions can stay unchanged |
-| C. Plan with codecs and adapters | Potentially deep, but with a much larger interface | Adds a new codec and adapter contract to verify | High; greatest risk of new kinds or changed fingerprints |
+| Current constructors | Deep runtime, shallow authoring for advanced details | Proven and tested | No migration; repeated authoring cost |
+| A. Typed node specification | Deep lowerer and one named definition entry point | Preserves the existing node union if every variant stays typed | Medium to high; structural fields remain visible |
+| B. Pipeline-first facade | Deep for linear chains and good locality | Preserves the existing node and manifest model | Medium; best first scope |
+| C. Plan with codecs and adapters | Potentially deep, with a much larger public contract | Adds codec, adapter, and manifest contracts | High; largest compatibility risk |
 
 ## Recommendation and approval boundary
 
-Adopt B as the candidate for a first implementation proposal. Keep the existing constructors as the escape
-hatch and as the authoring form for historical definitions. Do not replace the runtime model, introduce new
-persisted node kinds, or infer a historical definition from a new source form.
+Use B as the candidate for a first implementation proposal. Apply it to new linear workflows or one selected
+linear definition. Keep the current constructors for advanced and historical definitions.
 
-Before implementation, the owner must approve these points:
+The implementation must satisfy all of these conditions:
 
-1. The facade may lower only to the existing node kinds.
-2. Existing node IDs, namespaces, order, schemas, event and signal declarations, policies, and compatibility IDs
-   remain explicit where they affect durable behavior.
-3. An unchanged definition must produce the same manifest and definition hash. The golden hash tests remain
-   the compatibility oracle.
-4. Historical definitions remain independently resolvable. A new facade does not replace their source or
-   callback contracts.
-5. Compile-time negative tests and runtime validation tests cover the same boundaries as the current DSL.
+1. The facade lowers only to existing node kinds.
+2. Node IDs, namespaces, order, schemas, event and signal declarations, effects, policies, and compatibility
+   IDs remain explicit where they affect durable behavior.
+3. An unchanged definition produces the same manifest and definition hash.
+4. The team reviews callback and `compatibilityId` equivalence, or adds behavioral coverage. Golden hash tests
+   alone do not establish compatibility because callback bodies are absent from the manifest.
+5. Historical definitions remain independently resolvable by their persisted hash and hash version.
+6. Compile-time negative tests and runtime validation tests cover the same boundaries as the existing DSL.
 
-The main open decision is whether the project wants a facade for new linear workflows only, or a complete
-rewrite of all definition modules. The evidence supports the first choice. It does not support changing the
-durable engine.
+Do not implement the facade, rewrite historical definitions, or change persisted node kinds until the owner
+approves the scope and compatibility rules. The PR references issue #9 with `Refs #9`; it does not close the
+issue.
 
 ## Verification record
 
-- Issue read with `gh issue view 9 --repo immagiov4/Nous --json ... --comments`. It was open and had no comments.
-- Repository evidence came from the definition, type, validation, materialization, registry, workflow-start,
-  persistence, migration, and workflow test files linked above.
-- `CONTEXT.md` and ADR files were not present in the repository. The Cubic graph query could not run because
-  `graphify-out/graph.json` was absent, so source inspection was the authority for this report.
-- No tests were run because this task produced a design document and did not change runtime code.
-- This report is `VERIFIED` as a source-based design investigation. The alternatives are `NOT VERIFIED` at
-  runtime because none was implemented.
+- Issue #9 was read with `gh issue view 9 --repo immagiov4/Nous --json ... --comments`. It was open and had no comments.
+- The definition, type, validation, materialization, registry, workflow-start, persistence, migration, and
+  workflow test files were checked against the claims above.
+- `CONTEXT.md` and ADR files are absent. The Cubic graph artifact was unavailable, so the linked wiki page and
+  source files were used directly.
+- This document and the linked architecture page are documentation only. Runtime equivalence of the alternatives
+  is not verified.
