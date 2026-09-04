@@ -56,7 +56,8 @@ flowchart TD
     CheckDedupe -- Not Found --> Materialize[Materialize New Run]
     Materialize --> InsertNodes[Insert Materialized Nodes]
     InsertNodes --> InsertWaits[Insert Initial Waits]
-    InsertWaits --> Notify[Notify pg_notify 'workflow_ready']
+    InsertWaits --> InsertEvents[Insert Durable Outbox Events]
+    InsertEvents --> Notify[Call pg_notify 'workflow_ready']
     Notify --> End[Run Created]
 ```
 
@@ -64,9 +65,13 @@ Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:511-57
 
 ## Workflow Materialization and Persistence
 
-Materialization first produces in-memory records for nodes, waits, and events. `PostgresWorkflowStore.createRun`
-then persists those records in one transaction. The store calls `insertMaterializedNode` for each materialized
-node before it inserts waits, outbox events, and the ready notification.
+Materialization first produces in-memory records for nodes, waits, durable events, and transient events.
+`PostgresWorkflowStore.createRun` persists the run, nodes, waits, and durable outbox events in one transaction.
+For a queued run it also calls `pg_notify('workflow_ready', ...)` inside that transaction; this is a wake-up call,
+not a persisted notification record. After the transaction returns, `startWorkflowRun` publishes the transient
+events separately.
+
+Sources: [apps/backend/src/workflows/persistence/postgresWorkflowStore.ts:467-553](../../../apps/backend/src/workflows/persistence/postgresWorkflowStore.ts#L467-L553), [apps/backend/src/workflows/workflowStart.ts:62-93](../../../apps/backend/src/workflows/workflowStart.ts#L62-L93)
 
 ### Node Persistence
 

@@ -101,10 +101,13 @@ Interface:
 defineWorkflow({
   id,
   compatibilityId,
+  rootSequenceId: 'course-flow',
   inputSchema,
   outputSchema,
   configSchema,
   executionDefaults,
+  events,
+  signals,
   flow: flow =>
     flow
       .step({ id: 'prepare', outputSchema: Prepared, run: prepare })
@@ -113,10 +116,11 @@ defineWorkflow({
 });
 ```
 
-The facade would lower the chain to an ordinary `sequence`. Branch, fan-out, repeat, wait, emit, and nested
-workflow operations would remain explicit. The type must infer the input of each step and reject a transition
-whose output does not match the next input. Runtime validation must still reject malformed values assembled
-outside the facade.
+The facade would lower the chain to an ordinary `sequence` whose durable root ID remains explicit. Branch,
+fan-out, repeat, wait, emit, and nested workflow operations would remain explicit, as would the workflow-level
+event and signal catalogs they require. The type must infer the input of each step and reject a transition whose
+output does not match the next input. Runtime validation must still reject malformed values assembled outside
+the facade.
 
 The facade hides only sequence assembly and repeated input schemas. It keeps effects, commits, undo, policies,
 stable IDs, and output schemas visible. It depends on a small lowerer over the existing definition module.
@@ -169,8 +173,10 @@ The implementation must satisfy all of these conditions:
 3. An unchanged definition produces the same manifest and definition hash.
 4. The team reviews callback and `compatibilityId` equivalence, or adds behavioral coverage. Golden hash tests
    alone do not establish compatibility because callback bodies are absent from the manifest.
-5. Historical definitions remain independently resolvable by their persisted hash and hash version.
-6. Compile-time negative tests and runtime validation tests cover the same boundaries as the existing DSL.
+5. A migrated definition preserves `executionDefaults` and every persisted step policy, including configuration,
+   retry count, and timeout. An intentional policy change requires explicit owner approval and behavioral coverage.
+6. Historical definitions remain independently resolvable by their persisted hash and hash version.
+7. Compile-time negative tests and runtime validation tests cover the same boundaries as the existing DSL.
 
 Do not implement the facade, rewrite historical definitions, or change persisted node kinds until the owner
 approves the scope and compatibility rules. The PR references issue #9 with `Refs #9`; it does not close the
