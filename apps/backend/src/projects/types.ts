@@ -152,6 +152,12 @@ export interface ProjectSnapshotWithRevision {
   snapshot: ProjectSnapshot;
 }
 
+export interface LibraryExportSnapshot {
+  folders: LibraryFolder[];
+  placements: LibraryPlacement[];
+  projects: SavedProjectMeta[];
+}
+
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   importedAssets?: readonly ImportedProjectAssetDescriptor[];
   importedCover?: ProjectCoverFile;
@@ -236,6 +242,7 @@ export interface ProjectStore {
     id: ProjectId
   ) => Promise<ProjectSourceArchiveIndex | null>;
   loadProjectsById: (userId: string, ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
+  readLibraryExportSnapshot: (userId: string) => Promise<LibraryExportSnapshot>;
   moveFolder: (
     userId: string,
     folderId: string,

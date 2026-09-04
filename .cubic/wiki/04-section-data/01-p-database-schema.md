@@ -15,6 +15,8 @@ The following files were used as context for generating this wiki page:
 - [scripts/project-source-storage-artifact.ts](../../../scripts/project-source-storage-artifact.ts)
 - [apps/backend/tests/projects/postgresProjectStore.test.ts](../../../apps/backend/tests/projects/postgresProjectStore.test.ts)
 - [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
+- [apps/backend/src/projects/libraryExportRunStore.ts](../../../apps/backend/src/projects/libraryExportRunStore.ts)
+- [supabase/migrations/20260904001830_create_library_export_runs.sql](../../../supabase/migrations/20260904001830_create_library_export_runs.sql)
 </details>
 
 # PostgreSQL Database Schema
@@ -38,6 +40,7 @@ erDiagram
     LIBRARY_FOLDERS ||--o{ LIBRARY_FOLDERS : "parent of"
     LIBRARY_FOLDERS ||--o{ LIBRARY_PLACEMENTS : "contains"
     PROJECT_SOURCES ||--o{ PROJECT_SOURCE_DELETIONS : "queues cleanup"
+    LIBRARY_EXPORT_RUNS ||--o{ LIBRARY_EXPORT_PROJECT_CHECKPOINTS : "checkpoints"
 ```
 
 *Description: The ER diagram shows the central role of the `projects` table and its connection to content snapshots, asset metadata, and the library's hierarchical folder structure.*
@@ -113,6 +116,12 @@ The library structure supports nested folders and custom ordering for projects a
 *  **`public.library_folders`**: Defines the hierarchy. Folders can have a `parent_folder_id` (null for root).
 *  **`public.library_placements`**: Links projects to folders and defines their position within that folder.
 Sources: [apps/backend/src/projects/postgresProjectStore.ts:1145-1165](../../../apps/backend/src/projects/postgresProjectStore.ts#L1145-L1165), [apps/backend/src/projects/postgresProjectStore.ts:1248-1262](../../../apps/backend/src/projects/postgresProjectStore.ts#L1248-L1262)
+
+### Durable Library Export Runs
+
+`public.library_export_runs` stores the authenticated owner, correlation ID, expected project manifest, folder organization, current phase, cumulative bytes, final archive integrity metadata, a hashed one-use download token, a cleanup checkpoint, and a redacted failure outcome. A partial unique index permits only one active, completed, or failed run per user. Cancelled and downloaded runs no longer block a replacement export.
+
+`public.library_export_project_checkpoints` records one completed nested archive per project, including its stable order, workspace path, byte count, and SHA-256 checksum. The two tables are backend-only: RLS is enabled, direct access is revoked from `anon` and `authenticated`, and the service role receives only the operations required by the run store. No migration-defined retention or timeout policy is attached to these rows. Sources: [supabase/migrations/20260904001830_create_library_export_runs.sql](../../../supabase/migrations/20260904001830_create_library_export_runs.sql), [supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql](../../../supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql), [apps/backend/src/projects/libraryExportRunStore.ts](../../../apps/backend/src/projects/libraryExportRunStore.ts)
 
 ## Workflow and Feedback Systems
 

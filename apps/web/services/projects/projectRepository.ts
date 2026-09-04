@@ -1,3 +1,4 @@
+import type { LibraryExportProgress } from '@shared/libraryExportContract';
 import type { DecodedProjectSnapshotWire } from '@shared/projectSnapshotWire';
 
 import type {
@@ -70,6 +71,12 @@ export interface ProjectSnapshotWithRevision {
   snapshot: ProjectSnapshot;
 }
 
+export interface LibraryExportResult {
+  projectCount: number;
+}
+
+export type LibraryExportProgressListener = (progress: LibraryExportProgress) => void;
+
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   archiveFile?: File;
 }
@@ -114,6 +121,7 @@ export interface ProjectRepository {
     requestCatchUp: () => void
   ) => () => void;
   deleteProject: (id: ProjectId) => Promise<void>;
+  exportLibraryBackup: (onProgress?: LibraryExportProgressListener) => Promise<LibraryExportResult>;
   importProject: (data: unknown) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   importProjectArchive: (
     archive: Blob,

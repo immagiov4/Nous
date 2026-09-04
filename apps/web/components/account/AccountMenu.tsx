@@ -28,6 +28,7 @@ import {
 } from '../../services/auth/supabaseAuth.ts';
 import { LibraryArchiveError } from '../../services/projects/libraryArchive.ts';
 import { reportLibraryArchiveImportFailure } from '../../services/projects/libraryArchiveDiagnostics.ts';
+import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
 import FeedbackDialog from '../feedback/FeedbackDialog.tsx';
 
 type AccountSection = 'data' | 'security';
@@ -46,7 +47,7 @@ interface AccountPanelProps {
   readonly initialSection: AccountSection;
   readonly onAccountChange: (account: SupabaseAccount) => void;
   readonly onClose: () => void;
-  readonly onExportLibraryBackup?: () => Promise<number>;
+  readonly onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   readonly onImportLibraryBackup?: (file: File) => Promise<number>;
 }
 
@@ -67,6 +68,9 @@ const AccountPanel = ({
   const [pendingAction, setPendingAction] = useState<AccountAction | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [libraryExportProgress, setLibraryExportProgress] = useState<
+    Parameters<LibraryExportProgressListener>[0] | null
+  >(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const passwordAccount = isPasswordAccount(account);
@@ -162,12 +166,13 @@ const AccountPanel = ({
     if (!onExportLibraryBackup) return;
     beginAction('backup-export');
     try {
-      const courseCount = await onExportLibraryBackup();
-      setSuccessMessage(t('Backup di {courseCount} corsi esportato.', { courseCount }));
+      const courseCount = await onExportLibraryBackup(setLibraryExportProgress);
+      setSuccessMessage(t('Download del backup di {courseCount} corsi avviato.', { courseCount }));
     } catch (error) {
       console.error('[Nous][Account] Library backup export failed.', error);
       setErrorMessage(t('Esportazione del backup completo non riuscita. Riprova.'));
     } finally {
+      setLibraryExportProgress(null);
       setPendingAction(null);
     }
   };
@@ -384,9 +389,21 @@ const AccountPanel = ({
               >
                 <Download className="h-4 w-4" />
                 {pendingAction === 'backup-export'
-                  ? t('Esportazione in corso...')
+                  ? libraryExportProgress
+                    ? t('Esportazione {completed} di {total}...', {
+                        completed: libraryExportProgress.completedProjectCount,
+                        total: libraryExportProgress.projectCount,
+                      })
+                    : t('Esportazione in corso...')
                   : t('Esporta tutti i corsi')}
               </button>
+              {pendingAction === 'backup-export' && libraryExportProgress ? (
+                <output className="w-full text-xs text-gray-500 dark:text-zinc-400">
+                  {t('{bytes} byte elaborati dal server.', {
+                    bytes: new Intl.NumberFormat().format(libraryExportProgress.bytesWritten),
+                  })}
+                </output>
+              ) : null}
               <input
                 ref={backupInputRef}
                 type="file"
@@ -417,7 +434,7 @@ const AccountPanel = ({
 };
 
 interface AccountMenuProps {
-  readonly onExportLibraryBackup?: () => Promise<number>;
+  readonly onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   readonly onImportLibraryBackup?: (file: File) => Promise<number>;
   readonly themeToggle?: {
     readonly isDarkMode: boolean;

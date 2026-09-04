@@ -16,6 +16,9 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/tests/projects/postgresProjectStore.test.ts](../../../apps/backend/tests/projects/postgresProjectStore.test.ts)
 - [packages/shared-types/learningArtifact.ts](../../../packages/shared-types/learningArtifact.ts)
 - [packages/shared-types/projectBackupAssets.ts](../../../packages/shared-types/projectBackupAssets.ts)
+- [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts)
+- [apps/backend/src/projects/libraryExportWorkspace.ts](../../../apps/backend/src/projects/libraryExportWorkspace.ts)
+- [packages/shared-types/libraryExportContract.ts](../../../packages/shared-types/libraryExportContract.ts)
 
 </details>
 
@@ -94,6 +97,12 @@ flowchart TD
 
 *Visual representation of how projects are repositioned within the library folder structure.*
 Sources: [apps/backend/tests/helpers/inMemoryProjectStore.ts:515-540](../../../apps/backend/tests/helpers/inMemoryProjectStore.ts#L515-L540), [apps/web/hooks/library/useProjectLibrary.ts:1210-1230](../../../apps/web/hooks/library/useProjectLibrary.ts#L1210-L1230)
+
+### Full Library Export
+
+The browser starts one backend-owned export run and polls its persisted progress instead of loading every project snapshot into a client-side ZIP. The backend processes one project at a time, writes each compatible project archive atomically to a durable workspace, records its byte count and SHA-256 checkpoint, then streams those files into the outer library archive. In Compose deployments the workspace is a named volume, so a restarted or recreated backend reuses checkpoints whose files still match their persisted size and checksum.
+
+The completed archive retains the established library manifest and nested project archive format. It is exposed for download only after the final file has been closed, reread, and verified. The browser receives a one-use download token and submits a native form, leaving the archive stream outside application memory. After a successful response, the run is marked as downloaded and its workspace directory is removed; interrupted cleanup is retried from durable state. Sources: [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts), [apps/backend/src/projects/libraryExportWorkspace.ts](../../../apps/backend/src/projects/libraryExportWorkspace.ts), [packages/shared-types/libraryExportContract.ts](../../../packages/shared-types/libraryExportContract.ts), [apps/web/services/projects/httpProjectRepository.ts](../../../apps/web/services/projects/httpProjectRepository.ts), [compose.yml](../../../compose.yml)
 
 ### Multi-Source Management
 Projects can support multiple source files simultaneously. The `courseSources` service handles the sorting (alphabetical), indexing, and merging of these files.

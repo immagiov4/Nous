@@ -20,6 +20,7 @@ const repositoryMocks = vi.hoisted(() => ({
   createFolder: vi.fn(),
   deleteProject: vi.fn(),
   deleteFolder: vi.fn(),
+  exportLibraryBackup: vi.fn(),
   exportProject: vi.fn(),
   importProjectArchive: vi.fn(),
   importProject: vi.fn(),
@@ -112,6 +113,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.createFolder.mockReset();
     repositoryMocks.deleteProject.mockReset();
     repositoryMocks.deleteFolder.mockReset();
+    repositoryMocks.exportLibraryBackup.mockReset();
     repositoryMocks.exportProject.mockReset();
     repositoryMocks.importProjectArchive.mockReset();
     repositoryMocks.importProject.mockReset();
@@ -1380,17 +1382,11 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.exportProject).toHaveBeenCalledWith('project-export');
   });
 
-  test('downloadLibraryBackup preserves project ids used by library placements', async () => {
-    const timestamp = '2026-04-02T10:00:00.000Z';
+  test('downloadLibraryBackup downloads the backend-owned archive without hydrating projects', async () => {
     const objectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:nous-library');
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    repositoryMocks.listProjects.mockResolvedValue([buildMeta('project-export', timestamp)]);
-    repositoryMocks.listFolders.mockResolvedValue([]);
-    repositoryMocks.listPlacements.mockResolvedValue([
-      { folderId: null, order: 0, projectId: 'project-export', updatedAt: timestamp },
-    ]);
-    repositoryMocks.exportProject.mockResolvedValue(buildSnapshot('project-export'));
-    repositoryMocks.loadProjectCover.mockResolvedValue(null);
+    repositoryMocks.exportLibraryBackup.mockResolvedValue({
+      projectCount: 1,
+    });
 
     const { result } = renderHook(() =>
       useProjectLibrary({
@@ -1402,8 +1398,10 @@ describe('useProjectLibrary', () => {
 
     await expect(result.current.downloadLibraryBackup()).resolves.toBe(1);
 
-    expect(repositoryMocks.exportProject).toHaveBeenCalledWith('project-export');
-    expect(objectUrlSpy).toHaveBeenCalledWith(expect.any(Blob));
+    expect(repositoryMocks.exportLibraryBackup).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.exportProject).not.toHaveBeenCalled();
+    expect(repositoryMocks.loadProjectCover).not.toHaveBeenCalled();
+    expect(objectUrlSpy).not.toHaveBeenCalled();
   });
 
   test('createFolder refreshes library organization and rebuilds the tree', async () => {

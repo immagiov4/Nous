@@ -7,8 +7,6 @@ import { ensureProjectCover } from '../../services/projects/courseCover.ts';
 import { HttpProjectRepository } from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
 import {
-  createLibraryArchiveBlob,
-  getLibraryArchiveExtension,
   type LibraryArchiveData,
   LibraryArchiveError,
   type LibraryArchiveImportedProject,
@@ -27,6 +25,7 @@ import {
 } from '../../services/projects/projectArchive.ts';
 import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
 import {
+  type LibraryExportProgressListener,
   type ProjectRepository,
   type ProjectSaveResult,
   type ProjectSnapshotWithRevision,
@@ -1301,39 +1300,13 @@ export const useProjectLibrary = ({
     [currentProjectId, downloadBlob]
   );
 
-  const downloadLibraryBackup = useCallback(async (): Promise<number> => {
-    const [projectMetas, folders, placements] = await Promise.all([
-      projectRepositoryRef.current.listProjects(),
-      projectRepositoryRef.current.listFolders(),
-      projectRepositoryRef.current.listPlacements(),
-    ]);
-    const projects: ProjectSnapshot[] = [];
-
-    for (const projectMeta of projectMetas) {
-      const exportData = await projectRepositoryRef.current.exportProject(projectMeta.id);
-      if (!exportData) {
-        throw new Error(`Il corso ${projectMeta.title} non può essere esportato.`);
-      }
-      projects.push(normalizeStoredProject(exportData));
-    }
-
-    const archive = await createLibraryArchiveBlob(
-      projects,
-      { folders, placements },
-      {
-        createProjectArchive: async project =>
-          createProjectArchiveBlob(project, {
-            cover: await projectRepositoryRef.current.loadProjectCover(project.id),
-            loadAsset: ref => downloadProjectAssetBytes(project.id, ref),
-          }),
-      }
-    );
-    downloadBlob(
-      archive,
-      `nous-library-backup-${timestampIso().slice(0, 10)}${getLibraryArchiveExtension()}`
-    );
-    return projects.length;
-  }, [downloadBlob]);
+  const downloadLibraryBackup = useCallback(
+    async (onProgress?: LibraryExportProgressListener): Promise<number> => {
+      const { projectCount } = await projectRepositoryRef.current.exportLibraryBackup(onProgress);
+      return projectCount;
+    },
+    []
+  );
 
   const importLibraryBackup = useCallback(
     async (file: File): Promise<number> => {

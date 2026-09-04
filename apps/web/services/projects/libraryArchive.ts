@@ -1,3 +1,13 @@
+import {
+  findLibraryOrganizationIssue,
+  getLibraryArchiveProjectPath,
+  LIBRARY_ARCHIVE_FORMAT,
+  LIBRARY_ARCHIVE_MANIFEST_PATH,
+  LIBRARY_ARCHIVE_MIME_TYPE,
+  LIBRARY_ARCHIVE_VERSION,
+  type LibraryArchiveManifest,
+  type LibraryArchiveProjectEntry,
+} from '@shared/libraryExportContract';
 import { buildOrderedSiblingItems } from '@shared/libraryOrdering';
 import {
   getZipTotalUncompressedBytes,
@@ -12,12 +22,6 @@ import { isRecord } from '../../utils/records.ts';
 import { createProjectArchiveBlob, inspectProjectArchiveData } from './projectArchive.ts';
 import type { ProjectRepository } from './projectRepository.ts';
 
-const LIBRARY_ARCHIVE_FORMAT = 'nous-library-archive';
-const LIBRARY_ARCHIVE_VERSION = 2;
-const LIBRARY_ARCHIVE_EXTENSION = '.nous-library.zip';
-const LIBRARY_ARCHIVE_MANIFEST_PATH = 'library.json';
-const LIBRARY_ARCHIVE_PROJECTS_DIR = 'projects';
-const LIBRARY_ARCHIVE_MIME_TYPE = 'application/zip';
 const LIBRARY_ARCHIVE_MAX_ENTRIES = 1_002;
 const LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES = 1_000_000;
 const LIBRARY_ARCHIVE_MAX_PROJECT_BYTES = 256_000_000;
@@ -122,20 +126,6 @@ export class LibraryArchivePartialImportError extends LibraryArchiveError {
   }
 }
 
-export interface LibraryArchiveProjectEntry {
-  id: string;
-  path: string;
-  title: string;
-}
-
-interface LibraryArchiveManifest {
-  archiveVersion: number;
-  format: typeof LIBRARY_ARCHIVE_FORMAT;
-  projects: LibraryArchiveProjectEntry[];
-  folders: LibraryFolder[];
-  placements: LibraryPlacement[];
-}
-
 const isValidTimestamp = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0 && Number.isFinite(Date.parse(value));
 
@@ -161,11 +151,6 @@ export interface LibraryArchiveOrganization {
   folders: LibraryFolder[];
   placements: LibraryPlacement[];
 }
-
-const sanitizeArchivePathSegment = (value: string): string => {
-  const normalized = value.trim().replaceAll(/[^a-zA-Z0-9._-]+/g, '_');
-  return normalized || 'course';
-};
 
 const formatArchiveVersion = (value: unknown): string =>
   typeof value === 'number' || typeof value === 'string' ? String(value) : 'sconosciuta';
@@ -329,21 +314,12 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
       };
     });
 
-    const folderIds = new Set(folders.map(folder => folder.id));
-    const projectIds = new Set(projects.map(project => project.id));
-    if (
-      folderIds.size !== folders.length ||
-      new Set(placements.map(placement => placement.projectId)).size !== placements.length ||
-      placements.length !== projects.length ||
-      folders.some(
-        folder => folder.parentFolderId !== null && !folderIds.has(folder.parentFolderId)
-      ) ||
-      placements.some(
-        placement =>
-          !projectIds.has(placement.projectId) ||
-          (placement.folderId !== null && !folderIds.has(placement.folderId))
-      )
-    ) {
+    const organizationIssue = findLibraryOrganizationIssue(
+      projects.map(project => project.id),
+      folders,
+      placements
+    );
+    if (organizationIssue === 'inconsistent') {
       throw new LibraryArchiveError(
         'La struttura delle cartelle nel backup non è coerente.',
         'LIBRARY_ARCHIVE_INVALID',
@@ -351,21 +327,12 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
       );
     }
 
-    const folderById = new Map(folders.map(folder => [folder.id, folder]));
-    for (const folder of folders) {
-      const visited = new Set<string>();
-      let current: LibraryFolder | undefined = folder;
-      while (current?.parentFolderId) {
-        if (visited.has(current.id)) {
-          throw new LibraryArchiveError(
-            'La gerarchia delle cartelle nel backup contiene un ciclo.',
-            'LIBRARY_ARCHIVE_INVALID',
-            'manifest-read'
-          );
-        }
-        visited.add(current.id);
-        current = folderById.get(current.parentFolderId);
-      }
+    if (organizationIssue === 'folder-cycle') {
+      throw new LibraryArchiveError(
+        'La gerarchia delle cartelle nel backup contiene un ciclo.',
+        'LIBRARY_ARCHIVE_INVALID',
+        'manifest-read'
+      );
     }
   }
 
@@ -406,7 +373,7 @@ export const createLibraryArchiveBlob = async (
 
   for (const [index, project] of projects.entries()) {
     const title = project.learningPlan?.title || `Corso ${index + 1}`;
-    const path = `${LIBRARY_ARCHIVE_PROJECTS_DIR}/${String(index + 1).padStart(3, '0')}-${sanitizeArchivePathSegment(project.id)}.nous.zip`;
+    const path = getLibraryArchiveProjectPath(project.id, index);
     const projectArchive = options.createProjectArchive
       ? await options.createProjectArchive(project)
       : await createProjectArchiveBlob(project);
@@ -624,5 +591,3 @@ export const restoreLibraryArchiveOrganization = async (
     throw error;
   }
 };
-
-export const getLibraryArchiveExtension = () => LIBRARY_ARCHIVE_EXTENSION;

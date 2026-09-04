@@ -29,7 +29,8 @@ const SELF_HOSTED_OVERRIDE = parse(
   services: Record<string, Record<string, unknown>>;
 };
 const APP_COMPOSE = parse(readFileSync(resolve('compose.yml'), 'utf8')) as {
-  services: Record<string, { environment?: Record<string, string> }>;
+  services: Record<string, { environment?: Record<string, string>; volumes?: string[] }>;
+  volumes?: Record<string, unknown>;
 };
 
 describe('production deployment boundaries', () => {
@@ -158,6 +159,16 @@ describe('production deployment boundaries', () => {
       'DECODO_SCRAPING_API_KEY'
     );
     expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty('GITHUB_FEEDBACK_TOKEN');
+  });
+
+  test('keeps resumable library exports on a durable backend volume', () => {
+    expect(APP_COMPOSE.services.backend?.environment).toMatchObject({
+      LIBRARY_EXPORT_ROOT: '/var/lib/nous/library-exports',
+    });
+    expect(APP_COMPOSE.services.backend?.volumes).toContain(
+      'library-exports:/var/lib/nous/library-exports'
+    );
+    expect(APP_COMPOSE.volumes).toHaveProperty('library-exports');
   });
 
   test('fails the stack smoke contract on the first unhealthy dependency', async () => {

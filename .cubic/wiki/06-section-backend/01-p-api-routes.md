@@ -14,6 +14,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/tests/routes/authProtection.test.ts](../../../apps/backend/tests/routes/authProtection.test.ts)
 - [scripts/feature-map.ts](../../../scripts/feature-map.ts)
 - [README.md](../../../README.md)
+- [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts)
+- [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts)
 </details>
 
 # Backend REST Endpoints
@@ -73,6 +75,17 @@ The `/api/projects` router manages the lifecycle of courses, including creation,
 *  **DELETE `/api/projects/projects/:id`**: Removes a project and its associated storage artifacts.
 
 Sources: [apps/backend/tests/routes/projects.test.ts:104-140](../../../apps/backend/tests/routes/projects.test.ts#L104-L140), [apps/backend/src/index.ts:203-210](../../../apps/backend/src/index.ts#L203-L210)
+
+### Library Export Run
+
+The authenticated library export endpoints separate long-running preparation from the final binary transfer:
+
+* **POST `/api/projects/library-exports`**: Starts a run or resumes the user's existing undelivered run and returns its durable progress.
+* **GET `/api/projects/library-exports/:runId`**: Returns the persisted phase, completed and expected project counts, and bytes written.
+* **POST `/api/projects/library-exports/:runId/download-access`**: Authenticates the owner and returns a one-use download token whose hash is stored with the completed run.
+* **POST `/api/projects/library-exports/:runId/download`**: Accepts the token through a native form submission and downloads only a completed archive whose size and SHA-256 still match the persisted result.
+
+The final download is not bound to the frontend's ordinary JSON request timeout and does not pass through a JavaScript response buffer. The route marks the run as delivered and removes its workspace only after Express reports a successful transfer; durable cleanup state allows recovery after interruption. Operational logs use the correlation ID, run ID, project ID, phase, outcome, bytes, and elapsed time without recording snapshots, source contents, or credentials. Sources: [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts), [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts), [apps/web/services/projects/httpProjectRepository.ts](../../../apps/web/services/projects/httpProjectRepository.ts)
 
 ### Source and Archive Handling
 
