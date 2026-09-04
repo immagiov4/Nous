@@ -20,6 +20,7 @@ import {
   type PointerEvent,
   type RefObject,
   type TouchEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -168,6 +169,18 @@ const ContextMenu = ({
   const moreActionsMenuItemRef = useRef<HTMLButtonElement>(null);
   const lessonCancelButtonRef = useRef<HTMLButtonElement>(null);
   const isMobileSheet = placement === 'mobile-sheet';
+
+  const restoreMoreActionsButtonFocus = useCallback(() => {
+    const moreActionsButton = moreActionsButtonRef.current;
+    if (moreActionsButton && !moreActionsButton.disabled) {
+      moreActionsButton.focus();
+      return;
+    }
+
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
   const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
   const isLessonMode = type === 'lesson';
@@ -390,7 +403,7 @@ const ContextMenu = ({
     event.preventDefault();
     event.stopPropagation();
     setIsLessonConfirmOpen(false);
-    globalThis.window.requestAnimationFrame(() => moreActionsButtonRef.current?.focus());
+    globalThis.window.requestAnimationFrame(restoreMoreActionsButtonFocus);
   };
 
   const handleCreate = (event: MouseEvent<HTMLButtonElement>) => {
@@ -440,7 +453,7 @@ const ContextMenu = ({
       if (isMoreActionsOpen) {
         event.preventDefault();
         setIsMoreActionsOpen(false);
-        globalThis.window.requestAnimationFrame(() => moreActionsButtonRef.current?.focus());
+        globalThis.window.requestAnimationFrame(restoreMoreActionsButtonFocus);
         return;
       }
 
@@ -451,7 +464,7 @@ const ContextMenu = ({
     return () => {
       globalThis.window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isMoreActionsOpen, onClose]);
+  }, [isMoreActionsOpen, onClose, restoreMoreActionsButtonFocus]);
 
   useLayoutEffect(() => {
     if (!isMoreActionsOpen) {

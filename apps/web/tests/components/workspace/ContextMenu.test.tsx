@@ -240,6 +240,24 @@ describe('ContextMenu', () => {
     expect(props.onCreateLesson).not.toHaveBeenCalled();
   });
 
+  test('does not restore focus to the actions button when loading disables it', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const { rerender } = render(<ContextMenu {...props} />);
+
+    const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
+    await user.click(moreActionsButton);
+    await user.click(screen.getByRole('menuitem', { name: 'Crea sottolezione' }));
+
+    rerender(<ContextMenu {...props} isLoading />);
+    expect(moreActionsButton).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Annulla' }));
+
+    expect(moreActionsButton).not.toHaveFocus();
+    expect(document.body).toHaveFocus();
+  });
+
   test('does not describe exercise work as lesson generation', async () => {
     const user = userEvent.setup();
 
