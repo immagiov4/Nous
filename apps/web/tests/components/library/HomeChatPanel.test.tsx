@@ -581,6 +581,20 @@ describe('HomeChatPanel', () => {
     expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
   });
 
+  test('keeps submission locked while a library response has no Stop handler', () => {
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      isLibraryModeLoading: true,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    const submitButton = screen.getByRole('button', { name: /Invia domanda libreria/i });
+    expect(submitButton).toBeDisabled();
+    expect(submitButton).toHaveAttribute('type', 'submit');
+  });
+
   test('keeps the active Stop action visible by blocking mode changes during streaming', async () => {
     const user = userEvent.setup();
     const stop = vi.fn();

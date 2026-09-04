@@ -390,6 +390,65 @@ const MobileToolDialog = ({
   </dialog>
 );
 
+const ComposerSubmitIcon = ({
+  isGenerationActive,
+  isStoppingGeneration,
+  supportsStopping,
+}: {
+  readonly isGenerationActive: boolean;
+  readonly isStoppingGeneration: boolean;
+  readonly supportsStopping: boolean;
+}) => {
+  if (isStoppingGeneration || (isGenerationActive && !supportsStopping)) {
+    return <Loader2 className="h-4 w-4 motion-safe:animate-spin" />;
+  }
+  if (isGenerationActive) return <Square className="h-3.5 w-3.5 fill-current" />;
+  return <ArrowUp className="h-4 w-4" />;
+};
+
+const ComposerSubmitButton = ({
+  currentDraft,
+  homeChatMode,
+  isGenerationActive,
+  isStoppingGeneration,
+  onStopGeneration,
+}: {
+  readonly currentDraft: string;
+  readonly homeChatMode: HomeChatMode;
+  readonly isGenerationActive: boolean;
+  readonly isStoppingGeneration: boolean;
+  readonly onStopGeneration?: () => void;
+}) => {
+  const supportsStopping = onStopGeneration !== undefined;
+  const stopsGeneration = isGenerationActive && supportsStopping;
+  const sendLabel = t(homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria');
+  const label = stopsGeneration ? t('Annulla') : sendLabel;
+  return (
+    <button
+      type={stopsGeneration ? 'button' : 'submit'}
+      data-home-chat-target="submit"
+      onClick={stopsGeneration ? onStopGeneration : undefined}
+      disabled={
+        isGenerationActive ? !supportsStopping || isStoppingGeneration : !currentDraft.trim()
+      }
+      aria-busy={isStoppingGeneration || undefined}
+      aria-label={label}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
+        isGenerationActive
+          ? 'bg-orange-500 text-white'
+          : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-200 disabled:text-gray-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-500'
+      }`}
+      title={label}
+    >
+      <ComposerSubmitIcon
+        isGenerationActive={isGenerationActive}
+        isStoppingGeneration={isStoppingGeneration}
+        supportsStopping={supportsStopping}
+      />
+    </button>
+  );
+};
+
 export default function HomeChatComposer({
   activeSurface,
   assessmentComplete,
@@ -458,8 +517,6 @@ export default function HomeChatComposer({
   const isGenerationActive = isLoading || isStopRequestPending;
   const activeLibraryToolCount = Number(libraryWebSearch) + Number(libraryGenerateArtifacts);
   const closeMenus = () => onActiveSurfaceChange(null);
-  const sendButtonLabel = t(homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria');
-  const submitButtonLabel = isGenerationActive && onStopGeneration ? t('Annulla') : sendButtonLabel;
 
   useLayoutEffect(() => {
     if (
@@ -664,30 +721,13 @@ export default function HomeChatComposer({
             }}
             variant="compact"
           />
-          <button
-            type={isGenerationActive && onStopGeneration ? 'button' : 'submit'}
-            data-home-chat-target="submit"
-            onClick={isGenerationActive && onStopGeneration ? stopGeneration : undefined}
-            disabled={
-              isGenerationActive ? !onStopGeneration || isStoppingGeneration : !currentDraft.trim()
-            }
-            aria-busy={isStoppingGeneration || undefined}
-            aria-label={submitButtonLabel}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
-              isGenerationActive
-                ? 'bg-orange-500 text-white'
-                : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-200 disabled:text-gray-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-500'
-            }`}
-            title={submitButtonLabel}
-          >
-            {isStoppingGeneration || (isGenerationActive && !onStopGeneration) ? (
-              <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
-            ) : isGenerationActive ? (
-              <Square className="h-3.5 w-3.5 fill-current" />
-            ) : (
-              <ArrowUp className="h-4 w-4" />
-            )}
-          </button>
+          <ComposerSubmitButton
+            currentDraft={currentDraft}
+            homeChatMode={homeChatMode}
+            isGenerationActive={isGenerationActive}
+            isStoppingGeneration={isStoppingGeneration}
+            onStopGeneration={onStopGeneration ? stopGeneration : undefined}
+          />
 
           {homeChatMode === 'library-query' &&
           activeSurface === 'tool-menu' &&

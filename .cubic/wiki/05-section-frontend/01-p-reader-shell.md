@@ -9,11 +9,13 @@ wiki_page_id: "p-reader-shell"
 The following files were used as context for generating this wiki page:
 
 - [apps/web/components/workspace/WorkspaceReaderShell.tsx](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx)
+- [apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx)
 - [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx)
 - [apps/web/components/workspace/shell/types.ts](../../../apps/web/components/workspace/shell/types.ts)
 - [apps/web/hooks/workspace/useWorkspaceReaderActions.ts](../../../apps/web/hooks/workspace/useWorkspaceReaderActions.ts)
 - [apps/web/components/workspace/shell/LessonDocumentSources.tsx](../../../apps/web/components/workspace/shell/LessonDocumentSources.tsx)
 - [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx](../../../apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx)
+- [apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx](../../../apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx)
 </details>
 
 # Workspace Reader Shell Interface
@@ -48,11 +50,17 @@ Sources: [apps/web/components/workspace/WorkspaceReaderShell.tsx:90-112](../../.
 | :--- | :--- |
 | `WorkspaceReaderSidebar` | Manages learning plan navigation, module toggling, and exercise selection. |
 | `WorkspaceReaderBanners` | Displays critical status alerts, storage errors, and PDF mapping warnings. |
-| `WorkspaceReaderHeader` | Provides learning plan controls, TTS settings, music volume, and dark mode toggling. |
+| `WorkspaceReaderHeader` | Provides learning plan controls, lesson regeneration, TTS settings, music volume, and dark mode toggling. |
 | `WorkspaceReaderContent` | Renders the primary lesson Markdown, quizzes, YouTube clips, and artifacts. |
 | `WorkspaceReaderOverlays` | Orchestrates context menus, AI assistant answers, and annotation tools. |
 
 Sources: [apps/web/components/workspace/shell/types.ts:74-192](../../../apps/web/components/workspace/shell/types.ts#L74-L192), [apps/web/components/workspace/WorkspaceReaderShell.tsx:7-12](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L7-L12)
+
+### Regeneration Confirmation
+
+Regenerating the active lesson requires a shared modal confirmation. The header renders it inline on desktop and through a body portal on mobile, while preserving the same interaction contract: focus enters and remains inside the modal, an outside press or `Escape` dismisses it, and focus returns to the regeneration trigger. When a responsive layout change replaces the modal DOM node, focus containment is rebuilt against the new panel.
+
+Sources: [apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx:81-143](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx#L81-L143), [apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx:263-318](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx#L263-L318), [apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx:87-182](../../../apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx#L87-L182)
 
 ## Lifecycle and Viewport Management
 
@@ -102,6 +110,8 @@ Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:680-750
 
 ### Interaction Handling Logic
 Interaction is centralized through the `useWorkspaceReaderActions` hook, which manages the relationship between text selection, annotations, and AI-driven deep research.
+
+When a user opens sublesson creation from an annotation with a saved note, the creation confirmation replaces the note panel for that interaction. The saved note and its attachments remain in memory and return when the confirmation closes.
 
 ```mermaid
 graph TD
