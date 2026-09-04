@@ -635,9 +635,11 @@ describe('NewHomeView library interactions', () => {
       window.dispatchEvent(new Event('orientationchange'));
       await waitFor(() => expect(menu).toHaveStyle({ left: '156px' }));
 
-      await user.click(
-        screen.getByRole('button', { name: /Chiudi azioni corso|Close course actions/ })
-      );
+      const outsideDismissBackdrop = screen.getByRole('button', {
+        name: /Chiudi azioni corso|Close course actions/,
+      });
+      expect(menu).not.toContainElement(outsideDismissBackdrop);
+      await user.click(outsideDismissBackdrop);
       expect(
         screen.queryByRole('button', { name: /^(Apri corso|Open course)$/ })
       ).not.toBeInTheDocument();
