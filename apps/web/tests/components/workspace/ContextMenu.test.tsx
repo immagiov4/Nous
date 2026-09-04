@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
@@ -400,6 +400,48 @@ describe('ContextMenu', () => {
 
     expect(noteInput).toBeVisible();
     expect(screen.getByRole('menuitem', { name: 'Crea sottolezione' })).toBeInTheDocument();
+  });
+
+  test.each([
+    'desktop-floating',
+    'mobile-sheet',
+  ] as const)('replaces an open saved annotation note with lesson confirmation on %s', async placement => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      annotationNote: 'Nota salvata da mantenere',
+      placement,
+      type: 'annotation' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    const notePanel = screen.getByText('Nota associata al passaggio').closest('[aria-hidden]');
+    const confirmationPanel = screen
+      .getByText(/Vuoi creare una nuova sottolezione da questa selezione/i)
+      .closest('[aria-hidden]');
+    expect(notePanel).toHaveAttribute('aria-hidden', 'false');
+    expect(notePanel).not.toHaveAttribute('inert');
+    expect(confirmationPanel).toHaveAttribute('aria-hidden', 'true');
+    expect(confirmationPanel).toHaveAttribute('inert');
+
+    const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
+    await user.click(moreActionsButton);
+    await user.click(screen.getByRole('menuitem', { name: 'Crea sottolezione' }));
+
+    expect(confirmationPanel).toHaveAttribute('aria-hidden', 'false');
+    expect(confirmationPanel).not.toHaveAttribute('inert');
+    expect(notePanel).toHaveAttribute('aria-hidden', 'true');
+    expect(notePanel).toHaveAttribute('inert');
+
+    await user.click(screen.getByRole('button', { name: 'Annulla' }));
+
+    await waitFor(() => expect(moreActionsButton).toHaveFocus());
+    expect(notePanel).toHaveAttribute('aria-hidden', 'false');
+    expect(notePanel).not.toHaveAttribute('inert');
+    expect(confirmationPanel).toHaveAttribute('aria-hidden', 'true');
+    expect(confirmationPanel).toHaveAttribute('inert');
+    expect(screen.getByText('Nota salvata da mantenere')).toBeInTheDocument();
   });
 
   test('opens the rare-actions portal and lesson confirmation from the mobile sheet', async () => {

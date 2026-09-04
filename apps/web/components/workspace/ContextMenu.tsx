@@ -212,7 +212,7 @@ const ContextMenu = ({
     isAnnotationMode && hasSavedAnnotationContent && !isNoteEditorOpen;
   const isAnnotationEditingMode = isAnnotationMode && !isAnnotationPreviewMode;
   const canEditNoteAttachments = !isLessonMode && !isAnnotationPreviewMode;
-  const isNotePanelVisible = isNoteEditorOpen || isAnnotationPreviewMode;
+  const isNotePanelVisible = !isLessonConfirmOpen && (isNoteEditorOpen || isAnnotationPreviewMode);
   const canDeleteAnnotationFromCurrentState =
     !isLessonMode && isAnnotationMode && hasSavedAnnotationContent;
   const shouldShowToolbarNoteButton =
@@ -390,6 +390,7 @@ const ContextMenu = ({
     event.preventDefault();
     event.stopPropagation();
     setIsLessonConfirmOpen(false);
+    globalThis.window.requestAnimationFrame(() => moreActionsButtonRef.current?.focus());
   };
 
   const handleCreate = (event: MouseEvent<HTMLButtonElement>) => {
@@ -843,7 +844,11 @@ const ContextMenu = ({
     }
 
     return (
-      <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
+      <div
+        className={noteEditorClassName}
+        aria-hidden={!isNotePanelVisible}
+        inert={!isNotePanelVisible || undefined}
+      >
         <div className={noteEditorBodyClassName}>
           <div className={isAnnotationPreviewMode ? 'mb-3 space-y-1' : 'space-y-1'}>
             <p className="text-sm font-semibold text-stone-900 text-center dark:text-stone-100">
@@ -1097,7 +1102,11 @@ const ContextMenu = ({
       <div className={isNotePanelVisible ? 'w-full' : 'pl-[3.375rem]'}>
         {renderNoteEditor()}
 
-        <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
+        <div
+          className={lessonConfirmationClassName}
+          aria-hidden={!isLessonConfirmOpen}
+          inert={!isLessonConfirmOpen || undefined}
+        >
           <div className="space-y-2 px-4 py-3">
             <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
               {lessonConfirmationTitle}
@@ -1230,7 +1239,11 @@ const ContextMenu = ({
 
       {renderNoteEditor()}
 
-      <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
+      <div
+        className={lessonConfirmationClassName}
+        aria-hidden={!isLessonConfirmOpen}
+        inert={!isLessonConfirmOpen || undefined}
+      >
         <div className="space-y-2 px-4 py-3">
           <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
             {lessonConfirmationTitle}
