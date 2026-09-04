@@ -78,7 +78,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const [isMobileLearningAidsOpen, setIsMobileLearningAidsOpen] = useState(false);
-  const regenerateConfirmPanelRef = useRef<HTMLDivElement>(null);
+  const [regenerateConfirmPanel, setRegenerateConfirmPanel] = useState<HTMLDivElement | null>(null);
   const regenerateTriggerRef = useRef<HTMLDivElement>(null);
   const canRegenerate = hasActiveSection;
   const isRegenerateConfirmVisible = isRegenerateConfirmOpen && canRegenerate && !isLoading;
@@ -91,9 +91,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     const previouslyFocusedElement =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusableControls = Array.from(
-      regenerateConfirmPanelRef.current?.querySelectorAll<HTMLButtonElement>(
-        'button:not([disabled])'
-      ) ?? []
+      regenerateConfirmPanel?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') ?? []
     );
     focusableControls[0]?.focus();
 
@@ -101,7 +99,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
       const target = event.target;
       if (
         !(target instanceof Node) ||
-        regenerateConfirmPanelRef.current?.contains(target) ||
+        regenerateConfirmPanel?.contains(target) ||
         regenerateTriggerRef.current?.contains(target)
       ) {
         return;
@@ -136,7 +134,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
         previouslyFocusedElement.focus();
       }
     };
-  }, [isRegenerateConfirmVisible]);
+  }, [isRegenerateConfirmVisible, regenerateConfirmPanel]);
 
   const handleRegenerateIntent = () => {
     if (!canRegenerate || isLoading) {
@@ -279,7 +277,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                     aria-modal="true"
                     aria-label={t('Conferma rigenerazione contenuto')}
                   >
-                    <div ref={regenerateConfirmPanelRef}>
+                    <div ref={setRegenerateConfirmPanel}>
                       <MotionPopover
                         isOpen={isRegenerateConfirmVisible}
                         originX="top center"
@@ -297,7 +295,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               : null}
 
             {!isMobileViewport ? (
-              <div ref={regenerateConfirmPanelRef}>
+              <div ref={setRegenerateConfirmPanel}>
                 <MotionPopover
                   isOpen={isRegenerateConfirmVisible}
                   originX="top right"

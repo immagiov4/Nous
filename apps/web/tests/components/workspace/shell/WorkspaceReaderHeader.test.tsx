@@ -125,6 +125,34 @@ describe('WorkspaceReaderHeader', () => {
     expect(trigger).toHaveFocus();
   });
 
+  test('rebuilds the focus trap when the open confirmation changes layout', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const { rerender } = render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+
+    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
+    const mobileDialog = screen.getByRole('dialog', {
+      name: /Conferma rigenerazione contenuto/i,
+    });
+    const mobileCancelButton = within(mobileDialog).getByRole('button', { name: 'Annulla' });
+    expect(mobileCancelButton).toHaveFocus();
+
+    rerender(<WorkspaceReaderHeader {...props} isMobileViewport={false} />);
+
+    const desktopDialog = screen.getByRole('dialog', {
+      name: /Conferma rigenerazione contenuto/i,
+    });
+    const desktopCancelButton = within(desktopDialog).getByRole('button', { name: 'Annulla' });
+    const desktopConfirmButton = within(desktopDialog).getByRole('button', { name: /^Rigenera$/i });
+    expect(mobileCancelButton).not.toBeInTheDocument();
+    expect(desktopCancelButton).toHaveFocus();
+
+    await user.tab();
+    expect(desktopConfirmButton).toHaveFocus();
+    await user.tab();
+    expect(desktopCancelButton).toHaveFocus();
+  });
+
   test('dismisses the mobile regeneration confirmation when pressing outside its card', async () => {
     const user = userEvent.setup();
     const props = buildProps();
