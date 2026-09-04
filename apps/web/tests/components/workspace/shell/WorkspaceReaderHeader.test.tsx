@@ -153,6 +153,30 @@ describe('WorkspaceReaderHeader', () => {
     expect(desktopCancelButton).toHaveFocus();
   });
 
+  test.each([
+    { layout: 'desktop', isMobileViewport: false },
+    { layout: 'mobile', isMobileViewport: true },
+  ])('dismisses the $layout regeneration confirmation with Escape and restores trigger focus', async ({
+    isMobileViewport,
+  }) => {
+    const user = userEvent.setup();
+
+    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport={isMobileViewport} />);
+
+    const trigger = screen.getByRole('button', { name: /Rigenera/i });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole('dialog', {
+      name: /Conferma rigenerazione contenuto/i,
+    });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+
+    await user.keyboard('{Escape}');
+
+    expect(dialog).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   test('dismisses the mobile regeneration confirmation when pressing outside its card', async () => {
     const user = userEvent.setup();
     const props = buildProps();

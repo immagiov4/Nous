@@ -108,7 +108,13 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
       setIsRegenerateConfirmOpen(false);
     };
 
-    const handleTab = (event: KeyboardEvent) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsRegenerateConfirmOpen(false);
+        return;
+      }
+
       if (event.key !== 'Tab' || focusableControls.length === 0) {
         return;
       }
@@ -126,10 +132,10 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     };
 
     document.addEventListener('pointerdown', handlePointerDown, true);
-    document.addEventListener('keydown', handleTab);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('keydown', handleTab);
+      document.removeEventListener('keydown', handleKeyDown);
       if (previouslyFocusedElement?.isConnected) {
         previouslyFocusedElement.focus();
       }
@@ -300,6 +306,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                   isOpen={isRegenerateConfirmVisible}
                   originX="top right"
                   role="dialog"
+                  aria-modal="true"
                   aria-label={t('Conferma rigenerazione contenuto')}
                   className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
                 >
