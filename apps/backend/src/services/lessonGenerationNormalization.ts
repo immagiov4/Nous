@@ -188,7 +188,9 @@ const normalizeContentBlocks = <Visual extends StoredVisualReference>({
       case 'markdown': {
         const markdown = sanitizeMarkdownBlock(block.markdown, visibleLabelByAssetId);
         if (markdown) contentBlocks.push({ ...block, markdown });
-        hasExplanatoryMarkdown = hasTextOutsidePdfImagePlaceholders(markdown);
+        hasExplanatoryMarkdown =
+          Boolean(markdown) &&
+          (hasExplanatoryMarkdown || hasTextOutsidePdfImagePlaceholders(markdown));
         break;
       }
       case 'generated-visual': {

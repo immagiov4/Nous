@@ -335,12 +335,13 @@ const selectedPdfImage = () => ({
 });
 
 test.each([
-  ['image without prose', '{{PDF_IMAGE:pdf-img-candidate}}', false],
-  ['image with prose', 'Spiegazione.\n\n{{PDF_IMAGE:pdf-img-candidate}}', true],
-])('quiz validation distinguishes %s at both generation boundaries', async (_case, markdown, valid) => {
+  ['image without prose', ['{{PDF_IMAGE:pdf-img-candidate}}'], false],
+  ['image with prose', ['Spiegazione.\n\n{{PDF_IMAGE:pdf-img-candidate}}'], true],
+  ['image after a separate explanation', ['Spiegazione.', '{{PDF_IMAGE:pdf-img-candidate}}'], true],
+])('quiz validation distinguishes %s at both generation boundaries', async (_case, markdownBlocks, valid) => {
   const draft: LessonContentDraft = {
     contentBlocks: [
-      { markdown, type: 'markdown' },
+      ...markdownBlocks.map(markdown => ({ markdown, type: 'markdown' as const })),
       {
         type: 'inline-quiz',
         quiz: {

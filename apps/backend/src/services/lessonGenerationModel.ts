@@ -370,7 +370,9 @@ const hasInvalidQuizPlacement = (draft: LessonContentDraft): boolean => {
   let hasExplanatoryMarkdown = false;
   for (const block of draft.contentBlocks) {
     if (block.type === 'markdown') {
-      hasExplanatoryMarkdown = hasTextOutsidePdfImagePlaceholders(block.markdown);
+      hasExplanatoryMarkdown =
+        Boolean(block.markdown.trim()) &&
+        (hasExplanatoryMarkdown || hasTextOutsidePdfImagePlaceholders(block.markdown));
       continue;
     }
     if (block.type !== 'inline-quiz') continue;
