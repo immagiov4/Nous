@@ -47,8 +47,8 @@ const findPdfImagePlaceholderEnd = (content: string, startIndex: number): number
     if (content[index] !== '}') continue;
 
     const closesPlaceholder = content[index + 1] === '}';
-    if (closesPlaceholder && legacyEndCandidate === null) {
-      legacyEndCandidate = index + 2;
+    if (closesPlaceholder) {
+      legacyEndCandidate ??= index + 2;
     }
     if (braceDepth > 0) {
       braceDepth -= 1;
@@ -67,7 +67,7 @@ const parsePdfImagePlaceholder = (
 ): PdfImagePlaceholderOccurrence | null => {
   const fullMatch = content.slice(startIndex, endIndex);
   const payload = fullMatch.slice(PDF_IMAGE_PLACEHOLDER_PREFIX.length, -2);
-  const match = payload.match(PDF_IMAGE_PLACEHOLDER_PAYLOAD);
+  const match = PDF_IMAGE_PLACEHOLDER_PAYLOAD.exec(payload);
   if (!match) return null;
   return {
     assetId: match[1] ?? '',
