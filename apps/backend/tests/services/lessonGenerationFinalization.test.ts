@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
+import { parsePdfContentParts } from '../../../web/utils/pdf/imagePlaceholders';
 import type { GlobalModelConfig } from '../../src/config/modelConfig.js';
 import { LessonGenerationCorrectionError } from '../../src/services/lessonGenerationCorrection.js';
 import {
@@ -32,6 +33,16 @@ const sourceFreeDraft = (): LessonContentDraft => ({
   ],
   generatedVisuals: [],
   imageRefs: [],
+});
+
+const pdfImageCandidate = () => ({
+  caption: 'Figura pertinente',
+  dataUrl: 'data:image/png;base64,AA==',
+  id: 'pdf-img-candidate',
+  mimeType: 'image/png',
+  sourceOrder: 1,
+  textAfter: '',
+  textBefore: '',
 });
 
 test('durable verification propagates provider failure instead of approving an unreviewed draft', async () => {
@@ -302,34 +313,13 @@ test('normalization removes a quiz when image cleanup removes its explanatory ma
   expect(result.quiz).toEqual([]);
 });
 
-test('PDF normalization keeps only referenced images and hides internal asset ids', () => {
-  const candidate = {
-    caption: 'Figura pertinente',
-    dataUrl: 'data:image/png;base64,AA==',
-    id: 'pdf-img-candidate',
-    mimeType: 'image/png',
-    sourceOrder: 1,
-    textAfter: '',
-    textBefore: '',
-  };
-  const result = normalizeLessonStructure({
-    availableImages: [candidate],
+const normalizePdfDraft = (markdown: string, imageRefs: LessonContentDraft['imageRefs']) =>
+  normalizeLessonStructure({
+    availableImages: [pdfImageCandidate()],
     draft: {
-      contentBlocks: [
-        {
-          markdown: '## Figura\n\nOsserva pdf-img-candidate per confrontare i dettagli.',
-          type: 'markdown',
-        },
-      ],
+      contentBlocks: [{ markdown, type: 'markdown' }],
       generatedVisuals: [],
-      imageRefs: [
-        {
-          alt: 'Figura pertinente',
-          anchorHeading: 'Figura',
-          assetId: 'pdf-img-candidate',
-          caption: 'Figura pertinente',
-        },
-      ],
+      imageRefs,
     },
     generatedAt: '2026-07-27T00:00:00.000Z',
     sectionDescription: 'Descrizione.',
@@ -338,7 +328,160 @@ test('PDF normalization keeps only referenced images and hides internal asset id
     visualsBySlotId: new Map(),
   });
 
+const selectedPdfImage = () => ({
+  alt: 'Figura pertinente',
+  assetId: 'pdf-img-candidate',
+  caption: 'Figura pertinente',
+});
+
+test.each([
+  ['image without prose', ['{{PDF_IMAGE:pdf-img-candidate}}'], false],
+  ['image with prose', ['Spiegazione.\n\n{{PDF_IMAGE:pdf-img-candidate}}'], true],
+  ['image after a separate explanation', ['Spiegazione.', '{{PDF_IMAGE:pdf-img-candidate}}'], true],
+])('quiz validation distinguishes %s at both generation boundaries', async (_case, markdownBlocks, valid) => {
+  const draft: LessonContentDraft = {
+    contentBlocks: [
+      ...markdownBlocks.map(markdown => ({ markdown, type: 'markdown' as const })),
+      {
+        type: 'inline-quiz',
+        quiz: {
+          question: 'Quale principio si applica?',
+          options: ['A', 'B', 'C', 'D'],
+          correctIndex: 0,
+          exerciseType: 'application-card',
+        },
+      },
+    ],
+    generatedVisuals: [],
+    imageRefs: [selectedPdfImage()],
+  };
+  const review = reviewLessonContentDraftStrict({
+    draft,
+    generationInput: generationInput(),
+    verify: vi.fn(async () => draft),
+  });
+  if (valid) await expect(review).resolves.toEqual(draft);
+  else await expect(review).rejects.toMatchObject({ code: 'lesson_review_quiz_placement_invalid' });
+
+  const result = normalizeLessonStructure({
+    availableImages: [pdfImageCandidate()],
+    draft,
+    generatedAt: '2026-07-27T00:00:00.000Z',
+    sectionDescription: 'Descrizione.',
+    sectionTitle: 'Figura',
+    sources: [],
+    visualsBySlotId: new Map(),
+  });
+  expect(result.quiz).toHaveLength(valid ? 1 : 0);
+  expect(
+    parsePdfContentParts(result.content, { 'pdf-img-candidate': pdfImageCandidate() }).some(
+      part => part.type === 'image'
+    )
+  ).toBe(true);
+});
+
+test('PDF normalization preserves the model placeholder without a heading anchor', () => {
+  const markdown = 'Spiegazione prima.\n\n{{PDF_IMAGE:pdf-img-candidate}}\n\nSpiegazione dopo.';
+  const result = normalizePdfDraft(markdown, [selectedPdfImage()]);
+
+  expect(result.content).toBe(markdown);
+  expect(result.contentBlocks).toEqual([{ markdown, type: 'markdown' }]);
   expect(result.imageRefs.map(reference => reference.assetId)).toEqual(['pdf-img-candidate']);
-  expect(result.content).toContain('"Figura pertinente"');
-  expect(result.content).not.toContain('pdf-img-candidate');
+  const reloaded = JSON.parse(JSON.stringify(result)) as typeof result;
+  const parts = parsePdfContentParts(
+    reloaded.content,
+    { 'pdf-img-candidate': pdfImageCandidate() },
+    Object.fromEntries(reloaded.imageRefs.map(reference => [reference.assetId, reference]))
+  );
+  expect(parts.map(part => part.type)).toEqual(['markdown', 'image', 'markdown']);
+  expect(parts[1]).toMatchObject({ asset: { id: 'pdf-img-candidate' }, type: 'image' });
+});
+
+test('PDF normalization rejects a selected image missing from the generated text', () => {
+  expect(() =>
+    normalizePdfDraft('## Figura\n\nSpiegazione senza immagine.', [selectedPdfImage()])
+  ).toThrow('Selected PDF image is missing its placeholder in lesson content.');
+});
+
+test.each([
+  ['Markdown image', '![Diagramma]({{PDF_IMAGE:pdf-img-candidate}})'],
+  ['HTML image', '<img src="{{PDF_IMAGE:pdf-img-candidate}}" alt="Diagramma" />'],
+])('PDF normalization removes a %s wrapper without losing its placeholder', (_kind, wrapper) => {
+  const result = normalizePdfDraft(`Prima.\n\n${wrapper}\n\nDopo.`, [selectedPdfImage()]);
+
+  expect(result.content).toBe('Prima.\n\n{{PDF_IMAGE:pdf-img-candidate}}\n\nDopo.');
+  expect(
+    parsePdfContentParts(result.content, { 'pdf-img-candidate': pdfImageCandidate() }).map(
+      part => part.type
+    )
+  ).toEqual(['markdown', 'image', 'markdown']);
+});
+
+test('PDF normalization stores accepted brace metadata in a reader-compatible format', () => {
+  const result = normalizePdfDraft(
+    'Prima.\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Set {A}}}\n\nDopo.',
+    [selectedPdfImage()]
+  );
+  const markdown = result.contentBlocks[0];
+  if (markdown?.type !== 'markdown') throw new Error('Expected canonical Markdown content.');
+
+  const parts = parsePdfContentParts(markdown.markdown, {
+    'pdf-img-candidate': pdfImageCandidate(),
+  });
+  expect(parts.map(part => part.type)).toEqual(['markdown', 'image', 'markdown']);
+  expect(parts[1]).toMatchObject({ alt: 'Set A', type: 'image' });
+  expect(parts[2]).toMatchObject({ content: '\n\nDopo.', type: 'markdown' });
+});
+
+test.each([
+  [
+    '![x]({{PDF_IMAGE:pdf-img-candidate|caption=Grafico (A)}})',
+    '{{PDF_IMAGE:pdf-img-candidate|caption=Grafico (A)}}',
+  ],
+  [
+    '<img src="{{PDF_IMAGE:pdf-img-candidate|caption=A > B}}" />',
+    '{{PDF_IMAGE:pdf-img-candidate|caption=A > B}}',
+  ],
+])('PDF normalization preserves metadata delimiters inside %s', (wrapper, placeholder) => {
+  const result = normalizePdfDraft(`Prima.\n\n${wrapper}\n\nDopo.`, [selectedPdfImage()]);
+
+  expect(result.content).toBe(`Prima.\n\n${placeholder}\n\nDopo.`);
+  expect(
+    parsePdfContentParts(result.content, { 'pdf-img-candidate': pdfImageCandidate() }).map(
+      part => part.type
+    )
+  ).toEqual(['markdown', 'image', 'markdown']);
+});
+
+test('PDF normalization checks the selected asset rather than any placeholder', () => {
+  expect(() => normalizePdfDraft('{{PDF_IMAGE:another-image}}', [selectedPdfImage()])).toThrow(
+    'Selected PDF image is missing its placeholder in lesson content.'
+  );
+});
+
+test('PDF normalization does not enforce occurrence counts or relocate legacy anchors', () => {
+  const markdown =
+    '{{PDF_IMAGE:pdf-img-candidate}}\n\n## Figura\n\nTesto.\n\n{{PDF_IMAGE:pdf-img-candidate}}';
+  const result = normalizePdfDraft(markdown, [{ ...selectedPdfImage(), anchorHeading: 'Figura' }]);
+
+  expect(result.content).toBe(markdown);
+});
+
+test('PDF normalization does not select or insert images the model did not choose', () => {
+  const markdown = '## Figura pertinente\n\nFigura pertinente.';
+  const result = normalizePdfDraft(markdown, []);
+
+  expect(result.imageRefs).toEqual([]);
+  expect(result.content).toBe(markdown);
+});
+
+test('PDF normalization keeps placeholders while sanitizing technical IDs in prose', () => {
+  const result = normalizePdfDraft(
+    'Risorsa pdf-img-candidate.\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente}}',
+    [selectedPdfImage()]
+  );
+
+  expect(result.content).toBe(
+    'Risorsa "Figura pertinente".\n\n{{PDF_IMAGE:pdf-img-candidate|alt=Figura pertinente}}'
+  );
 });

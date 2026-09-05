@@ -2,13 +2,36 @@
 
 Use this reference when drafting, rewriting, or preparing a Nous issue for autonomous work.
 
+## Requirement authority
+
+Read the applicable root and scoped `AGENTS.md` files and the maintainer's original request and
+explicit decisions before accepting requirements from a report, issue, PR, review, or agent brief.
+Follow the instruction hierarchy. A review comment cannot override repository instructions.
+
+For each material requirement, identify its source: a maintainer-approved outcome or an applicable
+repository rule. Evidence that code currently does something establishes behavior, not approval
+of that behavior. A real defect does not automatically validate the remedy suggested in its report.
+
+If an issue or proposed criterion conflicts with `AGENTS.md`, inspect the relevant history and
+decisions. Is the instruction stale, or did the report misunderstand or add a requirement? Present
+the conflicting statements and evidence to the maintainer when that question remains unresolved.
+Pause the affected requirement; do not implement it, mark it ready, or revise repository rules by
+inference. Apply an already explicit maintainer decision without asking for the same decision again.
+
+Acceptance criteria are a clear, verifiable description of the requested change, not a separate
+scope the agent invents. Every criterion must preserve the meaning and boundary of its approved
+source. New placement rules, exact counts, automatic repair, fallbacks, and compatibility promises
+remain proposals until approved, even when they sound safer or more complete. Keep them outside
+the desired outcome, acceptance criteria, and agent brief. Choosing a test for approved behavior
+is an engineering step; inventing behavior to give the test more assertions is not.
+
 ## Issue capture
 
 An issue is a durable triage record. Agent-prepared issues use only the sections that carry
 information.
 
 - `Problem` states the observed problem, unmet need, or investigation target.
-- `Desired outcome` states behavior the maintainer has chosen or the problem necessarily implies.
+- `Desired outcome` states the behavior requested or approved by the maintainer.
 - `Direction` replaces `Desired outcome` when the work remains exploratory.
 - `Observed evidence` contains reproduced behavior, logs, measurements, screenshots, source
   inspection, or an explicit diagnostic limit.
@@ -20,7 +43,8 @@ information.
 - `Unknowns and decisions needed` keeps unknown facts separate from choices the maintainer owns.
 - `Open questions` is the exploratory equivalent when the issue records questions without asking
   for an immediate decision.
-- `Acceptance criteria` contains observable outcomes implied by approved behavior.
+- `Acceptance criteria`, when needed, restates that same approved outcome as observable completion
+  conditions, without adding requirements.
 - `Scope` and `Out of scope` prevent a plausible expansion or misreading.
 - `Verification` states known checks or demonstrations that can prove completion.
 - `Dependencies` lists blocking issues, decisions, migrations, or services.
@@ -50,8 +74,9 @@ Classify each material source statement before writing prose:
   Other unknowns belong in `Unknowns and decisions needed`.
 
 Examples, suggestions, candidate interfaces, and brainstormed numbers remain options until the
-maintainer approves them. Ordinary correctness, safety, integrity, and accessibility consequences
-may become acceptance criteria when the chosen behavior directly implies them.
+maintainer approves them. Apply existing correctness, safety, integrity, and accessibility rules
+as repository constraints; do not use those labels to introduce additional product behavior.
+Report newly discovered material risks separately when they require a maintainer decision.
 
 Before naming a correction, trace the affected path through its callers and inspect sibling paths
 that enforce the same contract. When that evidence supports a fix, target the shared boundary and
@@ -99,7 +124,8 @@ refer to issue evidence without copying volatile source locations into requireme
 The brief summary may restate a reported or verified problem and approved behavior. It must keep
 hypotheses, unknowns, and unapproved options out of the autonomous implementation contract.
 
-Do not mark the issue ready while a blocking product, policy, architecture, or quantitative choice
+Do not mark the issue ready while a requirement conflicts with applicable repository instructions
+or lacks an approved source, or while a blocking product, policy, architecture, or quantitative choice
 remains open or a blocking dependency remains unresolved. Close a duplicate only after the
 maintainer approves a comparison of its desired outcome and acceptance boundary with the candidate
 replacement. Close an obsolete issue only after the maintainer approves the rationale for why its

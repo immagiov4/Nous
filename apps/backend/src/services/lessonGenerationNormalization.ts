@@ -6,6 +6,12 @@ import {
 } from '@shared/lessonGenerationPolicy';
 import type { PdfImageContext } from '@shared/lessonPdfImageSelection';
 import { unwrapWholeQuizCodeFormatting } from '@shared/lessonQuizFormatting';
+import {
+  buildPdfImagePlaceholder,
+  hasTextOutsidePdfImagePlaceholders,
+  normalizePdfImagePlaceholder,
+  rewritePdfImagePlaceholders,
+} from '@shared/pdfImagePlaceholder';
 import { isYouTubeClipWithinTranscriptBounds } from '@shared/youtubeTranscript';
 
 import { buildVisibleImageLabel, resolveLessonImageRefs } from './lessonGenerationImages.js';
@@ -37,15 +43,35 @@ const sanitizeMarkdownBlock = (
   markdown: string,
   visibleLabelByAssetId: ReadonlyMap<string, string>
 ): string => {
-  let sanitized = markdown;
-  for (const [assetId, visibleLabel] of visibleLabelByAssetId) {
-    sanitized = sanitized.replaceAll(assetId, `"${visibleLabel}"`);
-  }
-  const withoutEmbeddedImages = sanitized
-    .replaceAll(/!\[[^\n]*?\]\([^)\n]*\)/gu, '')
-    .replaceAll(/<img\b[^>]*>/giu, '');
+  // Metadata may contain image-markup delimiters; keep it opaque during wrapper removal.
+  const protectedPlaceholders = new Map<string, string>();
+  const protectedMarkdown = rewritePdfImagePlaceholders(markdown, occurrence => {
+    const temporaryId = String(protectedPlaceholders.size);
+    protectedPlaceholders.set(temporaryId, normalizePdfImagePlaceholder(occurrence));
+    return buildPdfImagePlaceholder({ assetId: temporaryId });
+  });
+  const retainPlaceholders = (imageMarkup: string) =>
+    rewritePdfImagePlaceholders(imageMarkup, normalizePdfImagePlaceholder, () => '');
+  const withoutDirectImages = protectedMarkdown
+    .replaceAll(/!\[[^\n]*?\]\([^)\n]*\)/gu, retainPlaceholders)
+    .replaceAll(/<img\b[^>]*>/giu, retainPlaceholders);
+  const sanitized = rewritePdfImagePlaceholders(
+    withoutDirectImages,
+    ({ assetId }) => {
+      const originalPlaceholder = protectedPlaceholders.get(assetId);
+      if (originalPlaceholder === undefined) throw new Error('Unknown protected PDF placeholder.');
+      return originalPlaceholder;
+    },
+    text => {
+      let sanitizedText = text;
+      for (const [assetId, visibleLabel] of visibleLabelByAssetId) {
+        sanitizedText = sanitizedText.replaceAll(assetId, `"${visibleLabel}"`);
+      }
+      return sanitizedText;
+    }
+  );
   const compactLines: string[] = [];
-  for (const line of withoutEmbeddedImages.split('\n')) {
+  for (const line of sanitized.split('\n')) {
     const trimmedLine = line.trimEnd();
     if (trimmedLine || compactLines.at(-1) !== '') compactLines.push(trimmedLine);
   }
@@ -162,7 +188,9 @@ const normalizeContentBlocks = <Visual extends StoredVisualReference>({
       case 'markdown': {
         const markdown = sanitizeMarkdownBlock(block.markdown, visibleLabelByAssetId);
         if (markdown) contentBlocks.push({ ...block, markdown });
-        hasExplanatoryMarkdown = Boolean(markdown);
+        hasExplanatoryMarkdown =
+          Boolean(markdown) &&
+          (hasExplanatoryMarkdown || hasTextOutsidePdfImagePlaceholders(markdown));
         break;
       }
       case 'generated-visual': {

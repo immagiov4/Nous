@@ -14,6 +14,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts)
 - [packages/shared-types/projectBackupAssets.ts](../../../packages/shared-types/projectBackupAssets.ts)
 - [apps/backend/src/projects/projectAssetDeletionQueue.ts](../../../apps/backend/src/projects/projectAssetDeletionQueue.ts)
+- [apps/backend/src/workflows/lessonGenerationPersistence.ts](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts)
+- [packages/shared-types/pdfImagePlaceholder.ts](../../../packages/shared-types/pdfImagePlaceholder.ts)
 </details>
 
 # Project Assets & Storage Archives
@@ -31,7 +33,9 @@ When an AI workflow generates an image or document, it is uploaded to storage an
 
 PDF lesson generation follows the same path. The document stage uploads all selected image bytes before it starts optional captions or records the provider effect result. Workflow checkpoints and project snapshots retain the `ProjectAssetRef` and image metadata, not the data URL. The byte hash and MIME type identify reusable binary storage. Fresh extraction reuses that binary but replaces placement, nearby text, and caption metadata. Legacy data-URL migration stages images sequentially so repeated bytes reuse the resolved asset. If fresh versioned extraction finds the same bytes as anonymous legacy metadata, the fresh record replaces the anonymous one. Named image associations must also match a current source ID when the snapshot declares source authority. The authority reader supports both current `source.ref.id` snapshots and legacy file-only `source.file.sourceId` snapshots. Anonymous records are refreshed instead of carried forward once that authority exists. These rules remove records saved under the old filename fallback and images that disappeared after a PDF replacement. Source ID and source content hash remain in the image metadata, so a revised PDF can reuse unchanged bytes while excluding stale context and captions. Older durable metadata without a source hash is refreshed when the project provides the current hash.
 
-Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:5-40](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L5-L40), [apps/backend/src/projects/projectAssetReconciliation.ts:10-30](../../../apps/backend/src/projects/projectAssetReconciliation.ts#L10-L30)
+The generative model places PDF image placeholders in canonical lesson `contentBlocks`. Normalization preserves their positions and rejects a selected `imageRef` when its placeholder is absent; it does not choose a heading or insert missing placeholders. The normalization stage derives `documentAssets.usedImages` from the retained references, and persistence adopts the corresponding staged binary assets.
+
+Sources: [apps/backend/src/projects/postgresProjectAssetStore.ts:5-40](../../../apps/backend/src/projects/postgresProjectAssetStore.ts#L5-L40), [apps/backend/src/projects/projectAssetReconciliation.ts:10-30](../../../apps/backend/src/projects/projectAssetReconciliation.ts#L10-L30), [apps/backend/src/services/lessonGenerationNormalization.ts](../../../apps/backend/src/services/lessonGenerationNormalization.ts), [apps/backend/src/workflows/lessonGenerationNormalizationStage.ts](../../../apps/backend/src/workflows/lessonGenerationNormalizationStage.ts), [apps/backend/src/workflows/lessonGenerationPersistence.ts](../../../apps/backend/src/workflows/lessonGenerationPersistence.ts)
 
 ```mermaid
 flowchart TD

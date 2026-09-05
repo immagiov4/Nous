@@ -56,7 +56,7 @@ export interface LessonGenerationDraft {
   generatedVisuals: LessonVisualDraftPlan[];
   imageRefs: Array<{
     alt: string;
-    anchorHeading: string;
+    anchorHeading?: string;
     assetId: string;
     caption: string;
   }>;
