@@ -8,12 +8,16 @@ wiki_page_id: "p-chat-ui"
 
 The following files were used as context for generating this wiki page:
 
+- [apps/web/components/library/HomeChatPanel.tsx](../../../apps/web/components/library/HomeChatPanel.tsx)
+- [apps/web/components/library/HomeChatPanelFrame.tsx](../../../apps/web/components/library/HomeChatPanelFrame.tsx)
+- [apps/web/components/library/useHomeChatPanelState.ts](../../../apps/web/components/library/useHomeChatPanelState.ts)
 - [apps/web/components/library/HomeChatComposer.tsx](../../../apps/web/components/library/HomeChatComposer.tsx)
 - [apps/backend/src/routes/contextChat.ts](../../../apps/backend/src/routes/contextChat.ts)
 - [apps/backend/src/routes/contextSourceArchiveTool.ts](../../../apps/backend/src/routes/contextSourceArchiveTool.ts)
 - [apps/backend/src/routes/contextSourceArchiveSearch.ts](../../../apps/backend/src/routes/contextSourceArchiveSearch.ts)
 - [apps/backend/src/routes/chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)
 - [apps/backend/tests/routes/chat.test.ts](../../../apps/backend/tests/routes/chat.test.ts)
+- [apps/web/tests/components/library/HomeChatPanel.test.tsx](../../../apps/web/tests/components/library/HomeChatPanel.test.tsx)
 - [apps/backend/src/routes/openRouterProxy.ts](../../../apps/backend/src/routes/openRouterProxy.ts)
 - [apps/web/types.ts](../../../apps/web/types.ts)
 </details>
@@ -68,6 +72,14 @@ flowchart TD
 Sources: [apps/backend/src/routes/contextChat.ts:605-632](../../../apps/backend/src/routes/contextChat.ts#L605-L632), [apps/web/components/library/HomeChatComposer.tsx:432-452](../../../apps/web/components/library/HomeChatComposer.tsx#L432-L452)
 
 ## Frontend Components
+
+### Home Chat Panel Boundaries
+
+`HomeChatPanel` coordinates the conversation and composer while delegating the responsive shell, mode selector, and clear action to `HomeChatPanelFrame`. `useHomeChatPanelState` owns transient surfaces, active-message selection, loading state, compact presentation, mobile viewport state, and mode-change cleanup. A parent-driven mode change also clears any open attachment or tool surface so returning to the previous mode cannot restore stale controls.
+
+Assessment completion contributes to an active chat only in `new-course` mode. An empty `library-query` remains compact even when the course assessment has already completed, while visible library messages or library loading expand it normally.
+
+Sources: [apps/web/components/library/HomeChatPanel.tsx](../../../apps/web/components/library/HomeChatPanel.tsx), [apps/web/components/library/HomeChatPanelFrame.tsx](../../../apps/web/components/library/HomeChatPanelFrame.tsx), [apps/web/components/library/useHomeChatPanelState.ts](../../../apps/web/components/library/useHomeChatPanelState.ts), [apps/web/tests/components/library/HomeChatPanel.test.tsx](../../../apps/web/tests/components/library/HomeChatPanel.test.tsx)
 
 ### HomeChatComposer
 The `HomeChatComposer` is a specialized input component designed for the library view. It supports two primary modes: `new-course` for onboarding/assessment and `library-query` for interacting with the existing library.
