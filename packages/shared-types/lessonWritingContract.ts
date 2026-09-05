@@ -86,7 +86,7 @@ export const LESSON_CODE_FORMATTING_RULE =
   'Use Markdown code blocks for standalone or multiline examples of code, pseudocode, commands, and output. For short identifiers, API names, individual commands, or fragments quoted within a sentence, use inline code when needed to distinguish them from prose. The opening line of a code block must contain only the fence and, when useful, the language name. Do not leave bare language labels outside fences or turn prose or formulas into code.';
 
 export const LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE =
-  'Markdown blocks must not contain quizzes, structural markers, Markdown image syntax, img tags, technical assetIds, structured sources, bibliographies, or implementation comments. Use the dedicated structured blocks and fields.';
+  'Except for canonical {{PDF_IMAGE:assetId}} placeholders for selected PDF images, Markdown blocks must not contain quizzes, structural markers, Markdown image syntax, img tags, technical assetIds, structured sources, bibliographies, or implementation comments. Preserve PDF_IMAGE placeholders and their asset identifiers in Markdown. Use the dedicated structured blocks and fields for everything else.';
 
 export const LESSON_GUIDED_NOVICE_RULE =
   'When teaching a complex procedure or model to a student whom the context identifies as inexperienced or struggling, prefer guided progression. First show a worked or reasoned example that makes the steps explicit, then vary the case or ask the student to apply the principle. Do not force the student to discover steps that have not yet been taught.';

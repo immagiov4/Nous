@@ -181,3 +181,12 @@ test('restores multiline legacy metadata without losing the image', () => {
   expect(restored).toBe('Prima {{PDF_IMAGE:pdf-img-001|alt=Set A|caption=Insieme A}} dopo');
   expect(parsePdfContentParts(restored, { 'pdf-img-001': asset })[1]?.type).toBe('image');
 });
+
+test.each([
+  'alt=Set {A',
+  'caption=Set {A',
+])('restores legacy metadata with a single opening brace in %s', metadata => {
+  const restored = restoreLegacyPdfImagePlaceholders(`{{PDF_IMAGE:pdf-img-001|${metadata}}}`);
+
+  expect(parsePdfContentParts(restored, { 'pdf-img-001': asset })[0]?.type).toBe('image');
+});

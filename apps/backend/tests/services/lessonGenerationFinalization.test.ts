@@ -334,6 +334,51 @@ const selectedPdfImage = () => ({
   caption: 'Figura pertinente',
 });
 
+test.each([
+  ['image without prose', '{{PDF_IMAGE:pdf-img-candidate}}', false],
+  ['image with prose', 'Spiegazione.\n\n{{PDF_IMAGE:pdf-img-candidate}}', true],
+])('quiz validation distinguishes %s at both generation boundaries', async (_case, markdown, valid) => {
+  const draft: LessonContentDraft = {
+    contentBlocks: [
+      { markdown, type: 'markdown' },
+      {
+        type: 'inline-quiz',
+        quiz: {
+          question: 'Quale principio si applica?',
+          options: ['A', 'B', 'C', 'D'],
+          correctIndex: 0,
+          exerciseType: 'application-card',
+        },
+      },
+    ],
+    generatedVisuals: [],
+    imageRefs: [selectedPdfImage()],
+  };
+  const review = reviewLessonContentDraftStrict({
+    draft,
+    generationInput: generationInput(),
+    verify: vi.fn(async () => draft),
+  });
+  if (valid) await expect(review).resolves.toEqual(draft);
+  else await expect(review).rejects.toMatchObject({ code: 'lesson_review_quiz_placement_invalid' });
+
+  const result = normalizeLessonStructure({
+    availableImages: [pdfImageCandidate()],
+    draft,
+    generatedAt: '2026-07-27T00:00:00.000Z',
+    sectionDescription: 'Descrizione.',
+    sectionTitle: 'Figura',
+    sources: [],
+    visualsBySlotId: new Map(),
+  });
+  expect(result.quiz).toHaveLength(valid ? 1 : 0);
+  expect(
+    parsePdfContentParts(result.content, { 'pdf-img-candidate': pdfImageCandidate() }).some(
+      part => part.type === 'image'
+    )
+  ).toBe(true);
+});
+
 test('PDF normalization preserves the model placeholder without a heading anchor', () => {
   const markdown = 'Spiegazione prima.\n\n{{PDF_IMAGE:pdf-img-candidate}}\n\nSpiegazione dopo.';
   const result = normalizePdfDraft(markdown, [selectedPdfImage()]);

@@ -8,6 +8,7 @@ import type { PdfImageContext } from '@shared/lessonPdfImageSelection';
 import { unwrapWholeQuizCodeFormatting } from '@shared/lessonQuizFormatting';
 import {
   buildPdfImagePlaceholder,
+  hasTextOutsidePdfImagePlaceholders,
   normalizePdfImagePlaceholder,
   rewritePdfImagePlaceholders,
 } from '@shared/pdfImagePlaceholder';
@@ -187,7 +188,7 @@ const normalizeContentBlocks = <Visual extends StoredVisualReference>({
       case 'markdown': {
         const markdown = sanitizeMarkdownBlock(block.markdown, visibleLabelByAssetId);
         if (markdown) contentBlocks.push({ ...block, markdown });
-        hasExplanatoryMarkdown = Boolean(markdown);
+        hasExplanatoryMarkdown = hasTextOutsidePdfImagePlaceholders(markdown);
         break;
       }
       case 'generated-visual': {

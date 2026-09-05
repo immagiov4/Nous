@@ -4,6 +4,7 @@ import {
   MAX_GENERATED_VISUALS_PER_LESSON,
 } from '@shared/lessonGenerationPolicy';
 import { SYSTEM_INSTRUCTION_TEACHER } from '@shared/lessonWritingContract';
+import { hasTextOutsidePdfImagePlaceholders } from '@shared/pdfImagePlaceholder';
 import { generateText, jsonSchema, Output } from 'ai';
 import {
   type GlobalModelConfig,
@@ -369,7 +370,7 @@ const hasInvalidQuizPlacement = (draft: LessonContentDraft): boolean => {
   let hasExplanatoryMarkdown = false;
   for (const block of draft.contentBlocks) {
     if (block.type === 'markdown') {
-      hasExplanatoryMarkdown = Boolean(block.markdown.trim());
+      hasExplanatoryMarkdown = hasTextOutsidePdfImagePlaceholders(block.markdown);
       continue;
     }
     if (block.type !== 'inline-quiz') continue;

@@ -55,7 +55,7 @@ const findPdfImagePlaceholderEnd = (content: string, startIndex: number): number
       continue;
     }
     if (closesPlaceholder) return index + 2;
-    return null;
+    return legacyEndCandidate === index + 1 ? legacyEndCandidate : null;
   }
   return legacyEndCandidate;
 };
@@ -119,3 +119,6 @@ export const rewritePdfImagePlaceholders = (
     ({ fullMatch, occurrence }) => (occurrence ? rewrite(occurrence) : rewriteText(fullMatch)),
     rewriteText
   );
+
+export const hasTextOutsidePdfImagePlaceholders = (content: string): boolean =>
+  Boolean(rewritePdfImagePlaceholders(content, () => '').trim());
