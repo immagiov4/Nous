@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import {
   buildOrderedSiblingItems,
@@ -45,6 +45,7 @@ import {
   PROJECT_SOURCE_ARCHIVE_LIMITS,
 } from '../../src/projects/sourceArchive.js';
 import type {
+  LibraryExportProjectMeta,
   LibraryFolder,
   LibraryPlacement,
   ProjectCoverFile,
@@ -69,7 +70,8 @@ import { createEntityId } from '../../src/utils/ids.js';
 import { timestampIso } from '../../src/utils/time.js';
 
 interface ProjectRecord {
-  meta: SavedProjectMeta;
+  incarnationId: string;
+  meta: SavedProjectMeta & { revision: number };
   snapshot: ProjectSnapshot;
 }
 
@@ -120,6 +122,26 @@ export class InMemoryProjectStore implements ProjectStore {
       .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
   }
 
+  async listLibraryExportProjects(userId: string): Promise<LibraryExportProjectMeta[]> {
+    await this.listProjects(userId);
+    return [...this.getProjects(userId).values()]
+      .map(record => ({
+        ...clone(record.meta),
+        incarnationId: record.incarnationId,
+        revision: record.meta.revision,
+      }))
+      .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
+  }
+
+  async readLibraryExportSnapshot(userId: string) {
+    const [projects, folders, placements] = await Promise.all([
+      this.listLibraryExportProjects(userId),
+      this.listFolders(userId),
+      this.listPlacements(userId),
+    ]);
+    return { folders, placements, projects };
+  }
+
   async listProjectImportDiagnostics(correlationId?: string): Promise<ProjectImportDiagnostic[]> {
     const cutoff = Date.now() - PROJECT_IMPORT_DIAGNOSTIC_RETENTION_MS;
     return clone(this.projectImportDiagnostics)
@@ -159,7 +181,11 @@ export class InMemoryProjectStore implements ProjectStore {
   ): Promise<ProjectSnapshotWithRevision | null> {
     const record = this.getProjects(userId).get(id);
     if (!record) return null;
-    return { revision: record.meta.revision, snapshot: clone(record.snapshot) };
+    return {
+      incarnationId: record.incarnationId,
+      revision: record.meta.revision,
+      snapshot: clone(record.snapshot),
+    };
   }
 
   async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
@@ -230,14 +256,18 @@ export class InMemoryProjectStore implements ProjectStore {
     id: ProjectId,
     cover: ProjectCoverFile,
     { expectedRevision }: ProjectCoverWriteOptions = {}
-  ): Promise<boolean> {
+  ): Promise<SavedProjectMeta | null> {
     const record = this.getProjects(userId).get(id);
     if (!record) throw new ProjectNotFoundError();
     if (expectedRevision !== undefined && record.meta.revision !== expectedRevision) {
-      return false;
+      return null;
     }
     this.getCovers(userId).set(id, clone(cover));
-    return true;
+    record.meta = {
+      ...record.meta,
+      revision: record.meta.revision + 1,
+    };
+    return clone(record.meta);
   }
 
   private async storeProjectSource(
@@ -384,7 +414,11 @@ export class InMemoryProjectStore implements ProjectStore {
       ...buildProjectMeta(snapshot, existing?.meta),
       revision: (existing?.meta.revision || 0) + 1,
     };
-    projects.set(snapshot.id, { meta, snapshot });
+    projects.set(snapshot.id, {
+      incarnationId: existing?.incarnationId ?? randomUUID(),
+      meta,
+      snapshot,
+    });
     if (importedCover) this.getCovers(userId).set(snapshot.id, clone(importedCover));
     this.ensurePlacement(userId, snapshot.id);
     return clone({ meta, snapshot });
@@ -420,18 +454,22 @@ export class InMemoryProjectStore implements ProjectStore {
       ...buildProjectMeta(snapshot, existing.meta),
       revision: (existing.meta.revision || 0) + 1,
     };
-    projects.set(id, { meta, snapshot });
+    projects.set(id, { incarnationId: existing.incarnationId, meta, snapshot });
     return clone(meta);
   }
 
   async setProjectFavorite(
     userId: string,
     id: ProjectId,
-    isFavorite: boolean
+    isFavorite: boolean,
+    { expectedRevision }: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
     const record = this.getProjects(userId).get(id);
     if (!record) {
       throw new ProjectNotFoundError();
+    }
+    if (expectedRevision !== undefined && record.meta.revision !== expectedRevision) {
+      throw new ProjectRevisionConflictError();
     }
     record.meta = {
       ...record.meta,

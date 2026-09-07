@@ -15,6 +15,11 @@ The following files were used as context for generating this wiki page:
 - [scripts/project-source-storage-artifact.ts](../../../scripts/project-source-storage-artifact.ts)
 - [apps/backend/tests/projects/postgresProjectStore.test.ts](../../../apps/backend/tests/projects/postgresProjectStore.test.ts)
 - [apps/backend/src/workflows/courseGenerationWorkflowContract.ts](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts)
+- [apps/backend/src/projects/libraryExportRunStore.ts](../../../apps/backend/src/projects/libraryExportRunStore.ts)
+- [supabase/migrations/20260904001830_create_library_export_runs.sql](../../../supabase/migrations/20260904001830_create_library_export_runs.sql)
+- [supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql](../../../supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql)
+- [supabase/migrations/20260904033000_add_library_export_project_revisions.sql](../../../supabase/migrations/20260904033000_add_library_export_project_revisions.sql)
+- [supabase/migrations/20260907183055_add_library_export_download_tickets.sql](../../../supabase/migrations/20260907183055_add_library_export_download_tickets.sql)
 </details>
 
 # PostgreSQL Database Schema
@@ -38,6 +43,7 @@ erDiagram
     LIBRARY_FOLDERS ||--o{ LIBRARY_FOLDERS : "parent of"
     LIBRARY_FOLDERS ||--o{ LIBRARY_PLACEMENTS : "contains"
     PROJECT_SOURCES ||--o{ PROJECT_SOURCE_DELETIONS : "queues cleanup"
+    LIBRARY_EXPORT_RUNS ||--o{ LIBRARY_EXPORT_PROJECT_CHECKPOINTS : "checkpoints"
 ```
 
 *Description: The ER diagram shows the central role of the `projects` table and its connection to content snapshots, asset metadata, and the library's hierarchical folder structure.*
@@ -49,7 +55,7 @@ The schema separates project metadata from the heavy content snapshots to optimi
 
 ### Projects Table
 
-Stores high-level metadata such as titles, favorite status, and revision counters used for optimistic concurrency control.
+Stores high-level metadata such as titles and favorite status, revision counters used for optimistic concurrency control, and an incarnation UUID that changes when a deleted project identifier is reused.
 Sources: [apps/backend/src/projects/postgresProjectStore.ts:251-260](../../../apps/backend/src/projects/postgresProjectStore.ts#L251-L260)
 
 | Field | Type | Description |
@@ -57,7 +63,8 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts:251-260](../../../ap
 | `user_id` | `uuid` | Owner of the project (Primary Key / Partition Key). |
 | `id` | `text` | Unique project identifier (Primary Key). |
 | `meta` | `jsonb` | Metadata including `isFavorite`, `lessonCount`, and `exerciseCount`. |
-| `revision` | `integer` | Incremental version for conflict detection. |
+| `revision` | `bigint` | Incremental version for conflict detection within one project incarnation, including separate cover writes used by project archives. |
+| `incarnation_id` | `uuid` | Persistent identity that distinguishes delete-and-recreate cycles using the same project ID. |
 | `updated_at` | `timestamptz` | Last modification time. |
 
 ### Project Snapshots Table
@@ -113,6 +120,14 @@ The library structure supports nested folders and custom ordering for projects a
 *  **`public.library_folders`**: Defines the hierarchy. Folders can have a `parent_folder_id` (null for root).
 *  **`public.library_placements`**: Links projects to folders and defines their position within that folder.
 Sources: [apps/backend/src/projects/postgresProjectStore.ts:1145-1165](../../../apps/backend/src/projects/postgresProjectStore.ts#L1145-L1165), [apps/backend/src/projects/postgresProjectStore.ts:1248-1262](../../../apps/backend/src/projects/postgresProjectStore.ts#L1248-L1262)
+
+### Durable Library Export Runs
+
+`public.library_export_runs` stores the authenticated owner, correlation ID, expected project manifest with project incarnation UUIDs and revisions, folder organization, current phase, cumulative bytes, final archive integrity metadata, a cleanup checkpoint, and a redacted failure outcome. Before publishing a completed run, PostgreSQL takes shared row locks on the expected projects and compares both identity fields; snapshot saves, cover saves, and deletions therefore serialize on the same rows. A cover save increments the project revision in the same transaction as the `public.project_covers` upsert, so an archive checkpoint cannot remain current after its cover changes. A partial unique index permits only one active, completed, or failed run per user. Cancelled and downloaded runs no longer block a replacement export, and runs created before project identities were recorded are cancelled as non-resumable.
+
+`public.library_export_project_checkpoints` records one completed nested archive per project, including its expected project incarnation UUID and revision, stable order, workspace path, byte count, and SHA-256 checksum. The run store exposes a separate progress query that counts these rows without selecting the checkpoint payload. The export tables are backend-only: RLS is enabled, direct access is revoked from `anon` and `authenticated`, and the service role receives only the operations required by the run store. Retention is enforced by the backend using the existing timestamps: completed runs age from `completed_at`, failed runs from the `updated_at` written by their failure transition. Conditional expiry updates recheck status and cutoff before cancellation, revoke outstanding download tickets, and retain retryable cleanup state. Late failure or resume callbacks cannot rewrite cancelled or downloaded rows. `public.library_export_download_tickets` stores each unclaimed hash separately with an indexed run foreign key. Atomic deletion consumes only that ticket. Its deadline is derived from the run's original `completed_at`, including when the run is already `downloaded`; no additional public status or timestamp is required. The additive ticket migration transfers the previous outstanding hash, clears it, and keeps the historical column unused by the new backend. Completed cleanup deletes remaining ticket rows. Sources: [supabase/migrations/20260904001830_create_library_export_runs.sql](../../../supabase/migrations/20260904001830_create_library_export_runs.sql), [supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql](../../../supabase/migrations/20260904005249_allow_cancelled_library_export_runs.sql), [supabase/migrations/20260904033000_add_library_export_project_revisions.sql](../../../supabase/migrations/20260904033000_add_library_export_project_revisions.sql), [apps/backend/src/projects/libraryExportRunStore.ts](../../../apps/backend/src/projects/libraryExportRunStore.ts)
+
+The ticket migration is [20260907183055_add_library_export_download_tickets.sql](../../../supabase/migrations/20260907183055_add_library_export_download_tickets.sql).
 
 ## Workflow and Feedback Systems
 

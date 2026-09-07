@@ -417,10 +417,18 @@ describe('PostgresProjectStore', () => {
   });
 
   test('reports missing projects consistently for favorite and touch writes', async () => {
+    const transactionSql = Object.assign(
+      vi.fn(async () => []),
+      {
+        json: vi.fn((value: unknown) => value),
+      }
+    );
     const sqlClient = Object.assign(
       vi.fn(async () => []),
       {
-        begin: vi.fn(),
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
         json: vi.fn((value: unknown) => value),
       }
     );
@@ -2718,18 +2726,24 @@ describe('PostgresProjectStore', () => {
     expect(first?.version.representationHash).not.toBe(second?.version.representationHash);
   });
 
-  test('saves a cover only while the project revision still matches', async () => {
+  test('increments the project revision in the same transaction as a cover save', async () => {
     const statements: string[] = [];
-    const sqlClient = Object.assign(
+    const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
         statements.push(statement);
         return Promise.resolve(
-          statement.includes('select meta, revision') ? [{ meta: PROJECT_META, revision: 4 }] : []
+          statement.includes('update public.projects') ? [{ meta: PROJECT_META, revision: 4 }] : []
         );
       }),
       { json: vi.fn((value: unknown) => value) }
     );
+    const sqlClient = Object.assign(vi.fn(), {
+      begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+        operation(transactionSql)
+      ),
+      json: vi.fn((value: unknown) => value),
+    });
     const store = createPostgresProjectStore(sqlClient);
 
     const saved = await store.saveProjectCover(
@@ -2739,10 +2753,45 @@ describe('PostgresProjectStore', () => {
       { expectedRevision: 3 }
     );
 
-    expect(saved).toBe(false);
-    expect(statements[0]).toContain('from public.projects');
+    expect(saved).toMatchObject({ id: PROJECT_META.id, revision: 4 });
+    expect(sqlClient.begin).toHaveBeenCalledOnce();
+    expect(statements[0]).toContain('update public.projects');
+    expect(statements[0]).toContain('revision = revision + 1');
     expect(statements[0]).toContain('revision =');
-    expect(statements[0]).toContain('for key share');
+    expect(statements[1]).toContain('insert into public.project_covers');
+  });
+
+  test('leaves the cover untouched when its expected project revision is stale', async () => {
+    const statements: string[] = [];
+    const transactionSql = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        statements.push(statement);
+        return Promise.resolve(statement.includes('select id') ? [{ id: PROJECT_META.id }] : []);
+      }),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sqlClient = Object.assign(vi.fn(), {
+      begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+        operation(transactionSql)
+      ),
+      json: vi.fn((value: unknown) => value),
+    });
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(
+      store.saveProjectCover(
+        'user-1',
+        PROJECT_META.id,
+        { data: 'ZmFrZQ==', mimeType: 'image/png', name: 'cover-p2.png' },
+        { expectedRevision: 3 }
+      )
+    ).resolves.toBeNull();
+
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toContain('update public.projects');
+    expect(statements[1]).toContain('select id');
+    expect(statements.every(statement => !statement.includes('project_covers'))).toBe(true);
   });
 
   test('locks project deletion against an in-flight conditional cover save', async () => {

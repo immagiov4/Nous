@@ -355,7 +355,8 @@ const ENGLISH_UI_MESSAGES = {
   'Log della console ({logCount})': 'Console logs ({logCount})',
   'Apri issue #{issueNumber} su GitHub': 'Open issue #{issueNumber} on GitHub',
   'Backup completo dei corsi': 'Complete course backup',
-  'Backup di {courseCount} corsi esportato.': 'Backup of {courseCount} courses exported.',
+  'Richiesta di scaricamento del backup di {courseCount} corsi inviata.':
+    'Download request for the backup of {courseCount} courses sent.',
   'Annullamento della connessione non riuscito. Riprova.':
     'Could not cancel the connection. Try again.',
   'Apri accesso OpenAI': 'Open OpenAI sign-in',
@@ -437,9 +438,13 @@ const ENGLISH_UI_MESSAGES = {
   Esporta: 'Export',
   'Esportazione...': 'Exporting...',
   'Esportazione non riuscita. Riprova.': 'Export failed. Try again.',
+  'Il backup completo è scaduto. Avvia una nuova esportazione.':
+    'The complete backup has expired. Start a new export.',
   'Esportazione del backup completo non riuscita. Riprova.':
     'Complete backup export failed. Try again.',
   'Esportazione in corso...': 'Exporting...',
+  'Esportazione {completed} di {total}...': 'Exporting {completed} of {total}...',
+  '{bytes} byte elaborati dal server.': '{bytes} bytes processed by the server.',
   'Esporta tutti i corsi': 'Export all courses',
   'Esporta tutti i corsi e le fonti in un unico file. Puoi importarlo in un altra installazione di Nous.':
     'Export every course and its sources into one file. You can import it into another Nous installation.',

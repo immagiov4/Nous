@@ -123,7 +123,12 @@ const sanitizePathSegment = (value: string): string => {
 
 const decodeBase64 = (value: string): Uint8Array => {
   const decoded = globalThis.atob(value.replaceAll(/\s/gu, ''));
-  return Uint8Array.from(decoded, character => character.codePointAt(0) ?? 0);
+  // Avoid the iterable conversion's intermediate array for large binary strings.
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index);
+  }
+  return bytes;
 };
 
 const encodeBase64 = (bytes: Uint8Array): string => {

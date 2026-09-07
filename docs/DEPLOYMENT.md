@@ -113,6 +113,65 @@ often than the receiving-session TTL. The current in-memory admission/session re
 validated single backend replica in `compose.yml`; multiple backend replicas require shared session
 coordination before scaling horizontally.
 
+### Durable full-library export workspace
+
+Full-library exports use the backend-owned `library-exports` named volume mounted at
+`/var/lib/nous/library-exports`. Project archives, completed checkpoints, and the final archive
+therefore survive a backend restart or container recreation and do not compete with the 1 GB `/tmp`
+filesystem used by backup imports. Compose `down` and normal redeployment preserve this volume;
+successful downloads and cancelled runs remove their own workspace after recording durable cleanup
+state. Do not use `down -v` during normal operations because that would remove resumable export
+files while their PostgreSQL run records remain.
+
+The single backend process admits export preparations in FIFO order. The default capacity is one,
+including explicit retries and runs recovered at startup. Waiting runs remain `running` in the
+`preparing` phase, without retaining hydrated project sources in the admission queue. This capacity
+is configurable and provisional for the default 2 GiB backend; it is not a guarantee under every
+application load or a limit on request frequency or the number of waiting users.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LIBRARY_EXPORT_EXECUTIONS_GLOBAL` | `1` | Simultaneous archive preparations per backend process |
+| `LIBRARY_EXPORT_RETENTION_MS` | `86400000` | Retention after completion or failure, 24 hours |
+| `LIBRARY_EXPORT_CLEANUP_INTERVAL_MS` | `900000` | Periodic cleanup interval, 15 minutes |
+
+Set overrides in the deployment environment and recreate the backend to apply them. Empty settings
+use these defaults; invalid positive-integer settings fail startup. The cleanup interval must not
+exceed `2147483647` ms, the runtime timer limit; retention must produce a valid expiration date.
+Completed runs age from
+`completed_at`, failed runs from their failure transition's `updated_at`. Reading progress or issuing
+a download token does not extend retention. Cleanup runs at startup and periodically without overlapping
+passes. Expired terminal runs become `cancelled` with reason `LIBRARY_EXPORT_RETENTION_EXPIRED`, revoke
+their token, and release their workspace. Cleanup errors remain pending in PostgreSQL for another pass.
+A new export request replaces an expired run with a fresh library snapshot; a nonexpired failed run
+retains the existing identity-checked retry behavior.
+
+Running and queued preparations are excluded from expiry. A download admitted before expiry can
+finish, including overlapping responses for the same archive. Files remain until the last reader
+releases them, on success, error, or disconnection. New tokens and downloads are refused after expiry.
+Admission and active-reader coordination are process-local; do not add replicas sharing this export
+volume without shared coordination. Source objects are never removed by export cleanup.
+
+The authoritative defaults are in [libraryExportConfig.ts](../apps/backend/src/projects/libraryExportConfig.ts).
+Every issued one-use ticket is persisted separately. After a successful download, previously issued
+tickets remain valid until the archive's original retention deadline, but no new tickets are issued.
+Files remain while valid unclaimed tickets or active readers exist; abandoned tickets expire at the
+same deadline without extending retention. The additive ticket migration transfers any prior
+outstanding hash and retains its historical column unused by the new backend. Apply migrations before
+starting the new backend; do not run mixed backend versions against the shared export volume.
+
+Shutdown stops accepting new HTTP connections first, aborts export work at asynchronous boundaries,
+and interrupts local archive streams without waiting for an entire remote read or cleanup pass.
+Already persisted project checkpoints and pending cleanup records remain recoverable after restart.
+The browser confirms only that it submitted the native download request: it cannot observe the
+cross-origin file response or confirm that a file reached the user's download directory.
+
+Migration `20260904033000_add_library_export_project_revisions.sql` adds a non-null UUID with a
+volatile default to `projects`, requiring a table rewrite and an exclusive lock. The deployment
+command applies migrations before recreating the backend, so assess the table size and arrange an
+appropriate maintenance window before applying this migration to a populated installation. No lock
+duration has been measured for production; the isolated verification does not establish one.
+
 Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is
 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable

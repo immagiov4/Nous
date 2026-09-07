@@ -32,6 +32,7 @@ import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import { useLearningActivity } from '../../hooks/library/useLearningActivity.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import type { LibraryExportProgressListener } from '../../services/projects/projectRepository.ts';
 import { createFileObjectUrl } from '../../services/projects/projectSource.ts';
 import type {
   FileData,
@@ -114,7 +115,7 @@ interface NewHomeViewProps {
   readonly onConfirmDeleteFolder?: (folderName: string) => Promise<boolean>;
   readonly onDeleteFolder?: (folderId: string) => Promise<void>;
   readonly onDeleteProject?: (projectId: string) => void | Promise<void>;
-  readonly onExportLibraryBackup?: () => Promise<number>;
+  readonly onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   readonly onExportProject?: (projectId: string) => Promise<void>;
   readonly onImportLibraryBackup?: (file: File) => Promise<number>;
   readonly onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -232,7 +233,7 @@ const NewHomeSidebar = ({
   activePage: NewHomePage;
   averageCompletion: number;
   isDarkMode: boolean;
-  onExportLibraryBackup?: () => Promise<number>;
+  onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   onImportLibraryBackup?: (file: File) => Promise<number>;
   onNavigate: (page: NewHomePage, hash?: string) => void;
   onToggleDarkMode: () => void;
@@ -319,7 +320,7 @@ const MobileHeader = ({
   activePage: NewHomePage;
   isDarkMode: boolean;
   isPhoneViewport: boolean;
-  onExportLibraryBackup?: () => Promise<number>;
+  onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   onImportLibraryBackup?: (file: File) => Promise<number>;
   onNavigate: (page: NewHomePage) => void;
   onToggleDarkMode: () => void;

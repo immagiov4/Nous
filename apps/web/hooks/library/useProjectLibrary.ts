@@ -7,8 +7,6 @@ import { ensureProjectCover } from '../../services/projects/courseCover.ts';
 import { HttpProjectRepository } from '../../services/projects/httpProjectRepository.ts';
 import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
 import {
-  createLibraryArchiveBlob,
-  getLibraryArchiveExtension,
   type LibraryArchiveData,
   LibraryArchiveError,
   type LibraryArchiveImportedProject,
@@ -27,6 +25,7 @@ import {
 } from '../../services/projects/projectArchive.ts';
 import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
 import {
+  type LibraryExportProgressListener,
   type ProjectRepository,
   type ProjectSaveResult,
   type ProjectSnapshotWithRevision,
@@ -783,6 +782,20 @@ export const useProjectLibrary = ({
     [getProjectWriteState, invalidateRemoteDeletedProject, syncProjectMeta]
   );
 
+  const saveStoredProjectCover = useCallback(
+    async (projectId: string, cover: FileData): Promise<void> => {
+      await runTrackedProjectWrite(
+        projectId,
+        () =>
+          projectRepositoryRef.current.saveProjectCover(projectId, cover, {
+            expectedRevision: getExpectedRevision(projectId),
+          }),
+        false
+      );
+    },
+    [getExpectedRevision, runTrackedProjectWrite]
+  );
+
   const requestPersistentStorage = useCallback(async () => {
     if (persistentStorageRequestedRef.current) {
       return;
@@ -893,8 +906,7 @@ export const useProjectLibrary = ({
           void ensureProjectCover({
             loadCover: projectId => projectRepositoryRef.current.loadProjectCover(projectId),
             projectId: meta.id,
-            saveCover: (projectId, cover) =>
-              projectRepositoryRef.current.saveProjectCover(projectId, cover),
+            saveCover: saveStoredProjectCover,
             title: meta.title,
           }).catch(error => {
             console.warn('[Nous] Course cover generation deferred.', error);
@@ -916,7 +928,13 @@ export const useProjectLibrary = ({
         return null;
       }
     },
-    [getExpectedRevision, getProjectWriteState, requestPersistentStorage, runTrackedProjectWrite]
+    [
+      getExpectedRevision,
+      getProjectWriteState,
+      requestPersistentStorage,
+      runTrackedProjectWrite,
+      saveStoredProjectCover,
+    ]
   );
 
   const saveCurrentProject = useCallback(
@@ -1301,39 +1319,13 @@ export const useProjectLibrary = ({
     [currentProjectId, downloadBlob]
   );
 
-  const downloadLibraryBackup = useCallback(async (): Promise<number> => {
-    const [projectMetas, folders, placements] = await Promise.all([
-      projectRepositoryRef.current.listProjects(),
-      projectRepositoryRef.current.listFolders(),
-      projectRepositoryRef.current.listPlacements(),
-    ]);
-    const projects: ProjectSnapshot[] = [];
-
-    for (const projectMeta of projectMetas) {
-      const exportData = await projectRepositoryRef.current.exportProject(projectMeta.id);
-      if (!exportData) {
-        throw new Error(`Il corso ${projectMeta.title} non può essere esportato.`);
-      }
-      projects.push(normalizeStoredProject(exportData));
-    }
-
-    const archive = await createLibraryArchiveBlob(
-      projects,
-      { folders, placements },
-      {
-        createProjectArchive: async project =>
-          createProjectArchiveBlob(project, {
-            cover: await projectRepositoryRef.current.loadProjectCover(project.id),
-            loadAsset: ref => downloadProjectAssetBytes(project.id, ref),
-          }),
-      }
-    );
-    downloadBlob(
-      archive,
-      `nous-library-backup-${timestampIso().slice(0, 10)}${getLibraryArchiveExtension()}`
-    );
-    return projects.length;
-  }, [downloadBlob]);
+  const downloadLibraryBackup = useCallback(
+    async (onProgress?: LibraryExportProgressListener): Promise<number> => {
+      const { projectCount } = await projectRepositoryRef.current.exportLibraryBackup(onProgress);
+      return projectCount;
+    },
+    []
+  );
 
   const importLibraryBackup = useCallback(
     async (file: File): Promise<number> => {
@@ -1666,14 +1658,6 @@ export const useProjectLibrary = ({
     (projectId: string) => projectRepositoryRef.current.loadProjectSources(projectId),
     []
   );
-  const saveStoredProjectCover = useCallback(
-    (projectId: string, cover: FileData) =>
-      runDeletionAwareProjectAction(projectId, () =>
-        projectRepositoryRef.current.saveProjectCover(projectId, cover)
-      ),
-    [runDeletionAwareProjectAction]
-  );
-
   const renameProject = useCallback(
     async (projectId: string, title: string) => {
       const meta = await runTrackedProjectWrite(
@@ -1696,10 +1680,13 @@ export const useProjectLibrary = ({
     (projectId: string, isFavorite: boolean) =>
       runTrackedProjectWrite(
         projectId,
-        () => projectRepositoryRef.current.setProjectFavorite(projectId, isFavorite),
+        () =>
+          projectRepositoryRef.current.setProjectFavorite(projectId, isFavorite, {
+            expectedRevision: getExpectedRevision(projectId),
+          }),
         false
       ),
-    [runTrackedProjectWrite]
+    [getExpectedRevision, runTrackedProjectWrite]
   );
 
   // Autosave: full snapshot PUT — safety net for any domain change that wasn't

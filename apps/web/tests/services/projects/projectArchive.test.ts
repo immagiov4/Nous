@@ -192,6 +192,44 @@ test('project archive v2 stores durable, PDF, and cover bytes outside a stable m
   assert.deepEqual(decoded.cover, cover);
 });
 
+test.each([
+  'padded',
+  'unpadded',
+  'whitespace',
+])('project archive preserves every source byte with %s Base64', async encoding => {
+  const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
+  const encoded = encodeBytesBase64(bytes);
+  const snapshot = buildPdfSnapshot();
+  assert.ok(snapshot.source);
+  let sourceData = encoded;
+  if (encoding === 'unpadded') sourceData = encoded.replaceAll('=', '');
+  if (encoding === 'whitespace') {
+    sourceData = ` \t${encoded.slice(0, 16)}\r\n${encoded.slice(16)}\u00a0`;
+  }
+  snapshot.source.file.data = sourceData;
+
+  const archive = await createProjectArchiveBlob(snapshot);
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const sourceFile = zip.file('source/dispensa.pdf');
+  assert.ok(sourceFile);
+  assert.deepEqual(await sourceFile.async('uint8array'), bytes);
+});
+
+test.each([
+  '?',
+  'A',
+  'AA=A',
+  'AAAA=',
+])('project archive rejects malformed cover Base64 %s', async data => {
+  await assert.rejects(
+    () =>
+      createProjectArchiveBlob(buildPdfSnapshot(), {
+        cover: { data, mimeType: 'image/png', name: 'cover.png' },
+      }),
+    { name: 'InvalidCharacterError' }
+  );
+});
+
 test('project archive v2 rejects modified durable asset bytes', async () => {
   const { assets, snapshot } = await buildAssetSnapshot();
   const archive = await createProjectArchiveBlob(snapshot, {

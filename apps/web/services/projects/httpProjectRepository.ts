@@ -1,3 +1,9 @@
+import {
+  LIBRARY_EXPORT_RETENTION_ERROR_CODE,
+  type LibraryExportPhase,
+  type LibraryExportProgress,
+  type LibraryExportStatus,
+} from '@shared/libraryExportContract';
 import { PROJECT_API_ERROR_CODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import {
@@ -24,7 +30,13 @@ import { isRecord } from '../../utils/records.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 import { attachStoredSources, getCourseSourceDescriptors } from './courseSources.ts';
-import type { ProjectRepository, ProjectSaveOptions, ProjectSaveResult } from './projectRepository';
+import type {
+  LibraryExportProgressListener,
+  LibraryExportResult,
+  ProjectRepository,
+  ProjectSaveOptions,
+  ProjectSaveResult,
+} from './projectRepository';
 import {
   PROJECT_COVER_REVISION_CONFLICT_MESSAGE,
   PROJECT_REQUEST_TOO_LARGE_MESSAGE,
@@ -70,7 +82,7 @@ const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_ARCHIVE_SAVE_TIMEOUT_MS = 10 * 60_000;
-const PROJECT_IMPORT_STATUS_POLL_MS = 1_000;
+const PROJECT_OPERATION_STATUS_POLL_MS = 1_000;
 const HTTP_STATUS_REQUEST_TOO_LARGE = 413;
 const getUtf8Bytes = (value: string): number => new Blob([value]).size;
 
@@ -190,6 +202,51 @@ const readSourceWarnings = (value: unknown): ProjectSourceWarning[] | undefined 
   return warnings.length > 0 ? warnings : undefined;
 };
 
+const LIBRARY_EXPORT_PHASES = new Set<LibraryExportPhase>([
+  'preparing',
+  'project-archive',
+  'library-archive',
+  'integrity-check',
+  'ready',
+  'failed',
+]);
+const LIBRARY_EXPORT_STATUSES = new Set<LibraryExportStatus>([
+  'cancelled',
+  'completed',
+  'downloaded',
+  'failed',
+  'running',
+]);
+
+const readLibraryExportProgress = (value: unknown): LibraryExportProgress => {
+  if (
+    !isRecord(value) ||
+    typeof value.runId !== 'string' ||
+    typeof value.correlationId !== 'string' ||
+    typeof value.status !== 'string' ||
+    !LIBRARY_EXPORT_STATUSES.has(value.status as LibraryExportStatus) ||
+    typeof value.phase !== 'string' ||
+    !LIBRARY_EXPORT_PHASES.has(value.phase as LibraryExportPhase) ||
+    !Number.isSafeInteger(value.projectCount) ||
+    (value.projectCount as number) < 0 ||
+    !Number.isSafeInteger(value.completedProjectCount) ||
+    (value.completedProjectCount as number) < 0 ||
+    (value.completedProjectCount as number) > (value.projectCount as number) ||
+    !Number.isSafeInteger(value.bytesWritten) ||
+    (value.bytesWritten as number) < 0 ||
+    (value.archiveBytes !== undefined &&
+      (!Number.isSafeInteger(value.archiveBytes) || (value.archiveBytes as number) < 0)) ||
+    (value.currentProjectId !== undefined && typeof value.currentProjectId !== 'string') ||
+    (value.errorCode !== undefined && typeof value.errorCode !== 'string') ||
+    (value.errorPhase !== undefined &&
+      (typeof value.errorPhase !== 'string' ||
+        !LIBRARY_EXPORT_PHASES.has(value.errorPhase as LibraryExportPhase)))
+  ) {
+    throw new ProjectStorageError('Stato del backup completo non valido.', 'persistence-failed');
+  }
+  return value as unknown as LibraryExportProgress;
+};
+
 const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
   try {
     return (await response.json()) as ApiResponse & T;
@@ -241,6 +298,41 @@ const assertValue = <T>(value: T | undefined, message: string): T => {
   }
 
   return value;
+};
+
+const NATIVE_DOWNLOAD_FRAME_NAME = 'nous-native-download-frame';
+
+const getNativeDownloadFrame = (): HTMLIFrameElement => {
+  const existingFrame = document.getElementById(NATIVE_DOWNLOAD_FRAME_NAME);
+  if (existingFrame instanceof HTMLIFrameElement) return existingFrame;
+  const frame = document.createElement('iframe');
+  frame.id = NATIVE_DOWNLOAD_FRAME_NAME;
+  frame.name = NATIVE_DOWNLOAD_FRAME_NAME;
+  frame.hidden = true;
+  frame.title = 'Download del backup';
+  document.body.appendChild(frame);
+  return frame;
+};
+
+const startNativeDownload = (url: string, downloadToken: string): void => {
+  getNativeDownloadFrame();
+  const form = document.createElement('form');
+  form.action = url;
+  form.enctype = 'application/x-www-form-urlencoded';
+  form.hidden = true;
+  form.method = 'post';
+  form.target = NATIVE_DOWNLOAD_FRAME_NAME;
+  const tokenInput = document.createElement('input');
+  tokenInput.name = 'downloadToken';
+  tokenInput.type = 'hidden';
+  tokenInput.value = downloadToken;
+  form.appendChild(tokenInput);
+  document.body.appendChild(form);
+  try {
+    form.submit();
+  } finally {
+    form.remove();
+  }
 };
 
 export class HttpProjectRepository implements ProjectRepository {
@@ -522,19 +614,31 @@ export class HttpProjectRepository implements ProjectRepository {
     }
   }
 
-  async saveProjectCover(id: ProjectId, cover: FileData): Promise<void> {
-    await this.request(`/api/projects/projects/${encodeURIComponent(id)}/cover`, {
-      method: 'POST',
-      body: JSON.stringify({ cover }),
-    });
+  async saveProjectCover(
+    id: ProjectId,
+    cover: FileData,
+    options: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
+    const response = await this.request<{ meta?: SavedProjectMeta }>(
+      `/api/projects/projects/${encodeURIComponent(id)}/cover`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ cover, expectedRevision: options.expectedRevision }),
+      }
+    );
+    return assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.');
   }
 
-  async setProjectFavorite(id: ProjectId, isFavorite: boolean): Promise<SavedProjectMeta> {
+  async setProjectFavorite(
+    id: ProjectId,
+    isFavorite: boolean,
+    options: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(id)}/favorite`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ isFavorite }),
+        body: JSON.stringify({ isFavorite, expectedRevision: options.expectedRevision }),
       }
     );
     return assertValue(response.meta, 'Il preferito sincronizzato non e stato aggiornato.');
@@ -711,6 +815,55 @@ export class HttpProjectRepository implements ProjectRepository {
     }
   }
 
+  async exportLibraryBackup(
+    onProgress?: LibraryExportProgressListener
+  ): Promise<LibraryExportResult> {
+    let response = await this.request<{ run?: unknown }>('/api/projects/library-exports', {
+      method: 'POST',
+    });
+    let run = readLibraryExportProgress(
+      assertValue(response.run, 'Stato del backup completo non disponibile.')
+    );
+    onProgress?.(run);
+    while (run.status === 'running') {
+      await new Promise(resolve =>
+        globalThis.setTimeout(resolve, PROJECT_OPERATION_STATUS_POLL_MS)
+      );
+      response = await this.request<{ run?: unknown }>(
+        `/api/projects/library-exports/${encodeURIComponent(run.runId)}`
+      );
+      run = readLibraryExportProgress(
+        assertValue(response.run, 'Stato del backup completo non disponibile.')
+      );
+      onProgress?.(run);
+    }
+    if (run.status !== 'completed') {
+      throw new ProjectStorageError(
+        run.errorCode === LIBRARY_EXPORT_RETENTION_ERROR_CODE
+          ? 'Il backup completo è scaduto. Avvia una nuova esportazione.'
+          : 'La creazione del backup completo non è riuscita. Riprova.',
+        'persistence-failed'
+      );
+    }
+
+    const encodedRunId = encodeURIComponent(run.runId);
+    const downloadAccess = await this.request<{ downloadToken?: unknown }>(
+      `/api/projects/library-exports/${encodedRunId}/download-access`,
+      { method: 'POST' }
+    );
+    if (typeof downloadAccess.downloadToken !== 'string' || !downloadAccess.downloadToken.trim()) {
+      throw new ProjectStorageError(
+        'Il backup completo non è disponibile per il download.',
+        'persistence-failed'
+      );
+    }
+    startNativeDownload(
+      `${this.baseUrl}/api/projects/library-exports/${encodedRunId}/download`,
+      downloadAccess.downloadToken
+    );
+    return { projectCount: run.projectCount };
+  }
+
   async touchProject(id: ProjectId): Promise<void> {
     await this.request(`/api/projects/projects/${encodeURIComponent(id)}/touch`, {
       method: 'POST',
@@ -799,7 +952,9 @@ export class HttpProjectRepository implements ProjectRepository {
       } catch (error) {
         if (error instanceof ProjectStorageError && error.httpStatus === 404) return undefined;
       }
-      await new Promise(resolve => globalThis.setTimeout(resolve, PROJECT_IMPORT_STATUS_POLL_MS));
+      await new Promise(resolve =>
+        globalThis.setTimeout(resolve, PROJECT_OPERATION_STATUS_POLL_MS)
+      );
     }
     return undefined;
   }

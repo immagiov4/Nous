@@ -590,7 +590,8 @@ router.patch('/projects/:id/favorite', async (req: Request, res: Response) => {
     const meta = await getProjectStore().setProjectFavorite(
       userId,
       getRouteParam(req.params.id),
-      isFavorite
+      isFavorite,
+      { expectedRevision: readExpectedRevision(getBodyRecord(req.body)) }
     );
     publishMetaRevision(userId, meta);
     res.json({ success: true, meta });
@@ -730,12 +731,14 @@ router.get('/projects/:id/cover', async (req: Request, res: Response) => {
 
 router.post('/projects/:id/cover', async (req: Request, res: Response) => {
   try {
-    const saved = await getProjectStore().saveProjectCover(
-      getCurrentUser(req).id,
+    const userId = getCurrentUser(req).id;
+    const meta = await getProjectStore().saveProjectCover(
+      userId,
       getRouteParam(req.params.id),
-      requireProjectCoverFile(req.body)
+      requireProjectCoverFile(req.body),
+      { expectedRevision: readExpectedRevision(getBodyRecord(req.body)) }
     );
-    if (!saved) {
+    if (!meta) {
       res.status(409).json({
         code: PROJECT_API_ERROR_CODE.coverRevisionConflict,
         success: false,
@@ -743,7 +746,8 @@ router.post('/projects/:id/cover', async (req: Request, res: Response) => {
       });
       return;
     }
-    res.json({ success: true });
+    publishMetaRevision(userId, meta);
+    res.json({ success: true, meta });
   } catch (error) {
     sendProjectWriteError(res, error, 'Failed to save project cover');
   }

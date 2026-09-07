@@ -147,9 +147,22 @@ export interface ProjectSaveResult {
   snapshot: ProjectSnapshot;
 }
 
-export interface ProjectSnapshotWithRevision {
+export interface ProjectPersistenceIdentity {
+  incarnationId: string;
   revision: number;
+}
+
+export interface ProjectSnapshotWithRevision extends ProjectPersistenceIdentity {
   snapshot: ProjectSnapshot;
+}
+
+export type LibraryExportProjectMeta = Omit<SavedProjectMeta, 'revision'> &
+  ProjectPersistenceIdentity;
+
+export interface LibraryExportSnapshot {
+  folders: LibraryFolder[];
+  placements: LibraryPlacement[];
+  projects: LibraryExportProjectMeta[];
 }
 
 export interface ProjectSaveOptions extends ProjectWriteOptions {
@@ -201,6 +214,7 @@ export interface ProjectStore {
     targetProjectId: ProjectId
   ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   listFolders: (userId: string) => Promise<LibraryFolder[]>;
+  listLibraryExportProjects: (userId: string) => Promise<LibraryExportProjectMeta[]>;
   listPlacements: (userId: string) => Promise<LibraryPlacement[]>;
   listProjects: (userId: string) => Promise<SavedProjectMeta[]>;
   listProjectImportDiagnostics: (correlationId?: string) => Promise<ProjectImportDiagnostic[]>;
@@ -236,6 +250,7 @@ export interface ProjectStore {
     id: ProjectId
   ) => Promise<ProjectSourceArchiveIndex | null>;
   loadProjectsById: (userId: string, ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
+  readLibraryExportSnapshot: (userId: string) => Promise<LibraryExportSnapshot>;
   moveFolder: (
     userId: string,
     folderId: string,
@@ -263,7 +278,7 @@ export interface ProjectStore {
     id: ProjectId,
     cover: ProjectCoverFile,
     options?: ProjectCoverWriteOptions
-  ) => Promise<boolean>;
+  ) => Promise<SavedProjectMeta | null>;
   patchProject: (
     userId: string,
     id: ProjectId,
@@ -273,7 +288,8 @@ export interface ProjectStore {
   setProjectFavorite: (
     userId: string,
     id: ProjectId,
-    isFavorite: boolean
+    isFavorite: boolean,
+    options?: ProjectWriteOptions
   ) => Promise<SavedProjectMeta>;
   touchProject: (userId: string, id: ProjectId) => Promise<void>;
 }

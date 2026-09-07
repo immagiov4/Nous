@@ -75,6 +75,7 @@ import {
   streamSourceArchive,
 } from './sourceArchive.js';
 import type {
+  LibraryExportSnapshot,
   LibraryFolder,
   LibraryPlacement,
   ProjectCoverFile,
@@ -145,6 +146,10 @@ interface ProjectMetaRow {
   revision: number;
 }
 
+interface LibraryExportProjectMetaRow extends ProjectMetaRow {
+  incarnation_id: string;
+}
+
 interface ProjectRevisionWriteInput {
   existingMeta: SavedProjectMeta | null;
   expectedRevision: number | undefined;
@@ -172,6 +177,7 @@ interface ProjectSnapshotRow {
 }
 
 interface ProjectSnapshotWithRevisionRow extends ProjectSnapshotRow {
+  incarnation_id: string;
   revision: number | string;
 }
 
@@ -409,7 +415,19 @@ export class PostgresProjectStore implements ProjectStore {
 
   async listProjects(userId: string): Promise<SavedProjectMeta[]> {
     this.startQueuedSourceDeletionDrain();
-    const rows = await this.sql<ProjectMetaRow[]>`
+    return this.listProjectsWithClient(this.sql, userId);
+  }
+
+  async listLibraryExportProjects(userId: string): Promise<LibraryExportSnapshot['projects']> {
+    this.startQueuedSourceDeletionDrain();
+    return this.listLibraryExportProjectsWithClient(this.sql, userId);
+  }
+
+  private async listProjectsWithClient(
+    sql: PostgresMutationSql,
+    userId: string
+  ): Promise<SavedProjectMeta[]> {
+    const rows = await sql<ProjectMetaRow[]>`
       select meta, revision
       from public.projects
       where user_id = ${userId}
@@ -419,6 +437,36 @@ export class PostgresProjectStore implements ProjectStore {
     return rows
       .map(mergeProjectMetaRow)
       .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
+  }
+
+  private async listLibraryExportProjectsWithClient(
+    sql: PostgresMutationSql,
+    userId: string
+  ): Promise<LibraryExportSnapshot['projects']> {
+    const rows = await sql<LibraryExportProjectMetaRow[]>`
+      select incarnation_id, meta, revision
+      from public.projects
+      where user_id = ${userId}
+      order by last_opened_at desc nulls last, updated_at desc, id asc
+    `;
+
+    return rows
+      .map(row => ({
+        ...mergeProjectMetaRow(row),
+        incarnationId: row.incarnation_id,
+        revision: Number(row.revision),
+      }))
+      .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
+  }
+
+  async readLibraryExportSnapshot(userId: string): Promise<LibraryExportSnapshot> {
+    this.startQueuedSourceDeletionDrain();
+    await this.ensureAllProjectPlacements(userId);
+    return this.sql.begin('isolation level repeatable read read only', async sql => ({
+      folders: await this.listFoldersWithClient(sql, userId),
+      placements: await this.listPlacementsWithoutRepairWithClient(sql, userId),
+      projects: await this.listLibraryExportProjectsWithClient(sql, userId),
+    }));
   }
 
   async listProjectImportDiagnostics(correlationId?: string): Promise<ProjectImportDiagnostic[]> {
@@ -530,7 +578,8 @@ export class PostgresProjectStore implements ProjectStore {
     id: ProjectId
   ): Promise<ProjectSnapshotWithRevision | null> {
     const rows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
-      select project_snapshots.snapshot, project_snapshots.document_index, projects.revision
+      select project_snapshots.snapshot, project_snapshots.document_index,
+             projects.incarnation_id, projects.revision
       from public.project_snapshots
       join public.projects
         on projects.user_id = project_snapshots.user_id and projects.id = project_snapshots.id
@@ -540,12 +589,17 @@ export class PostgresProjectStore implements ProjectStore {
     const row = rows[0];
     if (!row) return null;
     if (!readLegacySourceArchiveIdentity(row.snapshot)) {
-      return { revision: Number(row.revision), snapshot: mergeProjectSnapshotRow(row) };
+      return {
+        incarnationId: row.incarnation_id,
+        revision: Number(row.revision),
+        snapshot: mergeProjectSnapshotRow(row),
+      };
     }
 
     await this.hydrateLegacySourceArchiveVersion(userId, id, row);
     const currentRows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
-      select project_snapshots.snapshot, project_snapshots.document_index, projects.revision
+      select project_snapshots.snapshot, project_snapshots.document_index,
+             projects.incarnation_id, projects.revision
       from public.project_snapshots
       join public.projects
         on projects.user_id = project_snapshots.user_id and projects.id = project_snapshots.id
@@ -555,6 +609,7 @@ export class PostgresProjectStore implements ProjectStore {
     const currentRow = currentRows[0];
     if (!currentRow) return null;
     return {
+      incarnationId: currentRow.incarnation_id,
       revision: Number(currentRow.revision),
       snapshot: mergeProjectSnapshotRow(currentRow),
     };
@@ -771,29 +826,43 @@ export class PostgresProjectStore implements ProjectStore {
     id: ProjectId,
     cover: ProjectCoverFile,
     { expectedRevision }: ProjectCoverWriteOptions = {}
-  ): Promise<boolean> {
+  ): Promise<SavedProjectMeta | null> {
     const bytes = Buffer.from(cover.data, 'base64');
-    const rows = await this.sql<Array<{ project_id: string }>>`
-      insert into public.project_covers
-        (user_id, project_id, name, mime_type, byte_size, data, updated_at)
-      select
-        ${userId}, ${id}, ${cover.name}, ${cover.mimeType}, ${bytes.byteLength}, ${bytes}, now()
-      from public.projects
-      where user_id = ${userId}
-        and id = ${id}
-        and (${expectedRevision ?? null}::bigint is null or revision = ${expectedRevision ?? null})
-      for key share
-      on conflict (user_id, project_id) do update set
-        name = excluded.name,
-        mime_type = excluded.mime_type,
-        byte_size = excluded.byte_size,
-        data = excluded.data,
-        updated_at = excluded.updated_at
-      returning project_id
-    `;
-    if (rows[0]) return true;
-    if (!(await this.readProjectMeta(userId, id))) throw new ProjectNotFoundError();
-    return false;
+    return this.sql.begin(async sql => {
+      const revisionRows = await sql<ProjectMetaRow[]>`
+        update public.projects
+        set server_updated_at = now(), revision = revision + 1
+        where user_id = ${userId}
+          and id = ${id}
+          and (${expectedRevision ?? null}::bigint is null or revision = ${expectedRevision ?? null})
+        returning meta, revision
+      `;
+      const revisionRow = revisionRows[0];
+      if (!revisionRow) {
+        const projectRows = await sql<Array<{ id: string }>>`
+          select id
+          from public.projects
+          where user_id = ${userId} and id = ${id}
+          limit 1
+        `;
+        if (!projectRows[0]) throw new ProjectNotFoundError();
+        return null;
+      }
+
+      await sql`
+        insert into public.project_covers
+          (user_id, project_id, name, mime_type, byte_size, data, updated_at)
+        values
+          (${userId}, ${id}, ${cover.name}, ${cover.mimeType}, ${bytes.byteLength}, ${bytes}, now())
+        on conflict (user_id, project_id) do update set
+          name = excluded.name,
+          mime_type = excluded.mime_type,
+          byte_size = excluded.byte_size,
+          data = excluded.data,
+          updated_at = excluded.updated_at
+      `;
+      return mergeProjectMetaRow(revisionRow);
+    });
   }
 
   private async writeImportedProjectCover(
@@ -1263,7 +1332,8 @@ export class PostgresProjectStore implements ProjectStore {
   async setProjectFavorite(
     userId: string,
     id: ProjectId,
-    isFavorite: boolean
+    isFavorite: boolean,
+    { expectedRevision }: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
     const rows = await this.sql<ProjectMetaRow[]>`
       update public.projects
@@ -1271,10 +1341,15 @@ export class PostgresProjectStore implements ProjectStore {
           server_updated_at = now(),
           revision = revision + 1
       where user_id = ${userId} and id = ${id}
+        and (${expectedRevision ?? null}::bigint is null or revision = ${expectedRevision ?? null})
       returning meta, revision
     `;
     if (!rows[0]) {
-      throw new ProjectNotFoundError();
+      const existing = await this.sql<Array<{ id: string }>>`
+        select id from public.projects where user_id = ${userId} and id = ${id}
+      `;
+      if (!existing[0]) throw new ProjectNotFoundError();
+      throw new ProjectRevisionConflictError();
     }
     return mergeProjectMetaRow(rows[0]);
   }

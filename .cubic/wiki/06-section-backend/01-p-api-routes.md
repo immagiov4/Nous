@@ -14,6 +14,8 @@ The following files were used as context for generating this wiki page:
 - [apps/backend/tests/routes/authProtection.test.ts](../../../apps/backend/tests/routes/authProtection.test.ts)
 - [scripts/feature-map.ts](../../../scripts/feature-map.ts)
 - [README.md](../../../README.md)
+- [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts)
+- [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts)
 </details>
 
 # Backend REST Endpoints
@@ -70,9 +72,22 @@ The `/api/projects` router manages the lifecycle of courses, including creation,
 *  **GET `/api/projects/projects`**: Lists metadata for all projects owned by the authenticated user.
 *  **PUT `/api/projects/projects/:id`**: Saves or updates a full project snapshot. It handles both JSON and multipart/form-data for binary source attachments.
 *  **PATCH `/api/projects/projects/:id`**: Performs partial updates, such as renaming a title or updating the active section, while maintaining revision consistency to prevent stale overwrites.
+*  **POST `/api/projects/projects/:id/cover`**: Stores a raster course cover separately and increments the project revision atomically, then publishes the new revision to connected clients. The browser supplies `expectedRevision`; an outdated cover write returns HTTP 409 without changing the cover or revision.
+*  **PATCH `/api/projects/projects/:id/favorite`**: Updates the favorite flag with the same expected-revision check. An outdated write returns HTTP 409, while a deleted project remains HTTP 404.
 *  **DELETE `/api/projects/projects/:id`**: Removes a project and its associated storage artifacts.
 
 Sources: [apps/backend/tests/routes/projects.test.ts:104-140](../../../apps/backend/tests/routes/projects.test.ts#L104-L140), [apps/backend/src/index.ts:203-210](../../../apps/backend/src/index.ts#L203-L210)
+
+### Library Export Run
+
+The authenticated library export endpoints separate long-running preparation from the final binary transfer:
+
+* **POST `/api/projects/library-exports`**: Starts a run or resumes the user's existing undelivered run and returns its durable progress.
+* **GET `/api/projects/library-exports/:runId`**: Returns the persisted phase, completed and expected project counts, and bytes written through a progress-only database query that does not load checkpoint paths or checksums.
+* **POST `/api/projects/library-exports/:runId/download-access`**: Authenticates the owner and returns a one-use download token whose hash is stored in a separate pending-ticket row for the completed run.
+* **POST `/api/projects/library-exports/:runId/download`**: Accepts the token through a native form submission and atomically consumes that ticket and downloads the archive only if its size and SHA-256 still match the persisted result. Range requests are ignored so a successful one-use transfer always contains the complete archive. Previously issued tickets remain consumable in `downloaded` state until the original retention deadline; that state cannot issue new tickets.
+
+Resumption requires every expected project's persistent incarnation UUID and revision to match; changed, removed, recreated, and pre-identity runs are cancelled rather than restarted with stale checkpoints. The final download is not bound to the frontend's ordinary JSON request timeout and does not pass through a JavaScript response buffer. The route marks the run as delivered after Express reports a successful transfer. A per-run reader reservation spans token claim, integrity verification, and the HTTP response. Files are removed only after every admitted response finishes or disconnects and no valid unclaimed ticket remains; durable cleanup state allows recovery after interruption. New download access is refused after terminal retention expires. The browser reports request submission only, since it cannot observe the native cross-origin file response. Start, retry, polling recovery, and startup recovery share configurable FIFO preparation admission; queued runs remain `running` and are not treated as interrupted executions. Operational logs use the correlation ID, run ID, project ID, phase, outcome, bytes, and elapsed time without recording snapshots, source contents, or credentials. Sources: [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts), [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts), [apps/web/services/projects/httpProjectRepository.ts](../../../apps/web/services/projects/httpProjectRepository.ts)
 
 ### Source and Archive Handling
 

@@ -1,6 +1,7 @@
 import { COURSE_COVER_PROMPT_VERSION } from '@shared/courseCoverPrompt';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { GlobalModelConfig } from '../../src/config/modelConfig.js';
+import { subscribeToProjectRevisions } from '../../src/projects/projectEvents.js';
 import type { ProjectSnapshot, ProjectStore, SavedProjectMeta } from '../../src/projects/types.js';
 
 const {
@@ -106,7 +107,10 @@ const buildStore = (projects: SavedProjectMeta[]) =>
       const meta = projects.find(candidate => candidate.id === id);
       return meta ? snapshotFor(meta) : null;
     }),
-    saveProjectCover: vi.fn(async () => true),
+    saveProjectCover: vi.fn(async (_userId: string, id: string) => {
+      const meta = projects.find(candidate => candidate.id === id);
+      return meta ? { ...meta, revision: (meta.revision ?? 0) + 1 } : null;
+    }),
   }) as unknown as ProjectStore & {
     listProjects: ReturnType<typeof vi.fn>;
     loadProject: ReturnType<typeof vi.fn>;
@@ -147,6 +151,10 @@ describe('course cover regeneration jobs', () => {
   test('starts once, exposes progress, and reuses the completed job during cooldown', async () => {
     const store = buildStore([project('owned')]);
     getProjectStoreMock.mockReturnValue(store);
+    const revisionEvents: Array<{ projectId: string; revision: number }> = [];
+    const unsubscribe = subscribeToProjectRevisions('dedup-user', event =>
+      revisionEvents.push(event)
+    );
     let finishImage!: (value: typeof imageResult) => void;
     generateImageMock.mockReturnValueOnce(
       new Promise(resolve => {
@@ -154,30 +162,35 @@ describe('course cover regeneration jobs', () => {
       })
     );
 
-    const first = startOrResumeCourseCoverRegeneration('dedup-user', 'openrouter');
-    const duplicate = startOrResumeCourseCoverRegeneration('dedup-user', 'openrouter');
+    try {
+      const first = startOrResumeCourseCoverRegeneration('dedup-user', 'openrouter');
+      const duplicate = startOrResumeCourseCoverRegeneration('dedup-user', 'openrouter');
 
-    expect(first.status).toBe('running');
-    expect(duplicate.id).toBe(first.id);
-    await vi.waitFor(() => expect(generateImageMock).toHaveBeenCalledTimes(1));
-    finishImage(imageResult);
-    const completed = await waitForTerminalJob('dedup-user');
-    expect(completed.summary).toEqual({
-      failed: 0,
-      pending: 0,
-      regenerated: 1,
-      skipped: 0,
-      total: 1,
-    });
-    expect(completed.results[0]).toEqual(
-      expect.objectContaining({
-        coverName: `owned-cover-v${COURSE_COVER_PROMPT_VERSION}.png`,
-        projectId: 'owned',
-        status: 'regenerated',
-      })
-    );
-    expect(startOrResumeCourseCoverRegeneration('dedup-user').id).toBe(first.id);
-    expect(store.listProjects).toHaveBeenCalledTimes(1);
+      expect(first.status).toBe('running');
+      expect(duplicate.id).toBe(first.id);
+      await vi.waitFor(() => expect(generateImageMock).toHaveBeenCalledTimes(1));
+      finishImage(imageResult);
+      const completed = await waitForTerminalJob('dedup-user');
+      expect(completed.summary).toEqual({
+        failed: 0,
+        pending: 0,
+        regenerated: 1,
+        skipped: 0,
+        total: 1,
+      });
+      expect(completed.results[0]).toEqual(
+        expect.objectContaining({
+          coverName: `owned-cover-v${COURSE_COVER_PROMPT_VERSION}.png`,
+          projectId: 'owned',
+          status: 'regenerated',
+        })
+      );
+      expect(revisionEvents).toEqual([{ projectId: 'owned', revision: 2 }]);
+      expect(startOrResumeCourseCoverRegeneration('dedup-user').id).toBe(first.id);
+      expect(store.listProjects).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+    }
   });
 
   test('uses fair global scheduling with at most six active operations across users', async () => {
@@ -275,7 +288,7 @@ describe('course cover regeneration jobs', () => {
     expect(renamedStore.saveProjectCover).not.toHaveBeenCalled();
 
     const revisionStore = buildStore([project('revision')]);
-    revisionStore.saveProjectCover.mockResolvedValueOnce(false);
+    revisionStore.saveProjectCover.mockResolvedValueOnce(null);
     getProjectStoreMock.mockReturnValue(revisionStore);
     startOrResumeCourseCoverRegeneration('revision-user');
     const revisionJob = await waitForTerminalJob('revision-user');

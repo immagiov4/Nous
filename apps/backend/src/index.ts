@@ -5,6 +5,7 @@ import cors from 'cors';
 import express from 'express';
 import { resolveCurrentUser, resolveCurrentUserForPasswordSetup } from './auth/currentUser.js';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
+import { type LibraryExportApi, unavailableLibraryExportApi } from './projects/libraryExport.js';
 import {
   type ProjectAssetReader,
   unavailableProjectAssetReader,
@@ -22,6 +23,10 @@ import feedbackRouter from './routes/feedback.js';
 import imagesRouter from './routes/images.js';
 import { createLessonVisualRetryRouter } from './routes/lessonVisualRetries.js';
 import { createLessonWorkflowRouter } from './routes/lessonWorkflows.js';
+import {
+  createLibraryExportDownloadRouter,
+  createLibraryExportRouter,
+} from './routes/libraryExports.js';
 import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
 import { createProjectAssetRouter } from './routes/projectAssets.js';
@@ -181,6 +186,7 @@ export interface CreateAppOptions {
   courseInterviewApi?: CourseInterviewApi;
   lessonGenerationApi?: LessonGenerationApi;
   lessonVisualRetryStarter?: LessonVisualRetryStarter;
+  libraryExportApi?: LibraryExportApi;
   pdfMappingRepairApi?: PdfMappingRepairApi;
   projectAssetReader?: ProjectAssetReader;
   workflowOutboxAdmin?: WorkflowOutboxAdmin;
@@ -255,6 +261,10 @@ export const createApp = (options: CreateAppOptions = {}) => {
   );
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
   app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
+  app.use(
+    '/api/projects',
+    createLibraryExportDownloadRouter(options.libraryExportApi ?? unavailableLibraryExportApi)
+  );
   app.use('/api/projects', resolveCurrentUser);
   app.put(
     '/api/projects/import/chunks/:uploadId/:chunkIndex',
@@ -318,6 +328,10 @@ export const createApp = (options: CreateAppOptions = {}) => {
   app.use(
     '/api/projects',
     createProjectAssetRouter(options.projectAssetReader ?? unavailableProjectAssetReader)
+  );
+  app.use(
+    '/api/projects',
+    createLibraryExportRouter(options.libraryExportApi ?? unavailableLibraryExportApi)
   );
   app.use(
     '/api/projects',
