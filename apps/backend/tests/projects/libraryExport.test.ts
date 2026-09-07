@@ -51,7 +51,7 @@ const createSnapshot = (id: string): ProjectSnapshot => ({
   version: '4.1',
 });
 
-test('recovers queued users in FIFO order after shutdown and does not retry failed runs at startup', async () => {
+test('stops a pending project read and recovers active and queued users after shutdown', async () => {
   const projectStore = new InMemoryProjectStore();
   const owners = ['before-shutdown', 'queued-first', 'queued-second'];
   for (const owner of owners) await projectStore.saveProject(owner, createSnapshot(owner));
@@ -81,21 +81,82 @@ test('recovers queued users in FIFO order after shutdown and does not retry fail
   const second = await firstProcess.startOrResume(owners[1], 'queued-first');
   const third = await firstProcess.startOrResume(owners[2], 'queued-second');
   const closing = firstProcess.close();
-  release.resolve();
-  await closing;
+  let closed = false;
+  void closing.then(() => {
+    closed = true;
+  });
+  try {
+    await vi.waitFor(() => expect(closed).toBe(true));
+  } finally {
+    release.resolve();
+    await closing;
+  }
   expect(exported).toEqual([owners[0]]);
-  expect(runStore.runs.get(first.runId)?.status).toBe('failed');
+  expect(runStore.runs.get(first.runId)?.status).toBe('running');
   expect(runStore.runs.get(second.runId)?.status).toBe('running');
+  vi.mocked(projectStore.exportProject).mockImplementation(async (owner, id) => {
+    exported.push(owner);
+    return exportProject(owner, id);
+  });
   const restarted = createLibraryExportApi(dependencies);
   await restarted.recoverPendingRuns();
   await vi.waitFor(() =>
-    expect([second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
+    expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
+      'completed',
       'completed',
       'completed',
     ])
   );
-  expect(exported).toEqual(owners);
-  expect(runStore.runs.get(first.runId)?.status).toBe('failed');
+  expect(exported).toEqual([owners[0], ...owners]);
+});
+
+test('rejects pending and queued admission during shutdown without creating another run', async () => {
+  const projectStore = new InMemoryProjectStore();
+  await projectStore.saveProject(userId, createSnapshot('retained-project'));
+  const runStore = new MemoryLibraryExportRunStore();
+  const workspace = new LibraryExportWorkspace(temporaryRoot);
+  const config = readLibraryExportConfig({});
+  const api = createLibraryExportApi({
+    archiveWorkspace: workspace,
+    assetReader: { readActive: () => Promise.reject(new Error('Unexpected asset read.')) },
+    projectStore,
+    runStore,
+    config,
+  });
+  const first = await api.startOrResume(userId, 'first-request');
+  await vi.waitFor(() => expect(runStore.runs.get(first.runId)?.status).toBe('completed'));
+  runStore.terminalTimes.set(first.runId, Date.now() - config.retentionMs);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const cancelExpiredRun = runStore.cancelExpiredRun.bind(runStore);
+  vi.spyOn(runStore, 'cancelExpiredRun').mockImplementation(async (...args) => {
+    entered.resolve();
+    await release.promise;
+    return cancelExpiredRun(...args);
+  });
+  const createRun = vi.spyOn(runStore, 'createRun');
+  const readSnapshot = vi.spyOn(projectStore, 'readLibraryExportSnapshot');
+  const removeRun = vi.spyOn(workspace, 'removeRun');
+  const pending = api.startOrResume(userId, 'pending-request');
+  const queued = api.startOrResume(userId, 'queued-request');
+  let settled: PromiseSettledResult<unknown>[] | undefined;
+  const admissions = Promise.allSettled([pending, queued]).then(results => {
+    settled = results;
+  });
+  await entered.promise;
+  await api.close();
+  try {
+    await vi.waitFor(() =>
+      expect(settled?.map(result => result.status)).toEqual(['rejected', 'rejected'])
+    );
+  } finally {
+    release.resolve();
+    await admissions;
+  }
+  await expect(api.startOrResume(userId, 'after-shutdown')).rejects.toThrow();
+  expect(createRun).not.toHaveBeenCalled();
+  expect(readSnapshot).not.toHaveBeenCalled();
+  expect(removeRun).not.toHaveBeenCalled();
 });
 
 test('starts a fresh library snapshot after the previous completed export expires', async () => {

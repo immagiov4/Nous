@@ -3,6 +3,7 @@ import { LIBRARY_ARCHIVE_EXTENSION } from '@shared/libraryExportContract';
 
 import type { LibraryExportConfig } from './libraryExportConfig.js';
 import type { LibraryExportCoordinator } from './libraryExportCoordinator.js';
+import { createLibraryExportOperations } from './libraryExportOperations.js';
 import type { LibraryExportRunStore } from './libraryExportRunStore.js';
 import type { LibraryExportWorkspace } from './libraryExportWorkspace.js';
 
@@ -32,15 +33,23 @@ export const createLibraryExportDelivery = ({
   workspace,
 }: DeliveryDependencies) => {
   const cutoff = () => new Date(Date.now() - config.retentionMs);
+  const shutdown = createLibraryExportOperations();
+  const { runStep } = shutdown;
   let timer: ReturnType<typeof setInterval> | undefined;
   let cleanup: Promise<void> | undefined;
+  let closed = false;
 
   const removeRun = async (runId: string): Promise<void> => {
+    if (closed) return;
+    if (await runStore.hasUnclaimedDownloadTickets(runId, cutoff())) return;
+    if (closed) return;
     await workspace.removeRun(runId);
+    if (closed) return;
     await runStore.markCleanupCompleted(runId);
   };
 
   const expireLocked = async (runId: string): Promise<boolean> => {
+    if (closed) return false;
     if (coordinator.owns(runId) || coordinator.hasReaders(runId)) return false;
     if (!(await runStore.cancelExpiredRun(runId, cutoff()))) return false;
     await removeRun(runId).catch(error => logCleanupFailure(error, runId));
@@ -64,10 +73,14 @@ export const createLibraryExportDelivery = ({
   };
 
   const sweep = async (): Promise<void> => {
+    if (closed) return;
     for (const runId of await runStore.listExpiredRunIds(cutoff())) {
+      if (closed) return;
       await expireRun(runId).catch(error => logCleanupFailure(error, runId));
     }
+    if (closed) return;
     for (const runId of await runStore.listPendingCleanupRunIds()) {
+      if (closed) return;
       await cleanupRun(runId).catch(error => logCleanupFailure(error, runId));
     }
   };
@@ -81,33 +94,52 @@ export const createLibraryExportDelivery = ({
   };
 
   const createDownloadAccess = (userId: string, runId: string): Promise<string | null> =>
-    coordinator.exclusively(runId, async () => {
-      const run = await runStore.getRun(userId, runId);
-      if (!run || run.status !== 'completed') return null;
-      await expireLocked(runId);
-      const token = randomUUID();
-      return (await runStore.authorizeDownload(userId, runId, hashToken(token), cutoff()))
-        ? token
-        : null;
-    });
+    runStep(() =>
+      coordinator.exclusively(runId, async () => {
+        const run = await runStep(() => runStore.getRun(userId, runId));
+        if (!run || run.status !== 'completed') return null;
+        await runStep(() => expireLocked(runId));
+        const token = randomUUID();
+        return (await runStep(() =>
+          runStore.authorizeDownload(userId, runId, hashToken(token), cutoff())
+        ))
+          ? token
+          : null;
+      })
+    );
 
   const getDownload = async (
     runId: string,
     token: string
   ): Promise<LibraryExportDownload | null> => {
-    const admitted = await coordinator.exclusively(runId, async () => {
-      await expireLocked(runId);
-      const release = coordinator.acquireReader(runId);
-      try {
-        const run = await runStore.claimDownload(runId, hashToken(token), cutoff());
-        if (run?.archiveBytes && run.archiveSha256)
-          return { run, release, archiveBytes: run.archiveBytes, archiveSha256: run.archiveSha256 };
-        release();
-        return null;
-      } catch (error) {
-        release();
-        throw error;
-      }
+    let releaseAdmission: (() => void) | undefined;
+    const admitted = await runStep(() =>
+      coordinator.exclusively(runId, async () => {
+        await runStep(() => expireLocked(runId));
+        const release = coordinator.acquireReader(runId);
+        releaseAdmission = release;
+        try {
+          const run = await runStep(() =>
+            runStore.claimDownload(runId, hashToken(token), cutoff())
+          );
+          if (run?.archiveBytes && run.archiveSha256)
+            return {
+              run,
+              release,
+              archiveBytes: run.archiveBytes,
+              archiveSha256: run.archiveSha256,
+            };
+          release();
+          return null;
+        } catch (error) {
+          release();
+          throw error;
+        }
+      })
+    ).catch(error => {
+      // The outer lock wait can abort immediately after the reader has been acquired.
+      releaseAdmission?.();
+      throw error;
     });
     if (!admitted) return null;
     const { run, release, archiveBytes, archiveSha256 } = admitted;
@@ -129,19 +161,29 @@ export const createLibraryExportDelivery = ({
     };
     try {
       if (
-        !(await workspace.verifyLibraryArchive(runId, {
-          bytes: archiveBytes,
-          sha256: archiveSha256,
-        }))
+        !(await runStep(() =>
+          workspace.verifyLibraryArchive(
+            runId,
+            {
+              bytes: archiveBytes,
+              sha256: archiveSha256,
+            },
+            shutdown.signal
+          )
+        ))
       ) {
-        await coordinator.exclusively(runId, () =>
-          runStore.markFailed(runId, {
-            code: 'LIBRARY_EXPORT_INTEGRITY_FAILED',
-            detail: 'The completed library archive no longer matches its persisted checksum.',
-            phase: 'integrity-check',
-          })
+        await runStep(() =>
+          coordinator.exclusively(runId, () =>
+            runStep(() =>
+              runStore.markFailed(runId, {
+                code: 'LIBRARY_EXPORT_INTEGRITY_FAILED',
+                detail: 'The completed library archive no longer matches its persisted checksum.',
+                phase: 'integrity-check',
+              })
+            )
+          )
         );
-        await finish(false);
+        await runStep(() => finish(false));
         return null;
       }
       return {
@@ -152,6 +194,10 @@ export const createLibraryExportDelivery = ({
         finish,
       };
     } catch (error) {
+      if (shutdown.signal.aborted) {
+        release();
+        throw error;
+      }
       await finish(false);
       throw error;
     }
@@ -165,15 +211,17 @@ export const createLibraryExportDelivery = ({
     getDownload,
     async start() {
       await cleanupPendingRuns();
+      if (closed) return;
       timer ??= setInterval(() => {
         void cleanupPendingRuns().catch(error => logCleanupFailure(error));
       }, config.cleanupIntervalMs);
       timer.unref();
     },
-    async close() {
+    close() {
+      closed = true;
+      shutdown.abort();
       clearInterval(timer);
       timer = undefined;
-      await cleanup;
     },
   };
 };

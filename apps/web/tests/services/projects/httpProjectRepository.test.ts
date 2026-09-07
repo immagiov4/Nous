@@ -1039,6 +1039,20 @@ test('HttpProjectRepository does not mislabel an unrelated 409 as a revision con
   });
 });
 
+test('HttpProjectRepository returns the authoritative cover write revision', async () => {
+  const meta = { id: 'project-1', revision: 8 };
+  fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, meta }) });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(
+    repository.saveProjectCover('project-1', {
+      data: 'iVBORw0KGgo=',
+      mimeType: 'image/png',
+      name: 'cover.png',
+    })
+  ).resolves.toEqual(meta);
+});
+
 test('HttpProjectRepository distinguishes a cover revision conflict', async () => {
   fetchMock.mockResolvedValueOnce({
     ok: false,

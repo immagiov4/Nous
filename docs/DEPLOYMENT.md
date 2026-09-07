@@ -152,6 +152,26 @@ releases them, on success, error, or disconnection. New tokens and downloads are
 Admission and active-reader coordination are process-local; do not add replicas sharing this export
 volume without shared coordination. Source objects are never removed by export cleanup.
 
+The authoritative defaults are in [libraryExportConfig.ts](../apps/backend/src/projects/libraryExportConfig.ts).
+Every issued one-use ticket is persisted separately. After a successful download, previously issued
+tickets remain valid until the archive's original retention deadline, but no new tickets are issued.
+Files remain while valid unclaimed tickets or active readers exist; abandoned tickets expire at the
+same deadline without extending retention. The additive ticket migration transfers any prior
+outstanding hash and retains its historical column unused by the new backend. Apply migrations before
+starting the new backend; do not run mixed backend versions against the shared export volume.
+
+Shutdown stops accepting new HTTP connections first, aborts export work at asynchronous boundaries,
+and interrupts local archive streams without waiting for an entire remote read or cleanup pass.
+Already persisted project checkpoints and pending cleanup records remain recoverable after restart.
+The browser confirms only that it submitted the native download request: it cannot observe the
+cross-origin file response or confirm that a file reached the user's download directory.
+
+Migration `20260904033000_add_library_export_project_revisions.sql` adds a non-null UUID with a
+volatile default to `projects`, requiring a table rewrite and an exclusive lock. The deployment
+command applies migrations before recreating the backend, so assess the table size and arrange an
+appropriate maintenance window before applying this migration to a populated installation. No lock
+duration has been measured for production; the isolated verification does not establish one.
+
 Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is
 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable

@@ -2,6 +2,26 @@ import { describe, expect, test, vi } from 'vitest';
 import { closeBackendResources } from '../src/backendShutdown.ts';
 
 describe('closeBackendResources', () => {
+  test('starts closing HTTP before awaiting a pending export cleanup', async () => {
+    const exportsClosed = Promise.withResolvers<void>();
+    const closeHttpServer = vi.fn(async () => undefined);
+    const closeLibraryExports = vi.fn(() => exportsClosed.promise);
+    const closing = closeBackendResources({
+      closeHttpServer,
+      closeLibraryExports,
+      closeCodex: vi.fn(async () => undefined),
+      closeWorkflow: vi.fn(async () => undefined),
+      stopFeedback: vi.fn(),
+    });
+    try {
+      await vi.waitFor(() => expect(closeLibraryExports).toHaveBeenCalledOnce());
+      expect(closeHttpServer).toHaveBeenCalledOnce();
+    } finally {
+      exportsClosed.resolve();
+      await closing;
+    }
+  });
+
   test('closes every resource even when an earlier cleanup fails', async () => {
     const workflowFailure = new Error('worker stop failed');
     const stopFeedback = vi.fn();

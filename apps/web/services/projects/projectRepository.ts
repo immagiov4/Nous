@@ -109,7 +109,7 @@ export interface ProjectRepository {
     snapshot: ProjectSnapshot,
     options?: ProjectSaveOptions
   ) => Promise<ProjectSaveResult>;
-  saveProjectCover: (id: ProjectId, cover: FileData) => Promise<void>;
+  saveProjectCover: (id: ProjectId, cover: FileData) => Promise<SavedProjectMeta>;
   setProjectFavorite: (id: ProjectId, isFavorite: boolean) => Promise<SavedProjectMeta>;
   patchProject: (
     id: ProjectId,

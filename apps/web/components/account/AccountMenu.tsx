@@ -167,7 +167,9 @@ const AccountPanel = ({
     beginAction('backup-export');
     try {
       const courseCount = await onExportLibraryBackup(setLibraryExportProgress);
-      setSuccessMessage(t('Download del backup di {courseCount} corsi avviato.', { courseCount }));
+      setSuccessMessage(
+        t('Richiesta di scaricamento del backup di {courseCount} corsi inviata.', { courseCount })
+      );
     } catch (error) {
       console.error('[Nous][Account] Library backup export failed.', error);
       setErrorMessage(t('Esportazione del backup completo non riuscita. Riprova.'));

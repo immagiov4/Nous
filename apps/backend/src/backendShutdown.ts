@@ -24,11 +24,12 @@ export const closeBackendResources = async ({
     }
   };
 
+  const httpClosed = attempt(closeHttpServer);
   await attempt(stopFeedback);
   await attempt(closeLibraryExports);
   await attempt(closeCodex);
   await attempt(closeWorkflow);
-  await attempt(closeHttpServer);
+  await httpClosed;
 
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Backend shutdown did not close every resource cleanly.');

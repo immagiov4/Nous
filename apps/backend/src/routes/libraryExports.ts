@@ -7,6 +7,7 @@ import { createCorrelationId, getCorrelationId } from '../workflows/requestObser
 const EXPORT_START_ERROR = 'Impossibile avviare il backup completo.';
 const EXPORT_STATUS_ERROR = 'Impossibile leggere lo stato del backup completo.';
 const EXPORT_DOWNLOAD_ERROR = 'Il backup completo non è pronto per il download.';
+const EXPORT_DELIVERY_ERROR = 'Impossibile inviare il backup completo. Riprova.';
 
 const getRouteParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] || '' : value || '';
@@ -66,7 +67,7 @@ export const createLibraryExportRouter = (api: LibraryExportApi): Router => {
         errorType: getSafeErrorType(error),
         runId,
       });
-      res.status(500).json({ error: EXPORT_DOWNLOAD_ERROR, success: false });
+      res.status(500).json({ error: EXPORT_DELIVERY_ERROR, success: false });
     }
   });
 
@@ -113,7 +114,7 @@ export const createLibraryExportDownloadRouter = (api: LibraryExportApi): Router
                 userId: download.userId,
               });
               if (!res.headersSent) {
-                res.status(500).json({ error: EXPORT_DOWNLOAD_ERROR, success: false });
+                res.status(500).json({ error: EXPORT_DELIVERY_ERROR, success: false });
               } else {
                 next(error);
               }
@@ -130,7 +131,7 @@ export const createLibraryExportDownloadRouter = (api: LibraryExportApi): Router
           runId,
         });
         if (!res.headersSent) {
-          res.status(500).json({ error: EXPORT_DOWNLOAD_ERROR, success: false });
+          res.status(500).json({ error: EXPORT_DELIVERY_ERROR, success: false });
         } else {
           next(error);
         }

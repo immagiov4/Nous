@@ -102,6 +102,51 @@ test('retains overlapping readers until the last response and releases each resp
   expect(store.cleanupCompleted).toBe(true);
 });
 
+test('preserves both issued tickets across the first completion and a process restart', async () => {
+  const firstToken = await delivery.createDownloadAccess(owner, runId);
+  const secondToken = await delivery.createDownloadAccess(owner, runId);
+  expect(firstToken).not.toBe(secondToken);
+  const first = await delivery.getDownload(runId, firstToken ?? '');
+  expect(first).not.toBeNull();
+  await first?.finish(true);
+  expect(store.run?.status).toBe('downloaded');
+  expect(store.cleanupCompleted).toBe(false);
+  await expect(readFile(workspace.getLibraryArchivePath(runId))).resolves.not.toHaveLength(0);
+  await delivery.close();
+  await coordinator.close();
+  coordinator = new LibraryExportCoordinator(1);
+  delivery = createLibraryExportDelivery({
+    coordinator,
+    workspace,
+    runStore: store,
+    config: {
+      executionsGlobal: 1,
+      retentionMs: TEST_RETENTION_MS,
+      cleanupIntervalMs: TEST_CLEANUP_INTERVAL_MS,
+    },
+  });
+  await delivery.start();
+  expect(store.cleanupCompleted).toBe(false);
+  expect(await delivery.createDownloadAccess(owner, runId)).toBeNull();
+  expect(await delivery.getDownload(runId, firstToken ?? '')).toBeNull();
+  const second = await delivery.getDownload(runId, secondToken ?? '');
+  expect(second).not.toBeNull();
+  expect(await delivery.getDownload(runId, secondToken ?? '')).toBeNull();
+  await second?.finish(true);
+  expect(store.cleanupCompleted).toBe(true);
+});
+
+test('reclaims a delivered archive when its remaining issued ticket reaches the original deadline', async () => {
+  const first = await admitDownload();
+  const token = await delivery.createDownloadAccess(owner, runId);
+  await first.finish(true);
+  expect(store.cleanupCompleted).toBe(false);
+  advancePastRetention();
+  await delivery.cleanupPendingRuns();
+  expect(store.cleanupCompleted).toBe(true);
+  expect(await delivery.getDownload(runId, token ?? '')).toBeNull();
+});
+
 test('protects a reader during asynchronous token claim and integrity verification', async () => {
   const token = await delivery.createDownloadAccess(owner, runId);
   const claimEntered = Promise.withResolvers<void>();
@@ -224,4 +269,98 @@ test('periodic cleanup does not overlap and stops when closed', async () => {
   await delivery.close();
   await vi.advanceTimersByTimeAsync(TEST_CLEANUP_INTERVAL_MS);
   expect(list).toHaveBeenCalledTimes(1);
+});
+
+test('shutdown releases an admission reader while archive verification is pending', async () => {
+  const token = await delivery.createDownloadAccess(owner, runId);
+  const entered = Promise.withResolvers<void>();
+  const verified = Promise.withResolvers<boolean>();
+  vi.spyOn(workspace, 'verifyLibraryArchive').mockImplementation(() => {
+    entered.resolve();
+    return verified.promise;
+  });
+  const failed = vi.spyOn(store, 'markFailed');
+  const downloading = delivery.getDownload(runId, token ?? '');
+  const rejected = expect(downloading).rejects.toThrow();
+  await entered.promise;
+  expect(coordinator.hasReaders(runId)).toBe(true);
+  delivery.close();
+  await rejected;
+  expect(coordinator.hasReaders(runId)).toBe(false);
+  verified.resolve(false);
+  await Promise.resolve();
+  expect(failed).not.toHaveBeenCalled();
+});
+
+test('shutdown lets an already admitted response finish without deleting its files', async () => {
+  const download = await admitDownload();
+  const remove = vi.spyOn(workspace, 'removeRun');
+  delivery.close();
+  expect(coordinator.hasReaders(runId)).toBe(true);
+  await download.finish(true);
+  expect(coordinator.hasReaders(runId)).toBe(false);
+  expect(store.run?.status).toBe('downloaded');
+  expect(remove).not.toHaveBeenCalled();
+});
+
+test.each([
+  'access',
+  'download',
+] as const)('stops pending %s admission before ticket mutation during shutdown', async admission => {
+  const token = await delivery.createDownloadAccess(owner, runId);
+  advancePastRetention();
+  const entered = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const cancelExpired = store.cancelExpiredRun.bind(store);
+  vi.spyOn(store, 'cancelExpiredRun').mockImplementation(async (...args) => {
+    entered.resolve();
+    await released.promise;
+    return cancelExpired(...args);
+  });
+  const authorize = vi.spyOn(store, 'authorizeDownload');
+  const claim = vi.spyOn(store, 'claimDownload');
+  const pending =
+    admission === 'access'
+      ? delivery.createDownloadAccess(owner, runId)
+      : delivery.getDownload(runId, token ?? '');
+  let rejected = false;
+  const settled = pending.catch(() => {
+    rejected = true;
+  });
+  await entered.promise;
+  delivery.close();
+  try {
+    await vi.waitFor(() => expect(rejected).toBe(true));
+  } finally {
+    released.resolve();
+    await settled;
+  }
+  expect(authorize).not.toHaveBeenCalled();
+  expect(claim).not.toHaveBeenCalled();
+  expect(coordinator.hasReaders(runId)).toBe(false);
+});
+
+test('closes without waiting for a pending cleanup query or starting later cleanup mutations', async () => {
+  const entered = Promise.withResolvers<void>();
+  const listed = Promise.withResolvers<string[]>();
+  vi.spyOn(store, 'listExpiredRunIds').mockImplementation(() => {
+    entered.resolve();
+    return listed.promise;
+  });
+  const cancel = vi.spyOn(store, 'cancelExpiredRun');
+  const remove = vi.spyOn(workspace, 'removeRun');
+  const cleaning = delivery.cleanupPendingRuns();
+  await entered.promise;
+  let closed = false;
+  const closing = Promise.resolve(delivery.close()).then(() => {
+    closed = true;
+  });
+  try {
+    await vi.waitFor(() => expect(closed).toBe(true));
+  } finally {
+    listed.resolve([runId]);
+    await Promise.all([closing, cleaning]);
+  }
+  expect(cancel).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
 });

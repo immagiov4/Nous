@@ -1792,6 +1792,63 @@ describe('useProjectLibrary', () => {
     });
   });
 
+  test.each([
+    'stored',
+    'generated',
+  ] as const)('serializes %s cover persistence with the next edit without waiting for revision events', async origin => {
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    repositoryMocks.listProjects.mockResolvedValue(origin === 'stored' ? [initialMeta] : []);
+    let resolveCover!: (meta: SavedProjectMeta) => void;
+    const savedCover = new Promise<SavedProjectMeta>(resolve => {
+      resolveCover = resolve;
+    });
+    repositoryMocks.saveProjectCover.mockReturnValue(savedCover);
+    repositoryMocks.patchProject.mockResolvedValue({ ...initialMeta, revision: 3 });
+    const generation = vi
+      .spyOn(await import('../../../services/projects/courseCover.ts'), 'ensureProjectCover')
+      .mockImplementation(async ({ projectId, saveCover }) => {
+        await saveCover(projectId, cover);
+        return 'data:image/png;base64,iVBORw0KGgo=';
+      });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    try {
+      await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+      act(() => result.current.setCurrentProjectId('project-1'));
+      let coverWrite: Promise<unknown>;
+      act(() => {
+        coverWrite =
+          origin === 'stored'
+            ? result.current.saveStoredProjectCover('project-1', cover)
+            : result.current.persistSnapshot(buildSnapshot('project-1'));
+      });
+      await waitFor(() => expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce());
+      let edit!: Promise<SavedProjectMeta>;
+      act(() => {
+        edit = result.current.renameProject('project-1', 'Updated title');
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(repositoryMocks.patchProject).not.toHaveBeenCalled();
+      await act(async () => {
+        resolveCover({ ...initialMeta, revision: 2 });
+        await coverWrite;
+        await edit;
+      });
+      expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toEqual({ expectedRevision: 2 });
+      expect(result.current.savedProjects[0]?.revision).toBe(3);
+    } finally {
+      resolveCover({ ...initialMeta, revision: 2 });
+      generation.mockRestore();
+    }
+  });
+
   test('uses the remote deletion outcome when saving a cover receives 404', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 2);
     repositoryMocks.listProjects.mockResolvedValue([initialMeta]);

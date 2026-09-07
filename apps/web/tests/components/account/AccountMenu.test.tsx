@@ -210,7 +210,7 @@ describe('AccountMenu', () => {
     finishExport();
     await waitFor(() =>
       expect(screen.getByRole('status').textContent).toContain(
-        'Download del backup di 2 corsi avviato.'
+        'Richiesta di scaricamento del backup di 2 corsi inviata.'
       )
     );
 

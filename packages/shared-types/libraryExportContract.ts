@@ -49,14 +49,17 @@ export const findLibraryOrganizationIssue = (
   }
 
   const folderById = new Map(folders.map(folder => [folder.id, folder]));
+  const checked = new Set<string>();
   for (const folder of folders) {
     const visited = new Set<string>();
     let current: LibraryFolder | undefined = folder;
-    while (current?.parentFolderId) {
+    while (current && !checked.has(current.id)) {
       if (visited.has(current.id)) return 'folder-cycle';
       visited.add(current.id);
-      current = folderById.get(current.parentFolderId);
+      const parentId: string | null = current.parentFolderId;
+      current = parentId === null ? undefined : folderById.get(parentId);
     }
+    for (const id of visited) checked.add(id);
   }
   return null;
 };

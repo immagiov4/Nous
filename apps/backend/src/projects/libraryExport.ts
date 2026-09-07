@@ -13,6 +13,7 @@ import {
   PROJECT_BACKUP_MAX_ENTRIES,
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+  type ProjectBackupAssetInput,
 } from '@shared/projectBackupArchive';
 import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
 import { type LibraryExportConfig, readLibraryExportConfig } from './libraryExportConfig.js';
@@ -21,6 +22,7 @@ import {
   createLibraryExportDelivery,
   type LibraryExportDownload,
 } from './libraryExportDelivery.js';
+import { createLibraryExportOperations } from './libraryExportOperations.js';
 import type {
   LibraryExportExpectedProject,
   LibraryExportProjectCheckpoint,
@@ -176,6 +178,8 @@ export const createLibraryExportApi = ({
   runStore,
 }: CreateLibraryExportApiDependencies): LibraryExportApi => {
   const coordinator = new LibraryExportCoordinator(config.executionsGlobal);
+  const shutdown = createLibraryExportOperations();
+  const { runStep } = shutdown;
   const delivery = createLibraryExportDelivery({
     config,
     coordinator,
@@ -188,7 +192,9 @@ export const createLibraryExportApi = ({
     expectedProject: LibraryExportExpectedProject
   ): Promise<Uint8Array> => {
     const expectedIdentity = getProjectIdentity(expectedProject);
-    const loadedProject = await projectStore.loadProjectWithRevision(userId, expectedProject.id);
+    const loadedProject = await runStep(() =>
+      projectStore.loadProjectWithRevision(userId, expectedProject.id)
+    );
     if (!loadedProject) throw new Error('Project selected for library export was not found.');
     if (
       loadedProject.incarnationId !== expectedIdentity.incarnationId ||
@@ -196,20 +202,24 @@ export const createLibraryExportApi = ({
     ) {
       throw new Error('Project selected for library export changed after the run started.');
     }
-    const project = await projectStore.exportProject(userId, expectedProject.id);
+    const project = await runStep(() => projectStore.exportProject(userId, expectedProject.id));
     if (!project) throw new Error('Project selected for library export was not found.');
-    const assets = [];
+    const assets: ProjectBackupAssetInput[] = [];
     for (const ref of collectProjectAssetReferences(project)) {
-      const asset = await assetReader.readActive({
-        assetId: ref.id,
-        projectId: expectedProject.id,
-        userId,
-      });
+      const asset = await runStep(() =>
+        assetReader.readActive({
+          assetId: ref.id,
+          projectId: expectedProject.id,
+          userId,
+        })
+      );
       if (!asset) throw new Error('A project asset selected for library export was not found.');
       assets.push({ bytes: asset.bytes, ref });
     }
-    const cover = await projectStore.loadProjectCover(userId, expectedProject.id);
-    return createProjectBackupArchive({ assets, cover, project }, PROJECT_ARCHIVE_LIMITS);
+    const cover = await runStep(() => projectStore.loadProjectCover(userId, expectedProject.id));
+    return runStep(() =>
+      createProjectBackupArchive({ assets, cover, project }, PROJECT_ARCHIVE_LIMITS)
+    );
   };
 
   const assertExpectedProjectsAreCurrent = async (
@@ -218,7 +228,7 @@ export const createLibraryExportApi = ({
   ): Promise<void> => {
     const issue = getExpectedProjectIssue(
       expectedProjects,
-      await projectStore.listLibraryExportProjects(userId)
+      await runStep(() => projectStore.listLibraryExportProjects(userId))
     );
     if (issue === 'unavailable') {
       throw new Error('A project selected for library export is unavailable.');
@@ -236,7 +246,7 @@ export const createLibraryExportApi = ({
     let phase: LibraryExportPhase = 'preparing';
     let currentProjectId: string | undefined;
     try {
-      let run = await runStore.getRun(userId, runId);
+      let run = await runStep(() => runStore.getRun(userId, runId));
       if (!run) throw new Error('Library export run was not found.');
       await assertExpectedProjectsAreCurrent(userId, run.expectedProjects);
       const checkpointByProjectId = new Map(
@@ -246,21 +256,21 @@ export const createLibraryExportApi = ({
       for (const [projectIndex, project] of run.expectedProjects.entries()) {
         currentProjectId = project.id;
         phase = 'project-archive';
-        await runStore.markRunning(runId, phase, currentProjectId);
+        await runStep(() => runStore.markRunning(runId, phase, currentProjectId));
         const checkpoint = checkpointByProjectId.get(project.id);
         const expectedIdentity = getProjectIdentity(project);
         if (
           checkpoint?.projectIncarnationId === expectedIdentity.incarnationId &&
           checkpoint?.projectRevision === expectedIdentity.revision &&
-          (await archiveWorkspace.matchesProjectCheckpoint(runId, checkpoint))
+          (await runStep(() =>
+            archiveWorkspace.matchesProjectCheckpoint(runId, checkpoint, shutdown.signal)
+          ))
         ) {
           continue;
         }
         const projectArchive = await createProjectArchive(userId, project);
-        const archive = await archiveWorkspace.writeProjectArchive(
-          runId,
-          project.path,
-          projectArchive
+        const archive = await runStep(() =>
+          archiveWorkspace.writeProjectArchive(runId, project.path, projectArchive, shutdown.signal)
         );
         const nextCheckpoint: LibraryExportProjectCheckpoint = {
           archiveBytes: archive.bytes,
@@ -271,7 +281,7 @@ export const createLibraryExportApi = ({
           projectIndex,
           projectRevision: expectedIdentity.revision,
         };
-        await runStore.checkpointProject(runId, nextCheckpoint);
+        await runStep(() => runStore.checkpointProject(runId, nextCheckpoint));
         checkpointByProjectId.set(project.id, nextCheckpoint);
         console.info('[LibraryExport] Project checkpoint completed.', {
           archiveBytes: archive.bytes,
@@ -285,7 +295,7 @@ export const createLibraryExportApi = ({
         });
       }
 
-      run = await runStore.getRun(userId, runId);
+      run = await runStep(() => runStore.getRun(userId, runId));
       if (!run || run.checkpoints.length !== run.expectedProjects.length) {
         throw new Error('Library export checkpoints are incomplete.');
       }
@@ -300,15 +310,21 @@ export const createLibraryExportApi = ({
       };
       currentProjectId = undefined;
       phase = 'library-archive';
-      await runStore.markRunning(runId, phase);
-      const archive = await archiveWorkspace.createLibraryArchive(runId, manifest, checkpoints);
+      await runStep(() => runStore.markRunning(runId, phase));
+      const archive = await runStep(() =>
+        archiveWorkspace.createLibraryArchive(runId, manifest, checkpoints, shutdown.signal)
+      );
       phase = 'integrity-check';
-      await runStore.markRunning(runId, phase);
-      if (!(await archiveWorkspace.verifyLibraryArchive(runId, archive))) {
+      await runStep(() => runStore.markRunning(runId, phase));
+      if (
+        !(await runStep(() =>
+          archiveWorkspace.verifyLibraryArchive(runId, archive, shutdown.signal)
+        ))
+      ) {
         throw new Error('Library export archive checksum verification failed.');
       }
       await assertExpectedProjectsAreCurrent(userId, run.expectedProjects);
-      if (!(await runStore.markCompleted(runId, archive))) {
+      if (!(await runStep(() => runStore.markCompleted(runId, archive)))) {
         throw new Error('A project selected for library export changed before completion.');
       }
       console.info('[LibraryExport] Archive completed.', {
@@ -321,10 +337,11 @@ export const createLibraryExportApi = ({
         userId,
       });
     } catch {
+      if (shutdown.signal.aborted) return;
       const code = getErrorCode(phase);
       const detail = 'Library export failed.';
-      await runStore.markFailed(runId, { code, detail, phase });
-      const run = await runStore.getRun(userId, runId);
+      await runStep(() => runStore.markFailed(runId, { code, detail, phase }));
+      const run = await runStep(() => runStore.getRun(userId, runId));
       console.error('[LibraryExport] Archive failed.', {
         bytesWritten: run?.bytesWritten ?? 0,
         code,
@@ -340,6 +357,7 @@ export const createLibraryExportApi = ({
   };
 
   const runInBackground = (run: LibraryExportRunRecord, outcome: 'resumed' | 'started'): void => {
+    shutdown.signal.throwIfAborted();
     if (coordinator.owns(run.id)) return;
     const { id, userId, correlationId, phase } = run;
     console.info('[LibraryExport] Run scheduled.', {
@@ -351,6 +369,7 @@ export const createLibraryExportApi = ({
     });
     coordinator.schedule(id, () =>
       execute(id, userId).catch(error => {
+        if (shutdown.signal.aborted) return;
         console.error('[LibraryExport] Background persistence failed.', {
           errorType: getErrorType(error),
           exportRunId: id,
@@ -366,36 +385,47 @@ export const createLibraryExportApi = ({
     runId: string,
     outcome: 'resumed' | 'started' = 'resumed'
   ): Promise<LibraryExportRunRecord | null> => {
-    const current = await coordinator.exclusively(runId, async () => {
-      const run = await runStore.getRun(userId, runId);
-      if (!run || coordinator.owns(runId) || (run.status !== 'running' && run.status !== 'failed'))
-        return run;
-      if (outcome === 'resumed') {
-        const issue = getExpectedProjectIssue(
-          run.expectedProjects,
-          await projectStore.listLibraryExportProjects(userId)
-        );
-        if (issue) {
-          await runStore.markCancelled(runId, {
-            ...getResumeError(issue),
-            phase: run.errorPhase ?? run.phase,
-          });
-          return runStore.getRun(userId, runId);
+    const current = await runStep(() =>
+      coordinator.exclusively(runId, async () => {
+        const run = await runStep(() => runStore.getRun(userId, runId));
+        if (
+          !run ||
+          coordinator.owns(runId) ||
+          (run.status !== 'running' && run.status !== 'failed')
+        )
+          return run;
+        if (outcome === 'resumed') {
+          const issue = getExpectedProjectIssue(
+            run.expectedProjects,
+            await runStep(() => projectStore.listLibraryExportProjects(userId))
+          );
+          if (issue) {
+            await runStep(() =>
+              runStore.markCancelled(runId, {
+                ...getResumeError(issue),
+                phase: run.errorPhase ?? run.phase,
+              })
+            );
+            return runStep(() => runStore.getRun(userId, runId));
+          }
+          if (run.status === 'running' && run.phase !== 'preparing') {
+            await runStep(() =>
+              runStore.markFailed(runId, {
+                code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
+                detail: 'The backend process stopped before the library export completed.',
+                phase: run.phase,
+              })
+            );
+          }
+          await runStep(() => runStore.markRunning(runId, 'preparing'));
         }
-        if (run.status === 'running' && run.phase !== 'preparing') {
-          await runStore.markFailed(runId, {
-            code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
-            detail: 'The backend process stopped before the library export completed.',
-            phase: run.phase,
-          });
-        }
-        await runStore.markRunning(runId, 'preparing');
-      }
-      runInBackground(run, outcome);
-      return runStore.getRun(userId, runId);
-    });
+        runInBackground(run, outcome);
+        return runStep(() => runStore.getRun(userId, runId));
+      })
+    );
     if (current?.status === 'cancelled') {
-      await delivery.cleanupRun(runId).catch(error => {
+      await runStep(() => delivery.cleanupRun(runId)).catch(error => {
+        if (shutdown.signal.aborted) throw error;
         console.error('[LibraryExport] Cancelled run cleanup failed.', {
           errorType: getErrorType(error),
           exportRunId: runId,
@@ -410,68 +440,74 @@ export const createLibraryExportApi = ({
     getDownload: delivery.getDownload,
 
     async startOrResume(userId, correlationId) {
-      return coordinator.exclusively(`user:${userId}`, async () => {
-        const existing = await runStore.findUndeliveredRun(userId);
-        if (existing) {
-          await delivery.expireRun(existing.id);
-          const resumed = await resumeRun(userId, existing.id);
-          if (resumed && resumed.status !== 'cancelled' && resumed.status !== 'downloaded')
-            return toProgress(resumed);
-        }
-        const { folders, placements, projects } =
-          await projectStore.readLibraryExportSnapshot(userId);
-        assertCompleteOrganization(
-          projects.map(project => project.id),
-          folders,
-          placements
-        );
-        const requestedRunId = randomUUID();
-        const run = await runStore.createRun({
-          bytesWritten: 0,
-          correlationId,
-          expectedProjects: projects.map((project, index) => {
-            const identity = getProjectIdentity(project);
-            return {
-              id: project.id,
-              incarnationId: identity.incarnationId,
-              path: getLibraryArchiveProjectPath(project.id, index),
-              revision: identity.revision,
-              title: project.title,
-            };
-          }),
-          folders,
-          id: requestedRunId,
-          phase: 'preparing',
-          placements,
-          status: 'running',
-          userId,
-        });
-        const scheduled = await resumeRun(
-          userId,
-          run.id,
-          run.id === requestedRunId ? 'started' : 'resumed'
-        );
-        if (!scheduled) throw new Error('Persisted library export run is missing.');
-        return toProgress(scheduled);
-      });
+      return runStep(() =>
+        coordinator.exclusively(`user:${userId}`, async () => {
+          const existing = await runStep(() => runStore.findUndeliveredRun(userId));
+          if (existing) {
+            await runStep(() => delivery.expireRun(existing.id));
+            const resumed = await resumeRun(userId, existing.id);
+            if (resumed && resumed.status !== 'cancelled' && resumed.status !== 'downloaded')
+              return toProgress(resumed);
+          }
+          const { folders, placements, projects } = await runStep(() =>
+            projectStore.readLibraryExportSnapshot(userId)
+          );
+          assertCompleteOrganization(
+            projects.map(project => project.id),
+            folders,
+            placements
+          );
+          const requestedRunId = randomUUID();
+          const run = await runStep(() =>
+            runStore.createRun({
+              bytesWritten: 0,
+              correlationId,
+              expectedProjects: projects.map((project, index) => {
+                const identity = getProjectIdentity(project);
+                return {
+                  id: project.id,
+                  incarnationId: identity.incarnationId,
+                  path: getLibraryArchiveProjectPath(project.id, index),
+                  revision: identity.revision,
+                  title: project.title,
+                };
+              }),
+              folders,
+              id: requestedRunId,
+              phase: 'preparing',
+              placements,
+              status: 'running',
+              userId,
+            })
+          );
+          const scheduled = await resumeRun(
+            userId,
+            run.id,
+            run.id === requestedRunId ? 'started' : 'resumed'
+          );
+          if (!scheduled) throw new Error('Persisted library export run is missing.');
+          return toProgress(scheduled);
+        })
+      );
     },
 
     async getStatus(userId, runId) {
-      let progress = await runStore.getRunProgress(userId, runId);
+      let progress = await runStep(() => runStore.getRunProgress(userId, runId));
       if (!progress) return null;
       if (progress.status === 'running' && !coordinator.owns(runId)) {
         await resumeRun(userId, runId);
-        progress = await runStore.getRunProgress(userId, runId);
+        progress = await runStep(() => runStore.getRunProgress(userId, runId));
       }
       return progress ? toProgress(progress) : null;
     },
 
     async recoverPendingRuns() {
-      await delivery.start();
-      for (const run of await runStore.listRunningRuns()) {
+      await runStep(() => delivery.start());
+      for (const run of await runStep(() => runStore.listRunningRuns())) {
         try {
           await resumeRun(run.userId, run.id);
         } catch (error) {
+          if (shutdown.signal.aborted) throw error;
           console.error('[LibraryExport] Pending run recovery failed.', {
             errorType: getErrorType(error),
             exportRunId: run.id,
@@ -483,6 +519,7 @@ export const createLibraryExportApi = ({
     },
 
     async close() {
+      shutdown.abort();
       const executions = coordinator.close();
       await delivery.close();
       await executions;

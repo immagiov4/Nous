@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
@@ -42,6 +43,148 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
     if (!sql) return;
     await sql`delete from auth.users where id = ${userId}`;
     await sql.end({ timeout: 5 });
+  });
+
+  test('preserves issued tickets across completion and store restart, consuming each only once', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const store = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    const runId = randomUUID();
+    const firstToken = '1'.repeat(64);
+    const secondToken = '2'.repeat(64);
+    const cutoff = new Date(0);
+    await store.createRun({
+      id: runId,
+      userId,
+      correlationId: randomUUID(),
+      status: 'running',
+      phase: 'integrity-check',
+      bytesWritten: 0,
+      expectedProjects: [],
+      folders: [],
+      placements: [],
+    });
+    expect(await store.markCompleted(runId, { bytes: 321, sha256: 'a'.repeat(64) })).toBe(true);
+    expect(await store.authorizeDownload(randomUUID(), runId, firstToken, cutoff)).toBe(false);
+    expect(await store.authorizeDownload(userId, runId, firstToken, cutoff)).toBe(true);
+    expect(await store.authorizeDownload(userId, runId, secondToken, cutoff)).toBe(true);
+    const claims = await Promise.all([
+      store.claimDownload(runId, firstToken, cutoff),
+      store.claimDownload(runId, firstToken, cutoff),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    await store.markDownloaded(runId);
+    const restarted = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    expect(await restarted.hasUnclaimedDownloadTickets(runId, cutoff)).toBe(true);
+    expect(await restarted.authorizeDownload(userId, runId, '3'.repeat(64), cutoff)).toBe(false);
+    expect(await restarted.claimDownload(runId, secondToken, cutoff)).toMatchObject({
+      id: runId,
+      status: 'downloaded',
+      userId,
+    });
+    expect(await restarted.claimDownload(runId, secondToken, cutoff)).toBeNull();
+    expect(await restarted.hasUnclaimedDownloadTickets(runId, cutoff)).toBe(false);
+    await restarted.markCleanupCompleted(runId);
+  });
+
+  test('migrates a legacy outstanding ticket once and keeps ticket storage backend-private', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const store = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    const runId = randomUUID();
+    const token = '4'.repeat(64);
+    await store.createRun({
+      id: runId,
+      userId,
+      correlationId: randomUUID(),
+      status: 'running',
+      phase: 'integrity-check',
+      bytesWritten: 0,
+      expectedProjects: [],
+      folders: [],
+      placements: [],
+    });
+    await store.markCompleted(runId, { bytes: 321, sha256: 'a'.repeat(64) });
+    await sql`update public.library_export_runs set download_token_sha256 = ${token} where id = ${runId}`;
+    const migration = await readFile(
+      'supabase/migrations/20260907183055_add_library_export_download_tickets.sql',
+      'utf8'
+    );
+    await sql.begin(transaction => transaction.unsafe(migration));
+    await sql.begin(transaction => transaction.unsafe(migration));
+    expect(await store.claimDownload(runId, token, new Date(0))).toMatchObject({ id: runId });
+    await sql.begin(transaction => transaction.unsafe(migration));
+    expect(await store.claimDownload(runId, token, new Date(0))).toBeNull();
+    const privileges = await sql<
+      Array<{
+        relrowsecurity: boolean;
+        anonymous_read: boolean;
+        user_read: boolean;
+        user_write: boolean;
+        backend_read: boolean;
+        backend_insert: boolean;
+        backend_delete: boolean;
+      }>
+    >`
+      select relrowsecurity,
+        has_table_privilege('anon', oid, 'SELECT') as anonymous_read,
+        has_table_privilege('authenticated', oid, 'SELECT') as user_read,
+        has_table_privilege('authenticated', oid, 'INSERT,UPDATE,DELETE') as user_write,
+        has_table_privilege('service_role', oid, 'SELECT') as backend_read,
+        has_table_privilege('service_role', oid, 'INSERT') as backend_insert,
+        has_table_privilege('service_role', oid, 'DELETE') as backend_delete
+      from pg_class where oid = 'public.library_export_download_tickets'::regclass
+    `;
+    expect(privileges[0]).toEqual({
+      relrowsecurity: true,
+      anonymous_read: false,
+      user_read: false,
+      user_write: false,
+      backend_read: true,
+      backend_insert: true,
+      backend_delete: true,
+    });
+    await expect(
+      sql.begin(async transaction => {
+        await transaction`set local role authenticated`;
+        await transaction`select * from public.library_export_download_tickets`;
+      })
+    ).rejects.toMatchObject({ code: '42501' });
+    await store.markDownloaded(runId);
+    await store.markCleanupCompleted(runId);
+  });
+
+  test('revokes failed archive tickets so retries cannot renew their validity', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const store = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    const runId = randomUUID();
+    const token = '5'.repeat(64);
+    await store.createRun({
+      id: runId,
+      userId,
+      correlationId: randomUUID(),
+      status: 'running',
+      phase: 'integrity-check',
+      bytesWritten: 0,
+      expectedProjects: [],
+      folders: [],
+      placements: [],
+    });
+    await store.markCompleted(runId, { bytes: 321, sha256: 'a'.repeat(64) });
+    await store.authorizeDownload(userId, runId, token, new Date(0));
+    await store.markFailed(runId, {
+      code: 'INTEGRITY_FAILED',
+      detail: 'Test corruption.',
+      phase: 'integrity-check',
+    });
+    await store.markRunning(runId, 'integrity-check');
+    await store.markCompleted(runId, { bytes: 321, sha256: 'b'.repeat(64) });
+    expect(await store.claimDownload(runId, token, new Date(0))).toBeNull();
+    expect(await store.hasUnclaimedDownloadTickets(runId, new Date(0))).toBe(false);
+    await store.markCancelled(runId, {
+      code: 'TEST_COMPLETE',
+      detail: 'Test finished.',
+      phase: 'ready',
+    });
+    await store.markCleanupCompleted(runId);
   });
 
   test('persists checkpoints and the complete export lifecycle across store instances', async () => {

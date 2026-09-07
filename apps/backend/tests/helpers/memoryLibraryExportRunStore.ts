@@ -8,7 +8,7 @@ import type {
 export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
   readonly runs = new Map<string, LibraryExportRunRecord>();
   readonly terminalTimes = new Map<string, number>();
-  private readonly tokens = new Map<string, string>();
+  private readonly tokens = new Map<string, Set<string>>();
   private readonly cleaned = new Set<string>();
 
   get run() {
@@ -68,20 +68,31 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
       (cutoff && (this.terminalTimes.get(runId) ?? Infinity) <= cutoff.getTime())
     )
       return false;
-    this.tokens.set(runId, tokenSha256);
+    const tokens = this.tokens.get(runId) ?? new Set<string>();
+    tokens.add(tokenSha256);
+    this.tokens.set(runId, tokens);
     return true;
   }
   async claimDownload(runId: string, tokenSha256: string, cutoff?: Date) {
     const run = this.runs.get(runId);
     if (
       !run ||
-      run.status !== 'completed' ||
-      this.tokens.get(runId) !== tokenSha256 ||
+      !['completed', 'downloaded'].includes(run.status) ||
+      !this.tokens.get(runId)?.has(tokenSha256) ||
       (cutoff && (this.terminalTimes.get(runId) ?? Infinity) <= cutoff.getTime())
     )
       return null;
-    this.tokens.delete(runId);
+    this.tokens.get(runId)?.delete(tokenSha256);
     return structuredClone(run);
+  }
+  async hasUnclaimedDownloadTickets(runId: string, cutoff: Date) {
+    const run = this.runs.get(runId);
+    return Boolean(
+      run &&
+        ['completed', 'downloaded'].includes(run.status) &&
+        (this.terminalTimes.get(runId) ?? Infinity) > cutoff.getTime() &&
+        this.tokens.get(runId)?.size
+    );
   }
   async listPendingCleanupRunIds() {
     return [...this.runs.values()]
@@ -150,10 +161,10 @@ export class MemoryLibraryExportRunStore implements LibraryExportRunStore {
     const run = this.requireRun(runId);
     if (run.status !== 'completed') return;
     run.status = 'downloaded';
-    this.tokens.delete(runId);
   }
   async markCleanupCompleted(runId: string) {
     this.cleaned.add(runId);
+    this.tokens.delete(runId);
   }
   async markFailed(
     runId: string,

@@ -355,8 +355,8 @@ const ENGLISH_UI_MESSAGES = {
   'Log della console ({logCount})': 'Console logs ({logCount})',
   'Apri issue #{issueNumber} su GitHub': 'Open issue #{issueNumber} on GitHub',
   'Backup completo dei corsi': 'Complete course backup',
-  'Download del backup di {courseCount} corsi avviato.':
-    'Download started for the backup of {courseCount} courses.',
+  'Richiesta di scaricamento del backup di {courseCount} corsi inviata.':
+    'Download request for the backup of {courseCount} courses sent.',
   'Annullamento della connessione non riuscito. Riprova.':
     'Could not cancel the connection. Try again.',
   'Apri accesso OpenAI': 'Open OpenAI sign-in',

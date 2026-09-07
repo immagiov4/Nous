@@ -72,6 +72,7 @@ export interface LibraryExportRunStore {
     cutoff: Date
   ): Promise<LibraryExportRunRecord | null>;
   cancelExpiredRun(runId: string, cutoff: Date): Promise<boolean>;
+  hasUnclaimedDownloadTickets(runId: string, cutoff: Date): Promise<boolean>;
   listExpiredRunIds(cutoff: Date): Promise<string[]>;
   checkpointProject(runId: string, checkpoint: LibraryExportProjectCheckpoint): Promise<void>;
   createRun(input: Omit<LibraryExportRunRecord, 'checkpoints'>): Promise<LibraryExportRunRecord>;
@@ -263,12 +264,12 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
     tokenSha256: string,
     cutoff: Date
   ): Promise<boolean> {
-    const rows = await this.sql<Array<{ id: string }>>`
-      update public.library_export_runs
-      set download_token_sha256 = ${tokenSha256}, updated_at = clock_timestamp()
+    const rows = await this.sql<Array<{ run_id: string }>>`
+      insert into public.library_export_download_tickets (token_sha256, run_id)
+      select ${tokenSha256}, id from public.library_export_runs
       where id = ${runId} and user_id = ${userId} and status = 'completed'
         and completed_at > ${cutoff}
-      returning id
+      returning run_id
     `;
     return Boolean(rows[0]);
   }
@@ -279,13 +280,30 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
     cutoff: Date
   ): Promise<LibraryExportRunRecord | null> {
     const rows = await this.sql<LibraryExportRunRow[]>`
-      update public.library_export_runs
-      set download_token_sha256 = null, updated_at = clock_timestamp()
-      where id = ${runId} and status = 'completed' and download_token_sha256 = ${tokenSha256}
-        and completed_at > ${cutoff}
-      returning *
+      with claimed as (
+        delete from public.library_export_download_tickets tickets
+        using public.library_export_runs runs
+        where tickets.run_id = runs.id and runs.id = ${runId}
+          and tickets.token_sha256 = ${tokenSha256}
+          and runs.status in ('completed', 'downloaded') and runs.completed_at > ${cutoff}
+        returning tickets.run_id
+      )
+      select runs.* from public.library_export_runs runs
+      join claimed on claimed.run_id = runs.id
     `;
     return rows[0] ? this.loadRunWithCheckpoints(rows[0]) : null;
+  }
+
+  async hasUnclaimedDownloadTickets(runId: string, cutoff: Date): Promise<boolean> {
+    const rows = await this.sql<Array<{ present: boolean }>>`
+      select exists (
+        select 1 from public.library_export_download_tickets tickets
+        join public.library_export_runs runs on runs.id = tickets.run_id
+        where runs.id = ${runId} and runs.status in ('completed', 'downloaded')
+          and runs.completed_at > ${cutoff}
+      ) as present
+    `;
+    return rows[0].present;
   }
 
   async findUndeliveredRun(userId: string): Promise<LibraryExportRunRecord | null> {
@@ -360,15 +378,21 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
 
   async cancelExpiredRun(runId: string, cutoff: Date): Promise<boolean> {
     const rows = await this.sql<Array<{ id: string }>>`
+      with cancelled as (
       update public.library_export_runs
       set status = 'cancelled', error_code = ${LIBRARY_EXPORT_RETENTION_ERROR_CODE},
           error_phase = phase, phase = 'failed',
           error_detail = 'The library export retention period elapsed.',
-          download_token_sha256 = null, updated_at = clock_timestamp()
+          updated_at = clock_timestamp()
       where id = ${runId}
         and ((status = 'completed' and completed_at <= ${cutoff})
           or (status = 'failed' and updated_at <= ${cutoff}))
       returning id
+      ), revoked as (
+        delete from public.library_export_download_tickets
+        where run_id in (select id from cancelled)
+      )
+      select id from cancelled
     `;
     return rows.length > 0;
   }
@@ -487,19 +511,23 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
     error: { code: string; detail: string; phase: LibraryExportPhase }
   ): Promise<void> {
     await this.sql`
+      with cancelled as (
       update public.library_export_runs
       set status = 'cancelled', phase = 'failed', error_code = ${error.code},
           error_phase = ${error.phase}, error_detail = ${error.detail},
-          download_token_sha256 = null,
           updated_at = clock_timestamp()
       where id = ${runId} and status not in ('cancelled', 'downloaded')
+      returning id
+      )
+      delete from public.library_export_download_tickets
+      where run_id in (select id from cancelled)
     `;
   }
 
   async markDownloaded(runId: string): Promise<void> {
     await this.sql`
       update public.library_export_runs
-      set status = 'downloaded', download_token_sha256 = null,
+      set status = 'downloaded',
           downloaded_at = clock_timestamp(), updated_at = clock_timestamp()
       where id = ${runId} and status = 'completed'
     `;
@@ -507,9 +535,14 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
 
   async markCleanupCompleted(runId: string): Promise<void> {
     await this.sql`
+      with cleaned as (
       update public.library_export_runs
       set cleanup_completed_at = clock_timestamp(), updated_at = clock_timestamp()
       where id = ${runId} and status in ('cancelled', 'downloaded')
+      returning id
+      )
+      delete from public.library_export_download_tickets
+      where run_id in (select id from cleaned)
     `;
   }
 
@@ -518,12 +551,16 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
     error: { code: string; detail: string; phase: LibraryExportPhase }
   ): Promise<void> {
     await this.sql`
+      with failed as (
       update public.library_export_runs
       set status = 'failed', phase = 'failed', error_code = ${error.code},
           error_phase = ${error.phase}, error_detail = ${error.detail},
-          download_token_sha256 = null,
           updated_at = clock_timestamp()
       where id = ${runId} and status in ('running', 'completed')
+      returning id
+      )
+      delete from public.library_export_download_tickets
+      where run_id in (select id from failed)
     `;
   }
 

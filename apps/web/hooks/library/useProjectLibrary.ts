@@ -782,6 +782,17 @@ export const useProjectLibrary = ({
     [getProjectWriteState, invalidateRemoteDeletedProject, syncProjectMeta]
   );
 
+  const saveStoredProjectCover = useCallback(
+    async (projectId: string, cover: FileData): Promise<void> => {
+      await runTrackedProjectWrite(
+        projectId,
+        () => projectRepositoryRef.current.saveProjectCover(projectId, cover),
+        false
+      );
+    },
+    [runTrackedProjectWrite]
+  );
+
   const requestPersistentStorage = useCallback(async () => {
     if (persistentStorageRequestedRef.current) {
       return;
@@ -892,8 +903,7 @@ export const useProjectLibrary = ({
           void ensureProjectCover({
             loadCover: projectId => projectRepositoryRef.current.loadProjectCover(projectId),
             projectId: meta.id,
-            saveCover: (projectId, cover) =>
-              projectRepositoryRef.current.saveProjectCover(projectId, cover),
+            saveCover: saveStoredProjectCover,
             title: meta.title,
           }).catch(error => {
             console.warn('[Nous] Course cover generation deferred.', error);
@@ -915,7 +925,13 @@ export const useProjectLibrary = ({
         return null;
       }
     },
-    [getExpectedRevision, getProjectWriteState, requestPersistentStorage, runTrackedProjectWrite]
+    [
+      getExpectedRevision,
+      getProjectWriteState,
+      requestPersistentStorage,
+      runTrackedProjectWrite,
+      saveStoredProjectCover,
+    ]
   );
 
   const saveCurrentProject = useCallback(
@@ -1639,14 +1655,6 @@ export const useProjectLibrary = ({
     (projectId: string) => projectRepositoryRef.current.loadProjectSources(projectId),
     []
   );
-  const saveStoredProjectCover = useCallback(
-    (projectId: string, cover: FileData) =>
-      runDeletionAwareProjectAction(projectId, () =>
-        projectRepositoryRef.current.saveProjectCover(projectId, cover)
-      ),
-    [runDeletionAwareProjectAction]
-  );
-
   const renameProject = useCallback(
     async (projectId: string, title: string) => {
       const meta = await runTrackedProjectWrite(

@@ -614,11 +614,12 @@ export class HttpProjectRepository implements ProjectRepository {
     }
   }
 
-  async saveProjectCover(id: ProjectId, cover: FileData): Promise<void> {
-    await this.request(`/api/projects/projects/${encodeURIComponent(id)}/cover`, {
-      method: 'POST',
-      body: JSON.stringify({ cover }),
-    });
+  async saveProjectCover(id: ProjectId, cover: FileData): Promise<SavedProjectMeta> {
+    const response = await this.request<{ meta?: SavedProjectMeta }>(
+      `/api/projects/projects/${encodeURIComponent(id)}/cover`,
+      { method: 'POST', body: JSON.stringify({ cover }) }
+    );
+    return assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.');
   }
 
   async setProjectFavorite(id: ProjectId, isFavorite: boolean): Promise<SavedProjectMeta> {
