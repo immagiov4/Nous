@@ -590,7 +590,8 @@ router.patch('/projects/:id/favorite', async (req: Request, res: Response) => {
     const meta = await getProjectStore().setProjectFavorite(
       userId,
       getRouteParam(req.params.id),
-      isFavorite
+      isFavorite,
+      { expectedRevision: readExpectedRevision(getBodyRecord(req.body)) }
     );
     publishMetaRevision(userId, meta);
     res.json({ success: true, meta });
@@ -734,7 +735,8 @@ router.post('/projects/:id/cover', async (req: Request, res: Response) => {
     const meta = await getProjectStore().saveProjectCover(
       userId,
       getRouteParam(req.params.id),
-      requireProjectCoverFile(req.body)
+      requireProjectCoverFile(req.body),
+      { expectedRevision: readExpectedRevision(getBodyRecord(req.body)) }
     );
     if (!meta) {
       res.status(409).json({

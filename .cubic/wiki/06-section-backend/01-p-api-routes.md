@@ -72,7 +72,8 @@ The `/api/projects` router manages the lifecycle of courses, including creation,
 *  **GET `/api/projects/projects`**: Lists metadata for all projects owned by the authenticated user.
 *  **PUT `/api/projects/projects/:id`**: Saves or updates a full project snapshot. It handles both JSON and multipart/form-data for binary source attachments.
 *  **PATCH `/api/projects/projects/:id`**: Performs partial updates, such as renaming a title or updating the active section, while maintaining revision consistency to prevent stale overwrites.
-*  **POST `/api/projects/projects/:id/cover`**: Stores a raster course cover separately and increments the project revision atomically, then publishes the new revision to connected clients.
+*  **POST `/api/projects/projects/:id/cover`**: Stores a raster course cover separately and increments the project revision atomically, then publishes the new revision to connected clients. The browser supplies `expectedRevision`; an outdated cover write returns HTTP 409 without changing the cover or revision.
+*  **PATCH `/api/projects/projects/:id/favorite`**: Updates the favorite flag with the same expected-revision check. An outdated write returns HTTP 409, while a deleted project remains HTTP 404.
 *  **DELETE `/api/projects/projects/:id`**: Removes a project and its associated storage artifacts.
 
 Sources: [apps/backend/tests/routes/projects.test.ts:104-140](../../../apps/backend/tests/routes/projects.test.ts#L104-L140), [apps/backend/src/index.ts:203-210](../../../apps/backend/src/index.ts#L203-L210)

@@ -786,11 +786,14 @@ export const useProjectLibrary = ({
     async (projectId: string, cover: FileData): Promise<void> => {
       await runTrackedProjectWrite(
         projectId,
-        () => projectRepositoryRef.current.saveProjectCover(projectId, cover),
+        () =>
+          projectRepositoryRef.current.saveProjectCover(projectId, cover, {
+            expectedRevision: getExpectedRevision(projectId),
+          }),
         false
       );
     },
-    [runTrackedProjectWrite]
+    [getExpectedRevision, runTrackedProjectWrite]
   );
 
   const requestPersistentStorage = useCallback(async () => {
@@ -1677,10 +1680,13 @@ export const useProjectLibrary = ({
     (projectId: string, isFavorite: boolean) =>
       runTrackedProjectWrite(
         projectId,
-        () => projectRepositoryRef.current.setProjectFavorite(projectId, isFavorite),
+        () =>
+          projectRepositoryRef.current.setProjectFavorite(projectId, isFavorite, {
+            expectedRevision: getExpectedRevision(projectId),
+          }),
         false
       ),
-    [runTrackedProjectWrite]
+    [getExpectedRevision, runTrackedProjectWrite]
   );
 
   // Autosave: full snapshot PUT — safety net for any domain change that wasn't

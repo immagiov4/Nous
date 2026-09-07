@@ -1137,6 +1137,68 @@ describe('/api/projects', () => {
     expect(invalidResponse.status).toBe(400);
   });
 
+  test('rejects stale cover writes without advancing the revision or overwriting another edit', async () => {
+    const app = createApp();
+    const projectPath = '/api/projects/projects/project-1';
+    await request(app)
+      .put(projectPath)
+      .send({ snapshot: createSnapshot('project-1', 'Initial title') });
+    const edited = await request(app)
+      .patch(projectPath)
+      .send({
+        patch: { learningPlan: { title: 'Other tab title' } },
+        expectedRevision: 1,
+      });
+    expect(edited.status).toBe(200);
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    const staleCover = await request(app)
+      .post(`${projectPath}/cover`)
+      .send({ cover, expectedRevision: 1 });
+    expect(staleCover.status).toBe(409);
+    expect(staleCover.body.code).toBe(PROJECT_API_ERROR_CODE.coverRevisionConflict);
+    const staleEdit = await request(app)
+      .patch(projectPath)
+      .send({
+        patch: { learningPlan: { title: 'Stale overwrite' } },
+        expectedRevision: 1,
+      });
+    expect(staleEdit.status).toBe(409);
+    const persisted = await request(app).get(projectPath);
+    expect(persisted.body.revision).toBe(2);
+    expect(persisted.body.project.learningPlan.title).toBe('Other tab title');
+    const missingCover = await request(app).get(`${projectPath}/cover`);
+    expect(missingCover.body.cover).toBeNull();
+    const accepted = await request(app)
+      .post(`${projectPath}/cover`)
+      .send({ cover, expectedRevision: 2 });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.meta.revision).toBe(3);
+  });
+
+  test('rejects stale favorite writes and preserves the latest project revision', async () => {
+    const app = createApp();
+    const projectPath = '/api/projects/projects/project-1';
+    await request(app)
+      .put(projectPath)
+      .send({ snapshot: createSnapshot('project-1', 'Initial title') });
+    await request(app)
+      .patch(projectPath)
+      .send({ patch: { learningPlan: { title: 'Other tab title' } }, expectedRevision: 1 });
+    const stale = await request(app)
+      .patch(`${projectPath}/favorite`)
+      .send({ isFavorite: true, expectedRevision: 1 });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe(PROJECT_API_ERROR_CODE.revisionConflict);
+    const persisted = await request(app).get(projectPath);
+    expect(persisted.body.revision).toBe(2);
+    expect(persisted.body.project.learningPlan.title).toBe('Other tab title');
+    const accepted = await request(app)
+      .patch(`${projectPath}/favorite`)
+      .send({ isFavorite: true, expectedRevision: 2 });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.meta).toMatchObject({ isFavorite: true, revision: 3 });
+  });
+
   test('counts module-shaped lessons in server project metadata', async () => {
     const app = createApp();
     const snapshot = createModuleSnapshot('module-project', 'Corso modulare');

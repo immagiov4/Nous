@@ -1332,7 +1332,8 @@ export class PostgresProjectStore implements ProjectStore {
   async setProjectFavorite(
     userId: string,
     id: ProjectId,
-    isFavorite: boolean
+    isFavorite: boolean,
+    { expectedRevision }: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
     const rows = await this.sql<ProjectMetaRow[]>`
       update public.projects
@@ -1340,10 +1341,15 @@ export class PostgresProjectStore implements ProjectStore {
           server_updated_at = now(),
           revision = revision + 1
       where user_id = ${userId} and id = ${id}
+        and (${expectedRevision ?? null}::bigint is null or revision = ${expectedRevision ?? null})
       returning meta, revision
     `;
     if (!rows[0]) {
-      throw new ProjectNotFoundError();
+      const existing = await this.sql<Array<{ id: string }>>`
+        select id from public.projects where user_id = ${userId} and id = ${id}
+      `;
+      if (!existing[0]) throw new ProjectNotFoundError();
+      throw new ProjectRevisionConflictError();
     }
     return mergeProjectMetaRow(rows[0]);
   }

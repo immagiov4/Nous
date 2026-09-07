@@ -142,13 +142,15 @@ test('HttpProjectRepository writes favorites through the project API', async () 
   });
 
   const repository = new HttpProjectRepository('http://localhost:3301');
-  await expect(repository.setProjectFavorite('project-1', true)).resolves.toMatchObject({
+  await expect(
+    repository.setProjectFavorite('project-1', true, { expectedRevision: 4 })
+  ).resolves.toMatchObject({
     id: 'project-1',
     isFavorite: true,
   });
   expect(fetchMock).toHaveBeenCalledWith(
     'http://localhost:3301/api/projects/projects/project-1/favorite',
-    expect.objectContaining({ body: '{"isFavorite":true}', method: 'PATCH' })
+    expect.objectContaining({ body: '{"isFavorite":true,"expectedRevision":4}', method: 'PATCH' })
   );
 });
 
@@ -1045,12 +1047,19 @@ test('HttpProjectRepository returns the authoritative cover write revision', asy
   const repository = new HttpProjectRepository('http://localhost:3301');
 
   await expect(
-    repository.saveProjectCover('project-1', {
-      data: 'iVBORw0KGgo=',
-      mimeType: 'image/png',
-      name: 'cover.png',
-    })
+    repository.saveProjectCover(
+      'project-1',
+      {
+        data: 'iVBORw0KGgo=',
+        mimeType: 'image/png',
+        name: 'cover.png',
+      },
+      { expectedRevision: 7 }
+    )
   ).resolves.toEqual(meta);
+  expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({
+    expectedRevision: 7,
+  });
 });
 
 test('HttpProjectRepository distinguishes a cover revision conflict', async () => {

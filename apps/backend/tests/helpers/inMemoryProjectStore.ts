@@ -461,11 +461,15 @@ export class InMemoryProjectStore implements ProjectStore {
   async setProjectFavorite(
     userId: string,
     id: ProjectId,
-    isFavorite: boolean
+    isFavorite: boolean,
+    { expectedRevision }: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
     const record = this.getProjects(userId).get(id);
     if (!record) {
       throw new ProjectNotFoundError();
+    }
+    if (expectedRevision !== undefined && record.meta.revision !== expectedRevision) {
+      throw new ProjectRevisionConflictError();
     }
     record.meta = {
       ...record.meta,

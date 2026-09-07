@@ -253,7 +253,9 @@ describe('useProjectLibrary', () => {
       await result.current.setProjectFavorite('course', true);
     });
 
-    expect(repositoryMocks.setProjectFavorite).toHaveBeenCalledWith('course', true);
+    expect(repositoryMocks.setProjectFavorite).toHaveBeenCalledWith('course', true, {
+      expectedRevision: 4,
+    });
     expect(result.current.savedProjects[0]).toMatchObject({ isFavorite: true, revision: 5 });
   });
 
@@ -1828,6 +1830,9 @@ describe('useProjectLibrary', () => {
             : result.current.persistSnapshot(buildSnapshot('project-1'));
       });
       await waitFor(() => expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce());
+      expect(repositoryMocks.saveProjectCover).toHaveBeenCalledWith('project-1', cover, {
+        expectedRevision: 1,
+      });
       let edit!: Promise<SavedProjectMeta>;
       act(() => {
         edit = result.current.renameProject('project-1', 'Updated title');
@@ -1847,6 +1852,43 @@ describe('useProjectLibrary', () => {
       resolveCover({ ...initialMeta, revision: 2 });
       generation.mockRestore();
     }
+  });
+
+  test('does not adopt a remote revision when a stale cover write conflicts', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.saveProjectCover.mockImplementation(async (_id, _cover, options) => {
+      if (options?.expectedRevision === 1)
+        throw new ProjectStorageError('Cover revision conflict.', 'cover-revision-conflict');
+      return { ...initialMeta, revision: 3 };
+    });
+    repositoryMocks.patchProject.mockRejectedValue(
+      new ProjectStorageError('Project revision conflict.', 'revision-conflict')
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => result.current.setCurrentProjectId('project-1'));
+    await act(async () => {
+      await expect(
+        result.current.saveStoredProjectCover('project-1', {
+          data: 'iVBORw0KGgo=',
+          mimeType: 'image/png',
+          name: 'cover.png',
+        })
+      ).rejects.toMatchObject({ code: 'cover-revision-conflict' });
+    });
+    expect(result.current.savedProjects[0]?.revision).toBe(1);
+    await act(async () => {
+      await expect(result.current.renameProject('project-1', 'Stale title')).rejects.toMatchObject({
+        code: 'revision-conflict',
+      });
+    });
+    expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toEqual({ expectedRevision: 1 });
   });
 
   test('uses the remote deletion outcome when saving a cover receives 404', async () => {

@@ -288,7 +288,8 @@ export interface ProjectStore {
   setProjectFavorite: (
     userId: string,
     id: ProjectId,
-    isFavorite: boolean
+    isFavorite: boolean,
+    options?: ProjectWriteOptions
   ) => Promise<SavedProjectMeta>;
   touchProject: (userId: string, id: ProjectId) => Promise<void>;
 }

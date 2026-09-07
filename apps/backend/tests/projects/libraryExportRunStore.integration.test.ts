@@ -352,6 +352,31 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
     });
   });
 
+  test('refuses stale favorite writes without advancing the project revision', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const projectStore = new PostgresProjectStore(databaseUrl, sql);
+    const projectId = `library-export-${randomUUID()}`;
+    const saved = await projectStore.saveProject(
+      userId,
+      createSnapshot(projectId, '2026-09-04T00:00:00.000Z')
+    );
+    const revision = saved.meta.revision;
+    if (revision === undefined) throw new Error('Persisted project revision is required.');
+    await projectStore.setProjectFavorite(userId, projectId, true, { expectedRevision: revision });
+    await expect(
+      projectStore.setProjectFavorite(userId, projectId, false, { expectedRevision: revision })
+    ).rejects.toMatchObject({ name: 'ProjectRevisionConflictError' });
+    const persisted = await projectStore.loadProjectWithRevision(userId, projectId);
+    expect(persisted?.revision).toBe(revision + 1);
+    expect(
+      (await projectStore.listProjects(userId)).find(project => project.id === projectId)
+        ?.isFavorite
+    ).toBe(true);
+    await expect(
+      projectStore.setProjectFavorite(userId, randomUUID(), true, { expectedRevision: revision })
+    ).rejects.toMatchObject({ name: 'ProjectNotFoundError' });
+  });
+
   test('waits for an overlapping project save and refuses the stale completion', async () => {
     if (!sql) throw new Error('Library export integration database is required.');
     const runId = randomUUID();

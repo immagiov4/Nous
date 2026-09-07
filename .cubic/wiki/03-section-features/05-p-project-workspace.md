@@ -75,6 +75,8 @@ To optimize performance and reduce payload sizes, the system utilizes specialize
 
 ### Conflict Resolution
 Nous uses an `expectedRevision` pattern. If a client attempts to save with a revision number that does not match the server's current version, a `ProjectRevisionConflictError` (HTTP 409) is raised. This triggers the client to either rebase or reload the latest state to prevent overwriting concurrent changes.
+
+Cover and favorite writes read the expected revision when their turn in the tracked write queue begins and pass it through the HTTP route to the conditional database update. A rejected write does not advance local metadata. This prevents an unrelated cover or favorite change from adopting a remote revision while the active snapshot is still stale; a subsequent edit must still report the revision conflict.
 Sources: [apps/backend/tests/routes/projects.test.ts:740-770](../../../apps/backend/tests/routes/projects.test.ts#L740-L770), [apps/backend/tests/helpers/inMemoryProjectStore.ts:286-302](../../../apps/backend/tests/helpers/inMemoryProjectStore.ts#L286-L302)
 
 ## Library and Workspace Organization

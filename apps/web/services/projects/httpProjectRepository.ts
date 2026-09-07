@@ -614,20 +614,31 @@ export class HttpProjectRepository implements ProjectRepository {
     }
   }
 
-  async saveProjectCover(id: ProjectId, cover: FileData): Promise<SavedProjectMeta> {
+  async saveProjectCover(
+    id: ProjectId,
+    cover: FileData,
+    options: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(id)}/cover`,
-      { method: 'POST', body: JSON.stringify({ cover }) }
+      {
+        method: 'POST',
+        body: JSON.stringify({ cover, expectedRevision: options.expectedRevision }),
+      }
     );
     return assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.');
   }
 
-  async setProjectFavorite(id: ProjectId, isFavorite: boolean): Promise<SavedProjectMeta> {
+  async setProjectFavorite(
+    id: ProjectId,
+    isFavorite: boolean,
+    options: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(id)}/favorite`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ isFavorite }),
+        body: JSON.stringify({ isFavorite, expectedRevision: options.expectedRevision }),
       }
     );
     return assertValue(response.meta, 'Il preferito sincronizzato non e stato aggiornato.');
