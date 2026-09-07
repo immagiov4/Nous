@@ -9,6 +9,7 @@ import {
 } from './config/serverConfig.js';
 import { createApp } from './index.js';
 import { createLibraryExportApi } from './projects/libraryExport.js';
+import { readLibraryExportConfig } from './projects/libraryExportConfig.js';
 import { PostgresLibraryExportRunStore } from './projects/libraryExportRunStore.js';
 import { getProjectStore } from './projects/projectStore.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
@@ -18,6 +19,7 @@ import { createWorkflowRuntimeComposition } from './workflows/runtime/workflowRu
 
 const workflowRuntime = createWorkflowRuntimeComposition();
 const libraryExportApi = createLibraryExportApi({
+  config: readLibraryExportConfig(process.env),
   assetReader: workflowRuntime.projectAssetReader,
   projectStore: getProjectStore(),
   runStore: new PostgresLibraryExportRunStore(),
@@ -92,6 +94,7 @@ const shutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
   console.log(`[Backend] ${signal} received, shutting down...`);
   try {
     await closeBackendResources({
+      closeLibraryExports: libraryExportApi.close,
       closeCodex: closeManagedCodexAccountClient,
       closeHttpServer: () =>
         new Promise((resolve, reject) => {

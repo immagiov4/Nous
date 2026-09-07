@@ -128,14 +128,17 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
       status: 'completed',
     });
     const tokenSha256 = 'c'.repeat(64);
-    await expect(restartedStore.authorizeDownload(userId, runId, tokenSha256)).resolves.toBe(true);
-    await expect(restartedStore.claimDownload(runId, 'd'.repeat(64))).resolves.toBeNull();
-    await expect(restartedStore.claimDownload(runId, tokenSha256)).resolves.toMatchObject({
+    const cutoff = new Date(0);
+    await expect(
+      restartedStore.authorizeDownload(userId, runId, tokenSha256, cutoff)
+    ).resolves.toBe(true);
+    await expect(restartedStore.claimDownload(runId, 'd'.repeat(64), cutoff)).resolves.toBeNull();
+    await expect(restartedStore.claimDownload(runId, tokenSha256, cutoff)).resolves.toMatchObject({
       id: runId,
       status: 'completed',
       userId,
     });
-    await expect(restartedStore.claimDownload(runId, tokenSha256)).resolves.toBeNull();
+    await expect(restartedStore.claimDownload(runId, tokenSha256, cutoff)).resolves.toBeNull();
 
     await restartedStore.markDownloaded(runId);
     expect(await restartedStore.findUndeliveredRun(userId)).toBeNull();
@@ -408,5 +411,140 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
       detail: 'Concurrent start contract verified.',
       phase: 'preparing',
     });
+  });
+
+  test('expires terminal states from their transition time and never resurrects a cancelled run', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const store = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    const runId = randomUUID();
+    await store.createRun({
+      id: runId,
+      userId,
+      correlationId: randomUUID(),
+      status: 'running',
+      phase: 'integrity-check',
+      bytesWritten: 0,
+      expectedProjects: [],
+      folders: [],
+      placements: [],
+    });
+    await store.markCompleted(runId, { bytes: 321, sha256: 'a'.repeat(64) });
+    const cutoff = new Date('2026-09-07T12:00:00Z');
+    const beforeCutoff = new Date(cutoff.getTime() - 1);
+    await sql`update public.library_export_runs set completed_at = ${beforeCutoff}, updated_at = clock_timestamp() where id = ${runId}`;
+    const token = 'b'.repeat(64);
+    await expect(store.authorizeDownload(userId, runId, token, new Date(0))).resolves.toBe(true);
+    await store.getRunProgress(userId, runId);
+    expect(await store.listExpiredRunIds(cutoff)).toContain(runId);
+    await expect(store.authorizeDownload(userId, runId, token, cutoff)).resolves.toBe(false);
+    await expect(store.claimDownload(runId, token, cutoff)).resolves.toBeNull();
+    await expect(store.cancelExpiredRun(runId, cutoff)).resolves.toBe(true);
+    await store.markRunning(runId, 'preparing');
+    await store.markFailed(runId, {
+      code: 'LATE_FAILURE',
+      detail: 'A delayed operation failed.',
+      phase: 'integrity-check',
+    });
+    expect(await store.getRun(userId, runId)).toMatchObject({
+      status: 'cancelled',
+      errorCode: 'LIBRARY_EXPORT_RETENTION_EXPIRED',
+    });
+    expect(await store.listPendingCleanupRunIds()).toContain(runId);
+    await expect(store.cancelExpiredRun(runId, cutoff)).resolves.toBe(false);
+
+    const failedId = randomUUID();
+    await store.createRun({
+      id: failedId,
+      userId,
+      correlationId: randomUUID(),
+      status: 'running',
+      phase: 'preparing',
+      bytesWritten: 0,
+      expectedProjects: [],
+      folders: [],
+      placements: [],
+    });
+    await store.markFailed(failedId, {
+      code: 'EXPORT_FAILED',
+      detail: 'Simulated export failure.',
+      phase: 'preparing',
+    });
+    await sql`update public.library_export_runs set updated_at = ${cutoff} where id = ${failedId}`;
+    await store.getRunProgress(userId, failedId);
+    await store.markFailed(failedId, {
+      code: 'DUPLICATE_FAILURE',
+      detail: 'Repeated failure callback.',
+      phase: 'preparing',
+    });
+    expect(await store.listExpiredRunIds(cutoff)).toContain(failedId);
+    await store.markRunning(failedId, 'preparing');
+    expect(await store.cancelExpiredRun(failedId, cutoff)).toBe(false);
+    expect(await store.listExpiredRunIds(cutoff)).not.toContain(failedId);
+    await store.markCancelled(failedId, {
+      code: 'TEST_COMPLETE',
+      detail: 'Retention test finished.',
+      phase: 'preparing',
+    });
+  });
+
+  test('rechecks an expired candidate after a concurrent retry commits', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const store = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    const runId = randomUUID();
+    const cutoff = new Date('2026-09-07T12:00:00Z');
+    await store.createRun({
+      id: runId,
+      userId,
+      correlationId: randomUUID(),
+      status: 'running',
+      phase: 'preparing',
+      bytesWritten: 0,
+      expectedProjects: [],
+      folders: [],
+      placements: [],
+    });
+    await store.markFailed(runId, {
+      code: 'EXPORT_FAILED',
+      detail: 'Simulated export failure.',
+      phase: 'preparing',
+    });
+    await sql`update public.library_export_runs set updated_at = ${cutoff} where id = ${runId}`;
+    expect(await store.listExpiredRunIds(cutoff)).toContain(runId);
+    const retrySql = postgres(databaseUrl, { max: 1 });
+    const expirySql = postgres(databaseUrl, { max: 1 });
+    const expiryStore = new PostgresLibraryExportRunStore(databaseUrl, expirySql);
+    const locked = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let retry: Promise<unknown> | undefined;
+    try {
+      const sessions = await expirySql<Array<{ pid: number }>>`select pg_backend_pid() as pid`;
+      retry = retrySql.begin(async transaction => {
+        await transaction`update public.library_export_runs set status = 'running', phase = 'preparing', updated_at = clock_timestamp() where id = ${runId}`;
+        locked.resolve();
+        await release.promise;
+      });
+      await locked.promise;
+      const expiry = expiryStore.cancelExpiredRun(runId, cutoff);
+      await vi.waitFor(async () => {
+        const blocked = await sql<
+          Array<{ waiting: boolean }>
+        >`select cardinality(pg_blocking_pids(${sessions[0].pid})) > 0 as waiting`;
+        expect(blocked[0].waiting).toBe(true);
+      });
+      release.resolve();
+      await retry;
+      expect(await expiry).toBe(false);
+      expect(await store.getRun(userId, runId)).toMatchObject({ status: 'running' });
+    } finally {
+      release.resolve();
+      await retry;
+      await retrySql.end();
+      await expirySql.end();
+      await store.markCancelled(runId, {
+        code: 'TEST_COMPLETE',
+        detail: 'Concurrency test finished.',
+        phase: 'preparing',
+      });
+    }
   });
 });

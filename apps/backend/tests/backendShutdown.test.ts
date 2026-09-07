@@ -10,14 +10,22 @@ describe('closeBackendResources', () => {
       throw workflowFailure;
     });
     const closeHttpServer = vi.fn(async () => undefined);
+    const closeLibraryExports = vi.fn(async () => undefined);
 
     await expect(
-      closeBackendResources({ closeCodex, closeHttpServer, closeWorkflow, stopFeedback })
+      closeBackendResources({
+        closeCodex,
+        closeHttpServer,
+        closeLibraryExports,
+        closeWorkflow,
+        stopFeedback,
+      })
     ).rejects.toMatchObject({ errors: [workflowFailure] });
 
     expect(stopFeedback).toHaveBeenCalledOnce();
     expect(closeCodex).toHaveBeenCalledOnce();
     expect(closeWorkflow).toHaveBeenCalledOnce();
     expect(closeHttpServer).toHaveBeenCalledOnce();
+    expect(closeLibraryExports).toHaveBeenCalledOnce();
   });
 });

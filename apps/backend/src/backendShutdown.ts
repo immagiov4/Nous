@@ -3,6 +3,7 @@ type ShutdownAction = () => void | Promise<void>;
 interface BackendShutdownResources {
   closeCodex: ShutdownAction;
   closeHttpServer: ShutdownAction;
+  closeLibraryExports: ShutdownAction;
   closeWorkflow: ShutdownAction;
   stopFeedback: ShutdownAction;
 }
@@ -10,6 +11,7 @@ interface BackendShutdownResources {
 export const closeBackendResources = async ({
   closeCodex,
   closeHttpServer,
+  closeLibraryExports,
   closeWorkflow,
   stopFeedback,
 }: BackendShutdownResources): Promise<void> => {
@@ -23,6 +25,7 @@ export const closeBackendResources = async ({
   };
 
   await attempt(stopFeedback);
+  await attempt(closeLibraryExports);
   await attempt(closeCodex);
   await attempt(closeWorkflow);
   await attempt(closeHttpServer);

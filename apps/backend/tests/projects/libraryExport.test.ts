@@ -5,7 +5,6 @@ import {
   LIBRARY_ARCHIVE_FORMAT,
   LIBRARY_ARCHIVE_MANIFEST_PATH,
   LIBRARY_ARCHIVE_VERSION,
-  type LibraryExportPhase,
 } from '@shared/libraryExportContract';
 import {
   decodeProjectBackupArchive,
@@ -17,161 +16,25 @@ import JSZip from 'jszip';
 import request from 'supertest';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
-import { createLibraryExportApi, type LibraryExportApi } from '../../src/projects/libraryExport.js';
-import type {
-  LibraryExportProjectCheckpoint,
-  LibraryExportRunRecord,
-  LibraryExportRunStore,
-} from '../../src/projects/libraryExportRunStore.js';
+import {
+  createLibraryExportApi as createExportApi,
+  type LibraryExportApi,
+} from '../../src/projects/libraryExport.js';
+import { readLibraryExportConfig } from '../../src/projects/libraryExportConfig.js';
 import { LibraryExportWorkspace } from '../../src/projects/libraryExportWorkspace.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { signSupabaseJwt } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 
-class MemoryLibraryExportRunStore implements LibraryExportRunStore {
-  cleanupCompleted = false;
-  downloadTokenSha256: string | null = null;
-  run: LibraryExportRunRecord | null = null;
-
-  async createRun(input: Omit<LibraryExportRunRecord, 'checkpoints'>) {
-    if (
-      this.run?.userId === input.userId &&
-      this.run.status !== 'cancelled' &&
-      this.run.status !== 'downloaded'
-    ) {
-      return structuredClone(this.run);
-    }
-    this.cleanupCompleted = false;
-    this.downloadTokenSha256 = null;
-    this.run = structuredClone({ ...input, checkpoints: [] });
-    return structuredClone(this.run);
-  }
-
-  async findUndeliveredRun(userId: string) {
-    return this.run?.userId === userId &&
-      this.run.status !== 'cancelled' &&
-      this.run.status !== 'downloaded'
-      ? structuredClone(this.run)
-      : null;
-  }
-
-  async getRun(userId: string, runId: string) {
-    return this.run?.userId === userId && this.run.id === runId ? structuredClone(this.run) : null;
-  }
-
-  async getRunProgress(userId: string, runId: string) {
-    if (this.run?.userId !== userId || this.run.id !== runId) return null;
-    return structuredClone({
-      ...(this.run.archiveBytes === undefined ? {} : { archiveBytes: this.run.archiveBytes }),
-      bytesWritten: this.run.bytesWritten,
-      completedProjectCount: this.run.checkpoints.length,
-      correlationId: this.run.correlationId,
-      ...(this.run.currentProjectId ? { currentProjectId: this.run.currentProjectId } : {}),
-      ...(this.run.errorCode ? { errorCode: this.run.errorCode } : {}),
-      ...(this.run.errorPhase ? { errorPhase: this.run.errorPhase } : {}),
-      id: this.run.id,
-      phase: this.run.phase,
-      projectCount: this.run.expectedProjects.length,
-      status: this.run.status,
-      userId: this.run.userId,
-    });
-  }
-
-  async authorizeDownload(userId: string, runId: string, tokenSha256: string) {
-    if (this.run?.userId !== userId || this.run.id !== runId || this.run.status !== 'completed') {
-      return false;
-    }
-    this.downloadTokenSha256 = tokenSha256;
-    return true;
-  }
-
-  async claimDownload(runId: string, tokenSha256: string) {
-    if (
-      this.run?.id !== runId ||
-      this.run.status !== 'completed' ||
-      this.downloadTokenSha256 !== tokenSha256
-    ) {
-      return null;
-    }
-    this.downloadTokenSha256 = null;
-    return structuredClone(this.run);
-  }
-
-  async listPendingCleanupRunIds() {
-    return this.run?.status === 'downloaded' && !this.cleanupCompleted ? [this.run.id] : [];
-  }
-
-  async listRunningRuns() {
-    return this.run?.status === 'running' ? [structuredClone(this.run)] : [];
-  }
-
-  async markRunning(runId: string, phase: LibraryExportPhase, currentProjectId?: string) {
-    if (!this.run || this.run.id !== runId) throw new Error('Run not found.');
-    this.run.status = 'running';
-    this.run.phase = phase;
-    this.run.currentProjectId = currentProjectId;
-  }
-
-  async checkpointProject(runId: string, checkpoint: LibraryExportProjectCheckpoint) {
-    if (!this.run || this.run.id !== runId) throw new Error('Run not found.');
-    this.run.checkpoints = [
-      ...this.run.checkpoints.filter(entry => entry.projectId !== checkpoint.projectId),
-      structuredClone(checkpoint),
-    ];
-    this.run.bytesWritten = this.run.checkpoints.reduce(
-      (total, entry) => total + entry.archiveBytes,
-      0
-    );
-  }
-
-  async markCompleted(runId: string, archive: { bytes: number; sha256: string }) {
-    if (!this.run || this.run.id !== runId) throw new Error('Run not found.');
-    this.run.status = 'completed';
-    this.run.phase = 'ready';
-    this.run.currentProjectId = undefined;
-    this.run.archiveBytes = archive.bytes;
-    this.run.archiveSha256 = archive.sha256;
-    return true;
-  }
-
-  async markCancelled(
-    runId: string,
-    error: { code: string; detail: string; phase: LibraryExportPhase }
-  ) {
-    if (!this.run || this.run.id !== runId) throw new Error('Run not found.');
-    this.run.status = 'cancelled';
-    this.run.phase = 'failed';
-    this.run.errorCode = error.code;
-    this.run.errorDetail = error.detail;
-    this.run.errorPhase = error.phase;
-  }
-
-  async markDownloaded(runId: string) {
-    if (!this.run || this.run.id !== runId) throw new Error('Run not found.');
-    this.run.status = 'downloaded';
-    this.downloadTokenSha256 = null;
-  }
-
-  async markCleanupCompleted(runId: string) {
-    if (!this.run || this.run.id !== runId) throw new Error('Run not found.');
-    this.cleanupCompleted = true;
-  }
-
-  async markFailed(
-    runId: string,
-    error: { code: string; detail: string; phase: LibraryExportPhase }
-  ) {
-    if (!this.run || this.run.id !== runId) throw new Error('Run not found.');
-    this.run.status = 'failed';
-    this.run.phase = 'failed';
-    this.run.errorCode = error.code;
-    this.run.errorDetail = error.detail;
-    this.run.errorPhase = error.phase;
-    this.downloadTokenSha256 = null;
-  }
-}
+import { MemoryLibraryExportRunStore } from '../helpers/memoryLibraryExportRunStore.js';
 
 const userId = 'local-user';
+const exportApis = new Set<LibraryExportApi>();
+const createLibraryExportApi = (...args: Parameters<typeof createExportApi>) => {
+  const api = createExportApi(...args);
+  exportApis.add(api);
+  return api;
+};
 const createSnapshot = (id: string): ProjectSnapshot => ({
   activeSectionId: null,
   createdAt: '2026-09-04T00:00:00.000Z',
@@ -186,6 +49,102 @@ const createSnapshot = (id: string): ProjectSnapshot => ({
   updatedAt: '2026-09-04T00:00:00.000Z',
   userProfile: null,
   version: '4.1',
+});
+
+test('recovers queued users in FIFO order after shutdown and does not retry failed runs at startup', async () => {
+  const projectStore = new InMemoryProjectStore();
+  const owners = ['before-shutdown', 'queued-first', 'queued-second'];
+  for (const owner of owners) await projectStore.saveProject(owner, createSnapshot(owner));
+  const runStore = new MemoryLibraryExportRunStore();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const exported: string[] = [];
+  const exportProject = projectStore.exportProject.bind(projectStore);
+  vi.spyOn(projectStore, 'exportProject').mockImplementation(async (owner, id) => {
+    exported.push(owner);
+    if (owner === owners[0]) {
+      entered.resolve();
+      await release.promise;
+      throw new Error('Interrupted project read.');
+    }
+    return exportProject(owner, id);
+  });
+  const dependencies = {
+    archiveWorkspace: new LibraryExportWorkspace(temporaryRoot),
+    assetReader: { readActive: () => Promise.reject(new Error('Unexpected asset read.')) },
+    projectStore,
+    runStore,
+  };
+  const firstProcess = createLibraryExportApi(dependencies);
+  const first = await firstProcess.startOrResume(owners[0], 'before-shutdown');
+  await entered.promise;
+  const second = await firstProcess.startOrResume(owners[1], 'queued-first');
+  const third = await firstProcess.startOrResume(owners[2], 'queued-second');
+  const closing = firstProcess.close();
+  release.resolve();
+  await closing;
+  expect(exported).toEqual([owners[0]]);
+  expect(runStore.runs.get(first.runId)?.status).toBe('failed');
+  expect(runStore.runs.get(second.runId)?.status).toBe('running');
+  const restarted = createLibraryExportApi(dependencies);
+  await restarted.recoverPendingRuns();
+  await vi.waitFor(() =>
+    expect([second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
+      'completed',
+      'completed',
+    ])
+  );
+  expect(exported).toEqual(owners);
+  expect(runStore.runs.get(first.runId)?.status).toBe('failed');
+});
+
+test('starts a fresh library snapshot after the previous completed export expires', async () => {
+  const projectStore = new InMemoryProjectStore();
+  await projectStore.saveProject(userId, createSnapshot('old-project'));
+  const runStore = new MemoryLibraryExportRunStore();
+  const config = readLibraryExportConfig({});
+  const api = createLibraryExportApi({
+    archiveWorkspace: new LibraryExportWorkspace(temporaryRoot),
+    assetReader: { readActive: () => Promise.reject(new Error('Unexpected asset read.')) },
+    projectStore,
+    runStore,
+    config,
+  });
+  const first = await api.startOrResume(userId, 'first-request');
+  await vi.waitFor(() => expect(runStore.runs.get(first.runId)?.status).toBe('completed'));
+  runStore.terminalTimes.set(first.runId, Date.now() - config.retentionMs);
+  await projectStore.saveProject(userId, createSnapshot('new-project'));
+  const second = await api.startOrResume(userId, 'fresh-request');
+  expect(second.runId).not.toBe(first.runId);
+  expect(runStore.runs.get(first.runId)?.status).toBe('cancelled');
+  await vi.waitFor(() => expect(runStore.runs.get(second.runId)?.status).toBe('completed'));
+  expect(runStore.runs.get(second.runId)?.expectedProjects.map(project => project.id)).toEqual([
+    'old-project',
+    'new-project',
+  ]);
+});
+
+test('reclaims completed archives after retention during startup', async () => {
+  const projectStore = new InMemoryProjectStore();
+  await projectStore.saveProject(userId, createSnapshot('retained-project'));
+  const runStore = new MemoryLibraryExportRunStore();
+  const workspace = new LibraryExportWorkspace(temporaryRoot);
+  const api = createLibraryExportApi({
+    archiveWorkspace: workspace,
+    assetReader: { readActive: () => Promise.reject(new Error('Unexpected asset read.')) },
+    projectStore,
+    runStore,
+  });
+  const started = await api.startOrResume(userId, 'retention-request');
+  await vi.waitFor(() => expect(runStore.run?.status).toBe('completed'));
+  const retentionMs = 24 * 60 * 60_000;
+  runStore.terminalTimes.set(started.runId, Date.now() - retentionMs);
+  const removeRun = vi.spyOn(workspace, 'removeRun');
+  await api.recoverPendingRuns();
+  await api.close();
+  expect(runStore.run?.status).toBe('cancelled');
+  expect(removeRun).toHaveBeenCalledWith(started.runId);
+  expect(runStore.cleanupCompleted).toBe(true);
 });
 
 let temporaryRoot: string;
@@ -205,6 +164,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  for (const api of exportApis) await api.close();
+  exportApis.clear();
+  vi.restoreAllMocks();
   await rm(temporaryRoot, { force: true, recursive: true });
 });
 
@@ -272,6 +234,56 @@ test('creates an import-compatible library archive while only one project export
     expect(decoded.project.id).toBe(project.id);
   }
   expect(projectStore.exportProject).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  1, 2,
+])('admits distinct users with %i slots without treating queued polling as an interruption', async capacity => {
+  const projectStore = new InMemoryProjectStore();
+  const owners = ['first-user', 'second-user', 'third-user'];
+  for (const owner of owners) await projectStore.saveProject(owner, createSnapshot(owner));
+  const runStore = new MemoryLibraryExportRunStore();
+  const originalExport = projectStore.exportProject.bind(projectStore);
+  const firstStarted = Promise.withResolvers<void>();
+  const releaseFirst = Promise.withResolvers<void>();
+  const exported: string[] = [];
+  vi.spyOn(projectStore, 'exportProject').mockImplementation(async (owner, id) => {
+    exported.push(owner);
+    if (owners.indexOf(owner) < capacity) {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+    }
+    return originalExport(owner, id);
+  });
+  const api = createLibraryExportApi({
+    config: { ...readLibraryExportConfig({}), executionsGlobal: capacity },
+    archiveWorkspace: new LibraryExportWorkspace(temporaryRoot),
+    assetReader: { readActive: () => Promise.reject(new Error('Unexpected asset read.')) },
+    projectStore,
+    runStore,
+  });
+  const first = await api.startOrResume(owners[0], 'first-request');
+  await firstStarted.promise;
+  const second = await api.startOrResume(owners[1], 'second-request');
+  const third = await api.startOrResume(owners[2], 'third-request');
+  const markFailed = vi.spyOn(runStore, 'markFailed');
+  const queued = await api.getStatus(owners[1], second.runId);
+  await api.startOrResume(owners[1], 'duplicate-request');
+  try {
+    expect(exported).toEqual(owners.slice(0, capacity));
+    expect(queued).toMatchObject({ status: 'running', completedProjectCount: 0 });
+    expect(markFailed).not.toHaveBeenCalled();
+  } finally {
+    releaseFirst.resolve();
+    await vi.waitFor(() =>
+      expect([first, second, third].map(run => runStore.runs.get(run.runId)?.status)).toEqual([
+        'completed',
+        'completed',
+        'completed',
+      ])
+    );
+  }
+  expect(exported).toEqual(owners);
 });
 
 test('resumes from a durable project checkpoint after an interrupted process', async () => {
@@ -743,7 +755,7 @@ test('authorizes a native cross-origin download with a one-time form token', asy
   const runId = '3207883a-862a-447f-b9ed-6148effeb8ea';
   const archivePath = join(temporaryRoot, 'native-download.zip');
   await writeFile(archivePath, 'native archive');
-  const completeDownload = vi.fn(() => Promise.resolve());
+  const finishDownload = vi.fn(() => Promise.resolve());
   const progress = {
     archiveBytes: 14,
     bytesWritten: 14,
@@ -755,12 +767,13 @@ test('authorizes a native cross-origin download with a one-time form token', asy
     status: 'completed' as const,
   };
   const api: LibraryExportApi = {
-    completeDownload,
+    close: vi.fn(() => Promise.resolve()),
     createDownloadAccess: vi.fn(async () => 'one-time-download-token'),
     getDownload: vi.fn(async () => ({
       archiveBytes: 14,
       archivePath,
       filename: 'nous-library-backup.nous-library.zip',
+      finish: finishDownload,
       userId,
     })),
     getStatus: vi.fn(async () => progress),
@@ -797,7 +810,7 @@ test('authorizes a native cross-origin download with a one-time form token', asy
     expect(downloadResponse.status).toBe(200);
     expect(downloadResponse.body.toString()).toBe('native archive');
     expect(api.getDownload).toHaveBeenCalledWith(runId, 'one-time-download-token');
-    await vi.waitFor(() => expect(completeDownload).toHaveBeenCalledWith(userId, runId));
+    await vi.waitFor(() => expect(finishDownload).toHaveBeenCalledWith(true));
   } finally {
     if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
     else process.env.AUTH_MODE = previousAuthMode;

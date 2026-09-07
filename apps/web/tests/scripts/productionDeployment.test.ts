@@ -171,6 +171,15 @@ describe('production deployment boundaries', () => {
     expect(APP_COMPOSE.volumes).toHaveProperty('library-exports');
   });
 
+  test.each([
+    'LIBRARY_EXPORT_EXECUTIONS_GLOBAL',
+    'LIBRARY_EXPORT_RETENTION_MS',
+    'LIBRARY_EXPORT_CLEANUP_INTERVAL_MS',
+  ])('forwards %s to the backend without duplicating application defaults', key => {
+    expect(APP_COMPOSE.services.backend?.environment?.[key]).toBe(`\${${key}:-}`);
+    expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty(key);
+  });
+
   test('fails the stack smoke contract on the first unhealthy dependency', async () => {
     const request = vi
       .fn()

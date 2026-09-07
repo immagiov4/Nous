@@ -123,6 +123,35 @@ successful downloads and cancelled runs remove their own workspace after recordi
 state. Do not use `down -v` during normal operations because that would remove resumable export
 files while their PostgreSQL run records remain.
 
+The single backend process admits export preparations in FIFO order. The default capacity is one,
+including explicit retries and runs recovered at startup. Waiting runs remain `running` in the
+`preparing` phase, without retaining hydrated project sources in the admission queue. This capacity
+is configurable and provisional for the default 2 GiB backend; it is not a guarantee under every
+application load or a limit on request frequency or the number of waiting users.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LIBRARY_EXPORT_EXECUTIONS_GLOBAL` | `1` | Simultaneous archive preparations per backend process |
+| `LIBRARY_EXPORT_RETENTION_MS` | `86400000` | Retention after completion or failure, 24 hours |
+| `LIBRARY_EXPORT_CLEANUP_INTERVAL_MS` | `900000` | Periodic cleanup interval, 15 minutes |
+
+Set overrides in the deployment environment and recreate the backend to apply them. Empty settings
+use these defaults; invalid positive-integer settings fail startup. The cleanup interval must not
+exceed `2147483647` ms, the runtime timer limit; retention must produce a valid expiration date.
+Completed runs age from
+`completed_at`, failed runs from their failure transition's `updated_at`. Reading progress or issuing
+a download token does not extend retention. Cleanup runs at startup and periodically without overlapping
+passes. Expired terminal runs become `cancelled` with reason `LIBRARY_EXPORT_RETENTION_EXPIRED`, revoke
+their token, and release their workspace. Cleanup errors remain pending in PostgreSQL for another pass.
+A new export request replaces an expired run with a fresh library snapshot; a nonexpired failed run
+retains the existing identity-checked retry behavior.
+
+Running and queued preparations are excluded from expiry. A download admitted before expiry can
+finish, including overlapping responses for the same archive. Files remain until the last reader
+releases them, on success, error, or disconnection. New tokens and downloads are refused after expiry.
+Admission and active-reader coordination are process-local; do not add replicas sharing this export
+volume without shared coordination. Source objects are never removed by export cleanup.
+
 Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is
 300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
 in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable

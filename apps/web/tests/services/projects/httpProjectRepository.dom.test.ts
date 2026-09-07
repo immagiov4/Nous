@@ -84,3 +84,30 @@ test('HttpProjectRepository waits for a durable export before starting a native 
     'one-time-download-token'
   );
 });
+
+test('reports retention cancellation without submitting a download form', async () => {
+  const submit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 202,
+    json: async () => ({
+      success: true,
+      run: {
+        runId: 'expired-run',
+        correlationId: 'request',
+        status: 'cancelled',
+        phase: 'failed',
+        bytesWritten: 24,
+        completedProjectCount: 1,
+        projectCount: 1,
+        errorCode: 'LIBRARY_EXPORT_RETENTION_EXPIRED',
+      },
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  await expect(repository.exportLibraryBackup()).rejects.toThrow(
+    'Il backup completo è scaduto. Avvia una nuova esportazione.'
+  );
+  expect(submit).not.toHaveBeenCalled();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});

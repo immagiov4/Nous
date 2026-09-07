@@ -88,29 +88,42 @@ export const createLibraryExportDownloadRouter = (api: LibraryExportApi): Router
           res.status(409).json({ error: EXPORT_DOWNLOAD_ERROR, success: false });
           return;
         }
-        res.set('Content-Length', String(download.archiveBytes));
-        res.download(download.archivePath, download.filename, error => {
-          if (error) {
-            console.error('[LibraryExport] Download failed.', {
-              errorType: getSafeErrorType(error),
-              runId,
-              userId: download.userId,
-            });
-            if (!res.headersSent) {
-              res.status(500).json({ error: EXPORT_DOWNLOAD_ERROR, success: false });
-            } else {
-              next(error);
-            }
-            return;
-          }
-          void api.completeDownload(download.userId, runId).catch(cleanupError => {
+        const finish = (delivered: boolean) => {
+          void download.finish(delivered).catch(cleanupError => {
             console.error('[LibraryExport] Download cleanup failed.', {
               errorType: getSafeErrorType(cleanupError),
               runId,
               userId: download.userId,
             });
           });
-        });
+        };
+        if (res.destroyed) {
+          finish(false);
+          return;
+        }
+        res.once('close', () => finish(res.writableFinished));
+        try {
+          res.set('Content-Length', String(download.archiveBytes));
+          res.download(download.archivePath, download.filename, error => {
+            finish(!error);
+            if (error) {
+              console.error('[LibraryExport] Download failed.', {
+                errorType: getSafeErrorType(error),
+                runId,
+                userId: download.userId,
+              });
+              if (!res.headersSent) {
+                res.status(500).json({ error: EXPORT_DOWNLOAD_ERROR, success: false });
+              } else {
+                next(error);
+              }
+              return;
+            }
+          });
+        } catch (error) {
+          finish(false);
+          throw error;
+        }
       } catch (error) {
         console.error('[LibraryExport] Download route failed.', {
           errorType: getSafeErrorType(error),

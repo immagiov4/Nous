@@ -438,6 +438,8 @@ const ENGLISH_UI_MESSAGES = {
   Esporta: 'Export',
   'Esportazione...': 'Exporting...',
   'Esportazione non riuscita. Riprova.': 'Export failed. Try again.',
+  'Il backup completo è scaduto. Avvia una nuova esportazione.':
+    'The complete backup has expired. Start a new export.',
   'Esportazione del backup completo non riuscita. Riprova.':
     'Complete backup export failed. Try again.',
   'Esportazione in corso...': 'Exporting...',

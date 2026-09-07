@@ -1,7 +1,8 @@
-import type {
-  LibraryExportPhase,
-  LibraryExportProgress,
-  LibraryExportStatus,
+import {
+  LIBRARY_EXPORT_RETENTION_ERROR_CODE,
+  type LibraryExportPhase,
+  type LibraryExportProgress,
+  type LibraryExportStatus,
 } from '@shared/libraryExportContract';
 import { PROJECT_API_ERROR_CODE } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
@@ -826,7 +827,9 @@ export class HttpProjectRepository implements ProjectRepository {
     }
     if (run.status !== 'completed') {
       throw new ProjectStorageError(
-        'La creazione del backup completo non è riuscita. Riprova.',
+        run.errorCode === LIBRARY_EXPORT_RETENTION_ERROR_CODE
+          ? 'Il backup completo è scaduto. Avvia una nuova esportazione.'
+          : 'La creazione del backup completo non è riuscita. Riprova.',
         'persistence-failed'
       );
     }

@@ -6,6 +6,7 @@ export const LIBRARY_ARCHIVE_EXTENSION = '.nous-library.zip';
 export const LIBRARY_ARCHIVE_MANIFEST_PATH = 'library.json';
 const LIBRARY_ARCHIVE_PROJECTS_DIR = 'projects';
 export const LIBRARY_ARCHIVE_MIME_TYPE = 'application/zip';
+export const LIBRARY_EXPORT_RETENTION_ERROR_CODE = 'LIBRARY_EXPORT_RETENTION_EXPIRED';
 
 export interface LibraryArchiveProjectEntry {
   id: string;

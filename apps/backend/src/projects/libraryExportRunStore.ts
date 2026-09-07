@@ -1,7 +1,8 @@
-import type {
-  LibraryArchiveProjectEntry,
-  LibraryExportPhase,
-  LibraryExportStatus,
+import {
+  LIBRARY_EXPORT_RETENTION_ERROR_CODE,
+  type LibraryArchiveProjectEntry,
+  type LibraryExportPhase,
+  type LibraryExportStatus,
 } from '@shared/libraryExportContract';
 import type { LibraryFolder, LibraryPlacement } from '@shared/projectContract';
 import postgres, { type Sql } from 'postgres';
@@ -59,15 +60,26 @@ export interface LibraryExportRunProgressRecord {
 }
 
 export interface LibraryExportRunStore {
-  authorizeDownload(userId: string, runId: string, tokenSha256: string): Promise<boolean>;
-  claimDownload(runId: string, tokenSha256: string): Promise<LibraryExportRunRecord | null>;
+  authorizeDownload(
+    userId: string,
+    runId: string,
+    tokenSha256: string,
+    cutoff: Date
+  ): Promise<boolean>;
+  claimDownload(
+    runId: string,
+    tokenSha256: string,
+    cutoff: Date
+  ): Promise<LibraryExportRunRecord | null>;
+  cancelExpiredRun(runId: string, cutoff: Date): Promise<boolean>;
+  listExpiredRunIds(cutoff: Date): Promise<string[]>;
   checkpointProject(runId: string, checkpoint: LibraryExportProjectCheckpoint): Promise<void>;
   createRun(input: Omit<LibraryExportRunRecord, 'checkpoints'>): Promise<LibraryExportRunRecord>;
   findUndeliveredRun(userId: string): Promise<LibraryExportRunRecord | null>;
   getRun(userId: string, runId: string): Promise<LibraryExportRunRecord | null>;
   getRunProgress(userId: string, runId: string): Promise<LibraryExportRunProgressRecord | null>;
   listPendingCleanupRunIds(): Promise<string[]>;
-  listRunningRuns(): Promise<LibraryExportRunRecord[]>;
+  listRunningRuns(): Promise<Array<Pick<LibraryExportRunRecord, 'id' | 'userId'>>>;
   markCancelled(
     runId: string,
     error: { code: string; detail: string; phase: LibraryExportPhase }
@@ -245,21 +257,32 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
     return existingRun;
   }
 
-  async authorizeDownload(userId: string, runId: string, tokenSha256: string): Promise<boolean> {
+  async authorizeDownload(
+    userId: string,
+    runId: string,
+    tokenSha256: string,
+    cutoff: Date
+  ): Promise<boolean> {
     const rows = await this.sql<Array<{ id: string }>>`
       update public.library_export_runs
       set download_token_sha256 = ${tokenSha256}, updated_at = clock_timestamp()
       where id = ${runId} and user_id = ${userId} and status = 'completed'
+        and completed_at > ${cutoff}
       returning id
     `;
     return Boolean(rows[0]);
   }
 
-  async claimDownload(runId: string, tokenSha256: string): Promise<LibraryExportRunRecord | null> {
+  async claimDownload(
+    runId: string,
+    tokenSha256: string,
+    cutoff: Date
+  ): Promise<LibraryExportRunRecord | null> {
     const rows = await this.sql<LibraryExportRunRow[]>`
       update public.library_export_runs
       set download_token_sha256 = null, updated_at = clock_timestamp()
       where id = ${runId} and status = 'completed' and download_token_sha256 = ${tokenSha256}
+        and completed_at > ${cutoff}
       returning *
     `;
     return rows[0] ? this.loadRunWithCheckpoints(rows[0]) : null;
@@ -318,11 +341,36 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
     return rows.map(row => row.id);
   }
 
-  async listRunningRuns(): Promise<LibraryExportRunRecord[]> {
-    const rows = await this.sql<LibraryExportRunRow[]>`
-      select * from public.library_export_runs where status = 'running' order by created_at, id
+  async listRunningRuns(): Promise<Array<Pick<LibraryExportRunRecord, 'id' | 'userId'>>> {
+    const rows = await this.sql<Array<{ id: string; user_id: string }>>`
+      select id, user_id from public.library_export_runs where status = 'running' order by created_at, id
     `;
-    return Promise.all(rows.map(row => this.loadRunWithCheckpoints(row)));
+    return rows.map(row => ({ id: row.id, userId: row.user_id }));
+  }
+
+  async listExpiredRunIds(cutoff: Date): Promise<string[]> {
+    const rows = await this.sql<Array<{ id: string }>>`
+      select id from public.library_export_runs
+      where (status = 'completed' and completed_at <= ${cutoff})
+         or (status = 'failed' and updated_at <= ${cutoff})
+      order by updated_at, id
+    `;
+    return rows.map(row => row.id);
+  }
+
+  async cancelExpiredRun(runId: string, cutoff: Date): Promise<boolean> {
+    const rows = await this.sql<Array<{ id: string }>>`
+      update public.library_export_runs
+      set status = 'cancelled', error_code = ${LIBRARY_EXPORT_RETENTION_ERROR_CODE},
+          error_phase = phase, phase = 'failed',
+          error_detail = 'The library export retention period elapsed.',
+          download_token_sha256 = null, updated_at = clock_timestamp()
+      where id = ${runId}
+        and ((status = 'completed' and completed_at <= ${cutoff})
+          or (status = 'failed' and updated_at <= ${cutoff}))
+      returning id
+    `;
+    return rows.length > 0;
   }
 
   async markRunning(
@@ -334,7 +382,7 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
       update public.library_export_runs
       set status = 'running', phase = ${phase}, current_project_id = ${currentProjectId ?? null},
           updated_at = clock_timestamp()
-      where id = ${runId} and status <> 'downloaded'
+      where id = ${runId} and status in ('running', 'failed')
     `;
   }
 
@@ -475,7 +523,7 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
           error_phase = ${error.phase}, error_detail = ${error.detail},
           download_token_sha256 = null,
           updated_at = clock_timestamp()
-      where id = ${runId} and status <> 'downloaded'
+      where id = ${runId} and status in ('running', 'completed')
     `;
   }
 

@@ -104,6 +104,26 @@ The browser starts one backend-owned export run and polls its persisted progress
 
 The backend checks every expected project identity again before building the outer archive. Saving a separate course cover increments the same project revision in the cover-write transaction, because the cover is part of the nested project archive. For the final transition, PostgreSQL locks the expected project rows in stable order, compares their incarnation UUIDs and revisions, and keeps those locks through publication; an overlapping snapshot save, cover save, or deletion must therefore serialize before or after completion. A failed run whose project set or identities changed is cancelled and replaced from a new library snapshot rather than mixing checkpoints from different project versions. Runs persisted before these identity fields existed are explicitly cancelled as non-resumable. The completed archive retains the established library manifest and nested project archive format. It is exposed for download only after the final file has been closed, reread, and verified. The browser receives a one-use download token and submits a native form, leaving the archive stream outside application memory. After a successful response, the run is marked as downloaded and its workspace directory is removed; interrupted cleanup is retried from durable state. Sources: [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts), [apps/backend/src/projects/libraryExportRunStore.ts](../../../apps/backend/src/projects/libraryExportRunStore.ts), [apps/backend/src/projects/libraryExportWorkspace.ts](../../../apps/backend/src/projects/libraryExportWorkspace.ts), [apps/backend/src/projects/postgresProjectStore.ts](../../../apps/backend/src/projects/postgresProjectStore.ts), [packages/shared-types/libraryExportContract.ts](../../../packages/shared-types/libraryExportContract.ts), [apps/web/services/projects/httpProjectRepository.ts](../../../apps/web/services/projects/httpProjectRepository.ts), [compose.yml](../../../compose.yml)
 
+The supported single backend process admits archive preparations through a configurable FIFO queue.
+Queued identifiers count as owned work, so progress polling cannot mistake them for an interrupted
+execution. Startup recovery reads ordered run identifiers without loading every checkpoint collection.
+Only scalar identifiers are retained by pending execution callbacks. The default is one preparation
+at a time. Capacity bounds active preparation, not the number of waiting users or request frequency.
+
+Completed and failed runs have configurable retention, defaulting to 24 hours from the persisted
+completion or failure transition. Progress polling and download tokens do not extend retention.
+Startup and periodic cleanup cancel expired terminal runs with `LIBRARY_EXPORT_RETENTION_EXPIRED`,
+revoke their tokens, and remove only the export workspace. Queued and executing runs are excluded.
+Per-run state serialization and active-reader counts prevent expiry or a successful response from
+removing a file still used by another admitted download. Errors and disconnections release readers;
+failed cleanup remains durably retryable. A fresh request replaces an expired run once no reader is
+active. The public progress states and archive formats remain unchanged. Configuration and limits are
+documented in [Deployment](../../../docs/DEPLOYMENT.md#durable-full-library-export-workspace).
+
+Sources: [libraryExportCoordinator.ts](../../../apps/backend/src/projects/libraryExportCoordinator.ts),
+[libraryExportDelivery.ts](../../../apps/backend/src/projects/libraryExportDelivery.ts),
+[libraryExportConfig.ts](../../../apps/backend/src/projects/libraryExportConfig.ts).
+
 ### Multi-Source Management
 Projects can support multiple source files simultaneously. The `courseSources` service handles the sorting (alphabetical), indexing, and merging of these files.
 

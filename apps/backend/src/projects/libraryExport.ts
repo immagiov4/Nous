@@ -1,8 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   findLibraryOrganizationIssue,
   getLibraryArchiveProjectPath,
-  LIBRARY_ARCHIVE_EXTENSION,
   LIBRARY_ARCHIVE_FORMAT,
   LIBRARY_ARCHIVE_VERSION,
   type LibraryArchiveManifest,
@@ -16,7 +15,12 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 } from '@shared/projectBackupArchive';
 import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
-
+import { type LibraryExportConfig, readLibraryExportConfig } from './libraryExportConfig.js';
+import { LibraryExportCoordinator } from './libraryExportCoordinator.js';
+import {
+  createLibraryExportDelivery,
+  type LibraryExportDownload,
+} from './libraryExportDelivery.js';
 import type {
   LibraryExportExpectedProject,
   LibraryExportProjectCheckpoint,
@@ -28,15 +32,8 @@ import { LibraryExportWorkspace } from './libraryExportWorkspace.js';
 import type { ProjectAssetReader } from './projectAssetReader.js';
 import type { ProjectStore } from './types.js';
 
-export interface LibraryExportDownload {
-  archiveBytes: number;
-  archivePath: string;
-  filename: string;
-  userId: string;
-}
-
 export interface LibraryExportApi {
-  completeDownload(userId: string, runId: string): Promise<void>;
+  close(): Promise<void>;
   createDownloadAccess(userId: string, runId: string): Promise<string | null>;
   getDownload(runId: string, accessToken: string): Promise<LibraryExportDownload | null>;
   getStatus(userId: string, runId: string): Promise<LibraryExportProgress | null>;
@@ -48,7 +45,7 @@ const unavailable = (): Promise<never> =>
   Promise.reject(new Error('Library export is unavailable.'));
 
 export const unavailableLibraryExportApi: LibraryExportApi = {
-  completeDownload: unavailable,
+  close: unavailable,
   createDownloadAccess: unavailable,
   getDownload: unavailable,
   getStatus: unavailable,
@@ -57,6 +54,7 @@ export const unavailableLibraryExportApi: LibraryExportApi = {
 };
 
 interface CreateLibraryExportApiDependencies {
+  config?: LibraryExportConfig;
   archiveWorkspace?: LibraryExportWorkspace;
   assetReader: ProjectAssetReader;
   projectStore: ProjectStore;
@@ -69,7 +67,6 @@ const PROJECT_ARCHIVE_LIMITS = {
   maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
 };
-const LIBRARY_EXPORT_FILENAME = `nous-library-backup${LIBRARY_ARCHIVE_EXTENSION}`;
 
 const toProgress = (
   run: LibraryExportRunRecord | LibraryExportRunProgressRecord
@@ -171,16 +168,20 @@ const getErrorCode = (phase: LibraryExportPhase): string => {
 const getErrorType = (error: unknown): string =>
   error instanceof Error ? error.name : 'UnknownError';
 
-const hashDownloadAccessToken = (accessToken: string): string =>
-  createHash('sha256').update(accessToken).digest('hex');
-
 export const createLibraryExportApi = ({
+  config = readLibraryExportConfig(process.env),
   archiveWorkspace = new LibraryExportWorkspace(),
   assetReader,
   projectStore,
   runStore,
 }: CreateLibraryExportApiDependencies): LibraryExportApi => {
-  const activeRuns = new Map<string, Promise<void>>();
+  const coordinator = new LibraryExportCoordinator(config.executionsGlobal);
+  const delivery = createLibraryExportDelivery({
+    config,
+    coordinator,
+    runStore,
+    workspace: archiveWorkspace,
+  });
 
   const createProjectArchive = async (
     userId: string,
@@ -339,107 +340,93 @@ export const createLibraryExportApi = ({
   };
 
   const runInBackground = (run: LibraryExportRunRecord, outcome: 'resumed' | 'started'): void => {
-    if (activeRuns.has(run.id)) return;
+    if (coordinator.owns(run.id)) return;
+    const { id, userId, correlationId, phase } = run;
     console.info('[LibraryExport] Run scheduled.', {
-      correlationId: run.correlationId,
-      exportRunId: run.id,
+      correlationId,
+      exportRunId: id,
       outcome,
-      phase: run.phase,
-      userId: run.userId,
+      phase,
+      userId,
     });
-    const promise = execute(run.id, run.userId)
-      .catch(error => {
+    coordinator.schedule(id, () =>
+      execute(id, userId).catch(error => {
         console.error('[LibraryExport] Background persistence failed.', {
           errorType: getErrorType(error),
-          exportRunId: run.id,
+          exportRunId: id,
           outcome: 'failed',
-          userId: run.userId,
+          userId,
         });
       })
-      .finally(() => activeRuns.delete(run.id));
-    activeRuns.set(run.id, promise);
+    );
   };
 
-  const cleanupRun = async (runId: string): Promise<void> => {
-    await archiveWorkspace.removeRun(runId);
-    await runStore.markCleanupCompleted(runId);
-  };
-
-  const cleanupPendingRuns = async (): Promise<void> => {
-    for (const runId of await runStore.listPendingCleanupRunIds()) {
-      try {
-        await cleanupRun(runId);
-      } catch (error) {
-        console.error('[LibraryExport] Delivered run cleanup failed.', {
+  const resumeRun = async (
+    userId: string,
+    runId: string,
+    outcome: 'resumed' | 'started' = 'resumed'
+  ): Promise<LibraryExportRunRecord | null> => {
+    const current = await coordinator.exclusively(runId, async () => {
+      const run = await runStore.getRun(userId, runId);
+      if (!run || coordinator.owns(runId) || (run.status !== 'running' && run.status !== 'failed'))
+        return run;
+      if (outcome === 'resumed') {
+        const issue = getExpectedProjectIssue(
+          run.expectedProjects,
+          await projectStore.listLibraryExportProjects(userId)
+        );
+        if (issue) {
+          await runStore.markCancelled(runId, {
+            ...getResumeError(issue),
+            phase: run.errorPhase ?? run.phase,
+          });
+          return runStore.getRun(userId, runId);
+        }
+        if (run.status === 'running' && run.phase !== 'preparing') {
+          await runStore.markFailed(runId, {
+            code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
+            detail: 'The backend process stopped before the library export completed.',
+            phase: run.phase,
+          });
+        }
+        await runStore.markRunning(runId, 'preparing');
+      }
+      runInBackground(run, outcome);
+      return runStore.getRun(userId, runId);
+    });
+    if (current?.status === 'cancelled') {
+      await delivery.cleanupRun(runId).catch(error => {
+        console.error('[LibraryExport] Cancelled run cleanup failed.', {
           errorType: getErrorType(error),
           exportRunId: runId,
-          outcome: 'cleanup-failed',
         });
-      }
-    }
-  };
-
-  const cancelUnresumableRun = async (
-    run: LibraryExportRunRecord,
-    issue: ExpectedProjectIssue
-  ): Promise<void> => {
-    const error = getResumeError(issue);
-    await runStore.markCancelled(run.id, {
-      ...error,
-      phase: run.errorPhase ?? run.phase,
-    });
-    try {
-      await cleanupRun(run.id);
-    } catch (cleanupError) {
-      console.error('[LibraryExport] Cancelled run cleanup failed.', {
-        errorType: getErrorType(cleanupError),
-        exportRunId: run.id,
-        outcome: 'cleanup-failed',
-        userId: run.userId,
       });
     }
+    return current;
   };
 
-  const getRunResumeIssue = async (
-    run: LibraryExportRunRecord
-  ): Promise<ExpectedProjectIssue | null> =>
-    getExpectedProjectIssue(
-      run.expectedProjects,
-      await projectStore.listLibraryExportProjects(run.userId)
-    );
-
   return {
+    createDownloadAccess: delivery.createDownloadAccess,
+    getDownload: delivery.getDownload,
+
     async startOrResume(userId, correlationId) {
-      await cleanupPendingRuns();
-      let run = await runStore.findUndeliveredRun(userId);
-      let runOutcome: 'resumed' | 'started' = 'resumed';
-      let snapshotAfterFailure: Awaited<
-        ReturnType<ProjectStore['readLibraryExportSnapshot']>
-      > | null = null;
-      if (
-        run &&
-        (run.status === 'failed' || (run.status === 'running' && !activeRuns.has(run.id)))
-      ) {
-        snapshotAfterFailure = await projectStore.readLibraryExportSnapshot(userId);
-        const expectedProjectIssue = getExpectedProjectIssue(
-          run.expectedProjects,
-          snapshotAfterFailure.projects
-        );
-        if (expectedProjectIssue) {
-          await cancelUnresumableRun(run, expectedProjectIssue);
-          run = null;
+      return coordinator.exclusively(`user:${userId}`, async () => {
+        const existing = await runStore.findUndeliveredRun(userId);
+        if (existing) {
+          await delivery.expireRun(existing.id);
+          const resumed = await resumeRun(userId, existing.id);
+          if (resumed && resumed.status !== 'cancelled' && resumed.status !== 'downloaded')
+            return toProgress(resumed);
         }
-      }
-      if (!run) {
         const { folders, placements, projects } =
-          snapshotAfterFailure ?? (await projectStore.readLibraryExportSnapshot(userId));
+          await projectStore.readLibraryExportSnapshot(userId);
         assertCompleteOrganization(
           projects.map(project => project.id),
           folders,
           placements
         );
         const requestedRunId = randomUUID();
-        run = await runStore.createRun({
+        const run = await runStore.createRun({
           bytesWritten: 0,
           correlationId,
           expectedProjects: projects.map((project, index) => {
@@ -459,99 +446,31 @@ export const createLibraryExportApi = ({
           status: 'running',
           userId,
         });
-        runOutcome = run.id === requestedRunId ? 'started' : 'resumed';
-      } else if (run.status === 'running' && !activeRuns.has(run.id)) {
-        await runStore.markFailed(run.id, {
-          code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
-          detail: 'The backend process stopped before the library export completed.',
-          phase: run.phase,
-        });
-        run = (await runStore.getRun(userId, run.id)) ?? run;
-      }
-
-      if (run.status === 'completed') return toProgress(run);
-      if (run.status === 'failed') {
-        await runStore.markRunning(run.id, 'preparing');
-        run = (await runStore.getRun(userId, run.id)) ?? run;
-      }
-      runInBackground(run, runOutcome);
-      const current = (await runStore.getRun(userId, run.id)) ?? run;
-      return toProgress(current);
+        const scheduled = await resumeRun(
+          userId,
+          run.id,
+          run.id === requestedRunId ? 'started' : 'resumed'
+        );
+        if (!scheduled) throw new Error('Persisted library export run is missing.');
+        return toProgress(scheduled);
+      });
     },
 
     async getStatus(userId, runId) {
       let progress = await runStore.getRunProgress(userId, runId);
       if (!progress) return null;
-      if (progress.status === 'running' && !activeRuns.has(progress.id)) {
-        const run = await runStore.getRun(userId, progress.id);
-        if (!run) return null;
-        const resumeIssue = await getRunResumeIssue(run);
-        if (resumeIssue) {
-          await cancelUnresumableRun(run, resumeIssue);
-          progress = (await runStore.getRunProgress(userId, progress.id)) ?? progress;
-          return toProgress(progress);
-        }
-        await runStore.markFailed(progress.id, {
-          code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
-          detail: 'The backend process stopped before the library export completed.',
-          phase: progress.phase,
-        });
-        await runStore.markRunning(progress.id, 'preparing');
-        runInBackground(run, 'resumed');
-        progress = (await runStore.getRunProgress(userId, progress.id)) ?? progress;
+      if (progress.status === 'running' && !coordinator.owns(runId)) {
+        await resumeRun(userId, runId);
+        progress = await runStore.getRunProgress(userId, runId);
       }
-      return toProgress(progress);
-    },
-
-    async createDownloadAccess(userId, runId) {
-      const run = await runStore.getRun(userId, runId);
-      if (!run || run.status !== 'completed') return null;
-      const accessToken = randomUUID();
-      return (await runStore.authorizeDownload(userId, runId, hashDownloadAccessToken(accessToken)))
-        ? accessToken
-        : null;
-    },
-
-    async getDownload(runId, accessToken) {
-      const run = await runStore.claimDownload(runId, hashDownloadAccessToken(accessToken));
-      if (!run || !run.archiveBytes || !run.archiveSha256) return null;
-      if (
-        !(await archiveWorkspace.verifyLibraryArchive(runId, {
-          bytes: run.archiveBytes,
-          sha256: run.archiveSha256,
-        }))
-      ) {
-        await runStore.markFailed(runId, {
-          code: 'LIBRARY_EXPORT_INTEGRITY_FAILED',
-          detail: 'The completed library archive no longer matches its persisted checksum.',
-          phase: 'integrity-check',
-        });
-        return null;
-      }
-      return {
-        archiveBytes: run.archiveBytes,
-        archivePath: archiveWorkspace.getLibraryArchivePath(runId),
-        filename: LIBRARY_EXPORT_FILENAME,
-        userId: run.userId,
-      };
+      return progress ? toProgress(progress) : null;
     },
 
     async recoverPendingRuns() {
-      await cleanupPendingRuns();
+      await delivery.start();
       for (const run of await runStore.listRunningRuns()) {
         try {
-          const resumeIssue = await getRunResumeIssue(run);
-          if (resumeIssue) {
-            await cancelUnresumableRun(run, resumeIssue);
-            continue;
-          }
-          await runStore.markFailed(run.id, {
-            code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
-            detail: 'The backend process stopped before the library export completed.',
-            phase: run.phase,
-          });
-          await runStore.markRunning(run.id, 'preparing');
-          runInBackground(run, 'resumed');
+          await resumeRun(run.userId, run.id);
         } catch (error) {
           console.error('[LibraryExport] Pending run recovery failed.', {
             errorType: getErrorType(error),
@@ -563,11 +482,10 @@ export const createLibraryExportApi = ({
       }
     },
 
-    async completeDownload(userId, runId) {
-      const run = await runStore.getRun(userId, runId);
-      if (!run || run.status !== 'completed') return;
-      await runStore.markDownloaded(runId);
-      await cleanupRun(runId);
+    async close() {
+      const executions = coordinator.close();
+      await delivery.close();
+      await executions;
     },
   };
 };
