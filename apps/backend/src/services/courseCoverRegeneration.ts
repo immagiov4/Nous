@@ -17,6 +17,7 @@ import {
   resolveAiProviderForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
+import { publishProjectRevision } from '../projects/projectEvents.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectCoverFile, ProjectStore, SavedProjectMeta } from '../projects/types.js';
 import { createEntityId } from '../utils/ids.js';
@@ -259,10 +260,16 @@ const regenerateProjectCover = (
       ) {
         return skippedResult(project);
       }
-      const saved = await store.saveProjectCover(userId, project.id, cover, {
+      const savedMeta = await store.saveProjectCover(userId, project.id, cover, {
         expectedRevision: project.revision,
       });
-      if (!saved) return skippedResult(project);
+      if (!savedMeta) return skippedResult(project);
+      if (typeof savedMeta.revision === 'number') {
+        publishProjectRevision(userId, {
+          projectId: savedMeta.id,
+          revision: savedMeta.revision,
+        });
+      }
       return {
         coverName: cover.name,
         projectId: project.id,

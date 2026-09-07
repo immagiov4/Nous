@@ -72,6 +72,7 @@ The `/api/projects` router manages the lifecycle of courses, including creation,
 *  **GET `/api/projects/projects`**: Lists metadata for all projects owned by the authenticated user.
 *  **PUT `/api/projects/projects/:id`**: Saves or updates a full project snapshot. It handles both JSON and multipart/form-data for binary source attachments.
 *  **PATCH `/api/projects/projects/:id`**: Performs partial updates, such as renaming a title or updating the active section, while maintaining revision consistency to prevent stale overwrites.
+*  **POST `/api/projects/projects/:id/cover`**: Stores a raster course cover separately and increments the project revision atomically, then publishes the new revision to connected clients.
 *  **DELETE `/api/projects/projects/:id`**: Removes a project and its associated storage artifacts.
 
 Sources: [apps/backend/tests/routes/projects.test.ts:104-140](../../../apps/backend/tests/routes/projects.test.ts#L104-L140), [apps/backend/src/index.ts:203-210](../../../apps/backend/src/index.ts#L203-L210)
@@ -81,11 +82,11 @@ Sources: [apps/backend/tests/routes/projects.test.ts:104-140](../../../apps/back
 The authenticated library export endpoints separate long-running preparation from the final binary transfer:
 
 * **POST `/api/projects/library-exports`**: Starts a run or resumes the user's existing undelivered run and returns its durable progress.
-* **GET `/api/projects/library-exports/:runId`**: Returns the persisted phase, completed and expected project counts, and bytes written.
+* **GET `/api/projects/library-exports/:runId`**: Returns the persisted phase, completed and expected project counts, and bytes written through a progress-only database query that does not load checkpoint paths or checksums.
 * **POST `/api/projects/library-exports/:runId/download-access`**: Authenticates the owner and returns a one-use download token whose hash is stored with the completed run.
 * **POST `/api/projects/library-exports/:runId/download`**: Accepts the token through a native form submission and downloads only a completed archive whose size and SHA-256 still match the persisted result.
 
-The final download is not bound to the frontend's ordinary JSON request timeout and does not pass through a JavaScript response buffer. The route marks the run as delivered and removes its workspace only after Express reports a successful transfer; durable cleanup state allows recovery after interruption. Operational logs use the correlation ID, run ID, project ID, phase, outcome, bytes, and elapsed time without recording snapshots, source contents, or credentials. Sources: [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts), [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts), [apps/web/services/projects/httpProjectRepository.ts](../../../apps/web/services/projects/httpProjectRepository.ts)
+Resumption requires every expected project's persistent incarnation UUID and revision to match; changed, removed, recreated, and pre-identity runs are cancelled rather than restarted with stale checkpoints. The final download is not bound to the frontend's ordinary JSON request timeout and does not pass through a JavaScript response buffer. The route marks the run as delivered and removes its workspace only after Express reports a successful transfer; durable cleanup state allows recovery after interruption. Operational logs use the correlation ID, run ID, project ID, phase, outcome, bytes, and elapsed time without recording snapshots, source contents, or credentials. Sources: [apps/backend/src/routes/libraryExports.ts](../../../apps/backend/src/routes/libraryExports.ts), [apps/backend/src/projects/libraryExport.ts](../../../apps/backend/src/projects/libraryExport.ts), [apps/web/services/projects/httpProjectRepository.ts](../../../apps/web/services/projects/httpProjectRepository.ts)
 
 ### Source and Archive Handling
 

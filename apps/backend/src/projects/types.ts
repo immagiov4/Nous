@@ -147,15 +147,22 @@ export interface ProjectSaveResult {
   snapshot: ProjectSnapshot;
 }
 
-export interface ProjectSnapshotWithRevision {
+export interface ProjectPersistenceIdentity {
+  incarnationId: string;
   revision: number;
+}
+
+export interface ProjectSnapshotWithRevision extends ProjectPersistenceIdentity {
   snapshot: ProjectSnapshot;
 }
+
+export type LibraryExportProjectMeta = Omit<SavedProjectMeta, 'revision'> &
+  ProjectPersistenceIdentity;
 
 export interface LibraryExportSnapshot {
   folders: LibraryFolder[];
   placements: LibraryPlacement[];
-  projects: SavedProjectMeta[];
+  projects: LibraryExportProjectMeta[];
 }
 
 export interface ProjectSaveOptions extends ProjectWriteOptions {
@@ -207,6 +214,7 @@ export interface ProjectStore {
     targetProjectId: ProjectId
   ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   listFolders: (userId: string) => Promise<LibraryFolder[]>;
+  listLibraryExportProjects: (userId: string) => Promise<LibraryExportProjectMeta[]>;
   listPlacements: (userId: string) => Promise<LibraryPlacement[]>;
   listProjects: (userId: string) => Promise<SavedProjectMeta[]>;
   listProjectImportDiagnostics: (correlationId?: string) => Promise<ProjectImportDiagnostic[]>;
@@ -270,7 +278,7 @@ export interface ProjectStore {
     id: ProjectId,
     cover: ProjectCoverFile,
     options?: ProjectCoverWriteOptions
-  ) => Promise<boolean>;
+  ) => Promise<SavedProjectMeta | null>;
   patchProject: (
     userId: string,
     id: ProjectId,

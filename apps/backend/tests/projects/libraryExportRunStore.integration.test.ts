@@ -1,15 +1,33 @@
 import { randomUUID } from 'node:crypto';
 
 import postgres from 'postgres';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 
 import { PostgresLibraryExportRunStore } from '../../src/projects/libraryExportRunStore.js';
+import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
+import type { ProjectSnapshot } from '../../src/projects/types.js';
 
 const shouldRun = process.env.RUN_SUPABASE_LOCAL_TESTS === '1';
 const databaseUrl =
   process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 const sql = shouldRun ? postgres(databaseUrl, { max: 2 }) : null;
 const userId = randomUUID();
+
+const createSnapshot = (id: string, updatedAt: string): ProjectSnapshot => ({
+  activeSectionId: null,
+  createdAt: '2026-09-04T00:00:00.000Z',
+  id,
+  isLearnMode: false,
+  lastOpenedAt: updatedAt,
+  learningPlan: { sections: [], title: `Corso ${id}` },
+  source: null,
+  sourceKind: 'document',
+  state: 'READING',
+  syllabus: [],
+  updatedAt,
+  userProfile: null,
+  version: '4.1',
+});
 
 describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
   beforeAll(async () => {
@@ -31,6 +49,12 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
     const runId = randomUUID();
     const projectId = `library-export-${randomUUID()}`;
     const firstStore = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    const projectRows = await sql<Array<{ incarnation_id: string }>>`
+      insert into public.projects (user_id, id, meta, updated_at, last_opened_at, revision)
+      values (${userId}, ${projectId}, '{}'::jsonb, now(), now(), 7)
+      returning incarnation_id
+    `;
+    const incarnationId = projectRows[0].incarnation_id;
 
     await firstStore.createRun({
       bytesWritten: 0,
@@ -38,7 +62,9 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
       expectedProjects: [
         {
           id: projectId,
+          incarnationId,
           path: `projects/${projectId}.zip`,
+          revision: 7,
           title: 'Corso persistito',
         },
       ],
@@ -53,8 +79,10 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
       archiveBytes: 321,
       archivePath: `projects/${projectId}.zip`,
       archiveSha256: 'a'.repeat(64),
+      projectIncarnationId: incarnationId,
       projectId,
       projectIndex: 0,
+      projectRevision: 7,
     });
     await firstStore.markFailed(runId, {
       code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
@@ -72,11 +100,26 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
       status: 'failed',
     });
     expect(interruptedRun?.checkpoints).toEqual([
-      expect.objectContaining({ archiveBytes: 321, projectId, projectIndex: 0 }),
+      expect.objectContaining({
+        archiveBytes: 321,
+        projectIncarnationId: incarnationId,
+        projectId,
+        projectIndex: 0,
+        projectRevision: 7,
+      }),
     ]);
+    await expect(restartedStore.getRunProgress(userId, runId)).resolves.toMatchObject({
+      bytesWritten: 321,
+      completedProjectCount: 1,
+      id: runId,
+      projectCount: 1,
+      status: 'failed',
+    });
 
-    await restartedStore.markRunning(runId, 'library-archive');
-    await restartedStore.markCompleted(runId, { bytes: 654, sha256: 'b'.repeat(64) });
+    await restartedStore.markRunning(runId, 'integrity-check');
+    await expect(
+      restartedStore.markCompleted(runId, { bytes: 654, sha256: 'b'.repeat(64) })
+    ).resolves.toBe(true);
     expect(await restartedStore.getRun(userId, runId)).toMatchObject({
       archiveBytes: 654,
       archiveSha256: 'b'.repeat(64),
@@ -101,6 +144,186 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
     expect(await restartedStore.listPendingCleanupRunIds()).not.toContain(runId);
   });
 
+  test('persists cover revisions and refuses completion after a cover change', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const projectStore = new PostgresProjectStore(databaseUrl, sql);
+    const store = new PostgresLibraryExportRunStore(databaseUrl, sql);
+    const projectId = `library-export-${randomUUID()}`;
+    const runId = randomUUID();
+    await projectStore.saveProject(userId, createSnapshot(projectId, '2026-09-04T00:00:00.000Z'));
+    const project = await projectStore.loadProjectWithRevision(userId, projectId);
+    if (!project) throw new Error('Library export test project was not persisted.');
+    await store.createRun({
+      bytesWritten: 0,
+      correlationId: randomUUID(),
+      expectedProjects: [
+        {
+          id: projectId,
+          incarnationId: project.incarnationId,
+          path: `projects/${projectId}.zip`,
+          revision: project.revision,
+          title: 'Corso con copertina',
+        },
+      ],
+      folders: [],
+      id: runId,
+      phase: 'integrity-check',
+      placements: [],
+      status: 'running',
+      userId,
+    });
+    const cover = {
+      data: Buffer.from('persisted cover').toString('base64'),
+      mimeType: 'image/png',
+      name: 'cover.png',
+    };
+    await expect(
+      projectStore.saveProjectCover(userId, projectId, cover, {
+        expectedRevision: project.revision,
+      })
+    ).resolves.toMatchObject({ revision: project.revision + 1 });
+    await expect(projectStore.loadProjectCover(userId, projectId)).resolves.toEqual(cover);
+    await expect(
+      projectStore.saveProjectCover(
+        userId,
+        projectId,
+        { ...cover, data: Buffer.from('stale cover').toString('base64') },
+        { expectedRevision: project.revision }
+      )
+    ).resolves.toBeNull();
+    await expect(projectStore.loadProjectCover(userId, projectId)).resolves.toEqual(cover);
+    await expect(projectStore.loadProjectWithRevision(userId, projectId)).resolves.toMatchObject({
+      incarnationId: project.incarnationId,
+      revision: project.revision + 1,
+    });
+    await expect(store.markCompleted(runId, { bytes: 654, sha256: 'b'.repeat(64) })).resolves.toBe(
+      false
+    );
+    await store.markCancelled(runId, {
+      code: 'LIBRARY_EXPORT_TEST_COMPLETE',
+      detail: 'Cover revision contract verified.',
+      phase: 'integrity-check',
+    });
+  });
+
+  test('waits for an overlapping project save and refuses the stale completion', async () => {
+    if (!sql) throw new Error('Library export integration database is required.');
+    const runId = randomUUID();
+    const projectId = `library-export-${randomUUID()}`;
+    const projectSql = postgres(databaseUrl, { max: 1 });
+    const completionSql = postgres(databaseUrl, { max: 1 });
+    const blockerSql = postgres(databaseUrl, { max: 1 });
+    const projectStore = new PostgresProjectStore(databaseUrl, projectSql);
+    const store = new PostgresLibraryExportRunStore(databaseUrl, completionSql);
+    const firstUpdatedAt = '2026-09-04T00:00:00.000Z';
+    let releaseSnapshotLock = () => {};
+    const snapshotLockRelease = new Promise<void>(resolve => {
+      releaseSnapshotLock = resolve;
+    });
+    let reportSnapshotLocked = () => {};
+    const snapshotLocked = new Promise<void>(resolve => {
+      reportSnapshotLocked = resolve;
+    });
+
+    try {
+      const completionSessionRows = await completionSql<Array<{ pid: number }>>`
+        select pg_backend_pid() as pid
+      `;
+      const completionSessionPid = completionSessionRows[0].pid;
+      const projectSessionRows = await projectSql<Array<{ pid: number }>>`
+        select pg_backend_pid() as pid
+      `;
+      const projectSessionPid = projectSessionRows[0].pid;
+      await projectStore.saveProject(userId, createSnapshot(projectId, firstUpdatedAt));
+      const project = await projectStore.loadProjectWithRevision(userId, projectId);
+      if (!project) throw new Error('Library export test project was not persisted.');
+      await store.createRun({
+        bytesWritten: 0,
+        correlationId: randomUUID(),
+        expectedProjects: [
+          {
+            id: projectId,
+            incarnationId: project.incarnationId,
+            path: `projects/${projectId}.zip`,
+            revision: project.revision,
+            title: 'Corso modificato',
+          },
+        ],
+        folders: [],
+        id: runId,
+        phase: 'integrity-check',
+        placements: [{ folderId: null, order: 0, projectId, updatedAt: firstUpdatedAt }],
+        status: 'running',
+        userId,
+      });
+
+      const blocker = blockerSql.begin(async transaction => {
+        await transaction`
+          select id from public.project_snapshots
+          where user_id = ${userId} and id = ${projectId}
+          for update
+        `;
+        reportSnapshotLocked();
+        await snapshotLockRelease;
+      });
+      await snapshotLocked;
+
+      const save = projectStore.saveProject(
+        userId,
+        createSnapshot(projectId, '2026-09-04T01:00:00.000Z')
+      );
+      await vi.waitFor(async () => {
+        const activityRows = await sql<Array<{ query: string; wait_event_type: string | null }>>`
+          select query, wait_event_type
+          from pg_stat_activity
+          where pid = ${projectSessionPid}
+        `;
+        expect(activityRows[0]?.wait_event_type).toBe('Lock');
+        expect(activityRows[0]?.query).toContain('from public.project_snapshots');
+      });
+      await expect(
+        sql.begin(
+          transaction => transaction`
+          select id from public.projects
+          where user_id = ${userId} and id = ${projectId}
+          for share nowait
+        `
+        )
+      ).rejects.toMatchObject({ code: '55P03' });
+
+      const completion = store.markCompleted(runId, {
+        bytes: 654,
+        sha256: 'b'.repeat(64),
+      });
+      await vi.waitFor(async () => {
+        const activityRows = await sql<Array<{ wait_event_type: string | null }>>`
+          select wait_event_type
+          from pg_stat_activity
+          where pid = ${completionSessionPid}
+        `;
+        expect(activityRows[0]?.wait_event_type).toBe('Lock');
+      });
+      releaseSnapshotLock();
+
+      await expect(save).resolves.toMatchObject({ meta: { revision: 2 } });
+      await expect(blocker).resolves.toBeUndefined();
+      await expect(completion).resolves.toBe(false);
+      await expect(store.getRunProgress(userId, runId)).resolves.toMatchObject({
+        phase: 'integrity-check',
+        status: 'running',
+      });
+      await store.markCancelled(runId, {
+        code: 'LIBRARY_EXPORT_TEST_COMPLETE',
+        detail: 'Completion boundary contract verified.',
+        phase: 'integrity-check',
+      });
+    } finally {
+      releaseSnapshotLock();
+      await Promise.allSettled([projectSql.end({ timeout: 5 }), completionSql.end({ timeout: 5 })]);
+      await blockerSql.end({ timeout: 5 });
+    }
+  });
+
   test('allows a new run after a failed export is cancelled', async () => {
     if (!sql) throw new Error('Library export integration database is required.');
     const store = new PostgresLibraryExportRunStore(databaseUrl, sql);
@@ -109,7 +332,13 @@ describe.skipIf(!shouldRun)('PostgresLibraryExportRunStore integration', () => {
       bytesWritten: 0,
       correlationId: randomUUID(),
       expectedProjects: [
-        { id: 'removed-course', path: 'projects/removed-course.zip', title: 'Rimosso' },
+        {
+          id: 'removed-course',
+          incarnationId: randomUUID(),
+          path: 'projects/removed-course.zip',
+          revision: 1,
+          title: 'Rimosso',
+        },
       ],
       folders: [],
       id: runId,

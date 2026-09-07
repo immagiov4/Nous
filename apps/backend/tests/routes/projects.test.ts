@@ -1125,6 +1125,7 @@ describe('/api/projects', () => {
       .post('/api/projects/projects/project-1/cover')
       .send({ cover });
     expect(saveResponse.status).toBe(200);
+    expect(saveResponse.body.meta).toMatchObject({ id: 'project-1', revision: 2 });
 
     const loadResponse = await request(app).get('/api/projects/projects/project-1/cover');
     expect(loadResponse.status).toBe(200);
