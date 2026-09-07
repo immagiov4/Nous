@@ -79,6 +79,8 @@ Sources: [apps/backend/src/routes/contextChat.ts:605-632](../../../apps/backend/
 
 Assessment completion contributes to an active chat only in `new-course` mode. An empty `library-query` remains compact even when the course assessment has already completed, while visible library messages or library loading expand it normally.
 
+Selecting the current mode does not dispatch another mode change or clear the active surface. Keyboard activation of the selected tab preserves an open attachment or tool menu; pointer clicks outside the composer still dismiss menus normally.
+
 Sources: [apps/web/components/library/HomeChatPanel.tsx](../../../apps/web/components/library/HomeChatPanel.tsx), [apps/web/components/library/HomeChatPanelFrame.tsx](../../../apps/web/components/library/HomeChatPanelFrame.tsx), [apps/web/components/library/useHomeChatPanelState.ts](../../../apps/web/components/library/useHomeChatPanelState.ts), [apps/web/tests/components/library/HomeChatPanel.test.tsx](../../../apps/web/tests/components/library/HomeChatPanel.test.tsx)
 
 ### HomeChatComposer

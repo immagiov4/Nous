@@ -846,6 +846,30 @@ describe('HomeChatPanel', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  test.each([
+    /Apri esploratore contesto libreria/i,
+    /Apri strumenti libreria/i,
+  ])('preserves an open surface when the active mode is selected with the keyboard: %s', async title => {
+    const user = userEvent.setup();
+    const props = { ...buildProps(), homeChatMode: 'library-query' as const };
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(title));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    screen.getByRole('tab', { name: /Consulta libreria/i }).focus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(props.onHomeChatModeChange).not.toHaveBeenCalled();
+
+    screen.getByRole('tab', { name: /Nuovo corso/i }).focus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(props.onHomeChatModeChange).toHaveBeenCalledExactlyOnceWith('new-course');
+  });
+
   test('does not restore an open library surface after a parent-driven mode change', async () => {
     const user = userEvent.setup();
     const props = {

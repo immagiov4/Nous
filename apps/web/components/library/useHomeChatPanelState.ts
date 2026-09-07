@@ -85,6 +85,7 @@ export const useHomeChatPanelState = ({
     isLoading,
     isMobileViewport,
     onModeChange: (mode: HomeChatMode) => {
+      if (mode === homeChatMode) return;
       setActiveSurface(null);
       onHomeChatModeChange(mode);
     },
