@@ -52,6 +52,24 @@ maintainer's request. Every factual claim and requirement must trace to its perm
 Repeat this check when editing, reopening, or preparing an existing issue for implementation;
 an existing issue is not proof that its requirements were approved.
 
+## Classify with live repository labels
+
+Before creating or materially editing an issue, query the repository's current labels and their
+descriptions through the authenticated GitHub connector or `gh`. Treat that live catalog as the
+source of truth instead of keeping label names, meanings, or colors in this skill.
+
+- Choose the smallest set that accurately describes the issue type, area, and lifecycle or
+  verification state.
+- Apply the labels when creating the issue or immediately afterward, then read the issue back to
+  verify them.
+- Use the repository's visual-design label when a new screen, interaction type, or hybrid placement
+  needs design before implementation. A small, precisely located change that follows an established
+  pattern does not need that planning state.
+- Keep pre-implementation visual design distinct from later visual or user verification. An issue
+  may require either or both according to the live label descriptions.
+- Create or rename a repository label only when the maintainer authorizes that taxonomy change. If
+  no suitable label exists, report the catalog gap instead of guessing a new category.
+
 ## Respect the lifecycle
 
 New issues start as triage records. Add a `ready-for-agent` label and an `Agent brief` only after the
