@@ -76,6 +76,32 @@ interface HomeChatStartResult {
   sourceWarnings?: ProjectSourceWarning[];
 }
 
+interface HomeChatStartState {
+  draftProjectId: string | null;
+  sourceWarnings: ProjectSourceWarning[];
+}
+
+interface PreparedHomeChatSource {
+  hasReliableSourceContext: boolean;
+  mode: 'document' | 'learn';
+  preparedSource: ProjectSource | null;
+  sourceContext?: string;
+}
+
+interface PreparedFileSource {
+  archiveFile?: File;
+  file: FileData;
+  source: ProjectSource;
+}
+
+type HomeChatSourcePreparation =
+  | { kind: 'completed'; result: HomeChatStartResult }
+  | { kind: 'ready'; value: PreparedHomeChatSource };
+
+type FileSourcePreparation =
+  | { kind: 'completed'; result: HomeChatStartResult }
+  | { kind: 'ready'; value: PreparedFileSource };
+
 interface StartOrResumeInterviewInput {
   hasReliableSourceContext: boolean;
   initialMessage?: string;
@@ -274,26 +300,28 @@ export const createAssessmentPlanningCommands = (
         }
       ));
     if (input.isRequestCurrent && !input.isRequestCurrent()) {
-      if (!isTerminalCourseInterviewSnapshot(snapshot)) {
-        try {
-          const claimedCancellation = assessmentRunCancellationPromises.get(snapshot.runId);
-          await (claimedCancellation ??
-            openRouter
-              .cancelCourseInterview({
-                projectId: snapshot.projectId,
-                runId: snapshot.runId,
-              })
-              .then(() => undefined));
-        } catch (error) {
-          throw new LateCourseInterviewCancellationError(
-            'Late course interview cancellation failed.',
-            { cause: error }
-          );
-        }
-      }
+      await cancelLateCourseInterview(snapshot);
       return 'abandoned';
     }
     return applyInterviewSnapshot(snapshot);
+  };
+
+  const cancelLateCourseInterview = async (snapshot: CourseInterviewSnapshot): Promise<void> => {
+    if (isTerminalCourseInterviewSnapshot(snapshot)) return;
+    try {
+      const claimedCancellation = assessmentRunCancellationPromises.get(snapshot.runId);
+      await (claimedCancellation ??
+        openRouter
+          .cancelCourseInterview({
+            projectId: snapshot.projectId,
+            runId: snapshot.runId,
+          })
+          .then(() => undefined));
+    } catch (error) {
+      throw new LateCourseInterviewCancellationError('Late course interview cancellation failed.', {
+        cause: error,
+      });
+    }
   };
 
   const startTrackedAssessmentInterview = async (
@@ -505,6 +533,100 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
+  const waitForPendingWorkspaceOpen = async (
+    ownership: AssessmentWorkspaceOwnership | null
+  ): Promise<void> => {
+    while (ownership?.pendingOpenProjects.size) {
+      await Promise.all(
+        [...ownership.pendingOpenProjects.values()].map(
+          pendingOpenProject => pendingOpenProject.outcome
+        )
+      );
+    }
+  };
+
+  const deleteTrackedDraft = async ({
+    ownership,
+    projectId,
+    refreshLibrary,
+  }: {
+    ownership: AssessmentWorkspaceOwnership;
+    projectId: string;
+    refreshLibrary: boolean;
+  }): Promise<void> => {
+    if (ownership.adoptedProjectIds.has(projectId)) return;
+    const deletion = projectLibrary.deleteStoredProject(projectId);
+    const cleanupPromise = refreshLibrary
+      ? deletion.then(() => projectLibrary.refreshLibraryState())
+      : deletion;
+    ownership.draftCleanupPromise = cleanupPromise;
+    try {
+      await cleanupPromise;
+    } catch (error) {
+      pendingCancelledDraftCleanup = { ownership, projectId };
+      throw error;
+    } finally {
+      if (ownership.draftCleanupPromise === cleanupPromise) {
+        ownership.draftCleanupPromise = null;
+      }
+    }
+  };
+
+  const retryPendingCancelledDraftCleanup = async (): Promise<void> => {
+    const cancelledDraftCleanup = pendingCancelledDraftCleanup;
+    if (!cancelledDraftCleanup) return;
+    await waitForPendingWorkspaceOpen(cancelledDraftCleanup.ownership);
+    await deleteTrackedDraft({
+      ownership: cancelledDraftCleanup.ownership,
+      projectId: cancelledDraftCleanup.projectId,
+      refreshLibrary: true,
+    });
+    if (pendingCancelledDraftCleanup === cancelledDraftCleanup) {
+      pendingCancelledDraftCleanup = null;
+    }
+  };
+
+  const cancelAssessmentInterview = async (
+    projectId: string,
+    pendingRun: PendingAssessmentInterviewRun | null
+  ): Promise<void> => {
+    const pendingRunId = pendingRun ? await pendingRun.runId : null;
+    if (pendingRunId) {
+      const cancellationPromise = openRouter
+        .cancelCourseInterview({ projectId, runId: pendingRunId })
+        .then(() => undefined);
+      assessmentRunCancellationPromises.set(pendingRunId, cancellationPromise);
+      await cancellationPromise;
+      pendingRun?.pollingAbortController?.abort();
+      return;
+    }
+
+    const interview = await openRouter.getActiveCourseInterview(projectId);
+    if (interview?.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL) {
+      await openRouter.sendCourseInterviewDecision({
+        decision: { kind: 'cancel' },
+        projectId,
+        runId: interview.runId,
+        waitId: interview.wait.waitId,
+      });
+    } else if (interview) {
+      await openRouter.cancelCourseInterview({ projectId, runId: interview.runId });
+    }
+    pendingRun?.pollingAbortController?.abort();
+  };
+
+  const cleanupCancellationRetryDraft = async (
+    ownership: AssessmentWorkspaceOwnership | null
+  ): Promise<void> => {
+    if (!ownership?.requiresCancellationRetry || !ownership.draftProjectId) return;
+    await deleteTrackedDraft({
+      ownership,
+      projectId: ownership.draftProjectId,
+      refreshLibrary: false,
+    });
+    ownership.requiresCancellationRetry = false;
+  };
+
   async function runAssessmentCancellation(): Promise<void> {
     const homeChatWorkspaceOwnership = activeHomeChatWorkspaceOwnership;
     const homeChatStartPromise = activeHomeChatStartPromise;
@@ -522,46 +644,10 @@ export const createAssessmentPlanningCommands = (
           homeChatWorkspaceOwnership?.adoptedProjectIds.has(currentProjectId)
       );
     };
-    const waitForPendingWorkspaceOpen = async () => {
-      while (homeChatWorkspaceOwnership?.pendingOpenProjects.size) {
-        await Promise.all(
-          [...homeChatWorkspaceOwnership.pendingOpenProjects.values()].map(
-            pendingOpenProject => pendingOpenProject.outcome
-          )
-        );
-      }
-    };
     latestHomeChatRequestToken = null;
     const cancellationRequestId = state.beginWorkflow('assessment', t('Caricamento...'));
     try {
-      const cancelledDraftCleanup = pendingCancelledDraftCleanup;
-      if (cancelledDraftCleanup) {
-        while (cancelledDraftCleanup.ownership.pendingOpenProjects.size) {
-          await Promise.all(
-            [...cancelledDraftCleanup.ownership.pendingOpenProjects.values()].map(
-              pendingOpenProject => pendingOpenProject.outcome
-            )
-          );
-        }
-        if (
-          !cancelledDraftCleanup.ownership.adoptedProjectIds.has(cancelledDraftCleanup.projectId)
-        ) {
-          const cleanupPromise = projectLibrary
-            .deleteStoredProject(cancelledDraftCleanup.projectId)
-            .then(() => projectLibrary.refreshLibraryState());
-          cancelledDraftCleanup.ownership.draftCleanupPromise = cleanupPromise;
-          try {
-            await cleanupPromise;
-          } finally {
-            if (cancelledDraftCleanup.ownership.draftCleanupPromise === cleanupPromise) {
-              cancelledDraftCleanup.ownership.draftCleanupPromise = null;
-            }
-          }
-        }
-        if (pendingCancelledDraftCleanup === cancelledDraftCleanup) {
-          pendingCancelledDraftCleanup = null;
-        }
-      }
+      await retryPendingCancelledDraftCleanup();
       const currentProjectId = projectLibrary.getCurrentProjectId();
       const pendingRun = pendingAssessmentInterviewRun;
       pendingRun?.startRequestAbortController?.abort();
@@ -570,59 +656,12 @@ export const createAssessmentPlanningCommands = (
         : null;
       const projectId = pendingRun?.projectId ?? cancellationRetryProjectId ?? currentProjectId;
       if (projectId) {
-        const pendingRunId = pendingRun ? await pendingRun.runId : null;
-        const interview = pendingRunId
-          ? null
-          : await openRouter.getActiveCourseInterview(projectId);
-        let pendingRunCancellationError: unknown;
-        if (pendingRunId) {
-          const cancellationPromise = openRouter
-            .cancelCourseInterview({ projectId, runId: pendingRunId })
-            .then(() => undefined);
-          assessmentRunCancellationPromises.set(pendingRunId, cancellationPromise);
-          try {
-            await cancellationPromise;
-          } catch (error) {
-            pendingRunCancellationError = error;
-          }
-        } else if (interview?.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL) {
-          await openRouter.sendCourseInterviewDecision({
-            decision: { kind: 'cancel' },
-            projectId,
-            runId: interview.runId,
-            waitId: interview.wait.waitId,
-          });
-        } else if (interview) {
-          await openRouter.cancelCourseInterview({ projectId, runId: interview.runId });
-        }
-        if (!pendingRunCancellationError) pendingRun?.pollingAbortController?.abort();
-        if (pendingRunCancellationError) throw pendingRunCancellationError;
-        await waitForPendingWorkspaceOpen();
-        const retryOwnership = homeChatWorkspaceOwnership?.requiresCancellationRetry
-          ? homeChatWorkspaceOwnership
-          : null;
-        const retryDraftProjectId = retryOwnership?.draftProjectId;
-        if (retryDraftProjectId && !retryOwnership.adoptedProjectIds.has(retryDraftProjectId)) {
-          const cleanupPromise = projectLibrary.deleteStoredProject(retryDraftProjectId);
-          retryOwnership.draftCleanupPromise = cleanupPromise;
-          try {
-            await cleanupPromise;
-          } catch (cleanupError) {
-            pendingCancelledDraftCleanup = {
-              ownership: retryOwnership,
-              projectId: retryDraftProjectId,
-            };
-            throw cleanupError;
-          } finally {
-            if (retryOwnership.draftCleanupPromise === cleanupPromise) {
-              retryOwnership.draftCleanupPromise = null;
-            }
-          }
-        }
-        if (retryOwnership) retryOwnership.requiresCancellationRetry = false;
+        await cancelAssessmentInterview(projectId, pendingRun);
+        await waitForPendingWorkspaceOpen(homeChatWorkspaceOwnership);
+        await cleanupCancellationRetryDraft(homeChatWorkspaceOwnership);
         await projectLibrary.refreshLibraryState();
       }
-      if (homeChatStartPromise) {
+      if (homeChatStartPromise !== null) {
         const cancelledStart = await homeChatStartPromise;
         if (cancelledStart.outcome === 'failed') {
           throw new Error(t('Operazione non riuscita. Riprova.'));
@@ -660,7 +699,7 @@ export const createAssessmentPlanningCommands = (
   }
 
   function cancelAssessment(): Promise<void> {
-    if (activeAssessmentCancellationPromise) return activeAssessmentCancellationPromise;
+    if (activeAssessmentCancellationPromise !== null) return activeAssessmentCancellationPromise;
 
     const cancellationPromise = runAssessmentCancellation();
     activeAssessmentCancellationPromise = cancellationPromise;
@@ -679,11 +718,322 @@ export const createAssessmentPlanningCommands = (
     return cancellationPromise;
   }
 
+  const abandonCancelledHomeChatStart = async ({
+    requestToken,
+    startState,
+    workspaceOwnership,
+  }: {
+    requestToken: symbol;
+    startState: HomeChatStartState;
+    workspaceOwnership: AssessmentWorkspaceOwnership;
+  }): Promise<HomeChatStartResult> => {
+    await waitForPendingWorkspaceOpen(workspaceOwnership);
+    const currentProjectId = projectLibrary.getCurrentProjectId();
+    const draftProjectId = startState.draftProjectId;
+    const hasBeenAdoptedByOpenProject =
+      draftProjectId !== null &&
+      currentProjectId === draftProjectId &&
+      workspaceOwnership.adoptedProjectIds.has(draftProjectId);
+    if (draftProjectId && !hasBeenAdoptedByOpenProject) {
+      try {
+        await deleteTrackedDraft({
+          ownership: workspaceOwnership,
+          projectId: draftProjectId,
+          refreshLibrary: true,
+        });
+      } catch (cleanupError) {
+        pushNousDebugTrace('assessment:cancelled-draft-cleanup-failed', {
+          errorMessage: getErrorMessage(cleanupError),
+          projectId: draftProjectId,
+        });
+        return {
+          errorMessage: t('Operazione non riuscita. Riprova.'),
+          outcome: 'failed',
+          sourceWarnings: startState.sourceWarnings,
+        };
+      }
+    }
+
+    const currentProjectIdAfterCleanup = projectLibrary.getCurrentProjectId();
+    const stillOwnsWorkspace =
+      latestHomeChatRequestToken === requestToken &&
+      !hasBeenAdoptedByOpenProject &&
+      (currentProjectIdAfterCleanup === null || currentProjectIdAfterCleanup === draftProjectId);
+    if (stillOwnsWorkspace) resetInterviewClientState();
+    return { outcome: 'abandoned', sourceWarnings: startState.sourceWarnings };
+  };
+
+  const prepareZipHomeChatSource = async ({
+    abandonCancelledStart,
+    isRequestCurrent,
+    requestId,
+    selectedFile,
+    startState,
+    workspaceOwnership,
+  }: {
+    abandonCancelledStart: () => Promise<HomeChatStartResult>;
+    isRequestCurrent: () => boolean;
+    requestId: number;
+    selectedFile: File;
+    startState: HomeChatStartState;
+    workspaceOwnership: AssessmentWorkspaceOwnership;
+  }): Promise<FileSourcePreparation> => {
+    const isBackupArchive = await isNousBackupArchive(selectedFile);
+    if (!isRequestCurrent()) {
+      return { kind: 'completed', result: await abandonCancelledStart() };
+    }
+    if (isBackupArchive) {
+      state.setWorkflowMessage('assessment', requestId, t('Importazione backup...'));
+      const importedSnapshot = await importProjectBackupFile(context, selectedFile, {
+        shouldHydrateWorkspace: isRequestCurrent,
+      });
+      if (!isRequestCurrent()) {
+        startState.draftProjectId = importedSnapshot.id;
+        workspaceOwnership.draftProjectId = importedSnapshot.id;
+        return { kind: 'completed', result: await abandonCancelledStart() };
+      }
+      state.succeedWorkflow('assessment', requestId);
+      return { kind: 'completed', result: { outcome: 'imported' } };
+    }
+
+    const source = await import('../../../utils/project/codebaseBundle.ts').then(module =>
+      module.createSourceArchiveFromZip(selectedFile)
+    );
+    if (!isRequestCurrent()) {
+      return { kind: 'completed', result: await abandonCancelledStart() };
+    }
+    return {
+      kind: 'ready',
+      value: { archiveFile: selectedFile, file: source.file, source },
+    };
+  };
+
+  const prepareRegularHomeChatSource = async (
+    selectedFiles: File[],
+    requestId: number
+  ): Promise<PreparedFileSource> => {
+    if (selectedFiles.length === 1) {
+      const file = await readSourceFileData(selectedFiles[0]);
+      return { file, source: createProjectSourceFromFile(file) };
+    }
+    const prepared = await prepareUploadedCourseSource(
+      context,
+      selectedFiles,
+      (completed, total) => {
+        state.setWorkflowMessage(
+          'assessment',
+          requestId,
+          t('Preparazione fonti... {completed}/{total}', { completed, total })
+        );
+      }
+    );
+    const file = prepared.descriptors.find(source => source.status !== 'error')?.file;
+    if (!file) throw new Error('Unable to prepare project source');
+    return { file, source: prepared.source };
+  };
+
+  const prepareHomeChatFiles = async ({
+    abandonCancelledStart,
+    isRequestCurrent,
+    requestId,
+    selectedFiles,
+    startState,
+    workspaceOwnership,
+  }: {
+    abandonCancelledStart: () => Promise<HomeChatStartResult>;
+    isRequestCurrent: () => boolean;
+    requestId: number;
+    selectedFiles: File[];
+    startState: HomeChatStartState;
+    workspaceOwnership: AssessmentWorkspaceOwnership;
+  }): Promise<FileSourcePreparation> => {
+    const zipFiles = selectedFiles.filter(file =>
+      isZipFileData({ name: file.name, mimeType: file.type })
+    );
+    if (zipFiles.length > 0 && selectedFiles.length !== 1) {
+      throw new Error('Gli archivi ZIP devono essere caricati da soli.');
+    }
+    if (zipFiles.length === 1) {
+      return prepareZipHomeChatSource({
+        abandonCancelledStart,
+        isRequestCurrent,
+        requestId,
+        selectedFile: zipFiles[0],
+        startState,
+        workspaceOwnership,
+      });
+    }
+    return { kind: 'ready', value: await prepareRegularHomeChatSource(selectedFiles, requestId) };
+  };
+
+  const persistHomeChatArchiveSource = async ({
+    archiveFile,
+    source,
+    startState,
+    workspaceOwnership,
+  }: {
+    archiveFile?: File;
+    source: ProjectSource;
+    startState: HomeChatStartState;
+    workspaceOwnership: AssessmentWorkspaceOwnership;
+  }): Promise<ProjectSource> => {
+    if (source.kind !== 'archive') return source;
+    const projectId = createProjectId();
+    startState.draftProjectId = projectId;
+    workspaceOwnership.draftProjectId = projectId;
+    projectLibrary.setCurrentProjectId(projectId);
+    const saved = await projectLibrary.persistSnapshot(
+      createProjectSnapshot({ id: projectId, state: AppState.ASSESSMENT, source }),
+      { archiveFile, throwOnError: true }
+    );
+    if (saved?.snapshot.source?.kind !== 'archive') {
+      throw new Error('La sorgente archivio non è stata salvata.');
+    }
+    return saved.snapshot.source;
+  };
+
+  const buildHomeChatAssessmentContext = async (
+    source: ProjectSource,
+    file: FileData,
+    requestId: number
+  ) => {
+    if (source.sources?.length) {
+      return openRouter.buildAssessmentDocumentContextFromSourceSet(source.sources);
+    }
+    if (source.kind === 'archive') {
+      return openRouter.buildAssessmentDocumentContextFromTextSource({
+        name: source.name,
+        text: formatSourceArchiveIndex(source.index, {
+          previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+        }),
+      });
+    }
+    return openRouter.buildAssessmentDocumentPrompt(file, status => {
+      state.setWorkflowMessage('assessment', requestId, status);
+    });
+  };
+
+  const prepareHomeChatSource = async ({
+    abandonCancelledStart,
+    isRequestCurrent,
+    requestId,
+    selectedFiles,
+    startState,
+    workspaceOwnership,
+  }: {
+    abandonCancelledStart: () => Promise<HomeChatStartResult>;
+    isRequestCurrent: () => boolean;
+    requestId: number;
+    selectedFiles: File[];
+    startState: HomeChatStartState;
+    workspaceOwnership: AssessmentWorkspaceOwnership;
+  }): Promise<HomeChatSourcePreparation> => {
+    if (selectedFiles.length === 0) {
+      domain.setSource(null);
+      domain.setIsLearnMode(true);
+      return {
+        kind: 'ready',
+        value: { hasReliableSourceContext: false, mode: 'learn', preparedSource: null },
+      };
+    }
+
+    const preparation = await prepareHomeChatFiles({
+      abandonCancelledStart,
+      isRequestCurrent,
+      requestId,
+      selectedFiles,
+      startState,
+      workspaceOwnership,
+    });
+    if (preparation.kind === 'completed') return preparation;
+    let { source } = preparation.value;
+    const { archiveFile, file } = preparation.value;
+    if (!isRequestCurrent()) {
+      return { kind: 'completed', result: await abandonCancelledStart() };
+    }
+    if (source.kind === 'pdf' && !source.sources?.length) {
+      state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
+      await openRouter.validatePdfTextSource(file);
+      if (!isRequestCurrent()) {
+        return { kind: 'completed', result: await abandonCancelledStart() };
+      }
+    }
+    source = await persistHomeChatArchiveSource({
+      archiveFile,
+      source,
+      startState,
+      workspaceOwnership,
+    });
+    if (!isRequestCurrent()) {
+      return { kind: 'completed', result: await abandonCancelledStart() };
+    }
+
+    startState.sourceWarnings = getProjectSourceWarnings(source);
+    domain.setSource(source);
+    if (source.kind === 'archive') projectLibrary.setProjectHydrated(true);
+    domain.setIsLearnMode(false);
+    const assessmentContext = await buildHomeChatAssessmentContext(source, file, requestId);
+    return {
+      kind: 'ready',
+      value: {
+        hasReliableSourceContext: assessmentContext.hasReliableSourceContext,
+        mode: 'document',
+        preparedSource: source,
+        sourceContext: assessmentContext.content,
+      },
+    };
+  };
+
+  const handleHomeChatStartFailure = async ({
+    abandonCancelledStart,
+    error,
+    isRequestCurrent,
+    requestId,
+    startState,
+    workspaceOwnership,
+  }: {
+    abandonCancelledStart: () => Promise<HomeChatStartResult>;
+    error: unknown;
+    isRequestCurrent: () => boolean;
+    requestId: number;
+    startState: HomeChatStartState;
+    workspaceOwnership: AssessmentWorkspaceOwnership;
+  }): Promise<HomeChatStartResult> => {
+    if (!isRequestCurrent()) {
+      if (error instanceof LateCourseInterviewCancellationError) {
+        workspaceOwnership.requiresCancellationRetry = true;
+        pushNousDebugTrace('assessment:late-cancellation-failed', {
+          errorMessage: getErrorMessage(error.cause),
+          projectId: startState.draftProjectId,
+        });
+        return { outcome: 'failed', sourceWarnings: startState.sourceWarnings };
+      }
+      return abandonCancelledStart();
+    }
+    if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
+      startState.sourceWarnings = error.sourceWarnings;
+    }
+    const errorMessage = getErrorMessage(error);
+    state.failWorkflow('assessment', requestId, errorMessage);
+    const failedDraftProjectId = projectLibrary.getCurrentProjectId();
+    if (failedDraftProjectId) {
+      try {
+        const activeInterview = await openRouter.getActiveCourseInterview(failedDraftProjectId);
+        if (!activeInterview) await projectLibrary.deleteStoredProject(failedDraftProjectId);
+      } catch (cleanupError) {
+        pushNousDebugTrace('assessment:draft-cleanup-failed', {
+          errorMessage: getErrorMessage(cleanupError),
+          projectId: failedDraftProjectId,
+        });
+      }
+    }
+    resetInterviewClientState();
+    return { outcome: 'failed', errorMessage, sourceWarnings: startState.sourceWarnings };
+  };
+
   async function runHomeChatStart(args: HomeChatStartArgs): Promise<HomeChatStartResult> {
     const trimmedInput = args.input.trim();
-    if (!trimmedInput) {
-      return { outcome: 'noop' };
-    }
+    if (!trimmedInput) return { outcome: 'noop' };
 
     const selectedFiles = args.selectedFiles?.length
       ? args.selectedFiles
@@ -698,59 +1048,10 @@ export const createAssessmentPlanningCommands = (
     latestHomeChatRequestToken = requestToken;
     const workspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
     activeHomeChatWorkspaceOwnership = workspaceOwnership;
-    let sourceWarnings: ProjectSourceWarning[] = [];
-    let draftProjectId: string | null = null;
+    const startState: HomeChatStartState = { draftProjectId: null, sourceWarnings: [] };
     const isRequestCurrent = () => state.isWorkflowCurrent('assessment', requestId);
-    const abandonCancelledStart = async () => {
-      while (workspaceOwnership.pendingOpenProjects.size) {
-        await Promise.all(
-          [...workspaceOwnership.pendingOpenProjects.values()].map(
-            pendingOpenProject => pendingOpenProject.outcome
-          )
-        );
-      }
-      const currentProjectId = projectLibrary.getCurrentProjectId();
-      const hasBeenAdoptedByOpenProject =
-        draftProjectId !== null &&
-        currentProjectId === draftProjectId &&
-        workspaceOwnership.adoptedProjectIds.has(draftProjectId);
-      if (draftProjectId && !hasBeenAdoptedByOpenProject) {
-        const cleanupPromise = projectLibrary
-          .deleteStoredProject(draftProjectId)
-          .then(() => projectLibrary.refreshLibraryState());
-        workspaceOwnership.draftCleanupPromise = cleanupPromise;
-        try {
-          await cleanupPromise;
-        } catch (cleanupError) {
-          pendingCancelledDraftCleanup = {
-            ownership: workspaceOwnership,
-            projectId: draftProjectId,
-          };
-          pushNousDebugTrace('assessment:cancelled-draft-cleanup-failed', {
-            errorMessage: getErrorMessage(cleanupError),
-            projectId: draftProjectId,
-          });
-          return {
-            errorMessage: t('Operazione non riuscita. Riprova.'),
-            outcome: 'failed' as const,
-            sourceWarnings,
-          };
-        } finally {
-          if (workspaceOwnership.draftCleanupPromise === cleanupPromise) {
-            workspaceOwnership.draftCleanupPromise = null;
-          }
-        }
-      }
-      const currentProjectIdAfterCleanup = projectLibrary.getCurrentProjectId();
-      const stillOwnsWorkspace =
-        latestHomeChatRequestToken === requestToken &&
-        !hasBeenAdoptedByOpenProject &&
-        (currentProjectIdAfterCleanup === null || currentProjectIdAfterCleanup === draftProjectId);
-      if (stillOwnsWorkspace) {
-        resetInterviewClientState();
-      }
-      return { outcome: 'abandoned' as const, sourceWarnings };
-    };
+    const abandonCancelledStart = () =>
+      abandonCancelledHomeChatStart({ requestToken, startState, workspaceOwnership });
 
     try {
       domain.resetDomain();
@@ -758,135 +1059,20 @@ export const createAssessmentPlanningCommands = (
       projectLibrary.setCurrentProjectId(null);
       projectLibrary.setProjectHydrated(false);
 
-      let hasReliableSourceContext = false;
-      let mode: 'document' | 'learn' = 'learn';
-      let sourceContext: string | undefined;
-      let preparedSource: ProjectSource | null = null;
-
-      if (selectedFiles.length > 0) {
-        let nextSource: ProjectSource | null = null;
-        let nextFile: FileData | null = null;
-        let archiveFile: File | undefined;
-
-        const zipFiles = selectedFiles.filter(file =>
-          isZipFileData({ name: file.name, mimeType: file.type })
-        );
-        if (zipFiles.length > 0 && selectedFiles.length !== 1) {
-          throw new Error('Gli archivi ZIP devono essere caricati da soli.');
-        }
-
-        if (zipFiles.length === 1) {
-          const selectedFile = zipFiles[0];
-          const isBackupArchive = await isNousBackupArchive(selectedFile);
-          if (!isRequestCurrent()) return abandonCancelledStart();
-
-          if (isBackupArchive) {
-            state.setWorkflowMessage('assessment', requestId, t('Importazione backup...'));
-            const importedSnapshot = await importProjectBackupFile(context, selectedFile, {
-              shouldHydrateWorkspace: isRequestCurrent,
-            });
-            if (!isRequestCurrent()) {
-              draftProjectId = importedSnapshot.id;
-              workspaceOwnership.draftProjectId = draftProjectId;
-              return abandonCancelledStart();
-            }
-            state.succeedWorkflow('assessment', requestId);
-            return { outcome: 'imported' };
-          }
-
-          const archiveSource = await import('../../../utils/project/codebaseBundle.ts').then(
-            module => module.createSourceArchiveFromZip(selectedFile)
-          );
-          if (!isRequestCurrent()) return abandonCancelledStart();
-          nextSource = archiveSource;
-          nextFile = archiveSource.file;
-          archiveFile = selectedFile;
-        } else {
-          if (selectedFiles.length === 1) {
-            nextFile = await readSourceFileData(selectedFiles[0]);
-            nextSource = createProjectSourceFromFile(nextFile);
-          } else {
-            const prepared = await prepareUploadedCourseSource(
-              context,
-              selectedFiles,
-              (completed, total) => {
-                state.setWorkflowMessage(
-                  'assessment',
-                  requestId,
-                  t('Preparazione fonti... {completed}/{total}', { completed, total })
-                );
-              }
-            );
-            nextSource = prepared.source;
-            nextFile = prepared.descriptors.find(source => source.status !== 'error')?.file || null;
-          }
-        }
-
-        if (!nextSource || !nextFile) {
-          throw new Error('Unable to prepare project source');
-        }
-        if (!isRequestCurrent()) return abandonCancelledStart();
-
-        if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
-          state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
-          await openRouter.validatePdfTextSource(nextFile);
-          if (!isRequestCurrent()) return abandonCancelledStart();
-        }
-
-        if (nextSource.kind === 'archive') {
-          const projectId = createProjectId();
-          draftProjectId = projectId;
-          workspaceOwnership.draftProjectId = draftProjectId;
-          projectLibrary.setCurrentProjectId(projectId);
-          const saved = await projectLibrary.persistSnapshot(
-            createProjectSnapshot({
-              id: projectId,
-              state: AppState.ASSESSMENT,
-              source: nextSource,
-            }),
-            { archiveFile, throwOnError: true }
-          );
-          if (saved?.snapshot.source?.kind !== 'archive') {
-            throw new Error('La sorgente archivio non è stata salvata.');
-          }
-          if (!isRequestCurrent()) return abandonCancelledStart();
-          nextSource = saved.snapshot.source;
-          sourceWarnings = getProjectSourceWarnings(nextSource);
-        }
-
-        sourceWarnings = getProjectSourceWarnings(nextSource);
-
-        domain.setSource(nextSource);
-        preparedSource = nextSource;
-        if (nextSource.kind === 'archive') {
-          projectLibrary.setProjectHydrated(true);
-        }
-        domain.setIsLearnMode(false);
-        mode = 'document';
-
-        const assessmentContext = nextSource.sources?.length
-          ? openRouter.buildAssessmentDocumentContextFromSourceSet(nextSource.sources)
-          : nextSource.kind === 'archive'
-            ? openRouter.buildAssessmentDocumentContextFromTextSource({
-                name: nextSource.name,
-                text: formatSourceArchiveIndex(nextSource.index, {
-                  previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
-                }),
-              })
-            : await openRouter.buildAssessmentDocumentPrompt(nextFile, status => {
-                state.setWorkflowMessage('assessment', requestId, status);
-              });
-        hasReliableSourceContext = assessmentContext.hasReliableSourceContext;
-        sourceContext = assessmentContext.content;
-      } else {
-        domain.setSource(null);
-        domain.setIsLearnMode(true);
-      }
-
+      const preparation = await prepareHomeChatSource({
+        abandonCancelledStart,
+        isRequestCurrent,
+        requestId,
+        selectedFiles,
+        startState,
+        workspaceOwnership,
+      });
+      if (preparation.kind === 'completed') return preparation.result;
       if (!isRequestCurrent()) return abandonCancelledStart();
+      const { hasReliableSourceContext, mode, preparedSource, sourceContext } = preparation.value;
       const projectId = await ensureInterviewProject(mode, preparedSource);
-      draftProjectId = projectId;
-      workspaceOwnership.draftProjectId = draftProjectId;
+      startState.draftProjectId = projectId;
+      workspaceOwnership.draftProjectId = projectId;
       if (!isRequestCurrent()) return abandonCancelledStart();
       const outcome = await startTrackedAssessmentInterview({
         hasReliableSourceContext,
@@ -902,38 +1088,16 @@ export const createAssessmentPlanningCommands = (
         await projectLibrary.refreshLibraryState();
         resetInterviewClientState();
       }
-      return { outcome, sourceWarnings };
+      return { outcome, sourceWarnings: startState.sourceWarnings };
     } catch (error) {
-      if (!isRequestCurrent()) {
-        if (error instanceof LateCourseInterviewCancellationError) {
-          workspaceOwnership.requiresCancellationRetry = true;
-          pushNousDebugTrace('assessment:late-cancellation-failed', {
-            errorMessage: getErrorMessage(error.cause),
-            projectId: draftProjectId,
-          });
-          return { outcome: 'failed', sourceWarnings };
-        }
-        return abandonCancelledStart();
-      }
-      if (error instanceof ProjectStorageError && error.sourceWarnings?.length) {
-        sourceWarnings = error.sourceWarnings;
-      }
-      const errorMessage = getErrorMessage(error);
-      state.failWorkflow('assessment', requestId, errorMessage);
-      const failedDraftProjectId = projectLibrary.getCurrentProjectId();
-      if (failedDraftProjectId) {
-        try {
-          const activeInterview = await openRouter.getActiveCourseInterview(failedDraftProjectId);
-          if (!activeInterview) await projectLibrary.deleteStoredProject(failedDraftProjectId);
-        } catch (cleanupError) {
-          pushNousDebugTrace('assessment:draft-cleanup-failed', {
-            errorMessage: getErrorMessage(cleanupError),
-            projectId: failedDraftProjectId,
-          });
-        }
-      }
-      resetInterviewClientState();
-      return { outcome: 'failed', errorMessage, sourceWarnings };
+      return handleHomeChatStartFailure({
+        abandonCancelledStart,
+        error,
+        isRequestCurrent,
+        requestId,
+        startState,
+        workspaceOwnership,
+      });
     }
   }
 
@@ -1015,7 +1179,7 @@ export const createAssessmentPlanningCommands = (
     opened: boolean
   ): void {
     const pendingOpenProject = openProjectAttempts.get(openProjectRequestId);
-    if (!pendingOpenProject || pendingOpenProject.projectId !== projectId) return;
+    if (pendingOpenProject?.projectId !== projectId) return;
     const owners = workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId);
     if (owners) {
       for (const ownership of owners) {

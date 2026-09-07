@@ -1,4 +1,13 @@
+import { rewritePdfImagePlaceholders } from './pdfImagePlaceholder';
 import { getSearchKeywords, normalizeSearchText } from './searchText';
+
+export const getMarkdownHeadings = (contentMarkdown: string): string[] =>
+  contentMarkdown
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => /^(#{1,6})\s+/u.test(line))
+    .map(line => line.replace(/^(#{1,6})\s+/u, '').trim())
+    .filter(Boolean);
 
 export interface PdfImageContext {
   caption?: string;
@@ -16,8 +25,6 @@ export interface PdfImageReference {
   assetId: string;
   caption?: string;
 }
-
-const MIN_FALLBACK_IMAGE_SCORE = 2;
 
 const getPdfImageSearchText = (image: PdfImageContext): string =>
   [image.caption || '', image.textBefore, image.textCurrent || '', image.textAfter]
@@ -58,16 +65,7 @@ const trimAfterSentencePunctuation = (value: string): string => {
   return value;
 };
 
-export const sanitizeImagePlaceholderValue = (value: string): string =>
-  value.replaceAll(/[|}]/gu, ' ').replaceAll(/\s+/gu, ' ').trim();
-
-export const getMarkdownHeadings = (contentMarkdown: string): string[] =>
-  contentMarkdown
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => /^(#{1,6})\s+/u.test(line))
-    .map(line => line.replace(/^(#{1,6})\s+/u, '').trim())
-    .filter(Boolean);
+const normalizeImageMetadataText = (value: string): string => value.replaceAll(/\s+/gu, ' ').trim();
 
 const buildImageContextSummary = (
   image: PdfImageContext,
@@ -88,7 +86,7 @@ const buildImageContextSummary = (
     .sort((left, right) => right.score - left.score)[0]?.sentence;
   const chosen =
     image.caption?.trim() || bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
-  const compact = trimLeadingSummaryPunctuation(chosen).replaceAll(/[|}]/gu, ' ').trim();
+  const compact = normalizeImageMetadataText(trimLeadingSummaryPunctuation(chosen));
   return compact.length > 140 ? `${compact.slice(0, 137).trim()}...` : compact;
 };
 
@@ -129,63 +127,12 @@ export const selectCandidatePdfImages = <T extends PdfImageContext>(
   return relevant.length > 0 ? relevant : scored.map(item => item.image);
 };
 
-const pickFallbackAnchorHeading = (
-  image: PdfImageContext,
-  headings: string[],
-  sectionTitle: string,
-  sectionDescription: string
-): string | undefined => {
-  if (headings.length === 0) return undefined;
-  const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
-  const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const bestHeading = headings
-    .map(heading => ({
-      heading,
-      score:
-        scoreKeywordHits(imageHaystack, getSearchKeywords(heading)) * 2 +
-        scoreKeywordHits(normalizeSearchText(heading), sectionKeywords),
-    }))
-    .sort((left, right) => right.score - left.score)[0];
-  return bestHeading && bestHeading.score > 0 ? bestHeading.heading : undefined;
-};
-
-export const buildFallbackImageRefs = <T extends PdfImageContext>(
-  images: T[],
-  sectionTitle: string,
-  sectionDescription: string,
-  contentMarkdown: string,
-  visibleLabelByAssetId: ReadonlyMap<string, string>
-): PdfImageReference[] => {
-  const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const headings = getMarkdownHeadings(contentMarkdown);
-  return images
-    .map(image => {
-      const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
-      const headingScore = headings.reduce(
-        (highest, heading) =>
-          Math.max(highest, scoreKeywordHits(imageHaystack, getSearchKeywords(heading))),
-        0
-      );
-      return {
-        image,
-        score: scoreKeywordHits(imageHaystack, sectionKeywords) * 2 + headingScore,
-      };
-    })
-    .filter(item => item.score >= MIN_FALLBACK_IMAGE_SCORE)
-    .sort((left, right) =>
-      right.score === left.score
-        ? left.image.sourceOrder - right.image.sourceOrder
-        : right.score - left.score
-    )
-    .map(({ image }) => ({
-      alt: sanitizeImagePlaceholderValue(
-        buildImageContextSummary(image, sectionTitle, sectionDescription) ||
-          `Figura dal PDF: ${sectionTitle}`
-      ),
-      anchorHeading: pickFallbackAnchorHeading(image, headings, sectionTitle, sectionDescription),
-      assetId: image.id,
-      caption: sanitizeImagePlaceholderValue(visibleLabelByAssetId.get(image.id) || ''),
-    }));
+type ResolvePdfImageRefsInput = {
+  contentMarkdown: string;
+  draftRefs: Array<{ alt: string; anchorHeading?: string; assetId: string; caption: string }>;
+  images: PdfImageContext[];
+  sectionDescription: string;
+  sectionTitle: string;
 };
 
 export const resolvePdfImageRefs = ({
@@ -194,43 +141,34 @@ export const resolvePdfImageRefs = ({
   images,
   sectionDescription,
   sectionTitle,
-}: {
-  contentMarkdown: string;
-  draftRefs: Array<{ alt: string; anchorHeading: string; assetId: string; caption: string }>;
-  images: PdfImageContext[];
-  sectionDescription: string;
-  sectionTitle: string;
-}): PdfImageReference[] => {
+}: ResolvePdfImageRefsInput): PdfImageReference[] => {
   const availableAssetIds = new Set(images.map(image => image.id));
   const visibleLabelByAssetId = new Map(
     images.map(image => [image.id, buildVisibleImageLabel(image, sectionTitle, sectionDescription)])
   );
   const seenAssetIds = new Set<string>();
-  const normalized = draftRefs.flatMap(reference => {
+  const placeholderAssetIds = new Set<string>();
+  rewritePdfImagePlaceholders(contentMarkdown, ({ assetId, fullMatch }) => {
+    placeholderAssetIds.add(assetId.trim());
+    return fullMatch;
+  });
+  return draftRefs.flatMap(reference => {
     if (!availableAssetIds.has(reference.assetId) || seenAssetIds.has(reference.assetId)) return [];
-    const alt = sanitizeImagePlaceholderValue(reference.alt || 'Figura dal PDF');
+    const alt = normalizeImageMetadataText(reference.alt || 'Figura dal PDF');
     if (!alt) return [];
     seenAssetIds.add(reference.assetId);
-    const caption = sanitizeImagePlaceholderValue(
+    const caption = normalizeImageMetadataText(
       reference.caption || visibleLabelByAssetId.get(reference.assetId) || ''
     );
-    const anchorHeading = sanitizeImagePlaceholderValue(reference.anchorHeading || '');
+    if (!placeholderAssetIds.has(reference.assetId)) {
+      throw new Error('Selected PDF image is missing its placeholder in lesson content.');
+    }
     return [
       {
         alt,
-        ...(anchorHeading ? { anchorHeading } : {}),
         assetId: reference.assetId,
         ...(caption ? { caption } : {}),
       },
     ];
   });
-  return normalized.length > 0
-    ? normalized
-    : buildFallbackImageRefs(
-        images,
-        sectionTitle,
-        sectionDescription,
-        contentMarkdown,
-        visibleLabelByAssetId
-      );
 };

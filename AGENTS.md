@@ -70,13 +70,13 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 
 Use the execution model deliberately:
 
-- Complex or high-impact implementation: `gpt-5.6-sol` with `high` reasoning.
-- Medium-scope implementation: `gpt-5.6-terra` with `high` reasoning.
-- Simple bounded exploration: `gpt-5.6-luna` with `medium` or `high` reasoning.
-- Complex exploration: `gpt-5.6-luna` with `xhigh` reasoning.
-- Simple documentation-only implementation: `gpt-5.6-luna` with `high` reasoning.
+- Use `gpt-6-astra` for implementation, exploration, review, and documentation.
+- Simple bounded work, such as a small UI change expected to take about 5-10 minutes: `low` reasoning.
+- Normal work: `medium` reasoning.
+- Difficult or high-impact work: `high` reasoning, the maximum unless explicitly authorized otherwise.
+- The user's "Light" level maps to `low`. Apply this policy to new and resumed tasks.
 
-Do not use Luna for non-trivial code implementation. Run implementation work in separate visible Codex tasks with isolated worktrees; use local subagents only for short, read-only verification in the current chat.
+Run implementation work in separate visible Codex tasks with isolated worktrees; use local subagents only for short, read-only verification in the current chat.
 ## Product Manifesto
 
 This project has a living product/design manifesto in GitHub discussion #33 (https://github.com/immagiov4/Lumina-Reader/discussions/33):

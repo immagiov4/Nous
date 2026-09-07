@@ -79,11 +79,11 @@ export const ORIGINAL_IMAGE_PRIORITY_RULE =
 export const ORIGINAL_IMAGE_USAGE_RULES = [
   'Every original image must support a nearby explanation. Do not use it as decoration or a visual interlude.',
   'Reference only the supplied assetIds. If no image is clearly relevant, leave imageRefs empty.',
-  'Every imageRef must have an anchorHeading that exactly matches a heading in a Markdown block, without the # symbols.',
+  'For every selected imageRef, insert {{PDF_IMAGE:assetId}} in a Markdown content block where the image belongs. Replace assetId with the supplied image identifier. Choose its position as part of writing the lesson; metadata alone does not display the image.',
   'Use only images with a clear, self-contained visual caption. Exclude blurred, partial, cropped, hard-to-read, or decorative images, as well as badges, icons, borders, wrappers, or fragments.',
   ORIGINAL_IMAGE_PRIORITY_RULE,
   'Do not use textual context to guess what an unclear figure shows. Captions and nearby text may only disambiguate an already recognizable figure.',
-  'The nearby paragraph must say what to observe in the image and why it is useful. Never mention a technical assetId in Markdown.',
+  'The nearby paragraph must say what to observe in the image and why it is useful. Use technical assetIds only inside PDF_IMAGE placeholders, never in the surrounding prose.',
 ] as const;
 
 export const LESSON_VISUAL_TYPES = [

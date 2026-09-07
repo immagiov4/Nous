@@ -1,6 +1,7 @@
 import type { TransactionSql } from 'postgres';
 import { describe, expect, test, vi } from 'vitest';
 
+import { findProjectLessonSection } from '../../src/projects/projectLesson.js';
 import { applyProjectPatch } from '../../src/projects/projectPatch.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import {
@@ -28,6 +29,7 @@ const UNUSED_PDF_ASSET_ID = 'b'.repeat(64);
 const VISUAL_ASSET_ID = 'c'.repeat(64);
 const UNUSED_VISUAL_ASSET_ID = 'd'.repeat(64);
 const OTHER_ASSET_ID = 'e'.repeat(64);
+const PDF_PLACEHOLDER = '{{PDF_IMAGE:pdf-new|alt=Nuova}}';
 
 const asset = (id: string) => ({
   byteSize: 5,
@@ -103,9 +105,9 @@ const project = (): ProjectSnapshot => ({
 
 const visualsState = (snapshot: ProjectSnapshot) =>
   LessonVisualsStateSchema.parse({
-    content: '## Lezione\n\nContenuto nuovo.',
+    content: `## Lezione\n\n${PDF_PLACEHOLDER}\n\nContenuto nuovo.`,
     contentBlocks: [
-      { markdown: '## Lezione\n\nContenuto nuovo.', type: 'markdown' },
+      { markdown: `## Lezione\n\n${PDF_PLACEHOLDER}\n\nContenuto nuovo.`, type: 'markdown' },
       { slotId: 'visual-1', type: 'generated-visual', visualId: 'visual-1' },
     ],
     discoveredYoutubeSources: [],
@@ -145,7 +147,7 @@ const visualsState = (snapshot: ProjectSnapshot) =>
         slotId: 'visual-1',
       },
     ],
-    imageRefs: [{ alt: 'Nuova', assetId: 'pdf-new' }],
+    imageRefs: [{ alt: 'Nuova', anchorHeading: 'Lezione', assetId: 'pdf-new' }],
     learningAids: [],
     lessonInputData: {
       description: 'Descrizione',
@@ -360,7 +362,7 @@ describe('durable lesson generation persistence', () => {
       ],
     });
     expect(patch.section).toMatchObject({
-      content: '## Lezione\n\nContenuto nuovo.',
+      content: `## Lezione\n\n${PDF_PLACEHOLDER}\n\nContenuto nuovo.`,
       generationWarnings: input.warnings,
       lastGenerationRunId: 'run-new',
       sectionId: 'lesson-1',
@@ -393,8 +395,11 @@ describe('durable lesson generation persistence', () => {
     });
 
     const result = await finalize({ ...context(input), input: state });
+    const reloadedSection = findProjectLessonSection(committed, 'lesson-1');
 
     expect(result.projectRevision).toBe(5);
+    expect(reloadedSection?.content).toBe(`## Lezione\n\n${PDF_PLACEHOLDER}\n\nContenuto nuovo.`);
+    expect(reloadedSection?.contentBlocks).toEqual(input.contentBlocks);
     expect(result.documentAssets?.usedImages.map(image => image.id)).toEqual([
       'pdf-new',
       'pdf-other',

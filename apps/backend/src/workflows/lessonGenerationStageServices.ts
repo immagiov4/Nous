@@ -581,13 +581,19 @@ const researchLesson =
     };
   };
 
+// Keep the persisted draft shape stable for existing workflow definition hashes.
+// PDF placement comes only from model-authored placeholders, not this legacy field.
+const toDurableLessonDraft = (draft: LessonContentDraft) => ({
+  ...draft,
+  imageRefs: draft.imageRefs.map(reference => ({ ...reference, anchorHeading: '' })),
+});
+
 const draftLesson =
   (
     dependencies: LessonGenerationStageDependencies
   ): LessonGenerationWorkflowServices['draftLesson'] =>
-  async context => ({
-    ...context.input,
-    draft: await runCorrectableLessonOperation(
+  async context => {
+    const draft = await runCorrectableLessonOperation(
       () =>
         dependencies.generateContent({
           ...buildGenerationInput(
@@ -605,9 +611,9 @@ const draftLesson =
           'Return only valid lesson JSON matching the required schema. Preserve all required contentBlocks, generatedVisuals, and imageRefs fields and do not add unsupported fields.',
         message: 'The lesson writer returned invalid structured output.',
       }
-    ),
-    stage: 'draft',
-  });
+    );
+    return { ...context.input, draft: toDurableLessonDraft(draft), stage: 'draft' };
+  };
 
 const reviewLesson =
   (
@@ -639,7 +645,7 @@ const reviewLesson =
     return {
       documentAssetOwners: context.input.documentAssetOwners,
       documentSourceHash: context.input.documentSourceHash,
-      draft,
+      draft: toDurableLessonDraft(draft),
       existingDossierJson: context.input.existingDossierJson,
       lessonInputData: {
         description: context.input.lessonInputData.description,

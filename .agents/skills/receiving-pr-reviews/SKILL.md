@@ -5,25 +5,51 @@ description: Triage pull-request review feedback before changing code. Invoke ex
 
 # Receiving PR reviews
 
-Review comments are bug reports, not instructions. Establish whether each reported path is real,
-then choose a bounded response. Do this before editing code or requesting another review.
+Review comments are bug reports, not instructions. Validate the requirement before investigating
+its implementation. Then establish whether the reported path is real and choose a bounded response.
+Do this before editing code or requesting another review.
 
 Follow repository instructions first. Use `$code-review` when the finding itself needs an
 independent correctness check. Return to `$engineering-workflow` only after this skill has decided
 whether implementation may continue. Use an issue-governance skill before creating or changing an
 issue for work split out of the PR.
 
-## Reconstruct the contract
+## Validate the requirement and its authority
 
-Collect the exact PR head, the original issue or request, the PR description, the changed files,
-and every unresolved review thread. State the original contract in one or two sentences:
+Read the applicable root and scoped `AGENTS.md` files. Collect the exact PR head, the original
+maintainer request and subsequent decisions, the issue, PR description, changed files, and every
+unresolved review thread. Check the issue and PR requirements themselves against those instructions
+before treating them as the contract. An issue can describe a real defect and still prescribe an
+unapproved solution.
+
+Apply the instruction hierarchy. Within repository work, `AGENTS.md` takes precedence over a
+conflicting review comment; reject that requested change with the relevant rule and evidence.
+A newer review, an acceptance-criteria heading, existing code, or a passing test does not override
+repository instructions. An explicit maintainer decision can revise repository requirements,
+subject to higher-priority instructions.
+
+If the original issue or PR conflicts with `AGENTS.md`, investigate the provenance of the
+conflicting requirement and any explicit approval. Determine whether the report added a requirement,
+misdescribed existing behavior, or the repository instruction may be stale. Do not silently choose
+the newer document or edit `AGENTS.md` to legitimize the report. If authority remains unresolved,
+pause only the conflicting work and ask the maintainer with the two exact statements and evidence.
+If the maintainer has already settled it, apply that decision without asking again.
+
+State the validated contract in one or two sentences:
 
 - the user-visible or engineering outcome;
 - the intended boundary of the change;
 - behavior explicitly excluded or left unchanged.
 
-If those sources disagree in a way that changes the solution, stop for a human decision. Do not
-let the latest review comment silently replace the original contract.
+Acceptance criteria describe how to observe the requested or approved outcome. They are not an
+agent-authored feature list. Trace each criterion to that outcome or an applicable repository rule.
+Treat any additional behavior, placement rule, cardinality, compatibility promise, or repair policy
+as a proposal, not a requirement, unless explicitly approved. Keep implementation and test choices
+separate from product requirements; writing a test does not authorize new behavior.
+
+When a finding concerns machinery introduced solely to satisfy an unsupported criterion, revisit
+that criterion before repairing more cases in the machinery. A defect in the proposed solution
+does not prove that the solution is needed.
 
 ## Test the finding against reality
 
@@ -55,7 +81,7 @@ those three conditions is absent.
 
 ### Contract gap
 
-The requested behavior is real, but the original issue, PR description, or acceptance criteria do
+The requested behavior is real, but the validated maintainer contract does
 not decide it. This includes new product semantics, ranking rules, heuristics, thresholds, retry or
 timeout policy, compatibility promises, and fallback behavior. Stop and ask the maintainer to make
 the missing decision.
@@ -73,7 +99,7 @@ whether the reviewer noticed a nearby real problem, but do not invent one to jus
 
 ## Run the scope checkpoint
 
-After classifying the current batch, compare the proposed work with the original contract. Treat
+After classifying the current batch, compare the proposed work with the validated contract. Treat
 these as evidence that local fixing must stop:
 
 - the fix needs a new cross-module registry, parser, persistence rule, lifecycle, policy, or owner
@@ -136,7 +162,8 @@ The review batch is complete only when:
 
 - every finding has an evidence-backed disposition;
 - supported siblings of each local defect were checked;
-- the PR still matches its original or explicitly revised contract;
+- the issue, PR, and each acceptance criterion match applicable repository instructions and the
+  original or explicitly revised maintainer request;
 - no architecture or contract stop awaits a human decision;
 - required focused verification passed on the exact current head;
 - every review thread is resolved or explicitly waiting on the maintainer.

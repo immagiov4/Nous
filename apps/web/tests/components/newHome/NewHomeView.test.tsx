@@ -503,7 +503,7 @@ describe('NewHomeView library interactions', () => {
     }
   });
 
-  test('repositions an open course menu and restores focus on Escape', async () => {
+  test('repositions a root-level course menu and restores focus on Escape', async () => {
     const user = userEvent.setup();
     const { container } = render(
       <NewHomeView
@@ -563,6 +563,83 @@ describe('NewHomeView library interactions', () => {
       expect(exportButton).toHaveFocus();
 
       await user.keyboard('{Escape}');
+      expect(
+        screen.queryByRole('button', { name: /^(Apri corso|Open course)$/ })
+      ).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    } finally {
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: originalVisualViewport,
+      });
+    }
+  });
+
+  test('anchors a nested course menu to its trigger across viewport changes and outside dismissal', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isExportingProject={false}
+        isLibraryLoading={false}
+        libraryFolders={[folder]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onExportProject={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+    const trigger = within(container.querySelector('#courses') as HTMLElement).getByRole('button', {
+      name: /Azioni per Corso Mobile|Actions for Corso Mobile/,
+    });
+    let bounds = { top: 100, bottom: 120, left: 480, right: 500 };
+    vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => bounds as DOMRect);
+
+    const visualViewport = new EventTarget() as VisualViewport;
+    Object.assign(visualViewport, {
+      height: 500,
+      offsetLeft: 40,
+      offsetTop: 80,
+      width: 400,
+    });
+    const originalVisualViewport = window.visualViewport;
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: visualViewport,
+    });
+
+    try {
+      await user.click(trigger);
+      const menu = screen.getByRole('button', { name: /^(Apri corso|Open course)$/ })
+        .parentElement as HTMLElement;
+      expect(menu).toHaveStyle({ left: '236px', top: '124px' });
+      expect(screen.getByRole('button', { name: /^(Apri corso|Open course)$/ })).toHaveFocus();
+
+      bounds = { top: 360, bottom: 380, left: 480, right: 500 };
+      window.dispatchEvent(new Event('scroll'));
+      await waitFor(() => expect(menu).toHaveStyle({ top: '144px' }));
+
+      Object.assign(visualViewport, { height: 700 });
+      visualViewport.dispatchEvent(new Event('resize'));
+      await waitFor(() => expect(menu).toHaveStyle({ top: '384px' }));
+
+      Object.assign(visualViewport, { width: 320 });
+      window.dispatchEvent(new Event('orientationchange'));
+      await waitFor(() => expect(menu).toHaveStyle({ left: '156px' }));
+
+      const outsideDismissBackdrop = screen.getByRole('button', {
+        name: /Chiudi azioni corso|Close course actions/,
+      });
+      expect(menu).not.toContainElement(outsideDismissBackdrop);
+      await user.click(outsideDismissBackdrop);
       expect(
         screen.queryByRole('button', { name: /^(Apri corso|Open course)$/ })
       ).not.toBeInTheDocument();

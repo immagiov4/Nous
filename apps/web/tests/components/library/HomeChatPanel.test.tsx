@@ -265,6 +265,27 @@ describe('HomeChatPanel', () => {
     expect(composer).not.toHaveClass('border-0', 'p-0');
   });
 
+  test('keeps an empty library query compact after the course assessment completes', () => {
+    const { container } = render(
+      <HomeChatPanel
+        {...buildProps()}
+        assessmentComplete
+        assessmentMessages={[]}
+        compactWhenEmpty
+        hideHeaderCopy
+        hideModeSelector
+        homeChatMode="library-query"
+        libraryMessages={[]}
+      />
+    );
+
+    expect(container.querySelector('section')).toHaveClass(
+      'rounded-none',
+      'bg-transparent',
+      'shadow-none'
+    );
+  });
+
   test('can cancel an active new-course interview from the trash action', async () => {
     const user = userEvent.setup();
     const props = buildProps();
@@ -560,6 +581,20 @@ describe('HomeChatPanel', () => {
     expect(screen.getByText('Risposta parziale')).toBeInTheDocument();
   });
 
+  test('keeps submission locked while a library response has no Stop handler', () => {
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      isLibraryModeLoading: true,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    const submitButton = screen.getByRole('button', { name: /Invia domanda libreria/i });
+    expect(submitButton).toBeDisabled();
+    expect(submitButton).toHaveAttribute('type', 'submit');
+  });
+
   test('keeps the active Stop action visible by blocking mode changes during streaming', async () => {
     const user = userEvent.setup();
     const stop = vi.fn();
@@ -791,6 +826,65 @@ describe('HomeChatPanel', () => {
     rerender(<HomeChatPanel {...props} homeChatMode="new-course" />);
 
     expect(screen.queryByText(/Contesto libreria/i)).not.toBeInTheDocument();
+  });
+
+  test('closes the desktop attachment menu before switching back to new-course mode', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /Nuovo corso/i }));
+
+    expect(props.onHomeChatModeChange).toHaveBeenCalledWith('new-course');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  test.each([
+    /Apri esploratore contesto libreria/i,
+    /Apri strumenti libreria/i,
+  ])('preserves an open surface when the active mode is selected with the keyboard: %s', async title => {
+    const user = userEvent.setup();
+    const props = { ...buildProps(), homeChatMode: 'library-query' as const };
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(title));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    screen.getByRole('tab', { name: /Consulta libreria/i }).focus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(props.onHomeChatModeChange).not.toHaveBeenCalled();
+
+    screen.getByRole('tab', { name: /Nuovo corso/i }).focus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(props.onHomeChatModeChange).toHaveBeenCalledExactlyOnceWith('new-course');
+  });
+
+  test('does not restore an open library surface after a parent-driven mode change', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+    const { rerender } = render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    rerender(<HomeChatPanel {...props} homeChatMode="new-course" />);
+    rerender(<HomeChatPanel {...props} />);
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   test('toggles web search from the library tools menu', async () => {
