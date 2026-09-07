@@ -178,8 +178,8 @@ export const createLibraryExportApi = ({
   runStore,
 }: CreateLibraryExportApiDependencies): LibraryExportApi => {
   const coordinator = new LibraryExportCoordinator(config.executionsGlobal);
-  const shutdown = createLibraryExportOperations();
-  const { runStep } = shutdown;
+  const shutdown = createLibraryExportOperations(coordinator);
+  const { runExclusively, runStep } = shutdown;
   const delivery = createLibraryExportDelivery({
     config,
     coordinator,
@@ -385,44 +385,38 @@ export const createLibraryExportApi = ({
     runId: string,
     outcome: 'resumed' | 'started' = 'resumed'
   ): Promise<LibraryExportRunRecord | null> => {
-    const current = await runStep(() =>
-      coordinator.exclusively(runId, async () => {
-        const run = await runStep(() => runStore.getRun(userId, runId));
-        if (
-          !run ||
-          coordinator.owns(runId) ||
-          (run.status !== 'running' && run.status !== 'failed')
-        )
-          return run;
-        if (outcome === 'resumed') {
-          const issue = getExpectedProjectIssue(
-            run.expectedProjects,
-            await runStep(() => projectStore.listLibraryExportProjects(userId))
+    const current = await runExclusively(runId, async () => {
+      const run = await runStep(() => runStore.getRun(userId, runId));
+      if (!run || coordinator.owns(runId) || (run.status !== 'running' && run.status !== 'failed'))
+        return run;
+      if (outcome === 'resumed') {
+        const issue = getExpectedProjectIssue(
+          run.expectedProjects,
+          await runStep(() => projectStore.listLibraryExportProjects(userId))
+        );
+        if (issue) {
+          await runStep(() =>
+            runStore.markCancelled(runId, {
+              ...getResumeError(issue),
+              phase: run.errorPhase ?? run.phase,
+            })
           );
-          if (issue) {
-            await runStep(() =>
-              runStore.markCancelled(runId, {
-                ...getResumeError(issue),
-                phase: run.errorPhase ?? run.phase,
-              })
-            );
-            return runStep(() => runStore.getRun(userId, runId));
-          }
-          if (run.status === 'running' && run.phase !== 'preparing') {
-            await runStep(() =>
-              runStore.markFailed(runId, {
-                code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
-                detail: 'The backend process stopped before the library export completed.',
-                phase: run.phase,
-              })
-            );
-          }
-          await runStep(() => runStore.markRunning(runId, 'preparing'));
+          return runStep(() => runStore.getRun(userId, runId));
         }
-        runInBackground(run, outcome);
-        return runStep(() => runStore.getRun(userId, runId));
-      })
-    );
+        if (run.status === 'running' && run.phase !== 'preparing') {
+          await runStep(() =>
+            runStore.markFailed(runId, {
+              code: 'LIBRARY_EXPORT_PROCESS_INTERRUPTED',
+              detail: 'The backend process stopped before the library export completed.',
+              phase: run.phase,
+            })
+          );
+        }
+        await runStep(() => runStore.markRunning(runId, 'preparing'));
+      }
+      runInBackground(run, outcome);
+      return runStep(() => runStore.getRun(userId, runId));
+    });
     if (current?.status === 'cancelled') {
       await runStep(() => delivery.cleanupRun(runId)).catch(error => {
         if (shutdown.signal.aborted) throw error;
@@ -440,55 +434,54 @@ export const createLibraryExportApi = ({
     getDownload: delivery.getDownload,
 
     async startOrResume(userId, correlationId) {
-      return runStep(() =>
-        coordinator.exclusively(`user:${userId}`, async () => {
-          const existing = await runStep(() => runStore.findUndeliveredRun(userId));
-          if (existing) {
-            await runStep(() => delivery.expireRun(existing.id));
-            const resumed = await resumeRun(userId, existing.id);
-            if (resumed && resumed.status !== 'cancelled' && resumed.status !== 'downloaded')
-              return toProgress(resumed);
-          }
-          const { folders, placements, projects } = await runStep(() =>
-            projectStore.readLibraryExportSnapshot(userId)
-          );
-          assertCompleteOrganization(
-            projects.map(project => project.id),
+      return runExclusively(`user:${userId}`, async () => {
+        const existing = await runStep(() => runStore.findUndeliveredRun(userId));
+        if (existing) {
+          await runStep(() => delivery.expireRun(existing.id));
+          const resumed = await resumeRun(userId, existing.id);
+          if (resumed && resumed.status !== 'cancelled' && resumed.status !== 'downloaded')
+            return toProgress(resumed);
+        }
+        const { folders, placements, projects } = await runStep(() =>
+          projectStore.readLibraryExportSnapshot(userId)
+        );
+        assertCompleteOrganization(
+          projects.map(project => project.id),
+          folders,
+          placements
+        );
+        const requestedRunId = randomUUID();
+        const expectedProjects = projects.map((project, index) => {
+          const identity = getProjectIdentity(project);
+          return {
+            id: project.id,
+            incarnationId: identity.incarnationId,
+            path: getLibraryArchiveProjectPath(project.id, index),
+            revision: identity.revision,
+            title: project.title,
+          };
+        });
+        const run = await runStep(() =>
+          runStore.createRun({
+            bytesWritten: 0,
+            correlationId,
+            expectedProjects,
             folders,
-            placements
-          );
-          const requestedRunId = randomUUID();
-          const run = await runStep(() =>
-            runStore.createRun({
-              bytesWritten: 0,
-              correlationId,
-              expectedProjects: projects.map((project, index) => {
-                const identity = getProjectIdentity(project);
-                return {
-                  id: project.id,
-                  incarnationId: identity.incarnationId,
-                  path: getLibraryArchiveProjectPath(project.id, index),
-                  revision: identity.revision,
-                  title: project.title,
-                };
-              }),
-              folders,
-              id: requestedRunId,
-              phase: 'preparing',
-              placements,
-              status: 'running',
-              userId,
-            })
-          );
-          const scheduled = await resumeRun(
+            id: requestedRunId,
+            phase: 'preparing',
+            placements,
+            status: 'running',
             userId,
-            run.id,
-            run.id === requestedRunId ? 'started' : 'resumed'
-          );
-          if (!scheduled) throw new Error('Persisted library export run is missing.');
-          return toProgress(scheduled);
-        })
-      );
+          })
+        );
+        const scheduled = await resumeRun(
+          userId,
+          run.id,
+          run.id === requestedRunId ? 'started' : 'resumed'
+        );
+        if (!scheduled) throw new Error('Persisted library export run is missing.');
+        return toProgress(scheduled);
+      });
     },
 
     async getStatus(userId, runId) {
@@ -521,7 +514,7 @@ export const createLibraryExportApi = ({
     async close() {
       shutdown.abort();
       const executions = coordinator.close();
-      await delivery.close();
+      delivery.close();
       await executions;
     },
   };

@@ -33,8 +33,8 @@ export const createLibraryExportDelivery = ({
   workspace,
 }: DeliveryDependencies) => {
   const cutoff = () => new Date(Date.now() - config.retentionMs);
-  const shutdown = createLibraryExportOperations();
-  const { runStep } = shutdown;
+  const shutdown = createLibraryExportOperations(coordinator);
+  const { runExclusively, runStep } = shutdown;
   let timer: ReturnType<typeof setInterval> | undefined;
   let cleanup: Promise<void> | undefined;
   let closed = false;
@@ -86,57 +86,50 @@ export const createLibraryExportDelivery = ({
   };
 
   const cleanupPendingRuns = (): Promise<void> => {
-    if (!cleanup)
-      cleanup = sweep().finally(() => {
-        cleanup = undefined;
-      });
+    cleanup ??= sweep().finally(() => {
+      cleanup = undefined;
+    });
     return cleanup;
   };
 
   const createDownloadAccess = (userId: string, runId: string): Promise<string | null> =>
-    runStep(() =>
-      coordinator.exclusively(runId, async () => {
-        const run = await runStep(() => runStore.getRun(userId, runId));
-        if (!run || run.status !== 'completed') return null;
-        await runStep(() => expireLocked(runId));
-        const token = randomUUID();
-        return (await runStep(() =>
-          runStore.authorizeDownload(userId, runId, hashToken(token), cutoff())
-        ))
-          ? token
-          : null;
-      })
-    );
+    runExclusively(runId, async () => {
+      const run = await runStep(() => runStore.getRun(userId, runId));
+      if (run?.status !== 'completed') return null;
+      await runStep(() => expireLocked(runId));
+      const token = randomUUID();
+      return (await runStep(() =>
+        runStore.authorizeDownload(userId, runId, hashToken(token), cutoff())
+      ))
+        ? token
+        : null;
+    });
 
   const getDownload = async (
     runId: string,
     token: string
   ): Promise<LibraryExportDownload | null> => {
     let releaseAdmission: (() => void) | undefined;
-    const admitted = await runStep(() =>
-      coordinator.exclusively(runId, async () => {
-        await runStep(() => expireLocked(runId));
-        const release = coordinator.acquireReader(runId);
-        releaseAdmission = release;
-        try {
-          const run = await runStep(() =>
-            runStore.claimDownload(runId, hashToken(token), cutoff())
-          );
-          if (run?.archiveBytes && run.archiveSha256)
-            return {
-              run,
-              release,
-              archiveBytes: run.archiveBytes,
-              archiveSha256: run.archiveSha256,
-            };
-          release();
-          return null;
-        } catch (error) {
-          release();
-          throw error;
-        }
-      })
-    ).catch(error => {
+    const admitted = await runExclusively(runId, async () => {
+      await runStep(() => expireLocked(runId));
+      const release = coordinator.acquireReader(runId);
+      releaseAdmission = release;
+      try {
+        const run = await runStep(() => runStore.claimDownload(runId, hashToken(token), cutoff()));
+        if (run?.archiveBytes && run.archiveSha256)
+          return {
+            run,
+            release,
+            archiveBytes: run.archiveBytes,
+            archiveSha256: run.archiveSha256,
+          };
+        release();
+        return null;
+      } catch (error) {
+        release();
+        throw error;
+      }
+    }).catch(error => {
       // The outer lock wait can abort immediately after the reader has been acquired.
       releaseAdmission?.();
       throw error;
@@ -172,15 +165,13 @@ export const createLibraryExportDelivery = ({
           )
         ))
       ) {
-        await runStep(() =>
-          coordinator.exclusively(runId, () =>
-            runStep(() =>
-              runStore.markFailed(runId, {
-                code: 'LIBRARY_EXPORT_INTEGRITY_FAILED',
-                detail: 'The completed library archive no longer matches its persisted checksum.',
-                phase: 'integrity-check',
-              })
-            )
+        await runExclusively(runId, () =>
+          runStep(() =>
+            runStore.markFailed(runId, {
+              code: 'LIBRARY_EXPORT_INTEGRITY_FAILED',
+              detail: 'The completed library archive no longer matches its persisted checksum.',
+              phase: 'integrity-check',
+            })
           )
         );
         await runStep(() => finish(false));

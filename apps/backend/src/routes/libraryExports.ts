@@ -105,7 +105,8 @@ export const createLibraryExportDownloadRouter = (api: LibraryExportApi): Router
         res.once('close', () => finish(res.writableFinished));
         try {
           res.set('Content-Length', String(download.archiveBytes));
-          res.download(download.archivePath, download.filename, error => {
+          // A one-use ticket authorizes a complete archive, not a resumable byte range.
+          res.download(download.archivePath, download.filename, { acceptRanges: false }, error => {
             finish(!error);
             if (error) {
               console.error('[LibraryExport] Download failed.', {
@@ -118,7 +119,6 @@ export const createLibraryExportDownloadRouter = (api: LibraryExportApi): Router
               } else {
                 next(error);
               }
-              return;
             }
           });
         } catch (error) {

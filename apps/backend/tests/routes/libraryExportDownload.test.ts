@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +13,8 @@ import { createLibraryExportDownloadRouter } from '../../src/routes/libraryExpor
 const route = '/library-exports/3207883a-862a-447f-b9ed-6148effeb8ea/download';
 let server: Server;
 let url: string;
+let archiveDirectory: string;
+const archiveContent = Buffer.from('complete archive bytes');
 let responseClosed: ReturnType<typeof Promise.withResolvers<void>>;
 const getDownload = vi.fn<() => Promise<LibraryExportDownload | null>>();
 const finish = vi.fn<(delivered: boolean) => Promise<void>>();
@@ -24,6 +27,8 @@ const download = (): LibraryExportDownload => ({
 });
 
 beforeEach(async () => {
+  archiveDirectory = await mkdtemp(join(tmpdir(), 'library-export-download-'));
+  await writeFile(join(archiveDirectory, 'archive.zip'), archiveContent);
   getDownload.mockReset();
   finish.mockReset().mockResolvedValue();
   responseClosed = Promise.withResolvers<void>();
@@ -48,6 +53,30 @@ afterEach(async () => {
     server.closeAllConnections();
   });
   vi.restoreAllMocks();
+  await rm(archiveDirectory, { recursive: true, force: true });
+});
+
+test.each([
+  'bytes=0-3',
+  'bytes=999-1000',
+])('delivers the complete archive despite a Range header of %s', async range => {
+  getDownload.mockResolvedValue({
+    ...download(),
+    archiveBytes: archiveContent.length,
+    archivePath: join(archiveDirectory, 'archive.zip'),
+  });
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Range: range },
+    body: new URLSearchParams({ downloadToken: 'synthetic-token' }),
+  });
+  expect(response.status).toBe(200);
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(archiveContent);
+  expect(response.headers.get('content-length')).toBe(String(archiveContent.length));
+  expect(response.headers.has('content-range')).toBe(false);
+  expect(response.headers.has('accept-ranges')).toBe(false);
+  expect(finish).toHaveBeenCalledWith(true);
+  expect(finish).not.toHaveBeenCalledWith(false);
 });
 
 test('releases a reader when the client disconnects while download admission is pending', async () => {

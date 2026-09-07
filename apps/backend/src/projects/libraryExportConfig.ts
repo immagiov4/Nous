@@ -45,7 +45,7 @@ export const readLibraryExportConfig = (env: NodeJS.ProcessEnv): LibraryExportCo
     throw new Error(`LIBRARY_EXPORT_CLEANUP_INTERVAL_MS must not exceed ${MAX_TIMER_DELAY_MS}.`);
   }
   if (Number.isNaN(new Date(Date.now() - config.retentionMs).getTime())) {
-    throw new Error('LIBRARY_EXPORT_RETENTION_MS must produce a valid expiration date.');
+    throw new RangeError('LIBRARY_EXPORT_RETENTION_MS must produce a valid expiration date.');
   }
   return config;
 };

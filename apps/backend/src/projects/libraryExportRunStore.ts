@@ -95,10 +95,12 @@ export interface LibraryExportRunStore {
   markRunning(runId: string, phase: LibraryExportPhase, currentProjectId?: string): Promise<void>;
 }
 
+type DatabaseByteCount = number | string;
+
 interface LibraryExportRunRow {
-  archive_bytes: number | string | null;
+  archive_bytes: DatabaseByteCount | null;
   archive_sha256: string | null;
-  bytes_written: number | string;
+  bytes_written: DatabaseByteCount;
   correlation_id: string;
   current_project_id: string | null;
   error_code: string | null;
@@ -462,7 +464,7 @@ export class PostgresLibraryExportRunStore implements LibraryExportRunStore {
         where id = ${runId}
       `;
       const run = runRows[0];
-      if (!run || run.status !== 'running' || run.phase !== 'integrity-check') return false;
+      if (run?.status !== 'running' || run.phase !== 'integrity-check') return false;
 
       const expectedProjects = projectEntrySchema.array().parse(run.expected_projects);
       if (

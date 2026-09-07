@@ -54,6 +54,18 @@ interface AccountPanelProps {
 const fieldClassName =
   'mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-950 outline-none focus:border-gray-900 disabled:bg-gray-100 disabled:text-gray-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-500 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400';
 
+const getLibraryExportLabel = (
+  isExporting: boolean,
+  progress: Parameters<LibraryExportProgressListener>[0] | null
+): string => {
+  if (!isExporting) return t('Esporta tutti i corsi');
+  if (!progress) return t('Esportazione in corso...');
+  return t('Esportazione {completed} di {total}...', {
+    completed: progress.completedProjectCount,
+    total: progress.projectCount,
+  });
+};
+
 const AccountPanel = ({
   account,
   initialSection,
@@ -390,14 +402,7 @@ const AccountPanel = ({
                 className="inline-flex items-center gap-2 rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950"
               >
                 <Download className="h-4 w-4" />
-                {pendingAction === 'backup-export'
-                  ? libraryExportProgress
-                    ? t('Esportazione {completed} di {total}...', {
-                        completed: libraryExportProgress.completedProjectCount,
-                        total: libraryExportProgress.projectCount,
-                      })
-                    : t('Esportazione in corso...')
-                  : t('Esporta tutti i corsi')}
+                {getLibraryExportLabel(pendingAction === 'backup-export', libraryExportProgress)}
               </button>
               {pendingAction === 'backup-export' && libraryExportProgress ? (
                 <output className="w-full text-xs text-gray-500 dark:text-zinc-400">
