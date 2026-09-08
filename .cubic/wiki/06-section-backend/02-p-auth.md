@@ -123,7 +123,7 @@ Authentication in Nous is a multi-layered system combining JWT-based identity ve
 
 ## Account preferences
 
-`/api/account/preferences` supports GET, PUT and DELETE after `resolveCurrentUser`. The server derives the owner from the authenticated session, rejects extra fields in the request body and sends private, non-cacheable responses. `PostgresAccountStore` reads and upserts `account_preferences`, keyed by `auth.users.id`; removing the account cascades to its preferences. RLS grants each authenticated user access only to their own row, and anonymous access is revoked.
+`/api/account/preferences` supports GET, PUT and DELETE after `resolveCurrentUser`. The server derives the owner from the authenticated session, rejects extra fields in the request body and sends private, non-cacheable responses. `PostgresAccountStore` reads and upserts `account_preferences`, keyed by `auth.users.id`; removing the account cascades to its preferences. Authenticated database clients may only read their own row under RLS. Direct INSERT, UPDATE and DELETE privileges are revoked so writes pass through the backend's shared schema validation. Service writes remain available, and anonymous access is revoked.
 
 Preferences contain nullable IT/EN interface locale, nullable free-text AI language and optional teaching instructions represented by an empty string when cleared. No account row means browser/interface defaults and no teaching instructions. Local development identities have no Supabase account, so generation and general chat use empty defaults without querying account storage. Account preferences do not rewrite existing course snapshots or auth metadata.
 
@@ -131,4 +131,4 @@ Saved AI language is limited to 100 UTF-16 code units and teaching preferences t
 
 Only a successful preference mutation for the current account invalidates older locale reads. A failed save or clear leaves an overlapping successful read free to apply the saved locale; a completed mutation prevents an older read from replacing its locale.
 
-Sources: [account.ts](../../../apps/backend/src/routes/account.ts), [accountStore.ts](../../../apps/backend/src/account/accountStore.ts), [accountPreferences.ts](../../../packages/shared-types/accountPreferences.ts), [account_preferences migration](../../../supabase/migrations/20260908101401_account_preferences.sql)
+Sources: [account.ts](../../../apps/backend/src/routes/account.ts), [accountStore.ts](../../../apps/backend/src/account/accountStore.ts), [accountPreferences.ts](../../../packages/shared-types/accountPreferences.ts), [account_preferences migration](../../../supabase/migrations/20260908101401_account_preferences.sql), [backend write boundary](../../../supabase/migrations/20260908133407_account_preferences_backend_writes.sql)

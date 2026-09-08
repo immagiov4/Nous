@@ -57,34 +57,27 @@ describe.skipIf(!context.enabled)('account Postgres persistence and ownership', 
     expect(await store.readPreferences(otherUserId)).toEqual(EMPTY_ACCOUNT_PREFERENCES);
     await store.clearPreferences(otherUserId);
     expect(await store.readPreferences(context.userId)).toEqual(preferences);
+    const updated = { ...preferences, teachingPreferences: 'Use a worked example.' };
+    await store.savePreferences(context.userId, updated);
+    expect(await store.readPreferences(context.userId)).toEqual(updated);
     await store.clearPreferences(context.userId);
     expect(await store.readPreferences(context.userId)).toEqual(EMPTY_ACCOUNT_PREFERENCES);
   });
 
-  test('RLS permits the owner and rejects cross-account reads, writes and deletion', async () => {
+  test('RLS permits owner reads and denies cross-account and anonymous reads', async () => {
     await store.savePreferences(context.userId, preferences);
+    await sql.begin(async transaction => {
+      await transaction`select set_config('request.jwt.claim.sub', ${context.userId}, true)`;
+      await transaction`set local role authenticated`;
+      expect(await transaction`select user_id from public.account_preferences`).toEqual([
+        { user_id: context.userId },
+      ]);
+    });
     await sql.begin(async transaction => {
       await transaction`select set_config('request.jwt.claim.sub', ${otherUserId}, true)`;
       await transaction`set local role authenticated`;
       expect(await transaction`select * from public.account_preferences`).toHaveLength(0);
-      expect(
-        await transaction`update public.account_preferences set preferences = '{}' where user_id = ${context.userId} returning user_id`
-      ).toHaveLength(0);
-      expect(
-        await transaction`delete from public.account_preferences where user_id = ${context.userId} returning user_id`
-      ).toHaveLength(0);
-      await transaction`insert into public.account_preferences (user_id, preferences) values (${otherUserId}, ${sql.json(preferences)})`;
-      expect(await transaction`select user_id from public.account_preferences`).toEqual([
-        { user_id: otherUserId },
-      ]);
     });
-    await expect(
-      sql.begin(async transaction => {
-        await transaction`select set_config('request.jwt.claim.sub', ${otherUserId}, true)`;
-        await transaction`set local role authenticated`;
-        await transaction`insert into public.account_preferences (user_id, preferences) values (${context.userId}, '{}') on conflict (user_id) do update set preferences = excluded.preferences`;
-      })
-    ).rejects.toMatchObject({ code: '42501' });
     await expect(
       sql.begin(async transaction => {
         await transaction`set local role anon`;
@@ -92,6 +85,36 @@ describe.skipIf(!context.enabled)('account Postgres persistence and ownership', 
       })
     ).rejects.toMatchObject({ code: '42501' });
     expect(await store.readPreferences(context.userId)).toEqual(preferences);
+  });
+
+  test.each([
+    'insert',
+    'update',
+    'upsert',
+    'delete',
+  ] as const)('denies direct authenticated %s for both the owner and another account', async operation => {
+    if (operation === 'insert') await store.clearPreferences(context.userId);
+    else await store.savePreferences(context.userId, preferences);
+    for (const actorId of [context.userId, otherUserId]) {
+      await expect(
+        sql.begin(async transaction => {
+          await transaction`select set_config('request.jwt.claim.sub', ${actorId}, true)`;
+          await transaction`set local role authenticated`;
+          if (operation === 'insert') {
+            await transaction`insert into public.account_preferences (user_id, preferences) values (${context.userId}, '{}')`;
+          } else if (operation === 'upsert') {
+            await transaction`insert into public.account_preferences (user_id, preferences) values (${context.userId}, '{}') on conflict (user_id) do update set preferences = excluded.preferences`;
+          } else if (operation === 'update') {
+            await transaction`update public.account_preferences set preferences = '{}' where user_id = ${context.userId}`;
+          } else {
+            await transaction`delete from public.account_preferences where user_id = ${context.userId}`;
+          }
+        })
+      ).rejects.toMatchObject({ code: '42501' });
+    }
+    expect(await store.readPreferences(context.userId)).toEqual(
+      operation === 'insert' ? EMPTY_ACCOUNT_PREFERENCES : preferences
+    );
   });
 
   test('aggregates only owned usage, separating reported cost and missing counters even after a course is deleted', async () => {
