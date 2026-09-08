@@ -38,7 +38,8 @@ the action described by the target skill.
 | issue lifecycle and evidence ledger | `$problem-to-github-issue` | creating, editing, labeling, commenting on, closing, reopening, deduplicating, or preparing an issue |
 | vertical ticket breakdown or durable spec | `$to-tickets`, `$to-spec` | the work must be split or settled decisions must be preserved |
 | independent standards/spec review | `$code-review` | a coherent diff needs material review |
-| review-comment triage | `$receiving-pr-reviews` | a PR receives human or automated findings |
+| review finding triage | `$receiving-pr-reviews` | PR reviews, local reviewing agents, or self-review produce findings |
+| user decision notification | `$agent-question-notifications` | a long-running task needs an answer in its original conversation |
 | primary-source research | `$research` | docs, APIs, or external facts must be investigated |
 | durable technical prose or user-facing writing | `$docs-doc`, `$unslop` | documentation or human-facing prose is produced |
 | long unattended decision trail or handoff | `$show-me-your-work`, `$handoff` | the run needs an auditable log or another task must resume it |
@@ -186,6 +187,11 @@ active and queue excess work.
 Keep useful local work moving while agents run. Send concise progress updates at least once per
 minute during long operations.
 
+For user decisions, read [agent-question-notifications](../agent-question-notifications/SKILL.md)
+and include its installed path in delegated tasks that may need user input.
+Assign one notification owner and one stable decision ID so the orchestrator and
+agent do not duplicate the post-it. Closing it is not an answer or authorization.
+
 ### Orchestration health checks
 
 At least every 20 minutes during an active batch, and again whenever the queue appears idle,
@@ -245,7 +251,8 @@ Apply these Nous-specific rules to every workstream:
 
 After each coherent block, verify the smallest meaningful artifact first. Use `$code-review` for
 the independent standards/spec review, `$blast-radius` for material cross-cutting risk, and
-`$receiving-pr-reviews` before changing code in response to human or automated PR findings. Use
+`$receiving-pr-reviews` before changing code in response to PR findings, local reviewing
+agents, or self-review. Use
 `$interrogate` only when adversarial review is requested or genuinely needed. These skills own
 review mechanics; this skill retains the Nous-specific gates below.
 
