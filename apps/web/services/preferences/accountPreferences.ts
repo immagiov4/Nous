@@ -11,8 +11,7 @@ const requestPreferences = async (
 ): Promise<AccountPreferences> => {
   const accountId = readSupabaseSession()?.user?.id;
   if (!accountId) throw new Error('An account is required for saved preferences.');
-  const mutationVersion =
-    method === 'GET' ? preferenceMutationVersion : ++preferenceMutationVersion;
+  const mutationVersion = preferenceMutationVersion;
   const response = await fetchWithSupabaseAuth(
     `${getBackendUrl()}/api/account/preferences`,
     {

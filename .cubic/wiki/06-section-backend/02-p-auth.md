@@ -129,4 +129,6 @@ Preferences contain nullable IT/EN interface locale, nullable free-text AI langu
 
 Saved AI language is limited to 100 UTF-16 code units and teaching preferences to 4,000 after trimming outer whitespace. The shared schema enforces both limits in the client and server. Oversized input remains editable, with a translated field error and saving disabled; direct invalid requests return 400 before persistence. Text is never truncated. Clearing saved preferences remains available even when the edited text is invalid. These account limits do not change historical course schemas or course-specific overrides.
 
+Only a successful preference mutation for the current account invalidates older locale reads. A failed save or clear leaves an overlapping successful read free to apply the saved locale; a completed mutation prevents an older read from replacing its locale.
+
 Sources: [account.ts](../../../apps/backend/src/routes/account.ts), [accountStore.ts](../../../apps/backend/src/account/accountStore.ts), [accountPreferences.ts](../../../packages/shared-types/accountPreferences.ts), [account_preferences migration](../../../supabase/migrations/20260908101401_account_preferences.sql)

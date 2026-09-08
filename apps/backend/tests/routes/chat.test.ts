@@ -1964,6 +1964,15 @@ describe('POST /api/chat/library', () => {
       preferences: { interfaceLocale: null, contentLanguage: null, teachingPreferences: '' },
       expected: 'English',
     },
+    {
+      interfaceLocale: 'it',
+      preferences: {
+        interfaceLocale: 'en' as const,
+        contentLanguage: null,
+        teachingPreferences: '',
+      },
+      expected: 'English',
+    },
   ])('passes the account AI language into general-chat composition: $expected', async ({
     interfaceLocale,
     preferences,

@@ -48,9 +48,31 @@ describe('account preference request ownership', () => {
     );
   });
 
-  test('applies the locale on a successful read, including a settings-panel retry', async () => {
+  test('applies the locale when a failed read is retried successfully', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    await expect(loadAccountPreferences()).rejects.toThrow('offline');
     fetchMock.mockResolvedValueOnce(response());
     await loadAccountPreferences();
+    expect(getAppLocale()).toBe('it');
+  });
+
+  test.each([
+    saveAccountPreferences,
+    clearAccountPreferences,
+  ])('applies an overlapping read after a failed %s', async mutate => {
+    let finishRead!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>(resolve => {
+          finishRead = resolve;
+        })
+    );
+    const read = loadAccountPreferences();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }));
+    await expect(mutate(saved)).rejects.toThrow('Account preferences request failed');
+    finishRead(response());
+    await read;
     expect(getAppLocale()).toBe('it');
   });
 

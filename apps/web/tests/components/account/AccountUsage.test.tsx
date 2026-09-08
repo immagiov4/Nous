@@ -108,10 +108,7 @@ describe('recorded account consumption display', () => {
     expect(screen.queryByText('Consumo non disponibile')).toBeNull();
   });
 
-  test.each([
-    'close',
-    'switch account',
-  ])('cancels pending estimates on %s and ignores late responses', async action => {
+  test.each(['close', 'switch account'])('ignores late estimates after %s', async action => {
     let completeEstimate!: (response: Response) => void;
     request
       .mockResolvedValueOnce(Response.json({ ...unknownUsage, tokens: 120 }))
@@ -124,13 +121,20 @@ describe('recorded account consumption display', () => {
     const view = render(<AccountUsage />);
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     const signal = request.mock.calls[1][1].signal as AbortSignal;
-    if (action === 'switch account') session.mockReturnValue({ user: { id: 'account-b' } });
-    // AccountMenu closes and unmounts this view when the authenticated identity changes.
-    view.unmount();
-    expect(signal.aborted).toBe(true);
+    if (action === 'switch account') {
+      session.mockReturnValue({ user: { id: 'account-b' } });
+    } else {
+      view.unmount();
+      expect(signal.aborted).toBe(true);
+    }
     await act(async () =>
       completeEstimate(Response.json({ ...unknownUsage, tokens: 9999, estimatedCostUsd: 20 }))
     );
     expect(screen.queryByText(/9.9K|\$20/)).toBeNull();
+    if (action === 'switch account') {
+      expect(screen.getByText('120 token parziali')).toBeInTheDocument();
+      view.unmount();
+      expect(signal.aborted).toBe(true);
+    }
   });
 });

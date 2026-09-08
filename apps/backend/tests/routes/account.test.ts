@@ -208,7 +208,7 @@ describe('account routes', () => {
 
   test('scopes consumption by session and does not fetch prices for an empty record set', async () => {
     const response = await request(app)
-      .get('/account/usage?userId=user-b')
+      .get('/account/usage?estimate=true&userId=user-b')
       .set('authorization', auth('user-a'));
     expect(response.status).toBe(200);
     expect(store.readUsage).toHaveBeenCalledWith('user-a');
