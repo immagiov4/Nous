@@ -454,7 +454,7 @@ export default function AccountSettingsDialog({
                     disabled={pendingAction !== null || !onImportLibraryBackup}
                     aria-busy={pendingAction === 'backup-import'}
                     onClick={() => backupInputRef.current?.click()}
-                    className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-800 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-100"
+                    className={`${secondaryActionClassName} gap-2 py-2.5`}
                   >
                     <Upload className="h-4 w-4" />
                     {pendingAction === 'backup-import'
