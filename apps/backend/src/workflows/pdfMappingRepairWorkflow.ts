@@ -18,18 +18,17 @@ import type {
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
 import { createCoursePreparationStage } from './courseGenerationPreparation.js';
-import type {
-  CourseGenerationStage,
-  CourseGenerationStageContext,
-  CourseGenerationWorkflowConfig,
-  CourseGenerationWorkflowInput,
-  CoursePreparationState,
-} from './courseGenerationWorkflowContract.js';
 import {
+  type CourseGenerationStage,
+  type CourseGenerationStageContext,
+  type CourseGenerationWorkflowConfig,
   CourseGenerationWorkflowConfigSchema,
+  type CourseGenerationWorkflowInput,
   CourseLearningPlanSchema,
   CoursePlanStateSchema,
-  CourseSourcesFinalizedStateSchema,
+  type CoursePreparationState,
+  type CourseSourcesFinalizedStateSchema,
+  courseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import {
   type CourseSourceFinalizationServices,
@@ -46,6 +45,7 @@ import type { StepCommitContext, StepExecutionContext } from './types.js';
 import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
 
 export const PDF_MAPPING_REPAIR_WORKFLOW_ID = 'pdf-mapping-repair';
+export const PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID = 'pdf-mapping-repair-v1';
 
 export const PdfMappingRepairWorkflowInputSchema = z.object({
   projectId: z.string().min(1),
@@ -58,13 +58,16 @@ export const PdfMappingRepairResultSchema = z.object({
   repaired: z.boolean(),
 });
 
-const PdfMappingRepairPreparationSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('ready'), result: PdfMappingRepairResultSchema }),
-  z.object({ kind: z.literal('repair'), state: CoursePlanStateSchema }),
-]);
+const createPdfMappingRepairPreparationSchema = (planSchema: typeof CoursePlanStateSchema) =>
+  z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('ready'), result: PdfMappingRepairResultSchema }),
+    z.object({ kind: z.literal('repair'), state: planSchema }),
+  ]);
 
 export type PdfMappingRepairWorkflowInput = z.infer<typeof PdfMappingRepairWorkflowInputSchema>;
-type PdfMappingRepairPreparation = z.infer<typeof PdfMappingRepairPreparationSchema>;
+type PdfMappingRepairPreparation = z.infer<
+  ReturnType<typeof createPdfMappingRepairPreparationSchema>
+>;
 
 export interface PdfMappingRepairWorkflowServices extends CourseSourceFinalizationServices {
   readonly persistPdfMappingRepair: (
@@ -298,8 +301,13 @@ const runRepairStage = <Input, Output>(
 
 export const createPdfMappingRepairWorkflow = (
   executionDefaults: CourseGenerationWorkflowConfig,
-  configSchema: z.ZodType<CourseGenerationWorkflowConfig> = CourseGenerationWorkflowConfigSchema
+  configSchema: z.ZodType<CourseGenerationWorkflowConfig> = CourseGenerationWorkflowConfigSchema,
+  schemas = courseGenerationStateSchemas,
+  compatibilityId = 'pdf-mapping-repair-v2'
 ) => {
+  const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
+  const PdfMappingRepairPreparationSchema =
+    createPdfMappingRepairPreparationSchema(CoursePlanStateSchema);
   const prepareRepair = step<
     typeof PdfMappingRepairWorkflowInputSchema,
     typeof PdfMappingRepairPreparationSchema,
@@ -350,7 +358,7 @@ export const createPdfMappingRepairWorkflow = (
   const finalizeSources = createCourseSourceFinalizationNode<
     CourseGenerationWorkflowConfig,
     PdfMappingRepairWorkflowServices
-  >();
+  >(schemas);
 
   const persistRepair = step<
     typeof CourseSourcesFinalizedStateSchema,
@@ -392,7 +400,8 @@ export const createPdfMappingRepairWorkflow = (
   });
 
   return workflow({
-    compatibilityId: 'pdf-mapping-repair-v1',
+    // A newer boundary keeps replicas without historical schemas from removing resumable work.
+    compatibilityId,
     configSchema,
     events: {
       [COURSE_PROJECT_REVISION_EVENT]: {

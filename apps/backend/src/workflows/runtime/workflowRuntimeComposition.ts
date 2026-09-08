@@ -35,6 +35,10 @@ import {
   createPreviousPreferencesCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
 import {
+  courseGenerationStateSchemas,
+  previousCourseGenerationStateSchemas,
+} from '../courseGenerationWorkflowContract.js';
+import {
   type CourseInterviewApi,
   createCourseInterviewApi,
   projectCourseInterviewEvents,
@@ -89,6 +93,7 @@ import {
   createPdfMappingRepairWorkflow,
   createProductionPdfMappingRepairServices,
   PDF_MAPPING_REPAIR_WORKFLOW_ID,
+  PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID,
 } from '../pdfMappingRepairWorkflow.js';
 import { PostgresWorkflowStore } from '../persistence/postgresWorkflowStore.js';
 import type { PostgresWorkflowOutboxStore } from '../postgresWorkflowOutboxStore.js';
@@ -255,7 +260,15 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   });
   const previousPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     pdfMappingRepairWorkflow.executionDefaults,
-    CourseGenerationWorkflowConfigSchema
+    CourseGenerationWorkflowConfigSchema,
+    courseGenerationStateSchemas,
+    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+  );
+  const previousPreferencesPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
+    pdfMappingRepairWorkflow.executionDefaults,
+    CourseGenerationWorkflowConfigSchema,
+    previousCourseGenerationStateSchemas,
+    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
   );
   registry.register({
     current: artifactDraftWorkflow,
@@ -305,7 +318,11 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
-      preExternalEffectPrevious(pdfMappingRepairWorkflow),
+      previousPdfMappingRepairWorkflow,
+      previousPreferencesPdfMappingRepairWorkflow,
+      preExternalEffectPrevious(previousPreferencesPdfMappingRepairWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(previousPreferencesPdfMappingRepairWorkflow),
+      preExternalEffectPrevious(previousPdfMappingRepairWorkflow),
       preCompatibilityIdAndExternalEffectPrevious(previousPdfMappingRepairWorkflow),
     ],
   });
