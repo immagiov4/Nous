@@ -34,6 +34,7 @@ import {
   createPreviousCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
+import { previousCourseGenerationStateSchemas } from '../courseGenerationWorkflowContract.js';
 import {
   type CourseInterviewApi,
   createCourseInterviewApi,
@@ -257,6 +258,11 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     pdfMappingRepairWorkflow.executionDefaults,
     CourseGenerationWorkflowConfigSchema
   );
+  const previousPreferencesPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
+    pdfMappingRepairWorkflow.executionDefaults,
+    CourseGenerationWorkflowConfigSchema,
+    previousCourseGenerationStateSchemas
+  );
   registry.register({
     current: artifactDraftWorkflow,
     previous: [
@@ -305,6 +311,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
+      previousPreferencesPdfMappingRepairWorkflow,
+      preExternalEffectPrevious(previousPreferencesPdfMappingRepairWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(previousPreferencesPdfMappingRepairWorkflow),
       preExternalEffectPrevious(pdfMappingRepairWorkflow),
       preCompatibilityIdAndExternalEffectPrevious(previousPdfMappingRepairWorkflow),
     ],

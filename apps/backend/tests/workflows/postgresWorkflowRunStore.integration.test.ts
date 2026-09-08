@@ -4,7 +4,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 import { mapPreviousSublessonIdempotencyInput } from '../../src/workflows/lessonGenerationStart.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
+import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { reconcileUnavailableWorkflowDefinitions } from '../../src/workflows/workflowDefinitionReconciler.js';
+import { previousPdfMappingRepairDeployment } from './pdfMappingRepairCompatibility.fixture.js';
 import {
   claimNextStep,
   createPostgresWorkflowIntegrationContext,
@@ -24,6 +26,65 @@ const { projectId, sql, userId } = context;
 describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integration', () => {
   beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
   afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
+
+  test('upgrades the previous PDF mapping deployment and keeps its persisted run claimable', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = createStore(sql, { enforceCurrentDefinitions: true });
+    const registry = createProductionRegistry();
+    const boundary = previousPdfMappingRepairDeployment.current;
+    const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
+    if (!definition) throw new Error('Previous PDF mapping definition is unavailable.');
+    const input = { projectId, userId };
+
+    try {
+      await store.definitionReconciliation.activateDeployments([
+        previousPdfMappingRepairDeployment,
+      ]);
+      const created = await store.createRun({
+        config: definition.executionDefaults,
+        definitionHash: boundary.definitionHash,
+        definitionHashVersion: boundary.definitionHashVersion,
+        id: randomUUID(),
+        input,
+        materialization: materializeWorkflowStart(definition, input, {
+          resolvedConfig: definition.executionDefaults,
+        }),
+        projectId,
+        requestKey: randomUUID(),
+        userId,
+        workflowId: boundary.workflowId,
+      });
+
+      await expect(
+        reconcileUnavailableWorkflowDefinitions({
+          registry: {
+            listDefinitionDeployments: () =>
+              registry
+                .listDefinitionDeployments()
+                .filter(deployment => deployment.current.workflowId === boundary.workflowId),
+            resolve: (workflowId, definitionHash) => registry.resolve(workflowId, definitionHash),
+          },
+          store: store.definitionReconciliation,
+        })
+      ).resolves.toEqual([]);
+      await expect(store.getRun({ runId: created.run.id, userId })).resolves.toMatchObject({
+        definitionHash: boundary.definitionHash,
+        status: 'queued',
+      });
+      await expect(claimNextStep(store, definition, 'pdf-upgrade-worker')).resolves.toMatchObject({
+        runId: created.run.id,
+        nodeDefinitionId: 'prepare-pdf-mapping-repair',
+      });
+      const [deployment] = await sql`
+        select previous_deployment from public.workflow_definition_deployments
+        where workflow_id = ${boundary.workflowId}
+      `;
+      expect(deployment?.previous_deployment).toEqual(previousPdfMappingRepairDeployment);
+    } finally {
+      await sql`delete from public.workflow_runs where user_id = ${userId} and workflow_id = ${boundary.workflowId}`;
+      await sql`delete from public.workflow_definition_deployments where workflow_id = ${boundary.workflowId}`;
+    }
+  });
 
   test('creates a run and its first step atomically and idempotently', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');

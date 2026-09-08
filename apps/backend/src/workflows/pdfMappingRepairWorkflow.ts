@@ -29,7 +29,8 @@ import {
   CourseGenerationWorkflowConfigSchema,
   CourseLearningPlanSchema,
   CoursePlanStateSchema,
-  CourseSourcesFinalizedStateSchema,
+  type CourseSourcesFinalizedStateSchema,
+  courseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import {
   type CourseSourceFinalizationServices,
@@ -58,13 +59,16 @@ export const PdfMappingRepairResultSchema = z.object({
   repaired: z.boolean(),
 });
 
-const PdfMappingRepairPreparationSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('ready'), result: PdfMappingRepairResultSchema }),
-  z.object({ kind: z.literal('repair'), state: CoursePlanStateSchema }),
-]);
+const createPdfMappingRepairPreparationSchema = (planSchema: typeof CoursePlanStateSchema) =>
+  z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('ready'), result: PdfMappingRepairResultSchema }),
+    z.object({ kind: z.literal('repair'), state: planSchema }),
+  ]);
 
 export type PdfMappingRepairWorkflowInput = z.infer<typeof PdfMappingRepairWorkflowInputSchema>;
-type PdfMappingRepairPreparation = z.infer<typeof PdfMappingRepairPreparationSchema>;
+type PdfMappingRepairPreparation = z.infer<
+  ReturnType<typeof createPdfMappingRepairPreparationSchema>
+>;
 
 export interface PdfMappingRepairWorkflowServices extends CourseSourceFinalizationServices {
   readonly persistPdfMappingRepair: (
@@ -298,8 +302,12 @@ const runRepairStage = <Input, Output>(
 
 export const createPdfMappingRepairWorkflow = (
   executionDefaults: CourseGenerationWorkflowConfig,
-  configSchema: z.ZodType<CourseGenerationWorkflowConfig> = CourseGenerationWorkflowConfigSchema
+  configSchema: z.ZodType<CourseGenerationWorkflowConfig> = CourseGenerationWorkflowConfigSchema,
+  schemas = courseGenerationStateSchemas
 ) => {
+  const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
+  const PdfMappingRepairPreparationSchema =
+    createPdfMappingRepairPreparationSchema(CoursePlanStateSchema);
   const prepareRepair = step<
     typeof PdfMappingRepairWorkflowInputSchema,
     typeof PdfMappingRepairPreparationSchema,
@@ -350,7 +358,7 @@ export const createPdfMappingRepairWorkflow = (
   const finalizeSources = createCourseSourceFinalizationNode<
     CourseGenerationWorkflowConfig,
     PdfMappingRepairWorkflowServices
-  >();
+  >(schemas);
 
   const persistRepair = step<
     typeof CourseSourcesFinalizedStateSchema,

@@ -159,6 +159,13 @@ Sources: [apps/backend/src/workflows/validation.ts:26-32, 545-562](../../../apps
 
 ### Authoring and compatibility contract
 
+The PDF mapping repair workflow shares the course state schemas and source-finalization nodes.
+Its preparation, routing, and finalization boundaries must use the same schema set. The production
+registry retains the pre-account-preferences schema set, including the active `493daee0` definition
+from `2f44b0f9` and its older hash modes. This lets deployment reconciliation accept an upgrade and
+resume persisted repair runs without changing deployment history or bypassing conflict checks.
+Sources: [apps/backend/src/workflows/pdfMappingRepairWorkflow.ts](../../../apps/backend/src/workflows/pdfMappingRepairWorkflow.ts), [apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts](../../../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts)
+
 An authoring facade is compatible with an existing workflow only when it produces the same durable node kinds,
 IDs, namespaces, order, schemas, event and signal declarations, and compatibility identity. The facade may hide
 how the definition is assembled, but it must not change the manifest inputs used by the registry.
