@@ -39,7 +39,7 @@ const QUIZ_SCHEMA = {
   additionalProperties: false,
   properties: {
     correctIndex: { maximum: 3, minimum: 0, type: 'integer' },
-    explanation: { pattern: '\\S', type: 'string' },
+    explanation: { pattern: String.raw`\S`, type: 'string' },
     exerciseType: {
       enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
       type: 'string',
