@@ -1,3 +1,4 @@
+import { EXERCISE_TASK_DISCLOSURE_RULE } from '@shared/lessonGenerationPolicy';
 import type {
   ApplicationExerciseNode,
   LearningPlan,
@@ -231,7 +232,7 @@ REGOLA FONDAMENTALE:
 - Non chiedere allo studente di cercare, scegliere o recuperare autonomamente il materiale di partenza: il laboratorio deve essere autosufficiente.
 - Distingui cio che lo studente deve fare da eventuali dati di partenza, ma non imporre una sezione per ogni aspetto della traccia. Usa heading solo quando aiutano davvero a orientarsi.
 - Dai i vincoli indispensabili per delimitare o rendere sicuro il lavoro; non aggiungere checklist, criteri di verifica dettagliati, conteggi, formati o passaggi intermedi se l'esercizio non li richiede davvero.
-- Non anticipare la soluzione, la classificazione corretta, la procedura completa o le osservazioni che lo studente deve ricavare. Fornisci contesto sufficiente per iniziare, non una risposta guidata da ricopiare.
+- ${EXERCISE_TASK_DISCLOSURE_RULE}
 - Indica la consegna una sola volta, nel modo piu diretto possibile. Non aggiungere riepiloghi finali, rubriche rivolte allo studente o sezioni "Obiettivo".
 - Lingua: ${args.profile?.language || 'Italiano'}.
 

@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { findProjectLessonSection } from '../../src/projects/projectLesson.js';
 import { applyProjectPatch } from '../../src/projects/projectPatch.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
+import { normalizeLessonStructure } from '../../src/services/lessonGenerationNormalization.js';
 import {
   buildLessonGenerationSourceFingerprint,
   buildLessonGenerationTargetFingerprint,
@@ -212,6 +213,51 @@ const context = (input: ReturnType<typeof visualsState>) => ({
 });
 
 describe('durable lesson generation persistence', () => {
+  test('preserves quiz explanation through normalization, workflow state and the saved project', async () => {
+    const snapshot = project();
+    const quiz = {
+      correctIndex: 1,
+      exerciseType: 'application-card',
+      explanation: 'La massa rimane uguale mentre il volume aumenta.',
+      options: ['Aumenta', 'Diminuisce', 'Resta uguale', 'Si annulla'],
+      question: 'Come cambia la concentrazione aggiungendo solo acqua?',
+    };
+    const normalized = normalizeLessonStructure({
+      availableImages: [],
+      draft: {
+        contentBlocks: [
+          { markdown: 'La concentrazione confronta massa e volume.', type: 'markdown' },
+          { quiz, type: 'inline-quiz' },
+        ],
+        generatedVisuals: [],
+        imageRefs: [],
+      },
+      generatedAt: NOW,
+      sectionDescription: 'Rapporti',
+      sectionTitle: 'Concentrazione',
+      sources: [],
+      visualsBySlotId: new Map(),
+    });
+    const input = LessonVisualsStateSchema.parse({ ...visualsState(snapshot), ...normalized });
+    const state = await createLessonPersistenceStage({
+      loadProject: vi.fn().mockResolvedValue(snapshot),
+      now: () => NOW,
+    })(context(input));
+    const patch = buildLessonGenerationCommitPatch(
+      { revision: 4, snapshot },
+      input,
+      state,
+      context(input).execution
+    );
+    const saved = applyProjectPatch(snapshot, patch, NOW);
+    const savedLesson = findProjectLessonSection(saved, 'lesson-1');
+    expect(savedLesson).toMatchObject({
+      content: 'La concentrazione confronta massa e volume.',
+      contentBlocks: normalized.contentBlocks,
+      quiz: [quiz],
+    });
+  });
+
   test('inserts a sublesson after the complete parent subtree and removes it on undo', () => {
     const snapshot = project();
     snapshot.activeSectionId = 'lesson-1';

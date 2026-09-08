@@ -39,6 +39,7 @@ const QUIZ_SCHEMA = {
   additionalProperties: false,
   properties: {
     correctIndex: { maximum: 3, minimum: 0, type: 'integer' },
+    explanation: { pattern: String.raw`\S`, type: 'string' },
     exerciseType: {
       enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
       type: 'string',
@@ -46,7 +47,7 @@ const QUIZ_SCHEMA = {
     options: { items: { type: 'string' }, maxItems: 4, minItems: 4, type: 'array' },
     question: { type: 'string' },
   },
-  required: ['exerciseType', 'question', 'options', 'correctIndex'],
+  required: ['exerciseType', 'question', 'options', 'correctIndex', 'explanation'],
   type: 'object',
 } as const;
 
@@ -393,6 +394,20 @@ const assertValidQuizPlacement = (draft: LessonContentDraft): void => {
   }
 };
 
+const assertQuizExplanations = (draft: LessonContentDraft): void => {
+  const missingExplanation = draft.contentBlocks.some(
+    block => block.type === 'inline-quiz' && !block.quiz.explanation?.trim()
+  );
+  if (missingExplanation) {
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_review_quiz_explanation_missing',
+      feedback:
+        'Provide nonblank quiz.explanation text for every inline quiz, explaining the correct answer and the contextual error in each alternative. Keep this feedback out of lesson markdown.',
+      message: 'The verified lesson has a quiz without an explanation.',
+    });
+  }
+};
+
 const LATEX_ENVIRONMENT_TOKEN_REGEX = /\\(begin|end)\{([A-Za-z][A-Za-z0-9*]*)\}/g;
 const MARKDOWN_FENCE_REGEX = /^\s*(`{3,}|~{3,})/u;
 
@@ -496,6 +511,7 @@ export const reviewLessonContentDraftStrict = async ({
     responseSchema: LESSON_JOB_RESPONSE_SCHEMA,
   });
   assertValidQuizPlacement(verifiedDraft);
+  assertQuizExplanations(verifiedDraft);
   assertBalancedLatexEnvironments(verifiedDraft);
   return verifiedDraft;
 };

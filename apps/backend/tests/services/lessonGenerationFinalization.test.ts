@@ -157,6 +157,7 @@ test('durable verification accepts a quiz after explanatory markdown with media 
       {
         quiz: {
           correctIndex: 0,
+          explanation: 'La prima opzione applica il concetto; le altre non rispettano il caso.',
           exerciseType: 'application-card',
           options: ['A', 'B', 'C', 'D'],
           question: 'Applica il concetto.',
@@ -187,6 +188,32 @@ test('a source-free lesson remains valid without inline quizzes', async () => {
 
   expect(result.contentBlocks).toEqual(draft.contentBlocks);
   expect(result.contentBlocks.some(block => block.type === 'inline-quiz')).toBe(false);
+});
+
+test.each([
+  undefined,
+  '',
+  ' \n\t ',
+])('durable verification rejects missing or blank quiz feedback: %j', async explanation => {
+  const draft = sourceFreeDraft();
+  draft.contentBlocks.push({
+    type: 'inline-quiz',
+    quiz: {
+      correctIndex: 0,
+      explanation,
+      exerciseType: 'application-card',
+      options: ['A', 'B', 'C', 'D'],
+      question: 'Applica il concetto.',
+    },
+  });
+
+  await expect(
+    reviewLessonContentDraftStrict({
+      draft,
+      generationInput: generationInput(),
+      verify: vi.fn().mockResolvedValue(draft),
+    })
+  ).rejects.toMatchObject({ code: 'lesson_review_quiz_explanation_missing' });
 });
 
 test('quiz cleanup unwraps whole-value backticks but preserves inline code fragments', () => {
@@ -346,6 +373,7 @@ test.each([
         type: 'inline-quiz',
         quiz: {
           question: 'Quale principio si applica?',
+          explanation: 'La prima opzione applica il principio illustrato.',
           options: ['A', 'B', 'C', 'D'],
           correctIndex: 0,
           exerciseType: 'application-card',

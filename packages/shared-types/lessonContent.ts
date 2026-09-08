@@ -42,7 +42,7 @@ const isAllowedString = (value: unknown, allowedValues: ReadonlySet<string>): va
 
 const isValidInlineQuizBlock = (block: Record<string, unknown>): boolean => {
   if (!isRecord(block.quiz)) return false;
-  const { anchorExcerpt, correctIndex, exerciseType, options, question } = block.quiz;
+  const { anchorExcerpt, correctIndex, exerciseType, explanation, options, question } = block.quiz;
   return (
     isNonEmptyString(question) &&
     Array.isArray(options) &&
@@ -52,6 +52,7 @@ const isValidInlineQuizBlock = (block: Record<string, unknown>): boolean => {
     (correctIndex as number) >= 0 &&
     (correctIndex as number) < options.length &&
     isOptionalString(anchorExcerpt) &&
+    isOptionalString(explanation) &&
     (exerciseType === undefined || isAllowedString(exerciseType, activePauseExerciseTypes))
   );
 };

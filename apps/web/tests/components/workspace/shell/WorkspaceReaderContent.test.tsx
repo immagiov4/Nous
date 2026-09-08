@@ -2,11 +2,15 @@
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createRef } from 'react';
+import { createRef, useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderContentModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
-import type { ApplicationExerciseNode, LearningArtifactRenderPayload } from '../../../../types.ts';
+import type {
+  ApplicationExerciseNode,
+  LearningArtifactRenderPayload,
+  QuizQuestion,
+} from '../../../../types.ts';
 
 const youtubePolicyMocks = vi.hoisted(() => ({
   getYouTubeVideoClipsEnabled: vi.fn(async () => true),
@@ -171,6 +175,56 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByTitle('Gerarchia delle pose')).toBeInTheDocument();
     expect(screen.getAllByText(/Fonte originale: pagine 4-6/)).toHaveLength(1);
     expect(screen.queryByText('Questo fallback legacy non deve apparire.')).toBeNull();
+  });
+
+  test.each([
+    { format: 'typed', selectedIndex: 0 },
+    { format: 'typed', selectedIndex: 1 },
+    { format: 'legacy', selectedIndex: 0 },
+    { format: 'legacy', selectedIndex: 1 },
+  ])('reveals quiz explanation after answer $selectedIndex in the $format reader', async sample => {
+    const user = userEvent.setup();
+    const question = {
+      correctIndex: 1,
+      exerciseType: 'application-card',
+      explanation: 'Entrambi i termini sono raddoppiati, quindi il rapporto resta invariato.',
+      options: ['Raddoppia', 'Resta invariato', 'Si dimezza', 'Diventa nullo'],
+      question: 'Come cambia il rapporto se entrambi i termini raddoppiano?',
+    } satisfies QuizQuestion;
+    const before = 'Un rapporto confronta due quantità.';
+    const after = 'La lezione continua con un altro argomento.';
+    function Reader() {
+      const [quizAnswers, setQuizAnswers] = useState([-1]);
+      return (
+        <WorkspaceReaderContent
+          {...buildProps({
+            onSelectQuizAnswer: (_questionIndex, optionIndex) => setQuizAnswers([optionIndex]),
+            quiz: [question],
+            quizAnswers,
+            sectionContent: `${before}\n\n{{INLINE_QUIZ:0}}\n\n${after}`,
+            sectionContentBlocks:
+              sample.format === 'typed'
+                ? [
+                    { markdown: before, type: 'markdown' },
+                    { quiz: question, type: 'inline-quiz' },
+                    { markdown: after, type: 'markdown' },
+                  ]
+                : undefined,
+          })}
+        />
+      );
+    }
+    render(<Reader />);
+
+    expect(screen.getByText(before)).toBeInTheDocument();
+    expect(screen.getByText(after)).toBeInTheDocument();
+    expect(screen.queryByText(question.explanation)).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: new RegExp(question.options[sample.selectedIndex]) })
+    );
+    expect(screen.getByText(question.explanation)).toBeInTheDocument();
+    expect(screen.getByText('Resta invariato')).toBeInTheDocument();
+    expect(screen.getByText(after)).toBeInTheDocument();
   });
 
   test('keeps a failed visual inline and retries only that slot', async () => {

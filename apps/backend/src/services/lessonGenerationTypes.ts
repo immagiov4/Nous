@@ -25,6 +25,7 @@ export type LessonGenerationDraftBlock =
   | {
       quiz: {
         correctIndex: number;
+        explanation?: string;
         exerciseType: string;
         options: string[];
         question: string;

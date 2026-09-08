@@ -18,9 +18,12 @@ import {
   LessonResultBlockSchema,
   LessonVisualPlanningDecisionSchema,
   LessonYouTubePlanningSchema,
+  PreviousLessonContentDraftSchema,
   PreviousLessonPdfImageMetadataSchema,
+  PreviousLessonQuizSchema,
   PreviousLessonResearchDossierSchema,
   PreviousLessonResearchSummarySchema,
+  PreviousLessonResultBlockSchema,
   ProjectLessonVisualSchema,
   ResearchSourceSchema,
   YouTubeResearchOutcomeSchema,
@@ -124,12 +127,23 @@ const LessonVisualFanOutResultSchema = z.discriminatedUnion('status', [
   }),
 ]);
 
-const createLessonGenerationDurableSchemaSet = (
-  pdfImageMetadataSchema: typeof LessonPdfImageMetadataSchema,
-  documentAssetsSchema: typeof LessonDocumentAssetsSchema,
-  lessonResearchSummarySchema: typeof LessonResearchSummarySchema,
-  lessonResearchDossierSchema: typeof LessonResearchDossierSchema
-) => {
+const createLessonGenerationDurableSchemaSet = ({
+  pdfImageMetadataSchema,
+  documentAssetsSchema,
+  lessonResearchSummarySchema,
+  lessonResearchDossierSchema,
+  lessonContentDraftSchema,
+  lessonQuizSchema,
+  lessonResultBlockSchema,
+}: {
+  pdfImageMetadataSchema: typeof LessonPdfImageMetadataSchema;
+  documentAssetsSchema: typeof LessonDocumentAssetsSchema;
+  lessonResearchSummarySchema: typeof LessonResearchSummarySchema;
+  lessonResearchDossierSchema: typeof LessonResearchDossierSchema;
+  lessonContentDraftSchema: z.ZodType<z.infer<typeof LessonContentDraftSchema>>;
+  lessonQuizSchema: z.ZodType<z.infer<typeof LessonQuizSchema>>;
+  lessonResultBlockSchema: z.ZodType<z.infer<typeof LessonResultBlockSchema>>;
+}) => {
   const LessonSourcesStateSchema = LessonCoverageStateSchema.extend({
     documentAssetOwners: z.array(LessonAssetOwnerSchema),
     pdfImages: z.array(pdfImageMetadataSchema),
@@ -167,13 +181,13 @@ const createLessonGenerationDurableSchemaSet = (
     stage: z.literal('research'),
   });
   const LessonDraftStateSchema = LessonResearchStateSchema.extend({
-    draft: LessonContentDraftSchema,
+    draft: lessonContentDraftSchema,
     stage: z.literal('draft'),
   });
   const LessonReviewedStateSchema = z.object({
     documentAssetOwners: z.array(LessonAssetOwnerSchema),
     documentSourceHash: z.string().length(64).nullable(),
-    draft: LessonContentDraftSchema,
+    draft: lessonContentDraftSchema,
     existingDossierJson: z.string().nullable(),
     lessonInputData: LessonGenerationInputDataSchema.pick({
       description: true,
@@ -203,11 +217,11 @@ const createLessonGenerationDurableSchemaSet = (
   });
   const LessonVisualsStateSchema = LessonAidsStateSchema.extend({
     content: LessonIdentifierSchema,
-    contentBlocks: z.array(LessonResultBlockSchema),
+    contentBlocks: z.array(lessonResultBlockSchema),
     documentAssets: documentAssetsSchema.nullable(),
     generatedVisuals: z.array(ProjectLessonVisualSchema),
     imageRefs: z.array(LessonPdfImageReferenceSchema),
-    quiz: z.array(LessonQuizSchema),
+    quiz: z.array(lessonQuizSchema),
     stage: z.literal('visuals'),
     visualAssetOwners: z.array(LessonAssetOwnerSchema),
     visualPlanningDecision: LessonVisualPlanningDecisionSchema,
@@ -215,14 +229,14 @@ const createLessonGenerationDurableSchemaSet = (
   const LessonGenerationWorkflowResultSchema = z.object({
     alreadyCompleted: z.boolean().optional(),
     content: LessonIdentifierSchema,
-    contentBlocks: z.array(LessonResultBlockSchema),
+    contentBlocks: z.array(lessonResultBlockSchema),
     documentAssets: documentAssetsSchema.nullable().optional(),
     generatedVisuals: z.array(ProjectLessonVisualSchema),
     imageRefs: z.array(LessonPdfImageReferenceSchema),
     learningAids: z.array(LessonLearningAidSchema),
     projectId: LessonIdentifierSchema,
     projectRevision: z.number().int().nonnegative().optional(),
-    quiz: z.array(LessonQuizSchema),
+    quiz: z.array(lessonQuizSchema),
     researchDossier: lessonResearchDossierSchema.optional(),
     sectionId: LessonIdentifierSchema,
     visualPlanningDecision: LessonVisualPlanningDecisionSchema.optional(),
@@ -271,12 +285,28 @@ const createLessonGenerationDurableSchemaSet = (
   };
 };
 
-export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet(
-  LessonPdfImageMetadataSchema,
-  LessonDocumentAssetsSchema,
-  LessonResearchSummarySchema,
-  LessonResearchDossierSchema
-);
+const currentLessonSchemas = {
+  documentAssetsSchema: LessonDocumentAssetsSchema,
+  lessonContentDraftSchema: LessonContentDraftSchema,
+  lessonQuizSchema: LessonQuizSchema,
+  lessonResearchDossierSchema: LessonResearchDossierSchema,
+  lessonResearchSummarySchema: LessonResearchSummarySchema,
+  lessonResultBlockSchema: LessonResultBlockSchema,
+  pdfImageMetadataSchema: LessonPdfImageMetadataSchema,
+};
+
+export const CurrentLessonGenerationDurableSchemaSet =
+  createLessonGenerationDurableSchemaSet(currentLessonSchemas);
+
+const previousQuizLessonSchemas = {
+  ...currentLessonSchemas,
+  lessonContentDraftSchema: PreviousLessonContentDraftSchema,
+  lessonQuizSchema: PreviousLessonQuizSchema,
+  lessonResultBlockSchema: PreviousLessonResultBlockSchema,
+};
+
+export const PreviousQuizExplanationLessonGenerationDurableSchemaSet =
+  createLessonGenerationDurableSchemaSet(previousQuizLessonSchemas);
 
 export const {
   LessonAidsStateSchema,
@@ -301,19 +331,20 @@ const PreviousLessonDocumentAssetsSchema = LessonDocumentAssetsSchema.extend({
 });
 
 export const PreviousResearchContractLessonGenerationDurableSchemaSet =
-  createLessonGenerationDurableSchemaSet(
-    LessonPdfImageMetadataSchema,
-    LessonDocumentAssetsSchema,
-    PreviousLessonResearchSummarySchema,
-    PreviousLessonResearchDossierSchema
-  );
+  createLessonGenerationDurableSchemaSet({
+    ...previousQuizLessonSchemas,
+    lessonResearchSummarySchema: PreviousLessonResearchSummarySchema,
+    lessonResearchDossierSchema: PreviousLessonResearchDossierSchema,
+  });
 
-export const PreviousLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet(
-  PreviousLessonPdfImageMetadataSchema as unknown as typeof LessonPdfImageMetadataSchema,
-  PreviousLessonDocumentAssetsSchema,
-  PreviousLessonResearchSummarySchema,
-  PreviousLessonResearchDossierSchema
-);
+export const PreviousLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
+  ...previousQuizLessonSchemas,
+  pdfImageMetadataSchema:
+    PreviousLessonPdfImageMetadataSchema as unknown as typeof LessonPdfImageMetadataSchema,
+  documentAssetsSchema: PreviousLessonDocumentAssetsSchema,
+  lessonResearchSummarySchema: PreviousLessonResearchSummarySchema,
+  lessonResearchDossierSchema: PreviousLessonResearchDossierSchema,
+});
 
 export type LessonGenerationDurableSchemaSet = typeof CurrentLessonGenerationDurableSchemaSet;
 
