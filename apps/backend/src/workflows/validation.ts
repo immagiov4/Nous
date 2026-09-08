@@ -582,7 +582,7 @@ const hashPreCompatibilityIdWorkflowManifest = (manifest: WorkflowManifest): str
     .digest('hex');
 
 /** Reconstructs hashes written before provider effects entered step manifests. */
-export const hashPreExternalEffectWorkflowManifest = (manifest: WorkflowManifest): string =>
+const hashPreExternalEffectWorkflowManifest = (manifest: WorkflowManifest): string =>
   createHash('sha256')
     .update(canonicalJson({ ...manifest, root: omitStepExternalEffects(manifest.root) }))
     .digest('hex');
