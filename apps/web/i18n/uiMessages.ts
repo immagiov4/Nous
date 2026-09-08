@@ -92,6 +92,9 @@ const ENGLISH_UI_MESSAGES = {
   'Candidati e decisioni': 'Candidates and decisions',
   'Canale non disponibile': 'Channel unavailable',
   caratteri: 'characters',
+  'Usa al massimo {max} caratteri per la lingua.': 'Use at most {max} characters for the language.',
+  'Usa al massimo {max} caratteri per le preferenze didattiche.':
+    'Use at most {max} characters for teaching preferences.',
   'Clip in produzione': 'Clips in production',
   'Anteprima video': 'Video preview',
   'Clip YouTube abilitate nella generazione': 'YouTube clips enabled in generation',

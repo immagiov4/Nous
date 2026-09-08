@@ -1,12 +1,21 @@
 import * as z from 'zod';
 
 export const LEGACY_ACCOUNT_INTERFACE_LOCALE = 'it';
+export const ACCOUNT_PREFERENCE_LIMITS = {
+  CONTENT_LANGUAGE: 100,
+  TEACHING_PREFERENCES: 4_000,
+} as const;
 
 export const AccountPreferencesSchema = z
   .object({
     interfaceLocale: z.enum(['it', 'en']).nullable(),
-    contentLanguage: z.string().trim().min(1).nullable(),
-    teachingPreferences: z.string().trim(),
+    contentLanguage: z
+      .string()
+      .trim()
+      .min(1)
+      .max(ACCOUNT_PREFERENCE_LIMITS.CONTENT_LANGUAGE)
+      .nullable(),
+    teachingPreferences: z.string().trim().max(ACCOUNT_PREFERENCE_LIMITS.TEACHING_PREFERENCES),
   })
   .strict();
 

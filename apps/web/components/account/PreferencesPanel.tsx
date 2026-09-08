@@ -1,4 +1,8 @@
-import type { AccountPreferences } from '@shared/accountPreferences';
+import {
+  ACCOUNT_PREFERENCE_LIMITS,
+  type AccountPreferences,
+  AccountPreferencesSchema,
+} from '@shared/accountPreferences';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
@@ -42,17 +46,24 @@ export default function PreferencesPanel() {
     };
   }, [load]);
 
-  const persist = async (clear: boolean) => {
-    if (!draft || pending) return;
+  const validation = draft
+    ? AccountPreferencesSchema.safeParse({
+        ...draft,
+        contentLanguage: draft.contentLanguage?.trim() || null,
+      })
+    : null;
+  const validationIssues = validation && !validation.success ? validation.error.issues : [];
+  const languageInvalid = validationIssues.some(issue => issue.path[0] === 'contentLanguage');
+  const teachingInvalid = validationIssues.some(issue => issue.path[0] === 'teachingPreferences');
+
+  const persist = async (preferencesToSave: AccountPreferences | null) => {
+    if (pending) return;
     setPending(true);
     setError(false);
     try {
-      const preferences = await (clear
-        ? clearAccountPreferences()
-        : saveAccountPreferences({
-            ...draft,
-            contentLanguage: draft.contentLanguage?.trim() || null,
-          }));
+      const preferences = await (preferencesToSave
+        ? saveAccountPreferences(preferencesToSave)
+        : clearAccountPreferences());
       if (!active.current) return;
       setSaved(preferences);
       setDraft(preferences);
@@ -66,7 +77,7 @@ export default function PreferencesPanel() {
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    void persist(false);
+    if (validation?.success) void persist(validation.data);
   };
   const changed = JSON.stringify(saved) !== JSON.stringify(draft);
 
@@ -112,7 +123,12 @@ export default function PreferencesPanel() {
                   className={fieldClassName}
                   value={draft.contentLanguage ?? ''}
                   placeholder={t('Come l’interfaccia')}
-                  aria-describedby="content-language-help"
+                  aria-invalid={languageInvalid}
+                  aria-describedby={
+                    languageInvalid
+                      ? 'content-language-help content-language-error'
+                      : 'content-language-help'
+                  }
                   onChange={event =>
                     setDraft({ ...draft, contentLanguage: event.target.value || null })
                   }
@@ -126,6 +142,17 @@ export default function PreferencesPanel() {
                   'Usata nella chat generale e come lingua iniziale dei nuovi corsi. Lascia vuoto per seguire l’interfaccia; puoi cambiarla per un singolo corso.'
                 )}
               </p>
+              {languageInvalid ? (
+                <p
+                  id="content-language-error"
+                  role="alert"
+                  className="mt-2 text-sm text-red-700 dark:text-red-300"
+                >
+                  {t('Usa al massimo {max} caratteri per la lingua.', {
+                    max: ACCOUNT_PREFERENCE_LIMITS.CONTENT_LANGUAGE,
+                  })}
+                </p>
+              ) : null}
             </div>
             <div>
               <label className="block text-sm font-medium">
@@ -137,7 +164,12 @@ export default function PreferencesPanel() {
                   rows={5}
                   className={`${fieldClassName} resize-y`}
                   value={draft.teachingPreferences}
-                  aria-describedby="teaching-preferences-help"
+                  aria-invalid={teachingInvalid}
+                  aria-describedby={
+                    teachingInvalid
+                      ? 'teaching-preferences-help teaching-preferences-error'
+                      : 'teaching-preferences-help'
+                  }
                   onChange={event =>
                     setDraft({ ...draft, teachingPreferences: event.target.value })
                   }
@@ -151,11 +183,22 @@ export default function PreferencesPanel() {
                   'Descrivi come preferisci ricevere spiegazioni o le tue necessità di accessibilità. Queste indicazioni valgono come punto di partenza per nuovi corsi: puoi modificarle durante l’intervista. I corsi esistenti non cambiano.'
                 )}
               </p>
+              {teachingInvalid ? (
+                <p
+                  id="teaching-preferences-error"
+                  role="alert"
+                  className="mt-2 text-sm text-red-700 dark:text-red-300"
+                >
+                  {t('Usa al massimo {max} caratteri per le preferenze didattiche.', {
+                    max: ACCOUNT_PREFERENCE_LIMITS.TEACHING_PREFERENCES,
+                  })}
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-2 border-t border-stone-200 pt-4 dark:border-zinc-700">
               <button
                 type="submit"
-                disabled={pending || !changed}
+                disabled={pending || !changed || !validation?.success}
                 aria-busy={pending}
                 className="rounded-full bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-950"
               >
@@ -164,7 +207,7 @@ export default function PreferencesPanel() {
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => void persist(true)}
+                onClick={() => void persist(null)}
                 className="rounded-full px-4 py-2.5 text-sm text-stone-600 disabled:opacity-50 dark:text-zinc-300"
               >
                 {t('Cancella preferenze salvate')}

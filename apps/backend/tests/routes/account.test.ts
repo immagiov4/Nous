@@ -186,6 +186,26 @@ describe('account routes', () => {
     expect(store.savePreferences).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ['contentLanguage', 100],
+    ['teachingPreferences', 4_000],
+  ] as const)('rejects oversized %s without writing and accepts the trimmed boundary', async (field, limit) => {
+    const text = 'x'.repeat(limit);
+    const rejected = await request(app)
+      .put('/account/preferences')
+      .set('authorization', auth('user-a'))
+      .send({ ...EMPTY_ACCOUNT_PREFERENCES, [field]: `${text}x` });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.code).toBe('account_preferences_invalid');
+    expect(store.savePreferences).not.toHaveBeenCalled();
+    const accepted = await request(app)
+      .put('/account/preferences')
+      .set('authorization', auth('user-a'))
+      .send({ ...EMPTY_ACCOUNT_PREFERENCES, [field]: ` ${text}\n` });
+    expect(accepted.status).toBe(200);
+    expect(preferences.get('user-a')?.[field]).toBe(text);
+  });
+
   test('scopes consumption by session and does not fetch prices for an empty record set', async () => {
     const response = await request(app)
       .get('/account/usage?userId=user-b')
