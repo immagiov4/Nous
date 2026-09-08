@@ -311,7 +311,6 @@ const NewHomeSidebar = ({
 const MobileHeader = ({
   activePage,
   isDarkMode,
-  isPhoneViewport,
   onExportLibraryBackup,
   onImportLibraryBackup,
   onNavigate,
@@ -332,7 +331,7 @@ const MobileHeader = ({
         alt="Nous"
         className="h-7 w-7 object-contain"
       />
-      <span className="font-serif text-lg">Nous</span>
+      <span className="hidden font-serif text-lg sm:inline">Nous</span>
     </button>
     <nav className="flex items-center gap-1 text-sm">
       <button
@@ -353,7 +352,7 @@ const MobileHeader = ({
     <AccountMenu
       onExportLibraryBackup={onExportLibraryBackup}
       onImportLibraryBackup={onImportLibraryBackup}
-      themeToggle={isPhoneViewport ? { isDarkMode, onToggle: onToggleDarkMode } : undefined}
+      themeToggle={{ isDarkMode, onToggle: onToggleDarkMode }}
     />
   </header>
 );

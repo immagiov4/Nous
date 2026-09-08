@@ -6,6 +6,43 @@ import { createCourseInterviewWorkflow } from '../../src/workflows/courseIntervi
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 
 describe('course interview start', () => {
+  test('captures account defaults once in the new run without modifying the account', async () => {
+    const models = getGlobalModelConfig();
+    const registry = createWorkflowRegistry();
+    registry.register({
+      current: createCourseInterviewWorkflow({ maxAttempts: 3, models, timeoutMs: 60_000 }, 8),
+    });
+    const savedPreferences = {
+      interfaceLocale: 'it' as const,
+      contentLanguage: '日本語',
+      teachingPreferences: 'One step at a time.',
+    };
+    const readPreferences = vi.fn().mockResolvedValue(savedPreferences);
+    const createRun = vi
+      .fn()
+      .mockResolvedValue({ created: true, run: { id: 'run-1', status: 'queued' } });
+    const starter = createCourseInterviewStarter({
+      registry,
+      readPreferences,
+      resolveModels: vi.fn().mockResolvedValue(models),
+      store: { createRun },
+    });
+    await starter.start({
+      hasReliableSourceContext: false,
+      initialMessage: 'Learn trees.',
+      interfaceLocale: 'en',
+      mode: 'learn',
+      projectId: 'project-1',
+      requestKey: 'request-1',
+      userId: 'user-1',
+    });
+    expect(readPreferences).toHaveBeenCalledExactlyOnceWith('user-1');
+    const defaults = createRun.mock.calls[0]?.[0].input.preferenceDefaults;
+    expect(defaults).toEqual({ language: '日本語', teachingPreferences: 'One step at a time.' });
+    savedPreferences.contentLanguage = 'English';
+    savedPreferences.teachingPreferences = '';
+    expect(defaults).toEqual({ language: '日本語', teachingPreferences: 'One step at a time.' });
+  });
   test('persists resolved models and deterministic source context', async () => {
     const models = getGlobalModelConfig();
     const registry = createWorkflowRegistry();

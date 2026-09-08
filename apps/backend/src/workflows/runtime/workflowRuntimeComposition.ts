@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-
+import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,
   getResolvedModelConfigForProvider,
@@ -443,6 +443,7 @@ export const createWorkflowRuntimeComposition = (
             projectReader: getProjectStore(),
             runReader: productionStore,
             starter: createCourseInterviewStarter({
+              readPreferences: readCurrentAccountPreferences,
               publishTransientEvent,
               registry,
               resolveModels: getResolvedModelConfigForProvider,

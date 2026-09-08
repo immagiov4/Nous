@@ -1,4 +1,8 @@
 import {
+  type CoursePreferenceDefaults,
+  CoursePreferenceDefaultsSchema,
+} from '@shared/accountPreferences.js';
+import {
   COURSE_INTERVIEW_DECISION_SIGNAL,
   COURSE_INTERVIEW_ENDED_EVENT,
   COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
@@ -47,7 +51,10 @@ export { COURSE_INTERVIEW_WORKFLOW_ID } from '@shared/courseInterviewContract.js
 
 export const CourseInterviewWorkflowInputSchema = CourseInterviewStartFieldsSchema.omit({
   requestKey: true,
-}).extend({ userId: z.string().min(1) });
+}).extend({
+  userId: z.string().min(1),
+  preferenceDefaults: CoursePreferenceDefaultsSchema.optional(),
+});
 
 export type CourseInterviewWorkflowInput = z.infer<typeof CourseInterviewWorkflowInputSchema>;
 
@@ -90,6 +97,7 @@ interface CourseInterviewCleanupInput {
 
 export interface CourseInterviewWorkflowServices {
   readonly assessTurn: (input: {
+    preferenceDefaults?: CoursePreferenceDefaults;
     config: DeepReadonly<GlobalModelConfig>;
     hasReliableSourceContext: boolean;
     messages: readonly z.infer<typeof CourseInterviewMessageSchema>[];
@@ -217,6 +225,7 @@ export const createCourseInterviewWorkflow = (
     outputSchema: CourseInterviewStateSchema,
     run: async ({ input }) => ({
       decision: 'active',
+      ...(input.preferenceDefaults ? { preferenceDefaults: input.preferenceDefaults } : {}),
       hasReliableSourceContext: input.hasReliableSourceContext,
       messages: input.initialMessage ? [{ role: 'user', text: input.initialMessage }] : [],
       mode: input.mode,
@@ -239,6 +248,7 @@ export const createCourseInterviewWorkflow = (
     run: async ({ config, input, services, signal }) => ({
       state: input,
       turn: await services.assessTurn({
+        ...(input.preferenceDefaults ? { preferenceDefaults: input.preferenceDefaults } : {}),
         config: config.models,
         hasReliableSourceContext: input.hasReliableSourceContext,
         messages: input.messages,

@@ -17,7 +17,13 @@ const readProfile = (value: unknown) => {
     learningStyle: readString(value.learningStyle),
     topic: readString(value.topic),
   };
-  return Object.values(profile).every(field => field.length > 0) ? profile : null;
+  if (!Object.values(profile).every(field => field.length > 0)) return null;
+  return {
+    ...profile,
+    ...(typeof value.teachingPreferences === 'string'
+      ? { teachingPreferences: value.teachingPreferences }
+      : {}),
+  };
 };
 
 const sourceDescriptors = (sources: readonly StoredProjectSourceFile[]) =>

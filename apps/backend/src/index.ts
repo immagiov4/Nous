@@ -12,6 +12,7 @@ import {
 } from './projects/projectAssetReader.js';
 import { admitProjectImportRequest } from './projects/projectImportAdmission.js';
 import { projectImportConfig } from './projects/projectImportConfig.js';
+import { createAccountRouter } from './routes/account.js';
 import adminRouter from './routes/admin.js';
 import { createArtifactDraftRouter } from './routes/artifactDrafts.js';
 import authRouter from './routes/auth.js';
@@ -286,6 +287,7 @@ export const createApp = (options: CreateAppOptions = {}) => {
 
   app.use('/api/tts', resolveCurrentUser, ttsRouter);
   app.use('/api/auth', resolveCurrentUserForPasswordSetup, authRouter);
+  app.use('/api/account', resolveCurrentUser, createAccountRouter());
   app.use('/api/stt', resolveCurrentUser, sttRouter);
   app.use('/api/images', resolveCurrentUser, imagesRouter);
   app.use('/api/voices', voicesRouter);

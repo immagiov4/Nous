@@ -1,4 +1,6 @@
 // Handles library-scoped chat requests for the backend API.
+
+import { resolveAiLanguage } from '@shared/accountPreferences.js';
 import {
   convertToModelMessages,
   generateId,
@@ -9,7 +11,7 @@ import {
   tool,
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
-
+import { readCurrentAccountPreferences } from '../account/accountStore.js';
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
   getResolvedModelConfigForProvider,
@@ -589,6 +591,10 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       { tools: libraryTools }
     );
     const system = buildLibrarySystemPrompt({
+      responseLanguage: resolveAiLanguage(
+        await readCurrentAccountPreferences(currentUser.id),
+        req.body.interfaceLocale === 'it' ? 'it' : 'en'
+      ),
       attachedContextRefs,
       resolvedScopeSummary,
       toolPreferences,

@@ -14,8 +14,53 @@ type UiMessageVariables = Record<string, number | string>;
 const DEFAULT_APP_LOCALE: AppLocale = 'en';
 const supportedLocales = new Set<string>(SUPPORTED_APP_LOCALES);
 let renderingLocaleOverride: AppLocale | null = null;
+let accountLocale: AppLocale | null = null;
+const localeListeners = new Set<() => void>();
+
+export const subscribeToAppLocale = (listener: () => void): (() => void) => {
+  localeListeners.add(listener);
+  return () => {
+    localeListeners.delete(listener);
+  };
+};
+
+export const setAccountLocale = (locale: AppLocale | null): void => {
+  if (accountLocale === locale) return;
+  accountLocale = locale;
+  if (typeof document !== 'undefined') document.documentElement.lang = getAppLocale();
+  for (const listener of localeListeners) listener();
+};
 
 const ENGLISH_UI_MESSAGES = {
+  'Consumo registrato': 'Recorded usage',
+  'Consumo non disponibile': 'Usage unavailable',
+  'Nessun consumo registrato': 'No recorded usage',
+  'Token non disponibili': 'Tokens unavailable',
+  'Costo non disponibile': 'Cost unavailable',
+  '{tokens} token': '{tokens} tokens',
+  parziali: 'partial',
+  parziale: 'partial',
+  stima: 'estimated',
+  'Include token stimati alle tariffe attuali, non una fattura.':
+    'Includes token estimates at current rates, not an invoice.',
+  'Solo generazioni registrate. Chat e audio esclusi.':
+    'Recorded generations only. Chat and audio excluded.',
+  'Chiudi impostazioni': 'Close settings',
+  'Categorie impostazioni': 'Settings categories',
+  'Lingua e apprendimento': 'Language and learning',
+  'Lingua interfaccia': 'Interface language',
+  'Lingua IA': 'AI language',
+  'Come l’interfaccia': 'Same as interface',
+  'Usata nella chat generale e come lingua iniziale dei nuovi corsi. Lascia vuoto per seguire l’interfaccia; puoi cambiarla per un singolo corso.':
+    'Used in general chat and as the initial language for new courses. Leave blank to follow the interface; you can change it for an individual course.',
+  'Preferenze didattiche': 'Teaching preferences',
+  '(facoltative)': '(optional)',
+  'Descrivi come preferisci ricevere spiegazioni o le tue necessità di accessibilità. Queste indicazioni valgono come punto di partenza per nuovi corsi: puoi modificarle durante l’intervista. I corsi esistenti non cambiano.':
+    'Describe how you prefer explanations or your accessibility needs. These are starting points for new courses, and you can change them during the interview. Existing courses stay unchanged.',
+  'Salva preferenze': 'Save preferences',
+  'Cancella preferenze salvate': 'Clear saved preferences',
+  'Caricamento preferenze...': 'Loading preferences...',
+  'Preferenze non disponibili. Riprova.': 'Preferences unavailable. Please try again.',
   [SURFACE_ERROR_MESSAGES.shell]: 'The application is unavailable. Reload the page.',
   [SURFACE_ERROR_MESSAGES.chat]: 'The chat is unavailable. Reload the page.',
   [SURFACE_ERROR_MESSAGES.reader]: 'The lesson is unavailable. Reload the page.',
@@ -1360,7 +1405,7 @@ export const setRenderingLocaleOverride = (locale: AppLocale | null): void => {
 };
 
 export const getAppLocale = (): AppLocale =>
-  renderingLocaleOverride ?? resolveAppLocale(getBrowserLanguagePreferences());
+  renderingLocaleOverride ?? accountLocale ?? resolveAppLocale(getBrowserLanguagePreferences());
 
 const interpolateMessage = (message: string, variables?: UiMessageVariables): string =>
   message.replaceAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (placeholder, variableName: string) => {

@@ -21,7 +21,7 @@ import {
   CourseInterviewStartRequestSchema,
   CourseInterviewUserAnswerSignalSchema,
 } from '@shared/courseInterviewContract';
-
+import { getAppLocale } from '../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
 import { getBackendUrl } from './config.ts';
@@ -483,6 +483,7 @@ export const startCourseInterview = async (
     `${COURSE_INTERVIEW_REQUEST_KEY_PREFIX}${input.projectId}`
   );
   const body = CourseInterviewStartRequestSchema.parse({
+    interfaceLocale: getAppLocale(),
     ...input,
     requestKey: request.requestKey,
   });

@@ -10,6 +10,7 @@ export type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
 export { ACTIVE_PAUSE_EXERCISE_TYPES } from '@shared/lessonGenerationPolicy';
 
 export interface UserProfile {
+  teachingPreferences?: string;
   topic: string;
   experienceLevel: string;
   learningStyle: string;

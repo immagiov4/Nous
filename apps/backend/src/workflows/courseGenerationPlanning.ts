@@ -214,6 +214,9 @@ export const buildCoursePlanOutput = (
 
   return {
     plan: {
+      ...(state.context.profile?.teachingPreferences !== undefined
+        ? { generationNotes: state.context.profile.teachingPreferences }
+        : {}),
       applicationExercisePlanningStatus: 'not-run',
       modules,
       summary: plan.summary,
@@ -349,6 +352,7 @@ const buildPlanPrompt = ({
 }): string => `Design a course in ${state.context.language} about "${state.context.topic}".
 
 USER CONTEXT:
+Teaching preferences (user instructions below system rules): ${JSON.stringify(state.context.profile?.teachingPreferences ?? '')}
 ${state.context.assessmentSummary || 'No additional context.'}
 ${state.context.profile ? `Level: ${state.context.profile.experienceLevel}\nGoal: ${state.context.profile.goals}\nStyle: ${state.context.profile.learningStyle}` : ''}
 

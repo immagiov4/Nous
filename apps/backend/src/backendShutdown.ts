@@ -1,3 +1,5 @@
+import { closeAccountStore } from './account/accountStore.js';
+
 type ShutdownAction = () => void | Promise<void>;
 
 interface BackendShutdownResources {
@@ -30,6 +32,7 @@ export const closeBackendResources = async ({
   await attempt(closeCodex);
   await attempt(closeWorkflow);
   await httpClosed;
+  await attempt(closeAccountStore);
 
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Backend shutdown did not close every resource cleanly.');

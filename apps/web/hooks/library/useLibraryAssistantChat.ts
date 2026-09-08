@@ -10,7 +10,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
 import {
   executeLibraryAssistantTool,
@@ -357,6 +357,7 @@ export const useLibraryAssistantChat = ({
           return {
             headers,
             body: {
+              interfaceLocale: getAppLocale(),
               attachedContextRefs: currentAttachedContextRefs,
               id,
               messages,

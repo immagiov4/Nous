@@ -343,6 +343,7 @@ export const CoursePreparationStateSchema = z.object({
         goals: z.string(),
         language: z.string(),
         learningStyle: z.string(),
+        teachingPreferences: z.string().optional(),
         topic: z.string(),
       })
       .nullable(),

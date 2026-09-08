@@ -120,3 +120,11 @@ Nous uses branded email templates for `confirmation`, `invite`, `magic_link`, an
 Sources: [scripts/supabaseAuthTemplates.ts:20-45](../../../scripts/supabaseAuthTemplates.ts#L20-L45), [scripts/sync-supabase-auth-emails.ts:51-70](../../../scripts/sync-supabase-auth-emails.ts#L51-L70)
 
 Authentication in Nous is a multi-layered system combining JWT-based identity verification, RLS-driven data isolation, and automated session maintenance. This ensures a secure, tenant-isolated environment for user projects while providing administrative oversight through metadata-driven roles.
+
+## Account preferences
+
+`/api/account/preferences` supports GET, PUT and DELETE after `resolveCurrentUser`. The server derives the owner from the authenticated session, rejects extra fields in the request body and sends private, non-cacheable responses. `PostgresAccountStore` reads and upserts `account_preferences`, keyed by `auth.users.id`; removing the account cascades to its preferences. RLS grants each authenticated user access only to their own row, and anonymous access is revoked.
+
+Preferences contain nullable IT/EN interface locale, nullable free-text AI language and optional teaching instructions represented by an empty string when cleared. No account row means browser/interface defaults and no teaching instructions. Local development identities have no Supabase account, so generation and general chat use empty defaults without querying account storage. Account preferences do not rewrite existing course snapshots or auth metadata.
+
+Sources: [account.ts](../../../apps/backend/src/routes/account.ts), [accountStore.ts](../../../apps/backend/src/account/accountStore.ts), [accountPreferences.ts](../../../packages/shared-types/accountPreferences.ts), [account_preferences migration](../../../supabase/migrations/20260908101401_account_preferences.sql)

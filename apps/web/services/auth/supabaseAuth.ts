@@ -4,6 +4,7 @@ import { getBackendUrl } from '../openrouter/config.ts';
 import { getNousRuntimeConfig } from '../runtimeConfig.ts';
 
 export interface SupabaseAccount {
+  name?: string;
   email?: string;
   id: string;
   passwordSetupRequired?: boolean;
@@ -24,6 +25,7 @@ export type SupabaseAuthCallbackResult =
   | { status: 'error'; session: null };
 
 interface SupabaseAuthUserResponse {
+  user_metadata?: { full_name?: unknown; name?: unknown };
   app_metadata?: {
     password_setup_required?: unknown;
     provider?: unknown;
@@ -188,9 +190,17 @@ const readAccountFromAccessToken = (accessToken: string): SupabaseAuthUserRespon
 
   return {
     app_metadata: isRecord(payload.app_metadata) ? payload.app_metadata : undefined,
+    user_metadata: isRecord(payload.user_metadata) ? payload.user_metadata : undefined,
     email: typeof payload.email === 'string' ? payload.email : undefined,
     id,
   };
+};
+
+const readAccountName = (
+  metadata: SupabaseAuthUserResponse['user_metadata']
+): string | undefined => {
+  const name = metadata?.full_name ?? metadata?.name;
+  return typeof name === 'string' && name.trim() ? name.trim() : undefined;
 };
 
 const normalizeSupabaseAccount = (
@@ -225,6 +235,7 @@ const normalizeSupabaseAccount = (
     : previousAccount?.passwordSetupRequired;
 
   return {
+    name: readAccountName(response.user_metadata) ?? previousAccount?.name,
     email: response.email || previousAccount?.email,
     id,
     ...(passwordSetupRequired === undefined ? {} : { passwordSetupRequired }),
@@ -282,6 +293,7 @@ const stripUnusedSessionFields = (session: SupabaseUserSession): SupabaseUserSes
   user: session.user
     ? {
         email: session.user.email,
+        name: session.user.name,
         id: session.user.id,
         passwordSetupRequired: session.user.passwordSetupRequired,
         providers: session.user.providers,
@@ -479,15 +491,26 @@ const logBackendFailureCorrelation = (
 export const fetchWithSupabaseAuth = async (
   input: RequestInfo | URL,
   init: RequestInit = {},
-  diagnostics: { readonly expectedStatuses?: readonly number[] } = {}
+  options: { readonly expectedStatuses?: readonly number[]; readonly accountId?: string } = {}
 ): Promise<Response> => {
-  const expectedStatuses = diagnostics.expectedStatuses ?? [];
+  const expectedStatuses = options.expectedStatuses ?? [];
+  const assertRequestAccount = (requestSession: SupabaseUserSession | null) => {
+    if (
+      options.accountId !== undefined &&
+      (requestSession?.user?.id !== options.accountId ||
+        readSupabaseSession()?.user?.id !== options.accountId)
+    ) {
+      throw new Error('The account changed during the request.');
+    }
+  };
   const session = await getValidSupabaseSession();
-  const sendRequest = (requestSession: SupabaseUserSession | null) =>
-    fetch(input, {
+  const sendRequest = (requestSession: SupabaseUserSession | null) => {
+    assertRequestAccount(requestSession);
+    return fetch(input, {
       ...init,
       headers: buildAuthenticatedHeaders(init.headers, requestSession),
     });
+  };
 
   const response = await sendRequest(session);
   if (response.status !== 401) {
@@ -495,6 +518,7 @@ export const fetchWithSupabaseAuth = async (
     return response;
   }
 
+  assertRequestAccount(session);
   const refreshedSession = await refreshSupabaseSession();
   if (!refreshedSession) {
     logBackendFailureCorrelation(response, expectedStatuses);
@@ -502,7 +526,10 @@ export const fetchWithSupabaseAuth = async (
   }
 
   const retryResponse = await sendRequest(refreshedSession);
-  if (retryResponse.status === 401) {
+  if (
+    retryResponse.status === 401 &&
+    (options.accountId === undefined || readSupabaseSession()?.user?.id === options.accountId)
+  ) {
     clearSupabaseSession();
   }
   logBackendFailureCorrelation(retryResponse, expectedStatuses);
