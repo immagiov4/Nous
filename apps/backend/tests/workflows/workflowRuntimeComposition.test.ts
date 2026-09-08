@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { ProjectAssetReader } from '../../src/projects/projectAssetReader.js';
 import { ARTIFACT_DRAFT_WORKFLOW_ID } from '../../src/workflows/artifactDraftWorkflow.js';
 import type { CourseGenerationApi } from '../../src/workflows/courseGenerationApi.js';
+import { COURSE_GENERATION_WORKFLOW_ID } from '../../src/workflows/courseGenerationWorkflow.js';
 import type { CourseInterviewApi } from '../../src/workflows/courseInterviewApi.js';
 import { COURSE_INTERVIEW_WORKFLOW_ID } from '../../src/workflows/courseInterviewWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
@@ -16,10 +17,7 @@ import {
   createWorkflowRuntimeComposition,
   type WorkflowRuntimeCompositionStore,
 } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
-import {
-  hashPreExternalEffectWorkflowManifest,
-  hashPreProviderPostprocessingWorkflowManifest,
-} from '../../src/workflows/validation.js';
+import { hashPreProviderPostprocessingWorkflowManifest } from '../../src/workflows/validation.js';
 import { WorkflowSignalError } from '../../src/workflows/workflowErrors.js';
 import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflowObservability.js';
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
@@ -72,14 +70,34 @@ describe('workflow runtime production composition', () => {
     expect(productionRegistry.resolve(ARTIFACT_DRAFT_WORKFLOW_ID, precedingHash)).not.toBeNull();
   });
 
-  test('resumes the immediately preceding course interview definition', () => {
-    const current = productionRegistry.current(COURSE_INTERVIEW_WORKFLOW_ID);
-    expect(current).not.toBeNull();
-    if (!current) throw new Error('Course interview workflow is not registered.');
-
-    const precedingHash = hashPreExternalEffectWorkflowManifest(current.manifest);
-
-    expect(productionRegistry.resolve(COURSE_INTERVIEW_WORKFLOW_ID, precedingHash)).not.toBeNull();
+  // Captured from the production definitions at e042482, before account preferences.
+  test.each([
+    [
+      COURSE_INTERVIEW_WORKFLOW_ID,
+      'abc1626918c37e99e8ebd758e281c383d979e3d6260dd8d1548318032d5901c5',
+    ],
+    [
+      COURSE_INTERVIEW_WORKFLOW_ID,
+      '4ca2ad714ae549d1613b787479ef4bf50b721c7485736b4ed00740b8c39a70ea',
+    ],
+    [
+      COURSE_INTERVIEW_WORKFLOW_ID,
+      '2f78e9bf0078470e20578da62ba586a11a7b580c0ef00af0450d00540992086a',
+    ],
+    [
+      COURSE_GENERATION_WORKFLOW_ID,
+      '7a7eae555d7000a34417e56eb408bd46ffa59df9ffc90ac54c9031447ec02202',
+    ],
+    [
+      COURSE_GENERATION_WORKFLOW_ID,
+      '71ff9be9f1879c72a4a195d1a7f46c192158ad139b6f01c20edf8fbc60de448f',
+    ],
+    [
+      COURSE_GENERATION_WORKFLOW_ID,
+      '8a3cd86a51b085ac89331435cebe6b1f00007213aab0e5bb681f3d0258a0e4d4',
+    ],
+  ])('resolves the saved %s definition %s', (workflowId, definitionHash) => {
+    expect(productionRegistry.resolve(workflowId, definitionHash)).not.toBeNull();
   });
 
   test('resumes lesson workflows created before PDF image source hashes became durable', () => {
