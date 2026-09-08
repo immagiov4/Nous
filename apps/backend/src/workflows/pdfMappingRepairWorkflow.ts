@@ -45,6 +45,7 @@ import type { StepCommitContext, StepExecutionContext } from './types.js';
 import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
 
 export const PDF_MAPPING_REPAIR_WORKFLOW_ID = 'pdf-mapping-repair';
+export const PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID = 'pdf-mapping-repair-v1';
 
 export const PdfMappingRepairWorkflowInputSchema = z.object({
   projectId: z.string().min(1),
@@ -301,7 +302,8 @@ const runRepairStage = <Input, Output>(
 export const createPdfMappingRepairWorkflow = (
   executionDefaults: CourseGenerationWorkflowConfig,
   configSchema: z.ZodType<CourseGenerationWorkflowConfig> = CourseGenerationWorkflowConfigSchema,
-  schemas = courseGenerationStateSchemas
+  schemas = courseGenerationStateSchemas,
+  compatibilityId = 'pdf-mapping-repair-v2'
 ) => {
   const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
   const PdfMappingRepairPreparationSchema =
@@ -398,7 +400,8 @@ export const createPdfMappingRepairWorkflow = (
   });
 
   return workflow({
-    compatibilityId: 'pdf-mapping-repair-v1',
+    // A newer boundary keeps replicas without historical schemas from removing resumable work.
+    compatibilityId,
     configSchema,
     events: {
       [COURSE_PROJECT_REVISION_EVENT]: {

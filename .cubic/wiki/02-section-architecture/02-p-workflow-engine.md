@@ -164,6 +164,10 @@ Its preparation, routing, and finalization boundaries must use the same schema s
 registry retains the pre-account-preferences schema set, including the active `493daee0` definition
 from `2f44b0f9` and its older hash modes. This lets deployment reconciliation accept an upgrade and
 resume persisted repair runs without changing deployment history or bypassing conflict checks.
+The current repair uses a newer compatibility identity while retaining the `2cf9abfc` boundary
+from `d8b7a2a4`. This makes a restarting older replica stale instead of letting its smaller set of
+supported definitions replace the promoted deployment. Identical replicas remain authoritative
+without changing deployment history.
 Sources: [apps/backend/src/workflows/pdfMappingRepairWorkflow.ts](../../../apps/backend/src/workflows/pdfMappingRepairWorkflow.ts), [apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts](../../../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts)
 
 An authoring facade is compatible with an existing workflow only when it produces the same durable node kinds,

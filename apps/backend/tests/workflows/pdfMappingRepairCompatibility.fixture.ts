@@ -17,3 +17,21 @@ export const previousPdfMappingRepairDeployment: WorkflowDefinitionDeployment = 
     workflowId: 'pdf-mapping-repair',
   })),
 };
+
+// Captured from the production registry at d8b7a2a4, before historical schemas were restored.
+export const preHistoryPdfMappingRepairDeployment: WorkflowDefinitionDeployment = {
+  current: {
+    definitionHash: '2cf9abfc2e0c45fc2597d16d6d169df1a350e03682a2f23919a554678f37b32e',
+    definitionHashVersion: 1,
+    workflowId: 'pdf-mapping-repair',
+  },
+  supportedDefinitions: [
+    '2cf9abfc2e0c45fc2597d16d6d169df1a350e03682a2f23919a554678f37b32e',
+    '4f0dd23914547b3eb7babb9fe0feb6df9d52eb6e05fed57a9e70d8723bcc3d2b',
+    '99b77c5a6b8c4cf3dc58b9ed699c9c142007de35fa8142d96832f8e90b904863',
+  ].map(definitionHash => ({
+    definitionHash,
+    definitionHashVersion: 1,
+    workflowId: 'pdf-mapping-repair',
+  })),
+};
