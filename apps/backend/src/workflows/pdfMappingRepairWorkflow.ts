@@ -18,17 +18,15 @@ import type {
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
 import { createCoursePreparationStage } from './courseGenerationPreparation.js';
-import type {
-  CourseGenerationStage,
-  CourseGenerationStageContext,
-  CourseGenerationWorkflowConfig,
-  CourseGenerationWorkflowInput,
-  CoursePreparationState,
-} from './courseGenerationWorkflowContract.js';
 import {
+  type CourseGenerationStage,
+  type CourseGenerationStageContext,
+  type CourseGenerationWorkflowConfig,
   CourseGenerationWorkflowConfigSchema,
+  type CourseGenerationWorkflowInput,
   CourseLearningPlanSchema,
   CoursePlanStateSchema,
+  type CoursePreparationState,
   type CourseSourcesFinalizedStateSchema,
   courseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
