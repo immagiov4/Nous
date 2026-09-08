@@ -90,7 +90,13 @@ export const estimateRecordedTokenCost = (
 };
 
 export const hasCostEstimateCandidates = (groups: readonly AccountUsageGroup[]): boolean =>
-  groups.some(group => group.provider === 'openrouter' && group.reportedCostUsd === null);
+  groups.some(
+    group =>
+      group.provider === 'openrouter' &&
+      group.reportedCostUsd === null &&
+      group.inputTokens !== null &&
+      group.outputTokens !== null
+  );
 
 export const summarizeAccountUsage = (
   groups: readonly AccountUsageGroup[],

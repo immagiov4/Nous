@@ -105,15 +105,16 @@ describe('account routes', () => {
   });
 
   test.each([
-    'codex',
-    'openai',
-  ])('does not advertise or fetch estimates for %s-only usage', async provider => {
-    vi.mocked(store.readUsage).mockResolvedValueOnce([{ ...unpricedGroup, provider }]);
+    { provider: 'codex' },
+    { provider: 'openai' },
+    { inputTokens: null },
+    { outputTokens: null },
+  ])('does not advertise or fetch estimates for unsupported counters or providers: %j', async changes => {
+    vi.mocked(store.readUsage).mockResolvedValueOnce([{ ...unpricedGroup, ...changes }]);
     const result = await request(app)
       .get('/account/usage?estimate=true')
       .set('authorization', auth('user-a'));
     expect(result.body).toMatchObject({
-      tokens: 120,
       missingCostCalls: 1,
       hasCostEstimateCandidates: false,
     });

@@ -1,23 +1,35 @@
 import { type AccountUsageSummary, AccountUsageSummarySchema } from '@shared/accountUsage';
 import { useEffect, useState } from 'react';
+import { useAppLocale } from '../../hooks/useAppLocale.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth, readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
 import { getBackendUrl } from '../../services/openrouter/config.ts';
 
-const formatTokens = (tokens: number): string =>
-  new Intl.NumberFormat('en', {
+const formatTokens = (tokens: number, locale: string): string => {
+  // Preserve the requested K/M abbreviations while localizing the rounded number.
+  const parts = new Intl.NumberFormat('en', {
     notation: 'compact',
     maximumFractionDigits: 1,
-  }).format(tokens);
+  }).formatToParts(tokens);
+  const magnitude = Number(
+    parts
+      .filter(part => ['integer', 'decimal', 'fraction'].includes(part.type))
+      .map(part => part.value)
+      .join('')
+  );
+  const suffix = parts.find(part => part.type === 'compact')?.value ?? '';
+  return `${new Intl.NumberFormat(locale).format(magnitude)}${suffix}`;
+};
 
-const formatCost = (cost: number): string =>
-  new Intl.NumberFormat('en-US', {
+const formatCost = (cost: number, locale: string): string =>
+  new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: 'USD',
     maximumSignificantDigits: 3,
   }).format(cost);
 
 export default function AccountUsage() {
+  const locale = useAppLocale();
   const [usage, setUsage] = useState<AccountUsageSummary | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -60,7 +72,7 @@ export default function AccountUsage() {
 
   const cost =
     usage && (usage.reportedCostUsd !== null || usage.estimatedCostUsd !== null)
-      ? formatCost((usage.reportedCostUsd ?? 0) + (usage.estimatedCostUsd ?? 0))
+      ? formatCost((usage.reportedCostUsd ?? 0) + (usage.estimatedCostUsd ?? 0), locale)
       : null;
   return (
     <div className="border-b border-gray-100 px-3 py-3 dark:border-zinc-800">
@@ -78,7 +90,7 @@ export default function AccountUsage() {
           <p className="mt-1 text-sm text-gray-900 dark:text-zinc-100">
             {usage.tokens === null
               ? t('Token non disponibili')
-              : t('{tokens} token', { tokens: formatTokens(usage.tokens) })}
+              : t('{tokens} token', { tokens: formatTokens(usage.tokens, locale) })}
             {usage.missingTokenCalls > 0 && usage.tokens !== null ? ` ${t('parziali')}` : ''}
             {cost ? (
               <span className="ml-1 text-xs text-gray-500 dark:text-zinc-400">

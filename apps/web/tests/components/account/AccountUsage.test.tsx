@@ -2,6 +2,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import AccountUsage from '../../../components/account/AccountUsage.tsx';
+import { setAccountLocale } from '../../../i18n/uiMessages.ts';
 
 const { request, session } = vi.hoisted(() => ({ request: vi.fn(), session: vi.fn() }));
 vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
@@ -24,11 +25,13 @@ const unknownUsage = {
 describe('recorded account consumption display', () => {
   beforeEach(() => {
     vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['it']);
+    setAccountLocale(null);
     request.mockReset();
     session.mockReturnValue({ user: { id: 'account-a' } });
   });
   afterEach(() => {
     cleanup();
+    setAccountLocale(null);
     vi.restoreAllMocks();
   });
   test('keeps absent counters and prices visibly unavailable', async () => {
@@ -77,15 +80,40 @@ describe('recorded account consumption display', () => {
       Response.json({ ...unknownUsage, tokens: 1500, estimatedCostUsd: 0.02 })
     );
     render(<AccountUsage />);
-    expect(await screen.findByText(/1.5K token parziali/)).toBeInTheDocument();
-    expect(screen.getByText(/\(\$0.02 stima, parziale\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/1,5K token parziali/)).toBeInTheDocument();
+    expect(screen.getByText(/\(0,02\sUSD stima, parziale\)/)).toBeInTheDocument();
   });
   test('does not round a small positive recorded cost to zero', async () => {
     request.mockResolvedValue(
       Response.json({ ...unknownUsage, reportedCostUsd: 0.0000003, missingCostCalls: 0 })
     );
     render(<AccountUsage />);
-    expect(await screen.findByText('($0.0000003)')).toBeInTheDocument();
+    expect(await screen.findByText(/\(0,0000003\sUSD\)/)).toBeInTheDocument();
+  });
+
+  test.each([
+    { tokens: 1500, italian: '1,5K', english: '1.5K' },
+    { tokens: 1500000, italian: '1,5M', english: '1.5M' },
+  ])('updates numeric formatting with the interface locale without fetching again: %j', async ({
+    tokens,
+    italian,
+    english,
+  }) => {
+    request.mockResolvedValueOnce(
+      Response.json({
+        ...unknownUsage,
+        tokens,
+        reportedCostUsd: 0.02,
+        hasCostEstimateCandidates: false,
+      })
+    );
+    render(<AccountUsage />);
+    expect(await screen.findByText(`${italian} token parziali`)).toBeInTheDocument();
+    expect(screen.getByText(/\(0,02\sUSD, parziale\)/)).toBeInTheDocument();
+    act(() => setAccountLocale('en'));
+    expect(screen.getByText(`${english} tokens partial`)).toBeInTheDocument();
+    expect(screen.getByText('($0.02, partial)')).toBeInTheDocument();
+    expect(request).toHaveBeenCalledOnce();
   });
 
   test('shows recorded usage while pricing is pending, then replaces the summary without counting twice', async () => {
@@ -98,8 +126,8 @@ describe('recorded account consumption display', () => {
         })
     );
     const view = render(<AccountUsage />);
-    expect(await screen.findByText('1.5K token')).toBeInTheDocument();
-    expect(screen.getByText('($0.1, parziale)')).toBeInTheDocument();
+    expect(await screen.findByText('1,5K token')).toBeInTheDocument();
+    expect(screen.getByText(/\(0,1\sUSD, parziale\)/)).toBeInTheDocument();
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     expect(request.mock.calls.map(call => call[2])).toEqual([
       { accountId: 'account-a' },
@@ -111,8 +139,8 @@ describe('recorded account consumption display', () => {
     await act(async () =>
       completeEstimate(Response.json({ ...recorded, estimatedCostUsd: 0.02, missingCostCalls: 0 }))
     );
-    expect(screen.getByText('($0.12 stima)')).toBeInTheDocument();
-    expect(screen.getByText('1.5K token')).toBeInTheDocument();
+    expect(screen.getByText(/\(0,12\sUSD stima\)/)).toBeInTheDocument();
+    expect(screen.getByText('1,5K token')).toBeInTheDocument();
   });
 
   test('keeps recorded costs when the optional estimate fails', async () => {
@@ -121,7 +149,7 @@ describe('recorded account consumption display', () => {
       .mockResolvedValueOnce(Response.json({ ...unknownUsage, tokens: 120, reportedCostUsd: 0 }))
       .mockRejectedValueOnce(new Error('offline'));
     render(<AccountUsage />);
-    expect(await screen.findByText('($0, parziale)')).toBeInTheDocument();
+    expect(await screen.findByText(/\(0\sUSD, parziale\)/)).toBeInTheDocument();
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     expect(screen.queryByText('Consumo non disponibile')).toBeNull();
   });

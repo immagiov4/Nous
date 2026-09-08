@@ -31,12 +31,14 @@ describe('account recorded usage', () => {
     { provider: 'openai', reportedCostUsd: null, expected: false },
     { provider: 'openrouter', reportedCostUsd: null, expected: true },
     { provider: 'openrouter', reportedCostUsd: 0, expected: false },
+    { inputTokens: null, expected: false },
+    { outputTokens: null, expected: false },
+    { inputTokens: 0, outputTokens: 0, expected: true },
   ])('identifies price-lookup candidates without promising a computed cost: %j', ({
-    provider,
-    reportedCostUsd,
     expected,
+    ...changes
   }) => {
-    const summary = summarizeAccountUsage([{ ...group, provider, reportedCostUsd }], [], null);
+    const summary = summarizeAccountUsage([{ ...group, ...changes }], [], null);
     expect(summary.hasCostEstimateCandidates).toBe(expected);
     expect(summary.estimatedCostUsd).toBeNull();
   });
