@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderHeaderModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderHeader from '../../../../components/workspace/shell/WorkspaceReaderHeader.tsx';
+import { setAccountLocale } from '../../../../i18n/uiMessages.ts';
 
 vi.mock('../../../../components/workspace/UnifiedAudioPanel.tsx', () => ({
   default: () => <div data-testid="music-player" />,
@@ -66,6 +67,21 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
 });
 
 describe('WorkspaceReaderHeader', () => {
+  test('updates memoized controls when only the account locale changes, preserving the open dialog', async () => {
+    const user = userEvent.setup();
+    setAccountLocale('it');
+    const view = render(<WorkspaceReaderHeader {...buildProps()} />);
+    try {
+      await user.click(screen.getByRole('button', { name: /Rigenera/i }));
+      act(() => setAccountLocale('en'));
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Annulla' })).toBeNull();
+    } finally {
+      view.unmount();
+      setAccountLocale(null);
+    }
+  });
   test('asks confirmation before regenerating the current lesson', async () => {
     const user = userEvent.setup();
     const props = buildProps();

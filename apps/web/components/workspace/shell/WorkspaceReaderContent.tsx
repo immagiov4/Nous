@@ -961,6 +961,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   sourcePageRangeLabel,
   ttsTextPicker,
 }: WorkspaceReaderContentModel) {
+  useAppLocale();
   const [hasDismissedContextHint, setHasDismissedContextHint] = useState(() => {
     if (typeof globalThis.window === 'undefined') {
       return false;
@@ -1439,3 +1440,5 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
 });
 
 export default WorkspaceReaderContent;
+
+import { useAppLocale } from '../../../hooks/useAppLocale.ts';

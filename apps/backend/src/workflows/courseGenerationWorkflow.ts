@@ -8,9 +8,7 @@ import {
 } from './courseGenerationResearch.js';
 import {
   type CourseDraftPlanState,
-  CourseDraftPlanStateSchema,
   type CourseExercisesState,
-  CourseExercisesStateSchema,
   type CourseGenerationStage,
   type CourseGenerationStageContext,
   type CourseGenerationWorkflowConfig,
@@ -22,17 +20,13 @@ import {
   type CoursePersistenceState,
   CoursePersistenceStateSchema,
   type CoursePlanState,
-  CoursePlanStateSchema,
   type CoursePlanVerificationState,
-  CoursePlanVerificationStateSchema,
   type CoursePreparationState,
-  CoursePreparationStateSchema,
   type CourseRefinedPlanState,
-  CourseRefinedPlanStateSchema,
   type CourseResearchState,
-  CourseResearchStateSchema,
   type CourseSourcesFinalizedState,
-  CourseSourcesFinalizedStateSchema,
+  courseGenerationStateSchemas,
+  previousCourseGenerationStateSchemas,
   validateRefinedCoursePlan,
 } from './courseGenerationWorkflowContract.js';
 import {
@@ -131,15 +125,6 @@ const runStage = async <Input, Output, Services extends CourseGenerationWorkflow
   });
 };
 
-// These schemas are part of the immediately previous durable manifest. Active runs may
-// still hold its hash, so changing this shape would make those runs impossible to resume.
-const PreviousCourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend({
-  plan: CoursePlanStateSchema.shape.plan,
-  researchCoursePlan: CoursePlanStateSchema.shape.researchCoursePlan,
-  stage: z.literal('plan'),
-  syllabus: CoursePlanStateSchema.shape.syllabus,
-});
-
 type CoursePlanningTopology = 'current' | 'previous';
 
 const withStageInput = <Input, NextInput>(
@@ -166,8 +151,28 @@ const createCourseGenerationWorkflowDefinition = <
 >(
   executionDefaults: Config,
   configSchema: z.ZodType<Config>,
-  planningTopology: CoursePlanningTopology
+  planningTopology: CoursePlanningTopology,
+  schemas = courseGenerationStateSchemas
 ) => {
+  const {
+    CoursePreparationStateSchema,
+    CourseResearchStateSchema,
+    CourseDraftPlanStateSchema,
+    CoursePlanVerificationStateSchema,
+    CourseRefinedPlanStateSchema,
+    CoursePlanStateSchema,
+    CourseSourcesFinalizedStateSchema,
+    CourseExercisesStateSchema,
+  } = schemas;
+  // The old topology keeps its original draft shape and profile contract.
+  const PreviousCourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend(
+    {
+      plan: CoursePlanStateSchema.shape.plan,
+      researchCoursePlan: CoursePlanStateSchema.shape.researchCoursePlan,
+      stage: z.literal('plan'),
+      syllabus: CoursePlanStateSchema.shape.syllabus,
+    }
+  );
   const prepareCourse = step<
     typeof CourseGenerationWorkflowInputSchema,
     typeof CoursePreparationStateSchema,
@@ -188,7 +193,7 @@ const createCourseGenerationWorkflowDefinition = <
       ),
   });
 
-  const courseResearch = createCourseResearchNode<Config, Services>();
+  const courseResearch = createCourseResearchNode<Config, Services>(schemas);
 
   const draftCoursePlan = step<
     typeof CourseResearchStateSchema,
@@ -388,7 +393,7 @@ const createCourseGenerationWorkflowDefinition = <
     select: input => input.strategy,
   });
 
-  const finalizeCourseSources = createCourseSourceFinalizationNode<Config, Services>();
+  const finalizeCourseSources = createCourseSourceFinalizationNode<Config, Services>(schemas);
 
   const placeApplicationExercises = step<
     typeof CourseSourcesFinalizedStateSchema,
@@ -540,5 +545,20 @@ export const createPreviousCourseGenerationWorkflow = <
   createCourseGenerationWorkflowDefinition<Config, Services>(
     executionDefaults,
     configSchema,
-    'previous'
+    'previous',
+    previousCourseGenerationStateSchemas
+  );
+
+export const createPreviousPreferencesCourseGenerationWorkflow = <
+  Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
+  Services extends CourseGenerationWorkflowServices = CourseGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createCourseGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    'current',
+    previousCourseGenerationStateSchemas
   );

@@ -21,6 +21,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   shouldUseDesktopSidebar,
   sidebar,
 }: WorkspaceReaderShellProps) {
+  useAppLocale();
   const { viewportHeight } = useMobileKeyboardOffset();
 
   useEffect(() => {
@@ -151,3 +152,5 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
 });
 
 export default WorkspaceReaderShell;
+
+import { useAppLocale } from '../../hooks/useAppLocale.ts';

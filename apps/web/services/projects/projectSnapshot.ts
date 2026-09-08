@@ -593,6 +593,9 @@ const parseUserProfile = (value: unknown): UserProfile | null => {
     topic: ensureString(value.topic),
     experienceLevel: ensureString(value.experienceLevel),
     learningStyle: ensureString(value.learningStyle),
+    ...(typeof value.teachingPreferences === 'string'
+      ? { teachingPreferences: value.teachingPreferences }
+      : {}),
     goals: ensureString(value.goals),
     context: ensureString(value.context),
     language: ensureString(value.language, 'Italiano'),

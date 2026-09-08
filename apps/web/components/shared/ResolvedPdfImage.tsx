@@ -16,6 +16,7 @@ const ResolvedPdfImage = ({
   projectId,
   ...imageProps
 }: ResolvedPdfImageProps) => {
+  useAppLocale();
   const resolution = useResolvedProjectDocumentImage(image, projectId);
   if (resolution.status === 'ready' && resolution.result) {
     return <img {...imageProps} alt={alt} className={className} src={resolution.result.src} />;
@@ -37,3 +38,5 @@ const ResolvedPdfImage = ({
 };
 
 export default memo(ResolvedPdfImage);
+
+import { useAppLocale } from '../../hooks/useAppLocale.ts';

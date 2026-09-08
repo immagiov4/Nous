@@ -1,3 +1,4 @@
+import type { AccountPreferences } from '@shared/accountPreferences.js';
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { LessonNode, ProjectSource } from '../../../web/types.js';
@@ -13,6 +14,23 @@ const aiMocks = vi.hoisted(() => ({
 }));
 
 const fetchMock = vi.hoisted(() => vi.fn());
+const accountMocks = vi.hoisted(() => ({
+  readCurrentAccountPreferences: vi.fn(
+    async (): Promise<AccountPreferences> => ({
+      interfaceLocale: null,
+      contentLanguage: null,
+      teachingPreferences: '',
+    })
+  ),
+}));
+vi.mock('../../src/account/accountStore.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/account/accountStore.js')>()),
+  readCurrentAccountPreferences: accountMocks.readCurrentAccountPreferences,
+}));
+vi.mock('../../src/routes/chatPrompts.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/routes/chatPrompts.js')>();
+  return { ...actual, buildLibrarySystemPrompt: vi.fn(actual.buildLibrarySystemPrompt) };
+});
 
 const openRouterMocks = vi.hoisted(() => ({
   createOpenRouter: vi.fn(),
@@ -83,6 +101,7 @@ vi.mock('../../src/config/chatConfig.js', async () => {
 const { createApp } = await import('../../src/index.js');
 const { CHAT_TOOL_STEP_LIMIT, MAX_CONTEXT_CHARS, serializeContextSourceReferencesForPrompt } =
   await import('../../src/routes/chatPrompts.js');
+const { buildLibrarySystemPrompt } = await import('../../src/routes/chatPrompts.js');
 const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
 );
@@ -1644,6 +1663,8 @@ describe('POST /api/chat/context', () => {
 
 describe('POST /api/chat/library', () => {
   beforeEach(() => {
+    vi.mocked(buildLibrarySystemPrompt).mockClear();
+    accountMocks.readCurrentAccountPreferences.mockClear();
     process.env = { ...ORIGINAL_ENV };
     aiMocks.convertToModelMessages.mockReset();
     aiMocks.pipeUIMessageStreamToResponse.mockReset();
@@ -1920,6 +1941,61 @@ describe('POST /api/chat/library', () => {
     expect(chatConfigMocks.requireOpenAiApiKey).toHaveBeenCalledTimes(1);
     expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
     expect(codexStreamMocks.createCodexChatStream).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    {
+      interfaceLocale: 'it',
+      preferences: { interfaceLocale: null, contentLanguage: null, teachingPreferences: '' },
+      expected: 'Italiano',
+    },
+    {
+      interfaceLocale: 'it',
+      preferences: { interfaceLocale: null, contentLanguage: '日本語', teachingPreferences: '' },
+      expected: '日本語',
+    },
+    {
+      interfaceLocale: undefined,
+      preferences: { interfaceLocale: null, contentLanguage: null, teachingPreferences: '' },
+      expected: 'Italiano',
+    },
+    {
+      interfaceLocale: 'en',
+      preferences: { interfaceLocale: null, contentLanguage: null, teachingPreferences: '' },
+      expected: 'English',
+    },
+    {
+      interfaceLocale: 'it',
+      preferences: {
+        interfaceLocale: 'en' as const,
+        contentLanguage: null,
+        teachingPreferences: '',
+      },
+      expected: 'English',
+    },
+  ])('passes the account AI language into general-chat composition: $expected', async ({
+    interfaceLocale,
+    preferences,
+    expected,
+  }) => {
+    accountMocks.readCurrentAccountPreferences.mockResolvedValueOnce(preferences);
+    const token = authenticateProvider('openai');
+    const messages = [
+      { id: '1', role: 'user', content: 'Please answer in Spanish for this conversation.' },
+    ];
+    const response = await request(createApp())
+      .post('/api/chat/library')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ interfaceLocale, messages });
+    expect(response.status).toBe(200);
+    expect(accountMocks.readCurrentAccountPreferences).toHaveBeenCalledExactlyOnceWith('user-123');
+    expect(buildLibrarySystemPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ responseLanguage: expected })
+    );
+    expect(aiMocks.convertToModelMessages).toHaveBeenCalledWith(
+      [{ role: 'user', content: messages[0].content }],
+      expect.any(Object)
+    );
   });
 
   test('uses the dedicated OpenRouter research model for library web search', async () => {

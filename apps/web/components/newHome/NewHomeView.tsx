@@ -311,7 +311,6 @@ const NewHomeSidebar = ({
 const MobileHeader = ({
   activePage,
   isDarkMode,
-  isPhoneViewport,
   onExportLibraryBackup,
   onImportLibraryBackup,
   onNavigate,
@@ -319,7 +318,6 @@ const MobileHeader = ({
 }: {
   activePage: NewHomePage;
   isDarkMode: boolean;
-  isPhoneViewport: boolean;
   onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   onImportLibraryBackup?: (file: File) => Promise<number>;
   onNavigate: (page: NewHomePage) => void;
@@ -332,7 +330,7 @@ const MobileHeader = ({
         alt="Nous"
         className="h-7 w-7 object-contain"
       />
-      <span className="font-serif text-lg">Nous</span>
+      <span className="hidden font-serif text-lg sm:inline">Nous</span>
     </button>
     <nav className="flex items-center gap-1 text-sm">
       <button
@@ -353,7 +351,7 @@ const MobileHeader = ({
     <AccountMenu
       onExportLibraryBackup={onExportLibraryBackup}
       onImportLibraryBackup={onImportLibraryBackup}
-      themeToggle={isPhoneViewport ? { isDarkMode, onToggle: onToggleDarkMode } : undefined}
+      themeToggle={{ isDarkMode, onToggle: onToggleDarkMode }}
     />
   </header>
 );
@@ -2107,7 +2105,6 @@ export const NewHomeView = ({
       <MobileHeader
         activePage={activePage}
         isDarkMode={isDarkMode}
-        isPhoneViewport={isPhoneViewport}
         onExportLibraryBackup={onExportLibraryBackup}
         onImportLibraryBackup={onImportLibraryBackup}
         onNavigate={navigate}

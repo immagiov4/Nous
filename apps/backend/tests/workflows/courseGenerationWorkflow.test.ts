@@ -7,6 +7,7 @@ import {
   type CourseGenerationWorkflowServices,
   createCourseGenerationWorkflow,
   createPreviousCourseGenerationWorkflow,
+  createPreviousPreferencesCourseGenerationWorkflow,
 } from '../../src/workflows/courseGenerationWorkflow.js';
 import {
   type CourseDraftPlanState,
@@ -28,6 +29,7 @@ import {
   createWorkflowRegistry,
   preCompatibilityIdAndExternalEffectPrevious,
   preExternalEffectPrevious,
+  preProviderPostprocessingPrevious,
 } from '../../src/workflows/definition.js';
 import type { EmitDefinition, StepDefinition, WorkflowNode } from '../../src/workflows/types.js';
 import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
@@ -243,6 +245,88 @@ const findNode = (
 };
 
 describe('course generation workflow', () => {
+  test('retains the main-branch manifests from before account preferences', () => {
+    const previous = createPreviousPreferencesCourseGenerationWorkflow(config);
+    const registration = createWorkflowRegistry().register({
+      current: createCourseGenerationWorkflow(config),
+      previous: [
+        previous,
+        preProviderPostprocessingPrevious(previous),
+        preExternalEffectPrevious(previous),
+      ],
+    });
+    // Generated from the unmodified e042482 sources, independently of the compatibility factory.
+    expect(registration.previousDefinitions.map(definition => definition.definitionHash)).toEqual([
+      '7a7eae555d7000a34417e56eb408bd46ffa59df9ffc90ac54c9031447ec02202',
+      '71ff9be9f1879c72a4a195d1a7f46c192158ad139b6f01c20edf8fbc60de448f',
+      '8a3cd86a51b085ac89331435cebe6b1f00007213aab0e5bb681f3d0258a0e4d4',
+    ]);
+  });
+
+  test.each([
+    'current',
+    'previous',
+  ] as const)('preserves the %s profile contract through research, planning and source finalization', async version => {
+    const definition =
+      version === 'current'
+        ? createCourseGenerationWorkflow(config)
+        : createPreviousPreferencesCourseGenerationWorkflow(config);
+    const profile = {
+      context: 'University',
+      experienceLevel: 'Beginner',
+      goals: 'Understand',
+      language: 'Italiano',
+      learningStyle: 'Examples',
+      topic: 'Systems',
+      ...(version === 'current' ? { teachingPreferences: 'One step at a time.' } : {}),
+    };
+    const prepared = { ...preparationState, context: { ...preparationState.context, profile } };
+    const research = findNode('gather-course-research', definition);
+    expect(research.inputSchema.parse(prepared)).toMatchObject({ context: { profile } });
+    const researched = CourseResearchStateSchema.parse({
+      ...prepared,
+      research: draftPlanState.research,
+      stage: 'research',
+    });
+    const drafted = { ...draftPlanState, context: prepared.context };
+    const draft = findNode('draft-course-plan', definition) as StepDefinition<
+      CourseResearchState,
+      CourseDraftPlanState,
+      CourseGenerationWorkflowConfig,
+      CourseGenerationWorkflowServices
+    >;
+    const services = makeServices({
+      draftCoursePlan: vi.fn(async ({ input }) => ({ ...drafted, context: input.context })),
+    });
+    const context = {
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'draft', runId: 'resumed' },
+      idempotencyKey: 'draft',
+      input: researched,
+      retryFeedback: '',
+      services,
+      signal: new AbortController().signal,
+    };
+    const output = draft.outputSchema.parse(await draft.run(context));
+    expect(output.context.profile).toEqual(profile);
+    expect(services.draftCoursePlan).toHaveBeenCalledWith(
+      expect.objectContaining({ input: expect.objectContaining({ context: prepared.context }) })
+    );
+    const finalization = findNode(
+      'prepare-course-source-finalization',
+      definition
+    ) as StepDefinition<
+      CoursePlanState,
+      unknown,
+      CourseGenerationWorkflowConfig,
+      CourseGenerationWorkflowServices
+    >;
+    const finalized = finalization.outputSchema.parse(
+      await finalization.run({ ...context, input: { ...planState, context: prepared.context } })
+    );
+    expect(finalized).toMatchObject({ kind: 'ready', result: { context: { profile } } });
+  });
   test('routes every strategy through the same durable planning contract', () => {
     const definition = createCourseGenerationWorkflow(config);
     const registered = createWorkflowRegistry().register({ current: definition }).current;

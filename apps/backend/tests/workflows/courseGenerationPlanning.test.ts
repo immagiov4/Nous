@@ -123,6 +123,23 @@ const verification = {
 };
 
 describe('course generation planning', () => {
+  test.each([
+    'One concept at a time. Keep technical details.',
+    '',
+  ])('carries explicit course teaching preferences into the lesson instructions: %j', teachingPreferences => {
+    const state = {
+      ...researchState,
+      context: {
+        ...researchState.context,
+        profile: { ...researchState.context.profile, teachingPreferences },
+      },
+    };
+    const output = buildCoursePlanOutput(rawPlan(), state, '2026-09-08T12:00:00Z');
+    expect(output.plan.generationNotes).toBe(teachingPreferences);
+    expect(
+      buildCoursePlanOutput(rawPlan(), researchState, '2026-09-08T12:00:00Z').plan.generationNotes
+    ).toBeUndefined();
+  });
   test('rejects whitespace-only required raw course text', () => {
     expect(() =>
       buildCoursePlanState(

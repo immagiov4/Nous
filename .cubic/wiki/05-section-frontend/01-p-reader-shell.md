@@ -178,3 +178,15 @@ export interface WorkspaceReaderShellProps {
 ### Mobile Optimization
 The interface uses `useMobileKeyboardOffset` to calculate available height, especially important for iOS devices where the virtual keyboard shifts the viewport. It dynamically adjusts the container height using `dvh` units or absolute pixel values derived from the hook.
 Sources: [apps/web/components/workspace/WorkspaceReaderShell.tsx:18-20](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L18-L20), [apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx:219-223](../../../apps/web/tests/components/workspace/WorkspaceReaderShell.test.tsx#L219-L223)
+
+## Account menu and settings
+
+`AccountMenu` keeps the account entry in the home navigation. Clicking it shows the available account name/email, recorded usage, Settings and sign out. Reporting a problem and the theme shortcut remain separate controls. Existing metadata cleanup can remove provider names, so an absent name is represented by the real email address.
+
+`AccountSettingsDialog` owns a centered, scrollable window with language/learning, account/security and data/backup categories. Category navigation moves above the content on narrow screens. It focuses the heading on entry, traps Tab inside the window, closes on Escape and returns focus to the account button. `initialSection` supports opening a category directly. Security and backup actions retain their existing handlers. The preference draft remains mounted across category changes and is discarded on closing the window.
+
+`PreferencesPanel` loads and saves through the authenticated account API. Interface language is IT/EN or the browser language; selecting the browser option restores the existing nullable default without clearing AI language or teaching preferences. AI language is free text and follows the interface when empty. Teaching preferences are optional free text and can be cleared together with the saved language defaults. Saving the interface locale notifies the app through `useAccountLocale`; session changes clear the previous account's locale before loading the new account. This destination does not introduce a first-run questionnaire.
+
+Successful preference reads also apply the saved locale, allowing recovery from an initial read failure. Reads that started before or during a completed preference mutation cannot overwrite its locale. Memoized reader and visual components subscribe through `useAppLocale`, preserving their local state while translations update. Panel loads discard obsolete responses, including StrictMode's repeated effect setup. The account popup keeps informational usage outside the menu-command role; Tab and Escape close commands and restore the account trigger.
+
+Sources: [AccountMenu.tsx](../../../apps/web/components/account/AccountMenu.tsx), [AccountSettingsDialog.tsx](../../../apps/web/components/account/AccountSettingsDialog.tsx), [PreferencesPanel.tsx](../../../apps/web/components/account/PreferencesPanel.tsx), [useAccountLocale.ts](../../../apps/web/hooks/useAccountLocale.ts)

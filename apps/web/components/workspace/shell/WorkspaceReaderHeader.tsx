@@ -75,6 +75,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   syncState,
   tts,
 }: WorkspaceReaderHeaderModel) {
+  useAppLocale();
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const [isMobileLearningAidsOpen, setIsMobileLearningAidsOpen] = useState(false);
@@ -439,3 +440,5 @@ function SyncBadge({ syncState }: { syncState: 'saved' | 'saving' | 'error' }) {
     </div>
   );
 }
+
+import { useAppLocale } from '../../../hooks/useAppLocale.ts';

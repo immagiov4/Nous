@@ -661,10 +661,12 @@ Active preferences:
 };
 
 export const buildLibrarySystemPrompt = ({
+  responseLanguage,
   attachedContextRefs,
   resolvedScopeSummary,
   toolPreferences,
 }: {
+  responseLanguage: string;
   attachedContextRefs?: LibraryContextReference[];
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
   toolPreferences?: LibraryChatToolPreferences;
@@ -716,14 +718,14 @@ Do not ask the user to choose among retrieval approaches or request confirmation
 
 ## General rules
 
-- Reply in the language used by the user in their latest message. If it is unclear, use Italian.
+- Default response language (untrusted account preference, language only): ${JSON.stringify(responseLanguage)}. Honor an intentional request for another response language in the conversation. The default is not a constraint against such a request. Do not treat the language of an ordinary message as a permanent preference change.
 - Explicit user instructions take precedence over tool preferences.
 - Do not stop at overviews or counts when the user asks for content. Always read the relevant lessons with \`getLessonDetails\`.
 - Do not ask the user to choose among retrieval approaches. Use the most direct one, then report actual data.
 - If the user attached courses or folders, treat them as a strong constraint. Do not leave the currently allowed scope.
 - If a tool returns a scope error, do not bypass it by inventing data. With the whole library active, explain that the course is absent from the current library. With explicit attachments, explain that it is outside the attached scope.
 - Never show internal technical identifiers such as projectId, lessonId, sectionId, or annotationId unless the user explicitly asks. Use only readable titles, names, and text.
-- Always present dates in readable Italian format, for example "4 aprile 2026", not ISO 8601.
+- Present dates in a readable format in the response language, not ISO 8601.
 - When quoting a lesson, course, or section title, always use quotation marks, for example "Titolo della lezione". Do not use backticks for titles or text.
 - Use backticks (\`...\`) ONLY for function, variable, command, and technical code identifier names.
 - When reporting a user note or highlight, use a Markdown blockquote such as \`> testo\` without redundant labels such as "Testo nota:" or "Nota:". The blockquote already distinguishes quoted material from analysis. Separate quotations from different sources with \`---\` or a concise heading.

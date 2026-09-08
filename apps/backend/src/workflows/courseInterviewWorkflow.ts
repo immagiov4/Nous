@@ -1,4 +1,8 @@
 import {
+  type CoursePreferenceDefaults,
+  CoursePreferenceDefaultsSchema,
+} from '@shared/accountPreferences.js';
+import {
   COURSE_INTERVIEW_DECISION_SIGNAL,
   COURSE_INTERVIEW_ENDED_EVENT,
   COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
@@ -11,7 +15,8 @@ import {
   CourseInterviewGenerationStartedEventSchema,
   CourseInterviewMessageEventSchema,
   CourseInterviewMessageSchema,
-  CourseInterviewProposalReadyEventSchema,
+  type CourseInterviewProposalReadyEventSchema,
+  CourseInterviewProposalSchema,
   CourseInterviewResultSchema,
   CourseInterviewStartFieldsSchema,
   CourseInterviewUserAnswerSignalSchema,
@@ -22,7 +27,7 @@ import * as z from 'zod';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { WorkflowExecutionDefaultsSchema } from './config.js';
 import type { CourseInterviewTurn } from './courseInterviewModel.js';
-import { CourseInterviewTurnSchema } from './courseInterviewModel.js';
+import { createCourseInterviewTurnSchema } from './courseInterviewModel.js';
 import {
   continueRepeatWith,
   emit,
@@ -45,37 +50,85 @@ import type {
 
 export { COURSE_INTERVIEW_WORKFLOW_ID } from '@shared/courseInterviewContract.js';
 
+const PreviousCourseInterviewStartFieldsSchema = z.object({
+  hasReliableSourceContext: CourseInterviewStartFieldsSchema.shape.hasReliableSourceContext,
+  initialMessage: CourseInterviewStartFieldsSchema.shape.initialMessage,
+  mode: CourseInterviewStartFieldsSchema.shape.mode,
+  projectId: CourseInterviewStartFieldsSchema.shape.projectId,
+  requestKey: CourseInterviewStartFieldsSchema.shape.requestKey,
+  sourceContext: CourseInterviewStartFieldsSchema.shape.sourceContext,
+});
+const PreviousCourseInterviewProposalSchema = z.object({
+  context: CourseInterviewProposalSchema.shape.context,
+  experienceLevel: CourseInterviewProposalSchema.shape.experienceLevel,
+  goals: CourseInterviewProposalSchema.shape.goals,
+  language: CourseInterviewProposalSchema.shape.language,
+  learningStyle: CourseInterviewProposalSchema.shape.learningStyle,
+  topic: CourseInterviewProposalSchema.shape.topic,
+});
+
 export const CourseInterviewWorkflowInputSchema = CourseInterviewStartFieldsSchema.omit({
   requestKey: true,
-}).extend({ userId: z.string().min(1) });
+}).extend({
+  userId: z.string().min(1),
+  preferenceDefaults: CoursePreferenceDefaultsSchema.optional(),
+});
 
+const createInterviewSchemas = (preferences: 'current' | 'previous') => {
+  const proposalSchema =
+    preferences === 'current'
+      ? CourseInterviewProposalSchema
+      : PreviousCourseInterviewProposalSchema;
+  const inputSchema = PreviousCourseInterviewStartFieldsSchema.omit({
+    requestKey: true,
+  }).extend({
+    userId: z.string().min(1),
+  });
+  // The historical output is a valid subset because the new fields are optional.
+  const workflowInputSchema =
+    preferences === 'current'
+      ? CourseInterviewWorkflowInputSchema
+      : (inputSchema as typeof CourseInterviewWorkflowInputSchema);
+  const CourseInterviewProposalReadyEventSchema = z.object({ proposal: proposalSchema });
+
+  const CourseInterviewDecisionStateSchema = z.enum(['active', 'approve', 'cancel', 'exhausted']);
+
+  const CourseInterviewStateSchema = workflowInputSchema
+    .omit({
+      initialMessage: true,
+    })
+    .extend({
+      decision: CourseInterviewDecisionStateSchema,
+      generationRunId: z.string().min(1).optional(),
+      messages: z.array(CourseInterviewMessageSchema),
+      profile: CourseInterviewProposalReadyEventSchema.shape.proposal.optional(),
+    });
+
+  const CourseInterviewTurnStateSchema = z.object({
+    state: CourseInterviewStateSchema,
+    turn: createCourseInterviewTurnSchema(proposalSchema),
+  });
+
+  const CourseInterviewRepeatDecisionSchema = repeatDecisionSchema(CourseInterviewStateSchema);
+  return {
+    CourseInterviewWorkflowInputSchema: workflowInputSchema,
+    CourseInterviewStateSchema,
+    CourseInterviewTurnStateSchema,
+    CourseInterviewRepeatDecisionSchema,
+    CourseInterviewProposalReadyEventSchema,
+  };
+};
+
+const currentInterviewSchemas = createInterviewSchemas('current');
+const { CourseInterviewStateSchema, CourseInterviewTurnStateSchema } = currentInterviewSchemas;
 export type CourseInterviewWorkflowInput = z.infer<typeof CourseInterviewWorkflowInputSchema>;
 
 export const CourseInterviewWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
   models: GlobalModelConfigSchema,
 });
-
 export type CourseInterviewWorkflowConfig = WorkflowExecutionDefaults & {
   readonly models: GlobalModelConfig;
 };
-
-const CourseInterviewDecisionStateSchema = z.enum(['active', 'approve', 'cancel', 'exhausted']);
-
-const CourseInterviewStateSchema = CourseInterviewWorkflowInputSchema.omit({
-  initialMessage: true,
-}).extend({
-  decision: CourseInterviewDecisionStateSchema,
-  generationRunId: z.string().min(1).optional(),
-  messages: z.array(CourseInterviewMessageSchema),
-  profile: CourseInterviewProposalReadyEventSchema.shape.proposal.optional(),
-});
-
-const CourseInterviewTurnStateSchema = z.object({
-  state: CourseInterviewStateSchema,
-  turn: CourseInterviewTurnSchema,
-});
-
-const CourseInterviewRepeatDecisionSchema = repeatDecisionSchema(CourseInterviewStateSchema);
 
 type CourseInterviewState = z.infer<typeof CourseInterviewStateSchema>;
 type CourseInterviewTurnState = z.infer<typeof CourseInterviewTurnStateSchema>;
@@ -90,6 +143,7 @@ interface CourseInterviewCleanupInput {
 
 export interface CourseInterviewWorkflowServices {
   readonly assessTurn: (input: {
+    preferenceDefaults?: CoursePreferenceDefaults;
     config: DeepReadonly<GlobalModelConfig>;
     hasReliableSourceContext: boolean;
     messages: readonly z.infer<typeof CourseInterviewMessageSchema>[];
@@ -147,8 +201,16 @@ export const createCourseInterviewWorkflow = (
   executionDefaults: CourseInterviewWorkflowConfig,
   maxIterations: number,
   configSchema: z.ZodType<CourseInterviewWorkflowConfig> = CourseInterviewWorkflowConfigSchema,
-  profilePersistence: 'commit' | 'run' = 'commit'
+  profilePersistence: 'commit' | 'run' = 'commit',
+  preferences: 'current' | 'previous' = 'current'
 ) => {
+  const {
+    CourseInterviewWorkflowInputSchema,
+    CourseInterviewStateSchema,
+    CourseInterviewTurnStateSchema,
+    CourseInterviewRepeatDecisionSchema,
+    CourseInterviewProposalReadyEventSchema,
+  } = preferences === 'current' ? currentInterviewSchemas : createInterviewSchemas('previous');
   const emitInitialMessage = emit({
     event: COURSE_INTERVIEW_MESSAGE_EVENT,
     id: 'emit-initial-course-interview-message',
@@ -217,6 +279,7 @@ export const createCourseInterviewWorkflow = (
     outputSchema: CourseInterviewStateSchema,
     run: async ({ input }) => ({
       decision: 'active',
+      ...(input.preferenceDefaults ? { preferenceDefaults: input.preferenceDefaults } : {}),
       hasReliableSourceContext: input.hasReliableSourceContext,
       messages: input.initialMessage ? [{ role: 'user', text: input.initialMessage }] : [],
       mode: input.mode,
@@ -239,6 +302,7 @@ export const createCourseInterviewWorkflow = (
     run: async ({ config, input, services, signal }) => ({
       state: input,
       turn: await services.assessTurn({
+        ...(input.preferenceDefaults ? { preferenceDefaults: input.preferenceDefaults } : {}),
         config: config.models,
         hasReliableSourceContext: input.hasReliableSourceContext,
         messages: input.messages,

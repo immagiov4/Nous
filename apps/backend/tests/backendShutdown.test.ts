@@ -7,6 +7,7 @@ describe('closeBackendResources', () => {
     const closeHttpServer = vi.fn(async () => undefined);
     const closeLibraryExports = vi.fn(() => exportsClosed.promise);
     const closing = closeBackendResources({
+      closeAccountStore: vi.fn(async () => undefined),
       closeHttpServer,
       closeLibraryExports,
       closeCodex: vi.fn(async () => undefined),
@@ -31,9 +32,11 @@ describe('closeBackendResources', () => {
     });
     const closeHttpServer = vi.fn(async () => undefined);
     const closeLibraryExports = vi.fn(async () => undefined);
+    const closeAccountStore = vi.fn(async () => undefined);
 
     await expect(
       closeBackendResources({
+        closeAccountStore,
         closeCodex,
         closeHttpServer,
         closeLibraryExports,
@@ -47,5 +50,6 @@ describe('closeBackendResources', () => {
     expect(closeWorkflow).toHaveBeenCalledOnce();
     expect(closeHttpServer).toHaveBeenCalledOnce();
     expect(closeLibraryExports).toHaveBeenCalledOnce();
+    expect(closeAccountStore).toHaveBeenCalledOnce();
   });
 });

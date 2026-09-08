@@ -2,11 +2,43 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
+  CourseInterviewModelTurnSchema,
   CourseInterviewTurnSchema,
   createCourseInterviewModel,
 } from '../../src/workflows/courseInterviewModel.js';
 
 describe('course interview model', () => {
+  test('new proposals expose course preferences while persisted legacy turns remain readable', () => {
+    const legacy = {
+      kind: 'proposal',
+      message: 'Ready.',
+      proposal: {
+        context: 'Student',
+        experienceLevel: 'base',
+        goals: 'Understand trees',
+        language: 'Italiano',
+        learningStyle: 'examples',
+        topic: 'Trees',
+      },
+    };
+    expect(CourseInterviewTurnSchema.safeParse(legacy).success).toBe(true);
+    expect(CourseInterviewModelTurnSchema.safeParse(legacy).success).toBe(false);
+    const overridden = {
+      ...legacy,
+      proposal: {
+        ...legacy.proposal,
+        language: '日本語',
+        teachingPreferences: 'Use worked examples.',
+      },
+    };
+    expect(CourseInterviewModelTurnSchema.parse(overridden)).toEqual(overridden);
+    expect(
+      CourseInterviewModelTurnSchema.parse({
+        ...overridden,
+        proposal: { ...overridden.proposal, teachingPreferences: '' },
+      })
+    ).toMatchObject({ proposal: { teachingPreferences: '' } });
+  });
   test('uses the assessment slot and preserves reliable source context', async () => {
     const generateObject = vi.fn().mockResolvedValue({
       kind: 'question',
@@ -26,7 +58,7 @@ describe('course interview model', () => {
     expect(result).toEqual({ kind: 'question', message: 'Quale risultato vuoi ottenere?' });
     expect(generateObject).toHaveBeenCalledWith(
       expect.objectContaining({
-        schema: CourseInterviewTurnSchema,
+        schema: CourseInterviewModelTurnSchema,
         slot: 'assessment',
       })
     );

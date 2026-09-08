@@ -220,6 +220,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   shouldShowSidebar,
   sidebarGroups,
 }: WorkspaceReaderSidebarModel) {
+  useAppLocale();
   const [lessonContextMenu, setLessonContextMenu] = useState<null | {
     copied: boolean;
     section: LessonNode;
@@ -595,3 +596,5 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
 });
 
 export default WorkspaceReaderSidebar;
+
+import { useAppLocale } from '../../../hooks/useAppLocale.ts';

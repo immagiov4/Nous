@@ -17,6 +17,7 @@ export const CourseInterviewMessageSchema = z.object({
 });
 
 export const CourseInterviewProposalSchema = z.object({
+  teachingPreferences: z.string().optional(),
   context: NonEmptyTextSchema,
   experienceLevel: NonEmptyTextSchema,
   goals: NonEmptyTextSchema,
@@ -34,6 +35,7 @@ export const CourseInterviewDecisionSignalSchema = z.discriminatedUnion('kind', 
 ]);
 
 export const CourseInterviewStartFieldsSchema = z.object({
+  interfaceLocale: z.enum(['it', 'en']).optional(),
   hasReliableSourceContext: z.boolean(),
   initialMessage: NonEmptyTextSchema.optional(),
   mode: z.enum(['document', 'learn']),
