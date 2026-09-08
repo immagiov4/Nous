@@ -357,6 +357,15 @@ Do not close your eyes after one local fix.
 
 ## Review Feedback Methodology
 
+Apply `.agents/skills/receiving-pr-reviews/SKILL.md` before acting on review findings,
+including PR reviews, local reviewing agents, and self-review.
+
+When a long-running task requires a user decision, use
+`.agents/skills/agent-question-notifications/SKILL.md` to show a persistent desktop
+notice alongside the question in the original conversation. Include that local
+skill path in delegated tasks that may need user input. Dismissing the notice is
+not a response or authorization; continue independent authorized work while waiting.
+
 Treat review findings like bug reports: each finding is evidence of a possible problem class, not merely a request to change the cited line.
 
 Fix a reported bug only after identifying a supported product path that can trigger it, or a material security or reliability risk that justifies defensive work. Trace the path from a real user action or external input to the faulty branch. If the scenario has no plausible supported trigger, is not exploitable, and would require an artificial state the product cannot create, reject the finding with evidence instead of adding code.

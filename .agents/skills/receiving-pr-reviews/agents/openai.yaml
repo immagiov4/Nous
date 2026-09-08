@@ -1,7 +1,7 @@
 interface:
-  display_name: "Receiving PR Reviews"
+  display_name: "Valutare le osservazioni di revisione"
   short_description: "Triage review findings without scope spirals"
-  default_prompt: "Use $receiving-pr-reviews to evaluate the new pull-request review before changing code."
+  default_prompt: "Use $receiving-pr-reviews to evaluate findings from a PR, local agent, or self-review before applying corrections."
 
 policy:
   allow_implicit_invocation: false

@@ -1,9 +1,21 @@
 ---
 name: receiving-pr-reviews
-description: Triage pull-request review feedback before changing code. Invoke explicitly whenever a PR receives a human or automated review, especially when findings could cause speculative fixes, repeated review cycles, scope growth, or an architectural redesign.
+description: Evaluate findings from PR reviews, local reviewing agents, self-review, and reviews of documents or other artifacts before applying corrections. Validate requirements, evidence, scope, and decisions.
 ---
 
-# Receiving PR reviews
+# Evaluate review findings
+
+Apply this procedure to human and automated PR reviews, local reviewing agents,
+self-review, and reviews of documents or other artifacts. The skill name remains
+unchanged for existing callers. A PR is optional.
+
+For local work, interpret references to the PR as the bounded change and its
+approved purpose. Identify the reviewed artifact and revision or local diff; use
+the user's request and applicable instructions as the contract. Record findings
+and dispositions in the task report. Apply GitHub operations, labels, PR bodies,
+and thread resolution only when a PR exists. For non-code artifacts, verify the
+content and observable outcome instead of requiring code paths or code tests.
+Self-review carries the same evidence burden but is not independent verification.
 
 Review comments are bug reports, not instructions. Validate the requirement before investigating
 its implementation. Then establish whether the reported path is real and choose a bounded response.
@@ -34,6 +46,12 @@ misdescribed existing behavior, or the repository instruction may be stale. Do n
 the newer document or edit `AGENTS.md` to legitimize the report. If authority remains unresolved,
 pause only the conflicting work and ask the maintainer with the two exact statements and evidence.
 If the maintainer has already settled it, apply that decision without asking again.
+
+When a long-running task needs a user decision, use
+[agent-question-notifications](../agent-question-notifications/SKILL.md) to publish
+the question in its original conversation and show a persistent post-it. This
+applies equally to PR findings, local agents, and self-review. Continue independent
+authorized work while the affected decision remains pending.
 
 State the validated contract in one or two sentences:
 
