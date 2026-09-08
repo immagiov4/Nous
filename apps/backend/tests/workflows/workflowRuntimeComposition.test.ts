@@ -29,6 +29,8 @@ const PRE_PDF_SOURCE_HASH_LESSON_DEFINITION =
   'ec69547055bd7c687c7d6cec929bb6e6395ed5ec5957674a7c52dcd1a718c378';
 const PRE_WHITESPACE_RESEARCH_LESSON_DEFINITION =
   'c9d21983b2c81796f5b235129cc854faab285ce6b1e076320875d116b91a1954';
+const PRE_QUIZ_EXPLANATION_LESSON_DEFINITION =
+  '6292d426839791f56c4850799d265ad727aaf374c3989f84269ed2e53ef539dc';
 const productionRegistry = createProductionRegistry();
 
 const createStore = (): WorkflowRuntimeCompositionStore => ({
@@ -96,6 +98,15 @@ describe('workflow runtime production composition', () => {
       productionRegistry.resolve(
         LESSON_GENERATION_WORKFLOW_ID,
         PRE_WHITESPACE_RESEARCH_LESSON_DEFINITION
+      )
+    ).not.toBeNull();
+  });
+
+  test('resumes lesson workflows created before quiz explanations were introduced', () => {
+    expect(
+      productionRegistry.resolve(
+        LESSON_GENERATION_WORKFLOW_ID,
+        PRE_QUIZ_EXPLANATION_LESSON_DEFINITION
       )
     ).not.toBeNull();
   });

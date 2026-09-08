@@ -75,6 +75,8 @@ The lesson writer and the existing `quiz-quality` model check consume `ACTIVE_PA
 
 New generations put the case-specific solution in `quiz.explanation`, alongside `correctIndex`. The strict model output includes this string; workflow and saved-project schemas accept its absence for existing quizzes. Normalization preserves it in both `contentBlocks` and the derived quiz array, and persistence saves those representations unchanged.
 
+The workflow registry retains the definition before quiz explanations were added, alongside the existing historical definitions. Those definitions use their preceding quiz, draft, and result schemas so their durable identifiers remain unchanged and in-flight runs can resume under their original contract. The improvement applies to new generations. Historical runs can omit the new explanation even when current model services produce it; they are not migrated.
+
 `WorkspaceReaderInlineQuestion` displays the explanation only after answer selection, whether the answer is right or wrong. Both the typed-block reader and the earlier marker/quiz path use this component. Ordinary lesson Markdown stays visible throughout. The model verifier moves case-specific solutions out of any lesson Markdown into the explanation field while preserving teaching context. This semantic separation is model-owned; there is no text classifier or retrospective rewriting of saved lessons.
 
 Quiz instructions are written in English. Generated questions, options, and explanations follow the requested lesson language.
