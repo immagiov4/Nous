@@ -1,8 +1,10 @@
 import {
   ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
+  ACTIVE_PAUSE_FEEDBACK_RULE,
   ACTIVE_PAUSE_OPTIONS_RULE,
   ACTIVE_PAUSE_PLACEMENT_RULE,
   ACTIVE_PAUSE_TEXT_FORMAT_RULE,
+  EXERCISE_TASK_DISCLOSURE_RULE,
   MAX_LESSON_QUIZ_QUESTIONS,
   ORIGINAL_IMAGE_PRIORITY_RULE,
   ORIGINAL_IMAGE_USAGE_RULES,
@@ -278,7 +280,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le ${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias} o il ${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias} ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. ${ACTIVE_PAUSE_PLACEMENT_RULE} ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
+      return `Keep zero to ${MAX_LESSON_QUIZ_QUESTIONS} active pauses. If the draft has none, add one only when ${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias} or ${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias} explicitly requires it; restore only the minimum necessary number. If no pause exists and none is explicitly required, mark this check as ${LESSON_VERIFICATION_STATUS.notApplicable}. ${ACTIVE_PAUSE_PLACEMENT_RULE} ${EXERCISE_TASK_DISCLOSURE_RULE} ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_FEEDBACK_RULE} For every quiz, record in the quiz-quality evidence why the key is correct and the concrete reason each distractor is wrong. Correct the question and options when a unique answer cannot be justified in context. ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Check that quiz.exerciseType describes the actual reasoning required; correct it against this catalog:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':

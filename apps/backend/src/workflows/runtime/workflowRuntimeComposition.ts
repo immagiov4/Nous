@@ -67,6 +67,7 @@ import {
 import {
   createLessonGenerationWorkflow,
   createPreviousLessonGenerationWorkflow,
+  createPreviousQuizExplanationLessonGenerationWorkflow,
   createPreviousResearchContractLessonGenerationWorkflow,
 } from '../lessonGenerationWorkflow.js';
 import {
@@ -245,6 +246,8 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   );
   const previousResearchContractLessonWorkflow =
     createPreviousResearchContractLessonGenerationWorkflow(lessonWorkflow.executionDefaults);
+  const previousQuizExplanationLessonWorkflow =
+    createPreviousQuizExplanationLessonGenerationWorkflow(lessonWorkflow.executionDefaults);
   const pdfMappingRepairWorkflow = createPdfMappingRepairWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
     models,
@@ -291,6 +294,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: lessonWorkflow,
     previous: [
+      previousQuizExplanationLessonWorkflow,
       previousResearchContractLessonWorkflow,
       previousLessonWorkflow,
       preProviderPostprocessingPrevious(previousLessonWorkflow),

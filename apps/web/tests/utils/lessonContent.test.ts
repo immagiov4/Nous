@@ -1,4 +1,4 @@
-import { deriveLegacyLessonContent } from '@shared/lessonContent';
+import { deriveLegacyLessonContent, isCanonicalLessonContentBlock } from '@shared/lessonContent';
 import { expect, test } from 'vitest';
 
 test('projects canonical Markdown blocks into trimmed legacy content', () => {
@@ -15,4 +15,21 @@ test('projects canonical Markdown blocks into trimmed legacy content', () => {
 
 test('projects empty canonical content to an empty legacy string', () => {
   expect(deriveLegacyLessonContent([])).toBe('');
+});
+
+test('accepts old quizzes and text explanations but rejects malformed explanation payloads', () => {
+  const quiz = { question: 'Quale?', options: ['A', 'B', 'C', 'D'], correctIndex: 0 };
+  expect(isCanonicalLessonContentBlock({ type: 'inline-quiz', quiz })).toBe(true);
+  expect(
+    isCanonicalLessonContentBlock({
+      type: 'inline-quiz',
+      quiz: { ...quiz, explanation: 'Motivo della risposta.' },
+    })
+  ).toBe(true);
+  expect(
+    isCanonicalLessonContentBlock({
+      type: 'inline-quiz',
+      quiz: { ...quiz, explanation: { text: 'Dato non valido' } },
+    })
+  ).toBe(false);
 });

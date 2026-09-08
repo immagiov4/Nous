@@ -151,11 +151,15 @@ const LessonDraftImageReferenceSchema = z.object({
   caption: z.string(),
 });
 
-export const LessonQuizSchema = z.object({
+export const PreviousLessonQuizSchema = z.object({
   correctIndex: z.number().int().nonnegative().max(3),
   exerciseType: LessonIdentifierSchema,
   options: z.array(z.string()).length(4),
   question: LessonIdentifierSchema,
+});
+
+export const LessonQuizSchema = PreviousLessonQuizSchema.extend({
+  explanation: z.string().optional(),
 });
 
 const MarkdownBlockSchema = z.object({
@@ -166,6 +170,11 @@ const MarkdownBlockSchema = z.object({
 const InlineQuizBlockSchema = z.object({
   quiz: LessonQuizSchema,
   type: z.literal('inline-quiz'),
+});
+
+const PreviousInlineQuizBlockSchema = z.object({
+  ...InlineQuizBlockSchema.shape,
+  quiz: PreviousLessonQuizSchema,
 });
 
 const YouTubeClipsBlockSchema = z.object({
@@ -222,6 +231,18 @@ export const LessonContentDraftSchema = z.object({
   imageRefs: z.array(LessonDraftImageReferenceSchema),
 });
 
+export const PreviousLessonContentDraftSchema = z.object({
+  ...LessonContentDraftSchema.shape,
+  contentBlocks: z.array(
+    z.union([
+      MarkdownBlockSchema,
+      PreviousInlineQuizBlockSchema,
+      YouTubeClipsBlockSchema,
+      GeneratedVisualSlotSchema,
+    ])
+  ),
+});
+
 export const ProjectVisualSchema = z.union([
   z.object({ asset: ProjectAssetRefSchema, kind: z.literal('image') }),
   z.object({
@@ -266,6 +287,14 @@ const GeneratedVisualRetryBlockSchema = z.object({
 export const LessonResultBlockSchema = z.union([
   MarkdownBlockSchema,
   InlineQuizBlockSchema,
+  YouTubeClipsBlockSchema,
+  GeneratedVisualResultBlockSchema,
+  GeneratedVisualRetryBlockSchema,
+]);
+
+export const PreviousLessonResultBlockSchema = z.union([
+  MarkdownBlockSchema,
+  PreviousInlineQuizBlockSchema,
   YouTubeClipsBlockSchema,
   GeneratedVisualResultBlockSchema,
   GeneratedVisualRetryBlockSchema,
