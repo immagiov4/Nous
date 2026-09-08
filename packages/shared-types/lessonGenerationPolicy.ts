@@ -67,8 +67,14 @@ export const ACTIVE_PAUSE_PLACEMENT_RULE =
 export const ACTIVE_PAUSE_REASONING_RULE =
   'Ogni pausa deve richiedere almeno discriminazione concettuale, applicazione a un caso nuovo, inferenza, previsione, diagnosi, classificazione, sequenziamento o micro-sintesi. Se la risposta corretta si puo scegliere copiando, parafrasando o riconoscendo per sovrapposizione lessicale una frase o definizione immediatamente vicina, trasformala in un caso nuovo oppure rimuovi la pausa.';
 
+export const EXERCISE_TASK_DISCLOSURE_RULE =
+  'La consegna deve fornire dati, condizioni e vincoli necessari, lasciando allo studente il risultato, la classificazione, la diagnosi o i passaggi che deve ricavare. Non svelare la soluzione del caso specifico nel titolo, nella domanda, nei dati etichettati o in una procedura gia risolta da ricopiare. Mantieni le spiegazioni dei concetti e i prerequisiti utili: rendere il compito autonomo non significa risolverlo al posto dello studente.';
+
 export const ACTIVE_PAUSE_OPTIONS_RULE =
-  'Ogni pausa ha quattro opzioni testualmente distinte e distrattori plausibili rispetto al concetto verificato: le alternative errate devono rappresentare confusioni realistiche, non risposte palesemente assurde.';
+  'Ogni pausa ha quattro opzioni testualmente distinte e una sola risposta corretta e difendibile nelle condizioni dichiarate. Per ciascuna delle tre alternative errate deve esistere un motivo concreto e verificabile nel caso e nel materiale insegnato che la renda sbagliata, pur restando plausibile a chi non padroneggia il concetto. Non basta che sia meno elegante o meno dettagliata della risposta scelta: elimina ambiguita, condizioni taciute e alternative parzialmente vere che rispondono comunque alla domanda. Mantieni le opzioni confrontabili per contenuto, forma grammaticale e livello di dettaglio, senza rendere riconoscibile la corretta per lunghezza, spiegazioni aggiunte o parole copiate dalla domanda. Un distrattore plausibile non dimostra che chi lo sceglie abbia una specifica misconcezione.';
+
+export const ACTIVE_PAUSE_FEEDBACK_RULE =
+  'Non inserire nella domanda o nelle opzioni commenti che rivelano quale risposta e corretta o perche le altre sono errate. Conserva correctIndex per il riscontro dopo la scelta. Mantieni le spiegazioni didattiche nel markdown della lezione; una spiegazione della soluzione del caso specifico deve seguire la pausa, non anticiparla nel testo precedente.';
 
 export const ACTIVE_PAUSE_TEXT_FORMAT_RULE =
   'Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence; preserva soltanto eventuale codice inline interno.';

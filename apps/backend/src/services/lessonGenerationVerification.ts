@@ -1,8 +1,10 @@
 import {
   ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
+  ACTIVE_PAUSE_FEEDBACK_RULE,
   ACTIVE_PAUSE_OPTIONS_RULE,
   ACTIVE_PAUSE_PLACEMENT_RULE,
   ACTIVE_PAUSE_TEXT_FORMAT_RULE,
+  EXERCISE_TASK_DISCLOSURE_RULE,
   MAX_LESSON_QUIZ_QUESTIONS,
   ORIGINAL_IMAGE_PRIORITY_RULE,
   ORIGINAL_IMAGE_USAGE_RULES,
@@ -278,7 +280,7 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
     case 'math-structure':
       return MATH_STRUCTURE_CHECK;
     case 'quiz-quality':
-      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le ${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias} o il ${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias} ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. ${ACTIVE_PAUSE_PLACEMENT_RULE} ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
+      return `Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Se la bozza non contiene pause, non aggiungerne salvo che le ${LESSON_REFERENCE_SECTION_LABELS.personalizationNotes.activePauseVerifierAlias} o il ${LESSON_REFERENCE_SECTION_LABELS.pedagogicalContext.activePauseVerifierAlias} ne richiedano esplicitamente una; se una pausa e richiesta esplicitamente ma manca, aggiungi soltanto il numero minimo necessario. Se non esiste alcuna pausa e nessuna istruzione esplicita la richiede, segna il controllo come ${LESSON_VERIFICATION_STATUS.notApplicable}. ${ACTIVE_PAUSE_PLACEMENT_RULE} ${EXERCISE_TASK_DISCLOSURE_RULE} ${ACTIVE_PAUSE_OPTIONS_RULE} ${ACTIVE_PAUSE_FEEDBACK_RULE} Per ogni quiz, documenta nel campo evidence del controllo quiz-quality perche la risposta e corretta e il motivo concreto per scartare ciascuna alternativa; correggi domanda e opzioni quando non puoi giustificarne l unicita nel contesto. ${ACTIVE_PAUSE_TEXT_FORMAT_RULE} Verifica inoltre che quiz.exerciseType descriva davvero l'operazione mentale richiesta dalla domanda; correggi il campo quando non corrisponde al catalogo seguente:\n${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}`;
     case 'image-reference':
       return IMAGE_REFERENCE_CHECK;
     case 'generated-visual':

@@ -60,11 +60,21 @@ Quizzes must use one of the approved `exerciseType` values, such as `prediction`
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `question` | string | The pedagogical query posed to the student. |
-| `options` | string[] | Array of exactly 4 plausible distractors and one correct answer. |
+| `options` | string[] | Exactly four options: one correct answer and three plausible distractors. |
 | `correctIndex` | integer | Index (0-3) of the correct option. |
 | `exerciseType` | string | The cognitive task required (e.g., inference, classification). |
 
 Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/web/types.ts:251-257](../../../apps/web/types.ts#L251-L257)
+
+### Question quality and answer disclosure
+
+`EXERCISE_TASK_DISCLOSURE_RULE` supplies the shared boundary for lesson questions and lab briefs: provide the facts and constraints needed to solve the task, without supplying the inference, classification, diagnosis, or procedure being tested. Teaching the prerequisite concept remains necessary.
+
+The lesson writer and the existing `quiz-quality` model check consume `ACTIVE_PAUSE_OPTIONS_RULE` and `ACTIVE_PAUSE_FEEDBACK_RULE`. Each distractor must have a concrete contextual error, with only one defensible answer. Comparable grammar and detail prevent wording or conspicuous length from identifying the correct option. The verifier records its rationale for the correct answer and every distractor in the internal check evidence. This is model judgment, not a deterministic proof of quality or a diagnosis of the learner's misconception.
+
+The quiz schema preserves `correctIndex` and has no separate explanation field. `WorkspaceReaderInlineQuestion` displays the answer result after a selection. Teaching explanations remain in lesson Markdown; a solution to the specific quiz case follows its quiz. Subsequent Markdown is not hidden pending a response. Existing saved lessons are not rewritten by these generation rules.
+
+Sources: [shared rules](../../../packages/shared-types/lessonGenerationPolicy.ts), [writer](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [verifier](../../../apps/backend/src/services/lessonGenerationVerification.ts), [answer display](../../../apps/web/components/workspace/shell/WorkspaceReaderInlineQuestion.tsx), [lab brief](../../../apps/web/services/openrouter/exercises/brief.ts).
 
 ## Application Exercises (Labs)
 
