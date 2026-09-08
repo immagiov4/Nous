@@ -3,7 +3,7 @@ import {
   type AccountPreferences,
   AccountPreferencesSchema,
 } from '@shared/accountPreferences';
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type SubmitEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   clearAccountPreferences,
@@ -52,7 +52,7 @@ export default function PreferencesPanel() {
         contentLanguage: draft.contentLanguage?.trim() || null,
       })
     : null;
-  const validationIssues = validation && !validation.success ? validation.error.issues : [];
+  const validationIssues = validation?.error?.issues ?? [];
   const languageInvalid = validationIssues.some(issue => issue.path[0] === 'contentLanguage');
   const teachingInvalid = validationIssues.some(issue => issue.path[0] === 'teachingPreferences');
 
@@ -75,7 +75,7 @@ export default function PreferencesPanel() {
     }
   };
 
-  const onSubmit = (event: FormEvent) => {
+  const onSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (validation?.success) void persist(validation.data);
   };
@@ -100,7 +100,7 @@ export default function PreferencesPanel() {
           ) : null}
         </p>
       ) : null}
-      {draft ? (
+      {draft && (
         <form onSubmit={onSubmit} className="space-y-5">
           <fieldset disabled={pending} className="space-y-5">
             <label className="block text-sm font-medium">
@@ -219,9 +219,10 @@ export default function PreferencesPanel() {
             </div>
           </fieldset>
         </form>
-      ) : !error ? (
+      )}
+      {!draft && !error && (
         <output className="text-sm text-stone-500">{t('Caricamento preferenze...')}</output>
-      ) : null}
+      )}
     </div>
   );
 }

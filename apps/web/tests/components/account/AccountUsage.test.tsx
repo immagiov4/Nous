@@ -17,8 +17,6 @@ const unknownUsage = {
   estimatedCostUsd: null,
   missingCostCalls: 1,
   hasCostEstimateCandidates: true,
-  firstRecordedAt: null,
-  lastRecordedAt: null,
   ratesCheckedAt: null,
 };
 

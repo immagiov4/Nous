@@ -1,5 +1,5 @@
 import { Database, Download, Languages, ShieldCheck, Upload, X } from 'lucide-react';
-import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type SubmitEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
@@ -18,13 +18,7 @@ export type AccountSection = 'preferences' | 'data' | 'security';
 
 const categoryClassName =
   'flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-stone-600 aria-[current=page]:bg-stone-200 aria-[current=page]:text-stone-950 dark:text-zinc-300 dark:aria-[current=page]:bg-zinc-800 dark:aria-[current=page]:text-white';
-type AccountAction =
-  | 'backup-export'
-  | 'backup-import'
-  | 'email'
-  | 'logout'
-  | 'password'
-  | 'recovery';
+type AccountAction = 'backup-export' | 'backup-import' | 'email' | 'password' | 'recovery';
 
 const SUCCESS_MESSAGE_DURATION_MS = 3_000;
 
@@ -127,7 +121,7 @@ export default function AccountSettingsDialog({
     setSuccessMessage('');
   };
 
-  const handleEmailChange = async (event: FormEvent) => {
+  const handleEmailChange = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!newEmail.trim()) {
       return;
@@ -146,7 +140,7 @@ export default function AccountSettingsDialog({
     }
   };
 
-  const handlePasswordChange = async (event: FormEvent) => {
+  const handlePasswordChange = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!newPassword) {
       return;
@@ -224,6 +218,11 @@ export default function AccountSettingsDialog({
     }
   };
 
+  const sectionLabels = {
+    preferences: t('Lingua e apprendimento'),
+    security: t('Account e sicurezza'),
+    data: t('Dati e backup'),
+  };
   return createPortal(
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-3">
       <button
@@ -273,7 +272,7 @@ export default function AccountSettingsDialog({
               className={categoryClassName}
             >
               <Languages className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{t('Lingua e apprendimento')}</span>
+              <span>{sectionLabels.preferences}</span>
             </button>
             <button
               type="button"
@@ -282,7 +281,7 @@ export default function AccountSettingsDialog({
               className={categoryClassName}
             >
               <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{t('Account e sicurezza')}</span>
+              <span>{sectionLabels.security}</span>
             </button>
             <button
               type="button"
@@ -291,17 +290,11 @@ export default function AccountSettingsDialog({
               className={categoryClassName}
             >
               <Database className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{t('Dati e backup')}</span>
+              <span>{sectionLabels.data}</span>
             </button>
           </nav>
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-5 text-stone-900 sm:p-6 dark:text-zinc-100">
-            <h3 className="mb-5 text-lg font-semibold">
-              {activeSection === 'preferences'
-                ? t('Lingua e apprendimento')
-                : activeSection === 'security'
-                  ? t('Account e sicurezza')
-                  : t('Dati e backup')}
-            </h3>
+            <h3 className="mb-5 text-lg font-semibold">{sectionLabels[activeSection]}</h3>
             {successMessage ? (
               <output className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 sm:fixed sm:right-6 sm:top-6 sm:z-[160] sm:mt-0 sm:shadow-lg dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-200">
                 {successMessage}
@@ -412,7 +405,8 @@ export default function AccountSettingsDialog({
                   </div>
                 )}
               </div>
-            ) : activeSection === 'data' ? (
+            ) : null}
+            {activeSection === 'data' ? (
               <div className="mt-5 space-y-4">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">

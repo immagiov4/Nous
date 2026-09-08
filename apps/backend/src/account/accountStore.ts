@@ -23,14 +23,13 @@ export class PostgresAccountStore implements AccountStore {
         usage.input_tokens as "inputTokens", usage.output_tokens as "outputTokens",
         usage.cache_read_tokens as "cacheReadTokens", usage.cache_write_tokens as "cacheWriteTokens",
         sum(usage.provider_cost)::double precision as "reportedCostUsd",
-        count(*)::integer as calls,
-        min(usage.created_at)::text as "firstRecordedAt", max(usage.created_at)::text as "lastRecordedAt"
+        count(*)::integer as calls
       from public.workflow_ai_usage usage
       join public.workflow_runs run on run.id = usage.run_id
       where run.user_id = ${userId}
       group by usage.provider, usage.model, usage.input_tokens, usage.output_tokens,
         usage.cache_read_tokens, usage.cache_write_tokens, (usage.provider_cost is null)
-      order by usage.provider, usage.model, "firstRecordedAt"
+      order by usage.provider, usage.model, min(usage.created_at)
     `;
   }
 

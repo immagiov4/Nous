@@ -50,8 +50,6 @@ describe('account routes', () => {
     cacheWriteTokens: null,
     reportedCostUsd: null,
     calls: 1,
-    firstRecordedAt: '2026-09-08T00:00:00Z',
-    lastRecordedAt: '2026-09-08T00:00:00Z',
   };
 
   test('returns recorded totals without consulting prices and estimates only when requested', async () => {
@@ -152,6 +150,7 @@ describe('account routes', () => {
     await pricingStarted;
     pending.abort();
     await pricingAborted;
+    expect(loadPrices.mock.calls[0][0].aborted).toBe(true);
   });
 
   test('requires a session before reading or changing preferences and usage', async () => {

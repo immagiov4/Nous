@@ -70,51 +70,65 @@ export default function AccountUsage() {
     };
   }, []);
 
-  const cost =
-    usage && (usage.reportedCostUsd !== null || usage.estimatedCostUsd !== null)
-      ? formatCost((usage.reportedCostUsd ?? 0) + (usage.estimatedCostUsd ?? 0), locale)
-      : null;
   return (
     <div className="border-b border-gray-100 px-3 py-3 dark:border-zinc-800">
       <p className="text-xs font-medium text-gray-500 dark:text-zinc-400">
         {t('Consumo registrato')}
       </p>
-      {!usage ? (
-        <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-          {failed ? t('Consumo non disponibile') : t('Caricamento...')}
-        </p>
-      ) : usage.recordedCalls === 0 ? (
-        <p className="mt-1 text-sm">{t('Nessun consumo registrato')}</p>
-      ) : (
-        <>
-          <p className="mt-1 text-sm text-gray-900 dark:text-zinc-100">
-            {usage.tokens === null
-              ? t('Token non disponibili')
-              : t('{tokens} token', { tokens: formatTokens(usage.tokens, locale) })}
-            {usage.missingTokenCalls > 0 && usage.tokens !== null ? ` ${t('parziali')}` : ''}
-            {cost ? (
-              <span className="ml-1 text-xs text-gray-500 dark:text-zinc-400">
-                ({cost}
-                {usage.estimatedCostUsd !== null ? ` ${t('stima')}` : ''}
-                {usage.missingCostCalls > 0 ? `, ${t('parziale')}` : ''})
-              </span>
-            ) : null}
-          </p>
-          {!cost ? (
-            <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-              {t('Costo non disponibile')}
-            </p>
-          ) : null}
-          {usage.estimatedCostUsd !== null ? (
-            <p className="mt-1 text-xs leading-4 text-gray-500 dark:text-zinc-400">
-              {t('Include token stimati alle tariffe attuali, non una fattura.')}
-            </p>
-          ) : null}
-        </>
-      )}
+      <UsageDetails usage={usage} failed={failed} locale={locale} />
       <p className="mt-2 text-xs leading-4 text-gray-500 dark:text-zinc-400">
         {t('Solo generazioni registrate. Chat e audio esclusi.')}
       </p>
     </div>
+  );
+}
+
+function UsageDetails({
+  usage,
+  failed,
+  locale,
+}: {
+  readonly usage: AccountUsageSummary | null;
+  readonly failed: boolean;
+  readonly locale: string;
+}) {
+  if (!usage)
+    return (
+      <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+        {failed ? t('Consumo non disponibile') : t('Caricamento...')}
+      </p>
+    );
+  if (usage.recordedCalls === 0)
+    return <p className="mt-1 text-sm">{t('Nessun consumo registrato')}</p>;
+  const cost =
+    usage.reportedCostUsd !== null || usage.estimatedCostUsd !== null
+      ? formatCost((usage.reportedCostUsd ?? 0) + (usage.estimatedCostUsd ?? 0), locale)
+      : null;
+  return (
+    <>
+      <p className="mt-1 text-sm text-gray-900 dark:text-zinc-100">
+        {usage.tokens === null
+          ? t('Token non disponibili')
+          : t('{tokens} token', { tokens: formatTokens(usage.tokens, locale) })}
+        {usage.missingTokenCalls > 0 && usage.tokens !== null ? ` ${t('parziali')}` : ''}
+        {cost ? (
+          <span className="ml-1 text-xs text-gray-500 dark:text-zinc-400">
+            ({cost}
+            {usage.estimatedCostUsd !== null ? ` ${t('stima')}` : ''}
+            {usage.missingCostCalls > 0 ? `, ${t('parziale')}` : ''})
+          </span>
+        ) : null}
+      </p>
+      {!cost ? (
+        <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+          {t('Costo non disponibile')}
+        </p>
+      ) : null}
+      {usage.estimatedCostUsd !== null ? (
+        <p className="mt-1 text-xs leading-4 text-gray-500 dark:text-zinc-400">
+          {t('Include token stimati alle tariffe attuali, non una fattura.')}
+        </p>
+      ) : null}
+    </>
   );
 }

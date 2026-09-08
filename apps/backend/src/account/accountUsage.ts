@@ -10,8 +10,6 @@ export interface AccountUsageGroup {
   cacheWriteTokens: number | null;
   reportedCostUsd: number | null;
   calls: number;
-  firstRecordedAt: string;
-  lastRecordedAt: string;
 }
 
 const PriceSchema = z
@@ -112,8 +110,6 @@ export const summarizeAccountUsage = (
     estimatedCostUsd: null,
     missingCostCalls: 0,
     hasCostEstimateCandidates: hasCostEstimateCandidates(groups),
-    firstRecordedAt: null,
-    lastRecordedAt: null,
     ratesCheckedAt,
   };
   for (const group of groups) {
@@ -131,10 +127,6 @@ export const summarizeAccountUsage = (
       if (estimated === null) result.missingCostCalls += group.calls;
       else result.estimatedCostUsd = (result.estimatedCostUsd ?? 0) + estimated;
     }
-    if (result.firstRecordedAt === null || group.firstRecordedAt < result.firstRecordedAt)
-      result.firstRecordedAt = group.firstRecordedAt;
-    if (result.lastRecordedAt === null || group.lastRecordedAt > result.lastRecordedAt)
-      result.lastRecordedAt = group.lastRecordedAt;
   }
   return result;
 };

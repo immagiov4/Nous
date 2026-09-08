@@ -16,8 +16,6 @@ const group: AccountUsageGroup = {
   cacheWriteTokens: 10,
   reportedCostUsd: null,
   calls: 2,
-  firstRecordedAt: '2026-09-01T12:00:00Z',
-  lastRecordedAt: '2026-09-02T12:00:00Z',
 };
 const model: ModelPrice = {
   id: group.model,

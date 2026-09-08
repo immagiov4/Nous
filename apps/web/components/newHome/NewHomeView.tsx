@@ -318,7 +318,6 @@ const MobileHeader = ({
 }: {
   activePage: NewHomePage;
   isDarkMode: boolean;
-  isPhoneViewport: boolean;
   onExportLibraryBackup?: (onProgress?: LibraryExportProgressListener) => Promise<number>;
   onImportLibraryBackup?: (file: File) => Promise<number>;
   onNavigate: (page: NewHomePage) => void;
@@ -2106,7 +2105,6 @@ export const NewHomeView = ({
       <MobileHeader
         activePage={activePage}
         isDarkMode={isDarkMode}
-        isPhoneViewport={isPhoneViewport}
         onExportLibraryBackup={onExportLibraryBackup}
         onImportLibraryBackup={onImportLibraryBackup}
         onNavigate={navigate}

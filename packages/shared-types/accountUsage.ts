@@ -8,8 +8,6 @@ export const AccountUsageSummarySchema = z.object({
   estimatedCostUsd: z.number().nonnegative().nullable(),
   missingCostCalls: z.number().int().nonnegative(),
   hasCostEstimateCandidates: z.boolean(),
-  firstRecordedAt: z.string().nullable(),
-  lastRecordedAt: z.string().nullable(),
   ratesCheckedAt: z.string().nullable(),
 });
 
