@@ -45,6 +45,7 @@ function WorkspaceReaderOverlays({
   onSaveArtifactToLesson,
   onReplaceArtifactInLesson,
 }: WorkspaceReaderOverlaysModel) {
+  useAppLocale();
   return (
     <>
       {contextAnswer ? (
@@ -120,3 +121,5 @@ function WorkspaceReaderOverlays({
 }
 
 export default memo(WorkspaceReaderOverlays);
+
+import { useAppLocale } from '../../../hooks/useAppLocale.ts';

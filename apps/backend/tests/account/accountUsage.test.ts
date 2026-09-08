@@ -1,7 +1,8 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   type AccountUsageGroup,
   estimateRecordedTokenCost,
+  loadCurrentModelPrices,
   type ModelPrice,
   summarizeAccountUsage,
 } from '../../src/account/accountUsage.js';
@@ -95,8 +96,50 @@ describe('account recorded usage', () => {
     expect(estimateRecordedTokenCost(group, bracketModel)).toBe(
       estimateRecordedTokenCost(group, model)
     );
-    expect(estimateRecordedTokenCost({ ...group, inputTokens: 150 }, bracketModel)).toBeCloseTo(
-      2 * (110 * 0.03 + 30 * 0.001 + 10 * 0.0125 + 20 * 0.02)
+    expect(estimateRecordedTokenCost({ ...group, inputTokens: 150 }, bracketModel)).toBe(
+      estimateRecordedTokenCost({ ...group, inputTokens: 150 }, model)
     );
+    expect(estimateRecordedTokenCost({ ...group, inputTokens: 151 }, bracketModel)).toBeCloseTo(
+      2 * (111 * 0.03 + 30 * 0.001 + 10 * 0.0125 + 20 * 0.02)
+    );
+  });
+
+  test('applies later matching price entries per key without discarding earlier keys', () => {
+    const overrides = [
+      { min_prompt_tokens: 10, prompt: 0.03 },
+      { min_prompt_tokens: 20, completion: 0.04 },
+      { min_prompt_tokens: 5, prompt: 0.05 },
+    ];
+    expect(
+      estimateRecordedTokenCost(group, { ...model, pricing: { ...model.pricing, overrides } })
+    ).toBeCloseTo(2 * (60 * 0.05 + 30 * 0.001 + 10 * 0.0125 + 20 * 0.04));
+  });
+
+  test('leaves models with unsupported time-dependent prices unpriced', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          data: [
+            {
+              id: 'time-window',
+              architecture: { output_modalities: ['text'] },
+              pricing: {
+                prompt: '0.01',
+                completion: '0.02',
+                overrides: [
+                  { min_prompt_tokens: 10, utc_start: 100, utc_end: 400, prompt: '0.03' },
+                ],
+              },
+            },
+          ],
+        })
+      )
+    );
+    try {
+      expect(await loadCurrentModelPrices()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

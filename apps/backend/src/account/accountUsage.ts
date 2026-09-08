@@ -29,15 +29,17 @@ const ModelPriceSchema = z.object({
   architecture: z.object({ output_modalities: z.array(z.string()) }),
   pricing: TokenRatesSchema.extend({
     overrides: z
-      .array(TokenRatesSchema.partial().extend({ min_prompt_tokens: z.number().nonnegative() }))
+      .array(
+        TokenRatesSchema.partial().extend({ min_prompt_tokens: z.number().nonnegative() }).strict()
+      )
       .optional(),
   }),
 });
 export type ModelPrice = z.infer<typeof ModelPriceSchema>;
 
 /** Prices are read for the current estimate, never used to reconstruct a historical invoice. */
-export const loadCurrentModelPrices = async (): Promise<ModelPrice[]> => {
-  const response = await fetch('https://openrouter.ai/api/v1/models');
+export const loadCurrentModelPrices = async (signal?: AbortSignal): Promise<ModelPrice[]> => {
+  const response = await fetch('https://openrouter.ai/api/v1/models', { signal });
   if (!response.ok) throw new Error('Model pricing unavailable.');
   const body = z.object({ data: z.array(z.unknown()) }).parse(await response.json());
   return body.data.flatMap(value => {
@@ -59,10 +61,11 @@ export const estimateRecordedTokenCost = (
     group.outputTokens === null
   )
     return null;
-  const override = model.pricing.overrides
-    ?.filter(rate => group.inputTokens !== null && group.inputTokens >= rate.min_prompt_tokens)
-    .sort((left, right) => right.min_prompt_tokens - left.min_prompt_tokens)[0];
-  const rates = { ...model.pricing, ...override };
+  // OpenRouter applies matching entries in order, with a strict token threshold.
+  const rates = { ...model.pricing };
+  for (const override of model.pricing.overrides ?? []) {
+    if (group.inputTokens > override.min_prompt_tokens) Object.assign(rates, override);
+  }
   // A missing cache counter is unknown, not evidence of zero discounted/premium tokens.
   if (
     (rates.input_cache_read !== undefined && group.cacheReadTokens === null) ||

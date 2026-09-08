@@ -1,5 +1,7 @@
 import * as z from 'zod';
 
+export const LEGACY_ACCOUNT_INTERFACE_LOCALE = 'it';
+
 export const AccountPreferencesSchema = z
   .object({
     interfaceLocale: z.enum(['it', 'en']).nullable(),

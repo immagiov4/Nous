@@ -34,9 +34,10 @@ import {
   type CourseGenerationWorkflowConfig,
   type CourseLearningPlan,
   type CoursePlanState,
-  CoursePlanStateSchema,
+  type CoursePlanStateSchema,
   type CourseSourcesFinalizedState,
   CourseSourcesFinalizedStateSchema,
+  courseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import {
@@ -60,28 +61,37 @@ export type BuildCourseDocumentIndex = (
 
 const COURSE_SOURCE_MAPPING_TIMEOUT_MS = 90_000;
 
-const CourseSourceMappingStateSchema = z.object({
-  index: CourseDocumentIndexSchema,
-  kind: z.literal('mapping'),
-  lessonIds: z.array(z.string().min(1)),
-  planState: CoursePlanStateSchema,
-});
+const createSourceFinalizationSchemas = ({
+  CoursePlanStateSchema,
+  CourseSourcesFinalizedStateSchema,
+}: typeof courseGenerationStateSchemas) => {
+  const CourseSourceMappingStateSchema = z.object({
+    index: CourseDocumentIndexSchema,
+    kind: z.literal('mapping'),
+    lessonIds: z.array(z.string().min(1)),
+    planState: CoursePlanStateSchema,
+  });
 
-const CourseSourcePreparationOutcomeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('ready'), result: CourseSourcesFinalizedStateSchema }),
-  CourseSourceMappingStateSchema,
-]);
+  const CourseSourcePreparationOutcomeSchema = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('ready'), result: CourseSourcesFinalizedStateSchema }),
+    CourseSourceMappingStateSchema,
+  ]);
+
+  const CourseSourceMappingProgressSchema = z.object({
+    mappingFailed: z.boolean(),
+    mappings: CourseChunkMappingBatchResultSchema.shape.mappings,
+    state: CourseSourceMappingStateSchema,
+  });
+  return { CourseSourcePreparationOutcomeSchema, CourseSourceMappingProgressSchema };
+};
+
+const { CourseSourcePreparationOutcomeSchema, CourseSourceMappingProgressSchema } =
+  createSourceFinalizationSchemas(courseGenerationStateSchemas);
 
 const CourseChunkMappingAttemptSchema = z.discriminatedUnion('status', [
   z.object({ result: CourseChunkMappingBatchResultSchema, status: z.literal('completed') }),
   z.object({ batchIndex: z.number().int().nonnegative(), status: z.literal('failed') }),
 ]);
-
-const CourseSourceMappingProgressSchema = z.object({
-  mappingFailed: z.boolean(),
-  mappings: CourseChunkMappingBatchResultSchema.shape.mappings,
-  state: CourseSourceMappingStateSchema,
-});
 
 type CourseSourcePreparationOutcome = z.infer<typeof CourseSourcePreparationOutcomeSchema>;
 type CourseSourceMappingProgress = z.infer<typeof CourseSourceMappingProgressSchema>;
@@ -417,7 +427,12 @@ const appendBatchAttempts = (
 export const createCourseSourceFinalizationNode = <
   Config extends CourseGenerationWorkflowConfig,
   Services extends CourseSourceFinalizationServices,
->() => {
+>(
+  schemas = courseGenerationStateSchemas
+) => {
+  const { CoursePlanStateSchema, CourseSourcesFinalizedStateSchema } = schemas;
+  const { CourseSourcePreparationOutcomeSchema, CourseSourceMappingProgressSchema } =
+    createSourceFinalizationSchemas(schemas);
   const runSourceStage = <Input, Output>(
     context: StepExecutionContext<Input, Config, Services>,
     operation: (stage: CourseGenerationStageContext<Input>) => Promise<Output>

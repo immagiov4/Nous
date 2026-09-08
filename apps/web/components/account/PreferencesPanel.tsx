@@ -16,16 +16,21 @@ export default function PreferencesPanel() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
   const active = useRef(false);
+  const loadVersion = useRef(0);
   const load = useCallback(() => {
+    const version = ++loadVersion.current;
     void loadAccountPreferences()
       .then(preferences => {
-        if (!active.current) return;
+        if (!active.current || version !== loadVersion.current) return;
+        setError(false);
         setSaved(preferences);
         setDraft(preferences);
       })
       .catch(error => {
-        console.error('[Nous][Account] Preferences load failed.', error);
-        if (active.current) setError(true);
+        if (active.current && version === loadVersion.current) {
+          console.error('[Nous][Account] Preferences load failed.', error);
+          setError(true);
+        }
       });
   }, []);
   useEffect(() => {
@@ -33,6 +38,7 @@ export default function PreferencesPanel() {
     load();
     return () => {
       active.current = false;
+      loadVersion.current += 1;
     };
   }, [load]);
 

@@ -17,9 +17,8 @@ import {
   type CourseGenerationStageContext,
   type CourseGenerationWorkflowConfig,
   type CoursePreparationState,
-  CoursePreparationStateSchema,
+  type CoursePreparationStateSchema,
   type CourseResearchState,
-  CourseResearchStateSchema,
   type CourseWebResearch,
   CourseWebResearchSchema,
   type CourseYoutubeQueryInput,
@@ -27,6 +26,7 @@ import {
   type CourseYoutubeQueryPlan,
   CourseYoutubeQueryPlanSchema,
   CourseYoutubeResearchSchema,
+  courseGenerationStateSchemas,
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import { YouTubeResearchOutcomeSchema } from './lessonGenerationWorkflowSchemas.js';
@@ -42,25 +42,10 @@ const CourseYoutubeQueriesModelSchema = z
   })
   .strict();
 
-const CourseResearchBranchInputSchema = z.object({
-  branch: z.enum(['web', 'youtube']),
-  state: CoursePreparationStateSchema,
-});
-
 const CourseResearchBranchOutputSchema = z.discriminatedUnion('branch', [
   z.object({ branch: z.literal('web'), research: CourseWebResearchSchema }),
   z.object({ branch: z.literal('youtube'), research: CourseYoutubeResearchSchema }),
 ]);
-
-const CourseYoutubeQueryPlanStateSchema = CourseYoutubeQueryPlanSchema.extend({
-  state: CoursePreparationStateSchema,
-});
-
-const CourseYoutubeCollectionStateSchema = z.object({
-  failures: z.array(z.object({ retryAfterMs: z.number().int().nonnegative().optional() })),
-  outcomes: z.array(YouTubeResearchOutcomeSchema),
-  state: CoursePreparationStateSchema,
-});
 
 type GenerateCourseObject = typeof generateCourseObject;
 type ReadSourceMaterials = (
@@ -202,7 +187,7 @@ export const createCourseResearchServices = ({
 
 const completedBranch = (
   results: readonly FanOutResult<
-    z.infer<typeof CourseResearchBranchInputSchema>,
+    { branch: 'web' | 'youtube'; state: CoursePreparationState },
     z.infer<typeof CourseResearchBranchOutputSchema>
   >[],
   branch: 'web' | 'youtube'
@@ -217,7 +202,22 @@ const completedBranch = (
 export const createCourseResearchNode = <
   Config extends CourseGenerationWorkflowConfig,
   Services extends CourseResearchServices,
->() => {
+>(
+  schemas = courseGenerationStateSchemas
+) => {
+  const { CoursePreparationStateSchema, CourseResearchStateSchema } = schemas;
+  const CourseResearchBranchInputSchema = z.object({
+    branch: z.enum(['web', 'youtube']),
+    state: CoursePreparationStateSchema,
+  });
+  const CourseYoutubeQueryPlanStateSchema = CourseYoutubeQueryPlanSchema.extend({
+    state: CoursePreparationStateSchema,
+  });
+  const CourseYoutubeCollectionStateSchema = z.object({
+    failures: z.array(z.object({ retryAfterMs: z.number().int().nonnegative().optional() })),
+    outcomes: z.array(YouTubeResearchOutcomeSchema),
+    state: CoursePreparationStateSchema,
+  });
   const runResearchStage = <Input, Output>(
     context: StepExecutionContext<Input, Config, Services>,
     operation: (stage: CourseGenerationStageContext<Input>) => Promise<Output>

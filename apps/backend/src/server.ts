@@ -94,6 +94,7 @@ const shutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
   console.log(`[Backend] ${signal} received, shutting down...`);
   try {
     await closeBackendResources({
+      closeAccountStore,
       closeLibraryExports: libraryExportApi.close,
       closeCodex: closeManagedCodexAccountClient,
       closeHttpServer: () =>
@@ -120,3 +121,5 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   void shutdown('SIGINT');
 });
+
+import { closeAccountStore } from './account/accountStore.js';

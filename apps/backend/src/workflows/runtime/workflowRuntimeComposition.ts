@@ -32,6 +32,7 @@ import {
   CourseGenerationWorkflowConfigSchema,
   createCourseGenerationWorkflow,
   createPreviousCourseGenerationWorkflow,
+  createPreviousPreferencesCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
 import {
   type CourseInterviewApi,
@@ -208,6 +209,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   const previousCourseWorkflow = createPreviousCourseGenerationWorkflow(
     courseWorkflow.executionDefaults
   );
+  const previousPreferencesCourseWorkflow = createPreviousPreferencesCourseGenerationWorkflow(
+    courseWorkflow.executionDefaults
+  );
   const courseInterviewWorkflow = createCourseInterviewWorkflow(
     {
       maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -220,7 +224,15 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     courseInterviewWorkflow.executionDefaults,
     COURSE_INTERVIEW_MAX_ITERATIONS,
     CourseInterviewWorkflowConfigSchema,
-    'run'
+    'run',
+    'previous'
+  );
+  const previousPreferencesCourseInterviewWorkflow = createCourseInterviewWorkflow(
+    courseInterviewWorkflow.executionDefaults,
+    COURSE_INTERVIEW_MAX_ITERATIONS,
+    CourseInterviewWorkflowConfigSchema,
+    'commit',
+    'previous'
   );
   const lessonWorkflow = createLessonGenerationWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -261,15 +273,17 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: courseInterviewWorkflow,
     previous: [
-      preExternalEffectPrevious(courseInterviewWorkflow),
+      previousPreferencesCourseInterviewWorkflow,
+      preExternalEffectPrevious(previousPreferencesCourseInterviewWorkflow),
       preCompatibilityIdAndExternalEffectPrevious(previousCourseInterviewWorkflow),
     ],
   });
   registry.register({
     current: courseWorkflow,
     previous: [
-      preProviderPostprocessingPrevious(courseWorkflow),
-      preExternalEffectPrevious(courseWorkflow),
+      previousPreferencesCourseWorkflow,
+      preProviderPostprocessingPrevious(previousPreferencesCourseWorkflow),
+      preExternalEffectPrevious(previousPreferencesCourseWorkflow),
       preExternalEffectPrevious(previousCourseWorkflow),
       preCompatibilityIdAndExternalEffectPrevious(previousCourseWorkflow),
     ],

@@ -48,6 +48,42 @@ describe('account preference request ownership', () => {
     );
   });
 
+  test('applies the locale on a successful read, including a settings-panel retry', async () => {
+    fetchMock.mockResolvedValueOnce(response());
+    await loadAccountPreferences();
+    expect(getAppLocale()).toBe('it');
+  });
+
+  test.each([
+    'before',
+    'during',
+  ])('does not let a read started %s a mutation undo its completed locale', async timing => {
+    let finishRead!: (response: Response) => void;
+    let finishSave!: (response: Response) => void;
+    fetchMock.mockImplementation(
+      (_url, init) =>
+        new Promise<Response>(resolve => {
+          if (init.method === 'GET') finishRead = resolve;
+          else finishSave = resolve;
+        })
+    );
+    let read: Promise<unknown>;
+    let save: Promise<unknown>;
+    if (timing === 'before') {
+      read = loadAccountPreferences();
+      save = saveAccountPreferences(saved);
+    } else {
+      save = saveAccountPreferences(saved);
+      read = loadAccountPreferences();
+    }
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    finishSave(response());
+    await save;
+    finishRead(Response.json({ preferences: { ...saved, interfaceLocale: 'en' } }));
+    await read;
+    expect(getAppLocale()).toBe('it');
+  });
+
   test('does not apply account A locale after the active identity changes to B', async () => {
     fetchMock.mockImplementationOnce(async () => {
       accountSession('account-b');
@@ -55,6 +91,33 @@ describe('account preference request ownership', () => {
     });
     await saveAccountPreferences(saved);
     expect(getAppLocale()).toBe('en');
+  });
+
+  test('does not let a late A mutation invalidate B preference loading', async () => {
+    let finishSave!: (response: Response) => void;
+    let finishRead!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>(resolve => {
+          finishSave = resolve;
+        })
+    );
+    const save = saveAccountPreferences({ ...saved, interfaceLocale: 'en' });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    accountSession('account-b');
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>(resolve => {
+          finishRead = resolve;
+        })
+    );
+    const read = loadAccountPreferences();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    finishSave(Response.json({ preferences: { ...saved, interfaceLocale: 'en' } }));
+    await save;
+    finishRead(response());
+    await read;
+    expect(getAppLocale()).toBe('it');
   });
 
   test.each([

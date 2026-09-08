@@ -1954,6 +1954,16 @@ describe('POST /api/chat/library', () => {
       preferences: { interfaceLocale: null, contentLanguage: '日本語', teachingPreferences: '' },
       expected: '日本語',
     },
+    {
+      interfaceLocale: undefined,
+      preferences: { interfaceLocale: null, contentLanguage: null, teachingPreferences: '' },
+      expected: 'Italiano',
+    },
+    {
+      interfaceLocale: 'en',
+      preferences: { interfaceLocale: null, contentLanguage: null, teachingPreferences: '' },
+      expected: 'English',
+    },
   ])('passes the account AI language into general-chat composition: $expected', async ({
     interfaceLocale,
     preferences,

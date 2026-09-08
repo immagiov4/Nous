@@ -1,6 +1,6 @@
 // Handles library-scoped chat requests for the backend API.
 
-import { resolveAiLanguage } from '@shared/accountPreferences.js';
+import { LEGACY_ACCOUNT_INTERFACE_LOCALE, resolveAiLanguage } from '@shared/accountPreferences.js';
 import {
   convertToModelMessages,
   generateId,
@@ -593,7 +593,7 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
     const system = buildLibrarySystemPrompt({
       responseLanguage: resolveAiLanguage(
         await readCurrentAccountPreferences(currentUser.id),
-        req.body.interfaceLocale === 'it' ? 'it' : 'en'
+        req.body.interfaceLocale === 'en' ? 'en' : LEGACY_ACCOUNT_INTERFACE_LOCALE
       ),
       attachedContextRefs,
       resolvedScopeSummary,

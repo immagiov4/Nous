@@ -56,7 +56,31 @@ describe('AccountMenu', () => {
 
     await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
     expect(screen.getByRole('menuitem', { name: 'Impostazioni' })).toBeInTheDocument();
-    expect(within(screen.getByRole('menu')).getByText('student@example.com')).toBeInTheDocument();
+    expect(screen.getAllByText('student@example.com')).toHaveLength(2);
+    expect(within(screen.getByRole('menu')).queryByText('student@example.com')).toBeNull();
+  });
+
+  test.each([
+    false,
+    true,
+  ])('restores the trigger on Tab and permits continued navigation, backwards=%s', async backwards => {
+    const user = userEvent.setup();
+    saveAccountSession(['email']);
+    fetchMock.mockResolvedValueOnce(accountResponse('email'));
+    render(
+      <>
+        <AccountMenu />
+        <button type="button">After account</button>
+      </>
+    );
+    await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
+    await user.tab({ shift: backwards });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: /Apri menu account/ })).toHaveFocus();
+    await user.tab({ shift: backwards });
+    expect(
+      screen.getByRole('button', { name: backwards ? 'Segnala un problema' : 'After account' })
+    ).toHaveFocus();
   });
 
   test('toggles the optional dark theme control outside the account menu', async () => {

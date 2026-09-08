@@ -112,7 +112,8 @@ export default function AccountMenu({
         return;
       }
       if (event.key === 'Tab') {
-        setIsMenuOpen(false);
+        event.preventDefault();
+        closeMenu();
         return;
       }
       const controls = Array.from(
@@ -240,8 +241,6 @@ export default function AccountMenu({
           />
           <div
             ref={menuRef}
-            role="menu"
-            aria-label={t('Menu account')}
             className={`absolute z-[80] w-64 overflow-hidden rounded-2xl border border-gray-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 ${
               triggerVariant === 'settings' ? 'bottom-12 left-0' : 'right-0 top-12'
             }`}
@@ -260,27 +259,29 @@ export default function AccountMenu({
                 {menuError}
               </p>
             ) : null}
-            <button
-              type="button"
-              role="menuitem"
-              disabled={!account}
-              onClick={() => openPanel('preferences')}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              <Settings className="h-4 w-4" />
-              {t('Impostazioni')}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              disabled={isLoggingOut}
-              aria-busy={isLoggingOut}
-              onClick={() => void handleLogout()}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 disabled:cursor-wait disabled:opacity-60 dark:text-red-400 dark:hover:bg-red-950/40"
-            >
-              <LogOut className="h-4 w-4" />
-              {isLoggingOut ? t('Logout in corso...') : t('Logout')}
-            </button>
+            <div role="menu" aria-label={t('Menu account')}>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!account}
+                onClick={() => openPanel('preferences')}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <Settings className="h-4 w-4" />
+                {t('Impostazioni')}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={isLoggingOut}
+                aria-busy={isLoggingOut}
+                onClick={() => void handleLogout()}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 disabled:cursor-wait disabled:opacity-60 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                <LogOut className="h-4 w-4" />
+                {isLoggingOut ? t('Logout in corso...') : t('Logout')}
+              </button>
+            </div>
           </div>
         </>
       ) : null}

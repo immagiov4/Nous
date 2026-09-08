@@ -11,7 +11,7 @@ import { createWorkflowAsyncRoute } from './workflows.js';
 
 export const createAccountRouter = (
   store: () => AccountStore = getAccountStore,
-  loadPrices: () => Promise<ModelPrice[]> = loadCurrentModelPrices
+  loadPrices: (signal: AbortSignal) => Promise<ModelPrice[]> = loadCurrentModelPrices
 ): Router => {
   const router = Router();
   const asyncRoute = createWorkflowAsyncRoute(() => false);
@@ -19,16 +19,26 @@ export const createAccountRouter = (
     '/usage',
     asyncRoute(async (request, response) => {
       response.set('Cache-Control', 'private, no-store');
+      const controller = new AbortController();
+      response.once('close', () => {
+        if (!response.writableFinished) controller.abort();
+      });
       const groups = await store().readUsage(getCurrentUser(request).id);
+      if (controller.signal.aborted) return;
       let prices: ModelPrice[] = [];
       let ratesCheckedAt: string | null = null;
-      if (groups.some(group => group.provider === 'openrouter' && group.reportedCostUsd === null)) {
+      if (
+        request.query.estimate === 'true' &&
+        groups.some(group => group.provider === 'openrouter' && group.reportedCostUsd === null)
+      ) {
         try {
-          prices = await loadPrices();
+          prices = await loadPrices(controller.signal);
           ratesCheckedAt = new Date().toISOString();
         } catch (error) {
-          console.error('[Account] Current token pricing unavailable.', error);
+          if (!controller.signal.aborted)
+            console.error('[Account] Current token pricing unavailable.', error);
         }
+        if (controller.signal.aborted) return;
       }
       return response.json(summarizeAccountUsage(groups, prices, ratesCheckedAt));
     })

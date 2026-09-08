@@ -3,10 +3,15 @@ import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
   type CourseInterviewWorkflowConfig,
+  CourseInterviewWorkflowConfigSchema,
   type CourseInterviewWorkflowServices,
   createCourseInterviewWorkflow,
 } from '../../src/workflows/courseInterviewWorkflow.js';
-import { createWorkflowRegistry } from '../../src/workflows/definition.js';
+import {
+  createWorkflowRegistry,
+  preCompatibilityIdAndExternalEffectPrevious,
+  preExternalEffectPrevious,
+} from '../../src/workflows/definition.js';
 import type {
   EmitDefinition,
   RouteByDefinition,
@@ -40,8 +45,10 @@ const state = {
   userId: 'user-1',
 };
 
-const findNode = (id: string): WorkflowNode => {
-  const definition = createCourseInterviewWorkflow(config, 8);
+const findNode = (
+  id: string,
+  definition = createCourseInterviewWorkflow(config, 8)
+): WorkflowNode => {
   const node = [...indexWorkflowNodes(definition).values()].find(
     entry => entry.node.id === id
   )?.node;
@@ -72,6 +79,67 @@ const stepContext = (input: unknown, services: CourseInterviewWorkflowServices) 
 });
 
 describe('course interview workflow', () => {
+  test('preserves the exact pre-preferences input, state, turn and event manifests', () => {
+    const previous = createCourseInterviewWorkflow(
+      config,
+      8,
+      CourseInterviewWorkflowConfigSchema,
+      'commit',
+      'previous'
+    );
+    const legacy = createCourseInterviewWorkflow(
+      config,
+      8,
+      CourseInterviewWorkflowConfigSchema,
+      'run',
+      'previous'
+    );
+    const registration = createWorkflowRegistry().register({
+      current: createCourseInterviewWorkflow(config, 8),
+      previous: [
+        previous,
+        preExternalEffectPrevious(previous),
+        preCompatibilityIdAndExternalEffectPrevious(legacy),
+      ],
+    });
+    // Generated independently from the unmodified e042482 source tree.
+    expect(registration.previousDefinitions.map(definition => definition.definitionHash)).toEqual([
+      '47b0303b9fe294e4c3dfd3a8b6b4c709e97d7c178b1367fed99ea2c86b86077f',
+      '4e6c4c849ad4ef25fa2fe5bd900b87b4c47fadb2bebf6d9b996ecc069e27a3fc',
+      'bc3ac96c19589da23423c01e8b36ed89e58a5e7ab1b22fe931df92177b457bc4',
+    ]);
+  });
+
+  test('resumes an old interview with current services without injecting account defaults', async () => {
+    const definition = createCourseInterviewWorkflow(
+      config,
+      8,
+      CourseInterviewWorkflowConfigSchema,
+      'commit',
+      'previous'
+    );
+    const assess = findNode('assess-course-interview', definition) as StepDefinition<
+      unknown,
+      unknown,
+      CourseInterviewWorkflowConfig,
+      CourseInterviewWorkflowServices
+    >;
+    const services = makeServices({
+      assessTurn: vi.fn(async () => ({
+        kind: 'proposal',
+        message: 'Ready',
+        proposal: { ...profile, teachingPreferences: '' },
+      })),
+    });
+    const resumed = assess.outputSchema.parse(await assess.run(stepContext(state, services)));
+    expect(services.assessTurn).toHaveBeenCalledWith(
+      expect.not.objectContaining({ preferenceDefaults: expect.anything() })
+    );
+    expect(resumed).toEqual({
+      state,
+      turn: { kind: 'proposal', message: 'Ready', proposal: profile },
+    });
+  });
   test('registers durable messages, proposal, generation and typed signals', () => {
     const definition = createCourseInterviewWorkflow(config, 8);
     const registered = createWorkflowRegistry().register({ current: definition }).current;

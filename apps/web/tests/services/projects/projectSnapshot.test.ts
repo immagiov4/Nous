@@ -22,6 +22,26 @@ import {
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import { collectLearningArtifactPayloads } from '../../../utils/learning/artifacts.ts';
 
+test.each([
+  undefined,
+  '',
+  'One step at a time.',
+])('preserves course teaching preferences through snapshot load and export: %j', teachingPreferences => {
+  const profile = {
+    topic: 'Physics',
+    experienceLevel: 'Beginner',
+    learningStyle: 'Examples',
+    goals: 'Understand',
+    context: 'Study',
+    language: 'English',
+    ...(teachingPreferences === undefined ? {} : { teachingPreferences }),
+  };
+  const snapshot = createProjectSnapshot({ id: 'profile-roundtrip', userProfile: profile });
+  const normalized = normalizeImportedProject(exportProjectData(snapshot));
+  expect(normalized.userProfile).toEqual(profile);
+  expect(exportProjectData(normalized).userProfile).toEqual(profile);
+});
+
 test('an explicit project title survives normalization and stays aligned with the learning plan', () => {
   const snapshot = createProjectSnapshot({
     id: 'renamed-project',

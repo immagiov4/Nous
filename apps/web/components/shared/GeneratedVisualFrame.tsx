@@ -512,6 +512,7 @@ const GeneratedVisualFrame = ({
   title,
   visual,
 }: GeneratedVisualFrameProps) => {
+  useAppLocale();
   const resolution = useResolvedProjectVisual(visual, projectId);
   if (resolution.status !== 'ready' || !resolution.result) {
     return (
@@ -702,3 +703,5 @@ const ResolvedGeneratedVisualFrame = ({
 };
 
 export default memo(GeneratedVisualFrame);
+
+import { useAppLocale } from '../../hooks/useAppLocale.ts';

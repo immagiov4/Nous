@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { EMPTY_ACCOUNT_PREFERENCES } from '@shared/accountPreferences';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import PreferencesPanel from '../../../components/account/PreferencesPanel.tsx';
 import { getAppLocale, setAccountLocale } from '../../../i18n/uiMessages.ts';
@@ -75,21 +76,22 @@ describe('saved account preferences', () => {
     expect(screen.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
   });
 
-  test('does not update component state after the account panel unmounts', async () => {
-    let finishSave!: (value: unknown) => void;
-    api.saveAccountPreferences.mockImplementation(
+  test('ignores an obsolete StrictMode failure after the current load succeeds', async () => {
+    let failOldLoad!: (error: Error) => void;
+    api.loadAccountPreferences.mockImplementationOnce(
       () =>
-        new Promise(resolve => {
-          finishSave = resolve;
+        new Promise((_resolve, reject) => {
+          failOldLoad = reject;
         })
     );
-    const user = userEvent.setup();
-    const view = render(<PreferencesPanel />);
-    await user.selectOptions(await screen.findByRole('combobox'), 'it');
-    await user.click(screen.getByRole('button', { name: 'Save preferences' }));
-    view.unmount();
-    finishSave({ ...EMPTY_ACCOUNT_PREFERENCES, interfaceLocale: 'it' });
-    await waitFor(() => expect(api.saveAccountPreferences).toHaveBeenCalledOnce());
-    expect(getAppLocale()).toBe('en');
+    render(
+      <StrictMode>
+        <PreferencesPanel />
+      </StrictMode>
+    );
+    await screen.findByRole('combobox');
+    await act(async () => failOldLoad(new Error('obsolete failure')));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'AI language' })).toHaveValue('');
   });
 });

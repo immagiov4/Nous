@@ -1,7 +1,7 @@
 import { type AccountUsageSummary, AccountUsageSummarySchema } from '@shared/accountUsage';
 import { useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
-import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth, readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
 import { getBackendUrl } from '../../services/openrouter/config.ts';
 
 const formatTokens = (tokens: number): string =>
@@ -21,19 +21,40 @@ export default function AccountUsage() {
   const [usage, setUsage] = useState<AccountUsageSummary | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    let active = true;
-    void fetchWithSupabaseAuth(`${getBackendUrl()}/api/account/usage`)
-      .then(async response => {
-        if (!response.ok) throw new Error('Account usage unavailable.');
-        const summary = AccountUsageSummarySchema.parse(await response.json());
-        if (active) setUsage(summary);
-      })
-      .catch(error => {
+    const controller = new AbortController();
+    const accountId = readSupabaseSession()?.user?.id;
+    const isCurrentAccount = () =>
+      !controller.signal.aborted && readSupabaseSession()?.user?.id === accountId;
+    const readUsage = async (estimate: boolean) => {
+      if (!accountId) throw new Error('An account is required for recorded usage.');
+      const response = await fetchWithSupabaseAuth(
+        `${getBackendUrl()}/api/account/usage${estimate ? '?estimate=true' : ''}`,
+        { signal: controller.signal },
+        { accountId }
+      );
+      if (!response.ok) throw new Error('Account usage unavailable.');
+      return AccountUsageSummarySchema.parse(await response.json());
+    };
+    const loadUsage = async () => {
+      const recorded = await readUsage(false);
+      if (!isCurrentAccount()) return;
+      setUsage(recorded);
+      if (recorded.missingCostCalls === 0) return;
+      try {
+        const estimated = await readUsage(true);
+        if (isCurrentAccount()) setUsage(estimated);
+      } catch (error) {
+        if (isCurrentAccount()) console.error('[Nous][Account] Cost estimate unavailable.', error);
+      }
+    };
+    void loadUsage().catch(error => {
+      if (isCurrentAccount()) {
         console.error('[Nous][Account] Usage load failed.', error);
-        if (active) setFailed(true);
-      });
+        setFailed(true);
+      }
+    });
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 

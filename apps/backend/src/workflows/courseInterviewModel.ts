@@ -10,21 +10,28 @@ import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { type GenerateCourseObjectInput, generateCourseObject } from './courseGenerationModel.js';
 import type { DeepReadonly } from './types.js';
 
-export const CourseInterviewTurnSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('question'),
-    message: z.string().min(1),
-  }),
-  z.object({
-    kind: z.literal('proposal'),
-    message: z.string().min(1),
-    proposal: CourseInterviewProposalSchema,
-  }),
-  z.object({
-    kind: z.literal('cancelled'),
-    message: z.string().min(1),
-  }),
-]);
+export const createCourseInterviewTurnSchema = (
+  proposalSchema: z.ZodType<z.infer<typeof CourseInterviewProposalSchema>>
+) =>
+  z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('question'),
+      message: z.string().min(1),
+    }),
+    z.object({
+      kind: z.literal('proposal'),
+      message: z.string().min(1),
+      proposal: proposalSchema,
+    }),
+    z.object({
+      kind: z.literal('cancelled'),
+      message: z.string().min(1),
+    }),
+  ]);
+
+export const CourseInterviewTurnSchema = createCourseInterviewTurnSchema(
+  CourseInterviewProposalSchema
+);
 
 export type CourseInterviewTurn = z.infer<typeof CourseInterviewTurnSchema>;
 

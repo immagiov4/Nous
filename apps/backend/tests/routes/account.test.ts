@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AccountStore } from '../../src/account/accountStore.js';
+import type { ModelPrice } from '../../src/account/accountUsage.js';
 import { resolveCurrentUser } from '../../src/auth/currentUser.js';
 import { createAccountRouter } from '../../src/routes/account.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
@@ -22,7 +23,7 @@ describe('account routes', () => {
     }),
     readUsage: vi.fn(async () => []),
   };
-  const loadPrices = vi.fn(async () => []);
+  const loadPrices = vi.fn<(signal: AbortSignal) => Promise<ModelPrice[]>>(async () => []);
   const app = express()
     .use(express.json())
     .use(
@@ -40,6 +41,102 @@ describe('account routes', () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
+  const unpricedGroup = {
+    provider: 'openrouter',
+    model: 'example/text',
+    inputTokens: 100,
+    outputTokens: 20,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+    reportedCostUsd: null,
+    calls: 1,
+    firstRecordedAt: '2026-09-08T00:00:00Z',
+    lastRecordedAt: '2026-09-08T00:00:00Z',
+  };
+
+  test('returns recorded totals without consulting prices and estimates only when requested', async () => {
+    vi.mocked(store.readUsage).mockResolvedValueOnce([unpricedGroup]);
+    const recorded = await request(app).get('/account/usage').set('authorization', auth('user-a'));
+    expect(recorded.body).toMatchObject({
+      tokens: 120,
+      estimatedCostUsd: null,
+      missingCostCalls: 1,
+    });
+    expect(loadPrices).not.toHaveBeenCalled();
+    vi.mocked(store.readUsage).mockResolvedValueOnce([
+      unpricedGroup,
+      { ...unpricedGroup, reportedCostUsd: 0 },
+    ]);
+    loadPrices.mockResolvedValueOnce([
+      {
+        id: 'example/text',
+        architecture: { output_modalities: ['text'] },
+        pricing: { prompt: 0.001, completion: 0.002 },
+      },
+    ]);
+    const estimated = await request(app)
+      .get('/account/usage?estimate=true')
+      .set('authorization', auth('user-b'));
+    expect(store.readUsage).toHaveBeenLastCalledWith('user-b');
+    expect(estimated.body).toMatchObject({
+      tokens: 240,
+      reportedCostUsd: 0,
+      estimatedCostUsd: 0.14,
+      missingCostCalls: 0,
+    });
+  });
+
+  test('keeps recorded usage when optional pricing fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(store.readUsage).mockResolvedValueOnce([unpricedGroup]);
+    loadPrices.mockRejectedValueOnce(new Error('offline'));
+    try {
+      const result = await request(app)
+        .get('/account/usage?estimate=true')
+        .set('authorization', auth('user-a'));
+      expect(result.body).toMatchObject({
+        tokens: 120,
+        estimatedCostUsd: null,
+        missingCostCalls: 1,
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test('aborts an outstanding provider request when the client disconnects', async () => {
+    let started!: () => void;
+    let aborted!: () => void;
+    const pricingStarted = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    const pricingAborted = new Promise<void>(resolve => {
+      aborted = resolve;
+    });
+    vi.mocked(store.readUsage).mockResolvedValueOnce([unpricedGroup]);
+    loadPrices.mockImplementationOnce(
+      signal =>
+        new Promise<ModelPrice[]>((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              aborted();
+              reject(signal.reason);
+            },
+            { once: true }
+          );
+          started();
+        })
+    );
+    const pending = request(app)
+      .get('/account/usage?estimate=true')
+      .set('authorization', auth('user-a'));
+    pending.end(() => {});
+    await pricingStarted;
+    pending.abort();
+    await pricingAborted;
+  });
+
   test('requires a session before reading or changing preferences and usage', async () => {
     expect((await request(app).get('/account/preferences')).status).toBe(401);
     expect(
@@ -47,6 +144,7 @@ describe('account routes', () => {
     ).toBe(401);
     expect((await request(app).delete('/account/preferences')).status).toBe(401);
     expect((await request(app).get('/account/usage')).status).toBe(401);
+    expect((await request(app).get('/account/usage?estimate=true')).status).toBe(401);
     expect(store.readPreferences).not.toHaveBeenCalled();
     expect(store.savePreferences).not.toHaveBeenCalled();
   });

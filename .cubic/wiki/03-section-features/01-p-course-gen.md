@@ -192,6 +192,10 @@ Starting a new course interview reads the authenticated account preferences once
 
 New model proposals require `teachingPreferences`; persisted legacy proposals may omit it. Course generation copies the course-specific value into `plan.generationNotes`, which the existing lesson instruction path consumes. Changing account preferences later leaves the running interview, approved profile and existing course unchanged. A course override never writes account preferences.
 
+The registry retains pre-preference interview and course-generation schemas, including their historical manifest variants. Older runs resume with the current services while keeping preferences absent. New course profiles retain the optional field through frontend snapshot normalization, research, planning and source finalization. Captured account defaults do not enter the request's idempotency input, so retrying the same start request after changing account preferences still resolves to its original run.
+
 General library chat reads the current saved AI language per request, with interface locale as its default. An intentional conversational request for another language takes precedence, including for date formatting. Ordinary message language does not update the saved preference. Contextual chats in existing courses retain their current behavior.
+
+Clients that omit the new interface-locale field keep the previous Italian default unless saved account language preferences override it.
 
 Sources: [courseInterviewStart.ts](../../../apps/backend/src/workflows/courseInterviewStart.ts), [courseInterviewModel.ts](../../../apps/backend/src/workflows/courseInterviewModel.ts), [courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts), [libraryChat.ts](../../../apps/backend/src/routes/libraryChat.ts), [chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)

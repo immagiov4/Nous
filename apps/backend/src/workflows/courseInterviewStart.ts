@@ -1,5 +1,6 @@
 import {
   type AccountPreferences,
+  LEGACY_ACCOUNT_INTERFACE_LOCALE,
   resolveCoursePreferenceDefaults,
 } from '@shared/accountPreferences.js';
 import {
@@ -39,23 +40,27 @@ export const createCourseInterviewStarter = (
   start: async input => {
     const models = await dependencies.resolveModels(input.aiProvider, input.aiProviderOverrides);
     const preferences = await dependencies.readPreferences?.(input.userId);
+    const requestInput = {
+      hasReliableSourceContext: input.hasReliableSourceContext,
+      initialMessage: input.initialMessage,
+      mode: input.mode,
+      projectId: input.projectId,
+      ...(input.sourceContext ? { sourceContext: input.sourceContext } : {}),
+      userId: input.userId,
+    };
     return startWorkflowRun({
       configOverride: { models },
+      idempotencyInput: requestInput,
       input: {
+        ...requestInput,
         ...(preferences
           ? {
               preferenceDefaults: resolveCoursePreferenceDefaults(
                 preferences,
-                input.interfaceLocale ?? 'en'
+                input.interfaceLocale ?? LEGACY_ACCOUNT_INTERFACE_LOCALE
               ),
             }
           : {}),
-        hasReliableSourceContext: input.hasReliableSourceContext,
-        initialMessage: input.initialMessage,
-        mode: input.mode,
-        projectId: input.projectId,
-        ...(input.sourceContext ? { sourceContext: input.sourceContext } : {}),
-        userId: input.userId,
       },
       projectId: input.projectId,
       publishTransientEvent: dependencies.publishTransientEvent,

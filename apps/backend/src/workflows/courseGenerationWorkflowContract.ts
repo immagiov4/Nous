@@ -332,106 +332,140 @@ export const CourseGenerationWorkflowInputSchema = z.object({
   userId: z.string().min(1),
 });
 
-export const CoursePreparationStateSchema = z.object({
-  context: z.object({
-    assessmentSummary: z.string(),
-    language: z.string().min(1),
-    profile: z
-      .object({
-        context: z.string(),
-        experienceLevel: z.string(),
-        goals: z.string(),
-        language: z.string(),
-        learningStyle: z.string(),
-        teachingPreferences: z.string().optional(),
-        topic: z.string(),
-      })
-      .nullable(),
-    sourceNames: z.array(z.string()),
-    sources: z.array(CourseSourceDescriptorSchema),
-    topic: z.string().min(1),
-  }),
-  projectRevision: z.number().int().nonnegative(),
-  request: CourseGenerationWorkflowInputSchema.omit({ assessmentHistory: true }),
-  stage: z.literal('prepared'),
-  strategy: z.enum(['learn', 'single-source', 'source-set', 'archive']),
+const PreviousCourseProfileSchema = z.object({
+  context: z.string(),
+  experienceLevel: z.string(),
+  goals: z.string(),
+  language: z.string(),
+  learningStyle: z.string(),
+  topic: z.string(),
 });
 
-export const CourseResearchStateSchema = CoursePreparationStateSchema.omit({ stage: true }).extend({
-  research: z.object({
-    web: CourseWebResearchSchema,
-    youtube: CourseYoutubeResearchSchema,
-  }),
-  stage: z.literal('research'),
+const CourseProfileSchema = PreviousCourseProfileSchema.extend({
+  teachingPreferences: z.string().optional(),
 });
 
-const CoursePlanOutputSchema = z.object({
-  plan: CourseLearningPlanSchema,
-  researchCoursePlan: CourseResearchPlanSchema.nullable(),
-  syllabus: z.array(CourseSyllabusItemSchema),
-});
+const createCourseGenerationStateSchemas = (
+  profileSchema: z.ZodType<z.infer<typeof CourseProfileSchema>>
+) => {
+  const CoursePreparationStateSchema = z.object({
+    context: z.object({
+      assessmentSummary: z.string(),
+      language: z.string().min(1),
+      profile: profileSchema.nullable(),
+      sourceNames: z.array(z.string()),
+      sources: z.array(CourseSourceDescriptorSchema),
+      topic: z.string().min(1),
+    }),
+    projectRevision: z.number().int().nonnegative(),
+    request: CourseGenerationWorkflowInputSchema.omit({ assessmentHistory: true }),
+    stage: z.literal('prepared'),
+    strategy: z.enum(['learn', 'single-source', 'source-set', 'archive']),
+  });
 
-const CoursePlanQualityDimensionSchema = z.object({
-  feedback: CourseRequiredTextSchema,
-  status: z.enum(['pass', 'needs-refinement']),
-});
+  const CourseResearchStateSchema = CoursePreparationStateSchema.omit({ stage: true }).extend({
+    research: z.object({
+      web: CourseWebResearchSchema,
+      youtube: CourseYoutubeResearchSchema,
+    }),
+    stage: z.literal('research'),
+  });
 
-export const CoursePlanVerificationSchema = z.object({
-  coverage: CoursePlanQualityDimensionSchema,
-  duplication: CoursePlanQualityDimensionSchema,
-  fragmentation: z.object({
-    canGroupCoherently: z.boolean(),
+  const CoursePlanOutputSchema = z.object({
+    plan: CourseLearningPlanSchema,
+    researchCoursePlan: CourseResearchPlanSchema.nullable(),
+    syllabus: z.array(CourseSyllabusItemSchema),
+  });
+
+  const CoursePlanQualityDimensionSchema = z.object({
     feedback: CourseRequiredTextSchema,
-    moduleIds: z.array(z.string().min(1)),
-  }),
-  granularity: CoursePlanQualityDimensionSchema,
-  moduleCohesion: CoursePlanQualityDimensionSchema,
-  prerequisites: CoursePlanQualityDimensionSchema,
-  progression: CoursePlanQualityDimensionSchema,
-  proportionality: CoursePlanQualityDimensionSchema,
-  summary: CourseRequiredTextSchema,
-  verdict: z.enum(['pass', 'refine']),
-});
+    status: z.enum(['pass', 'needs-refinement']),
+  });
 
-export const CourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend({
-  ...CoursePlanOutputSchema.shape,
-  rawDraftPlan: CourseRawPlanOutputSchema,
-  stage: z.literal('plan-draft'),
-});
+  const CoursePlanVerificationSchema = z.object({
+    coverage: CoursePlanQualityDimensionSchema,
+    duplication: CoursePlanQualityDimensionSchema,
+    fragmentation: z.object({
+      canGroupCoherently: z.boolean(),
+      feedback: CourseRequiredTextSchema,
+      moduleIds: z.array(z.string().min(1)),
+    }),
+    granularity: CoursePlanQualityDimensionSchema,
+    moduleCohesion: CoursePlanQualityDimensionSchema,
+    prerequisites: CoursePlanQualityDimensionSchema,
+    progression: CoursePlanQualityDimensionSchema,
+    proportionality: CoursePlanQualityDimensionSchema,
+    summary: CourseRequiredTextSchema,
+    verdict: z.enum(['pass', 'refine']),
+  });
 
-export const CoursePlanVerificationStateSchema = CourseDraftPlanStateSchema.omit({
-  stage: true,
-}).extend({
-  stage: z.literal('plan-verification'),
-  verification: CoursePlanVerificationSchema,
-});
+  const CourseDraftPlanStateSchema = CourseResearchStateSchema.omit({ stage: true }).extend({
+    ...CoursePlanOutputSchema.shape,
+    rawDraftPlan: CourseRawPlanOutputSchema,
+    stage: z.literal('plan-draft'),
+  });
 
-export const CourseRefinedPlanStateSchema = CoursePlanVerificationStateSchema.omit({
-  stage: true,
-}).extend({
-  refinedPlan: CoursePlanOutputSchema,
-  refinedVerification: CoursePlanVerificationSchema,
-  rawRefinedPlan: CourseRawPlanOutputSchema,
-  stage: z.literal('plan-refined'),
-});
+  const CoursePlanVerificationStateSchema = CourseDraftPlanStateSchema.omit({
+    stage: true,
+  }).extend({
+    stage: z.literal('plan-verification'),
+    verification: CoursePlanVerificationSchema,
+  });
 
-export const CoursePlanStateSchema = CoursePreparationStateSchema.omit({ stage: true }).extend({
-  ...CoursePlanOutputSchema.shape,
-  stage: z.literal('plan'),
-});
+  const CourseRefinedPlanStateSchema = CoursePlanVerificationStateSchema.omit({
+    stage: true,
+  }).extend({
+    refinedPlan: CoursePlanOutputSchema,
+    refinedVerification: CoursePlanVerificationSchema,
+    rawRefinedPlan: CourseRawPlanOutputSchema,
+    stage: z.literal('plan-refined'),
+  });
 
-export const CourseSourcesFinalizedStateSchema = CoursePlanStateSchema.omit({ stage: true }).extend(
-  {
+  const CoursePlanStateSchema = CoursePreparationStateSchema.omit({ stage: true }).extend({
+    ...CoursePlanOutputSchema.shape,
+    stage: z.literal('plan'),
+  });
+
+  const CourseSourcesFinalizedStateSchema = CoursePlanStateSchema.omit({ stage: true }).extend({
     documentIndex: CourseDocumentIndexSchema.nullable(),
     stage: z.literal('sources-finalized'),
-  }
-);
+  });
 
-export const CourseExercisesStateSchema = CourseSourcesFinalizedStateSchema.omit({
-  stage: true,
-}).extend({
-  stage: z.literal('exercises'),
-});
+  const CourseExercisesStateSchema = CourseSourcesFinalizedStateSchema.omit({
+    stage: true,
+  }).extend({
+    stage: z.literal('exercises'),
+  });
+
+  return {
+    CoursePreparationStateSchema,
+    CourseResearchStateSchema,
+    CoursePlanVerificationSchema,
+    CourseDraftPlanStateSchema,
+    CoursePlanVerificationStateSchema,
+    CourseRefinedPlanStateSchema,
+    CoursePlanStateSchema,
+    CourseSourcesFinalizedStateSchema,
+    CourseExercisesStateSchema,
+  };
+};
+
+export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(CourseProfileSchema);
+// Persisted definitions retain their original schemas so in-flight courses can resume.
+export const previousCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
+  PreviousCourseProfileSchema
+);
+export const {
+  CoursePreparationStateSchema,
+  CourseResearchStateSchema,
+  CoursePlanVerificationSchema,
+  CourseDraftPlanStateSchema,
+  CoursePlanVerificationStateSchema,
+  CourseRefinedPlanStateSchema,
+  CoursePlanStateSchema,
+  CourseSourcesFinalizedStateSchema,
+  CourseExercisesStateSchema,
+} = courseGenerationStateSchemas;
 
 export const CourseGenerationWorkflowResultSchema = z.object({
   firstSectionId: z.string().min(1),

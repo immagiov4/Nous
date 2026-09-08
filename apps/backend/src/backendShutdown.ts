@@ -1,8 +1,7 @@
-import { closeAccountStore } from './account/accountStore.js';
-
 type ShutdownAction = () => void | Promise<void>;
 
 interface BackendShutdownResources {
+  closeAccountStore: ShutdownAction;
   closeCodex: ShutdownAction;
   closeHttpServer: ShutdownAction;
   closeLibraryExports: ShutdownAction;
@@ -11,6 +10,7 @@ interface BackendShutdownResources {
 }
 
 export const closeBackendResources = async ({
+  closeAccountStore,
   closeCodex,
   closeHttpServer,
   closeLibraryExports,

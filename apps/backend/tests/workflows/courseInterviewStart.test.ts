@@ -6,6 +6,42 @@ import { createCourseInterviewWorkflow } from '../../src/workflows/courseIntervi
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 
 describe('course interview start', () => {
+  test.each([
+    undefined,
+    'it',
+    'en',
+  ] as const)('resolves a missing legacy locale or the explicit locale: %s', async interfaceLocale => {
+    const models = getGlobalModelConfig();
+    const registry = createWorkflowRegistry();
+    registry.register({
+      current: createCourseInterviewWorkflow({ maxAttempts: 3, models, timeoutMs: 60000 }, 8),
+    });
+    const createRun = vi
+      .fn()
+      .mockResolvedValue({ created: true, run: { id: 'run', status: 'queued' } });
+    const starter = createCourseInterviewStarter({
+      registry,
+      readPreferences: vi.fn().mockResolvedValue({
+        interfaceLocale: null,
+        contentLanguage: null,
+        teachingPreferences: '',
+      }),
+      resolveModels: vi.fn().mockResolvedValue(models),
+      store: { createRun },
+    });
+    await starter.start({
+      hasReliableSourceContext: false,
+      mode: 'learn',
+      projectId: 'project',
+      requestKey: 'request',
+      userId: 'user',
+      ...(interfaceLocale ? { interfaceLocale } : {}),
+    });
+    expect(createRun.mock.calls[0][0].input.preferenceDefaults).toEqual({
+      language: interfaceLocale === 'en' ? 'English' : 'Italiano',
+      teachingPreferences: '',
+    });
+  });
   test('captures account defaults once in the new run without modifying the account', async () => {
     const models = getGlobalModelConfig();
     const registry = createWorkflowRegistry();
@@ -42,6 +78,19 @@ describe('course interview start', () => {
     savedPreferences.contentLanguage = 'English';
     savedPreferences.teachingPreferences = '';
     expect(defaults).toEqual({ language: '日本語', teachingPreferences: 'One step at a time.' });
+    await starter.start({
+      hasReliableSourceContext: false,
+      initialMessage: 'Learn trees.',
+      interfaceLocale: 'en',
+      mode: 'learn',
+      projectId: 'project-1',
+      requestKey: 'request-1',
+      userId: 'user-1',
+    });
+    expect(createRun.mock.calls[1][0].idempotencyInput).toEqual(
+      createRun.mock.calls[0][0].idempotencyInput
+    );
+    expect(createRun.mock.calls[1][0].input.preferenceDefaults).not.toEqual(defaults);
   });
   test('persists resolved models and deterministic source context', async () => {
     const models = getGlobalModelConfig();

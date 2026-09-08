@@ -481,6 +481,7 @@ const ChatArtifactRenderer = ({
   onReplaceArtifact,
   onSaveArtifact,
 }: ChatArtifactRendererProps) => {
+  useAppLocale();
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
   const [localRegenerationStates, setLocalRegenerationStates] =
     useState<ChatArtifactRegenerationStates>({});
@@ -745,3 +746,5 @@ const ChatArtifactRenderer = ({
 };
 
 export default memo(ChatArtifactRenderer);
+
+import { useAppLocale } from '../../hooks/useAppLocale.ts';
