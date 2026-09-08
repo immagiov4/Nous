@@ -62,6 +62,7 @@ Quizzes must use one of the approved `exerciseType` values, such as `prediction`
 | `question` | string | The pedagogical query posed to the student. |
 | `options` | string[] | Exactly four options: one correct answer and three plausible distractors. |
 | `correctIndex` | integer | Index (0-3) of the correct option. |
+| `explanation` | string, optional in saved quizzes | Case-specific solution shown after answer selection. |
 | `exerciseType` | string | The cognitive task required (e.g., inference, classification). |
 
 Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../apps/backend/src/services/lessonGenerationModel.ts#L31-L40), [apps/web/types.ts:251-257](../../../apps/web/types.ts#L251-L257)
@@ -72,7 +73,11 @@ Sources: [apps/backend/src/services/lessonGenerationModel.ts:31-40](../../../app
 
 The lesson writer and the existing `quiz-quality` model check consume `ACTIVE_PAUSE_OPTIONS_RULE` and `ACTIVE_PAUSE_FEEDBACK_RULE`. Each distractor must have a concrete contextual error, with only one defensible answer. Comparable grammar and detail prevent wording or conspicuous length from identifying the correct option. The verifier records its rationale for the correct answer and every distractor in the internal check evidence. This is model judgment, not a deterministic proof of quality or a diagnosis of the learner's misconception.
 
-The quiz schema preserves `correctIndex` and has no separate explanation field. `WorkspaceReaderInlineQuestion` displays the answer result after a selection. Teaching explanations remain in lesson Markdown; a solution to the specific quiz case follows its quiz. Subsequent Markdown is not hidden pending a response. Existing saved lessons are not rewritten by these generation rules.
+New generations put the case-specific solution in `quiz.explanation`, alongside `correctIndex`. The strict model output includes this string; workflow and saved-project schemas accept its absence for existing quizzes. Normalization preserves it in both `contentBlocks` and the derived quiz array, and persistence saves those representations unchanged.
+
+`WorkspaceReaderInlineQuestion` displays the explanation only after answer selection, whether the answer is right or wrong. Both the typed-block reader and the earlier marker/quiz path use this component. Ordinary lesson Markdown stays visible throughout. The model verifier moves case-specific solutions out of any lesson Markdown into the explanation field while preserving teaching context. This semantic separation is model-owned; there is no text classifier or retrospective rewriting of saved lessons.
+
+Quiz instructions are written in English. Generated questions, options, and explanations follow the requested lesson language.
 
 Sources: [shared rules](../../../packages/shared-types/lessonGenerationPolicy.ts), [writer](../../../apps/backend/src/services/lessonGenerationPrompt.ts), [verifier](../../../apps/backend/src/services/lessonGenerationVerification.ts), [answer display](../../../apps/web/components/workspace/shell/WorkspaceReaderInlineQuestion.tsx), [lab brief](../../../apps/web/services/openrouter/exercises/brief.ts).
 

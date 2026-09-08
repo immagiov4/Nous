@@ -114,15 +114,15 @@ ${scopeRules}
 - ${LESSON_KATEX_FORMATTING_RULE}
 ${buildImageRules(input.imageCandidates.length > 0)}
 
-PAUSE ATTIVE:
-- contentBlocks puo contenere da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Usa il numero minimo necessario; non aggiungere una pausa per raggiungere un numero prefissato.
+ACTIVE PAUSES:
+- contentBlocks may contain zero to ${MAX_LESSON_QUIZ_QUESTIONS} active pauses. Use the minimum necessary number; do not add a pause to meet a quota.
 - ${ACTIVE_PAUSE_PLACEMENT_RULE}
 - ${ACTIVE_PAUSE_REASONING_RULE}
 - ${EXERCISE_TASK_DISCLOSURE_RULE}
 - ${ACTIVE_PAUSE_OPTIONS_RULE}
 - ${ACTIVE_PAUSE_FEEDBACK_RULE}
 - ${ACTIVE_PAUSE_TEXT_FORMAT_RULE}
-- exerciseType deve appartenere a questo catalogo e descrivere davvero l'operazione mentale richiesta dalla domanda:
+- exerciseType must belong to this catalog and describe the actual reasoning required by the question:
 ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 
 VIDEO:

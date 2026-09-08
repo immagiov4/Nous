@@ -26,7 +26,7 @@ Nous keeps lesson prompting split into explicit layers instead of repeating the 
 
 ## Lesson prompt layers
 
-Exercise disclosure is shared by the lesson writer and the lab brief generator through `EXERCISE_TASK_DISCLOSURE_RULE`. The lesson verifier applies it with the shared quiz option and feedback rules. Its `quiz-quality` evidence must justify the correct answer and each distractor against the stated case. These semantic checks remain model-based; structural schema validation does not establish that an option is substantively false. See [interactive exercises](../03-section-features/08-p-interactive-exercises.md) for the existing answer-display boundary.
+Exercise disclosure is shared by the lesson writer and the lab brief generator through `EXERCISE_TASK_DISCLOSURE_RULE`. Quiz instructions are in English; the requested lesson language governs generated content. The lesson verifier applies the disclosure rule with the shared quiz option and feedback rules. Its `quiz-quality` evidence must justify the correct answer and each distractor against the stated case. Specific solutions belong in `quiz.explanation`, revealed after selection, rather than in always-visible lesson Markdown. These semantic checks remain model-based; structural schema validation does not establish that an option is substantively false. See [interactive exercises](../03-section-features/08-p-interactive-exercises.md) for the answer-display boundary.
 
 ### 1. Stable system instruction
 

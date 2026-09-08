@@ -39,6 +39,7 @@ const QUIZ_SCHEMA = {
   additionalProperties: false,
   properties: {
     correctIndex: { maximum: 3, minimum: 0, type: 'integer' },
+    explanation: { type: 'string' },
     exerciseType: {
       enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
       type: 'string',
@@ -46,7 +47,7 @@ const QUIZ_SCHEMA = {
     options: { items: { type: 'string' }, maxItems: 4, minItems: 4, type: 'array' },
     question: { type: 'string' },
   },
-  required: ['exerciseType', 'question', 'options', 'correctIndex'],
+  required: ['exerciseType', 'question', 'options', 'correctIndex', 'explanation'],
   type: 'object',
 } as const;
 

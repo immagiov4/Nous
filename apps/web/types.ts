@@ -329,6 +329,7 @@ export interface LibraryScopeSummary {
 export interface QuizQuestion {
   anchorExcerpt?: string;
   exerciseType?: ActivePauseExerciseType;
+  explanation?: string;
   question: string;
   options: string[];
   correctIndex: number;

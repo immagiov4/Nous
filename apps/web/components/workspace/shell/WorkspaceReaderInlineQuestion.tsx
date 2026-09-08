@@ -108,6 +108,13 @@ export default function WorkspaceReaderInlineQuestion({
               />
             </div>
           ) : null}
+          {question.explanation ? (
+            <MarkdownRenderer
+              content={question.explanation}
+              isDarkMode={isDarkMode}
+              className="prose-sm max-w-none [&>p]:m-0"
+            />
+          ) : null}
         </div>
       ) : (
         <div className="mt-4 space-y-3">

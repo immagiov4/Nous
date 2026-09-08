@@ -153,6 +153,7 @@ const LessonDraftImageReferenceSchema = z.object({
 
 export const LessonQuizSchema = z.object({
   correctIndex: z.number().int().nonnegative().max(3),
+  explanation: z.string().optional(),
   exerciseType: LessonIdentifierSchema,
   options: z.array(z.string()).length(4),
   question: LessonIdentifierSchema,

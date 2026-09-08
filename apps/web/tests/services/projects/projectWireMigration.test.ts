@@ -286,6 +286,7 @@ test('wire decoding preserves every valid lesson block while deriving legacy Mar
       quiz: {
         correctIndex: 1,
         exerciseType: 'concept-check',
+        explanation: 'La seconda opzione rispetta le condizioni del caso.',
         options: ['Prima', 'Seconda', 'Terza', 'Quarta'],
         question: 'Quale opzione e corretta?',
       },
