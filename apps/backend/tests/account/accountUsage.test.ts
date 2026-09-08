@@ -26,6 +26,21 @@ const model: ModelPrice = {
 };
 
 describe('account recorded usage', () => {
+  test.each([
+    { provider: 'codex', reportedCostUsd: null, expected: false },
+    { provider: 'openai', reportedCostUsd: null, expected: false },
+    { provider: 'openrouter', reportedCostUsd: null, expected: true },
+    { provider: 'openrouter', reportedCostUsd: 0, expected: false },
+  ])('identifies price-lookup candidates without promising a computed cost: %j', ({
+    provider,
+    reportedCostUsd,
+    expected,
+  }) => {
+    const summary = summarizeAccountUsage([{ ...group, provider, reportedCostUsd }], [], null);
+    expect(summary.hasCostEstimateCandidates).toBe(expected);
+    expect(summary.estimatedCostUsd).toBeNull();
+  });
+
   test('counts cached input once and uses exclusive input portions for pricing', () => {
     const result = summarizeAccountUsage([group], [model], '2026-09-08');
     expect(result.tokens).toBe(240);

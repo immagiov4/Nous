@@ -104,6 +104,22 @@ describe('account routes', () => {
     }
   });
 
+  test.each([
+    'codex',
+    'openai',
+  ])('does not advertise or fetch estimates for %s-only usage', async provider => {
+    vi.mocked(store.readUsage).mockResolvedValueOnce([{ ...unpricedGroup, provider }]);
+    const result = await request(app)
+      .get('/account/usage?estimate=true')
+      .set('authorization', auth('user-a'));
+    expect(result.body).toMatchObject({
+      tokens: 120,
+      missingCostCalls: 1,
+      hasCostEstimateCandidates: false,
+    });
+    expect(loadPrices).not.toHaveBeenCalled();
+  });
+
   test('aborts an outstanding provider request when the client disconnects', async () => {
     let started!: () => void;
     let aborted!: () => void;

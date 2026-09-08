@@ -693,6 +693,7 @@ const ENGLISH_UI_MESSAGES = {
   'Chiudi avviso microfono': 'Dismiss microphone alert',
   'Riprova trascrizione': 'Retry transcription',
   Riprova: 'Retry',
+  'Lingua del browser': 'Browser language',
   'Chiudi anteprima artefatto': 'Close artifact preview',
   'Chiudi artefatto': 'Close artifact',
   'Conferma rigenerazione': 'Confirm regeneration',

@@ -4,7 +4,7 @@ import {
   AccountPreferencesSchema,
 } from '@shared/accountPreferences';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   clearAccountPreferences,
   loadAccountPreferences,
@@ -107,11 +107,15 @@ export default function PreferencesPanel() {
               {t('Lingua interfaccia')}
               <select
                 className={fieldClassName}
-                value={draft.interfaceLocale ?? getAppLocale()}
+                value={draft.interfaceLocale ?? ''}
                 onChange={event =>
-                  setDraft({ ...draft, interfaceLocale: event.target.value as 'it' | 'en' })
+                  setDraft({
+                    ...draft,
+                    interfaceLocale: (event.target.value || null) as 'it' | 'en' | null,
+                  })
                 }
               >
+                <option value="">{t('Lingua del browser')}</option>
                 <option value="it">Italiano</option>
                 <option value="en">English</option>
               </select>

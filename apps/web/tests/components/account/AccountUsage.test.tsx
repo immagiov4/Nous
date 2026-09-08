@@ -15,6 +15,7 @@ const unknownUsage = {
   reportedCostUsd: null,
   estimatedCostUsd: null,
   missingCostCalls: 1,
+  hasCostEstimateCandidates: true,
   firstRecordedAt: null,
   lastRecordedAt: null,
   ratesCheckedAt: null,
@@ -40,10 +41,27 @@ describe('recorded account consumption display', () => {
 
   test('shows an empty account without requesting an estimate', async () => {
     request.mockResolvedValueOnce(
-      Response.json({ ...unknownUsage, recordedCalls: 0, missingCostCalls: 0 })
+      Response.json({
+        ...unknownUsage,
+        recordedCalls: 0,
+        missingCostCalls: 0,
+        hasCostEstimateCandidates: false,
+      })
     );
     render(<AccountUsage />);
     expect(await screen.findByText('Nessun consumo registrato')).toBeInTheDocument();
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    { missingCostCalls: 1, reportedCostUsd: null },
+    { missingCostCalls: 0, reportedCostUsd: 0.1 },
+  ])('does not request an estimate without candidates: %j', async costs => {
+    request.mockResolvedValueOnce(
+      Response.json({ ...unknownUsage, ...costs, tokens: 120, hasCostEstimateCandidates: false })
+    );
+    render(<AccountUsage />);
+    expect(await screen.findByText('120 token parziali')).toBeInTheDocument();
     expect(request).toHaveBeenCalledOnce();
   });
 

@@ -89,6 +89,9 @@ export const estimateRecordedTokenCost = (
   );
 };
 
+export const hasCostEstimateCandidates = (groups: readonly AccountUsageGroup[]): boolean =>
+  groups.some(group => group.provider === 'openrouter' && group.reportedCostUsd === null);
+
 export const summarizeAccountUsage = (
   groups: readonly AccountUsageGroup[],
   prices: readonly ModelPrice[],
@@ -102,6 +105,7 @@ export const summarizeAccountUsage = (
     reportedCostUsd: null,
     estimatedCostUsd: null,
     missingCostCalls: 0,
+    hasCostEstimateCandidates: hasCostEstimateCandidates(groups),
     firstRecordedAt: null,
     lastRecordedAt: null,
     ratesCheckedAt,

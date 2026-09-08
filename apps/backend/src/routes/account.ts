@@ -2,6 +2,7 @@ import { AccountPreferencesSchema, EMPTY_ACCOUNT_PREFERENCES } from '@shared/acc
 import { Router } from 'express';
 import { type AccountStore, getAccountStore } from '../account/accountStore.js';
 import {
+  hasCostEstimateCandidates,
   loadCurrentModelPrices,
   type ModelPrice,
   summarizeAccountUsage,
@@ -27,10 +28,7 @@ export const createAccountRouter = (
       if (controller.signal.aborted) return;
       let prices: ModelPrice[] = [];
       let ratesCheckedAt: string | null = null;
-      if (
-        request.query.estimate === 'true' &&
-        groups.some(group => group.provider === 'openrouter' && group.reportedCostUsd === null)
-      ) {
+      if (request.query.estimate === 'true' && hasCostEstimateCandidates(groups)) {
         try {
           prices = await loadPrices(controller.signal);
           ratesCheckedAt = new Date().toISOString();

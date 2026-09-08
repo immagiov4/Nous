@@ -66,6 +66,30 @@ describe('saved account preferences', () => {
     expect(input).toHaveValue(boundary);
   });
 
+  test('restores browser language without clearing AI language or teaching preferences', async () => {
+    const user = userEvent.setup();
+    const saved = {
+      interfaceLocale: 'it',
+      contentLanguage: '日本語',
+      teachingPreferences: 'One concept at a time.',
+    };
+    api.loadAccountPreferences.mockResolvedValueOnce(saved);
+    setAccountLocale('it');
+    render(<PreferencesPanel />);
+    const language = await screen.findByRole('combobox');
+    expect(language).toHaveValue('it');
+    await user.selectOptions(language, '');
+    await user.click(screen.getByRole('button', { name: 'Salva preferenze' }));
+    expect(api.saveAccountPreferences).toHaveBeenCalledWith({ ...saved, interfaceLocale: null });
+    expect(api.clearAccountPreferences).not.toHaveBeenCalled();
+    expect(getAppLocale()).toBe('en');
+    expect(language).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'AI language' })).toHaveValue(saved.contentLanguage);
+    expect(screen.getByRole('textbox', { name: 'Teaching preferences (optional)' })).toHaveValue(
+      saved.teachingPreferences
+    );
+  });
+
   test('can clear saved preferences while the edited text exceeds a limit', async () => {
     const user = userEvent.setup();
     render(<PreferencesPanel />);

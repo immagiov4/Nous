@@ -1,16 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import { EMPTY_ACCOUNT_PREFERENCES } from '@shared/accountPreferences.js';
-import type { Sql } from 'postgres';
+import postgres, { type Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { PostgresAccountStore } from '../../src/account/accountStore.js';
 import { summarizeAccountUsage } from '../../src/account/accountUsage.js';
-import {
-  createPostgresWorkflowIntegrationContext,
-  setupPostgresWorkflowIntegrationContext,
-  teardownPostgresWorkflowIntegrationContext,
-} from '../workflows/postgresWorkflowStore.integration.fixture.js';
 
-const context = createPostgresWorkflowIntegrationContext();
+const runWorkflowContract = process.env.RUN_WORKFLOW_INTEGRATION_TESTS === '1';
+const shouldRun = process.env.RUN_SUPABASE_LOCAL_TESTS === '1' || runWorkflowContract;
+let databaseUrl =
+  process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+if (runWorkflowContract) {
+  if (!process.env.WORKFLOW_INTEGRATION_DATABASE_URL) {
+    throw new Error(
+      'WORKFLOW_INTEGRATION_DATABASE_URL is required for workflow integration tests.'
+    );
+  }
+  databaseUrl = process.env.WORKFLOW_INTEGRATION_DATABASE_URL;
+}
+const context = {
+  enabled: shouldRun,
+  projectId: `account-usage-${randomUUID()}`,
+  sql: shouldRun ? postgres(databaseUrl, { max: 4 }) : null,
+  userId: randomUUID(),
+};
 describe.skipIf(!context.enabled)('account Postgres persistence and ownership', () => {
   const otherUserId = randomUUID();
   const preferences = {
@@ -24,12 +36,16 @@ describe.skipIf(!context.enabled)('account Postgres persistence and ownership', 
     if (!context.sql) throw new Error('Integration database is required.');
     sql = context.sql;
     store = new PostgresAccountStore(sql);
-    await setupPostgresWorkflowIntegrationContext(context);
-    await sql`insert into auth.users (id, aud, role) values (${otherUserId}, 'authenticated', 'authenticated')`;
+    await sql`insert into auth.users (id, aud, role) values
+      (${context.userId}, 'authenticated', 'authenticated'),
+      (${otherUserId}, 'authenticated', 'authenticated')`;
+    await sql`insert into public.projects (user_id, id, meta, updated_at, last_opened_at)
+      values (${context.userId}, ${context.projectId}, '{}', now(), now())`;
   });
   afterAll(async () => {
-    await sql`delete from auth.users where id = ${otherUserId}`;
-    await teardownPostgresWorkflowIntegrationContext(context);
+    if (!context.sql) return;
+    await context.sql`delete from auth.users where id in (${context.userId}, ${otherUserId})`;
+    await context.sql.end();
   });
 
   test('persists across store instances, isolates users and clears the saved row', async () => {

@@ -39,7 +39,7 @@ export default function AccountUsage() {
       const recorded = await readUsage(false);
       if (!isCurrentAccount()) return;
       setUsage(recorded);
-      if (recorded.missingCostCalls === 0) return;
+      if (!recorded.hasCostEstimateCandidates) return;
       try {
         const estimated = await readUsage(true);
         if (isCurrentAccount()) setUsage(estimated);
