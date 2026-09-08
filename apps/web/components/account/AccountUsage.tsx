@@ -76,9 +76,6 @@ export default function AccountUsage() {
         {t('Consumo registrato')}
       </p>
       <UsageDetails usage={usage} failed={failed} locale={locale} />
-      <p className="mt-2 text-xs leading-4 text-gray-500 dark:text-zinc-400">
-        {t('Solo generazioni registrate. Chat e audio esclusi.')}
-      </p>
     </div>
   );
 }

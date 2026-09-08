@@ -43,8 +43,6 @@ const ENGLISH_UI_MESSAGES = {
   stima: 'estimated',
   'Include token stimati alle tariffe attuali, non una fattura.':
     'Includes token estimates at current rates, not an invoice.',
-  'Solo generazioni registrate. Chat e audio esclusi.':
-    'Recorded generations only. Chat and audio excluded.',
   'Chiudi impostazioni': 'Close settings',
   'Categorie impostazioni': 'Settings categories',
   'Lingua e apprendimento': 'Language and learning',
@@ -58,7 +56,6 @@ const ENGLISH_UI_MESSAGES = {
   'Descrivi come preferisci ricevere spiegazioni o le tue necessità di accessibilità. Queste indicazioni valgono come punto di partenza per nuovi corsi: puoi modificarle durante l’intervista. I corsi esistenti non cambiano.':
     'Describe how you prefer explanations or your accessibility needs. These are starting points for new courses, and you can change them during the interview. Existing courses stay unchanged.',
   'Salva preferenze': 'Save preferences',
-  'Cancella preferenze salvate': 'Clear saved preferences',
   'Caricamento preferenze...': 'Loading preferences...',
   'Preferenze non disponibili. Riprova.': 'Preferences unavailable. Please try again.',
   [SURFACE_ERROR_MESSAGES.shell]: 'The application is unavailable. Reload the page.',

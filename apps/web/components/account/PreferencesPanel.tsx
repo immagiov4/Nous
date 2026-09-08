@@ -6,7 +6,6 @@ import {
 import { type SubmitEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
-  clearAccountPreferences,
   loadAccountPreferences,
   saveAccountPreferences,
 } from '../../services/preferences/accountPreferences.ts';
@@ -56,14 +55,12 @@ export default function PreferencesPanel() {
   const languageInvalid = validationIssues.some(issue => issue.path[0] === 'contentLanguage');
   const teachingInvalid = validationIssues.some(issue => issue.path[0] === 'teachingPreferences');
 
-  const persist = async (preferencesToSave: AccountPreferences | null) => {
+  const persist = async (preferencesToSave: AccountPreferences) => {
     if (pending) return;
     setPending(true);
     setError(false);
     try {
-      const preferences = await (preferencesToSave
-        ? saveAccountPreferences(preferencesToSave)
-        : clearAccountPreferences());
+      const preferences = await saveAccountPreferences(preferencesToSave);
       if (!active.current) return;
       setSaved(preferences);
       setDraft(preferences);
@@ -199,7 +196,7 @@ export default function PreferencesPanel() {
                 </p>
               ) : null}
             </div>
-            <div className="flex flex-wrap gap-2 border-t border-stone-200 pt-4 dark:border-zinc-700">
+            <div className="border-t border-stone-200 pt-4 dark:border-zinc-700">
               <button
                 type="submit"
                 disabled={pending || !changed || !validation?.success}
@@ -207,14 +204,6 @@ export default function PreferencesPanel() {
                 className="rounded-full bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-950"
               >
                 {t('Salva preferenze')}
-              </button>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => void persist(null)}
-                className="rounded-full px-4 py-2.5 text-sm text-stone-600 disabled:opacity-50 dark:text-zinc-300"
-              >
-                {t('Cancella preferenze salvate')}
               </button>
             </div>
           </fieldset>

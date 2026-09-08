@@ -33,6 +33,8 @@ interface AccountPanelProps {
 
 const fieldClassName =
   'mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-950 outline-none focus:border-gray-900 disabled:bg-gray-100 disabled:text-gray-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-500 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400';
+const secondaryActionClassName =
+  'inline-flex min-h-10 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition-[background-color,border-color,color,transform] duration-150 hover:border-stone-400 hover:bg-stone-100 active:scale-[0.97] disabled:cursor-wait disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-800';
 
 const getLibraryExportLabel = (
   isExporting: boolean,
@@ -237,7 +239,7 @@ export default function AccountSettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="account-panel-title"
-        className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-stone-200 bg-[#fdfbf7] shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="relative flex h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-stone-200 bg-[#fdfbf7] shadow-2xl sm:h-[43rem] sm:max-h-[calc(100dvh-3rem)] dark:border-zinc-700 dark:bg-zinc-900"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-5 py-4 dark:border-zinc-700">
           <div>
@@ -349,7 +351,7 @@ export default function AccountSettingsDialog({
                         type="submit"
                         disabled={pendingAction !== null}
                         aria-busy={pendingAction === 'email'}
-                        className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-800 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-100"
+                        className={secondaryActionClassName}
                       >
                         {t('Avvia cambio email')}
                       </button>
@@ -375,7 +377,7 @@ export default function AccountSettingsDialog({
                           type="submit"
                           disabled={pendingAction !== null}
                           aria-busy={pendingAction === 'password'}
-                          className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-800 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-100"
+                          className={secondaryActionClassName}
                         >
                           {t('Cambia password')}
                         </button>
@@ -384,7 +386,7 @@ export default function AccountSettingsDialog({
                           disabled={pendingAction !== null || !account.email}
                           aria-busy={pendingAction === 'recovery'}
                           onClick={() => void handleRecovery()}
-                          className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 disabled:cursor-wait disabled:opacity-60 dark:text-zinc-300"
+                          className={secondaryActionClassName}
                         >
                           {t('Invia email di recupero')}
                         </button>

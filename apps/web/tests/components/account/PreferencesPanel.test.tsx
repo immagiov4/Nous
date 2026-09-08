@@ -10,7 +10,6 @@ import { getAppLocale, setAccountLocale } from '../../../i18n/uiMessages.ts';
 const api = vi.hoisted(() => ({
   loadAccountPreferences: vi.fn(),
   saveAccountPreferences: vi.fn(),
-  clearAccountPreferences: vi.fn(),
 }));
 vi.mock('../../../services/preferences/accountPreferences.ts', () => api);
 
@@ -23,10 +22,6 @@ describe('saved account preferences', () => {
     api.saveAccountPreferences.mockImplementation(async preferences => {
       setAccountLocale(preferences.interfaceLocale);
       return preferences;
-    });
-    api.clearAccountPreferences.mockImplementation(async () => {
-      setAccountLocale(null);
-      return { ...EMPTY_ACCOUNT_PREFERENCES };
     });
   });
   afterEach(() => {
@@ -81,7 +76,6 @@ describe('saved account preferences', () => {
     await user.selectOptions(language, '');
     await user.click(screen.getByRole('button', { name: 'Salva preferenze' }));
     expect(api.saveAccountPreferences).toHaveBeenCalledWith({ ...saved, interfaceLocale: null });
-    expect(api.clearAccountPreferences).not.toHaveBeenCalled();
     expect(getAppLocale()).toBe('en');
     expect(language).toHaveValue('');
     expect(screen.getByRole('textbox', { name: 'AI language' })).toHaveValue(saved.contentLanguage);
@@ -90,20 +84,7 @@ describe('saved account preferences', () => {
     );
   });
 
-  test('can clear saved preferences while the edited text exceeds a limit', async () => {
-    const user = userEvent.setup();
-    render(<PreferencesPanel />);
-    const input = await screen.findByRole('textbox', { name: 'Teaching preferences (optional)' });
-    await user.click(input);
-    await user.paste('x'.repeat(4_001));
-    await user.click(screen.getByRole('button', { name: 'Clear saved preferences' }));
-    expect(api.clearAccountPreferences).toHaveBeenCalledOnce();
-    expect(api.saveAccountPreferences).not.toHaveBeenCalled();
-    expect(input).toHaveValue('');
-    expect(screen.queryByRole('alert')).toBeNull();
-  });
-
-  test('saves independent interface and AI languages and clears the saved defaults', async () => {
+  test('saves independent interface and AI languages, then saves cleared fields', async () => {
     const user = userEvent.setup();
     render(<PreferencesPanel />);
     await user.selectOptions(await screen.findByRole('combobox'), 'it');
@@ -119,8 +100,11 @@ describe('saved account preferences', () => {
       teachingPreferences: 'Use one worked example.',
     });
     expect(getAppLocale()).toBe('it');
-    await user.click(screen.getByRole('button', { name: 'Cancella preferenze salvate' }));
-    expect(api.clearAccountPreferences).toHaveBeenCalledOnce();
+    await user.selectOptions(screen.getByRole('combobox'), '');
+    await user.clear(screen.getByRole('textbox', { name: 'Lingua IA' }));
+    await user.clear(screen.getByRole('textbox', { name: 'Preferenze didattiche (facoltative)' }));
+    await user.click(screen.getByRole('button', { name: 'Salva preferenze' }));
+    expect(api.saveAccountPreferences).toHaveBeenLastCalledWith(EMPTY_ACCOUNT_PREFERENCES);
     expect(getAppLocale()).toBe('en');
     expect(screen.getByRole('textbox', { name: 'AI language' })).toHaveValue('');
     expect(screen.getByRole('textbox', { name: 'Teaching preferences (optional)' })).toHaveValue(
