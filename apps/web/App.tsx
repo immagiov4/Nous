@@ -4,6 +4,7 @@ import AuthGate from './components/auth/AuthGate.tsx';
 import SurfaceErrorBoundary from './components/shared/SurfaceErrorBoundary.tsx';
 import { useAccountLocale } from './hooks/useAccountLocale.ts';
 import { ACCOUNT_SETUP_DEMO_PATH } from './services/preferences/accountSetup.ts';
+import { normalizePathname } from './utils/pathname.ts';
 
 const AccountSetupDemo = lazy(() => import('./components/account/setup/AccountSetupDemo.tsx'));
 
@@ -15,7 +16,7 @@ const renderCurrentPage = () => {
   const pathname =
     typeof globalThis.window === 'undefined'
       ? '/'
-      : globalThis.location.pathname.replace(/\/+$/, '') || '/';
+      : normalizePathname(globalThis.location.pathname);
 
   if (pathname === '/admin/youtube-lab') {
     return <YouTubeResearchLab />;
@@ -41,7 +42,7 @@ const AuthenticatedApp = () => {
 
 const App = () =>
   import.meta.env.DEV &&
-  globalThis.location.pathname.replace(/\/+$/, '') === ACCOUNT_SETUP_DEMO_PATH ? (
+  normalizePathname(globalThis.location.pathname) === ACCOUNT_SETUP_DEMO_PATH ? (
     <Suspense fallback={null}>
       <AccountSetupDemo />
     </Suspense>

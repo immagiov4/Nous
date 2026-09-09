@@ -15,6 +15,7 @@ import {
   readUiPreferences,
   UI_PREFERENCES_KEY,
 } from '../../../services/preferences/uiPreferencesStorage.ts';
+import { normalizePathname } from '../../../utils/pathname.ts';
 import AccountSetupFlow from './AccountSetupFlow.tsx';
 
 const adapter = { load: loadAccountPreferences, finish: finishAccountSetup };
@@ -84,7 +85,7 @@ export function AccountSetupGate({ children }: Readonly<{ children: ReactNode }>
     () => null
   );
   if (!accountId) return children;
-  if (globalThis.location.pathname.replace(/\/+$/, '') === ACCOUNT_SETUP_PATH)
+  if (normalizePathname(globalThis.location.pathname) === ACCOUNT_SETUP_PATH)
     return <AccountSetupPage key={accountId} />;
   return <SetupStatusGate key={accountId}>{children}</SetupStatusGate>;
 }
