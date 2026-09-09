@@ -188,15 +188,16 @@ The disposable-database integration test is opt-in through `ACCOUNT_SETUP_TEST_D
 From the repository root in PowerShell, with Docker running:
 
 ```powershell
-docker run -d --name nous-setup-contract -e POSTGRES_PASSWORD=local-contract -e POSTGRES_DB=setup_test -p 127.0.0.1::5432 postgres:17-alpine
+$setupContainer = docker run -d --name nous-setup-contract -e POSTGRES_PASSWORD=local-contract -e POSTGRES_DB=setup_test -p 127.0.0.1::5432 postgres:17-alpine
+if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated test container.' }
 try {
-  do { docker exec nous-setup-contract pg_isready -U postgres | Out-Null } while ($LASTEXITCODE -ne 0)
-  $setupPort = (docker port nous-setup-contract 5432/tcp).Split(':')[-1]
+  do { docker exec $setupContainer pg_isready -U postgres | Out-Null } while ($LASTEXITCODE -ne 0)
+  $setupPort = (docker port $setupContainer 5432/tcp).Split(':')[-1]
   $env:ACCOUNT_SETUP_TEST_DATABASE_URL = "postgres://postgres:local-contract@127.0.0.1:$setupPort/setup_test"
   bun run test -- apps/backend/tests/account/accountSetup.integration.test.ts
 } finally {
   Remove-Item Env:ACCOUNT_SETUP_TEST_DATABASE_URL -ErrorAction SilentlyContinue
-  docker rm -f -v nous-setup-contract
+  docker rm -f -v $setupContainer
 }
 ```
 
