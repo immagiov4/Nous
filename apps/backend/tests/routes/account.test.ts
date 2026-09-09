@@ -11,6 +11,8 @@ import { createSupabaseTestToken } from '../helpers/auth.js';
 describe('account routes', () => {
   const preferences = new Map<string, AccountPreferences>();
   const store: AccountStore = {
+    readSetupStatus: vi.fn(async () => 'not-required'),
+    finishSetup: vi.fn(async () => {}),
     readPreferences: vi.fn(
       async userId => preferences.get(userId) ?? { ...EMPTY_ACCOUNT_PREFERENCES }
     ),
@@ -32,6 +34,33 @@ describe('account routes', () => {
       createAccountRouter(() => store, loadPrices)
     );
   const auth = (id: string) => `Bearer ${createSupabaseTestToken({ userId: id })}`;
+  test('protects initial setup and scopes status and completion to the authenticated account', async () => {
+    expect((await request(app).get('/account/setup')).status).toBe(401);
+    expect((await request(app).put('/account/setup').send({ status: 'skipped' })).status).toBe(401);
+    const status = await request(app).get('/account/setup').set('authorization', auth('user-a'));
+    expect(status.body).toEqual({ status: 'not-required' });
+    expect(store.readSetupStatus).toHaveBeenCalledWith('user-a');
+    expect(status.headers['cache-control']).toBe('private, no-store');
+    const result = { status: 'completed', preferences: EMPTY_ACCOUNT_PREFERENCES };
+    expect(
+      (await request(app).put('/account/setup').set('authorization', auth('user-a')).send(result))
+        .status
+    ).toBe(200);
+    expect(store.finishSetup).toHaveBeenCalledWith('user-a', result);
+  });
+  test.each([
+    { status: 'completed' },
+    { status: 'completed', preferences: { ...EMPTY_ACCOUNT_PREFERENCES, interfaceLocale: 'fr' } },
+    { status: 'skipped', preferences: EMPTY_ACCOUNT_PREFERENCES },
+    { status: 'skipped', userId: 'user-b' },
+    { status: 'pending' },
+  ])('rejects malformed or identity-bearing setup updates: %j', async result => {
+    expect(
+      (await request(app).put('/account/setup').set('authorization', auth('user-a')).send(result))
+        .status
+    ).toBe(400);
+    expect(store.finishSetup).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.stubEnv('AUTH_MODE', 'supabase');
     vi.stubEnv('SUPABASE_JWT_SECRET', 'test-secret');

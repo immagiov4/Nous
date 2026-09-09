@@ -32,6 +32,19 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  Lingue: 'Languages',
+  Preferenze: 'Preferences',
+  'In quali lingue vuoi usare Nous?': 'Which languages would you like to use in Nous?',
+  'Come preferisci ricevere le spiegazioni?': 'How would you like things explained?',
+  'Lingua dei contenuti': 'Content language',
+  'Entra in Nous': 'Enter Nous',
+  'Configurazione iniziale': 'Initial setup',
+  'Salta per ora': 'Skip for now',
+  'Puoi aggiungere o cambiare queste indicazioni nelle impostazioni, anche più avanti.':
+    'You can add or change these preferences in settings later, too.',
+  'Per esempio: ho difficoltà con la matematica. Spiega ogni simbolo e mostra tutti i passaggi.':
+    'For example: I find maths difficult. Explain every symbol and show each step.',
+  'Apri la configurazione guidata': 'Open guided setup',
   'Consumo registrato': 'Recorded usage',
   'Consumo non disponibile': 'Usage unavailable',
   'Nessun consumo registrato': 'No recorded usage',
@@ -1405,8 +1418,11 @@ export const setRenderingLocaleOverride = (locale: AppLocale | null): void => {
   renderingLocaleOverride = locale;
 };
 
+export const getBrowserAppLocale = (): AppLocale =>
+  resolveAppLocale(getBrowserLanguagePreferences());
+
 export const getAppLocale = (): AppLocale =>
-  renderingLocaleOverride ?? accountLocale ?? resolveAppLocale(getBrowserLanguagePreferences());
+  renderingLocaleOverride ?? accountLocale ?? getBrowserAppLocale();
 
 const interpolateMessage = (message: string, variables?: UiMessageVariables): string =>
   message.replaceAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (placeholder, variableName: string) => {

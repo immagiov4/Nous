@@ -190,3 +190,11 @@ Sources: [apps/web/components/workspace/WorkspaceReaderShell.tsx:18-20](../../..
 Successful preference reads also apply the saved locale, allowing recovery from an initial read failure. Reads that started before or during a completed preference mutation cannot overwrite its locale. Memoized reader and visual components subscribe through `useAppLocale`, preserving their local state while translations update. Panel loads discard obsolete responses, including StrictMode's repeated effect setup. The account popup keeps informational usage outside the menu-command role; Tab and Escape close commands and restore the account trigger.
 
 Sources: [AccountMenu.tsx](../../../apps/web/components/account/AccountMenu.tsx), [AccountSettingsDialog.tsx](../../../apps/web/components/account/AccountSettingsDialog.tsx), [PreferencesPanel.tsx](../../../apps/web/components/account/PreferencesPanel.tsx), [useAccountLocale.ts](../../../apps/web/hooks/useAccountLocale.ts)
+
+### Initial account configuration
+
+`AccountSetupGate` checks the authenticated account's setup status before mounting the application. Only `pending` accounts enter automatically. Settings also link to `/preferences/setup` for explicit access. The flow has two steps, languages and optional teaching preferences; the final action saves and enters the application directly. Skipping preserves existing preferences. Interface language follows the draft immediately, including the browser-language option. The existing theme button is available throughout.
+
+`/dev/first-run` is development-only and renders the same flow with an in-memory adapter before authentication. It simulates loading, saving and failures without account API writes; completion restarts the demonstration. Session changes remount the production gate to discard the previous account's draft.
+
+Sources: `apps/web/components/account/setup/AccountSetupPage.tsx`, `AccountSetupFlow.tsx`, `AccountSetupDemo.tsx`, `apps/web/services/preferences/accountSetup.ts`.

@@ -3,11 +3,18 @@ import {
   AccountPreferencesSchema,
   EMPTY_ACCOUNT_PREFERENCES,
 } from '@shared/accountPreferences.js';
+import {
+  type AccountSetupStatus,
+  AccountSetupStatusSchema,
+  type FinishAccountSetup,
+} from '@shared/accountSetup.js';
 import postgres, { type Sql } from 'postgres';
 import { getAuthMode, LOCAL_AUTH_MODE } from '../auth/currentUser.js';
 import type { AccountUsageGroup } from './accountUsage.js';
 
 export interface AccountStore {
+  readSetupStatus(userId: string): Promise<AccountSetupStatus>;
+  finishSetup(userId: string, result: FinishAccountSetup): Promise<void>;
   readUsage(userId: string): Promise<AccountUsageGroup[]>;
   readPreferences(userId: string): Promise<AccountPreferences>;
   savePreferences(userId: string, preferences: AccountPreferences): Promise<AccountPreferences>;
@@ -16,6 +23,36 @@ export interface AccountStore {
 
 export class PostgresAccountStore implements AccountStore {
   constructor(private readonly sql: Sql) {}
+
+  async readSetupStatus(userId: string): Promise<AccountSetupStatus> {
+    const [row] = await this.sql<{ status: string }[]>`
+      select status from public.account_setup where user_id = ${userId}
+    `;
+    return row ? AccountSetupStatusSchema.parse(row.status) : 'not-required';
+  }
+
+  async finishSetup(userId: string, result: FinishAccountSetup): Promise<void> {
+    if (result.status === 'skipped') {
+      await this.sql`
+        insert into public.account_setup (user_id, status) values (${userId}, 'skipped')
+        on conflict (user_id) do update set status = 'skipped'
+      `;
+      return;
+    }
+    const preferences = AccountPreferencesSchema.parse(result.preferences);
+    // Preferences and completion must survive together, including a failed write.
+    await this.sql`
+      with saved_preferences as (
+        insert into public.account_preferences (user_id, preferences)
+        values (${userId}, ${this.sql.json(preferences)})
+        on conflict (user_id) do update set preferences = excluded.preferences
+        returning user_id
+      )
+      insert into public.account_setup (user_id, status)
+      select user_id, 'completed' from saved_preferences
+      on conflict (user_id) do update set status = 'completed'
+    `;
+  }
 
   async readUsage(userId: string): Promise<AccountUsageGroup[]> {
     return this.sql<AccountUsageGroup[]>`

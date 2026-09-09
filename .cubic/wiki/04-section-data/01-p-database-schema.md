@@ -174,3 +174,11 @@ Sources: [apps/backend/src/projects/postgresProjectStore.ts:983-1070](../../../a
 ## Conclusion
 
 The PostgreSQL database schema for Nous Reader is a sophisticated multi-tenant design that balances the need for fast library browsing with the storage of complex, high-volume AI-generated educational content. By offloading binary data to immutable object storage and utilizing JSONB for flexible snapshots, the schema provides a scalable foundation for the project's pedagogical features.
+
+### Account setup enrollment
+
+Migration `20260909120000_account_setup.sql` adds `public.account_setup`, keyed by `auth.users.id`, with pending/completed/skipped status. An insert trigger enrolls newly created users as pending. There is no backfill: a missing row means not-required for existing accounts. Apply the migration before deploying code that reads this table.
+
+The authenticated `/api/account/setup` endpoint reads and finishes setup for the session account. Completion writes preferences and completion status in one SQL statement; skipping writes only status. RLS and revoked client grants prevent direct anonymous/authenticated access. Clearing preferences does not reset setup enrollment.
+
+The disposable-database integration test is opt-in through `ACCOUNT_SETUP_TEST_DATABASE_URL`; its database must be empty because the fixture creates the required schema and roles.
