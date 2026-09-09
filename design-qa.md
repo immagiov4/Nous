@@ -12,8 +12,8 @@ Reference: [approved reference](docs/assets/account-setup/reference.png).
 
 Actual captures, compared alongside the reference:
 
-- [mobile light capture](docs/assets/account-setup/mobile-light.png) — browser viewport measured at 390 × 845 CSS pixels.
-- [desktop dark capture](docs/assets/account-setup/desktop-dark.png) — browser viewport measured at 1440 × 1023 CSS pixels.
+- [mobile light capture](docs/assets/account-setup/mobile-light.jpg) — browser viewport measured at 390 × 845 CSS pixels.
+- [desktop dark capture](docs/assets/account-setup/desktop-dark.jpg) — browser viewport measured at 1440 × 1023 CSS pixels.
 
 The observed mobile layout has no horizontal overflow. Heading, subtitle, textarea and action remain separated and readable. The language selector now uses a 20-pixel chevron with a 16-pixel right inset and reserved text padding. This replaces the browser's small edge-aligned indicator while preserving native selection behavior.
 
