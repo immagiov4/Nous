@@ -9,6 +9,7 @@ import {
   loadAccountPreferences,
   saveAccountPreferences,
 } from '../../services/preferences/accountPreferences.ts';
+import { ACCOUNT_SETUP_PATH } from '../../services/preferences/accountSetup.ts';
 
 const fieldClassName =
   'mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-950 outline-none focus:border-stone-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-400';
@@ -80,6 +81,9 @@ export default function PreferencesPanel() {
 
   return (
     <div className="space-y-5">
+      <a href={ACCOUNT_SETUP_PATH} className="text-sm underline">
+        {t('Apri la configurazione guidata')}
+      </a>
       {error ? (
         <p role="alert" className="text-sm text-red-700 dark:text-red-300">
           {t('Preferenze non disponibili. Riprova.')}

@@ -1,4 +1,5 @@
 import { AccountPreferencesSchema, EMPTY_ACCOUNT_PREFERENCES } from '@shared/accountPreferences.js';
+import { FinishAccountSetupSchema } from '@shared/accountSetup.js';
 import { Router } from 'express';
 import { type AccountStore, getAccountStore } from '../account/accountStore.js';
 import {
@@ -50,6 +51,24 @@ export const createAccountRouter = (
     asyncRoute(async (request, response) => {
       const preferences = await store().readPreferences(getCurrentUser(request).id);
       return response.json({ preferences });
+    })
+  );
+  router.get(
+    '/setup',
+    asyncRoute(async (request, response) => {
+      return response.json({ status: await store().readSetupStatus(getCurrentUser(request).id) });
+    })
+  );
+  router.put(
+    '/setup',
+    asyncRoute(async (request, response) => {
+      const parsed = FinishAccountSetupSchema.safeParse(request.body);
+      if (!parsed.success)
+        return response
+          .status(400)
+          .json({ code: 'account_setup_invalid', error: 'Preferenze non valide.' });
+      await store().finishSetup(getCurrentUser(request).id, parsed.data);
+      return response.json({ status: parsed.data.status });
     })
   );
   router.put(
