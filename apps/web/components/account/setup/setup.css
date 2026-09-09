@@ -76,6 +76,7 @@
 }
 .setup-form {
   margin-top: 2rem;
+  animation: setup-enter var(--transition-fast);
 }
 .setup-field {
   display: block;
@@ -159,9 +160,6 @@
   to {
     opacity: 1;
   }
-}
-.setup-form {
-  animation: setup-enter var(--transition-fast);
 }
 @media (prefers-reduced-motion: reduce) {
   .setup-form {

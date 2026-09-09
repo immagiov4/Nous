@@ -197,4 +197,4 @@ Sources: [AccountMenu.tsx](../../../apps/web/components/account/AccountMenu.tsx)
 
 `/dev/first-run` is development-only and renders the same flow with an in-memory adapter before authentication. It simulates loading, saving and failures without account API writes; completion restarts the demonstration. Session changes remount the production gate to discard the previous account's draft.
 
-Sources: `apps/web/components/account/setup/AccountSetupPage.tsx`, `AccountSetupFlow.tsx`, `AccountSetupDemo.tsx`, `apps/web/services/preferences/accountSetup.ts`.
+Sources: [AccountSetupPage.tsx](../../../apps/web/components/account/setup/AccountSetupPage.tsx), [AccountSetupFlow.tsx](../../../apps/web/components/account/setup/AccountSetupFlow.tsx), [AccountSetupDemo.tsx](../../../apps/web/components/account/setup/AccountSetupDemo.tsx), [accountSetup.ts](../../../apps/web/services/preferences/accountSetup.ts).

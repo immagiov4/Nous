@@ -29,11 +29,11 @@ function LanguageFields({
   draft,
   onChange,
   t,
-}: {
+}: Readonly<{
   draft: AccountPreferences;
   onChange: (patch: Partial<AccountPreferences>) => void;
   t: (message: UiMessage) => string;
-}) {
+}>) {
   return (
     <div className="space-y-5 text-left">
       <label className="block text-sm font-medium">
@@ -73,12 +73,12 @@ export default function AccountSetupFlow({
   onExit,
   onThemeChange,
   browserLocale = getBrowserAppLocale(),
-}: {
+}: Readonly<{
   adapter: SetupAdapter;
   onExit: () => void;
   onThemeChange?: (isDarkMode: boolean) => void;
   browserLocale?: AppLocale;
-}) {
+}>) {
   const appLocale = useAppLocale();
   const { state, dispatch, finish } = useSetup(adapter);
   const locale = state.hasLoaded ? (state.draft.interfaceLocale ?? browserLocale) : appLocale;
@@ -90,6 +90,7 @@ export default function AccountSetupFlow({
   const [isDarkMode, setDarkMode] = useState(readInitialDarkMode);
   const heading = useRef<HTMLHeadingElement>(null);
   const busy = state.phase === 'saving';
+  const nextLabel = state.step === 'preferences' ? t('Entra in Nous') : t('Continua');
   const finished = state.phase === 'completed' || state.phase === 'skipped';
   useEffect(() => {
     if (finished) onExit();
@@ -208,13 +209,7 @@ export default function AccountSetupFlow({
                 disabled={busy || !validation.success}
                 aria-busy={busy}
               >
-                {t(
-                  busy
-                    ? 'Salvataggio…'
-                    : state.step === 'preferences'
-                      ? 'Entra in Nous'
-                      : 'Continua'
-                )}
+                {busy ? t('Salvataggio…') : nextLabel}
               </button>
               {state.step !== 'languages' && (
                 <button

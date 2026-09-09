@@ -34,6 +34,14 @@ describe('account routes', () => {
       createAccountRouter(() => store, loadPrices)
     );
   const auth = (id: string) => `Bearer ${createSupabaseTestToken({ userId: id })}`;
+  beforeEach(() => {
+    vi.stubEnv('AUTH_MODE', 'supabase');
+    vi.stubEnv('SUPABASE_JWT_SECRET', 'test-secret');
+    vi.stubEnv('SUPABASE_URL', 'https://supabase.test');
+    preferences.clear();
+    vi.clearAllMocks();
+  });
+  afterEach(() => vi.unstubAllEnvs());
   test('protects initial setup and scopes status and completion to the authenticated account', async () => {
     expect((await request(app).get('/account/setup')).status).toBe(401);
     expect((await request(app).put('/account/setup').send({ status: 'skipped' })).status).toBe(401);
@@ -61,15 +69,6 @@ describe('account routes', () => {
     ).toBe(400);
     expect(store.finishSetup).not.toHaveBeenCalled();
   });
-  beforeEach(() => {
-    vi.stubEnv('AUTH_MODE', 'supabase');
-    vi.stubEnv('SUPABASE_JWT_SECRET', 'test-secret');
-    vi.stubEnv('SUPABASE_URL', 'https://supabase.test');
-    preferences.clear();
-    vi.clearAllMocks();
-  });
-  afterEach(() => vi.unstubAllEnvs());
-
   const unpricedGroup = {
     provider: 'openrouter',
     model: 'example/text',

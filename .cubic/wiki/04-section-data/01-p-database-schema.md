@@ -182,3 +182,22 @@ Migration `20260909120000_account_setup.sql` adds `public.account_setup`, keyed 
 The authenticated `/api/account/setup` endpoint reads and finishes setup for the session account. Completion writes preferences and completion status in one SQL statement; skipping writes only status. RLS and revoked client grants prevent direct anonymous/authenticated access. Clearing preferences does not reset setup enrollment.
 
 The disposable-database integration test is opt-in through `ACCOUNT_SETUP_TEST_DATABASE_URL`; its database must be empty because the fixture creates the required schema and roles.
+
+#### Run the isolated setup persistence test
+
+From the repository root in PowerShell, with Docker running:
+
+```powershell
+docker run -d --name nous-setup-contract -e POSTGRES_PASSWORD=local-contract -e POSTGRES_DB=setup_test -p 127.0.0.1::5432 postgres:17-alpine
+try {
+  do { docker exec nous-setup-contract pg_isready -U postgres | Out-Null } while ($LASTEXITCODE -ne 0)
+  $setupPort = (docker port nous-setup-contract 5432/tcp).Split(':')[-1]
+  $env:ACCOUNT_SETUP_TEST_DATABASE_URL = "postgres://postgres:local-contract@127.0.0.1:$setupPort/setup_test"
+  bun run test -- apps/backend/tests/account/accountSetup.integration.test.ts
+} finally {
+  Remove-Item Env:ACCOUNT_SETUP_TEST_DATABASE_URL -ErrorAction SilentlyContinue
+  docker rm -f -v nous-setup-contract
+}
+```
+
+The container name must be unused. The password is a disposable local test value. The suite is intentionally skipped by ordinary unit-test commands; this command applies the real migration in a separate empty database and cleans up only its test container and volume.

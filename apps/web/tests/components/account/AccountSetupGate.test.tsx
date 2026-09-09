@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AccountSetupGate } from '../../../components/account/setup/AccountSetupPage.tsx';
 
@@ -61,8 +61,21 @@ describe('account enrollment gate', () => {
     await screen.findByText('Main app');
     expect(api.load).toHaveBeenCalledTimes(2);
   });
-  test('allows existing users to open setup explicitly without an automatic enrollment check', () => {
-    history.replaceState({}, '', '/preferences/setup');
+  test('allows entry after a status failure without requiring the unavailable service', async () => {
+    api.load.mockRejectedValue(new Error('Unavailable'));
+    render(
+      <AccountSetupGate>
+        <p>Main app</p>
+      </AccountSetupGate>
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Entra in Nous|Enter Nous/ }));
+    expect(screen.getByText('Main app')).toBeInTheDocument();
+  });
+  test.each([
+    '/preferences/setup',
+    '/preferences/setup/',
+  ])('opens explicit route %s without an enrollment check', route => {
+    history.replaceState({}, '', route);
     render(
       <AccountSetupGate>
         <p>Main app</p>

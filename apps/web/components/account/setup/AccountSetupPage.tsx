@@ -35,7 +35,7 @@ export default function AccountSetupPage() {
   return <AccountSetupFlow adapter={adapter} onExit={enterApp} onThemeChange={persistTheme} />;
 }
 
-function SetupStatusGate({ children }: { children: ReactNode }) {
+function SetupStatusGate({ children }: Readonly<{ children: ReactNode }>) {
   const [status, setStatus] = useState<'loading' | 'pending' | 'ready' | 'error'>('loading');
   useEffect(() => {
     if (status !== 'loading') return;
@@ -56,18 +56,18 @@ function SetupStatusGate({ children }: { children: ReactNode }) {
   if (status === 'pending') return <AccountSetupPage />;
   return (
     <main className="setup-page flex flex-col items-center justify-center gap-6">
-      <p role={status === 'error' ? 'alert' : 'status'}>
+      <output role={status === 'error' ? 'alert' : undefined}>
         {t(
           status === 'error' ? 'Preferenze non disponibili. Riprova.' : 'Caricamento preferenze...'
         )}
-      </p>
+      </output>
       {status === 'error' && (
         <>
           <button onClick={() => setStatus('loading')} type="button">
             {t('Riprova')}
           </button>
           <button onClick={() => setStatus('ready')} type="button">
-            {t('Salta per ora')}
+            {t('Entra in Nous')}
           </button>
         </>
       )}
@@ -76,7 +76,7 @@ function SetupStatusGate({ children }: { children: ReactNode }) {
 }
 
 /** A changed account remounts the gate and discards the previous account's draft. */
-export function AccountSetupGate({ children }: { children: ReactNode }) {
+export function AccountSetupGate({ children }: Readonly<{ children: ReactNode }>) {
   useAppLocale();
   const accountId = useSyncExternalStore(
     subscribeToSupabaseSession,
@@ -84,7 +84,7 @@ export function AccountSetupGate({ children }: { children: ReactNode }) {
     () => null
   );
   if (!accountId) return children;
-  if (globalThis.location.pathname === ACCOUNT_SETUP_PATH)
+  if (globalThis.location.pathname.replace(/\/+$/, '') === ACCOUNT_SETUP_PATH)
     return <AccountSetupPage key={accountId} />;
   return <SetupStatusGate key={accountId}>{children}</SetupStatusGate>;
 }

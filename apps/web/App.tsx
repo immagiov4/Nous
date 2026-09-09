@@ -40,7 +40,8 @@ const AuthenticatedApp = () => {
 };
 
 const App = () =>
-  import.meta.env.DEV && globalThis.location.pathname === ACCOUNT_SETUP_DEMO_PATH ? (
+  import.meta.env.DEV &&
+  globalThis.location.pathname.replace(/\/+$/, '') === ACCOUNT_SETUP_DEMO_PATH ? (
     <Suspense fallback={null}>
       <AccountSetupDemo />
     </Suspense>

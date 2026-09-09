@@ -38,7 +38,7 @@ const ENGLISH_UI_MESSAGES = {
   'Caricamento sospeso': 'Loading paused',
   'Salvataggio sospeso': 'Saving paused',
   'Spiega ogni simbolo e mostra tutti i passaggi.': 'Explain every symbol and show every step.',
-  'Sblocca operazione o errore': 'Release operation or error',
+  'Sblocca operazione o errore': 'Resume operation or clear error',
   'Controlli dimostrazione': 'Demo controls',
   'Dimostrazione locale · dati finti': 'Local demonstration · sample data',
   Scenario: 'Scenario',

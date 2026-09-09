@@ -8,12 +8,12 @@ The user's subsequent directions supersede two details in the reference: the seg
 
 ## Evidence
 
-Reference: `D:/DevData/Codex/generated_images/01a08621-cfb5-78b2-ac70-35f3df781664/exec-24f63162-8fa9-4f30-8d9d-15a1df9d3396.png`.
+Reference: [approved reference](docs/assets/account-setup/reference.png).
 
 Actual captures, compared alongside the reference:
 
-- `D:/DevData/Codex/visualizations/2026/09/09/01a08621-cfb5-78b2-ac70-35f3df781664/setup-mobile-light.png` — browser viewport measured at 390 × 845 CSS pixels.
-- `D:/DevData/Codex/visualizations/2026/09/09/01a08621-cfb5-78b2-ac70-35f3df781664/setup-desktop-dark.png` — browser viewport measured at 1440 × 1023 CSS pixels.
+- [mobile light capture](docs/assets/account-setup/mobile-light.png) — browser viewport measured at 390 × 845 CSS pixels.
+- [desktop dark capture](docs/assets/account-setup/desktop-dark.png) — browser viewport measured at 1440 × 1023 CSS pixels.
 
 The observed mobile layout has no horizontal overflow. Heading, subtitle, textarea and action remain separated and readable. The language selector now uses a 20-pixel chevron with a 16-pixel right inset and reserved text padding. This replaces the browser's small edge-aligned indicator while preserving native selection behavior.
 
