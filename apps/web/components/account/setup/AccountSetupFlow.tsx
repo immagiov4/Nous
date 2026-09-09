@@ -20,10 +20,6 @@ import { SETUP_STEPS, type SetupStep } from './setupState.ts';
 import { type SetupAdapter, useSetup } from './useSetup.ts';
 import './setup.css';
 
-const stepLabels: Record<SetupStep, UiMessage> = {
-  languages: 'Lingue',
-  preferences: 'Preferenze',
-};
 const stepTitles: Record<SetupStep, UiMessage> = {
   languages: 'In quali lingue vuoi usare Nous?',
   preferences: 'Come preferisci ricevere le spiegazioni?',
@@ -87,6 +83,10 @@ export default function AccountSetupFlow({
   const { state, dispatch, finish } = useSetup(adapter);
   const locale = state.hasLoaded ? (state.draft.interfaceLocale ?? browserLocale) : appLocale;
   const t = (message: UiMessage) => translateUiMessage(message, undefined, locale);
+  const stepLabels: Record<SetupStep, string> = {
+    languages: t('Lingue'),
+    preferences: t('Preferenze'),
+  };
   const [isDarkMode, setDarkMode] = useState(readInitialDarkMode);
   const heading = useRef<HTMLHeadingElement>(null);
   const busy = state.phase === 'saving';
@@ -149,7 +149,7 @@ export default function AccountSetupFlow({
         <ol>
           {SETUP_STEPS.map(step => (
             <li key={step} aria-current={state.step === step ? 'step' : undefined}>
-              {t(stepLabels[step])}
+              {stepLabels[step]}
             </li>
           ))}
         </ol>

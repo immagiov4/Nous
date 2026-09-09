@@ -1,18 +1,11 @@
 import { EMPTY_ACCOUNT_PREFERENCES } from '@shared/accountPreferences';
 import { useEffect, useMemo, useState } from 'react';
-import { setAccountLocale } from '../../../i18n/uiMessages.ts';
+import { useAppLocale } from '../../../hooks/useAppLocale.ts';
+import { setAccountLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import AccountSetupFlow from './AccountSetupFlow.tsx';
 import type { SetupAdapter } from './useSetup.ts';
 
-const scenarios = {
-  empty: 'Campi vuoti',
-  saved: 'Preferenze esistenti',
-  'load-error': 'Errore di caricamento',
-  'save-error': 'Errore di salvataggio',
-  loading: 'Caricamento sospeso',
-  saving: 'Salvataggio sospeso',
-} as const;
-type Scenario = keyof typeof scenarios;
+type Scenario = 'empty' | 'saved' | 'load-error' | 'save-error' | 'loading' | 'saving';
 
 function createDemoAdapter(scenario: Scenario) {
   let release: (() => void) | undefined;
@@ -25,7 +18,7 @@ function createDemoAdapter(scenario: Scenario) {
       ? {
           interfaceLocale: 'it' as const,
           contentLanguage: '日本語',
-          teachingPreferences: 'Spiega ogni simbolo e mostra tutti i passaggi.',
+          teachingPreferences: t('Spiega ogni simbolo e mostra tutti i passaggi.'),
         }
       : { ...EMPTY_ACCOUNT_PREFERENCES };
   let failLoad = scenario === 'load-error';
@@ -57,6 +50,15 @@ function createDemoAdapter(scenario: Scenario) {
 
 /** Developer-only entry: no authentication, API client, or persistent writes. */
 export default function AccountSetupDemo() {
+  useAppLocale();
+  const scenarios: Record<Scenario, string> = {
+    empty: t('Campi vuoti'),
+    saved: t('Preferenze esistenti'),
+    'load-error': t('Errore di caricamento'),
+    'save-error': t('Errore di salvataggio'),
+    loading: t('Caricamento sospeso'),
+    saving: t('Salvataggio sospeso'),
+  };
   const [configuration, setConfiguration] = useState({
     scenario: 'empty' as Scenario,
     revision: 0,
@@ -79,12 +81,12 @@ export default function AccountSetupDemo() {
         onExit={restart}
       />
       <aside
-        aria-label="Controlli dimostrazione"
+        aria-label={t('Controlli dimostrazione')}
         className="flex flex-wrap items-center justify-center gap-4 border-t border-stone-300 bg-stone-100 p-4 text-sm text-stone-950 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
       >
-        <span>Dimostrazione locale · dati finti</span>
+        <span>{t('Dimostrazione locale · dati finti')}</span>
         <label>
-          Scenario{' '}
+          {t('Scenario')}{' '}
           <select
             className="bg-transparent"
             value={scenario}
@@ -103,7 +105,7 @@ export default function AccountSetupDemo() {
           </select>
         </label>
         <label>
-          Lingua{' '}
+          {t('Lingua')}{' '}
           <select
             className="bg-transparent"
             value={locale}
@@ -114,10 +116,10 @@ export default function AccountSetupDemo() {
           </select>
         </label>
         <button type="button" onClick={demo.release}>
-          Sblocca operazione o errore
+          {t('Sblocca operazione o errore')}
         </button>
         <button type="button" onClick={restart}>
-          Ricomincia
+          {t('Ricomincia')}
         </button>
       </aside>
     </>

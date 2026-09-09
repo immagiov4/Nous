@@ -32,6 +32,17 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'Campi vuoti': 'Empty fields',
+  'Preferenze esistenti': 'Existing preferences',
+  'Errore di caricamento': 'Loading error',
+  'Caricamento sospeso': 'Loading paused',
+  'Salvataggio sospeso': 'Saving paused',
+  'Spiega ogni simbolo e mostra tutti i passaggi.': 'Explain every symbol and show every step.',
+  'Sblocca operazione o errore': 'Release operation or error',
+  'Controlli dimostrazione': 'Demo controls',
+  'Dimostrazione locale · dati finti': 'Local demonstration · sample data',
+  Scenario: 'Scenario',
+  Ricomincia: 'Restart',
   Lingue: 'Languages',
   Preferenze: 'Preferences',
   'In quali lingue vuoi usare Nous?': 'Which languages would you like to use in Nous?',
