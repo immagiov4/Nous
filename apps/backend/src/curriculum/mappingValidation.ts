@@ -68,6 +68,19 @@ function checkTargets(
   });
 }
 
+function checkDistinctAlternatives(context: z.RefinementCtx, groupKeys: string[]): void {
+  const seen = new Set<string>();
+  groupKeys.forEach((key, index) => {
+    if (seen.has(key))
+      report(
+        context,
+        ['outcome', 'alternatives', index],
+        'Alternative group duplicates another candidate'
+      );
+    seen.add(key);
+  });
+}
+
 /** Preserves source coordinates and mapping uncertainty; #112 retains claim scope and evidence content. */
 export function validateDiagnosticMapping(candidate: unknown, resolved: DiagnosticMappingContext) {
   return DiagnosticCurriculumMappingSchema.superRefine((mapping, context) => {
@@ -105,6 +118,18 @@ export function validateDiagnosticMapping(candidate: unknown, resolved: Diagnost
         ['outcome', 'targets']
       );
     if (outcome.status === 'ambiguous') {
+      checkDistinctAlternatives(
+        context,
+        outcome.alternatives.map(group =>
+          JSON.stringify(
+            group
+              .map(relation =>
+                JSON.stringify([entityKey(relation.target), relation.scope, relation.reason])
+              )
+              .sort()
+          )
+        )
+      );
       outcome.alternatives.forEach((targets, index) => {
         checkTargets(
           context,
@@ -169,6 +194,23 @@ export function validateCrossCourseAlignment(
     if (outcome.status === 'matched')
       checkAlignmentTargets(outcome.targets, ['outcome', 'targets']);
     if (outcome.status === 'ambiguous') {
+      checkDistinctAlternatives(
+        context,
+        outcome.alternatives.map(group =>
+          JSON.stringify(
+            group
+              .map(relation =>
+                JSON.stringify([
+                  entityKey(relation.target),
+                  relation.relationship,
+                  relation.commonScope,
+                  relation.differences,
+                ])
+              )
+              .sort()
+          )
+        )
+      );
       outcome.alternatives.forEach((targets, index) => {
         checkAlignmentTargets(targets, ['outcome', 'alternatives', index]);
       });

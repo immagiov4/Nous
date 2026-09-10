@@ -31,6 +31,22 @@ function checkIdentity(
   resolved: CurriculumValidationContext,
   context: z.RefinementCtx
 ): void {
+  if (resolved.lessonIds.length > 0) {
+    for (const field of [
+      'conceptIds',
+      'objectives',
+      'objectiveConceptLinks',
+      'lessonConceptUses',
+      'lessonObjectiveLinks',
+    ] as const) {
+      if (curriculum[field].length === 0)
+        report(
+          context,
+          [field],
+          'A lesson plan requires curriculum learning commitments and relations'
+        );
+    }
+  }
   if (!sameCurriculum(curriculum.ref, resolved.ref))
     report(context, ['ref'], 'Unexpected curriculum identity');
   if (
@@ -127,6 +143,18 @@ function checkPreparations(
   resolved: CurriculumValidationContext,
   context: z.RefinementCtx
 ): void {
+  const preparedRequirements = new Set(
+    curriculum.prerequisitePreparations.map(preparation => preparation.requirementId)
+  );
+  curriculum.prerequisites.forEach((requirement, index) => {
+    if (!preparedRequirements.has(requirement.requirementId)) {
+      report(
+        context,
+        ['prerequisites', index, 'requirementId'],
+        'Prerequisite requires an explicit preparation state'
+      );
+    }
+  });
   const requirements = new Map(
     curriculum.prerequisites.map(requirement => [requirement.requirementId, requirement])
   );

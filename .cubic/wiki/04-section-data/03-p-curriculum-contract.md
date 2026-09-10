@@ -18,13 +18,15 @@ Concept definitions come from the resolved account catalog. A shared concept ID 
 
 The caller supplies authoritative context from the same candidate plan and authorized account. Catalog definitions and resolved support references are loader responsibilities. These functions perform no I/O and are not an authorization boundary.
 
-The validator checks unique entity IDs, reference existence, lesson ownership and preparation relations. A planned preparation must cite uses of the required concept and objectives in its provider lesson. That lesson must precede or equal the dependent lesson in the supplied plan. Same-lesson preparation returns `same-lesson-order` for content review. An explicit unresolved preparation returns `unresolved-prerequisite`. A successful structural result does not establish prerequisite sufficiency or learner competence.
+The validator checks unique entity IDs, reference existence, lesson ownership and preparation relations. A nonempty lesson plan requires concepts, objectives and concept/lesson relations. Every prerequisite requires an explicit preparation state; several dependent lessons may have their own preparations for one requirement. A planned preparation must cite uses of the required concept and objectives in its provider lesson. That lesson must precede or equal the dependent lesson in the supplied plan. Same-lesson preparation returns `same-lesson-order` for content review. An explicit unresolved preparation returns `unresolved-prerequisite`. A successful structural result does not establish prerequisite sufficiency or learner competence.
 
 Entry assumptions refer to retained diagnostic mappings or cross-course alignments resolved for the destination curriculum. Their reasons and limitations remain explicit. The validator does not choose a source, rank evidence or infer proficiency from a concept role.
 
 ## Diagnostic and cross-course mappings
 
 [curriculumMapping.ts](../../../packages/shared-types/curriculumMapping.ts) distinguishes `not-reviewed`, `unmatched`, `matched` and `ambiguous`. A confirmed match contains one or more targets. Each diagnostic target retains its own relation scope and reason, distinct from the source claim's scope. Ambiguity preserves alternative target groups with their relation context. Strict schemas reject contradictory fields, empty confirmed groups and incomplete source coordinates.
+
+The collection schemas require unique mapping IDs within each mapping kind and destination curriculum. Ambiguous groups must differ structurally: member order alone does not create an alternative. The comparison preserves differences in declared scope and reason; it performs no semantic text classification.
 
 [validateDiagnosticMapping](../../../apps/backend/src/curriculum/mappingValidation.ts) accepts an authoritative projection of complete source tuples from #112. A criterion observation includes the diagnostic revision, node, task, attempt, interpretation, claim, criterion and evidence artifact reference. The whole tuple must resolve together. Independent lists of existing IDs are insufficient because they could combine different episodes.
 

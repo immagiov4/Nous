@@ -4,6 +4,59 @@ import { validateCurriculum } from '../../src/curriculum/validation';
 import { curriculumFixture } from './fixtures';
 
 describe('curriculum structural validation', () => {
+  test('rejects a prerequisite whose explicit preparation state is omitted', () => {
+    const { curriculum, resolved } = curriculumFixture();
+    curriculum.prerequisitePreparations = [];
+    expect(validateCurriculum(curriculum, resolved).success).toBe(false);
+  });
+
+  test('rejects an empty curriculum for an existing lesson plan', () => {
+    const { curriculum, resolved } = curriculumFixture();
+    const empty: CourseCurriculum = {
+      ...curriculum,
+      conceptIds: [],
+      objectives: [],
+      objectiveConceptLinks: [],
+      lessonConceptUses: [],
+      lessonObjectiveLinks: [],
+      prerequisites: [],
+      prerequisitePreparations: [],
+      activityTargets: [],
+    };
+    expect(validateCurriculum(empty, resolved).success).toBe(false);
+  });
+
+  test.each([
+    'conceptIds',
+    'objectives',
+    'objectiveConceptLinks',
+    'lessonConceptUses',
+    'lessonObjectiveLinks',
+  ] as const)('requires %s in a curriculum for an existing plan', field => {
+    const { curriculum, resolved } = curriculumFixture();
+    const result = validateCurriculum({ ...curriculum, [field]: [] }, resolved);
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(
+        result.error.issues.some(issue => issue.path.length === 1 && issue.path[0] === field)
+      ).toBe(true);
+  });
+
+  test('allows a prerequisite to have explicit preparations for multiple dependent lessons', () => {
+    const { curriculum, resolved } = curriculumFixture();
+    resolved.lessonIds = [...resolved.lessonIds, 'lesson-3'];
+    curriculum.lessonObjectiveLinks.push({
+      lessonId: 'lesson-3',
+      objectiveId: 'interpret-motion',
+      contribution: 'Apply the interpretation to another motion example',
+    });
+    curriculum.prerequisitePreparations.push({
+      ...curriculum.prerequisitePreparations[0],
+      dependentLessonId: 'lesson-3',
+    });
+    expect(validateCurriculum(curriculum, resolved).success).toBe(true);
+  });
+
   test('retains explicit relations and the immutable planning input without mutating the candidate', () => {
     const { curriculum, resolved } = curriculumFixture();
     const before = structuredClone(curriculum);

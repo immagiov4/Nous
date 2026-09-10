@@ -7,6 +7,14 @@ import {
 import { crossCourseFixture, diagnosticFixture } from './fixtures';
 
 describe('diagnostic curriculum mapping', () => {
+  test('rejects repeated alternative groups while preserving genuinely different relation scopes', () => {
+    const { mapping, resolved, target } = diagnosticFixture();
+    mapping.outcome = { status: 'ambiguous', alternatives: [[target], [structuredClone(target)]] };
+    expect(validateDiagnosticMapping(mapping, resolved).success).toBe(false);
+    mapping.outcome.alternatives[1][0].scope =
+      'Interpreting the derivative rule in a different setting';
+    expect(validateDiagnosticMapping(mapping, resolved).success).toBe(true);
+  });
   test('requires the scope and reason of each target relation independently of the source claim', () => {
     const { mapping, resolved, target } = diagnosticFixture();
     const withoutRelationContext = {
@@ -192,6 +200,28 @@ describe('diagnostic curriculum mapping', () => {
 });
 
 describe('cross-course alignment', () => {
+  test('rejects identical alternative groups even when their member order differs', () => {
+    const { mapping, resolved } = crossCourseFixture();
+    if (mapping.outcome.status !== 'matched') throw new Error('Fixture requires a match');
+    const first = mapping.outcome.targets[0];
+    const second = {
+      ...first,
+      target: {
+        kind: 'concept' as const,
+        curriculum: resolved.destination.ref,
+        conceptId: 'velocity',
+      },
+      relationship: 'partial-overlap' as const,
+    };
+    mapping.outcome = {
+      status: 'ambiguous',
+      alternatives: [
+        [first, second],
+        [second, first],
+      ],
+    };
+    expect(validateCrossCourseAlignment(mapping, resolved).success).toBe(false);
+  });
   test('rejects partial-overlap for a shared concept identity in matches and alternatives', () => {
     const { mapping, resolved } = crossCourseFixture();
     if (mapping.outcome.status !== 'matched') throw new Error('Fixture requires a match');

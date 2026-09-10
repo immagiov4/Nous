@@ -4,8 +4,8 @@ import {
   CourseCurriculumSchema,
 } from '../../../../packages/shared-types/curriculum';
 import {
-  CrossCourseAlignmentSchema,
-  DiagnosticCurriculumMappingSchema,
+  CrossCourseAlignmentsSchema,
+  DiagnosticCurriculumMappingsSchema,
   type DiagnosticMappingSource,
 } from '../../../../packages/shared-types/curriculumMapping';
 import type { GlobalModelConfig } from '../../src/config/modelConfig.js';
@@ -21,8 +21,8 @@ import { generateCourseObject } from '../../src/workflows/courseGenerationModel.
 
 export const CurriculumGenerationProbeSchema = z.strictObject({
   curriculum: CourseCurriculumSchema,
-  diagnosticMappings: z.array(DiagnosticCurriculumMappingSchema),
-  crossCourseAlignments: z.array(CrossCourseAlignmentSchema),
+  diagnosticMappings: DiagnosticCurriculumMappingsSchema,
+  crossCourseAlignments: CrossCourseAlignmentsSchema,
 });
 
 /** Exercises the production structured model adapter; publication and workflow routing are separate. */

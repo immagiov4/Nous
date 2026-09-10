@@ -31,6 +31,23 @@ function integrationFixture() {
 }
 
 describe('curriculum generation adapter integration', () => {
+  test.each([
+    'diagnosticMappings',
+    'crossCourseAlignments',
+  ] as const)('rejects duplicate mapping identities in %s before using their outcomes', async field => {
+    const { input, response } = integrationFixture();
+    const duplicated = {
+      ...response,
+      [field]: [...response[field], { ...response[field][0], outcome: { status: 'unmatched' } }],
+    };
+    const generate = createCourseObjectGenerator({
+      runAiObject: vi.fn(),
+      runCodexObject: vi.fn().mockResolvedValue(JSON.stringify(duplicated)),
+    });
+    await expect(runCurriculumGenerationProbe({ ...input, generate })).rejects.toMatchObject({
+      failure: { kind: 'corrective', code: 'course_model_output_invalid' },
+    });
+  });
   test('passes a synthetic course and both mappings through production schema conversion, JSON parsing and reference validation', async () => {
     const { input, response } = integrationFixture();
     const runCodexObject = vi.fn().mockResolvedValue(JSON.stringify(response));

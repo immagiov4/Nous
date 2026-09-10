@@ -94,3 +94,25 @@ export const CrossCourseAlignmentSchema = z.strictObject({
   ]),
 });
 export type CrossCourseAlignment = z.infer<typeof CrossCourseAlignmentSchema>;
+
+function checkMappingIds(mappings: { mappingId: string }[], context: z.RefinementCtx): void {
+  const seen = new Set<string>();
+  mappings.forEach((mapping, index) => {
+    if (seen.has(mapping.mappingId)) {
+      context.addIssue({
+        code: 'custom',
+        path: [index, 'mappingId'],
+        message: 'Duplicate mapping identity in collection',
+      });
+    }
+    seen.add(mapping.mappingId);
+  });
+}
+
+/** Each collection belongs to one destination curriculum and has its own mapping identity namespace. */
+export const DiagnosticCurriculumMappingsSchema = z
+  .array(DiagnosticCurriculumMappingSchema)
+  .superRefine(checkMappingIds);
+export const CrossCourseAlignmentsSchema = z
+  .array(CrossCourseAlignmentSchema)
+  .superRefine(checkMappingIds);
