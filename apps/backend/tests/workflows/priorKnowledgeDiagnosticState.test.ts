@@ -207,6 +207,53 @@ test('planning uses the final cumulative evaluation while historical evidence st
 });
 test('A submitted response can support its administered criterion', () =>
   expect(() => validateDiagnosticEvaluation(submitted, evaluation)).not.toThrow());
+
+test('resolved evidence carries shared source context once across reports and interpretations', () => {
+  const snapshot: DiagnosticSnapshot = {
+    ref: {
+      userId: 'user',
+      projectId: 'course',
+      incarnationId: 'incarnation',
+      diagnosticId: 'collection',
+      revisionId: 'final',
+    },
+    recordedAt: '2026-09-10T12:02:00Z',
+    collection: {
+      ...submitted,
+      context: {
+        hasReliableSourceContext: true,
+        sourceContext: 'An ordered array supports excluding smaller candidates.',
+        messages: [{ role: 'user', text: 'Explain why the order matters.' }],
+      },
+      collectionEnd: { eventRef: 'final', reason: 'Enough evidence', unresolvedLimitations: [] },
+      evaluations: [
+        { revisionId: 'final', recordedAt: '2026-09-10T12:02:00Z', evaluator: 'model', evaluation },
+      ],
+    },
+  };
+  const evidence = resolveDiagnosticPlanningEvidence(snapshot);
+  expect(evidence.filter(entry => entry.ref.artifactId === 'collection-context')).toEqual([
+    expect.objectContaining({ content: { profile, ...snapshot.collection.context } }),
+  ]);
+  for (const entry of evidence.filter(entry => entry.ref.artifactId !== 'collection-context')) {
+    expect(entry.content).not.toHaveProperty('context');
+    expect(entry.content).not.toHaveProperty('profile');
+  }
+  const extraSource = ' A larger source must not be repeated for each answer.';
+  const expanded = resolveDiagnosticPlanningEvidence({
+    ...snapshot,
+    collection: {
+      ...snapshot.collection,
+      context: {
+        ...snapshot.collection.context,
+        sourceContext: snapshot.collection.context.sourceContext + extraSource,
+      },
+    },
+  });
+  expect(JSON.stringify(expanded).length - JSON.stringify(evidence).length).toBe(
+    extraSource.length
+  );
+});
 test('Conflicts link submitted self-report and task items', () => {
   const conflict = {
     nodeIds: ['arrays'],

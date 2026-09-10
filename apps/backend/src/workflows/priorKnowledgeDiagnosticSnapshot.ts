@@ -172,11 +172,11 @@ export function resolveDiagnosticArtifact(
   const report = selfAssessmentResponses(collection).find(
     report => report.responseId === ref.artifactId
   );
-  if (report) return { ...report, context: collection.context, profile: collection.profile };
+  if (report) return report;
   const evidence = observations(collection).find(
     entry => entry.interpretationId === ref.artifactId
   );
-  if (evidence) return { ...evidence, context: collection.context, profile: collection.profile };
+  if (evidence) return evidence;
   const output = collection.modelOutputs.find(output => output.outputId === ref.artifactId);
   if (output) return output;
   throw new Error('Diagnostic artifact does not exist in the retained snapshot.');
