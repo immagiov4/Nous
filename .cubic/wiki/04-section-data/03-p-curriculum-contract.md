@@ -1,6 +1,6 @@
 # Curriculum contracts and structural validation
 
-The first implementation block of [#119](https://github.com/immagiov4/Nous/issues/119) defines a course curriculum and explicit diagnostic and cross-course mappings. These modules operate on supplied data. The [approved design](../proposals/119-curriculum-graph.md) describes the subsequent generation, persistence, retrieval and lesson-consumption work.
+The first implementation block of [#119](https://github.com/immagiov4/Nous/issues/119) defines a course curriculum and explicit diagnostic and cross-course mappings. These modules operate on supplied data. Generation, persistence, retrieval and lesson consumption remain subsequent work in the issue.
 
 ## Ownership and identity
 
