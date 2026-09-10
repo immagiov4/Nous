@@ -503,14 +503,27 @@ const EmptyConversationState = ({
 };
 
 function CourseApproval({
+  assessmentComplete,
   coursePreferences,
+  diagnosticAdapter,
+  homeChatMode,
   inputRef,
+  isLoading,
   onConfirmGenerate,
   onContinueAssessment,
 }: Pick<
   HomeChatConversationProps,
-  'coursePreferences' | 'inputRef' | 'onConfirmGenerate' | 'onContinueAssessment'
+  | 'assessmentComplete'
+  | 'coursePreferences'
+  | 'diagnosticAdapter'
+  | 'homeChatMode'
+  | 'inputRef'
+  | 'isLoading'
+  | 'onConfirmGenerate'
+  | 'onContinueAssessment'
 >) {
+  if (homeChatMode !== 'new-course' || diagnosticAdapter || !assessmentComplete || isLoading)
+    return null;
   return (
     <>
       {coursePreferences}
@@ -711,14 +724,16 @@ export default function HomeChatConversation({
           </div>
         ) : null}
 
-        {homeChatMode === 'new-course' && !diagnosticAdapter && assessmentComplete && !isLoading ? (
-          <CourseApproval
-            coursePreferences={coursePreferences}
-            inputRef={inputRef}
-            onConfirmGenerate={onConfirmGenerate}
-            onContinueAssessment={onContinueAssessment}
-          />
-        ) : null}
+        <CourseApproval
+          assessmentComplete={assessmentComplete}
+          coursePreferences={coursePreferences}
+          diagnosticAdapter={diagnosticAdapter}
+          homeChatMode={homeChatMode}
+          inputRef={inputRef}
+          isLoading={isLoading}
+          onConfirmGenerate={onConfirmGenerate}
+          onContinueAssessment={onContinueAssessment}
+        />
       </div>
     </div>
   );
