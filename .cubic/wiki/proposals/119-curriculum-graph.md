@@ -318,7 +318,6 @@ Il percorso completo richiede aggiornamenti al codec, alle proiezioni client, ai
 
 | Decisione | Proprietario e motivo | Lavoro indipendente |
 | --- | --- | --- |
-| Approvazione dello schema tecnico | Orchestratore, poi utente: ruolo locale, prerequisito riferito all'obiettivo, forma del raccordo e confine degli archivi | Verifica statica e casi esemplificativi di questa proposta |
 | Intento finale formalizzato e controlli | #85: il grafo importa `planningInputRef`; forma dell'obiettivo finale e dominio dei controlli restano al proprietario | Collegamenti agli obiettivi senza scegliere scale |
 | Contratti durevoli condivisi | #85/#112/#91/#124: risoluzione oltre i registri operativi, istanze, contesti, origini e conservazione | Catena dei riferimenti e validazioni richieste dalla #119 |
 | Azioni di pianificazione e adattamento | #121: scelta iniziale concreta, omissione o preparazione dei prerequisiti e conseguenze dei dubbi | Registrazione di proposta, motivo, riferimenti e limiti |
