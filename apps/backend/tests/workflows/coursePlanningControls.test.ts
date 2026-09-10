@@ -4,7 +4,10 @@ import {
   DEFAULT_COURSE_PLANNING_CONTROLS,
   resolveCoursePlanningControls,
 } from '@shared/coursePlanningControls';
-import { buildCoursePlanningInstructions } from '@shared/coursePlanningInstructions';
+import {
+  buildCoursePlanningInstructions,
+  resolveCoursePlanningTreatment,
+} from '@shared/coursePlanningInstructions';
 import { describe, expect, test } from 'vitest';
 import { buildLessonGenerationInput } from '../../src/services/lessonGenerationPreparation';
 import { buildLessonGenerationReferenceContext } from '../../src/services/lessonGenerationPrompt';
@@ -45,6 +48,26 @@ const rawPlan = {
     },
   ],
 };
+
+const expectedDepthTreatments = {
+  'much-less': 'minimal',
+  less: 'reduced',
+  auto: 'reference',
+  more: 'expanded',
+  'much-more': 'extensive',
+};
+const expectedLessonGroupings = {
+  'much-less': 'smallest-coherent-steps',
+  less: 'smaller-steps',
+  auto: 'reference',
+  more: 'broader-results',
+  'much-more': 'broadest-coherent-results',
+};
+
+function readCourseChoices(context: string) {
+  const block = context.split('COURSE CHOICES FROM THE INTERFACE:\n')[1];
+  return JSON.parse(block.split('\n')[0]);
+}
 
 describe('course planning controls', () => {
   test('preserves historical absence and resolves Auto against available sources', () => {
@@ -138,23 +161,48 @@ describe('course planning controls', () => {
     });
     expect(generationInput.generationNotes).toBe('x'.repeat(4000));
     const referenceContext = buildLessonGenerationReferenceContext(generationInput);
-    // Checks transport of structured values through the internal lesson context boundary.
-    expect(referenceContext).toContain(
-      JSON.stringify({ controls: { ...controls, reference: 'source' }, languageProficiency })
-    );
+    expect(readCourseChoices(referenceContext)).toMatchObject({
+      controls: { ...controls, reference: 'source' },
+      languageProficiency,
+      treatment: {
+        depth: { enrichment: expectedDepthTreatments[depth] },
+        granularity: { grouping: 'reference' },
+      },
+    });
   });
 
-  test('encodes granularity independently of depth without changing historical notes', () => {
-    const depth = 'less' as const;
-    const notes = COURSE_CONTROL_POSITIONS.map(granularity =>
-      buildCoursePlanningInstructions(
-        {
-          coursePlanningControls: { depth, granularity },
-        },
-        false
-      )
-    );
-    expect(new Set(notes).size).toBe(COURSE_CONTROL_POSITIONS.length);
+  test.each(
+    COURSE_CONTROL_POSITIONS.flatMap(depth =>
+      COURSE_CONTROL_POSITIONS.map(granularity => ({ depth, granularity }))
+    )
+  )('resolves depth $depth and granularity $granularity independently', ({
+    depth,
+    granularity,
+  }) => {
+    const controls = { depth, granularity };
+    const treatment = resolveCoursePlanningTreatment(controls);
+    expect(treatment).toMatchObject({
+      depth: { enrichment: expectedDepthTreatments[depth] },
+      granularity: { grouping: expectedLessonGroupings[granularity] },
+    });
+    for (const hasSource of [false, true]) {
+      const choices = readCourseChoices(
+        buildCoursePlanningInstructions({ coursePlanningControls: controls }, hasSource)
+      );
+      expect(choices).toEqual({
+        controls: { ...controls, reference: hasSource ? 'source' : 'balanced' },
+        treatment,
+      });
+    }
+  });
+
+  test('does not manufacture controls from a language declaration or historical notes', () => {
+    const languageProficiency = { language: 'Italiano', level: 'B2' as const };
+    expect(
+      readCourseChoices(buildCoursePlanningInstructions({ languageProficiency }, true))
+    ).toEqual({
+      languageProficiency,
+    });
     expect(buildCoursePlanningInstructions({ teachingPreferences: 'Usa esempi.' }, true)).toBe('');
     expect(buildCoursePlanningInstructions(null, false)).toBe('');
   });

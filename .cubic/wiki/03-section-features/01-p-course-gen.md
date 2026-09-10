@@ -89,6 +89,13 @@ course goal and available prerequisites. Granularity varies material addressed t
 preserving coverage, necessary connections, and prerequisite order. Neither control supplies a
 lesson count, exercise count, or numerical complexity score.
 
+`resolveCoursePlanningTreatment` resolves each ordinal choice into a separate depth treatment and
+lesson grouping directive before prompt construction. Depth ranges from minimal optional enrichment
+to extensive local enrichment; grouping ranges from the smallest coherent steps to the broadest
+coherent results. The shared instructions define a teachable core by its local learning result,
+rather than a fixed source subsection, while preserving existing planning limits. The current
+lesson objective bounds source integration even when the full course source is available.
+
 `buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
 planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
 profile into `pedagogicalContext`, which is checkpointed with the lesson input. User-editable
