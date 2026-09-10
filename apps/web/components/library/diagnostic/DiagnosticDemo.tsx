@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { setAccountLocale } from '../../../i18n/uiMessages.ts';
+import { setAccountLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import HomeChatPanel from '../HomeChatPanel.tsx';
 import { createDiagnosticDemoAdapter } from './diagnosticDemoAdapter.ts';
 
@@ -76,7 +76,7 @@ export default function DiagnosticDemo() {
         </label>
         <label>
           <input type="checkbox" checked={fail} onChange={event => setFail(event.target.checked)} />{' '}
-          Errore al primo invio
+          {t('Errore al primo invio')}
         </label>
       </aside>
     </main>

@@ -40,6 +40,7 @@ const ENGLISH_UI_MESSAGES = {
   'Ne conosco le basi': 'I know the basics',
   'Mi sento autonomo': 'I feel independent',
   'Non so valutarmi': 'I cannot assess myself',
+  'Errore al primo invio': 'Fail the first submission',
   'Non riconosco l’argomento.': 'I do not recognize the topic.',
   'Lo riconosco, ma non saprei spiegarlo.': 'I recognize it, but could not explain it.',
   'Saprei spiegare gli elementi principali, ma avrei bisogno di aiuto per usarli.':

@@ -10,6 +10,8 @@ const UI_SOURCE_ROOTS = [
 ];
 const EXCLUDED_FILES = new Set([
   resolve(WORKSPACE_ROOT, 'apps/web/components/dev/StylePreviewLab.tsx'),
+  // Fixed Italian course content for the development-only diagnostic preview.
+  resolve(WORKSPACE_ROOT, 'apps/web/components/library/diagnostic/diagnosticDemoAdapter.ts'),
 ]);
 const ITALIAN_UI_MARKER =
   /\b(?:abilita|accedi|aggiungi|aggiorna|allega|ambiente|amministrazione|annulla|apri|artefatti|avvio|caricamento|cartella|cerca|chiudi|completa|conferma|consegna|consulta|contenuto|contesto|correzione|corso|corsi|descrivi|disabilita|elimina|errore|esercizio|esporta|evidenzia|genera|generazione|immagine|imposta|importa|indietro|interroga|invia|lezione|lezioni|libreria|modelli|modifica|mostra|nascondi|nessun|nota|nuova|parte|pausa|percorso|preferenze|procedi|profilazione|progetto|pulisci|richiesta|rinomina|riproduci|riprova|riscontro|risposta|rimuovi|salva|scegli|seleziona|sincronizzazione|sorgente|sostituisci|sposta|strumenti|traccia|utenti|valutazione|velocita|voce)\b/i;

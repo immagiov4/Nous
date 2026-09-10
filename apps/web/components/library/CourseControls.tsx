@@ -12,22 +12,23 @@ const CONTROL_LABELS = {
   granularity: 'Granularità',
 } as const;
 
-const CONTROL_DESCRIPTIONS = {
-  depth: {
-    'much-less': 'Molto più essenziale',
-    less: 'Più essenziale',
-    auto: 'Auto',
-    more: 'Più approfondito',
-    'much-more': 'Molto più approfondito',
-  },
-  granularity: {
-    'much-less': 'Passaggi molto più piccoli',
-    less: 'Passaggi più piccoli',
-    auto: 'Auto',
-    more: 'Lezioni più corpose',
-    'much-more': 'Lezioni molto più corpose',
-  },
-} as const satisfies Record<keyof CoursePlanningControls, Record<CourseControlPosition, string>>;
+const getControlDescriptions = () =>
+  ({
+    depth: {
+      'much-less': t('Molto più essenziale'),
+      less: t('Più essenziale'),
+      auto: t('Auto'),
+      more: t('Più approfondito'),
+      'much-more': t('Molto più approfondito'),
+    },
+    granularity: {
+      'much-less': t('Passaggi molto più piccoli'),
+      less: t('Passaggi più piccoli'),
+      auto: t('Auto'),
+      more: t('Lezioni più corpose'),
+      'much-more': t('Lezioni molto più corpose'),
+    },
+  }) as const satisfies Record<keyof CoursePlanningControls, Record<CourseControlPosition, string>>;
 
 interface CourseControlsProps {
   readonly value: CoursePlanningControls;
@@ -44,6 +45,7 @@ export function CourseControls({
   onChange,
 }: CourseControlsProps) {
   const id = useId();
+  const descriptions = getControlDescriptions();
   return (
     <div className="grid w-full gap-7 rounded-3xl border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-stone-800">
       {(['depth', 'granularity'] as const).map(control => {
@@ -55,7 +57,7 @@ export function CourseControls({
         const description =
           value[control] === 'auto'
             ? `${t('Auto')} · ${baseline}`
-            : `${t(CONTROL_DESCRIPTIONS[control][value[control]])} · ${relative}`;
+            : `${descriptions[control][value[control]]} · ${relative}`;
         const inputId = `${id}-${control}`;
         const updatePosition = (nextPosition: number) => {
           const nextValue = COURSE_CONTROL_POSITIONS[nextPosition];
