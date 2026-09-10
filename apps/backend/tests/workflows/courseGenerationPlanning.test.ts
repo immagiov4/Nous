@@ -1,3 +1,4 @@
+import { COURSE_CONTROL_POSITIONS } from '@shared/coursePlanningControls';
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -248,7 +249,10 @@ describe('course generation planning', () => {
     expect(prompt).toContain('FIRST_END');
   });
 
-  test('keeps the draft and verification inspectable beside the refined output', async () => {
+  test.each(
+    COURSE_CONTROL_POSITIONS
+  )('preserves %s controls and the original draft through refinement', async granularity => {
+    const controls = { depth: 'less' as const, granularity };
     const source = {
       hash: 'a'.repeat(64),
       id: 'source-1',
@@ -258,7 +262,12 @@ describe('course generation planning', () => {
     };
     const documentState = {
       ...researchState,
-      context: { ...researchState.context, sourceNames: [source.name], sources: [source] },
+      context: {
+        ...researchState.context,
+        profile: { ...researchState.context.profile, coursePlanningControls: controls },
+        sourceNames: [source.name],
+        sources: [source],
+      },
       request: { ...researchState.request, mode: 'document' as const },
       strategy: 'single-source' as const,
     };
@@ -315,6 +324,16 @@ describe('course generation planning', () => {
     expect(refined.refinedPlan.plan.summary).toBe(refinedGeneratedPlan.summary);
     expect(refined.refinedVerification).toEqual(verification);
     expect(refined.rawRefinedPlan).toEqual(refinedGeneratedPlan);
+    expect(refined.context.profile?.coursePlanningControls).toEqual(controls);
+    expect(
+      verifyRefinedPlan.mock.calls[0]?.[0].state.context.profile.coursePlanningControls
+    ).toEqual(controls);
+    for (const [request] of generateObject.mock.calls) {
+      const choices = JSON.parse(
+        request.prompt.split('COURSE CHOICES FROM THE INTERFACE:\n')[1].split('\n')[0]
+      );
+      expect(choices.controls).toEqual({ ...controls, reference: 'source' });
+    }
   });
 
   test('retries refinement when the refined candidate still fails semantic verification', () => {

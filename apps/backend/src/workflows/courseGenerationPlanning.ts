@@ -1,4 +1,7 @@
-import { buildCoursePlanningInstructions } from '@shared/coursePlanningInstructions';
+import {
+  buildCoursePlanningInstructions,
+  COURSE_CONTROL_LESSON_GROUPING_RULE,
+} from '@shared/coursePlanningInstructions';
 import * as z from 'zod';
 import { generateCourseObject } from './courseGenerationModel.js';
 import {
@@ -374,7 +377,7 @@ ${retryFeedback ? `\nREQUIRED CORRECTION FROM THE PREVIOUS ATTEMPT:\n${retryFeed
 
 RULES:
 - Original material remains primary. Research and video fill gaps and provide updates.
-- Every lesson covers one distinct teachable core with explicit boundaries and prerequisite order.
+- ${state.context.profile?.coursePlanningControls ? COURSE_CONTROL_LESSON_GROUPING_RULE : 'Every lesson covers one distinct teachable core with explicit boundaries and prerequisite order.'}
 - Do not create one lesson per file, concatenate sources mechanically, or duplicate nearly equivalent lessons.
 - sourceUrls may contain only exact URLs present in the supplied research sources. Do not invent URLs.
 - miniLab is null when a short activity adds no real value.

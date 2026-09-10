@@ -98,6 +98,53 @@ const fragmentedVerification = {
 };
 
 describe('course plan verification', () => {
+  test('passes explicit controls to the verifier and preserves a granularity rejection', async () => {
+    const controls = { depth: 'much-less', granularity: 'much-more' } as const;
+    const input = CourseDraftPlanStateSchema.parse({
+      ...fragmentedDraft,
+      context: {
+        ...fragmentedDraft.context,
+        profile: {
+          context: 'Studio',
+          experienceLevel: 'Basi disponibili',
+          goals: 'Integrare i concetti',
+          language: 'Italiano',
+          learningStyle: 'Discorsivo',
+          topic: 'Sistemi distribuiti',
+          coursePlanningControls: controls,
+        },
+      },
+    });
+    const generateObject = vi.fn(async () => fragmentedVerification);
+    const verifyCoursePlan = createCoursePlanVerificationStage({
+      generateObject: generateObject as never,
+      loadVerificationMaterial: async () => ({ sourceContext: '' }),
+    });
+    const result = await verifyCoursePlan({
+      attemptNumber: 1,
+      config: { models: {} as never } as never,
+      execution: { nodeInstanceId: 'verify-course-plan', runId: 'run-1' },
+      idempotencyKey: 'verify-controls',
+      input,
+      retryFeedback: '',
+      signal: new AbortController().signal,
+    });
+    const request = generateObject.mock.calls[0]?.[0];
+    const choices = JSON.parse(
+      request.prompt.split('COURSE CHOICES FROM THE INTERFACE:\n')[1].split('\n')[0]
+    );
+    expect(choices).toMatchObject({
+      controls: { ...controls, reference: 'balanced' },
+      treatment: {
+        depth: { enrichment: 'minimal' },
+        granularity: { grouping: 'broadest-coherent-results' },
+      },
+    });
+    expect(result.context.profile?.coursePlanningControls).toEqual(controls);
+    expect(result.verification.granularity.status).toBe('needs-refinement');
+    expect(result.verification.verdict).toBe('refine');
+  });
+
   test('flags a fragmented many-single-lesson module plan for semantic refinement', async () => {
     const generateObject = vi.fn(async () => fragmentedVerification);
     const verifyCoursePlan = createCoursePlanVerificationStage({

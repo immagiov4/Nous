@@ -96,6 +96,12 @@ coherent results. The shared instructions define a teachable core by its local l
 rather than a fixed source subsection, while preserving existing planning limits. The current
 lesson objective bounds source integration even when the full course source is available.
 
+Plan review evaluates whether actual lesson boundaries honor the selected grouping and identifies
+concrete results to split or combine when refinement is needed. Prerequisite order alone does not
+require separate lessons. Lesson review checks depth under `core.instructions`: factually correct
+optional material can still require removal when it exceeds the selected treatment. These checks
+use the existing review and refinement stages and do not introduce additional model calls.
+
 `buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
 planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
 profile into `pedagogicalContext`, which is checkpointed with the lesson input. User-editable

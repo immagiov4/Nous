@@ -15,7 +15,7 @@ const DEPTH_TREATMENTS = {
   'much-less': {
     enrichment: 'minimal',
     instruction:
-      'Keep the complete required explanation and the examples needed to understand it. Omit optional elaboration around that core.',
+      'Explain each required relation completely, without repeating its justification in another section. Keep examples only when needed to understand the core. Once the learner can understand the required result, stop: omit alternative examples, restatements and further local cases that merely reinforce an already complete explanation.',
   },
   less: {
     enrichment: 'reduced',
@@ -66,6 +66,15 @@ const LESSON_GROUPINGS = {
       'Integrate compatible local results into the fullest lessons that remain coherent and learnable with the available prerequisites. Go beyond the more setting where coherence permits; do not merely lengthen unchanged lessons.',
   },
 } as const satisfies Record<CourseControlPosition, { grouping: string; instruction: string }>;
+
+export const COURSE_CONTROL_LESSON_GROUPING_RULE =
+  'Every lesson achieves a coherent local learning result at the selected granularity. Prerequisite order can be respected within a lesson as well as between lessons; a prerequisite relationship alone does not require separate lessons. Source headings identify content, not mandatory lesson boundaries. Keep the full required coverage while splitting or combining meaningful results as requested.';
+
+export const COURSE_CONTROL_GRANULARITY_REVIEW_RULE =
+  'When course controls are supplied, granularity must assess the requested grouping, not just whether the draft is teachable. Compare its actual lesson boundaries with the source organization, or a balanced organization when no source exists. For smaller steps, inspect whether a lesson contains results that can be learned separately; for fuller lessons, inspect whether adjacent results can form a coherent lesson with prerequisites explained in order. Cite the concrete results to separate or combine in granularity.feedback and require refinement when a useful requested change remains unapplied. Distinct topics, source headings, or the statement that one result requires another do not by themselves justify unchanged boundaries. If unchanged boundaries are appropriate, identify the specific dependency or coherence constraint that prevents the requested change. Do not force different lesson counts or remove required content.';
+
+export const COURSE_CONTROL_DEPTH_REVIEW_RULE =
+  'When course depth is supplied in the pedagogical context, assess the actual optional enrichment against its selected treatment. Correctness alone does not make a passage necessary. At minimal or reduced enrichment, remove redundant justifications, alternative examples and optional cases beyond the requested treatment while retaining the complete required explanation. At expanded or extensive enrichment, retain useful local additions only inside the current lesson objective and available prerequisites. Cite what is required and what is optional in the evidence. Applying this explicit preference is a required correction, not an unsolicited stylistic rewrite.';
 
 /** Converts ordinal interface choices into independent, explicit generation directives. */
 export function resolveCoursePlanningTreatment(controls: CoursePlanningControls) {

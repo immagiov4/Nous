@@ -372,6 +372,7 @@ ${JSON.stringify(draft)}
 ${retryCorrection}
 VERIFICATION TASK:
 Correct ONLY what is necessary and preserve all valid content. Do not rewrite the lesson for stylistic preference.
+Content is valid only when it also respects the explicit course controls and current lesson scope. Remove surplus optional content when the selected depth requires it; do not preserve it merely because it is factually correct.
 For every checkId listed below, judge the actual draft and cite the concrete passage or reason in evidence. Do not mark a check as pass automatically merely because its rule appears in the instructions.
 Produce exactly one verificationReport entry for every checkId, including structural checks. Use ${LESSON_VERIFICATION_STATUS.notApplicable} only when the instruction allows it and the corresponding content does not exist in the draft.
 The presence of a repair check is not an invitation to add a feature. Create active pauses or generated visuals only when an explicit task requirement makes them necessary.
