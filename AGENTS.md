@@ -104,6 +104,7 @@ a feature is core or better left to external tools.
 
 ## Cubic Wiki Governance
 
+- Do not create a new documentation directory, category, proposal area, or standalone design document unless that structure already exists in the repository or the maintainer explicitly requested it. Keep repository documentation in English. Working notes and planning artifacts belong outside the repository unless an existing documentation location explicitly owns them.
 - Once the Cubic/wiki documentation is stabilized, every pull request that changes contracts, APIs, persistence, workflows, user-visible behavior, or UI must update the pertinent `.cubic/wiki` page in the same cycle, or explicitly state in the pull request why no update is needed.
 - Cubic remains the regenerable foundation for architectural documentation. Do not duplicate architectural documentation outside `.cubic/wiki`.
 - The historical `Lumina-Reader` repository is out of scope and must not be consulted or used.
