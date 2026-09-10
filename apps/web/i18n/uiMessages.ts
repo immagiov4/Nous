@@ -57,6 +57,8 @@ const ENGLISH_UI_MESSAGES = {
   Successiva: 'Next',
   'Invio non riuscito. Le risposte sono conservate. Riprova.':
     'Submission failed. Your answers are retained. Try again.',
+  'La raccolta si è interrotta. Le risposte inviate sono conservate.':
+    'The assessment has stopped. Your submitted answers are retained.',
   'Scrivi la tua risposta...': 'Write your answer...',
   'Campi vuoti': 'Empty fields',
   'Preferenze esistenti': 'Existing preferences',

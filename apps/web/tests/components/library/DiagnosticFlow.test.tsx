@@ -9,6 +9,7 @@ import type {
   DiagnosticStage,
   DiagnosticSubmission,
 } from '../../../components/library/diagnostic/diagnosticFlow.ts';
+import { DiagnosticStoppedError } from '../../../components/library/diagnostic/diagnosticFlow.ts';
 
 const round: DiagnosticStage = {
   kind: 'round',
@@ -64,6 +65,30 @@ afterAll(() => {
 });
 
 describe('diagnostic collection interface', () => {
+  test('retains answers and stops offering submission retries after terminal failure', async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn().mockRejectedValue(new DiagnosticStoppedError());
+    render(
+      <DiagnosticFlow
+        adapter={{
+          collectionId: 'stopped',
+          initial: {
+            kind: 'round',
+            id: 'round',
+            title: 'Ragioniamo',
+            questions: [{ id: 'q', topic: 'Tema', prompt: 'Spiega.', format: 'text' }],
+          },
+          submit,
+        }}
+      />
+    );
+    await user.type(screen.getByRole('textbox'), 'Risposta raccolta');
+    await user.click(screen.getByRole('button', { name: 'Invia le risposte' }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('textbox')).toHaveValue('Risposta raccolta');
+    expect(screen.getByRole('button', { name: 'Invia le risposte' })).toBeDisabled();
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
   test('keeps the uncertain stop after release and the trailing native range change', () => {
     vi.stubGlobal('PointerEvent', MouseEvent);
     render(<DiagnosticFlow adapter={createDiagnosticDemoAdapter()} />);

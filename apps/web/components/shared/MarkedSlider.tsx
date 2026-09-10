@@ -33,7 +33,7 @@ export function MarkedSlider({
   markerCount,
   disabled,
   ...inputProps
-}: MarkedSliderProps) {
+}: Readonly<MarkedSliderProps>) {
   const stepIndex = Math.round((value - min) / step);
   const stepCount = Math.round((max - min) / step);
   const progressPercent = (stepIndex / stepCount) * 100;

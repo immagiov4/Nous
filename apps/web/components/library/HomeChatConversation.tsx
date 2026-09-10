@@ -502,6 +502,48 @@ const EmptyConversationState = ({
   );
 };
 
+function CourseApproval({
+  coursePreferences,
+  inputRef,
+  onConfirmGenerate,
+  onContinueAssessment,
+}: Pick<
+  HomeChatConversationProps,
+  'coursePreferences' | 'inputRef' | 'onConfirmGenerate' | 'onContinueAssessment'
+>) {
+  return (
+    <>
+      {coursePreferences}
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
+        <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
+          {t('Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?')}
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            data-home-chat-target="confirm-generate"
+            type="button"
+            onClick={onConfirmGenerate}
+            className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+          >
+            <Sparkles className="h-4 w-4" />
+            {t('Sì, genera il corso')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onContinueAssessment?.();
+              inputRef.current?.focus();
+            }}
+            className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 dark:border-zinc-600 dark:bg-stone-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-stone-600"
+          >
+            {t('No, voglio aggiungere...')}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function HomeChatConversation({
   coursePreferences,
   diagnosticAdapter,
@@ -660,40 +702,22 @@ export default function HomeChatConversation({
           <div className="flex min-w-0 items-start gap-2.5">
             {assistantAvatar}
             <div className="min-w-0 flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
-              <DiagnosticFlow key={diagnosticAdapter.collectionId} adapter={diagnosticAdapter} />
+              <DiagnosticFlow
+                key={diagnosticAdapter.collectionId}
+                adapter={diagnosticAdapter}
+                isDarkMode={isDarkMode}
+              />
             </div>
           </div>
         ) : null}
-        {homeChatMode === 'new-course' && !diagnosticAdapter && assessmentComplete && !isLoading
-          ? coursePreferences
-          : null}
+
         {homeChatMode === 'new-course' && !diagnosticAdapter && assessmentComplete && !isLoading ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
-            <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
-              {t('Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?')}
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                data-home-chat-target="confirm-generate"
-                type="button"
-                onClick={onConfirmGenerate}
-                className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
-              >
-                <Sparkles className="h-4 w-4" />
-                {t('Sì, genera il corso')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onContinueAssessment?.();
-                  inputRef.current?.focus();
-                }}
-                className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 dark:border-zinc-600 dark:bg-stone-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-stone-600"
-              >
-                {t('No, voglio aggiungere...')}
-              </button>
-            </div>
-          </div>
+          <CourseApproval
+            coursePreferences={coursePreferences}
+            inputRef={inputRef}
+            onConfirmGenerate={onConfirmGenerate}
+            onContinueAssessment={onContinueAssessment}
+          />
         ) : null}
       </div>
     </div>

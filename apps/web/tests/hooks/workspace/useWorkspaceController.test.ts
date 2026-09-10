@@ -5513,6 +5513,97 @@ test('submitAssessment exposes exhausted durable interviews as a controlled fail
   assert.equal(result.errorMessage, 'L’intervista ha raggiunto il limite di sicurezza. Riprova.');
 });
 
+test('confirmation recovers an approval already waiting on diagnostics and preserves its adapter on terminal failure', async () => {
+  const snapshot = createInterviewSnapshot({
+    projectId: 'document-project',
+    diagnostic: {
+      collectionId: 'collection',
+      stage: {
+        kind: 'round',
+        id: 'round',
+        title: 'Domande',
+        questions: [{ id: 'q', topic: 'Tema', prompt: 'Spiega', format: 'text' }],
+      },
+    },
+    wait: {
+      expiresAt: '2026-08-09T10:00:00.000Z',
+      signalType: 'diagnostic-submission',
+      waitId: 'diagnostic-wait',
+    },
+  });
+  const sendCourseInterviewDecision = vi.fn();
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: snapshot.projectId },
+    openRouter: {
+      getActiveCourseInterview: async () => snapshot,
+      sendCourseInterviewDecision,
+      sendCourseDiagnosticSubmission: async () => ({ ...snapshot, status: 'failed', wait: null }),
+    },
+  });
+  const setDiagnosticAdapter = vi.fn();
+  state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
+  expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
+  expect(sendCourseInterviewDecision).not.toHaveBeenCalled();
+  const adapter = setDiagnosticAdapter.mock.calls[0][0];
+  await assert.rejects(
+    adapter.submit({
+      collectionId: 'collection',
+      stageId: 'round',
+      requestId: 'answer',
+      answers: [{ itemId: 'q', response: { kind: 'text', text: 'Spiegazione' } }],
+    }),
+    { name: 'Error', message: 'Diagnostic collection terminated.' }
+  );
+  assert.equal(setDiagnosticAdapter.mock.calls.length, 1);
+});
+test.each([
+  'lookup',
+  'approval',
+] as const)('confirmation cannot restore diagnostics after a project switch during %s', async phase => {
+  let complete!: (snapshot: CourseInterviewSnapshot) => void;
+  const pending = new Promise<CourseInterviewSnapshot>(resolve => {
+    complete = resolve;
+  });
+  const snapshot = createInterviewSnapshot({
+    projectId: 'document-project',
+    diagnostic: {
+      collectionId: 'collection',
+      stage: {
+        kind: 'self-assessment',
+        id: 'tree',
+        title: 'Argomenti',
+        topics: [{ id: 'topic', parentId: null, title: 'Tema' }],
+      },
+    },
+    wait: {
+      expiresAt: '2026-08-09T10:00:00.000Z',
+      signalType: 'diagnostic-submission',
+      waitId: 'diagnostic-wait',
+    },
+  });
+  const sendCourseInterviewDecision = vi.fn(() => pending);
+  const { controller, state, projectLibrary } = createControllerHarness({
+    projectLibrary: { currentProjectId: snapshot.projectId },
+    openRouter: {
+      getActiveCourseInterview: () =>
+        phase === 'lookup' ? pending : Promise.resolve(createProposalSnapshot(snapshot.projectId)),
+      sendCourseInterviewDecision,
+    },
+  });
+  const setDiagnosticAdapter = vi.fn();
+  state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
+  const confirmation = controller.confirmPlanGeneration();
+  if (phase === 'approval')
+    await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
+  projectLibrary.adapter.setCurrentProjectId('other-project');
+  state.adapter.invalidateWorkflows(['generatePlan']);
+  state.adapter.setScreenState(AppState.READING);
+  complete(snapshot);
+  assert.equal((await confirmation).outcome, 'failed');
+  assert.equal(setDiagnosticAdapter.mock.calls.length, 0);
+  assert.equal(state.internalState.screenState, AppState.READING);
+});
+
 test('confirmPlanGeneration approves the durable proposal and resumes its course run', async () => {
   let completeDecision: (() => void) | undefined;
   const decisionGate = new Promise<void>(resolve => {

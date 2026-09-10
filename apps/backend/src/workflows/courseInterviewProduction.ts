@@ -7,17 +7,13 @@ import {
 import { COURSE_GENERATION_WORKFLOW_ID } from './courseGenerationWorkflow.js';
 import { createCourseInterviewModel } from './courseInterviewModel.js';
 import type { CourseInterviewWorkflowServices } from './courseInterviewWorkflow.js';
-import {
-  type PostgresDiagnosticSnapshotStore,
-  saveDiagnosticSnapshot,
-} from './persistence/postgresDiagnosticSnapshotStore.js';
+import { saveDiagnosticSnapshot } from './persistence/postgresDiagnosticSnapshotStore.js';
 import { createPriorKnowledgeDiagnosticModel } from './priorKnowledgeDiagnosticModel.js';
 import type { WorkflowRun } from './types.js';
 
 const COURSE_INTERVIEW_PROJECT_STATE = 'ASSESSMENT';
 
 type CourseInterviewRunStore = CourseGenerationResolvedStartDependencies['store'] & {
-  diagnosticSnapshots: Pick<PostgresDiagnosticSnapshotStore, 'hasAcceptedSubmission'>;
   getActiveRun(input: {
     projectId: string;
     userId: string;
@@ -63,16 +59,10 @@ export const createProductionCourseInterviewServices = (
 
       const project = await dependencies.projectStore.loadProject(input.userId, input.projectId);
       if (!project || project.learningPlan || project.lastCourseGenerationRunId) return;
-      // Operational failure must not discard a learner's already accepted diagnostic answers.
-      if (
-        await dependencies.runStore.diagnosticSnapshots.hasAcceptedSubmission(
-          input.userId,
-          input.projectId
-        )
-      )
-        return;
       input.signal.throwIfAborted();
-      await dependencies.projectStore.deleteProject(input.userId, input.projectId);
+      await dependencies.projectStore.deleteProject(input.userId, input.projectId, {
+        preserveAcceptedDiagnostics: true,
+      });
     },
     async saveCourseProfile(input) {
       await patchProject(input.transaction, {

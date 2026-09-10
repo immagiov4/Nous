@@ -4,8 +4,9 @@ import {
   DIAGNOSTIC_SUBMISSION_SIGNAL,
   type DiagnosticStage,
 } from '@shared/priorKnowledgeDiagnostic';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
 import { projectCourseInterviewEvents } from '../../src/workflows/courseInterviewApi.js';
 import {
   CourseInterviewWorkflowConfigSchema,
@@ -14,7 +15,10 @@ import {
 } from '../../src/workflows/courseInterviewWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
-import { saveDiagnosticSnapshot } from '../../src/workflows/persistence/postgresDiagnosticSnapshotStore.js';
+import {
+  hasAcceptedDiagnosticSubmission,
+  saveDiagnosticSnapshot,
+} from '../../src/workflows/persistence/postgresDiagnosticSnapshotStore.js';
 import { createPriorKnowledgeDiagnosticModel } from '../../src/workflows/priorKnowledgeDiagnosticModel.js';
 import {
   type DiagnosticSnapshot,
@@ -78,7 +82,7 @@ async function createScenario() {
           .filter(attempt => attempt.response.kind !== 'not-submitted')
           .map(attempt => ({
             attemptId: attempt.attemptId,
-            criterionId: pass.tasks.find(task => task.taskId === attempt.taskId)!.criteria[0]
+            criterionId: pass.tasks.find(task => task.taskId === attempt.taskId)?.criteria[0]
               .criterionId,
             observation: 'Used the order relation.',
             assessment: 'Supports exclusion in one comparison.',
@@ -237,10 +241,15 @@ describe
       const { advanceToWait, store, userId, runId, definition } = scenario;
       const state = await advanceToWait();
       expect(state?.waits[0].signalType).toBe('course-decision');
+      expect(
+        projectCourseInterviewEvents(state!).find(
+          event => event.eventType === 'course-proposal-ready'
+        )?.payload
+      ).toMatchObject({ supportsCoursePreferences: true });
       await store.signals.receive({
         userId,
         runId,
-        waitId: state!.waits[0].waitId,
+        waitId: state?.waits[0].waitId,
         signalType: 'course-decision',
         requestKey: randomUUID(),
         payload: {
@@ -282,7 +291,7 @@ describe
       const signal = {
         userId,
         runId,
-        waitId: state!.waits[0].waitId,
+        waitId: state?.waits[0].waitId,
         signalType: DIAGNOSTIC_SUBMISSION_SIGNAL,
         requestKey: randomUUID(),
         payload: { collectionId, stageId: stage.id, requestId: randomUUID(), answers },
@@ -295,10 +304,10 @@ describe
       await store.signals.receive(signal);
       expect(await store.signals.receive(signal)).toMatchObject({ status: 'replayed' });
       await expect(
-        store.diagnosticSnapshots.hasAcceptedSubmission(userId, scenario.projectId)
+        hasAcceptedDiagnosticSubmission(scenario.sql, userId, scenario.projectId)
       ).resolves.toBe(true);
       await expect(
-        store.diagnosticSnapshots.hasAcceptedSubmission(randomUUID(), scenario.projectId)
+        hasAcceptedDiagnosticSubmission(scenario.sql, randomUUID(), scenario.projectId)
       ).resolves.toBe(false);
       const [{ snapshot: accepted }] = await sql<{ snapshot: DiagnosticSnapshot }[]>`
         select snapshot from public.prior_knowledge_diagnostic_snapshots
@@ -330,12 +339,13 @@ describe
         coursePlanningControls: { depth: 'less', granularity: 'more' },
         languageProficiency: { language: 'English', level: 'B2' },
       });
-      expect(generationRef).toEqual(retained.at(-1)!.ref);
+      expect(generationRef).toEqual(retained.at(-1)?.ref);
       const snapshot = await store.diagnosticSnapshots.load(userId, generationRef!);
       expect(snapshot).not.toBeNull();
       const planning = projectPriorKnowledge(snapshot!);
       if (planning.kind !== 'collected') throw new Error('Expected collected evidence.');
       const node = planning.planningView.nodes[0];
+      expect(node.observations).toHaveLength(2);
       expect(resolveDiagnosticArtifact(snapshot!, node.selfReports[0].selfReportRef)).toMatchObject(
         {
           response: { kind: 'self-report', value: 'uncertain' },
@@ -346,7 +356,7 @@ describe
         task: { claim: { scope: 'One sorted comparison' } },
       });
       expect(planning.planningView.conflicts.length).toBeGreaterThan(0);
-      const omittedTask = snapshot!.collection.passes
+      const omittedTask = snapshot?.collection.passes
         .flatMap(pass => pass.tasks)
         .find(task => task.responseFormatDefinition.format === 'choice');
       expect(
@@ -383,5 +393,65 @@ describe
       ).rejects.toThrow();
       await sql`delete from public.workflow_runs where id=${runId}`;
       expect(await store.diagnosticSnapshots.load(userId, generationRef!)).toEqual(snapshot);
+    });
+    test('cleanup waits for a concurrent acceptance and preserves the committed evidence', async () => {
+      const { sql, userId, retained } = scenario;
+      const projectId = `${scenario.projectId}-concurrent`;
+      const [{ incarnation_id: incarnationId }] = await sql`
+        insert into public.projects (user_id, id, meta, updated_at, last_opened_at)
+        values (${userId}, ${projectId}, '{}'::jsonb, now(), now()) returning incarnation_id
+      `;
+      const original = retained.at(-1)!;
+      const snapshot = {
+        ...original,
+        ref: { ...original.ref, projectId, incarnationId },
+        collection: { ...original.collection, projectId },
+      };
+      let releaseAcceptance!: () => void;
+      let acceptanceReady!: () => void;
+      const held = new Promise<void>(resolve => {
+        releaseAcceptance = resolve;
+      });
+      const ready = new Promise<void>(resolve => {
+        acceptanceReady = resolve;
+      });
+      const acceptance = sql.begin(async transaction => {
+        await saveDiagnosticSnapshot(transaction, snapshot);
+        acceptanceReady();
+        await held;
+      });
+      await ready;
+      const projectStore = new PostgresProjectStore(undefined, sql);
+      const cleanup = projectStore.deleteProject(userId, projectId, {
+        preserveAcceptedDiagnostics: true,
+      });
+      try {
+        await vi.waitFor(async () => {
+          const waiting = await sql`
+            select 1 from pg_stat_activity
+            where datname = current_database() and cardinality(pg_blocking_pids(pid)) > 0
+              and query like '%from public.projects%'
+          `;
+          expect(waiting.length).toBeGreaterThan(0);
+        });
+      } finally {
+        releaseAcceptance();
+        await acceptance;
+        await cleanup;
+      }
+      expect(await hasAcceptedDiagnosticSubmission(sql, userId, projectId)).toBe(true);
+    });
+    test('acceptance refuses a project locked for deletion and explicit deletion still works', async () => {
+      const { sql, userId, projectId, retained } = scenario;
+      await sql.begin(async transaction => {
+        await transaction`select id from public.projects where user_id=${userId} and id=${projectId} for update`;
+        await expect(
+          sql.begin(acceptance => saveDiagnosticSnapshot(acceptance, retained.at(-1)!))
+        ).rejects.toMatchObject({ code: '55P03' });
+      });
+      await new PostgresProjectStore(undefined, sql).deleteProject(userId, projectId);
+      const rows =
+        await sql`select id from public.projects where user_id=${userId} and id=${projectId}`;
+      expect(rows).toHaveLength(0);
     });
   });

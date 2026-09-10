@@ -202,7 +202,11 @@ export interface ProjectStore {
     args: { name: string; parentFolderId?: string | null }
   ) => Promise<LibraryFolder>;
   deleteFolder: (userId: string, folderId: string) => Promise<void>;
-  deleteProject: (userId: string, id: ProjectId) => Promise<void>;
+  deleteProject: (
+    userId: string,
+    id: ProjectId,
+    options?: { preserveAcceptedDiagnostics: boolean }
+  ) => Promise<void>;
   exportProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
   importProject: (
     userId: string,

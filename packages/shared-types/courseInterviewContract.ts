@@ -78,6 +78,11 @@ export const CourseInterviewMessageEventSchema = z.object({
 export const CourseInterviewProposalReadyEventSchema = z.object({
   proposal: CourseInterviewProposalSchema,
 });
+export const CourseInterviewConfigurableProposalEventSchema =
+  CourseInterviewProposalReadyEventSchema.extend({
+    proposal: CourseInterviewProposalSchema.extend(CoursePlanningPreferencesSchema.shape),
+    supportsCoursePreferences: z.literal(true),
+  });
 export const CourseInterviewGenerationStartedEventSchema = z.object({
   generationRunId: NonEmptyTextSchema,
   projectId: NonEmptyTextSchema,

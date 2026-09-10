@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAppLocale } from '../../../hooks/useAppLocale.ts';
 import { setAccountLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import HomeChatPanel from '../HomeChatPanel.tsx';
 import { createDiagnosticDemoAdapter } from './diagnosticDemoAdapter.ts';
@@ -14,6 +15,7 @@ const ignoreAsync = async () => undefined;
 
 /** Development route, deliberately disconnected from authentication, providers and persistence. */
 export default function DiagnosticDemo() {
+  useAppLocale();
   const [revision, setRevision] = useState(0);
   const [dark, setDark] = useState(false);
   const [fail, setFail] = useState(false);

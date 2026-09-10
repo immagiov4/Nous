@@ -7,6 +7,7 @@ import {
   buildDiagnosticSubmission,
   type DiagnosticAdapter,
   type DiagnosticAnswer,
+  DiagnosticStoppedError,
   diagnosticItems,
   diagnosticReducer,
   initialDiagnosticState,
@@ -15,10 +16,11 @@ import './diagnostic.css';
 
 export interface DiagnosticFlowProps {
   readonly adapter: DiagnosticAdapter;
+  readonly isDarkMode?: boolean;
 }
 
 /** Mount with the collection identity as key. The adapter determines every accepted next stage. */
-export default function DiagnosticFlow({ adapter }: DiagnosticFlowProps) {
+export default function DiagnosticFlow({ adapter, isDarkMode }: DiagnosticFlowProps) {
   const [completionError, setCompletionError] = useState(false);
   const [openingCourse, setOpeningCourse] = useState(false);
   const [state, dispatch] = useReducer(diagnosticReducer, adapter.initial, initialDiagnosticState);
@@ -43,7 +45,7 @@ export default function DiagnosticFlow({ adapter }: DiagnosticFlowProps) {
   const submit = async () => {
     if (inFlight.current || stage.kind === 'complete') return;
     inFlight.current = true;
-    if (!request.current || request.current.answers !== state.answers) {
+    if (request.current?.answers !== state.answers) {
       request.current = {
         answers: state.answers,
         submission: buildDiagnosticSubmission(state, adapter.collectionId, crypto.randomUUID()),
@@ -56,7 +58,7 @@ export default function DiagnosticFlow({ adapter }: DiagnosticFlowProps) {
       dispatch({ type: 'accepted', stage: nextStage });
     } catch (error) {
       console.error('Diagnostic submission failed', error);
-      dispatch({ type: 'failed' });
+      dispatch({ type: error instanceof DiagnosticStoppedError ? 'stopped' : 'failed' });
     } finally {
       inFlight.current = false;
     }
@@ -106,7 +108,7 @@ export default function DiagnosticFlow({ adapter }: DiagnosticFlowProps) {
         </>
       ) : (
         <>
-          <fieldset disabled={busy || status === 'failed'} className="min-w-0">
+          <fieldset disabled={status !== 'editing'} className="min-w-0">
             <legend className="sr-only">{stage.title}</legend>
             {stage.kind === 'self-assessment' ? (
               <DiagnosticTree
@@ -117,6 +119,7 @@ export default function DiagnosticFlow({ adapter }: DiagnosticFlowProps) {
             ) : (
               currentQuestion && (
                 <DiagnosticQuestionCard
+                  isDarkMode={isDarkMode}
                   question={currentQuestion}
                   answer={state.answers[currentQuestion.id]}
                   onAnswer={next => answer(currentQuestion.id, next)}
@@ -147,7 +150,11 @@ export default function DiagnosticFlow({ adapter }: DiagnosticFlowProps) {
               type="button"
               className="diagnostic-primary"
               aria-label={nextLabel}
-              disabled={busy}
+              disabled={
+                busy ||
+                (status === 'stopped' &&
+                  (stage.kind === 'self-assessment' || position === items.length - 1))
+              }
               onClick={() => {
                 if (stage.kind === 'self-assessment' || position === items.length - 1) {
                   void submit();
@@ -165,6 +172,11 @@ export default function DiagnosticFlow({ adapter }: DiagnosticFlowProps) {
           {status === 'failed' && (
             <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-300">
               {t('Invio non riuscito. Le risposte sono conservate. Riprova.')}
+            </p>
+          )}
+          {status === 'stopped' && (
+            <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-300">
+              {t('La raccolta si è interrotta. Le risposte inviate sono conservate.')}
             </p>
           )}
         </>

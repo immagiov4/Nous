@@ -100,12 +100,11 @@ const createInterviewSchemas = (preferences: 'diagnostic' | 'current' | 'previou
     userId: z.string().min(1),
   });
   // The historical output is a valid subset because the new fields are optional.
-  const workflowInputSchema =
-    preferences !== 'previous'
-      ? preferences === 'diagnostic'
-        ? CourseInterviewDiagnosticInputSchema
-        : (CourseInterviewWorkflowInputSchema as typeof CourseInterviewDiagnosticInputSchema)
-      : (inputSchema as typeof CourseInterviewDiagnosticInputSchema);
+  let workflowInputSchema = inputSchema as typeof CourseInterviewDiagnosticInputSchema;
+  if (preferences === 'diagnostic') workflowInputSchema = CourseInterviewDiagnosticInputSchema;
+  else if (preferences === 'current')
+    workflowInputSchema =
+      CourseInterviewWorkflowInputSchema as typeof CourseInterviewDiagnosticInputSchema;
   const CourseInterviewProposalReadyEventSchema = z.object({
     proposal:
       preferences === 'diagnostic'
@@ -426,7 +425,10 @@ export const createCourseInterviewWorkflow = (
       if (input.turn.kind !== 'proposal') {
         throw new Error('Course proposal event requires a proposal turn.');
       }
-      return { proposal: input.turn.proposal };
+      return {
+        proposal: input.turn.proposal,
+        ...(preferences === 'diagnostic' ? { supportsCoursePreferences: true as const } : {}),
+      };
     },
   });
 
@@ -456,6 +458,7 @@ export const createCourseInterviewWorkflow = (
             }
           : {};
       if (
+        decision.kind === 'approve' &&
         selectedPreferences.languageProficiency &&
         selectedPreferences.languageProficiency.language !== input.turn.proposal.language
       ) {
@@ -771,13 +774,11 @@ export const createCourseInterviewWorkflow = (
     payload: result => result,
   });
 
+  let compatibilityId =
+    profilePersistence === 'commit' ? 'course-interview-v2' : 'course-interview-v1';
+  if (preferences === 'diagnostic') compatibilityId = 'course-interview-diagnostic-v1';
   return workflow({
-    compatibilityId:
-      preferences === 'diagnostic'
-        ? 'course-interview-diagnostic-v1'
-        : profilePersistence === 'commit'
-          ? 'course-interview-v2'
-          : 'course-interview-v1',
+    compatibilityId,
     configSchema,
     events: {
       ...(preferences === 'diagnostic'
@@ -806,7 +807,12 @@ export const createCourseInterviewWorkflow = (
       },
       [COURSE_INTERVIEW_PROPOSAL_READY_EVENT]: {
         durability: 'durable',
-        schema: CourseInterviewProposalReadyEventSchema,
+        schema:
+          preferences === 'diagnostic'
+            ? CourseInterviewProposalReadyEventSchema.extend({
+                supportsCoursePreferences: z.literal(true),
+              })
+            : CourseInterviewProposalReadyEventSchema,
         schemaVersion: COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
       },
     },

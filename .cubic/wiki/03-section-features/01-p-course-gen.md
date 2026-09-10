@@ -261,7 +261,9 @@ The model chooses another pass only when it can clarify a doubt that could chang
 
 `projectPriorKnowledge` produces a structural planning view with self-report and interpretation references, gaps, conflicts and the collection's stopping reason. `resolveDiagnosticPlanningEvidence` supplies the retained context, raw tasks, submitted attempts and omissions even when no interpretation exists. Planning and verification consume that evidence separately from requested final depth and granularity. An observation supports only its task claim scope. Historical runs without a diagnostic keep an explicit not-collected state.
 
-Operational failure preserves draft projects that contain accepted diagnostic submissions. Explicit project deletion still removes their diagnostic records.
+Operational failure preserves draft projects that contain accepted diagnostic submissions. Cleanup checks this condition while holding the project deletion lock. Snapshot acceptance acquires a non-waiting key-share lock to avoid deadlocking with cascading deletion. Explicit project deletion still removes diagnostic records.
+
+Each model evaluation is cumulative. Planning projects the final evaluation, including only its remaining gaps and conflicts, while older interpretations remain individually resolvable for audit. Omitted self-assessments remain raw responses and are excluded from declaration references. Course preferences survive project hydration and export/import through the shared preference schema; malformed explicit preferences are rejected at the snapshot write boundary.
 
 The registry retains pre-diagnostic interview, generation and PDF-repair definitions. Signal waits may define a transactional commit callback; its presence enters the manifest while historical waits retain their original manifest shape.
 

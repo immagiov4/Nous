@@ -96,6 +96,8 @@ const LessonIntegritySchema = z.strictObject({
   topic: LessonIntegrityAssessmentSchema,
   objectives: LessonIntegrityAssessmentSchema,
 });
+const { $schema: _integritySchemaDialect, ...lessonIntegrityProviderSchema } =
+  LessonIntegritySchema.toJSONSchema();
 
 type VerifiedLessonContentDraft = LessonContentDraft & {
   lessonIntegrity: z.infer<typeof LessonIntegritySchema>;
@@ -181,7 +183,7 @@ const buildVerificationSchema = (
     ...responseSchema.schema,
     properties: {
       ...responseSchema.schema.properties,
-      lessonIntegrity: LessonIntegritySchema.toJSONSchema(),
+      lessonIntegrity: lessonIntegrityProviderSchema,
       verificationReport: {
         items: {
           additionalProperties: false,

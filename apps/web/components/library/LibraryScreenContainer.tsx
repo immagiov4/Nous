@@ -297,24 +297,27 @@ export const LibraryScreenContainer = ({
       />
       <NewHomeView
         chatProps={{
-          coursePreferences: controller.courseProposal ? (
-            <div className="space-y-4">
-              <CourseControls
-                value={coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS}
-                hasReferenceMaterial={Boolean(controller.source)}
-                onChange={coursePlanningControls =>
-                  updateCoursePreferences({ ...coursePreferences, coursePlanningControls })
-                }
-              />
-              <CourseLanguageProficiency
-                language={controller.courseProposal.language}
-                value={coursePreferences.languageProficiency}
-                onChange={languageProficiency =>
-                  updateCoursePreferences({ ...coursePreferences, languageProficiency })
-                }
-              />
-            </div>
-          ) : undefined,
+          coursePreferences:
+            controller.courseProposal && controller.supportsCoursePreferences ? (
+              <div className="space-y-4">
+                <CourseControls
+                  value={
+                    coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
+                  }
+                  hasReferenceMaterial={Boolean(controller.source)}
+                  onChange={coursePlanningControls =>
+                    updateCoursePreferences({ ...coursePreferences, coursePlanningControls })
+                  }
+                />
+                <CourseLanguageProficiency
+                  language={controller.courseProposal.language}
+                  value={coursePreferences.languageProficiency}
+                  onChange={languageProficiency =>
+                    updateCoursePreferences({ ...coursePreferences, languageProficiency })
+                  }
+                />
+              </div>
+            ) : undefined,
           diagnosticAdapter: controller.diagnosticAdapter,
           assessmentComplete,
           assessmentMessages,

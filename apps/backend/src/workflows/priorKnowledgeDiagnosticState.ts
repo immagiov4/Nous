@@ -119,6 +119,28 @@ export type DiagnosticCollection = z.infer<typeof DiagnosticCollectionSchema>;
 export type DiagnosticTask = z.infer<typeof DiagnosticTaskSchema>;
 export type DiagnosticEvaluation = z.infer<typeof DiagnosticEvaluationSchema>;
 
+function validateAdministeredResponse(
+  stage: DiagnosticCollection['passes'][number]['stage'],
+  id: string,
+  response: DiagnosticSubmission['answers'][number]['response']
+) {
+  if (response.kind === 'not-submitted') return;
+  if (stage.kind === 'self-assessment') {
+    if (response.kind !== 'self-report') throw new Error('Expected a self report.');
+    return;
+  }
+  if (stage.kind !== 'round') throw new Error('Expected an administered round.');
+  const question = stage.questions.find(question => question.id === id);
+  if (question?.format !== response.kind) throw new Error('Unexpected response format.');
+  if (
+    question.format === 'choice' &&
+    response.kind === 'choice' &&
+    !question.options.some(option => option.id === response.optionId)
+  ) {
+    throw new Error('The selected option was not administered.');
+  }
+}
+
 /** The signal describes every item exactly once; order is the server's published order. */
 export function acceptDiagnosticSubmission(
   collection: DiagnosticCollection,
@@ -145,21 +167,7 @@ export function acceptDiagnosticSubmission(
     const response = responses.get(id);
     if (!response) throw new Error('The diagnostic submission is missing an item.');
     orderedAnswers.push({ itemId: id, response });
-    if (response.kind === 'not-submitted') continue;
-    if (pass.stage.kind === 'self-assessment') {
-      if (response.kind !== 'self-report') throw new Error('Expected a self report.');
-      continue;
-    }
-    const question = pass.stage.questions.find(question => question.id === id);
-    if (!question || question.format !== response.kind)
-      throw new Error('Unexpected response format.');
-    if (
-      question.format === 'choice' &&
-      response.kind === 'choice' &&
-      !question.options.some(option => option.id === response.optionId)
-    ) {
-      throw new Error('The selected option was not administered.');
-    }
+    validateAdministeredResponse(pass.stage, id, response);
   }
   return {
     ...collection,

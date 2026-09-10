@@ -26,21 +26,21 @@ function diagnosticArtifactRef(
   return { ...scope, artifactId };
 }
 
-function selfReports(collection: DiagnosticCollection) {
+function selfAssessmentResponses(collection: DiagnosticCollection) {
   return collection.passes.flatMap(pass => {
     if (pass.stage.kind !== 'self-assessment' || !pass.submission) return [];
     return pass.submission.answers.map((answer, index) => ({
-      selfReportId: `${pass.submission!.requestId}:self-report:${index}`,
+      responseId: `${pass.submission?.requestId}:${answer.response.kind === 'self-report' ? 'self-report' : 'omission'}:${index}`,
       nodeId: answer.itemId,
       response: answer.response,
       stage: pass.stage,
-      sourceEventRef: pass.submission!.requestId,
+      sourceEventRef: pass.submission?.requestId,
       recordedAt: pass.receivedAt,
     }));
   });
 }
 
-function observations(collection: DiagnosticCollection) {
+function observations(collection: DiagnosticCollection, revisions = collection.evaluations) {
   const tasks = new Map(
     collection.passes.flatMap(pass => pass.tasks.map(task => [task.taskId, task] as const))
   );
@@ -49,7 +49,7 @@ function observations(collection: DiagnosticCollection) {
       pass.attempts.map(attempt => [attempt.attemptId, attempt] as const)
     )
   );
-  return collection.evaluations.flatMap(revision => {
+  return revisions.flatMap(revision => {
     validateDiagnosticEvaluation(collection, revision.evaluation);
     return revision.evaluation.interpretations.map((interpretation, index) => {
       const attempt = attempts.get(interpretation.attemptId)!;
@@ -76,8 +76,11 @@ export function projectPriorKnowledge(snapshot: DiagnosticSnapshot): PriorKnowle
   const { collection } = snapshot;
   if (!collection.collectionEnd)
     throw new Error('Planning requires a completed diagnostic snapshot.');
-  const reports = selfReports(collection);
-  const evidence = observations(collection);
+  const reports = selfAssessmentResponses(collection).filter(
+    answer => answer.response.kind === 'self-report'
+  );
+  const finalEvaluations = collection.evaluations.slice(-1);
+  const evidence = observations(collection, finalEvaluations);
   const artifact = (id: string) => diagnosticArtifactRef(snapshot, id);
   return {
     kind: 'collected',
@@ -89,8 +92,8 @@ export function projectPriorKnowledge(snapshot: DiagnosticSnapshot): PriorKnowle
         selfReports: reports
           .filter(report => report.nodeId === node.nodeId)
           .map(report => ({
-            selfReportId: report.selfReportId,
-            selfReportRef: artifact(report.selfReportId),
+            selfReportId: report.responseId,
+            selfReportRef: artifact(report.responseId),
           })),
         observations: evidence
           .filter(entry => entry.task.nodeIds.includes(node.nodeId))
@@ -109,14 +112,14 @@ export function projectPriorKnowledge(snapshot: DiagnosticSnapshot): PriorKnowle
             evidenceRef: artifact(entry.interpretationId),
           })),
       })),
-      missingInformation: collection.evaluations.flatMap(revision =>
+      missingInformation: finalEvaluations.flatMap(revision =>
         revision.evaluation.missingInformation.map((gap, index) => ({
           ...gap,
           gapId: `${revision.revisionId}:gap:${index}`,
           originRef: artifact(revision.revisionId),
         }))
       ),
-      conflicts: collection.evaluations.flatMap(revision =>
+      conflicts: finalEvaluations.flatMap(revision =>
         revision.evaluation.conflicts.map((conflict, index) => ({
           ...conflict,
           conflictId: `${revision.revisionId}:conflict:${index}`,
@@ -166,7 +169,9 @@ export function resolveDiagnosticArtifact(
         receivedAt: pass.receivedAt,
       };
   }
-  const report = selfReports(collection).find(report => report.selfReportId === ref.artifactId);
+  const report = selfAssessmentResponses(collection).find(
+    report => report.responseId === ref.artifactId
+  );
   if (report) return { ...report, context: collection.context, profile: collection.profile };
   const evidence = observations(collection).find(
     entry => entry.interpretationId === ref.artifactId
@@ -183,6 +188,7 @@ export function resolveDiagnosticPlanningEvidence(snapshot: DiagnosticSnapshot) 
   if (view.kind !== 'collected') throw new Error('Expected collected diagnostic evidence.');
   const artifactIds = new Set([
     'collection-context',
+    ...selfAssessmentResponses(snapshot.collection).map(answer => answer.responseId),
     ...snapshot.collection.passes.flatMap(pass => pass.tasks.map(task => task.taskId)),
     ...snapshot.collection.nodes.map(node => node.nodeId),
     ...view.planningView.nodes.flatMap(node => [

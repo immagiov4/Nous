@@ -95,6 +95,35 @@ const readPersistedSourceSet = (
   return { descriptorCount: value.sources.length, usableIds };
 };
 
+async function loadPriorKnowledge(
+  input: Parameters<CourseGenerationWorkflowServices['prepareCourse']>[0]['input'],
+  incarnationId: string,
+  loadDiagnostic: PostgresDiagnosticSnapshotStore['load'] | undefined
+) {
+  const { projectId, userId } = input;
+  const diagnosticRef = input.diagnosticRef;
+  const snapshot = diagnosticRef ? await loadDiagnostic?.(userId, diagnosticRef) : null;
+  if (
+    diagnosticRef &&
+    (!snapshot ||
+      diagnosticRef.projectId !== projectId ||
+      diagnosticRef.incarnationId !== incarnationId)
+  ) {
+    throw failPermanently({
+      code: 'course_diagnostic_missing',
+      message: 'The approved diagnostic evidence could not be resolved.',
+    });
+  }
+  const priorKnowledge = snapshot
+    ? projectPriorKnowledge(snapshot)
+    : {
+        kind: 'not-collected' as const,
+        reason: 'No diagnostic collection was approved for this generation.',
+      };
+  const diagnosticEvidence = snapshot ? resolveDiagnosticPlanningEvidence(snapshot) : [];
+  return { priorKnowledge, diagnosticEvidence };
+}
+
 export const createCoursePreparationStage =
   ({
     loadProjectSources,
@@ -106,7 +135,7 @@ export const createCoursePreparationStage =
     readonly loadDiagnostic?: PostgresDiagnosticSnapshotStore['load'];
   }): CourseGenerationWorkflowServices['prepareCourse'] =>
   async context => {
-    const { projectId, userId } = context.input;
+    const { projectId, userId, diagnosticRef } = context.input;
     const project = await loadProjectWithRevision(userId, projectId);
     if (!project) {
       throw failPermanently({
@@ -115,26 +144,11 @@ export const createCoursePreparationStage =
       });
     }
     const profile = readProfile(project.snapshot.userProfile);
-    const diagnosticRef = context.input.diagnosticRef;
-    const snapshot = diagnosticRef ? await loadDiagnostic?.(userId, diagnosticRef) : null;
-    if (
-      diagnosticRef &&
-      (!snapshot ||
-        diagnosticRef.projectId !== projectId ||
-        diagnosticRef.incarnationId !== project.incarnationId)
-    ) {
-      throw failPermanently({
-        code: 'course_diagnostic_missing',
-        message: 'The approved diagnostic evidence could not be resolved.',
-      });
-    }
-    const priorKnowledge = snapshot
-      ? projectPriorKnowledge(snapshot)
-      : {
-          kind: 'not-collected' as const,
-          reason: 'No diagnostic collection was approved for this generation.',
-        };
-    const diagnosticEvidence = snapshot ? resolveDiagnosticPlanningEvidence(snapshot) : [];
+    const { priorKnowledge, diagnosticEvidence } = await loadPriorKnowledge(
+      context.input,
+      project.incarnationId,
+      loadDiagnostic
+    );
     const archiveSource = isArchiveSource(project.snapshot.source);
     const archiveDescriptor = readArchiveDescriptor(project.snapshot.source);
     const storedSources =

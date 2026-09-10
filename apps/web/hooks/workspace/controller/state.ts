@@ -14,6 +14,7 @@ export const useWorkspaceControllerState = () => {
   const [screenState, setScreenStateValue] = useState<AppState>(AppState.LIBRARY);
   const [assessmentMessages, setAssessmentMessages] = useState<Message[]>([]);
   const [courseProposal, setCourseProposal] = useState<UserProfile | null>(null);
+  const [supportsCoursePreferences, setSupportsCoursePreferences] = useState(false);
   const [diagnosticAdapter, setDiagnosticAdapter] = useState<DiagnosticAdapter | undefined>();
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const openingProjectIdRef = useRef<string | null>(null);
@@ -69,11 +70,13 @@ export const useWorkspaceControllerState = () => {
   return {
     assessmentMessages,
     courseProposal,
+    supportsCoursePreferences,
     diagnosticAdapter,
     openingProjectId,
     screenState,
     stateAdapter: {
       setDiagnosticAdapter,
+      setSupportsCoursePreferences,
       beginOpenSectionRequest: () => {
         nextOpenSectionRequestIdRef.current += 1;
         return nextOpenSectionRequestIdRef.current;
@@ -177,6 +180,7 @@ export const useWorkspaceControllerState = () => {
         return activeGeneration.onReattach();
       },
       resetSessionState: () => {
+        setSupportsCoursePreferences(false);
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
         setCourseProposal(null);

@@ -9,6 +9,7 @@ import type {
   CourseWorkflowStage,
 } from '@shared/courseWorkflowContract';
 import { DIAGNOSTIC_SUBMISSION_SIGNAL } from '@shared/priorKnowledgeDiagnostic';
+import { DiagnosticStoppedError } from '../../../components/library/diagnostic/diagnosticFlow.ts';
 import { projectDiagnosticStage } from '../../../components/library/diagnostic/diagnosticStageProjection.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
@@ -210,6 +211,11 @@ export const createAssessmentPlanningCommands = (
   };
 
   const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
+    if (snapshot.diagnostic && (snapshot.status === 'failed' || snapshot.status === 'expired')) {
+      throw new DiagnosticStoppedError('Diagnostic collection terminated.');
+    }
+    const outcome = getCourseInterviewOutcome(snapshot);
+    state.setSupportsCoursePreferences?.(snapshot.supportsCoursePreferences === true);
     recordFeedbackWorkflowSnapshot({
       operation: 'assessment-interview',
       projectId: snapshot.projectId,
@@ -220,7 +226,11 @@ export const createAssessmentPlanningCommands = (
     state.setCourseProposal(
       snapshot.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL ? snapshot.proposal : null
     );
-    if (snapshot.diagnostic) {
+    if (
+      snapshot.diagnostic &&
+      (snapshot.wait?.signalType === DIAGNOSTIC_SUBMISSION_SIGNAL ||
+        snapshot.diagnostic.stage.kind === 'complete')
+    ) {
       const { diagnostic } = snapshot;
       state.setDiagnosticAdapter?.({
         collectionId: diagnostic.collectionId,
@@ -256,7 +266,7 @@ export const createAssessmentPlanningCommands = (
         },
       });
     } else state.setDiagnosticAdapter?.(undefined);
-    return getCourseInterviewOutcome(snapshot);
+    return outcome;
   };
 
   const resetInterviewClientState = (): void => {
@@ -1345,6 +1355,14 @@ export const createAssessmentPlanningCommands = (
       const projectId = projectLibrary.getCurrentProjectId();
       if (!projectId) throw new Error('Nessun corso da generare.');
       const interview = await openRouter.getActiveCourseInterview(projectId);
+      if (projectLibrary.getCurrentProjectId() !== projectId) {
+        throw new Error('Il corso selezionato è cambiato.');
+      }
+      if (interview?.diagnostic && interview.wait?.signalType === DIAGNOSTIC_SUBMISSION_SIGNAL) {
+        applyInterviewSnapshot(interview);
+        state.setScreenState(AppState.LIBRARY);
+        return { outcome: 'diagnostic' };
+      }
       if (interview?.wait?.signalType !== COURSE_INTERVIEW_DECISION_SIGNAL) {
         throw new Error('La proposta del corso non è pronta.');
       }
@@ -1354,11 +1372,17 @@ export const createAssessmentPlanningCommands = (
       state.setScreenState(AppState.PLANNING);
       progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       const approvedInterview = await openRouter.sendCourseInterviewDecision({
-        decision: { kind: 'approve', ...preferences },
+        decision: { kind: 'approve', ...(interview.supportsCoursePreferences ? preferences : {}) },
         projectId,
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
+      if (
+        projectLibrary.getCurrentProjectId() !== projectId ||
+        !state.isWorkflowCurrent('generatePlan', requestId)
+      ) {
+        throw new Error('Il corso selezionato è cambiato.');
+      }
       applyInterviewSnapshot(approvedInterview);
       if (approvedInterview.diagnostic) {
         progressFeedback.progressObserver.dispose();

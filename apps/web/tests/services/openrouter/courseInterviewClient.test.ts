@@ -106,6 +106,16 @@ const requestBody = (callIndex: number): Record<string, unknown> =>
   JSON.parse(String(fetchWithSupabaseAuthMock.mock.calls[callIndex]?.[1]?.body));
 
 describe('courseInterviewClient', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchWithSupabaseAuthMock.mockReset();
+    globalThis.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test('replays the same diagnostic request after a lost response and rejects a changed request', async () => {
     const submission = {
       collectionId: 'collection-1',
@@ -163,15 +173,6 @@ describe('courseInterviewClient', () => {
       })
     ).rejects.toThrow();
     expect(requestBody(3).requestKey).not.toBe(firstRequest.requestKey);
-  });
-  beforeEach(() => {
-    vi.useFakeTimers();
-    fetchWithSupabaseAuthMock.mockReset();
-    globalThis.sessionStorage.clear();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   test('starts the interview, polls the generic workflow and maps messages and its active wait', async () => {
@@ -324,6 +325,29 @@ describe('courseInterviewClient', () => {
       'http://localhost:3301/api/course-interviews/project-1/active',
       { cache: 'no-store', signal: undefined },
       { expectedStatuses: [404] }
+    );
+  });
+  test.each([
+    false,
+    true,
+  ])('exposes course controls only when the proposal declares support: %s', async supported => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runSummaryResponse('interview-1', 'waiting'))
+      .mockResolvedValueOnce(
+        runStateResponse({
+          status: 'waiting',
+          waits: [decisionWait],
+          events: [
+            event(
+              'course-proposal-ready',
+              { proposal, ...(supported ? { supportsCoursePreferences: true } : {}) },
+              '1'
+            ),
+          ],
+        })
+      );
+    expect((await getActiveCourseInterview('project-1'))?.supportsCoursePreferences).toBe(
+      supported
     );
   });
 

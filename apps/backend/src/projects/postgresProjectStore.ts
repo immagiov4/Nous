@@ -26,6 +26,7 @@ import postgres from 'postgres';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
+import { hasAcceptedDiagnosticSubmission } from '../workflows/persistence/postgresDiagnosticSnapshotStore.js';
 import { resolveAvailableFolderName } from './folderNames.js';
 import { LibrarySiblingSetChangedError } from './librarySiblingOrder.js';
 import {
@@ -1354,7 +1355,11 @@ export class PostgresProjectStore implements ProjectStore {
     return mergeProjectMetaRow(rows[0]);
   }
 
-  async deleteProject(userId: string, id: ProjectId): Promise<void> {
+  async deleteProject(
+    userId: string,
+    id: ProjectId,
+    options?: { preserveAcceptedDiagnostics: boolean }
+  ): Promise<void> {
     let objectPaths: string[] = [];
     await this.sql.begin(async sql => {
       await sql`
@@ -1363,6 +1368,11 @@ export class PostgresProjectStore implements ProjectStore {
         where user_id = ${userId} and id = ${id}
         for update
       `;
+      if (
+        options?.preserveAcceptedDiagnostics &&
+        (await hasAcceptedDiagnosticSubmission(sql, userId, id))
+      )
+        return;
       await sql`
         select id
         from public.project_snapshots

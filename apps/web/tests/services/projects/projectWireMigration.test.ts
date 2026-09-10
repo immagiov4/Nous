@@ -35,6 +35,17 @@ const legacyProject = JSON.parse(
   readFileSync(resolve('apps/web/tests/fixtures/projects/legacy-codebase-project.json'), 'utf8')
 ) as Record<string, unknown>;
 
+test.each([
+  { coursePlanningControls: null },
+  { coursePlanningControls: { depth: 'invalid', granularity: 'more' } },
+  { languageProficiency: { language: 'English', level: 'invalid' } },
+  { languageProficiency: null },
+])('rejects malformed course preferences before snapshot persistence: %j', preferences => {
+  expect(() =>
+    decodeProjectSnapshotWire({ ...legacyProject, userProfile: { ...preferences } })
+  ).toThrow('Preferenze del corso non valide.');
+});
+
 const projectWithLessonBlocks = (contentBlocks: unknown[], generatedVisuals?: unknown[]) => ({
   id: 'lesson-block-project',
   learningPlan: {

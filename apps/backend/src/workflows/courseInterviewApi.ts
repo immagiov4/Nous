@@ -5,6 +5,7 @@ import {
   COURSE_INTERVIEW_MESSAGE_EVENT,
   COURSE_INTERVIEW_PROPOSAL_READY_EVENT,
   COURSE_INTERVIEW_WORKFLOW_ID,
+  CourseInterviewConfigurableProposalEventSchema,
   CourseInterviewGenerationStartedEventSchema,
   CourseInterviewMessageEventSchema,
   CourseInterviewProposalReadyEventSchema,
@@ -82,7 +83,9 @@ const publishedEventSchemas = {
   [COURSE_INTERVIEW_ENDED_EVENT]: CourseInterviewResultSchema,
   [COURSE_INTERVIEW_GENERATION_STARTED_EVENT]: CourseInterviewGenerationStartedEventSchema,
   [COURSE_INTERVIEW_MESSAGE_EVENT]: CourseInterviewMessageEventSchema,
-  [COURSE_INTERVIEW_PROPOSAL_READY_EVENT]: CourseInterviewProposalReadyEventSchema,
+  [COURSE_INTERVIEW_PROPOSAL_READY_EVENT]: CourseInterviewConfigurableProposalEventSchema.or(
+    CourseInterviewProposalReadyEventSchema
+  ),
 } as const;
 
 /** Projects only the durable interview events that are safe and useful to the client. */

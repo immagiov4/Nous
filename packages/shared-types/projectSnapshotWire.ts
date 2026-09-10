@@ -1,4 +1,5 @@
 import { ARTIFACT_DRAFT_SLOT_ID } from './artifactDraftWorkflowContract';
+import { CoursePlanningPreferencesSchema } from './coursePlanningControls';
 import {
   deriveLegacyLessonContent,
   isCanonicalLessonContentBlock,
@@ -675,6 +676,12 @@ export const canonicalizeLearningPlanContent = (
 });
 
 const validateProjectFields = (record: Record<string, unknown>): void => {
+  if (
+    record.userProfile != null &&
+    !CoursePlanningPreferencesSchema.safeParse(record.userProfile).success
+  ) {
+    throw new ProjectSnapshotWireError('Preferenze del corso non valide.');
+  }
   STRING_FIELDS.forEach(key => {
     assertOptionalString(record, key);
   });

@@ -24,7 +24,8 @@ export default function SelfAssessmentControl({
   const optionIndex = SELF_ASSESSMENT_OPTIONS.findIndex(option => option.value === value);
   const selected = SELF_ASSESSMENT_OPTIONS[optionIndex];
   const uncertain = value === 'uncertain';
-  const label = uncertain ? t('Non so valutarmi') : selected ? t(selected.label) : '';
+  const selectedLabel = selected ? t(selected.label) : '';
+  const label = uncertain ? t('Non so valutarmi') : selectedLabel;
   return (
     <fieldset
       className="min-w-0 max-w-xl"

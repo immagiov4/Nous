@@ -74,17 +74,19 @@ export interface DiagnosticAdapter {
   readonly initial: DiagnosticStage;
   readonly submit: (submission: DiagnosticSubmission) => Promise<DiagnosticStage>;
 }
+export class DiagnosticStoppedError extends Error {}
 export interface DiagnosticState {
   readonly stage: DiagnosticStage;
   readonly answers: Readonly<Record<string, DiagnosticAnswer>>;
   readonly position: number;
-  readonly status: 'editing' | 'submitting' | 'failed';
+  readonly status: 'editing' | 'submitting' | 'failed' | 'stopped';
 }
 export type DiagnosticAction =
   | { type: 'answer'; itemId: string; answer: DiagnosticAnswer }
   | { type: 'navigate'; position: number }
   | { type: 'submit' }
   | { type: 'failed' }
+  | { type: 'stopped' }
   | { type: 'accepted'; stage: DiagnosticStage };
 
 export function flattenTopics(topics: readonly DiagnosticTopic[]): DiagnosticTopic[] {
@@ -103,10 +105,11 @@ export function diagnosticReducer(
 ): DiagnosticState {
   if (action.type === 'accepted') return initialDiagnosticState(action.stage);
   if (action.type === 'failed') return { ...state, status: 'failed' };
+  if (action.type === 'stopped') return { ...state, status: 'stopped' };
   if (state.status === 'submitting' || state.stage.kind === 'complete') return state;
   switch (action.type) {
     case 'answer': {
-      if (state.status === 'failed') return state;
+      if (state.status === 'failed' || state.status === 'stopped') return state;
       if (!diagnosticItems(state.stage).some(item => item.id === action.itemId)) return state;
       if (JSON.stringify(state.answers[action.itemId]) === JSON.stringify(action.answer))
         return state;
@@ -121,6 +124,7 @@ export function diagnosticReducer(
         return state;
       return { ...state, position: action.position };
     case 'submit':
+      if (state.status === 'stopped') return state;
       return { ...state, status: 'submitting' };
   }
 }

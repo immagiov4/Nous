@@ -1,5 +1,10 @@
-import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
+import {
+  type DiagnosticSnapshot,
+  projectPriorKnowledge,
+  resolveDiagnosticArtifact,
+  resolveDiagnosticPlanningEvidence,
+} from '../../src/workflows/priorKnowledgeDiagnosticSnapshot.js';
 import {
   acceptDiagnosticSubmission,
   DiagnosticCollectionSchema,
@@ -65,14 +70,14 @@ const selfReport = acceptDiagnosticSubmission(
   '2026-09-10T12:00:00Z'
 );
 test('Uncertainty and omission remain distinct, in administered order', () =>
-  assert.deepEqual(selfReport.passes[0].submission.answers, [
+  expect(selfReport.passes[0].submission.answers).toEqual([
     { itemId: 'arrays', response: { kind: 'self-report', value: 'uncertain' } },
     { itemId: 'order', response: { kind: 'not-submitted' } },
   ]));
 test('Self-report creates no performance attempts', () =>
-  assert.equal(selfReport.passes[0].attempts.length, 0));
+  expect(selfReport.passes[0].attempts).toHaveLength(0));
 test('Accepting a submission preserves the original collection', () =>
-  assert.equal(collection.passes[0].submission, undefined));
+  expect(collection.passes[0].submission).toBeUndefined());
 const tasks = ['answered', 'omitted'].map(taskId => ({
   taskId,
   nodeIds: ['order'],
@@ -139,8 +144,69 @@ const evaluation = {
   ],
   conflicts: [],
 };
+test('planning uses the final cumulative evaluation while historical evidence still resolves', () => {
+  const snapshot: DiagnosticSnapshot = {
+    ref: {
+      userId: 'user',
+      projectId: 'course',
+      incarnationId: 'incarnation',
+      diagnosticId: 'collection',
+      revisionId: 'final',
+    },
+    recordedAt: '2026-09-10T12:02:00Z',
+    collection: {
+      ...submitted,
+      collectionEnd: { eventRef: 'final', reason: 'Enough evidence', unresolvedLimitations: [] },
+      evaluations: [
+        {
+          revisionId: 'before',
+          recordedAt: '2026-09-10T12:01:00Z',
+          evaluator: 'model',
+          evaluation: {
+            ...evaluation,
+            conflicts: [
+              { nodeIds: ['arrays'], relatedItemIds: ['answered'], description: 'Open conflict' },
+            ],
+          },
+        },
+        {
+          revisionId: 'final',
+          recordedAt: '2026-09-10T12:02:00Z',
+          evaluator: 'model',
+          evaluation: { ...evaluation, missingInformation: [] },
+        },
+      ],
+    },
+  };
+  const result = projectPriorKnowledge(snapshot);
+  if (result.kind !== 'collected') throw new Error('Expected collected');
+  expect(result.planningView.nodes[1].observations).toHaveLength(1);
+  expect(result.planningView.nodes[0].selfReports).toHaveLength(1);
+  expect(result.planningView.nodes[1].selfReports).toHaveLength(0);
+  const rawEvidence = resolveDiagnosticPlanningEvidence(snapshot);
+  expect(rawEvidence.map(entry => entry.content)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ nodeId: 'order', response: { kind: 'not-submitted' } }),
+      expect.objectContaining({
+        nodeId: 'arrays',
+        response: { kind: 'self-report', value: 'uncertain' },
+      }),
+    ])
+  );
+  expect(result.planningView.missingInformation).toEqual([]);
+  expect(result.planningView.conflicts).toEqual([]);
+  expect(result.planningView.nodes[1].observations[0].interpretationId).toBe(
+    'final:interpretation:0'
+  );
+  expect(
+    resolveDiagnosticArtifact(snapshot, {
+      ...result.planningView.nodes[1].observations[0].evidenceRef,
+      artifactId: 'before:interpretation:0',
+    })
+  ).toBeTruthy();
+});
 test('A submitted response can support its administered criterion', () =>
-  validateDiagnosticEvaluation(submitted, evaluation));
+  expect(() => validateDiagnosticEvaluation(submitted, evaluation)).not.toThrow());
 test('Conflicts link submitted self-report and task items', () => {
   const conflict = {
     nodeIds: ['arrays'],
@@ -149,49 +215,49 @@ test('Conflicts link submitted self-report and task items', () => {
   };
   validateDiagnosticEvaluation(submitted, { ...evaluation, conflicts: [conflict] });
   for (const invalidId of [answered.attemptId, interpretation.criterionId, 'invented']) {
-    assert.throws(() =>
+    expect(() =>
       validateDiagnosticEvaluation(submitted, {
         ...evaluation,
         conflicts: [{ ...conflict, relatedItemIds: [invalidId] }],
       })
-    );
+    ).toThrow();
   }
 });
 test('An omitted response cannot support an interpretation', () =>
-  assert.throws(() =>
+  expect(() =>
     validateDiagnosticEvaluation(submitted, {
       ...evaluation,
       interpretations: [
         { ...interpretation, attemptId: omitted.attemptId, criterionId: 'omitted-criterion' },
       ],
     })
-  ));
+  ).toThrow());
 test('An interpretation cannot cite a criterion from another task', () =>
-  assert.throws(() =>
+  expect(() =>
     validateDiagnosticEvaluation(submitted, {
       ...evaluation,
       interpretations: [{ ...interpretation, criterionId: 'omitted-criterion' }],
     })
-  ));
+  ).toThrow());
 test('Self-report IDs cannot stand in for performance attempts', () =>
-  assert.throws(() =>
+  expect(() =>
     validateDiagnosticEvaluation(submitted, {
       ...evaluation,
       interpretations: [{ ...interpretation, attemptId: 'arrays' }],
     })
-  ));
+  ).toThrow());
 test('Missing information must refer to known nodes', () =>
-  assert.throws(() =>
+  expect(() =>
     validateDiagnosticEvaluation(submitted, {
       ...evaluation,
       missingInformation: [{ nodeIds: ['invented'], question: 'Ignoto', reason: 'Ignoto' }],
     })
-  ));
+  ).toThrow());
 test('A submission cannot target another collection', () =>
-  assert.throws(() =>
+  expect(() =>
     acceptDiagnosticSubmission(
       awaitingRound,
       { collectionId: 'other', stageId: 'round', requestId: 'wrong', answers: [] },
       '2026-09-10T12:01:00Z'
     )
-  ));
+  ).toThrow());

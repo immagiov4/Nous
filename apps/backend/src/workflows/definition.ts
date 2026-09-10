@@ -180,11 +180,13 @@ export const waitForSignal = <
   PayloadSchema extends ZodType,
   OutputSchema extends ZodType,
 >(options: {
-  commit?: WaitForSignalDefinition<
-    SchemaOutput<InputSchema>,
-    SchemaOutput<PayloadSchema>,
-    SchemaOutput<OutputSchema>
-  >['commit'];
+  commit?: NonNullable<
+    WaitForSignalDefinition<
+      SchemaOutput<InputSchema>,
+      SchemaOutput<PayloadSchema>,
+      SchemaOutput<OutputSchema>
+    >['commit']
+  >;
   id: string;
   inputSchema: InputSchema;
   outputSchema: OutputSchema;

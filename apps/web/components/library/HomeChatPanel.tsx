@@ -211,36 +211,38 @@ export default function HomeChatPanel({
         visibleLibraryMessages={visibleLibraryMessages}
       />
 
-      <HomeChatComposer
-        activeSurface={activeSurface}
-        assessmentComplete={assessmentComplete}
-        assessmentMessages={assessmentMessages}
-        compactSurface={isCompactSurface}
-        draftTemplate={draftTemplate}
-        draftValueOverride={draftValueOverride}
-        homeChatMode={homeChatMode}
-        inputPlaceholder={inputPlaceholder}
-        inputRef={inputRef}
-        isLibraryLoading={isLibraryLoading}
-        isLoading={isLoading}
-        isMobileViewport={isMobileViewport}
-        libraryAttachedContextRefs={libraryAttachedContextRefs}
-        libraryGenerateArtifacts={libraryGenerateArtifacts}
-        libraryTree={libraryTree}
-        libraryWebSearch={libraryWebSearch}
-        onClearPendingFile={onClearPendingFile}
-        onActiveSurfaceChange={setActiveSurface}
-        onLibraryGenerateArtifactsChange={onLibraryGenerateArtifactsChange}
-        onLibraryMessageSend={onLibraryMessageSend}
-        onLibraryWebSearchChange={onLibraryWebSearchChange}
-        onSendAssessmentMessage={onSendAssessmentMessage}
-        onStopGeneration={onStopGeneration}
-        onToggleLibraryContextRef={onToggleLibraryContextRef}
-        onUploadSourceClick={onUploadSourceClick}
-        pendingFileName={pendingFileName}
-        pendingFileNames={pendingFileNames}
-        viewportHeight={viewportHeight}
-      />
+      {!(homeChatMode === 'new-course' && diagnosticAdapter) && (
+        <HomeChatComposer
+          activeSurface={activeSurface}
+          assessmentComplete={assessmentComplete}
+          assessmentMessages={assessmentMessages}
+          compactSurface={isCompactSurface}
+          draftTemplate={draftTemplate}
+          draftValueOverride={draftValueOverride}
+          homeChatMode={homeChatMode}
+          inputPlaceholder={inputPlaceholder}
+          inputRef={inputRef}
+          isLibraryLoading={isLibraryLoading}
+          isLoading={isLoading}
+          isMobileViewport={isMobileViewport}
+          libraryAttachedContextRefs={libraryAttachedContextRefs}
+          libraryGenerateArtifacts={libraryGenerateArtifacts}
+          libraryTree={libraryTree}
+          libraryWebSearch={libraryWebSearch}
+          onClearPendingFile={onClearPendingFile}
+          onActiveSurfaceChange={setActiveSurface}
+          onLibraryGenerateArtifactsChange={onLibraryGenerateArtifactsChange}
+          onLibraryMessageSend={onLibraryMessageSend}
+          onLibraryWebSearchChange={onLibraryWebSearchChange}
+          onSendAssessmentMessage={onSendAssessmentMessage}
+          onStopGeneration={onStopGeneration}
+          onToggleLibraryContextRef={onToggleLibraryContextRef}
+          onUploadSourceClick={onUploadSourceClick}
+          pendingFileName={pendingFileName}
+          pendingFileNames={pendingFileNames}
+          viewportHeight={viewportHeight}
+        />
+      )}
     </HomeChatPanelFrame>
   );
 }

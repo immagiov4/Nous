@@ -64,6 +64,17 @@ const requestBody = (callIndex: number) =>
   };
 
 describe('courseGenerationClient', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchWithSupabaseAuthMock.mockReset();
+    globalThis.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   test('opens the approved run after it has completed, without requiring an active run', async () => {
     fetchWithSupabaseAuthMock.mockResolvedValueOnce(
       workflowResponse({
@@ -82,16 +93,6 @@ describe('courseGenerationClient', () => {
     expect(fetchWithSupabaseAuthMock.mock.calls[0][0]).toBe(
       'http://localhost:3301/api/course-workflows/runs/approved-run'
     );
-  });
-  beforeEach(() => {
-    vi.useFakeTimers();
-    fetchWithSupabaseAuthMock.mockReset();
-    globalThis.sessionStorage.clear();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   test('starts, polls, and forwards authoritative progress without rebuilding it', async () => {

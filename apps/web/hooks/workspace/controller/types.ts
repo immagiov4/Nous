@@ -209,6 +209,7 @@ export interface WorkspaceControllerStateAdapter {
       | import('../../../components/library/diagnostic/diagnosticFlow.ts').DiagnosticAdapter
       | undefined
   ) => void;
+  setSupportsCoursePreferences?: (supported: boolean) => void;
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
   setGeneratingSectionId: (projectId: string | null, token: number, sectionId: string) => void;

@@ -8,12 +8,13 @@ import {
 import type { DiagnosticAnswer, DiagnosticQuestion } from './diagnosticFlow.ts';
 
 interface Props {
+  readonly isDarkMode?: boolean;
   readonly question: DiagnosticQuestion;
   readonly answer?: DiagnosticAnswer;
   readonly onAnswer: (answer: DiagnosticAnswer) => void;
 }
 /** Uses the lesson quiz visual grammar without disclosing correctness during collection. */
-export default function DiagnosticQuestionCard({ question, answer, onAnswer }: Props) {
+export default function DiagnosticQuestionCard({ question, answer, onAnswer, isDarkMode }: Props) {
   return (
     <div>
       <div className="mb-3 flex">
@@ -47,7 +48,7 @@ export default function DiagnosticQuestionCard({ question, answer, onAnswer }: P
                 checked={answer?.kind === 'choice' && answer.optionId === option.id}
                 onChange={() => onAnswer({ kind: 'choice', optionId: option.id })}
               />
-              <QuizOptionContent index={index} text={option.text} />
+              <QuizOptionContent index={index} text={option.text} isDarkMode={isDarkMode} />
             </label>
           ))}
         </fieldset>

@@ -7,8 +7,8 @@ import {
   COURSE_INTERVIEW_PROPOSAL_READY_EVENT,
   COURSE_INTERVIEW_USER_ANSWER_SIGNAL,
   COURSE_INTERVIEW_WORKFLOW_ID,
+  CourseInterviewConfigurableProposalEventSchema,
   type CourseInterviewDecisionSignal,
-  CourseInterviewDecisionSignalSchema,
   CourseInterviewDiagnosticDecisionSchema,
   CourseInterviewGenerationStartedEventSchema,
   type CourseInterviewMessage,
@@ -91,6 +91,7 @@ export interface CourseInterviewWait {
 }
 
 export interface CourseInterviewSnapshot {
+  readonly supportsCoursePreferences?: boolean;
   readonly diagnostic?: { collectionId: string; stage: DiagnosticStage };
   readonly errorCode?: string;
   readonly generationRunId?: string;
@@ -295,6 +296,7 @@ const fetchRunState = async (
 };
 
 interface CourseInterviewProjection {
+  supportsCoursePreferences?: boolean;
   diagnostic?: { collectionId: string; stage: DiagnosticStage };
   generationRunId?: string;
   messages: CourseInterviewMessage[];
@@ -330,6 +332,9 @@ const projectCourseInterviewEvent = (
     const parsed = CourseInterviewProposalReadyEventSchema.safeParse(event.payload);
     if (!parsed.success) throw new Error(COURSE_INTERVIEW_ERROR);
     projection.proposal = parsed.data.proposal;
+    projection.supportsCoursePreferences = CourseInterviewConfigurableProposalEventSchema.safeParse(
+      event.payload
+    ).success;
   } else if (event.eventType === COURSE_INTERVIEW_GENERATION_STARTED_EVENT) {
     const parsed = CourseInterviewGenerationStartedEventSchema.safeParse(event.payload);
     if (!parsed.success || parsed.data.projectId !== projectId) {
@@ -389,6 +394,7 @@ const mapCourseInterviewSnapshot = (state: CourseInterviewRunSnapshot): CourseIn
   return {
     ...(state.errorCode ? { errorCode: state.errorCode } : {}),
     ...(projection.diagnostic ? { diagnostic: projection.diagnostic } : {}),
+    supportsCoursePreferences: projection.supportsCoursePreferences === true,
     ...(projection.generationRunId ? { generationRunId: projection.generationRunId } : {}),
     messages: projection.messages,
     projectId: state.projectId,

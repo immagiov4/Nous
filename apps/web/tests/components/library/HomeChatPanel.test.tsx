@@ -210,6 +210,18 @@ describe('HomeChatPanel', () => {
     setViewportWidth(1280);
     setViewportHeight(800);
   });
+  test('removes the regular composer while the diagnostic owns course input', () => {
+    const props = buildProps();
+    const adapter = {
+      collectionId: 'diagnostic',
+      initial: { kind: 'complete' as const, id: 'end', title: 'Raccolta', feedback: 'Conclusa' },
+      submit: vi.fn(),
+    };
+    const { rerender } = render(<HomeChatPanel {...props} diagnosticAdapter={adapter} />);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    rerender(<HomeChatPanel {...props} diagnosticAdapter={adapter} homeChatMode="library-query" />);
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+  });
 
   test('allocates the active mobile chat height from the visible viewport', async () => {
     setViewportWidth(390);

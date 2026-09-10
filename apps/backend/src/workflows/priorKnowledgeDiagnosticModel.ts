@@ -12,7 +12,7 @@ import {
   validateDiagnosticEvaluation,
 } from './priorKnowledgeDiagnosticState.js';
 
-const Text = z.string().min(1);
+const Text = z.string().regex(/\S/);
 const TopicDraftSchema = z.object({
   title: Text,
   scope: Text,
@@ -70,6 +70,7 @@ After each complete submitted pass, add tasks only to clarify pertinent doubts w
 Stop when you cannot identify another adequate task useful to changing the starting point. Do not add a mandatory confirmation pass. Preserve unresolved doubts as limitations, not resolved facts.
 Do not impose a fixed number of passes, a global score, numerical mastery thresholds or a coverage target.
 Keep raw self reports, submitted responses, omissions and interpretations distinct. Missing responses, uncertainty and inability to assess are not incorrect answers.
+Every evaluation is the complete current evaluation of all collected evidence, not an incremental update. Include the interpretations still supported by the full collection and only the gaps and conflicts that remain unresolved. Earlier revisions are retained for audit; course planning uses the final evaluation.
 Interpret only an actual submitted attempt against the criteria defined before that attempt. Limit every inference to the task claim scope; never widen it to the whole node. Preserve conflicting evidence without picking a winning source by a heuristic.
 Return no corrections, expected answers or evaluations in public round titles or task prompts. Feedback appears only on completion, briefly identifying what to revisit and why, with uncertainty and no grade.
 Each task must include its claim scope, observable criteria, choice or text response format, and why it could affect the starting point. Alternatives and any scaffolding in the prompt form part of the administered task. Do not claim independent production when the task only tests recognition or assisted performance.
