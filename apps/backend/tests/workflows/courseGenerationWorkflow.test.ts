@@ -6,6 +6,7 @@ import {
   type CourseGenerationWorkflowConfig,
   type CourseGenerationWorkflowServices,
   createCourseGenerationWorkflow,
+  createPreviousControlsCourseGenerationWorkflow,
   createPreviousCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
 } from '../../src/workflows/courseGenerationWorkflow.js';
@@ -245,6 +246,24 @@ const findNode = (
 };
 
 describe('course generation workflow', () => {
+  test('retains the independently captured pre-controls manifests', () => {
+    const previous = createPreviousControlsCourseGenerationWorkflow(config);
+    const registration = createWorkflowRegistry().register({
+      current: createCourseGenerationWorkflow(config),
+      previous: [
+        previous,
+        preProviderPostprocessingPrevious(previous),
+        preExternalEffectPrevious(previous),
+      ],
+    });
+    // Captured from c7c324d before extending the profile schema.
+    expect(registration.previousDefinitions.map(definition => definition.definitionHash)).toEqual([
+      '452251ed24ff921c1ae469d29dde230330da3fc6925602d7fd518d956b956933',
+      'f7057b758c7cb42f8fc5781c3fdd54b108146ee04d50dee9e6445e81c348cc41',
+      'c7d422c826d84c2ae08ae729a797d0b7f251707a40e8bc7e7c1f3a93e129c797',
+    ]);
+  });
+
   test('retains the main-branch manifests from before account preferences', () => {
     const previous = createPreviousPreferencesCourseGenerationWorkflow(config);
     const registration = createWorkflowRegistry().register({

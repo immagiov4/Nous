@@ -1,3 +1,7 @@
+import {
+  CourseLanguageProficiencySchema,
+  CoursePlanningControlsSchema,
+} from '@shared/coursePlanningControls';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
 import * as z from 'zod';
 
@@ -341,8 +345,13 @@ const PreviousCourseProfileSchema = z.object({
   topic: z.string(),
 });
 
-const CourseProfileSchema = PreviousCourseProfileSchema.extend({
+const PreControlsCourseProfileSchema = PreviousCourseProfileSchema.extend({
   teachingPreferences: z.string().optional(),
+});
+
+const CourseProfileSchema = PreControlsCourseProfileSchema.extend({
+  coursePlanningControls: CoursePlanningControlsSchema.optional(),
+  languageProficiency: CourseLanguageProficiencySchema.optional(),
 });
 
 const createCourseGenerationStateSchemas = (
@@ -451,6 +460,9 @@ const createCourseGenerationStateSchemas = (
 };
 
 export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(CourseProfileSchema);
+export const preControlsCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
+  PreControlsCourseProfileSchema
+);
 // Persisted definitions retain their original schemas so in-flight courses can resume.
 export const previousCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
   PreviousCourseProfileSchema

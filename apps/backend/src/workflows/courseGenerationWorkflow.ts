@@ -26,6 +26,7 @@ import {
   type CourseResearchState,
   type CourseSourcesFinalizedState,
   courseGenerationStateSchemas,
+  preControlsCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
   validateRefinedCoursePlan,
 } from './courseGenerationWorkflowContract.js';
@@ -561,4 +562,19 @@ export const createPreviousPreferencesCourseGenerationWorkflow = <
     configSchema,
     'current',
     previousCourseGenerationStateSchemas
+  );
+
+/** Retains the course definition used before explicit depth and granularity choices. */
+export const createPreviousControlsCourseGenerationWorkflow = <
+  Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
+  Services extends CourseGenerationWorkflowServices = CourseGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createCourseGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    'current',
+    preControlsCourseGenerationStateSchemas
   );

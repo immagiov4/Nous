@@ -1,3 +1,4 @@
+import { buildCoursePlanningInstructions } from '@shared/coursePlanningInstructions';
 import {
   ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
   formatSourceArchiveIndex,
@@ -121,6 +122,7 @@ ${JSON.stringify(input.plan.modules.map(module => ({ id: module.id, title: modul
 
 CONTEXT AND RESEARCH:
 ${input.state.context.assessmentSummary || 'No additional context.'}
+${buildCoursePlanningInstructions(input.state.context.profile, input.state.context.sources.length > 0)}
 ${input.state.research.web.brief || 'No web research available.'}
 ${input.state.research.youtube.context || ''}
 

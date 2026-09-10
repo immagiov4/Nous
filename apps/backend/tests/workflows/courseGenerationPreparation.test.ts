@@ -51,6 +51,30 @@ const storedSource = (id: string, name: string, mimeType = 'text/plain') => ({
 });
 
 describe('course generation preparation', () => {
+  test('retains course controls and language proficiency from the stored profile', async () => {
+    const coursePlanningControls = { depth: 'more', granularity: 'less' };
+    const languageProficiency = { language: 'Italiano', level: 'B2' };
+    const profile = {
+      context: 'Studio autonomo',
+      experienceLevel: 'base',
+      goals: 'Ricerca binaria',
+      language: 'Italiano',
+      learningStyle: 'esempi',
+      topic: 'Algoritmi',
+      coursePlanningControls,
+      languageProficiency,
+    };
+    const prepare = createCoursePreparationStage({
+      loadProjectSources: vi.fn().mockResolvedValue([]),
+      loadProjectWithRevision: vi.fn().mockResolvedValue({
+        revision: 1,
+        snapshot: snapshot({ isLearnMode: true, sourceKind: 'learn-mode', userProfile: profile }),
+      }),
+    });
+    const result = await prepare(context('learn'));
+    expect(result.context.profile).toEqual(profile);
+  });
+
   test('selects learn mode from the persisted profile without requiring a source', async () => {
     const loadProjectSources = vi.fn().mockResolvedValue([]);
     const prepare = createCoursePreparationStage({

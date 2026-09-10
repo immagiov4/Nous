@@ -75,6 +75,30 @@ Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:251-365
 
 ## Research and Source Flow
 
+### Course controls
+
+`packages/shared-types/coursePlanningControls.ts` defines optional course profile fields
+`coursePlanningControls` and `languageProficiency`. Depth and granularity each have five ordered
+positions: `much-less`, `less`, `auto`, `more`, and `much-more`. Auto follows the reference material
+when present; otherwise it requests a balanced treatment. An absent field remains absent for older
+courses and differs from an explicit Auto choice. CEFR proficiency belongs to the declared course
+language and does not represent subject expertise.
+
+Depth varies optional explanations, cases, and connections around the current lesson, within the
+course goal and available prerequisites. Granularity varies material addressed together while
+preserving coverage, necessary connections, and prerequisite order. Neither control supplies a
+lesson count, exercise count, or numerical complexity score.
+
+`buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
+planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
+profile into `pedagogicalContext`, which is checkpointed with the lesson input. User-editable
+`generationNotes` remains the user's text and its length limit does not clip the course controls.
+
+`createPreviousControlsCourseGenerationWorkflow` preserves the course schemas from before these
+profile fields. Registry owners must register it alongside the current definition and the existing
+historical definitions. `CourseControls` and `CourseLanguageProficiency` expose controlled components
+for the course approval interface; `MarkedSlider` also supplies the audio playback slider's track.
+
 Course-level research fans out into web and YouTube branches and joins their results before planning. The web branch receives the topic and learner context. It also receives serialized original source material for non-archive strategies; the archive strategy deliberately passes no original material to that branch. The resulting course-source contract carries a title, URL, note, and optional video fields, but no academic identifiers or bibliographic metadata.
 
 Planning indexes collected web and video sources by exact URL. In `learn` mode, each lesson may cite only URLs present in that closed set; an unknown URL causes corrective retry. Document strategies retain the original material separately and do not persist the research URLs in the research plan.

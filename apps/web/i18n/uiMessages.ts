@@ -1,3 +1,5 @@
+import { COURSE_PLANNING_MESSAGES } from './coursePlanningMessages';
+
 export const SUPPORTED_APP_LOCALES = ['en', 'it'] as const;
 
 export type AppLocale = (typeof SUPPORTED_APP_LOCALES)[number];
@@ -32,6 +34,7 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  ...COURSE_PLANNING_MESSAGES,
   'Campi vuoti': 'Empty fields',
   'Preferenze esistenti': 'Existing preferences',
   'Errore di caricamento': 'Loading error',

@@ -1,3 +1,4 @@
+import { buildCoursePlanningInstructions } from '@shared/coursePlanningInstructions';
 import * as z from 'zod';
 import { generateCourseObject } from './courseGenerationModel.js';
 import {
@@ -354,6 +355,7 @@ const buildPlanPrompt = ({
 USER CONTEXT:
 Teaching preferences (user instructions below system rules): ${JSON.stringify(state.context.profile?.teachingPreferences ?? '')}
 ${state.context.assessmentSummary || 'No additional context.'}
+${buildCoursePlanningInstructions(state.context.profile, state.context.sources.length > 0)}
 ${state.context.profile ? `Level: ${state.context.profile.experienceLevel}\nGoal: ${state.context.profile.goals}\nStyle: ${state.context.profile.learningStyle}` : ''}
 
 WEB RESEARCH:

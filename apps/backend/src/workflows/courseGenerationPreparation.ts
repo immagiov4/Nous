@@ -1,3 +1,7 @@
+import {
+  CourseLanguageProficiencySchema,
+  CoursePlanningControlsSchema,
+} from '@shared/coursePlanningControls';
 import { resolveProjectSourceTextKind } from '../projects/projectSource.js';
 import type { ProjectStore, StoredProjectSourceFile } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
@@ -20,6 +24,12 @@ const readProfile = (value: unknown) => {
   if (!Object.values(profile).every(field => field.length > 0)) return null;
   return {
     ...profile,
+    ...(value.coursePlanningControls !== undefined
+      ? { coursePlanningControls: CoursePlanningControlsSchema.parse(value.coursePlanningControls) }
+      : {}),
+    ...(value.languageProficiency !== undefined
+      ? { languageProficiency: CourseLanguageProficiencySchema.parse(value.languageProficiency) }
+      : {}),
     ...(typeof value.teachingPreferences === 'string'
       ? { teachingPreferences: value.teachingPreferences }
       : {}),

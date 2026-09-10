@@ -1,3 +1,4 @@
+import { buildCoursePlanningInstructions } from '@shared/coursePlanningInstructions';
 import {
   ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
   formatSourceArchiveIndex,
@@ -179,6 +180,8 @@ const buildArchivePrompt = ({
 
 USER CONTEXT:
 ${state.context.assessmentSummary || 'No additional context.'}
+Teaching preferences: ${JSON.stringify(state.context.profile?.teachingPreferences ?? '')}
+${buildCoursePlanningInstructions(state.context.profile, state.context.sources.length > 0)}
 
 EXTERNAL RESEARCH:
 ${state.research.web.brief || 'No web research available.'}
