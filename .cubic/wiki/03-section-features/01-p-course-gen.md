@@ -112,6 +112,9 @@ declared assessment; it does not independently prove that a positive semantic ju
 
 The plan verifier uses `fragmentation.canGroupCoherently` to identify fragmentation that needs
 regrouping. An already coherent plan returns `false` and no affected module IDs.
+Lesson prerequisites must come from supplied prior knowledge or earlier lessons. Concepts taught
+inside the current lesson belong to its content; their appearance in the source or course goal
+does not establish prior knowledge.
 
 `buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
 planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
