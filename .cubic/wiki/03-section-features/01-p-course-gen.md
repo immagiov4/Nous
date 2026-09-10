@@ -27,11 +27,104 @@ The following files were used as context for generating this wiki page:
 
 # Course Generation Workflow
 
-The **Course Generation Workflow** is a multi-stage durable execution pipeline responsible for transforming raw educational requirements and source materials into a structured, pedagogical learning path. It handles everything from initial content research and syllabus planning to source mapping and persistent storage of the generated course.
+Course generation builds and saves a learning plan from an approved learner profile and source material. The workflow researches the topic, drafts and reviews the plan, then maps lessons to their sources. Each stage saves its state so interrupted work can resume.
 
-This system is designed to be resilient, utilizing a step-based architecture that supports retries, idempotent commits, and semantic validation of AI-generated plans. It differentiates between various strategies such as `learn` mode (generating a path based on a topic) and `document` mode (generating a path based on specific uploaded PDF or archive sources).
+`learn` mode starts from a topic and learner goals. `document` mode starts from uploaded material, including PDFs and archives.
 
 Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:69-95](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L69-L95), [apps/backend/src/workflows/courseGenerationPreparation.ts:107-124](../../../apps/backend/src/workflows/courseGenerationPreparation.ts#L107-L124)
+
+- [Account defaults and course overrides](#account-defaults-and-course-overrides)
+- [Course controls](#course-controls)
+- [Diagnostic evidence before generation](#diagnostic-evidence-before-generation)
+- [Workflow architecture and lifecycle](#workflow-architecture-and-lifecycle)
+- [Research and source flow](#research-and-source-flow)
+- [Planning and quality verification](#planning-and-quality-verification)
+- [Source finalization and mapping](#source-finalization-and-mapping)
+- [Pedagogical context and prompting](#pedagogical-context-and-prompting)
+- [Summary of key services](#summary-of-key-services)
+
+## Account defaults and course overrides
+
+Starting a new course interview reads the authenticated account preferences once and stores resolved `preferenceDefaults` in the workflow input. AI language follows the saved interface locale or browser locale unless independently specified. Teaching instructions are optional free text. The interviewer treats them as user instructions below system/safety rules, preserves them in the typed course proposal and accepts explicit course-specific changes or removal. It does not classify the learner into fixed learning styles or infer diagnoses.
+
+New model proposals require `teachingPreferences`; persisted legacy proposals may omit it. Course generation copies the course-specific value into `plan.generationNotes`, which the existing lesson instruction path consumes. Changing account preferences later leaves the running interview, approved profile and existing course unchanged. A course override never writes account preferences.
+
+The registry retains pre-preference interview and course-generation schemas, including their historical manifest variants. Older runs resume with the current services while keeping preferences absent. New course profiles retain the optional field through frontend snapshot normalization, research, planning and source finalization. Captured account defaults do not enter the request's idempotency input, so retrying the same start request after changing account preferences still resolves to its original run.
+
+General library chat reads the current saved AI language per request, with interface locale as its default. An intentional conversational request for another language takes precedence, including for date formatting. Ordinary message language does not update the saved preference. Contextual chats in existing courses retain their current behavior.
+
+Clients that omit the new interface-locale field keep the previous Italian default unless saved account language preferences override it.
+
+Sources: [courseInterviewStart.ts](../../../apps/backend/src/workflows/courseInterviewStart.ts), [courseInterviewModel.ts](../../../apps/backend/src/workflows/courseInterviewModel.ts), [courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts), [libraryChat.ts](../../../apps/backend/src/routes/libraryChat.ts), [chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)
+
+## Course controls
+
+`packages/shared-types/coursePlanningControls.ts` defines optional course profile fields
+`coursePlanningControls` and `languageProficiency`. Depth and granularity each have five ordered
+positions: `much-less`, `less`, `auto`, `more`, and `much-more`. Auto follows the reference material
+when present. Without reference material, Auto requests a balanced treatment. Older courses retain
+absent preference fields, which differ from an explicit Auto choice. CEFR describes proficiency in
+the declared course language.
+
+Depth varies optional explanations, cases, and connections around the current lesson, within the
+course goal and available prerequisites. Granularity varies material addressed together while
+preserving coverage, necessary connections, and prerequisite order.
+
+`resolveCoursePlanningTreatment` resolves each ordinal choice into a separate depth treatment and
+lesson grouping directive before prompt construction. Depth ranges from minimal to extensive
+optional explanation. Grouping ranges from the smallest coherent steps to the broadest coherent
+results. The lesson's learning objective determines its required content and which source material
+belongs in it.
+
+Plan review evaluates whether actual lesson boundaries honor the selected grouping and identifies
+concrete results to split or combine when refinement is needed. Lesson review checks depth under
+`core.instructions`. Optional material can require removal when it exceeds the selected treatment,
+even if it is factually correct. These checks run in the review and refinement stages.
+
+Refinement must address every concrete review finding or explain the specific objective,
+prerequisite, or coverage constraint that prevents a requested change. Lesson review returns a
+separate `lessonIntegrity` assessment for preservation of the subject and required learning
+objectives. Both declarations require evidence about the corrected content. Missing, invalid, or
+negative assessments cause a corrective failure before either internal report is removed. The
+workflow propagates that failure through its correction path.
+
+The plan verifier uses `fragmentation.canGroupCoherently` to identify fragmentation that needs
+regrouping. An already coherent plan returns `false` with an empty list of affected module IDs.
+Lesson prerequisites must come from supplied prior knowledge or earlier lessons. Concepts introduced
+within a lesson remain part of its content.
+
+`buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
+planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
+profile into `pedagogicalContext`, which is checkpointed with the lesson input. `generationNotes`
+contains the learner's editable teaching instructions.
+
+`createPreviousControlsCourseGenerationWorkflow` preserves the course schemas from before these
+profile fields. Registry owners must register it alongside the current definition and the existing
+historical definitions. The [course approval interface](07-p-chat-ui.md#initial-knowledge-collection) exposes these preferences.
+
+Course preferences survive project hydration, export, and import through the shared preference schema. Snapshot writes reject malformed explicit preferences.
+
+## Diagnostic evidence before generation
+
+Interviews that support diagnostics collect prior knowledge after course approval and before generation. Learners first report their familiarity with each topic, then answer targeted questions in fixed passes. Each question records what it tests, its criteria, prompt, response format, and selection reason before the learner answers.
+
+The model requests another pass only to clarify a doubt that could change the course's starting point. It stops when it cannot identify a useful question and records the remaining uncertainty. Reaching the interview iteration limit is an operational failure. The topic tree describes containment. Each topic requires its own evidence of prior knowledge.
+
+`prior_knowledge_diagnostic_snapshots` stores immutable revisions owned by the course, independently of workflow logs. Signal acceptance saves the submission and its receipt time in the same transaction as the wait checkpoint. The model evaluates the answers afterward. Replaying the same request preserves its receipt time. Conflicting requests are rejected.
+
+`projectPriorKnowledge` supplies the final cumulative evaluation, with references to self-reports, observations, gaps, conflicts, and the stopping reason. `resolveDiagnosticPlanningEvidence` adds the original questions and responses, including omissions and answers that have no interpretation. The shared profile, source context, and interview history appear once through `collection-context`.
+
+Planning keeps self-reports distinct from demonstrated performance and limits each observation to what its question tested. Requested depth and granularity remain separate course preferences. Historical runs without a diagnostic use `not-collected`.
+
+The collection retains questions, criteria, responses, model outputs, and successive evaluations. Models can compare this history to identify where a diagnostic decision went wrong and which evidence led to it.
+
+The server loads a revision by user, project, project incarnation, diagnostic, and revision ID. The table denies direct client access. Operational failure preserves drafts with accepted responses, while explicit project deletion removes their diagnostic records. Cleanup checks for responses under the project deletion lock. Snapshot acceptance uses a non-waiting key-share lock to avoid a deadlock with cascading deletion.
+
+The registry retains pre-diagnostic interview, generation and PDF-repair definitions. Signal waits may define a transactional commit callback; its presence enters the manifest while historical waits retain their original manifest shape.
+
+The [chat interface](07-p-chat-ui.md#initial-knowledge-collection) owns question navigation and submission recovery.
+
+Sources: [courseDiagnosticWorkflow.ts](../../../apps/backend/src/workflows/courseDiagnosticWorkflow.ts), [priorKnowledgeDiagnosticState.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts), [priorKnowledgeDiagnosticSnapshot.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts), [postgresDiagnosticSnapshotStore.ts](../../../apps/backend/src/workflows/persistence/postgresDiagnosticSnapshotStore.ts), [priorKnowledgePlanning.ts](../../../packages/shared-types/priorKnowledgePlanning.ts)
 
 ## Workflow Architecture and Lifecycle
 
@@ -75,57 +168,6 @@ Sources: [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:251-365
 
 ## Research and Source Flow
 
-### Course controls
-
-`packages/shared-types/coursePlanningControls.ts` defines optional course profile fields
-`coursePlanningControls` and `languageProficiency`. Depth and granularity each have five ordered
-positions: `much-less`, `less`, `auto`, `more`, and `much-more`. Auto follows the reference material
-when present; otherwise it requests a balanced treatment. An absent field remains absent for older
-courses and differs from an explicit Auto choice. CEFR proficiency belongs to the declared course
-language and does not represent subject expertise.
-
-Depth varies optional explanations, cases, and connections around the current lesson, within the
-course goal and available prerequisites. Granularity varies material addressed together while
-preserving coverage, necessary connections, and prerequisite order. Neither control supplies a
-lesson count, exercise count, or numerical complexity score.
-
-`resolveCoursePlanningTreatment` resolves each ordinal choice into a separate depth treatment and
-lesson grouping directive before prompt construction. Depth ranges from minimal optional enrichment
-to extensive local enrichment; grouping ranges from the smallest coherent steps to the broadest
-coherent results. The shared instructions define a teachable core by its local learning result,
-rather than a fixed source subsection, while preserving existing planning limits. The current
-lesson objective bounds source integration even when the full course source is available.
-
-Plan review evaluates whether actual lesson boundaries honor the selected grouping and identifies
-concrete results to split or combine when refinement is needed. Prerequisite order alone does not
-require separate lessons. Lesson review checks depth under `core.instructions`: factually correct
-optional material can still require removal when it exceeds the selected treatment. These checks
-use the existing review and refinement stages and do not introduce additional model calls.
-
-Refinement must address every concrete review finding or explain the specific objective,
-prerequisite, or coverage constraint that prevents a requested change. Lesson review returns a
-separate `lessonIntegrity` assessment for preservation of the subject and required learning
-objectives. Both declarations require evidence about the corrected content. Missing, invalid, or
-negative assessments cause a corrective failure before either internal report is removed. The
-workflow propagates that failure through its existing correction path. This enforces the model's
-declared assessment; it does not independently prove that a positive semantic judgment is correct.
-
-The plan verifier uses `fragmentation.canGroupCoherently` to identify fragmentation that needs
-regrouping. An already coherent plan returns `false` and no affected module IDs.
-Lesson prerequisites must come from supplied prior knowledge or earlier lessons. Concepts taught
-inside the current lesson belong to its content; their appearance in the source or course goal
-does not establish prior knowledge.
-
-`buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
-planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
-profile into `pedagogicalContext`, which is checkpointed with the lesson input. User-editable
-`generationNotes` remains the user's text and its length limit does not clip the course controls.
-
-`createPreviousControlsCourseGenerationWorkflow` preserves the course schemas from before these
-profile fields. Registry owners must register it alongside the current definition and the existing
-historical definitions. `CourseControls` and `CourseLanguageProficiency` expose controlled components
-for the course approval interface; `MarkedSlider` also supplies the audio playback slider's track.
-
 Course-level research fans out into web and YouTube branches and joins their results before planning. The web branch receives the topic and learner context. It also receives serialized original source material for non-archive strategies; the archive strategy deliberately passes no original material to that branch. The resulting course-source contract carries a title, URL, note, and optional video fields, but no academic identifiers or bibliographic metadata.
 
 Planning indexes collected web and video sources by exact URL. In `learn` mode, each lesson may cite only URLs present in that closed set; an unknown URL causes corrective retry. Document strategies retain the original material separately and do not persist the research URLs in the research plan.
@@ -136,7 +178,7 @@ Sources: [apps/backend/src/workflows/courseGenerationResearch.ts:88-101](../../.
 
 ## Planning and Quality Verification
 
-The planning stage is critical as it involves LLM-driven creation of the course structure. The system utilizes a "Refinement" loop to ensure the generated plan meets pedagogical standards.
+The model drafts a course plan and reviews its coverage, lesson boundaries, and prerequisite order. Findings feed the refinement stage.
 
 ### Refinement Loop Logic
 1.  **Drafting**: The `draftCoursePlan` service generates a raw plan based on research and source materials.
@@ -163,7 +205,6 @@ sequenceDiagram
     W->>W: validateRefinedCoursePlan()
 ```
 
-*The planning sequence incorporates an explicit verification and refinement step to ensure pedagogical quality.*
 Sources: [apps/backend/src/workflows/courseGenerationPlanning.ts:396-476](../../../apps/backend/src/workflows/courseGenerationPlanning.ts#L396-L476), [apps/backend/src/workflows/courseGenerationArchivePlanning.ts:242-292](../../../apps/backend/src/workflows/courseGenerationArchivePlanning.ts#L242-L292), [apps/backend/src/workflows/courseGenerationWorkflowContract.ts:378-403](../../../apps/backend/src/workflows/courseGenerationWorkflowContract.ts#L378-L403)
 
 ### Quality Dimensions
@@ -236,35 +277,3 @@ The workflow relies on a set of services defined in `CourseGenerationWorkflowSer
 | `undoCourse` | Idempotent cleanup in case of workflow failure during persistence. |
 
 Sources: [apps/backend/src/workflows/courseGenerationWorkflow.ts:70-95](../../../apps/backend/src/workflows/courseGenerationWorkflow.ts#L70-L95), [apps/backend/src/workflows/courseGenerationProduction.ts:58-90](../../../apps/backend/src/workflows/courseGenerationProduction.ts#L58-L90)
-
-## Account defaults and course overrides
-
-Starting a new course interview reads the authenticated account preferences once and stores resolved `preferenceDefaults` in the workflow input. AI language follows the saved interface locale or browser locale unless independently specified. Teaching instructions are optional free text. The interviewer treats them as user instructions below system/safety rules, preserves them in the typed course proposal and accepts explicit course-specific changes or removal. It does not classify the learner into fixed learning styles or infer diagnoses.
-
-New model proposals require `teachingPreferences`; persisted legacy proposals may omit it. Course generation copies the course-specific value into `plan.generationNotes`, which the existing lesson instruction path consumes. Changing account preferences later leaves the running interview, approved profile and existing course unchanged. A course override never writes account preferences.
-
-The registry retains pre-preference interview and course-generation schemas, including their historical manifest variants. Older runs resume with the current services while keeping preferences absent. New course profiles retain the optional field through frontend snapshot normalization, research, planning and source finalization. Captured account defaults do not enter the request's idempotency input, so retrying the same start request after changing account preferences still resolves to its original run.
-
-General library chat reads the current saved AI language per request, with interface locale as its default. An intentional conversational request for another language takes precedence, including for date formatting. Ordinary message language does not update the saved preference. Contextual chats in existing courses retain their current behavior.
-
-Clients that omit the new interface-locale field keep the previous Italian default unless saved account language preferences override it.
-
-Sources: [courseInterviewStart.ts](../../../apps/backend/src/workflows/courseInterviewStart.ts), [courseInterviewModel.ts](../../../apps/backend/src/workflows/courseInterviewModel.ts), [courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts), [libraryChat.ts](../../../apps/backend/src/routes/libraryChat.ts), [chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)
-
-## Diagnostic evidence before generation
-
-New interviews collect course-specific prior knowledge after approval and before starting generation. The approved profile includes the course depth, granularity and optional language proficiency. The diagnostic first gathers verbal self-reports, then asks fixed passes of targeted questions. Each task records its claim scope, criteria, prompt, response format and selection reason before the learner answers. Self-reports and omissions are distinct from demonstrated performance.
-
-The model chooses another pass only when it can clarify a doubt that could change the starting point. It stops when no adequate useful task remains, preserving unresolved limitations. The existing interview iteration fuse remains an operational failure boundary, not a successful diagnostic stopping rule. Topic containment does not imply prerequisites or mastery of descendant topics.
-
-`prior_knowledge_diagnostic_snapshots` retains immutable, course-owned revisions independently of workflow logs. Consuming a diagnostic signal saves the accepted submission and server receipt time in the same transaction as the wait checkpoint. Interpretation runs afterward. Replaying the same request preserves its receipt time; conflicting requests are rejected. The table denies direct client access, and the server resolves the full user/project/incarnation/diagnostic/revision tuple.
-
-`projectPriorKnowledge` produces a structural planning view with self-report and interpretation references, gaps, conflicts and the collection's stopping reason. `resolveDiagnosticPlanningEvidence` supplies the retained context, raw tasks, submitted attempts and omissions even when no interpretation exists. The shared profile, source context and interview history are supplied once through `collection-context`; individual evidence records contain only their own administration and interpretation details. Planning and verification consume that evidence separately from requested final depth and granularity. An observation supports only its task claim scope. Historical runs without a diagnostic keep an explicit not-collected state.
-
-Operational failure preserves draft projects that contain accepted diagnostic submissions. Cleanup checks this condition while holding the project deletion lock. Snapshot acceptance acquires a non-waiting key-share lock to avoid deadlocking with cascading deletion. Explicit project deletion still removes diagnostic records.
-
-Each model evaluation is cumulative. Planning projects the final evaluation, including only its remaining gaps and conflicts, while older interpretations remain individually resolvable for audit. Omitted self-assessments remain raw responses and are excluded from declaration references. Course preferences survive project hydration and export/import through the shared preference schema; malformed explicit preferences are rejected at the snapshot write boundary.
-
-The registry retains pre-diagnostic interview, generation and PDF-repair definitions. Signal waits may define a transactional commit callback; its presence enters the manifest while historical waits retain their original manifest shape.
-
-Sources: [courseDiagnosticWorkflow.ts](../../../apps/backend/src/workflows/courseDiagnosticWorkflow.ts), [priorKnowledgeDiagnosticState.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts), [priorKnowledgeDiagnosticSnapshot.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts), [postgresDiagnosticSnapshotStore.ts](../../../apps/backend/src/workflows/persistence/postgresDiagnosticSnapshotStore.ts), [priorKnowledgePlanning.ts](../../../packages/shared-types/priorKnowledgePlanning.ts)
