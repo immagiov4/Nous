@@ -73,7 +73,6 @@ describe('diagnostic curriculum mapping', () => {
     if (mapping.source.kind !== 'observation') throw new Error('Fixture requires an observation');
     mapping.source.evidenceRef.revisionId = 'another';
     expect(validateDiagnosticMapping(mapping, resolved).success).toBe(false);
-    resolved.sources = [structuredClone(mapping.source)];
     mapping.source.evidenceRef.projectId = 'another';
     resolved.sources = [structuredClone(mapping.source)];
     expect(validateDiagnosticMapping(mapping, resolved).success).toBe(false);
