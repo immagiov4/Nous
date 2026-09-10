@@ -14,14 +14,14 @@ import * as z from 'zod';
 
 const Text = z.string().min(1);
 
-export const DiagnosticNodeSchema = z.object({
+const DiagnosticNodeSchema = z.object({
   nodeId: Text,
   parentNodeId: Text.nullable(),
   title: Text,
   scope: Text,
 });
 
-export const DiagnosticTaskSchema = z.object({
+const DiagnosticTaskSchema = z.object({
   taskId: Text,
   nodeIds: z.array(Text).min(1),
   claim: z.object({ claimId: Text, statement: Text, scope: Text }),
@@ -31,7 +31,7 @@ export const DiagnosticTaskSchema = z.object({
   selectionReason: Text,
 });
 
-export const DiagnosticInterpretationSchema = z.object({
+const DiagnosticInterpretationSchema = z.object({
   attemptId: Text,
   criterionId: Text,
   observation: Text,
@@ -42,7 +42,12 @@ export const DiagnosticInterpretationSchema = z.object({
 const GapSchema = z.object({ nodeIds: z.array(Text), question: Text, reason: Text });
 const ConflictSchema = z.object({
   nodeIds: z.array(Text),
-  relatedItemIds: z.array(Text).min(1),
+  relatedItemIds: z
+    .array(Text)
+    .min(1)
+    .describe(
+      'Use itemId values from collection.passes[].submission.answers: self-report node IDs or administered task IDs, never attempt or criterion IDs.'
+    ),
   description: Text,
 });
 
@@ -53,7 +58,7 @@ export const DiagnosticEvaluationSchema = z.object({
 });
 
 /** Each pass keeps the exact administered tasks and raw submission, including omissions. */
-export const DiagnosticPassSchema = z.object({
+const DiagnosticPassSchema = z.object({
   stage: DiagnosticStageSchema,
   tasks: z.array(DiagnosticTaskSchema),
   submission: DiagnosticSubmissionSchema.optional(),

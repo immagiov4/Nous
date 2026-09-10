@@ -333,7 +333,7 @@ export const CourseDocumentIndexSchema = z.object({
   sourceIds: z.array(z.string()).optional(),
 });
 
-export const PreDiagnosticCourseGenerationInputSchema = z.object({
+const PreDiagnosticCourseGenerationInputSchema = z.object({
   assessmentHistory: z.array(CourseAssessmentMessageSchema),
   mode: z.enum(['document', 'learn']),
   projectId: z.string().min(1),

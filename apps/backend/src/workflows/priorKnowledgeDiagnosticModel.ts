@@ -20,7 +20,7 @@ const TopicDraftSchema = z.object({
     return z.array(TopicDraftSchema);
   },
 });
-export const DiagnosticTreeDraftSchema = z.object({
+const DiagnosticTreeDraftSchema = z.object({
   title: Text,
   topics: z.array(TopicDraftSchema).min(1),
 });
@@ -32,7 +32,7 @@ const TaskDraftSchema = z.object({
   responseFormatDefinition: DiagnosticResponseFormatSchema,
   selectionReason: Text,
 });
-export const DiagnosticNextPassSchema = z.discriminatedUnion('kind', [
+const DiagnosticNextPassSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('round'),
     title: Text,
@@ -73,7 +73,7 @@ Keep raw self reports, submitted responses, omissions and interpretations distin
 Interpret only an actual submitted attempt against the criteria defined before that attempt. Limit every inference to the task claim scope; never widen it to the whole node. Preserve conflicting evidence without picking a winning source by a heuristic.
 Return no corrections, expected answers or evaluations in public round titles or task prompts. Feedback appears only on completion, briefly identifying what to revisit and why, with uncertainty and no grade.
 Each task must include its claim scope, observable criteria, choice or text response format, and why it could affect the starting point. Alternatives and any scaffolding in the prompt form part of the administered task. Do not claim independent production when the task only tests recognition or assisted performance.
-Use only existing node IDs and attempt/criterion references supplied in the collection. Do not interpret self-report item IDs as attempt IDs. Preserve the course's requested goal and depth; the diagnostic does not decide final depth, granularity or curriculum prerequisites.`;
+Use existing node IDs for nodeIds. For interpretations, use the supplied attemptId and a criterionId belonging to that attempt's task; never use self-report item IDs as attempt IDs. For conflicts.relatedItemIds, use only itemId values from collection.passes[].submission.answers, which identify self-report nodes or administered tasks. Attempt IDs and criterion IDs do not belong in relatedItemIds. Preserve the course's requested goal and depth; the diagnostic does not decide final depth, granularity or curriculum prerequisites.`;
 
 /** Allocates stable identities to one saved model output, independently of topic titles. */
 function materializeTree(draft: z.infer<typeof DiagnosticTreeDraftSchema>, outputId: string) {

@@ -18,7 +18,7 @@ export const DiagnosticSnapshotSchema = z.object({
 });
 export type DiagnosticSnapshot = z.infer<typeof DiagnosticSnapshotSchema>;
 
-export function diagnosticArtifactRef(
+function diagnosticArtifactRef(
   snapshot: DiagnosticSnapshot,
   artifactId: string
 ): CurriculumArtifactRef {

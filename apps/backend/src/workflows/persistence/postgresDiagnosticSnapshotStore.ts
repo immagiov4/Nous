@@ -10,6 +10,21 @@ import {
 export class PostgresDiagnosticSnapshotStore {
   constructor(private readonly sql: Sql) {}
 
+  // fallow-ignore-next-line unused-class-member -- Called through the interview draft-lifetime store contract.
+  async hasAcceptedSubmission(userId: string, projectId: string): Promise<boolean> {
+    const [result] = await this.sql<{ submitted: boolean }[]>`
+      select exists (
+        select 1 from public.prior_knowledge_diagnostic_snapshots diagnostic
+        join public.projects project on project.user_id = diagnostic.user_id
+          and project.id = diagnostic.project_id and project.incarnation_id = diagnostic.incarnation_id
+        where diagnostic.user_id = ${userId} and diagnostic.project_id = ${projectId}
+          and jsonb_path_exists(diagnostic.snapshot, '$.collection.passes[*].submission')
+      ) as submitted
+    `;
+    return result.submitted;
+  }
+
+  // fallow-ignore-next-line unused-class-member -- Bound by courseGenerationProduction as the preparation loader.
   async load(userId: string, ref: DiagnosticSnapshotRef): Promise<DiagnosticSnapshot | null> {
     if (userId !== ref.userId) return null;
     const rows = await this.sql<{ snapshot: unknown }[]>`

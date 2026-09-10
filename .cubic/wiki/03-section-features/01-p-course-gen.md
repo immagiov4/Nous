@@ -261,6 +261,8 @@ The model chooses another pass only when it can clarify a doubt that could chang
 
 `projectPriorKnowledge` produces a structural planning view with self-report and interpretation references, gaps, conflicts and the collection's stopping reason. `resolveDiagnosticPlanningEvidence` supplies the retained context, raw tasks, submitted attempts and omissions even when no interpretation exists. Planning and verification consume that evidence separately from requested final depth and granularity. An observation supports only its task claim scope. Historical runs without a diagnostic keep an explicit not-collected state.
 
+Operational failure preserves draft projects that contain accepted diagnostic submissions. Explicit project deletion still removes their diagnostic records.
+
 The registry retains pre-diagnostic interview, generation and PDF-repair definitions. Signal waits may define a transactional commit callback; its presence enters the manifest while historical waits retain their original manifest shape.
 
 Sources: [courseDiagnosticWorkflow.ts](../../../apps/backend/src/workflows/courseDiagnosticWorkflow.ts), [priorKnowledgeDiagnosticState.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts), [priorKnowledgeDiagnosticSnapshot.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts), [postgresDiagnosticSnapshotStore.ts](../../../apps/backend/src/workflows/persistence/postgresDiagnosticSnapshotStore.ts), [priorKnowledgePlanning.ts](../../../packages/shared-types/priorKnowledgePlanning.ts)

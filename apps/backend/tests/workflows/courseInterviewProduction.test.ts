@@ -21,6 +21,7 @@ const createDependencies = () => {
   };
   const patchProject = vi.fn().mockResolvedValue({});
   const runStore = {
+    diagnosticSnapshots: { hasAcceptedSubmission: vi.fn().mockResolvedValue(false) },
     createRun: vi.fn(),
     getActiveRun: vi.fn().mockResolvedValue(null),
   };
@@ -28,6 +29,18 @@ const createDependencies = () => {
 };
 
 describe('production course interview services', () => {
+  test('keeps a draft containing accepted diagnostic answers during compensation', async () => {
+    const dependencies = createDependencies();
+    dependencies.runStore.diagnosticSnapshots.hasAcceptedSubmission.mockResolvedValue(true);
+    await createProductionCourseInterviewServices(dependencies).discardUnclaimedDraftProject(
+      cleanupInput
+    );
+    expect(dependencies.runStore.diagnosticSnapshots.hasAcceptedSubmission).toHaveBeenCalledWith(
+      'user-1',
+      'project-1'
+    );
+    expect(dependencies.projectStore.deleteProject).not.toHaveBeenCalled();
+  });
   test('never deletes a draft claimed by an active course generation', async () => {
     const dependencies = createDependencies();
     dependencies.runStore.getActiveRun.mockResolvedValue({ id: 'generation-1' });

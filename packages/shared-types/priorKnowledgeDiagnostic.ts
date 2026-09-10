@@ -6,21 +6,13 @@ export const DIAGNOSTIC_SUBMISSION_SIGNAL = 'diagnostic-submission';
 const Identifier = z.string().min(1);
 const Text = z.string().regex(/\S/);
 
-export const SelfAssessmentSchema = z.enum([
+const SelfAssessmentSchema = z.enum([
   'unfamiliar',
   'heard-of',
   'basics',
   'independent',
   'uncertain',
 ]);
-
-export const DiagnosticTopicSchema = z.object({
-  id: Identifier,
-  title: Text,
-  get children() {
-    return z.array(DiagnosticTopicSchema);
-  },
-});
 
 export const DiagnosticResponseFormatSchema = z.discriminatedUnion('format', [
   z.object({ format: z.literal('text') }),
@@ -31,7 +23,7 @@ export const DiagnosticResponseFormatSchema = z.discriminatedUnion('format', [
 ]);
 
 const QuestionFields = z.object({ id: Identifier, topic: Text, prompt: Text });
-export const DiagnosticQuestionSchema = z.discriminatedUnion('format', [
+const DiagnosticQuestionSchema = z.discriminatedUnion('format', [
   QuestionFields.extend(DiagnosticResponseFormatSchema.options[0].shape),
   QuestionFields.extend(DiagnosticResponseFormatSchema.options[1].shape),
 ]);
@@ -74,7 +66,5 @@ export const DiagnosticStageEventSchema = z.object({
   stage: DiagnosticStageSchema,
 });
 
-export type DiagnosticTopic = z.infer<typeof DiagnosticTopicSchema>;
-export type DiagnosticQuestion = z.infer<typeof DiagnosticQuestionSchema>;
 export type DiagnosticStage = z.infer<typeof DiagnosticStageSchema>;
 export type DiagnosticSubmission = z.infer<typeof DiagnosticSubmissionSchema>;

@@ -141,6 +141,22 @@ const evaluation = {
 };
 test('A submitted response can support its administered criterion', () =>
   validateDiagnosticEvaluation(submitted, evaluation));
+test('Conflicts link submitted self-report and task items', () => {
+  const conflict = {
+    nodeIds: ['arrays'],
+    relatedItemIds: ['arrays', 'answered'],
+    description: 'The self-report and administered response differ.',
+  };
+  validateDiagnosticEvaluation(submitted, { ...evaluation, conflicts: [conflict] });
+  for (const invalidId of [answered.attemptId, interpretation.criterionId, 'invented']) {
+    assert.throws(() =>
+      validateDiagnosticEvaluation(submitted, {
+        ...evaluation,
+        conflicts: [{ ...conflict, relatedItemIds: [invalidId] }],
+      })
+    );
+  }
+});
 test('An omitted response cannot support an interpretation', () =>
   assert.throws(() =>
     validateDiagnosticEvaluation(submitted, {

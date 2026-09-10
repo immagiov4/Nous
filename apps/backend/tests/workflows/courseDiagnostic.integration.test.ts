@@ -294,6 +294,12 @@ describe
       ).rejects.toThrow();
       await store.signals.receive(signal);
       expect(await store.signals.receive(signal)).toMatchObject({ status: 'replayed' });
+      await expect(
+        store.diagnosticSnapshots.hasAcceptedSubmission(userId, scenario.projectId)
+      ).resolves.toBe(true);
+      await expect(
+        store.diagnosticSnapshots.hasAcceptedSubmission(randomUUID(), scenario.projectId)
+      ).resolves.toBe(false);
       const [{ snapshot: accepted }] = await sql<{ snapshot: DiagnosticSnapshot }[]>`
         select snapshot from public.prior_knowledge_diagnostic_snapshots
         where user_id=${userId} and snapshot->'collection'->'passes' @> ${sql.json([{ submission: signal.payload }])}

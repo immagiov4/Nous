@@ -3,7 +3,7 @@ import * as z from 'zod';
 /** Ordered preferences relative to the reference material, or a balanced course. */
 export const COURSE_CONTROL_POSITIONS = ['much-less', 'less', 'auto', 'more', 'much-more'] as const;
 
-export const CourseControlPositionSchema = z.enum(COURSE_CONTROL_POSITIONS);
+const CourseControlPositionSchema = z.enum(COURSE_CONTROL_POSITIONS);
 
 export const CoursePlanningControlsSchema = z.object({
   depth: CourseControlPositionSchema,
@@ -39,10 +39,6 @@ export function resolveCoursePlanningControls(
     reference: hasReferenceMaterial ? ('source' as const) : ('balanced' as const),
   };
 }
-
-export type ResolvedCoursePlanningControls = NonNullable<
-  ReturnType<typeof resolveCoursePlanningControls>
->;
 
 export const CoursePlanningPreferencesSchema = z.object({
   coursePlanningControls: CoursePlanningControlsSchema.optional(),

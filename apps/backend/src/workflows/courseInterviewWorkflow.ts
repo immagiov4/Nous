@@ -85,7 +85,7 @@ export const CourseInterviewWorkflowInputSchema = CourseInterviewStartFieldsSche
   userId: z.string().min(1),
   preferenceDefaults: CoursePreferenceDefaultsSchema.optional(),
 });
-export const CourseInterviewDiagnosticInputSchema = CourseInterviewWorkflowInputSchema.extend(
+const CourseInterviewDiagnosticInputSchema = CourseInterviewWorkflowInputSchema.extend(
   CoursePlanningPreferencesSchema.shape
 );
 
