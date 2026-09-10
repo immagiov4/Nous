@@ -4,6 +4,18 @@ import { validateCurriculum } from '../../src/curriculum/validation';
 import { curriculumFixture } from './fixtures';
 
 describe('curriculum structural validation', () => {
+  test('rejects conflicting preparation states for the same requirement and lesson', () => {
+    const { curriculum, resolved, origin } = curriculumFixture();
+    curriculum.prerequisitePreparations.push({
+      kind: 'unresolved',
+      requirementId: 'rate-for-motion',
+      dependentLessonId: 'lesson-2',
+      reason: 'Preparation is missing',
+      origin,
+    });
+    expect(validateCurriculum(curriculum, resolved).success).toBe(false);
+  });
+
   test('rejects a prerequisite whose explicit preparation state is omitted', () => {
     const { curriculum, resolved } = curriculumFixture();
     curriculum.prerequisitePreparations = [];
@@ -55,6 +67,33 @@ describe('curriculum structural validation', () => {
       dependentLessonId: 'lesson-3',
     });
     expect(validateCurriculum(curriculum, resolved).success).toBe(true);
+  });
+
+  test('allows different preparation states for different dependent lessons', () => {
+    const { curriculum, resolved, origin } = curriculumFixture();
+    resolved.lessonIds = [...resolved.lessonIds, 'lesson-3'];
+    curriculum.lessonObjectiveLinks.push({
+      lessonId: 'lesson-3',
+      objectiveId: 'interpret-motion',
+      contribution: 'Apply the interpretation to another motion example',
+    });
+    curriculum.prerequisitePreparations.push({
+      kind: 'unresolved',
+      requirementId: 'rate-for-motion',
+      dependentLessonId: 'lesson-3',
+      reason: 'This lesson still needs preparation review',
+      origin,
+    });
+    const result = validateCurriculum(curriculum, resolved);
+    expect(result.success).toBe(true);
+    if (result.success)
+      expect(result.reviewRequired).toEqual([
+        {
+          requirementId: 'rate-for-motion',
+          lessonId: 'lesson-3',
+          kind: 'unresolved-prerequisite',
+        },
+      ]);
   });
 
   test('retains explicit relations and the immutable planning input without mutating the candidate', () => {

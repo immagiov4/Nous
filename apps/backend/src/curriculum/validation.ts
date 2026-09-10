@@ -143,6 +143,22 @@ function checkPreparations(
   resolved: CurriculumValidationContext,
   context: z.RefinementCtx
 ): void {
+  const preparationStates = new Map<
+    string,
+    CourseCurriculum['prerequisitePreparations'][number]['kind']
+  >();
+  curriculum.prerequisitePreparations.forEach((preparation, index) => {
+    const key = JSON.stringify([preparation.requirementId, preparation.dependentLessonId]);
+    const existingState = preparationStates.get(key);
+    if (existingState !== undefined && existingState !== preparation.kind) {
+      report(
+        context,
+        ['prerequisitePreparations', index, 'kind'],
+        'Prerequisite preparation states conflict for the same dependent lesson'
+      );
+    }
+    preparationStates.set(key, preparation.kind);
+  });
   const preparedRequirements = new Set(
     curriculum.prerequisitePreparations.map(preparation => preparation.requirementId)
   );
