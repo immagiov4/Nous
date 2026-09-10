@@ -102,6 +102,14 @@ require separate lessons. Lesson review checks depth under `core.instructions`: 
 optional material can still require removal when it exceeds the selected treatment. These checks
 use the existing review and refinement stages and do not introduce additional model calls.
 
+Refinement must address every concrete review finding or explain the specific objective,
+prerequisite, or coverage constraint that prevents a requested change. Lesson review returns a
+separate `lessonIntegrity` assessment for preservation of the subject and required learning
+objectives. Both declarations require evidence about the corrected content. Missing, invalid, or
+negative assessments cause a corrective failure before either internal report is removed. The
+workflow propagates that failure through its existing correction path. This enforces the model's
+declared assessment; it does not independently prove that a positive semantic judgment is correct.
+
 `buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
 planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
 profile into `pedagogicalContext`, which is checkpointed with the lesson input. User-editable

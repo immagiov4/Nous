@@ -90,11 +90,15 @@ describe('lesson generation corrective retries', () => {
     );
   });
 
-  test('converts deterministic lesson validation failures into corrective workflow retries', async () => {
+  test.each([
+    'lesson_review_report_incomplete',
+    'lesson_review_integrity_invalid',
+    'lesson_review_integrity_failed',
+  ])('propagates %s as a corrective workflow failure', async code => {
     const services = servicesWithReview(
       vi.fn(async () => {
         throw retryLessonGenerationCorrection({
-          code: 'lesson_review_report_incomplete',
+          code,
           feedback: 'Return every required verificationReport item.',
           message: 'The lesson verification report is incomplete.',
         });
@@ -104,7 +108,7 @@ describe('lesson generation corrective retries', () => {
     const failure = await services.reviewLesson(stageContext()).catch(error => error);
 
     expect(failure.failure).toEqual({
-      code: 'lesson_review_report_incomplete',
+      code,
       feedback: 'Return every required verificationReport item.',
       kind: 'corrective',
       message: 'The lesson verification report is incomplete.',
