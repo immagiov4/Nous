@@ -12,7 +12,10 @@ import {
   type CourseInterviewRun,
   CourseInterviewRunSchema,
 } from '@shared/courseInterviewContract.js';
-
+import {
+  DIAGNOSTIC_STAGE_EVENT,
+  DiagnosticStageEventSchema,
+} from '@shared/priorKnowledgeDiagnostic.js';
 import type { ProjectSnapshot } from '../projects/types.js';
 import type { CourseInterviewStarter } from './courseInterviewStart.js';
 import { CourseInterviewWorkflowInputSchema } from './courseInterviewWorkflow.js';
@@ -75,6 +78,7 @@ const mapRun = (run: WorkflowRun): CourseInterviewRun => {
 };
 
 const publishedEventSchemas = {
+  [DIAGNOSTIC_STAGE_EVENT]: DiagnosticStageEventSchema,
   [COURSE_INTERVIEW_ENDED_EVENT]: CourseInterviewResultSchema,
   [COURSE_INTERVIEW_GENERATION_STARTED_EVENT]: CourseInterviewGenerationStartedEventSchema,
   [COURSE_INTERVIEW_MESSAGE_EVENT]: CourseInterviewMessageEventSchema,

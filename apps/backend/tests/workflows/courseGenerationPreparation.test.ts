@@ -100,6 +100,7 @@ describe('course generation preparation', () => {
 
     expect(result).toMatchObject({
       context: {
+        priorKnowledge: { kind: 'not-collected' },
         assessmentSummary:
           'USER: Voglio una preparazione universitaria.\nMODEL: Quale livello desideri?',
         sourceNames: [],

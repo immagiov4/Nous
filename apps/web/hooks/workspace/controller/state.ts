@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
+import type { DiagnosticAdapter } from '../../../components/library/diagnostic/diagnosticFlow.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import {
   createWorkspaceWorkflowState,
@@ -13,6 +14,7 @@ export const useWorkspaceControllerState = () => {
   const [screenState, setScreenStateValue] = useState<AppState>(AppState.LIBRARY);
   const [assessmentMessages, setAssessmentMessages] = useState<Message[]>([]);
   const [courseProposal, setCourseProposal] = useState<UserProfile | null>(null);
+  const [diagnosticAdapter, setDiagnosticAdapter] = useState<DiagnosticAdapter | undefined>();
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const openingProjectIdRef = useRef<string | null>(null);
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
@@ -67,9 +69,11 @@ export const useWorkspaceControllerState = () => {
   return {
     assessmentMessages,
     courseProposal,
+    diagnosticAdapter,
     openingProjectId,
     screenState,
     stateAdapter: {
+      setDiagnosticAdapter,
       beginOpenSectionRequest: () => {
         nextOpenSectionRequestIdRef.current += 1;
         return nextOpenSectionRequestIdRef.current;
@@ -176,6 +180,7 @@ export const useWorkspaceControllerState = () => {
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
         setCourseProposal(null);
+        setDiagnosticAdapter(undefined);
         courseProposalRef.current = null;
         openingProjectIdRef.current = null;
         setOpeningProjectId(null);

@@ -7,7 +7,6 @@ import {
   formatSourceArchiveIndex,
   SOURCE_ARCHIVE_TOOL_STEP_LIMIT,
 } from '@shared/sourceArchiveIndex';
-
 import {
   createSourceArchiveTools,
   type OpenedCourseArchive,
@@ -24,6 +23,7 @@ import {
   type CourseResearchState,
   CourseResearchStateSchema,
 } from './courseGenerationWorkflowContract.js';
+import { buildPriorKnowledgeInstructions } from './priorKnowledgePlanningInstructions.js';
 import { retryCorrective } from './retryPolicy.js';
 
 type GenerateCourseObject = typeof generateCourseObject;
@@ -128,6 +128,7 @@ ${JSON.stringify(input.plan.modules.map(module => ({ id: module.id, title: modul
 CONTEXT AND RESEARCH:
 ${input.state.context.assessmentSummary || 'No additional context.'}
 ${buildCoursePlanningInstructions(input.state.context.profile, input.state.context.sources.length > 0)}
+${buildPriorKnowledgeInstructions(input.state.context)}
 ${input.state.research.web.brief || 'No web research available.'}
 ${input.state.research.youtube.context || ''}
 

@@ -35,6 +35,28 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 
 const ENGLISH_UI_MESSAGES = {
   ...COURSE_PLANNING_MESSAGES,
+  'Non lo conosco': 'I am unfamiliar with it',
+  'Ne ho sentito parlare': 'I have heard of it',
+  'Ne conosco le basi': 'I know the basics',
+  'Mi sento autonomo': 'I feel independent',
+  'Non so valutarmi': 'I cannot assess myself',
+  'Non riconosco l’argomento.': 'I do not recognize the topic.',
+  'Lo riconosco, ma non saprei spiegarlo.': 'I recognize it, but could not explain it.',
+  'Saprei spiegare gli elementi principali, ma avrei bisogno di aiuto per usarli.':
+    'I could explain the main elements, but would need help using them.',
+  'Ritengo di poter affrontare compiti pertinenti senza aiuto.':
+    'I believe I could tackle related tasks without help.',
+  'Nessuna risposta': 'No answer',
+  'Risposta presente': 'Answer provided',
+  'Conoscenze iniziali': 'Prior knowledge',
+  'Rivedi le risposte': 'Review answers',
+  'Invia le risposte': 'Submit answers',
+  'Modifica risposta: {question}': 'Edit answer: {question}',
+  Precedente: 'Previous',
+  Successiva: 'Next',
+  'Invio non riuscito. Le risposte sono conservate. Riprova.':
+    'Submission failed. Your answers are retained. Try again.',
+  'Scrivi la tua risposta...': 'Write your answer...',
   'Campi vuoti': 'Empty fields',
   'Preferenze esistenti': 'Existing preferences',
   'Errore di caricamento': 'Loading error',

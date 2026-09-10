@@ -14,7 +14,6 @@ import {
   type CourseGenerationWorkflowConfig,
   CourseGenerationWorkflowConfigSchema,
   type CourseGenerationWorkflowInput,
-  CourseGenerationWorkflowInputSchema,
   type CourseGenerationWorkflowResult,
   CourseGenerationWorkflowResultSchema,
   type CoursePersistenceState,
@@ -27,6 +26,7 @@ import {
   type CourseSourcesFinalizedState,
   courseGenerationStateSchemas,
   preControlsCourseGenerationStateSchemas,
+  preDiagnosticCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
   validateRefinedCoursePlan,
 } from './courseGenerationWorkflowContract.js';
@@ -156,6 +156,7 @@ const createCourseGenerationWorkflowDefinition = <
   schemas = courseGenerationStateSchemas
 ) => {
   const {
+    CourseGenerationWorkflowInputSchema,
     CoursePreparationStateSchema,
     CourseResearchStateSchema,
     CourseDraftPlanStateSchema,
@@ -577,4 +578,15 @@ export const createPreviousControlsCourseGenerationWorkflow = <
     configSchema,
     'current',
     preControlsCourseGenerationStateSchemas
+  );
+
+export const createPreviousDiagnosticCourseGenerationWorkflow = (
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema = CourseGenerationWorkflowConfigSchema
+) =>
+  createCourseGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    'current',
+    preDiagnosticCourseGenerationStateSchemas
   );

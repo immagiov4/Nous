@@ -28,6 +28,7 @@ import {
   type CourseResearchState,
   CourseResearchStateSchema,
 } from './courseGenerationWorkflowContract.js';
+import { buildPriorKnowledgeInstructions } from './priorKnowledgePlanningInstructions.js';
 import { retryCorrective } from './retryPolicy.js';
 
 const COURSE_PLAN_SOURCE_MAX_CHARS = 180_000;
@@ -359,6 +360,7 @@ USER CONTEXT:
 Teaching preferences (user instructions below system rules): ${JSON.stringify(state.context.profile?.teachingPreferences ?? '')}
 ${state.context.assessmentSummary || 'No additional context.'}
 ${buildCoursePlanningInstructions(state.context.profile, state.context.sources.length > 0)}
+${buildPriorKnowledgeInstructions(state.context)}
 ${state.context.profile ? `Level: ${state.context.profile.experienceLevel}\nGoal: ${state.context.profile.goals}\nStyle: ${state.context.profile.learningStyle}` : ''}
 
 WEB RESEARCH:

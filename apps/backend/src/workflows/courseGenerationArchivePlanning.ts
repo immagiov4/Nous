@@ -13,7 +13,6 @@ import {
   SourceArchiveSelectorContractError,
 } from '@shared/sourceArchiveSelectors';
 import * as z from 'zod';
-
 import type { ProjectSourceArchiveIndex } from '../projects/types.js';
 import type { OpenedCourseArchive } from './courseGenerationArchiveAccess.js';
 import { type CourseObjectToolSet, generateCourseObject } from './courseGenerationModel.js';
@@ -33,6 +32,7 @@ import {
   type CourseResearchState,
   CourseResearchStateSchema,
 } from './courseGenerationWorkflowContract.js';
+import { buildPriorKnowledgeInstructions } from './priorKnowledgePlanningInstructions.js';
 import { retryCorrective } from './retryPolicy.js';
 
 export type { OpenedCourseArchive } from './courseGenerationArchiveAccess.js';
@@ -185,6 +185,7 @@ USER CONTEXT:
 ${state.context.assessmentSummary || 'No additional context.'}
 Teaching preferences: ${JSON.stringify(state.context.profile?.teachingPreferences ?? '')}
 ${buildCoursePlanningInstructions(state.context.profile, state.context.sources.length > 0)}
+${buildPriorKnowledgeInstructions(state.context)}
 
 EXTERNAL RESEARCH:
 ${state.research.web.brief || 'No web research available.'}

@@ -48,3 +48,4 @@ export const CoursePlanningPreferencesSchema = z.object({
   coursePlanningControls: CoursePlanningControlsSchema.optional(),
   languageProficiency: CourseLanguageProficiencySchema.optional(),
 });
+export type CoursePlanningPreferences = z.infer<typeof CoursePlanningPreferencesSchema>;

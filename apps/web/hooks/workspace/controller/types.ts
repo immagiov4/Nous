@@ -204,6 +204,11 @@ export interface WorkspaceControllerStateAdapter {
     nextMessages: Message[] | ((previousMessages: Message[]) => Message[])
   ) => void;
   setCourseProposal: (proposal: UserProfile | null) => void;
+  setDiagnosticAdapter?: (
+    adapter:
+      | import('../../../components/library/diagnostic/diagnosticFlow.ts').DiagnosticAdapter
+      | undefined
+  ) => void;
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
   setGeneratingSectionId: (projectId: string | null, token: number, sectionId: string) => void;
@@ -316,7 +321,9 @@ export interface WorkspaceControllerCommands {
   openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
   repairApplicationExercises: () => Promise<{ outcome: 'noop' | 'repaired' }>;
   regenerateActiveSection: () => Promise<OpenSectionOutcome>;
-  confirmPlanGeneration: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'planned' }>;
+  confirmPlanGeneration: (
+    preferences?: import('@shared/coursePlanningControls').CoursePlanningPreferences
+  ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'planned' | 'diagnostic' }>;
   startHomeChat: (args: {
     input: string;
     selectedFile?: File | null;

@@ -239,6 +239,8 @@ const validateWait = (node: RuntimeWait, definition: WorkflowCatalog): void => {
     throw new Error(`Signal wait ${node.id} has an incompatible payload schema.`);
   }
   assertCallback(node.resume, `Signal wait ${node.id} must define a resume callback.`);
+  if (node.commit !== undefined)
+    assertCallback(node.commit, `Signal wait ${node.id} has an invalid commit callback.`);
 };
 
 const validateFanOut = (
@@ -385,7 +387,11 @@ const nodeManifest = (node: WorkflowNode, path: string): unknown => {
     case 'emit':
       return { ...common, event: node.event };
     case 'waitForSignal':
-      return { ...common, signal: node.signal };
+      return {
+        ...common,
+        signal: node.signal,
+        ...(node.commit === undefined ? {} : { hasCommit: true }),
+      };
     case 'fanOut': {
       const worker = assertNodeShape(node.worker, `${path}.worker`);
       return {

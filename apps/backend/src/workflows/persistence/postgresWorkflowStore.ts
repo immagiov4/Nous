@@ -57,6 +57,7 @@ import {
   type WorkflowRunState,
   type WorkflowSignalWaitState,
 } from '../workflowReadModel.js';
+import { PostgresDiagnosticSnapshotStore } from './postgresDiagnosticSnapshotStore.js';
 
 interface WorkflowRunRow {
   cancellation_requested: boolean;
@@ -380,6 +381,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
   readonly projectRevisionInbox: PostgresProjectRevisionInbox;
   readonly projectAssetDeletions: PostgresProjectAssetDeletionQueue;
   readonly projectAssets: PostgresProjectAssetStore;
+  readonly diagnosticSnapshots: PostgresDiagnosticSnapshotStore;
   readonly providerEffects: WorkflowProviderEffectStore;
   readonly signals: PostgresWorkflowSignalStore;
   readonly steps: PostgresWorkflowStepStore;
@@ -405,6 +407,7 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
     this.enforceCurrentDefinitions = enforceCurrentDefinitions;
     this.ownsConnection = sqlClient === undefined;
     this.sql = sqlClient ?? postgres(databaseUrl as string, { max: 10 });
+    this.diagnosticSnapshots = new PostgresDiagnosticSnapshotStore(this.sql);
     this.cancellation = new PostgresWorkflowCancellationStore(this.sql, this.logger);
     this.courseGenerationPersistence = new PostgresCourseGenerationPersistence({ sql: this.sql });
     this.definitionReconciliation = new PostgresWorkflowDefinitionReconciliationStore(

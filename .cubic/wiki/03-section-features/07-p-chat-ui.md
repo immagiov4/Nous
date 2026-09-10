@@ -203,3 +203,15 @@ Sources: [apps/backend/src/routes/contextChat.ts:404-440](../../../apps/backend/
 
 ## Summary
 The Chat UI & AI Context Assistant is a multi-layered system that leverages the AI-SDK for streaming responses and tool execution. By strictly coupling the UI selection context with backend prompt engineering and a robust proxy layer, it provides a seamless "Professor Nous" experience that remains grounded in the user's specific study materials.
+
+## Initial knowledge collection
+
+After course approval, `HomeChatConversation` displays `DiagnosticFlow` in the chat. The same slider is used on desktop and mobile, with four verbal self-assessment categories and a separate uncertain stop. Answering a parent reveals its children. Completed branches remain open until the learner closes them. Only the active slider shows its description; the previous description collapses with scroll compensation.
+
+Targeted questions reuse the lesson quiz option layout. Each pass contains a fixed set of questions with previous/next navigation and local answer drafts. The final question submits the pass directly, without a review screen. Omitted responses are sent explicitly. Feedback appears only after the entire collection ends, without a grade.
+
+The client binds each submission to its original wait and request identity. An uncertain network outcome keeps that submission unchanged for retry; navigation remains available while answer editing is disabled. The server checks the complete request before recognizing a replay. The final continuation opens the exact generation run, including a run that completed while the learner was reading feedback.
+
+The development route `/dev/diagnostic` uses the real chat and question components with fixed synthetic stages. It is enabled only in development.
+
+Sources: [DiagnosticFlow.tsx](../../../apps/web/components/library/diagnostic/DiagnosticFlow.tsx), [SelfAssessmentControl.tsx](../../../apps/web/components/library/diagnostic/SelfAssessmentControl.tsx), [assessmentPlanning.ts](../../../apps/web/hooks/workspace/controller/assessmentPlanning.ts), [courseInterviewClient.ts](../../../apps/web/services/openrouter/courseInterviewClient.ts)

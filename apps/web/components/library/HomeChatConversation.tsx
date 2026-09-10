@@ -20,10 +20,14 @@ import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import ChatToolActivityStrip from '../shared/ChatToolActivityStrip.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import StreamingMarkdownRenderer from '../shared/StreamingMarkdownRenderer.tsx';
+import DiagnosticFlow from './diagnostic/DiagnosticFlow.tsx';
+import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 
 type LibraryToolPart = Extract<UIMessage['parts'][number], { type: `tool-${string}` }>;
 
 interface HomeChatConversationProps {
+  readonly coursePreferences?: ReactNode;
+  readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
   readonly assessmentMessages: Message[];
   readonly compactWhenEmpty: boolean;
@@ -499,6 +503,8 @@ const EmptyConversationState = ({
 };
 
 export default function HomeChatConversation({
+  coursePreferences,
+  diagnosticAdapter,
   assessmentComplete,
   assessmentMessages,
   compactWhenEmpty,
@@ -538,7 +544,7 @@ export default function HomeChatConversation({
   );
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
-  const hasMessages = activeMessages.length > 0;
+  const hasMessages = activeMessages.length > 0 || !!diagnosticAdapter;
   const activeContentLength =
     homeChatMode === 'new-course'
       ? assessmentMessages.reduce((total, message) => total + message.text.length, 0)
@@ -650,7 +656,18 @@ export default function HomeChatConversation({
             {libraryErrorMessage}
           </div>
         ) : null}
-        {homeChatMode === 'new-course' && assessmentComplete && !isLoading ? (
+        {homeChatMode === 'new-course' && diagnosticAdapter ? (
+          <div className="flex min-w-0 items-start gap-2.5">
+            {assistantAvatar}
+            <div className="min-w-0 flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
+              <DiagnosticFlow key={diagnosticAdapter.collectionId} adapter={diagnosticAdapter} />
+            </div>
+          </div>
+        ) : null}
+        {homeChatMode === 'new-course' && !diagnosticAdapter && assessmentComplete && !isLoading
+          ? coursePreferences
+          : null}
+        {homeChatMode === 'new-course' && !diagnosticAdapter && assessmentComplete && !isLoading ? (
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
             <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
               {t('Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?')}

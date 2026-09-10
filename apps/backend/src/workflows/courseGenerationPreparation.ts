@@ -7,6 +7,11 @@ import type { ProjectStore, StoredProjectSourceFile } from '../projects/types.js
 import { isRecord } from '../utils/validation.js';
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
 import { CoursePreparationStateSchema } from './courseGenerationWorkflowContract.js';
+import type { PostgresDiagnosticSnapshotStore } from './persistence/postgresDiagnosticSnapshotStore.js';
+import {
+  projectPriorKnowledge,
+  resolveDiagnosticPlanningEvidence,
+} from './priorKnowledgeDiagnosticSnapshot.js';
 import { failPermanently } from './retryPolicy.js';
 
 const readString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
@@ -94,9 +99,11 @@ export const createCoursePreparationStage =
   ({
     loadProjectSources,
     loadProjectWithRevision,
+    loadDiagnostic,
   }: {
     readonly loadProjectSources: ProjectStore['loadProjectSources'];
     readonly loadProjectWithRevision: ProjectStore['loadProjectWithRevision'];
+    readonly loadDiagnostic?: PostgresDiagnosticSnapshotStore['load'];
   }): CourseGenerationWorkflowServices['prepareCourse'] =>
   async context => {
     const { projectId, userId } = context.input;
@@ -108,6 +115,26 @@ export const createCoursePreparationStage =
       });
     }
     const profile = readProfile(project.snapshot.userProfile);
+    const diagnosticRef = context.input.diagnosticRef;
+    const snapshot = diagnosticRef ? await loadDiagnostic?.(userId, diagnosticRef) : null;
+    if (
+      diagnosticRef &&
+      (!snapshot ||
+        diagnosticRef.projectId !== projectId ||
+        diagnosticRef.incarnationId !== project.incarnationId)
+    ) {
+      throw failPermanently({
+        code: 'course_diagnostic_missing',
+        message: 'The approved diagnostic evidence could not be resolved.',
+      });
+    }
+    const priorKnowledge = snapshot
+      ? projectPriorKnowledge(snapshot)
+      : {
+          kind: 'not-collected' as const,
+          reason: 'No diagnostic collection was approved for this generation.',
+        };
+    const diagnosticEvidence = snapshot ? resolveDiagnosticPlanningEvidence(snapshot) : [];
     const archiveSource = isArchiveSource(project.snapshot.source);
     const archiveDescriptor = readArchiveDescriptor(project.snapshot.source);
     const storedSources =
@@ -143,6 +170,8 @@ export const createCoursePreparationStage =
     const sourceNames = descriptors.map(source => source.name);
     return CoursePreparationStateSchema.parse({
       context: {
+        priorKnowledge,
+        diagnosticEvidence: JSON.stringify(diagnosticEvidence),
         assessmentSummary: context.input.assessmentHistory
           .map(message => {
             const text = message.text.trim();
@@ -164,6 +193,7 @@ export const createCoursePreparationStage =
       },
       projectRevision: project.revision,
       request: {
+        ...(diagnosticRef ? { diagnosticRef } : {}),
         mode: context.input.mode,
         projectId,
         userId,

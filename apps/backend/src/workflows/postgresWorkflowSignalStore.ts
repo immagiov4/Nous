@@ -359,6 +359,7 @@ export class PostgresWorkflowSignalStore {
         nodeInstanceId: node.node_instance_id,
         nodes,
         payload: requestPayload,
+        receivedAt: new Date().toISOString(),
         stepPolicies: run.step_policies,
         waitIdForNode: createStableWaitIdFactory(),
       });
@@ -396,6 +397,10 @@ export class PostgresWorkflowSignalStore {
         'completed',
         async update => {
           if (update.status !== 'completed') throw new Error('Expected a completed signal wait.');
+          const waitDefinition = indexWorkflowNodes(definition).get(node.node_definition_id)?.node;
+          if (waitDefinition?.kind !== 'waitForSignal')
+            throw new Error('Expected a signal wait definition.');
+          await waitDefinition.commit?.({ output: update.output as never, transaction: sql });
           const nodeRows = await sql`
             update public.workflow_node_runs
             set status = 'completed', output = ${sql.json(asPostgresJson(update.output))},

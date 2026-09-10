@@ -12,6 +12,7 @@ import {
   COURSE_INTERVIEW_USER_ANSWER_SIGNAL,
   COURSE_INTERVIEW_WORKFLOW_ID,
   CourseInterviewDecisionSignalSchema,
+  CourseInterviewDiagnosticDecisionSchema,
   CourseInterviewGenerationStartedEventSchema,
   CourseInterviewMessageEventSchema,
   CourseInterviewMessageSchema,
@@ -21,11 +22,20 @@ import {
   CourseInterviewStartFieldsSchema,
   CourseInterviewUserAnswerSignalSchema,
 } from '@shared/courseInterviewContract.js';
+import { CoursePlanningPreferencesSchema } from '@shared/coursePlanningControls.js';
+import {
+  DIAGNOSTIC_STAGE_EVENT,
+  DIAGNOSTIC_SUBMISSION_SIGNAL,
+  DiagnosticStageEventSchema,
+  DiagnosticSubmissionSchema,
+} from '@shared/priorKnowledgeDiagnostic.js';
+import { DiagnosticSnapshotRefSchema } from '@shared/priorKnowledgePlanning.js';
 import type { TransactionSql } from 'postgres';
 import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { WorkflowExecutionDefaultsSchema } from './config.js';
+import { createCourseDiagnosticSequence } from './courseDiagnosticWorkflow.js';
 import type { CourseInterviewTurn } from './courseInterviewModel.js';
 import { createCourseInterviewTurnSchema } from './courseInterviewModel.js';
 import {
@@ -41,6 +51,8 @@ import {
   workflow,
 } from './definition.js';
 import { GlobalModelConfigSchema } from './modelConfigSchema.js';
+import type { createPriorKnowledgeDiagnosticModel } from './priorKnowledgeDiagnosticModel.js';
+import type { DiagnosticSnapshot } from './priorKnowledgeDiagnosticSnapshot.js';
 import type {
   DeepReadonly,
   WorkflowExecutionDefaults,
@@ -73,10 +85,13 @@ export const CourseInterviewWorkflowInputSchema = CourseInterviewStartFieldsSche
   userId: z.string().min(1),
   preferenceDefaults: CoursePreferenceDefaultsSchema.optional(),
 });
+export const CourseInterviewDiagnosticInputSchema = CourseInterviewWorkflowInputSchema.extend(
+  CoursePlanningPreferencesSchema.shape
+);
 
-const createInterviewSchemas = (preferences: 'current' | 'previous') => {
+const createInterviewSchemas = (preferences: 'diagnostic' | 'current' | 'previous') => {
   const proposalSchema =
-    preferences === 'current'
+    preferences !== 'previous'
       ? CourseInterviewProposalSchema
       : PreviousCourseInterviewProposalSchema;
   const inputSchema = PreviousCourseInterviewStartFieldsSchema.omit({
@@ -86,14 +101,21 @@ const createInterviewSchemas = (preferences: 'current' | 'previous') => {
   });
   // The historical output is a valid subset because the new fields are optional.
   const workflowInputSchema =
-    preferences === 'current'
-      ? CourseInterviewWorkflowInputSchema
-      : (inputSchema as typeof CourseInterviewWorkflowInputSchema);
-  const CourseInterviewProposalReadyEventSchema = z.object({ proposal: proposalSchema });
+    preferences !== 'previous'
+      ? preferences === 'diagnostic'
+        ? CourseInterviewDiagnosticInputSchema
+        : (CourseInterviewWorkflowInputSchema as typeof CourseInterviewDiagnosticInputSchema)
+      : (inputSchema as typeof CourseInterviewDiagnosticInputSchema);
+  const CourseInterviewProposalReadyEventSchema = z.object({
+    proposal:
+      preferences === 'diagnostic'
+        ? proposalSchema.extend(CoursePlanningPreferencesSchema.shape)
+        : proposalSchema,
+  });
 
   const CourseInterviewDecisionStateSchema = z.enum(['active', 'approve', 'cancel', 'exhausted']);
 
-  const CourseInterviewStateSchema = workflowInputSchema
+  const diagnosticStateSchema = workflowInputSchema
     .omit({
       initialMessage: true,
     })
@@ -102,7 +124,12 @@ const createInterviewSchemas = (preferences: 'current' | 'previous') => {
       generationRunId: z.string().min(1).optional(),
       messages: z.array(CourseInterviewMessageSchema),
       profile: CourseInterviewProposalReadyEventSchema.shape.proposal.optional(),
+      diagnosticRef: DiagnosticSnapshotRefSchema.optional(),
     });
+  const CourseInterviewStateSchema =
+    preferences === 'diagnostic'
+      ? diagnosticStateSchema
+      : (diagnosticStateSchema.omit({ diagnosticRef: true }) as typeof diagnosticStateSchema);
 
   const CourseInterviewTurnStateSchema = z.object({
     state: CourseInterviewStateSchema,
@@ -119,8 +146,9 @@ const createInterviewSchemas = (preferences: 'current' | 'previous') => {
   };
 };
 
-const currentInterviewSchemas = createInterviewSchemas('current');
-const { CourseInterviewStateSchema, CourseInterviewTurnStateSchema } = currentInterviewSchemas;
+const currentInterviewSchemas = createInterviewSchemas('diagnostic');
+export const { CourseInterviewStateSchema } = currentInterviewSchemas;
+const { CourseInterviewTurnStateSchema } = currentInterviewSchemas;
 export type CourseInterviewWorkflowInput = z.infer<typeof CourseInterviewWorkflowInputSchema>;
 
 export const CourseInterviewWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
@@ -142,6 +170,11 @@ interface CourseInterviewCleanupInput {
 }
 
 export interface CourseInterviewWorkflowServices {
+  readonly diagnostic?: {
+    model: ReturnType<typeof createPriorKnowledgeDiagnosticModel>;
+    readIncarnation: (userId: string, projectId: string) => Promise<string>;
+    saveSnapshot: (transaction: TransactionSql, snapshot: DiagnosticSnapshot) => Promise<void>;
+  };
   readonly assessTurn: (input: {
     preferenceDefaults?: CoursePreferenceDefaults;
     config: DeepReadonly<GlobalModelConfig>;
@@ -173,6 +206,7 @@ export interface CourseInterviewWorkflowServices {
     userId: string;
   }) => Promise<void>;
   readonly startCourseGeneration: (input: {
+    diagnosticRef?: z.infer<typeof DiagnosticSnapshotRefSchema>;
     assessmentHistory: readonly z.infer<typeof CourseInterviewMessageSchema>[];
     idempotencyKey: string;
     mode: 'document' | 'learn';
@@ -202,7 +236,7 @@ export const createCourseInterviewWorkflow = (
   maxIterations: number,
   configSchema: z.ZodType<CourseInterviewWorkflowConfig> = CourseInterviewWorkflowConfigSchema,
   profilePersistence: 'commit' | 'run' = 'commit',
-  preferences: 'current' | 'previous' = 'current'
+  preferences: 'diagnostic' | 'current' | 'previous' = 'current'
 ) => {
   const {
     CourseInterviewWorkflowInputSchema,
@@ -210,7 +244,11 @@ export const createCourseInterviewWorkflow = (
     CourseInterviewTurnStateSchema,
     CourseInterviewRepeatDecisionSchema,
     CourseInterviewProposalReadyEventSchema,
-  } = preferences === 'current' ? currentInterviewSchemas : createInterviewSchemas('previous');
+  } = preferences === 'diagnostic' ? currentInterviewSchemas : createInterviewSchemas(preferences);
+  const decisionSignalSchema =
+    preferences === 'diagnostic'
+      ? CourseInterviewDiagnosticDecisionSchema
+      : CourseInterviewDecisionSignalSchema;
   const emitInitialMessage = emit({
     event: COURSE_INTERVIEW_MESSAGE_EVENT,
     id: 'emit-initial-course-interview-message',
@@ -279,6 +317,7 @@ export const createCourseInterviewWorkflow = (
     outputSchema: CourseInterviewStateSchema,
     run: async ({ input }) => ({
       decision: 'active',
+      ...(preferences === 'diagnostic' ? CoursePlanningPreferencesSchema.parse(input) : {}),
       ...(input.preferenceDefaults ? { preferenceDefaults: input.preferenceDefaults } : {}),
       hasReliableSourceContext: input.hasReliableSourceContext,
       messages: input.initialMessage ? [{ role: 'user', text: input.initialMessage }] : [],
@@ -395,7 +434,7 @@ export const createCourseInterviewWorkflow = (
     id: 'wait-for-course-interview-decision',
     inputSchema: CourseInterviewTurnStateSchema,
     outputSchema: CourseInterviewStateSchema,
-    payloadSchema: CourseInterviewDecisionSignalSchema,
+    payloadSchema: decisionSignalSchema,
     resume: (input, decision) => {
       const state = appendModelMessage(input.state, input.turn);
       if (input.turn.kind !== 'proposal') {
@@ -409,7 +448,27 @@ export const createCourseInterviewWorkflow = (
           profile: input.turn.proposal,
         };
       }
-      return { ...state, decision: decision.kind, profile: input.turn.proposal };
+      const selectedPreferences =
+        preferences === 'diagnostic'
+          ? {
+              ...CoursePlanningPreferencesSchema.parse(state),
+              ...CoursePlanningPreferencesSchema.parse(decision),
+            }
+          : {};
+      if (
+        selectedPreferences.languageProficiency &&
+        selectedPreferences.languageProficiency.language !== input.turn.proposal.language
+      ) {
+        throw new Error('Language proficiency must refer to the approved course language.');
+      }
+      return {
+        ...state,
+        decision: decision.kind,
+        profile: {
+          ...input.turn.proposal,
+          ...selectedPreferences,
+        },
+      };
     },
     signal: COURSE_INTERVIEW_DECISION_SIGNAL,
   });
@@ -425,6 +484,7 @@ export const createCourseInterviewWorkflow = (
     outputSchema: CourseInterviewStateSchema,
     run: async ({ config, idempotencyKey, input, services, signal }) => {
       const generation = await services.startCourseGeneration({
+        ...(input.diagnosticRef ? { diagnosticRef: input.diagnosticRef } : {}),
         assessmentHistory: input.messages,
         idempotencyKey,
         mode: input.mode,
@@ -539,6 +599,17 @@ export const createCourseInterviewWorkflow = (
     }),
   });
 
+  const prepareApprovedCourse =
+    preferences === 'diagnostic'
+      ? sequence({
+          id: 'diagnose-and-save-course-profile',
+          nodes: [
+            createCourseDiagnosticSequence(CourseInterviewStateSchema, maxIterations),
+            saveCourseProfile,
+          ] as const,
+        })
+      : saveCourseProfile;
+
   const routeDecision = routeBy<
     typeof CourseInterviewStateSchema,
     typeof CourseInterviewRepeatDecisionSchema,
@@ -556,7 +627,7 @@ export const createCourseInterviewWorkflow = (
       approve: sequence({
         id: 'approve-course-interview',
         nodes: [
-          saveCourseProfile,
+          prepareApprovedCourse,
           startCourseGeneration,
           emitGenerationStarted,
           finishInterview('finish-approved-course-interview'),
@@ -702,9 +773,22 @@ export const createCourseInterviewWorkflow = (
 
   return workflow({
     compatibilityId:
-      profilePersistence === 'commit' ? 'course-interview-v2' : 'course-interview-v1',
+      preferences === 'diagnostic'
+        ? 'course-interview-diagnostic-v1'
+        : profilePersistence === 'commit'
+          ? 'course-interview-v2'
+          : 'course-interview-v1',
     configSchema,
     events: {
+      ...(preferences === 'diagnostic'
+        ? {
+            [DIAGNOSTIC_STAGE_EVENT]: {
+              durability: 'durable' as const,
+              schema: DiagnosticStageEventSchema,
+              schemaVersion: COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
+            },
+          }
+        : {}),
       [COURSE_INTERVIEW_ENDED_EVENT]: {
         durability: 'durable',
         schema: CourseInterviewResultSchema,
@@ -743,8 +827,16 @@ export const createCourseInterviewWorkflow = (
       ] as const,
     }),
     signals: {
+      ...(preferences === 'diagnostic'
+        ? {
+            [DIAGNOSTIC_SUBMISSION_SIGNAL]: {
+              schema: DiagnosticSubmissionSchema,
+              schemaVersion: COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
+            },
+          }
+        : {}),
       [COURSE_INTERVIEW_DECISION_SIGNAL]: {
-        schema: CourseInterviewDecisionSignalSchema,
+        schema: decisionSignalSchema,
         schemaVersion: COURSE_INTERVIEW_EVENT_SCHEMA_VERSION,
       },
       [COURSE_INTERVIEW_USER_ANSWER_SIGNAL]: {

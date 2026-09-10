@@ -62,6 +62,30 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
+  // Captured independently from f1ffb44 before diagnostic collection was added.
+  test.each([
+    [
+      COURSE_INTERVIEW_WORKFLOW_ID,
+      'df0b0f6b20709b5f10b93d28d127666ec0abfb993dd549ca998e190353d94972',
+    ],
+    [
+      COURSE_GENERATION_WORKFLOW_ID,
+      '37883365b25549a7075b27b63cfdae9ab4b697d62f3e79d01f86507f7774fc47',
+    ],
+  ])('resolves the pre-diagnostic %s definition', (workflowId, hash) => {
+    expect(productionRegistry.resolve(workflowId, hash)).not.toBeNull();
+  });
+  // Independently captured from c7c324d before course controls extended persisted profiles.
+  test.each([
+    '452251ed24ff921c1ae469d29dde230330da3fc6925602d7fd518d956b956933',
+    'f7057b758c7cb42f8fc5781c3fdd54b108146ee04d50dee9e6445e81c348cc41',
+    'c7d422c826d84c2ae08ae729a797d0b7f251707a40e8bc7e7c1f3a93e129c797',
+  ])('resolves course generation before course controls: %s', definitionHash => {
+    expect(
+      productionRegistry.resolve(COURSE_GENERATION_WORKFLOW_ID, definitionHash)
+    ).not.toBeNull();
+  });
+
   test('resumes visual workflows created before provider post-processing was isolated', () => {
     const current = productionRegistry.current(ARTIFACT_DRAFT_WORKFLOW_ID);
     expect(current).not.toBeNull();

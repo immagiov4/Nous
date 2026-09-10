@@ -21,8 +21,10 @@ import {
 } from './coursePlanVerification.js';
 import { createCourseSourceFinalizationServices } from './courseSourceFinalization.js';
 import { buildCourseDocumentIndex } from './courseSourceIndex.js';
+import type { PostgresDiagnosticSnapshotStore } from './persistence/postgresDiagnosticSnapshotStore.js';
 
 type CourseWorkflowStore = {
+  readonly diagnosticSnapshots?: Pick<PostgresDiagnosticSnapshotStore, 'load'>;
   readonly courseGenerationPersistence: Pick<
     CourseGenerationWorkflowServices,
     'persistCourse' | 'undoCourse'
@@ -109,6 +111,9 @@ export const createProductionCourseGenerationServices = (
     persistCourse: persistence.persistCourse,
     placeApplicationExercises: createCourseExercisePlanningStage({ now: timestampIso }),
     prepareCourse: createCoursePreparationStage({
+      loadDiagnostic: workflowStore.diagnosticSnapshots?.load.bind(
+        workflowStore.diagnosticSnapshots
+      ),
       loadProjectSources,
       loadProjectWithRevision,
     }),

@@ -11,6 +11,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
+import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 import HomeChatComposer, {
   type LibraryMessageSendHandler,
   type StopGenerationHandler,
@@ -20,6 +21,8 @@ import HomeChatPanelFrame from './HomeChatPanelFrame.tsx';
 import { useHomeChatPanelState } from './useHomeChatPanelState.ts';
 
 interface HomeChatPanelProps {
+  readonly coursePreferences?: import('react').ReactNode;
+  readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
   readonly assessmentMessages: Message[];
   readonly homeChatMode: HomeChatMode;
@@ -84,6 +87,8 @@ interface HomeChatPanelProps {
 }
 
 export default function HomeChatPanel({
+  coursePreferences,
+  diagnosticAdapter,
   assessmentComplete,
   assessmentMessages,
   homeChatMode,
@@ -176,6 +181,8 @@ export default function HomeChatPanel({
       viewportHeight={viewportHeight}
     >
       <HomeChatConversation
+        coursePreferences={coursePreferences}
+        diagnosticAdapter={diagnosticAdapter}
         assessmentComplete={assessmentComplete}
         assessmentMessages={assessmentMessages}
         compactWhenEmpty={compactWhenEmpty}

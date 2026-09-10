@@ -250,3 +250,17 @@ General library chat reads the current saved AI language per request, with inter
 Clients that omit the new interface-locale field keep the previous Italian default unless saved account language preferences override it.
 
 Sources: [courseInterviewStart.ts](../../../apps/backend/src/workflows/courseInterviewStart.ts), [courseInterviewModel.ts](../../../apps/backend/src/workflows/courseInterviewModel.ts), [courseGenerationPlanning.ts](../../../apps/backend/src/workflows/courseGenerationPlanning.ts), [libraryChat.ts](../../../apps/backend/src/routes/libraryChat.ts), [chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)
+
+## Diagnostic evidence before generation
+
+New interviews collect course-specific prior knowledge after approval and before starting generation. The approved profile includes the course depth, granularity and optional language proficiency. The diagnostic first gathers verbal self-reports, then asks fixed passes of targeted questions. Each task records its claim scope, criteria, prompt, response format and selection reason before the learner answers. Self-reports and omissions are distinct from demonstrated performance.
+
+The model chooses another pass only when it can clarify a doubt that could change the starting point. It stops when no adequate useful task remains, preserving unresolved limitations. The existing interview iteration fuse remains an operational failure boundary, not a successful diagnostic stopping rule. Topic containment does not imply prerequisites or mastery of descendant topics.
+
+`prior_knowledge_diagnostic_snapshots` retains immutable, course-owned revisions independently of workflow logs. Consuming a diagnostic signal saves the accepted submission and server receipt time in the same transaction as the wait checkpoint. Interpretation runs afterward. Replaying the same request preserves its receipt time; conflicting requests are rejected. The table denies direct client access, and the server resolves the full user/project/incarnation/diagnostic/revision tuple.
+
+`projectPriorKnowledge` produces a structural planning view with self-report and interpretation references, gaps, conflicts and the collection's stopping reason. `resolveDiagnosticPlanningEvidence` supplies the retained context, raw tasks, submitted attempts and omissions even when no interpretation exists. Planning and verification consume that evidence separately from requested final depth and granularity. An observation supports only its task claim scope. Historical runs without a diagnostic keep an explicit not-collected state.
+
+The registry retains pre-diagnostic interview, generation and PDF-repair definitions. Signal waits may define a transactional commit callback; its presence enters the manifest while historical waits retain their original manifest shape.
+
+Sources: [courseDiagnosticWorkflow.ts](../../../apps/backend/src/workflows/courseDiagnosticWorkflow.ts), [priorKnowledgeDiagnosticState.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticState.ts), [priorKnowledgeDiagnosticSnapshot.ts](../../../apps/backend/src/workflows/priorKnowledgeDiagnosticSnapshot.ts), [postgresDiagnosticSnapshotStore.ts](../../../apps/backend/src/workflows/persistence/postgresDiagnosticSnapshotStore.ts), [priorKnowledgePlanning.ts](../../../packages/shared-types/priorKnowledgePlanning.ts)
