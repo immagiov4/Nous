@@ -81,6 +81,18 @@ function checkDistinctAlternatives(context: z.RefinementCtx, groupKeys: string[]
   });
 }
 
+function compareCanonicalKeys(left: string, right: string): number {
+  // Code-unit ordering keeps exact group identities independent of locale.
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function diagnosticArtifact(source: DiagnosticMappingSource) {
+  if (source.kind === 'observation') return source.evidenceRef;
+  if (source.kind === 'self-report') return source.selfReportRef;
+  return undefined;
+}
+
 /** Preserves source coordinates and mapping uncertainty; #112 retains claim scope and evidence content. */
 export function validateDiagnosticMapping(candidate: unknown, resolved: DiagnosticMappingContext) {
   return DiagnosticCurriculumMappingSchema.superRefine((mapping, context) => {
@@ -100,13 +112,7 @@ export function validateDiagnosticMapping(candidate: unknown, resolved: Diagnost
     if (!resolved.sources.some(source => sameDiagnosticSource(mapping.source, source))) {
       report(context, ['source'], 'Diagnostic source chain does not resolve as a complete tuple');
     }
-    const source = mapping.source;
-    const artifact =
-      source.kind === 'observation'
-        ? source.evidenceRef
-        : source.kind === 'self-report'
-          ? source.selfReportRef
-          : undefined;
+    const artifact = diagnosticArtifact(mapping.source);
     if (artifact && !sameProject(artifact, assessment))
       report(context, ['source'], 'Diagnostic artifact belongs to another course');
     const outcome = mapping.outcome;
@@ -126,7 +132,7 @@ export function validateDiagnosticMapping(candidate: unknown, resolved: Diagnost
               .map(relation =>
                 JSON.stringify([entityKey(relation.target), relation.scope, relation.reason])
               )
-              .sort()
+              .sort(compareCanonicalKeys)
           )
         )
       );
@@ -207,7 +213,7 @@ export function validateCrossCourseAlignment(
                   relation.differences,
                 ])
               )
-              .sort()
+              .sort(compareCanonicalKeys)
           )
         )
       );

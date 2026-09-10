@@ -79,8 +79,7 @@ function checkIdentity(
   curriculum.conceptIds.forEach((conceptId, index) => {
     const concept = catalog.get(conceptId);
     if (
-      !concept ||
-      concept.userId !== curriculum.ref.userId ||
+      concept?.userId !== curriculum.ref.userId ||
       concept.origin.userId !== curriculum.ref.userId
     ) {
       report(context, ['conceptIds', index], 'Concept does not resolve within the account catalog');
@@ -223,8 +222,7 @@ function checkPreparations(
     preparation.useIds.forEach((useId, useIndex) => {
       const use = uses.get(useId);
       if (
-        !use ||
-        use.lessonId !== preparation.providerLessonId ||
+        use?.lessonId !== preparation.providerLessonId ||
         use.conceptId !== requirement.conceptId
       ) {
         report(
