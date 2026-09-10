@@ -145,16 +145,22 @@ export function validateCrossCourseAlignment(
         path
       );
       targets.forEach((alignment, index) => {
-        if (
-          alignment.relationship === 'same-concept' &&
-          (mapping.source.kind !== 'concept' ||
-            alignment.target.kind !== 'concept' ||
-            mapping.source.conceptId !== alignment.target.conceptId)
-        ) {
+        const sharesConceptIdentity =
+          mapping.source.kind === 'concept' &&
+          alignment.target.kind === 'concept' &&
+          mapping.source.conceptId === alignment.target.conceptId;
+        if (alignment.relationship === 'same-concept' && !sharesConceptIdentity) {
           report(
             context,
             [...path, index, 'relationship'],
             'Same-concept alignment requires the same account concept identity'
+          );
+        }
+        if (alignment.relationship === 'partial-overlap' && sharesConceptIdentity) {
+          report(
+            context,
+            [...path, index, 'relationship'],
+            'Partial overlap requires distinct concept identities'
           );
         }
       });

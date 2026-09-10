@@ -192,6 +192,19 @@ describe('diagnostic curriculum mapping', () => {
 });
 
 describe('cross-course alignment', () => {
+  test('rejects partial-overlap for a shared concept identity in matches and alternatives', () => {
+    const { mapping, resolved } = crossCourseFixture();
+    if (mapping.outcome.status !== 'matched') throw new Error('Fixture requires a match');
+    const relation = { ...mapping.outcome.targets[0], relationship: 'partial-overlap' as const };
+    mapping.outcome = { status: 'matched', targets: [relation] };
+    expect(validateCrossCourseAlignment(mapping, resolved).success).toBe(false);
+    mapping.outcome = {
+      status: 'ambiguous',
+      alternatives: [[relation], [{ ...relation, relationship: 'same-concept' }]],
+    };
+    expect(validateCrossCourseAlignment(mapping, resolved).success).toBe(false);
+  });
+
   test('reuses account concept identity across qualified courses while preserving limits', () => {
     const { mapping, resolved } = crossCourseFixture();
     const before = structuredClone({ mapping, resolved });
