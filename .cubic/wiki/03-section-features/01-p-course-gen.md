@@ -110,6 +110,9 @@ negative assessments cause a corrective failure before either internal report is
 workflow propagates that failure through its existing correction path. This enforces the model's
 declared assessment; it does not independently prove that a positive semantic judgment is correct.
 
+The plan verifier uses `fragmentation.canGroupCoherently` to identify fragmentation that needs
+regrouping. An already coherent plan returns `false` and no affected module IDs.
+
 `buildCoursePlanningInstructions` supplies the same interpretation to ordinary planning, archive
 planning, and plan verification. Lesson preparation rebuilds those instructions from the persisted
 profile into `pedagogicalContext`, which is checkpointed with the lesson input. User-editable
