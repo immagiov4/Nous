@@ -1348,6 +1348,34 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
+  async function generateApprovedCourse(projectId: string, profile: UserProfile) {
+    const requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
+    state.setScreenState(AppState.PLANNING);
+    const progressFeedback = createCourseProgressFeedback(profile, requestId);
+    try {
+      const generated = await runDurableCourse({
+        execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
+        profile,
+        progressFeedback,
+        projectId,
+        requestId,
+      });
+      if (!generated) throw new Error('La generazione del corso non è stata avviata.');
+      if (state.isWorkflowCurrent('generatePlan', requestId)) {
+        state.succeedWorkflow('generatePlan', requestId);
+      }
+      return { outcome: 'planned' as const };
+    } catch (error) {
+      progressFeedback.progressObserver.dispose();
+      const errorMessage = getErrorMessage(error);
+      if (state.isWorkflowCurrent('generatePlan', requestId)) {
+        state.setScreenState(AppState.LIBRARY);
+        state.failWorkflow('generatePlan', requestId, errorMessage);
+      }
+      return { outcome: 'failed' as const, errorMessage };
+    }
+  }
+
   async function confirmPlanGeneration(preferences?: CoursePlanningPreferences): Promise<{
     errorMessage?: string;
     outcome: 'failed' | 'planned' | 'diagnostic';
@@ -1362,8 +1390,6 @@ export const createAssessmentPlanningCommands = (
       (['assessment', 'generatePlan', 'openProject'] as const).every(workflowId =>
         state.isWorkflowCurrent(workflowId, workflows[workflowId].requestId)
       );
-    let requestId: number | undefined;
-    let progressFeedback: ReturnType<typeof createCourseProgressFeedback> | undefined;
     try {
       if (!projectId) throw new Error('Nessun corso da generare.');
       const interview = await openRouter.getActiveCourseInterview(projectId);
@@ -1390,29 +1416,10 @@ export const createAssessmentPlanningCommands = (
         state.setScreenState(AppState.LIBRARY);
         return { outcome: 'diagnostic' };
       }
-      requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
-      state.setScreenState(AppState.PLANNING);
-      progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
-      const generated = await runDurableCourse({
-        execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
-        profile: courseProposal,
-        progressFeedback,
-        projectId,
-        requestId,
-      });
-      if (!generated) throw new Error('La generazione del corso non è stata avviata.');
-      if (state.isWorkflowCurrent('generatePlan', requestId)) {
-        state.succeedWorkflow('generatePlan', requestId);
-      }
-      return { outcome: 'planned' };
+      return await generateApprovedCourse(projectId, courseProposal);
     } catch (error) {
-      progressFeedback?.progressObserver.dispose();
-      if (requestId === undefined && !isConfirmationCurrent()) return { outcome: 'failed' };
+      if (!isConfirmationCurrent()) return { outcome: 'failed' };
       const errorMessage = getErrorMessage(error);
-      if (requestId !== undefined && state.isWorkflowCurrent('generatePlan', requestId)) {
-        state.setScreenState(AppState.LIBRARY);
-        state.failWorkflow('generatePlan', requestId, errorMessage);
-      }
       return { outcome: 'failed', errorMessage };
     } finally {
       if (latestCourseConfirmationToken === confirmationToken) latestCourseConfirmationToken = null;

@@ -559,6 +559,15 @@ function CourseApproval({
   );
 }
 
+const getConversationContentLength = (
+  mode: HomeChatMode,
+  assessmentMessages: Message[],
+  libraryMessages: UIMessage[]
+) =>
+  mode === 'new-course'
+    ? assessmentMessages.reduce((total, message) => total + message.text.length, 0)
+    : libraryMessages.reduce((total, message) => total + getUiMessageText(message).length, 0);
+
 export default function HomeChatConversation({
   coursePreferences,
   diagnosticAdapter,
@@ -591,6 +600,7 @@ export default function HomeChatConversation({
 }: HomeChatConversationProps) {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const diagnosticRef = useRef<HTMLDivElement>(null);
+  const visibleDiagnostic = homeChatMode === 'new-course' ? diagnosticAdapter : undefined;
   const [scrollOffsetOverride, setScrollOffsetOverride] = useState(0);
   const assessmentMessageKeys = useMemo(
     () => buildAssessmentMessageKeys(assessmentMessages),
@@ -602,14 +612,12 @@ export default function HomeChatConversation({
   );
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
-  const hasMessages = activeMessages.length > 0 || !!diagnosticAdapter;
-  const activeContentLength =
-    homeChatMode === 'new-course'
-      ? assessmentMessages.reduce((total, message) => total + message.text.length, 0)
-      : visibleLibraryMessages.reduce(
-          (total, message) => total + getUiMessageText(message).length,
-          0
-        );
+  const hasMessages = activeMessages.length > 0 || Boolean(visibleDiagnostic);
+  const activeContentLength = getConversationContentLength(
+    homeChatMode,
+    assessmentMessages,
+    visibleLibraryMessages
+  );
   const scrollMeasurementKey = `${activeMessages.length}:${activeContentLength}:${assessmentComplete}:${isLoading}`;
   const assistantAvatar = <AssistantAvatar isDarkMode={isDarkMode} show={showChatAvatars} />;
   const userAvatar = <UserAvatar show={showChatAvatars} />;
@@ -650,7 +658,7 @@ export default function HomeChatConversation({
         hasMessages,
         isLoading,
         reserveClearButtonSpace
-      )} ${homeChatMode === 'new-course' && diagnosticAdapter ? 'md:!h-[75dvh]' : ''}`}
+      )} ${visibleDiagnostic ? 'md:!h-[75dvh]' : ''}`}
       style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
     >
       <div
@@ -719,13 +727,13 @@ export default function HomeChatConversation({
             {libraryErrorMessage}
           </div>
         ) : null}
-        {homeChatMode === 'new-course' && diagnosticAdapter ? (
+        {visibleDiagnostic ? (
           <div ref={diagnosticRef} className="flex min-w-0 items-start gap-2.5">
             {assistantAvatar}
             <div className="min-w-0 max-w-[82ch] flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
               <DiagnosticFlow
-                key={diagnosticAdapter.collectionId}
-                adapter={diagnosticAdapter}
+                key={visibleDiagnostic.collectionId}
+                adapter={visibleDiagnostic}
                 isDarkMode={isDarkMode}
               />
             </div>

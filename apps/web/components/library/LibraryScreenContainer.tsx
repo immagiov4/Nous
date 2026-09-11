@@ -351,7 +351,8 @@ export const LibraryScreenContainer = ({
           diagnosticAdapter: controller.diagnosticAdapter,
           assessmentComplete,
           assessmentMessages:
-            confirmedPreferences && confirmedPreferences.projectId === controller.currentProjectId
+            confirmedPreferences !== undefined &&
+            confirmedPreferences.projectId === controller.currentProjectId
               ? [...assessmentMessages, { role: 'user', text: confirmedPreferences.text }]
               : assessmentMessages,
           homeChatMode: visibleHomeChatMode,
