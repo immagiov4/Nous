@@ -253,9 +253,7 @@ test('resolved evidence carries shared source context once across reports and in
   expect(JSON.stringify(expanded).length - JSON.stringify(evidence).length).toBe(
     extraSource.length
   );
-  for (const entry of evidence.filter(entry =>
-    entry.ref.artifactId.includes(':self-report:')
-  )) {
+  for (const entry of evidence.filter(entry => entry.ref.artifactId.includes(':self-report:'))) {
     expect(entry.content).toMatchObject({
       stage: { id: 'self', kind: 'self-assessment', title: 'Punto di partenza' },
     });
