@@ -784,6 +784,7 @@ export const useProjectLibrary = ({
 
   const saveStoredProjectCover = useCallback(
     async (projectId: string, cover: FileData): Promise<void> => {
+      if (deletedProjectIdsRef.current.has(projectId)) return;
       await runTrackedProjectWrite(
         projectId,
         () =>
@@ -1767,7 +1768,13 @@ export const useProjectLibrary = ({
     getCurrentActiveSectionId: () => domainStateRef.current.activeSectionId,
     getCurrentProjectId: () => currentProjectIdRef.current,
     deleteStoredProject: async (projectId: string) => {
-      await projectRepositoryRef.current.deleteProject(projectId);
+      deletedProjectIdsRef.current.add(projectId);
+      try {
+        await projectRepositoryRef.current.deleteProject(projectId);
+      } catch (error) {
+        deletedProjectIdsRef.current.delete(projectId);
+        throw error;
+      }
       await refreshLibraryState();
     },
     deleteFolder: async (folderId: string) => {

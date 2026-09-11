@@ -1854,6 +1854,60 @@ describe('useProjectLibrary', () => {
     }
   });
 
+  test('does not save a generated cover after cancellation deletes its draft', async () => {
+    const projectId = 'cancelled-draft';
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let finishGeneration!: () => void;
+    let markGenerationSettled!: () => void;
+    const generationCanFinish = new Promise<void>(resolve => {
+      finishGeneration = resolve;
+    });
+    const generationSettled = new Promise<void>(resolve => {
+      markGenerationSettled = resolve;
+    });
+    repositoryMocks.saveProjectCover.mockRejectedValue(
+      new ProjectStorageError('technical storage detail', 'project-deleted')
+    );
+    const generation = vi
+      .spyOn(await import('../../../services/projects/courseCover.ts'), 'ensureProjectCover')
+      .mockImplementation(async ({ saveCover }) => {
+        try {
+          await generationCanFinish;
+          await saveCover(projectId, cover);
+          return 'data:image/png;base64,iVBORw0KGgo=';
+        } finally {
+          markGenerationSettled();
+        }
+      });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    try {
+      await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+      await act(async () => {
+        await result.current.persistSnapshot(buildSnapshot(projectId));
+      });
+      await waitFor(() => expect(generation).toHaveBeenCalledOnce());
+
+      await act(async () => {
+        await result.current.deleteStoredProject(projectId);
+        finishGeneration();
+        await generationSettled;
+      });
+
+      expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(projectId);
+      expect(repositoryMocks.saveProjectCover).not.toHaveBeenCalled();
+      expect(result.current.storageError).toBeNull();
+      expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+    } finally {
+      finishGeneration();
+      generation.mockRestore();
+    }
+  });
+
   test('does not adopt a remote revision when a stale cover write conflicts', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
     repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
