@@ -113,6 +113,8 @@ export const LibraryScreenContainer = ({
       : 'new-course'
   );
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
+  const [isConfirmingCourse, setIsConfirmingCourse] = useState(false);
+  const isConfirmingCourseRef = useRef(false);
   const newCourseRequestTokenRef = useRef(0);
 
   const {
@@ -127,8 +129,7 @@ export const LibraryScreenContainer = ({
   } = controller;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading =
-    controller.workflowState.assessment.status === 'pending' ||
-    controller.workflowState.generatePlan.status === 'pending';
+    controller.workflowState.assessment.status === 'pending' || isConfirmingCourse;
   const isAnyHomeChatLoading = libraryAssistantChat.isLoading || isNewCourseLoading;
   const isAssessmentActive = assessmentMessages.length > 0 || isNewCourseLoading;
   const visibleHomeChatMode = isAssessmentActive ? 'new-course' : homeChatMode;
@@ -247,6 +248,9 @@ export const LibraryScreenContainer = ({
   }, [consumeCourseAssessmentRequest, courseAssessmentRequest, handleNewCourseMessage]);
 
   const handleConfirmGenerate = async () => {
+    if (isConfirmingCourseRef.current) return;
+    isConfirmingCourseRef.current = true;
+    setIsConfirmingCourse(true);
     setIsAddingAssessmentDetails(false);
     if (controller.supportsCoursePreferences) {
       setConfirmedPreferences({
@@ -256,10 +260,15 @@ export const LibraryScreenContainer = ({
         ),
       });
     }
-    const result = await confirmPlanGeneration(coursePreferences);
-    if (result.errorMessage) {
-      setConfirmedPreferences(undefined);
-      notify(result.errorMessage);
+    try {
+      const result = await confirmPlanGeneration(coursePreferences);
+      if (result.errorMessage) {
+        setConfirmedPreferences(undefined);
+        notify(result.errorMessage);
+      }
+    } finally {
+      isConfirmingCourseRef.current = false;
+      setIsConfirmingCourse(false);
     }
   };
 

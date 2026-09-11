@@ -5625,6 +5625,7 @@ test('diagnostic approval keeps the chat visible while preparing the first pass'
   const confirmation = controller.confirmPlanGeneration();
   await vi.waitFor(() => expect(sendCourseInterviewDecision).toHaveBeenCalledOnce());
   expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  expect(state.internalState.workflowState.generatePlan.status).toBe('idle');
   complete({
     ...proposal,
     diagnostic: {
@@ -5644,6 +5645,7 @@ test('diagnostic approval keeps the chat visible while preparing the first pass'
   });
   expect((await confirmation).outcome).toBe('diagnostic');
   expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  expect(state.internalState.workflowState.generatePlan.status).toBe('idle');
 });
 
 test('confirmPlanGeneration approves the durable proposal and resumes its course run', async () => {
@@ -5696,9 +5698,8 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
   const generation = controller.confirmPlanGeneration();
   await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
 
-  assert.equal(state.internalState.screenState, AppState.PLANNING);
-  assert.equal(state.internalState.workflowState.generatePlan.progress?.operation, 'plan');
-  assert.equal(state.internalState.workflowState.generatePlan.progress?.stage, 'sources');
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
 
   completeDecision?.();
   const result = await generation;
@@ -8851,4 +8852,32 @@ test('remote deletion clears retained state without leaving the active course', 
   assert.notEqual(domain.source, null);
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.deepEqual(stopAudioCalls, []);
+});
+test('confirmPlanGeneration rejects a superseded approval response', async () => {
+  const decisionResolvers: Array<() => void> = [];
+  const resumeActiveDurableCourse = vi.fn();
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'document-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      resumeActiveDurableCourse,
+      sendCourseInterviewDecision: async () => {
+        await new Promise<void>(resolve => decisionResolvers.push(resolve));
+        return createInterviewSnapshot({ projectId: 'document-project' });
+      },
+    },
+  });
+
+  const superseded = controller.confirmPlanGeneration();
+  await vi.waitFor(() => assert.equal(decisionResolvers.length, 1));
+  const current = controller.confirmPlanGeneration();
+  await vi.waitFor(() => assert.equal(decisionResolvers.length, 2));
+  decisionResolvers[0]?.();
+
+  expect((await superseded).outcome).toBe('failed');
+  expect(resumeActiveDurableCourse).not.toHaveBeenCalled();
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
+
+  decisionResolvers[1]?.();
+  await current;
 });

@@ -106,6 +106,23 @@ afterEach(() => {
 });
 
 describe('LibraryScreenContainer route fallback', () => {
+  test('sends one approval while a confirmation is pending', async () => {
+    let complete!: () => void;
+    const pending = new Promise<void>(resolve => {
+      complete = resolve;
+    });
+    const props = buildProps();
+    props.controller.confirmPlanGeneration = vi.fn(async () => {
+      await pending;
+      return { outcome: 'diagnostic' as const };
+    });
+    render(<LibraryScreenContainer {...props} />);
+    const confirm = screen.getByRole('button', { name: 'Conferma scelte' });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(props.controller.confirmPlanGeneration).toHaveBeenCalledTimes(1);
+    await act(async () => complete());
+  });
   test('clears the confirmation when approval fails', async () => {
     const props = buildProps();
     props.controller.currentProjectId = 'first-course';

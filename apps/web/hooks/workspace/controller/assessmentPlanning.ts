@@ -176,6 +176,7 @@ export const createAssessmentPlanningCommands = (
   const { domain, openRouter, projectLibrary, state } = context;
   let activeAssessmentCancellationPromise: Promise<void> | null = null;
   let activeHomeChatStartPromise: Promise<HomeChatStartResult> | null = null;
+  let latestCourseConfirmationToken: symbol | null = null;
   let activeHomeChatWorkspaceOwnership: AssessmentWorkspaceOwnership | null = null;
   const openProjectAttempts = new Map<number, PendingWorkspaceOpen>();
   const workspaceOwnershipByOpenProjectRequestId = new Map<
@@ -270,6 +271,7 @@ export const createAssessmentPlanningCommands = (
   };
 
   const resetInterviewClientState = (): void => {
+    latestCourseConfirmationToken = null;
     domain.resetDomain();
     state.resetSessionState();
     projectLibrary.setCurrentProjectId(null);
@@ -1349,13 +1351,18 @@ export const createAssessmentPlanningCommands = (
     errorMessage?: string;
     outcome: 'failed' | 'planned' | 'diagnostic';
   }> {
+    const confirmationToken = Symbol('course-confirmation');
+    latestCourseConfirmationToken = confirmationToken;
     let requestId: number | undefined;
     let progressFeedback: ReturnType<typeof createCourseProgressFeedback> | undefined;
     try {
       const projectId = projectLibrary.getCurrentProjectId();
       if (!projectId) throw new Error('Nessun corso da generare.');
       const interview = await openRouter.getActiveCourseInterview(projectId);
-      if (projectLibrary.getCurrentProjectId() !== projectId) {
+      if (
+        projectLibrary.getCurrentProjectId() !== projectId ||
+        latestCourseConfirmationToken !== confirmationToken
+      ) {
         throw new Error('Il corso selezionato è cambiato.');
       }
       if (interview?.diagnostic && interview.wait?.signalType === DIAGNOSTIC_SUBMISSION_SIGNAL) {
@@ -1368,9 +1375,6 @@ export const createAssessmentPlanningCommands = (
       }
       const courseProposal = interview.proposal ?? state.getCourseProposal();
       if (!courseProposal) throw new Error('La proposta del corso non è disponibile.');
-      requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
-      if (!interview.supportsCoursePreferences) state.setScreenState(AppState.PLANNING);
-      progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       const approvedInterview = await openRouter.sendCourseInterviewDecision({
         decision: { kind: 'approve', ...(interview.supportsCoursePreferences ? preferences : {}) },
         projectId,
@@ -1379,18 +1383,18 @@ export const createAssessmentPlanningCommands = (
       });
       if (
         projectLibrary.getCurrentProjectId() !== projectId ||
-        !state.isWorkflowCurrent('generatePlan', requestId)
+        latestCourseConfirmationToken !== confirmationToken
       ) {
         throw new Error('Il corso selezionato è cambiato.');
       }
       applyInterviewSnapshot(approvedInterview);
       if (approvedInterview.diagnostic) {
-        progressFeedback.progressObserver.dispose();
         state.setScreenState(AppState.LIBRARY);
-        state.succeedWorkflow('generatePlan', requestId);
         return { outcome: 'diagnostic' };
       }
+      requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
       state.setScreenState(AppState.PLANNING);
+      progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       const generated = await runDurableCourse({
         execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
         profile: courseProposal,
@@ -1411,6 +1415,8 @@ export const createAssessmentPlanningCommands = (
         state.failWorkflow('generatePlan', requestId, errorMessage);
       }
       return { outcome: 'failed', errorMessage };
+    } finally {
+      if (latestCourseConfirmationToken === confirmationToken) latestCourseConfirmationToken = null;
     }
   }
 
