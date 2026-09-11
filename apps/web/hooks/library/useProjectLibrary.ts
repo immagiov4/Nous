@@ -135,6 +135,7 @@ interface PersistSnapshotOptions {
 interface ProjectWriteState {
   batchFailed: boolean;
   batchNeedsAutosave: boolean;
+  deletion?: Promise<void>;
   pendingCount: number;
   queue: Promise<void>;
 }
@@ -707,18 +708,26 @@ export const useProjectLibrary = ({
   );
 
   const runTrackedProjectWrite = useCallback(
-    (
+    async (
       projectId: string,
       operation: () => Promise<SavedProjectMeta>,
       retryFullSnapshotOnFailure = true
     ) => {
+      const writeState = getProjectWriteState(projectId);
+      const pendingDeletion = writeState.deletion;
+      if (pendingDeletion !== undefined) {
+        try {
+          await pendingDeletion;
+          return null;
+        } catch {
+          if (deletedProjectIdsRef.current.has(projectId)) return null;
+          // The project still exists, so the queued write can continue.
+        }
+      }
       if (deletedProjectIdsRef.current.has(projectId)) {
-        return Promise.reject(
-          new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted')
-        );
+        throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
       }
 
-      const writeState = getProjectWriteState(projectId);
       if (writeState.pendingCount === 0) {
         writeState.batchFailed = false;
         writeState.batchNeedsAutosave = false;
@@ -784,6 +793,7 @@ export const useProjectLibrary = ({
 
   const saveStoredProjectCover = useCallback(
     async (projectId: string, cover: FileData): Promise<void> => {
+      if (deletedProjectIdsRef.current.has(projectId)) return;
       await runTrackedProjectWrite(
         projectId,
         () =>
@@ -893,6 +903,7 @@ export const useProjectLibrary = ({
           },
           false
         );
+        if (!meta) return null;
         if (detachedSnapshot && domainStateRef.current.source === snapshot.source) {
           lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot);
           setSourceRef.current(detachedSnapshot.source);
@@ -1004,6 +1015,7 @@ export const useProjectLibrary = ({
             ...(rebaseMode === undefined ? {} : { rebaseMode }),
           });
         });
+        if (!meta) return null;
         const writeState = getProjectWriteState(selectedProjectId);
         if (
           currentProjectIdRef.current === selectedProjectId &&
@@ -1066,11 +1078,12 @@ export const useProjectLibrary = ({
       const persistedSignature = buildAutosaveSignature(domainStateRef.current);
       try {
         markSyncSaving();
-        await runTrackedProjectWrite(selectedProjectId, () =>
+        const meta = await runTrackedProjectWrite(selectedProjectId, () =>
           projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
             expectedRevision: getExpectedRevision(selectedProjectId),
           })
         );
+        if (!meta) return false;
         if (currentProjectIdRef.current !== selectedProjectId) return true;
 
         const writeState = getProjectWriteState(selectedProjectId);
@@ -1124,11 +1137,12 @@ export const useProjectLibrary = ({
 
       const persistedSignature = buildAutosaveSignature(domainStateRef.current);
       try {
-        await runTrackedProjectWrite(currentProjectId, () =>
+        const meta = await runTrackedProjectWrite(currentProjectId, () =>
           projectRepositoryRef.current.patchProject(currentProjectId, patch, {
             expectedRevision: getExpectedRevision(currentProjectId),
           })
         );
+        if (!meta) return false;
         const writeState = getProjectWriteState(currentProjectId);
         if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
@@ -1168,7 +1182,7 @@ export const useProjectLibrary = ({
     }): Promise<{ annotationId?: string; error?: string; saved: boolean }> => {
       let annotationId: string | undefined;
       try {
-        await runTrackedProjectWrite(projectId, async () => {
+        const meta = await runTrackedProjectWrite(projectId, async () => {
           const persisted = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
           if (!persisted) {
             invalidateRemoteDeletedProject(projectId);
@@ -1211,6 +1225,7 @@ export const useProjectLibrary = ({
             { expectedRevision: persisted.revision }
           );
         });
+        if (!meta) return { saved: false };
         return { annotationId, saved: true };
       } catch (error) {
         return { saved: false, error: getErrorMessage(error) };
@@ -1232,7 +1247,7 @@ export const useProjectLibrary = ({
       visual: StoredLessonVisual;
     }): Promise<{ error?: string; replaced: boolean }> => {
       try {
-        await runTrackedProjectWrite(projectId, async () => {
+        const meta = await runTrackedProjectWrite(projectId, async () => {
           const persisted = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
           if (!persisted) {
             invalidateRemoteDeletedProject(projectId);
@@ -1269,6 +1284,7 @@ export const useProjectLibrary = ({
             { expectedRevision: persisted.revision }
           );
         });
+        if (!meta) return { replaced: false };
         return { replaced: true };
       } catch (error) {
         return { replaced: false, error: getErrorMessage(error) };
@@ -1397,7 +1413,11 @@ export const useProjectLibrary = ({
     if (pendingEvent?.projectId !== currentProjectIdRef.current) {
       return;
     }
+    const writeState = getProjectWriteState(pendingEvent.projectId);
     if (pendingEvent.deleted) {
+      if (writeState.deletion !== undefined) {
+        return;
+      }
       invalidateRemoteDeletedProject(pendingEvent.projectId);
       return;
     }
@@ -1410,7 +1430,6 @@ export const useProjectLibrary = ({
       return;
     }
 
-    const writeState = getProjectWriteState(pendingEvent.projectId);
     const hasLocalChanges =
       writeState.pendingCount > 0 ||
       autosaveTimeoutRef.current !== null ||
@@ -1482,6 +1501,10 @@ export const useProjectLibrary = ({
     const loadedRevision = loadedProjectRevisionRef.current.revision;
     if (!remoteMeta) {
       if (loadedRevision !== undefined) {
+        if (getProjectWriteState(projectId).deletion !== undefined) {
+          setStorageError(null);
+          return;
+        }
         invalidateRemoteDeletedProject(projectId);
         return;
       }
@@ -1500,7 +1523,7 @@ export const useProjectLibrary = ({
     setStorageError(null);
     setProjectSyncState(current => (current.kind === 'remoteDeleted' ? current : { kind: 'idle' }));
     await processPendingRemoteRevisionRef.current();
-  }, [invalidateRemoteDeletedProject, storeSavedProjects]);
+  }, [getProjectWriteState, invalidateRemoteDeletedProject, storeSavedProjects]);
 
   const requestRevisionCatchUp = useCallback(() => {
     revisionCatchUpRequestedRef.current = true;
@@ -1670,6 +1693,9 @@ export const useProjectLibrary = ({
           ),
         false
       );
+      if (!meta) {
+        throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+      }
       explicitProjectTitlesRef.current.set(projectId, title);
       return meta;
     },
@@ -1677,15 +1703,20 @@ export const useProjectLibrary = ({
   );
 
   const setProjectFavorite = useCallback(
-    (projectId: string, isFavorite: boolean) =>
-      runTrackedProjectWrite(
+    async (projectId: string, isFavorite: boolean) => {
+      const meta = await runTrackedProjectWrite(
         projectId,
         () =>
           projectRepositoryRef.current.setProjectFavorite(projectId, isFavorite, {
             expectedRevision: getExpectedRevision(projectId),
           }),
         false
-      ),
+      );
+      if (!meta) {
+        throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+      }
+      return meta;
+    },
     [getExpectedRevision, runTrackedProjectWrite]
   );
 
@@ -1767,7 +1798,37 @@ export const useProjectLibrary = ({
     getCurrentActiveSectionId: () => domainStateRef.current.activeSectionId,
     getCurrentProjectId: () => currentProjectIdRef.current,
     deleteStoredProject: async (projectId: string) => {
-      await projectRepositoryRef.current.deleteProject(projectId);
+      const writeState = getProjectWriteState(projectId);
+      const deletion = writeState.queue.then(async () => {
+        try {
+          await projectRepositoryRef.current.deleteProject(projectId);
+        } catch (deletionError) {
+          const projects = await projectRepositoryRef.current.listProjects().catch(() => null);
+          if (!projects || projects.some(project => project.id === projectId)) {
+            throw deletionError;
+          }
+        }
+      });
+      writeState.deletion = deletion;
+      writeState.queue = deletion.then(
+        () => undefined,
+        () => undefined
+      );
+      try {
+        await deletion;
+        deletedProjectIdsRef.current.add(projectId);
+        if (
+          pendingRemoteRevisionRef.current?.projectId === projectId &&
+          pendingRemoteRevisionRef.current.deleted
+        ) {
+          pendingRemoteRevisionRef.current = null;
+        }
+      } finally {
+        if (writeState.deletion === deletion) {
+          writeState.deletion = undefined;
+          void processPendingRemoteRevisionRef.current();
+        }
+      }
       await refreshLibraryState();
     },
     deleteFolder: async (folderId: string) => {
@@ -1794,7 +1855,17 @@ export const useProjectLibrary = ({
     importProjectData: async (data: unknown) => {
       setProjectSyncState({ kind: 'import', phase: 'pending' });
       try {
-        const imported = await projectRepositoryRef.current.importProject(data);
+        const importedProjectId = normalizeStoredProject(data).id;
+        const writeState = getProjectWriteState(importedProjectId);
+        const importOperation = writeState.queue.then(() =>
+          projectRepositoryRef.current.importProject(data)
+        );
+        writeState.queue = importOperation.then(
+          () => undefined,
+          () => undefined
+        );
+        const imported = await importOperation;
+        deletedProjectIdsRef.current.delete(imported.snapshot.id);
         await refreshLibraryState();
         setProjectSyncState({ kind: 'idle' });
         return imported;

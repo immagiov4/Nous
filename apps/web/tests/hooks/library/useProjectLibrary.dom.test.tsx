@@ -1697,6 +1697,86 @@ describe('useProjectLibrary', () => {
     expect(result.current.savedProjects).toEqual([]);
   });
 
+  test('does not report the revision event emitted by a local deletion as remote', async () => {
+    const projectId = 'locally-deleted-project';
+    const initialMeta = buildMeta(projectId, '2026-04-02T10:00:00.000Z', 1);
+    let finishDeletion!: () => void;
+    repositoryMocks.listProjects.mockResolvedValueOnce([initialMeta]).mockResolvedValue([]);
+    repositoryMocks.deleteProject.mockReturnValue(
+      new Promise<void>(resolve => {
+        finishDeletion = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId(projectId);
+      result.current.setProjectHydrated(true);
+    });
+
+    const deletion = result.current.deleteStoredProject(projectId);
+    await waitFor(() => expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(projectId));
+    act(() => {
+      revisionListener?.({ deleted: true, projectId, revision: 2 });
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
+
+    expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+    expect(result.current.storageError).toBeNull();
+
+    await act(async () => {
+      finishDeletion();
+      await deletion;
+    });
+  });
+
+  test('confirms local deletion when its response fails after server deletion', async () => {
+    const projectId = 'deleted-before-response-failure';
+    const initialMeta = buildMeta(projectId, '2026-04-02T10:00:00.000Z', 1);
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let rejectDeletion!: (error: Error) => void;
+    repositoryMocks.listProjects.mockResolvedValueOnce([initialMeta]).mockResolvedValue([]);
+    repositoryMocks.deleteProject.mockReturnValue(
+      new Promise<void>((_resolve, reject) => {
+        rejectDeletion = reject;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId(projectId);
+      result.current.setProjectHydrated(true);
+    });
+
+    const deletion = result.current.deleteStoredProject(projectId);
+    const coverPersistence = result.current.saveStoredProjectCover(projectId, cover);
+    await waitFor(() => expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(projectId));
+    act(() => {
+      revisionListener?.({ deleted: true, projectId, revision: 2 });
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      rejectDeletion(new Error('response lost'));
+      await deletion;
+      await coverPersistence;
+    });
+
+    expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+    expect(result.current.storageError).toBeNull();
+    expect(repositoryMocks.saveProjectCover).not.toHaveBeenCalled();
+  });
+
   test('treats a missing active course during reconnect catch-up as a remote deletion', async () => {
     repositoryMocks.listProjects
       .mockResolvedValueOnce([buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4)])
@@ -1852,6 +1932,290 @@ describe('useProjectLibrary', () => {
       resolveCover({ ...initialMeta, revision: 2 });
       generation.mockRestore();
     }
+  });
+
+  test('does not save a generated cover after cancellation deletes its draft', async () => {
+    const projectId = 'cancelled-draft';
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let finishGeneration!: () => void;
+    let markGenerationSettled!: () => void;
+    const generationCanFinish = new Promise<void>(resolve => {
+      finishGeneration = resolve;
+    });
+    const generationSettled = new Promise<void>(resolve => {
+      markGenerationSettled = resolve;
+    });
+    let finishDeletion!: () => void;
+    repositoryMocks.deleteProject.mockReturnValue(
+      new Promise<void>(resolve => {
+        finishDeletion = resolve;
+      })
+    );
+    repositoryMocks.saveProjectCover.mockRejectedValue(
+      new ProjectStorageError('technical storage detail', 'project-deleted')
+    );
+    const generation = vi
+      .spyOn(await import('../../../services/projects/courseCover.ts'), 'ensureProjectCover')
+      .mockImplementation(async ({ saveCover }) => {
+        try {
+          await generationCanFinish;
+          await saveCover(projectId, cover);
+          return 'data:image/png;base64,iVBORw0KGgo=';
+        } finally {
+          markGenerationSettled();
+        }
+      });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    try {
+      await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+      await act(async () => {
+        await result.current.persistSnapshot(buildSnapshot(projectId));
+      });
+      await waitFor(() => expect(generation).toHaveBeenCalledOnce());
+
+      const deletion = result.current.deleteStoredProject(projectId);
+      await act(async () => {
+        finishGeneration();
+        await Promise.resolve();
+      });
+      expect(repositoryMocks.saveProjectCover).not.toHaveBeenCalled();
+
+      await act(async () => {
+        finishDeletion();
+        await deletion;
+        await generationSettled;
+      });
+
+      expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(projectId);
+      expect(repositoryMocks.saveProjectCover).not.toHaveBeenCalled();
+      expect(result.current.storageError).toBeNull();
+      expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+    } finally {
+      finishGeneration();
+      generation.mockRestore();
+    }
+  });
+
+  test('keeps cover persistence active when draft deletion fails', async () => {
+    const projectId = 'retained-draft';
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let rejectDeletion!: (error: Error) => void;
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta(projectId, '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.deleteProject.mockReturnValue(
+      new Promise<void>((_resolve, reject) => {
+        rejectDeletion = reject;
+      })
+    );
+    repositoryMocks.saveProjectCover.mockResolvedValue(
+      buildMeta(projectId, '2026-04-02T10:00:00.000Z', 2)
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    const deletion = result.current.deleteStoredProject(projectId);
+    const coverPersistence = result.current.saveStoredProjectCover(projectId, cover);
+    expect(repositoryMocks.saveProjectCover).not.toHaveBeenCalled();
+    await act(async () => {
+      rejectDeletion(new Error('storage unavailable'));
+      await expect(deletion).rejects.toThrow('storage unavailable');
+      await coverPersistence;
+    });
+
+    expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce();
+  });
+
+  test('settles a tracked write queued during successful draft deletion', async () => {
+    const projectId = 'draft-with-queued-autosave';
+    const initialMeta = buildMeta(projectId, '2026-04-02T10:00:00.000Z', 1);
+    let finishDeletion!: () => void;
+    repositoryMocks.listProjects.mockResolvedValueOnce([initialMeta]).mockResolvedValue([]);
+    repositoryMocks.deleteProject.mockReturnValue(
+      new Promise<void>(resolve => {
+        finishDeletion = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    const deletion = result.current.deleteStoredProject(projectId);
+    const queuedWrite = result.current.persistSnapshot(buildSnapshot(projectId));
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishDeletion();
+      await deletion;
+      await expect(queuedWrite).resolves.toBeNull();
+    });
+
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+    expect(result.current.storageError).toBeNull();
+  });
+
+  test('finishes an active cover write before deleting its draft', async () => {
+    const projectId = 'draft-with-active-cover-write';
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let finishCoverWrite!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.saveProjectCover.mockReturnValue(
+      new Promise<SavedProjectMeta>(resolve => {
+        finishCoverWrite = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    const coverPersistence = result.current.saveStoredProjectCover(projectId, cover);
+    await waitFor(() => expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce());
+    const deletion = result.current.deleteStoredProject(projectId);
+    expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishCoverWrite(buildMeta(projectId, '2026-04-02T10:00:00.000Z', 2));
+      await coverPersistence;
+      await deletion;
+    });
+
+    expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(projectId);
+    expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+  });
+
+  test('allows cover persistence after importing a previously deleted project identity', async () => {
+    const projectId = 'restored-project';
+    const snapshot = buildSnapshot(projectId);
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    repositoryMocks.importProject.mockResolvedValue({
+      meta: buildMeta(projectId, snapshot.updatedAt),
+      snapshot,
+    });
+    repositoryMocks.saveProjectCover.mockResolvedValue(buildMeta(projectId, snapshot.updatedAt, 2));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.deleteStoredProject(projectId);
+      await result.current.importProjectData(snapshot);
+      await result.current.saveStoredProjectCover(projectId, cover);
+    });
+
+    expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce();
+  });
+
+  test('imports a deleted project identity after its pending deletion completes', async () => {
+    const projectId = 'restored-during-deletion';
+    const snapshot = buildSnapshot(projectId);
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let finishDeletion!: () => void;
+    repositoryMocks.deleteProject.mockReturnValue(
+      new Promise<void>(resolve => {
+        finishDeletion = resolve;
+      })
+    );
+    repositoryMocks.importProject.mockResolvedValue({
+      meta: buildMeta(projectId, snapshot.updatedAt),
+      snapshot,
+    });
+    repositoryMocks.saveProjectCover.mockResolvedValue(buildMeta(projectId, snapshot.updatedAt, 2));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    const deletion = result.current.deleteStoredProject(projectId);
+    const importOperation = result.current.importProjectData(snapshot);
+    expect(repositoryMocks.importProject).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishDeletion();
+      await deletion;
+      await importOperation;
+      await result.current.saveStoredProjectCover(projectId, cover);
+    });
+
+    expect(repositoryMocks.importProject).toHaveBeenCalledWith(snapshot);
+    expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce();
+  });
+
+  test('drains stale writes before importing a remotely deleted project identity', async () => {
+    const projectId = 'remote-project-restored-from-backup';
+    const initialMeta = buildMeta(projectId, '2026-04-02T10:00:00.000Z', 1);
+    const snapshot = buildSnapshot(projectId);
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let finishWrite!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.listProjects.mockResolvedValueOnce([initialMeta]).mockResolvedValue([]);
+    repositoryMocks.patchProject.mockReturnValue(
+      new Promise<SavedProjectMeta>(resolve => {
+        finishWrite = resolve;
+      })
+    );
+    repositoryMocks.importProject.mockResolvedValue({
+      meta: buildMeta(projectId, snapshot.updatedAt),
+      snapshot,
+    });
+    repositoryMocks.saveProjectCover.mockResolvedValue(buildMeta(projectId, snapshot.updatedAt, 2));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId(projectId);
+      result.current.setProjectHydrated(true);
+    });
+
+    const activeWrite = result.current.patchSectionLessonContent('lesson-1', {
+      content: 'stale content',
+    });
+    await waitFor(() => expect(repositoryMocks.patchProject).toHaveBeenCalledOnce());
+    act(() => {
+      revisionListener?.({ deleted: true, projectId, revision: 2 });
+    });
+    await waitFor(() => expect(result.current.projectSyncState.kind).toBe('remoteDeleted'));
+
+    const importOperation = result.current.importProjectData(snapshot);
+    expect(repositoryMocks.importProject).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishWrite({ ...initialMeta, revision: 2 });
+      await expect(activeWrite).resolves.toBe(false);
+      await importOperation;
+      await result.current.saveStoredProjectCover(projectId, cover);
+    });
+
+    expect(repositoryMocks.importProject).toHaveBeenCalledWith(snapshot);
+    expect(repositoryMocks.patchProject).toHaveBeenCalledOnce();
+    expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce();
   });
 
   test('does not adopt a remote revision when a stale cover write conflicts', async () => {
