@@ -650,7 +650,7 @@ export default function HomeChatConversation({
         hasMessages,
         isLoading,
         reserveClearButtonSpace
-      )} ${diagnosticAdapter ? 'md:!h-[75dvh]' : ''}`}
+      )} ${homeChatMode === 'new-course' && diagnosticAdapter ? 'md:!h-[75dvh]' : ''}`}
       style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
     >
       <div

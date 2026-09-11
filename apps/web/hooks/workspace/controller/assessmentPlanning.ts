@@ -684,6 +684,7 @@ export const createAssessmentPlanningCommands = (
   };
 
   async function runAssessmentCancellation(): Promise<void> {
+    latestCourseConfirmationToken = null;
     const homeChatWorkspaceOwnership = activeHomeChatWorkspaceOwnership;
     const homeChatStartPromise = activeHomeChatStartPromise;
     const isCancellingActiveHomeChat = Boolean(

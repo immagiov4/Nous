@@ -210,6 +210,8 @@ export const LibraryScreenContainer = ({
 
   const cancelNewCourse = useCallback(async () => {
     newCourseRequestTokenRef.current += 1;
+    isConfirmingCourseRef.current = false;
+    setIsConfirmingCourse(false);
     try {
       await cancelAssessment();
       setIsAddingAssessmentDetails(false);
@@ -249,6 +251,7 @@ export const LibraryScreenContainer = ({
 
   const handleConfirmGenerate = async () => {
     if (isConfirmingCourseRef.current) return;
+    const requestToken = newCourseRequestTokenRef.current;
     isConfirmingCourseRef.current = true;
     setIsConfirmingCourse(true);
     setIsAddingAssessmentDetails(false);
@@ -262,13 +265,16 @@ export const LibraryScreenContainer = ({
     }
     try {
       const result = await confirmPlanGeneration(coursePreferences);
+      if (requestToken !== newCourseRequestTokenRef.current) return;
       if (result.errorMessage) {
         setConfirmedPreferences(undefined);
         notify(result.errorMessage);
       }
     } finally {
-      isConfirmingCourseRef.current = false;
-      setIsConfirmingCourse(false);
+      if (requestToken === newCourseRequestTokenRef.current) {
+        isConfirmingCourseRef.current = false;
+        setIsConfirmingCourse(false);
+      }
     }
   };
 

@@ -8853,6 +8853,37 @@ test('remote deletion clears retained state without leaving the active course', 
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.deepEqual(stopAudioCalls, []);
 });
+test('cancelAssessment rejects approval while cancellation is still pending', async () => {
+  let finishApproval = () => {};
+  let finishCancellation = () => {};
+  const resumeActiveDurableCourse = vi.fn();
+  const sendCourseInterviewDecision = vi.fn(async ({ decision }) => {
+    await new Promise<void>(resolve => {
+      if (decision.kind === 'cancel') finishCancellation = resolve;
+      else finishApproval = resolve;
+    });
+    return createInterviewSnapshot({ projectId: 'document-project' });
+  });
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'document-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      resumeActiveDurableCourse,
+      sendCourseInterviewDecision,
+    },
+  });
+  const approval = controller.confirmPlanGeneration();
+  await vi.waitFor(() => expect(sendCourseInterviewDecision).toHaveBeenCalledTimes(1));
+  const cancellation = controller.cancelAssessment();
+  await vi.waitFor(() => expect(sendCourseInterviewDecision).toHaveBeenCalledTimes(2));
+  finishApproval();
+  expect((await approval).outcome).toBe('failed');
+  expect(resumeActiveDurableCourse).not.toHaveBeenCalled();
+  expect(state.internalState.workflowState.generatePlan.status).toBe('idle');
+  finishCancellation();
+  await cancellation;
+});
+
 test('confirmPlanGeneration rejects a superseded approval response', async () => {
   const decisionResolvers: Array<() => void> = [];
   const resumeActiveDurableCourse = vi.fn();
