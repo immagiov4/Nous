@@ -5557,9 +5557,13 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
   assert.equal(setDiagnosticAdapter.mock.calls.length, 1);
 });
 test.each([
-  'lookup',
-  'approval',
-] as const)('confirmation cannot restore diagnostics after a project switch during %s', async phase => {
+  ['lookup', 'generatePlan'],
+  ['approval', 'generatePlan'],
+  ['lookup', 'assessment'],
+  ['approval', 'assessment'],
+  ['lookup', 'openProject'],
+  ['approval', 'openProject'],
+] as const)('confirmation ignores %s responses after %s changes', async (phase, workflow) => {
   let complete!: (snapshot: CourseInterviewSnapshot) => void;
   const pending = new Promise<CourseInterviewSnapshot>(resolve => {
     complete = resolve;
@@ -5596,7 +5600,8 @@ test.each([
   if (phase === 'approval')
     await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
   projectLibrary.adapter.setCurrentProjectId('other-project');
-  state.adapter.invalidateWorkflows(['generatePlan']);
+  state.adapter.invalidateWorkflows([workflow]);
+  projectLibrary.adapter.setCurrentProjectId(snapshot.projectId);
   state.adapter.setScreenState(AppState.READING);
   complete(snapshot);
   assert.equal((await confirmation).outcome, 'failed');

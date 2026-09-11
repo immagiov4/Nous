@@ -1354,18 +1354,20 @@ export const createAssessmentPlanningCommands = (
   }> {
     const confirmationToken = Symbol('course-confirmation');
     latestCourseConfirmationToken = confirmationToken;
+    const projectId = projectLibrary.getCurrentProjectId();
+    const workflows = state.getWorkflowState();
+    const isConfirmationCurrent = () =>
+      latestCourseConfirmationToken === confirmationToken &&
+      projectLibrary.getCurrentProjectId() === projectId &&
+      (['assessment', 'generatePlan', 'openProject'] as const).every(workflowId =>
+        state.isWorkflowCurrent(workflowId, workflows[workflowId].requestId)
+      );
     let requestId: number | undefined;
     let progressFeedback: ReturnType<typeof createCourseProgressFeedback> | undefined;
     try {
-      const projectId = projectLibrary.getCurrentProjectId();
       if (!projectId) throw new Error('Nessun corso da generare.');
       const interview = await openRouter.getActiveCourseInterview(projectId);
-      if (
-        projectLibrary.getCurrentProjectId() !== projectId ||
-        latestCourseConfirmationToken !== confirmationToken
-      ) {
-        throw new Error('Il corso selezionato è cambiato.');
-      }
+      if (!isConfirmationCurrent()) return { outcome: 'failed' };
       if (interview?.diagnostic && interview.wait?.signalType === DIAGNOSTIC_SUBMISSION_SIGNAL) {
         applyInterviewSnapshot(interview);
         state.setScreenState(AppState.LIBRARY);
@@ -1382,12 +1384,7 @@ export const createAssessmentPlanningCommands = (
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
-      if (
-        projectLibrary.getCurrentProjectId() !== projectId ||
-        latestCourseConfirmationToken !== confirmationToken
-      ) {
-        throw new Error('Il corso selezionato è cambiato.');
-      }
+      if (!isConfirmationCurrent()) return { outcome: 'failed' };
       applyInterviewSnapshot(approvedInterview);
       if (approvedInterview.diagnostic) {
         state.setScreenState(AppState.LIBRARY);
@@ -1410,6 +1407,7 @@ export const createAssessmentPlanningCommands = (
       return { outcome: 'planned' };
     } catch (error) {
       progressFeedback?.progressObserver.dispose();
+      if (requestId === undefined && !isConfirmationCurrent()) return { outcome: 'failed' };
       const errorMessage = getErrorMessage(error);
       if (requestId !== undefined && state.isWorkflowCurrent('generatePlan', requestId)) {
         state.setScreenState(AppState.LIBRARY);
