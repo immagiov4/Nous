@@ -33,7 +33,7 @@ function selfAssessmentResponses(collection: DiagnosticCollection) {
       responseId: `${pass.submission?.requestId}:${answer.response.kind === 'self-report' ? 'self-report' : 'omission'}:${index}`,
       nodeId: answer.itemId,
       response: answer.response,
-      stage: pass.stage,
+      stage: { id: pass.stage.id, kind: pass.stage.kind, title: pass.stage.title },
       sourceEventRef: pass.submission?.requestId,
       recordedAt: pass.receivedAt,
     }));
