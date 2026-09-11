@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ChangeEvent, ComponentProps, FormEvent } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import logoUrl from '@/assets/logo.svg';
 import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
@@ -744,7 +744,7 @@ const CourseList = ({
     trigger?.focus();
   }, [openCourseMenu]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const menu = openFolderMenu || openCourseMenu;
     const setMenu = openFolderMenu ? setOpenFolderMenu : setOpenCourseMenu;
     if (!menu) return;
@@ -758,16 +758,20 @@ const CourseList = ({
         menu.id,
         menu.trigger,
         menu.menuWidth,
-        menu.menuHeight
+        menuRef.current?.getBoundingClientRect().height || menu.menuHeight
       );
       setMenu(current => {
         if (current?.id !== menu.id) {
           return current;
         }
-        if (current.left === nextPosition.left && current.top === nextPosition.top) {
+        if (
+          current.left === nextPosition.left &&
+          current.top === nextPosition.top &&
+          current.menuHeight === nextPosition.menuHeight
+        ) {
           return current;
         }
-        return { ...current, left: nextPosition.left, top: nextPosition.top };
+        return nextPosition;
       });
     };
 
