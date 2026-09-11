@@ -89,7 +89,9 @@ Sources: [apps/web/components/library/HomeChatPanel.tsx](../../../apps/web/compo
 
 ### Initial knowledge collection
 
-After course approval, `HomeChatConversation` displays `DiagnosticFlow` and hides the regular composer. Desktop and mobile use the same slider, with four verbal self-assessment categories and a separate uncertain stop. Answering a parent reveals its children. Completed branches stay open until the learner closes them. Only the active slider shows its description. When the previous description collapses, scroll compensation keeps the active control in view.
+Learners select depth and lesson size, then confirm the choices in the chat. Their selected values remain visible as a message while the first diagnostic pass is prepared. `HomeChatConversation` displays `DiagnosticFlow` in a taller scrollable chat body and hides the regular composer. The generation screen opens after the diagnostic collection finishes.
+
+The diagnostic uses the chat's readable width and bounded sliders. Desktop and mobile use the same slider, with four verbal self-assessment categories and a separate uncertain stop. Answering a parent reveals its children. Completed branches stay open until the learner closes them. Only the active slider shows its description. When the previous description collapses, scroll compensation keeps the active control in view.
 
 Targeted questions reuse the lesson quiz option layout. Learners move between questions in a fixed pass while the client keeps their answer drafts. The final action submits the pass directly, including explicit omissions. Feedback appears after the whole collection ends and explains the starting point without a grade.
 

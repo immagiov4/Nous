@@ -5557,9 +5557,13 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
   assert.equal(setDiagnosticAdapter.mock.calls.length, 1);
 });
 test.each([
-  'lookup',
-  'approval',
-] as const)('confirmation cannot restore diagnostics after a project switch during %s', async phase => {
+  ['lookup', 'generatePlan'],
+  ['approval', 'generatePlan'],
+  ['lookup', 'assessment'],
+  ['approval', 'assessment'],
+  ['lookup', 'openProject'],
+  ['approval', 'openProject'],
+] as const)('confirmation ignores %s responses after %s changes', async (phase, workflow) => {
   let complete!: (snapshot: CourseInterviewSnapshot) => void;
   const pending = new Promise<CourseInterviewSnapshot>(resolve => {
     complete = resolve;
@@ -5596,12 +5600,57 @@ test.each([
   if (phase === 'approval')
     await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
   projectLibrary.adapter.setCurrentProjectId('other-project');
-  state.adapter.invalidateWorkflows(['generatePlan']);
+  state.adapter.invalidateWorkflows([workflow]);
+  projectLibrary.adapter.setCurrentProjectId(snapshot.projectId);
   state.adapter.setScreenState(AppState.READING);
   complete(snapshot);
   assert.equal((await confirmation).outcome, 'failed');
   assert.equal(setDiagnosticAdapter.mock.calls.length, 0);
   assert.equal(state.internalState.screenState, AppState.READING);
+});
+
+test('diagnostic approval keeps the chat visible while preparing the first pass', async () => {
+  let complete!: (snapshot: CourseInterviewSnapshot) => void;
+  const pending = new Promise<CourseInterviewSnapshot>(resolve => {
+    complete = resolve;
+  });
+  const proposal = {
+    ...createProposalSnapshot('document-project'),
+    supportsCoursePreferences: true,
+  };
+  const sendCourseInterviewDecision = vi.fn(() => pending);
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: proposal.projectId },
+    openRouter: {
+      getActiveCourseInterview: async () => proposal,
+      sendCourseInterviewDecision,
+    },
+  });
+  state.adapter.setScreenState(AppState.LIBRARY);
+  const confirmation = controller.confirmPlanGeneration();
+  await vi.waitFor(() => expect(sendCourseInterviewDecision).toHaveBeenCalledOnce());
+  expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  expect(state.internalState.workflowState.generatePlan.status).toBe('idle');
+  complete({
+    ...proposal,
+    diagnostic: {
+      collectionId: 'collection',
+      stage: {
+        kind: 'self-assessment',
+        id: 'tree',
+        title: 'Argomenti',
+        topics: [{ id: 'topic', parentId: null, title: 'Tema' }],
+      },
+    },
+    wait: {
+      expiresAt: '2026-08-09T10:00:00.000Z',
+      signalType: 'diagnostic-submission',
+      waitId: 'diagnostic-wait',
+    },
+  });
+  expect((await confirmation).outcome).toBe('diagnostic');
+  expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  expect(state.internalState.workflowState.generatePlan.status).toBe('idle');
 });
 
 test('confirmPlanGeneration approves the durable proposal and resumes its course run', async () => {
@@ -5654,9 +5703,8 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
   const generation = controller.confirmPlanGeneration();
   await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
 
-  assert.equal(state.internalState.screenState, AppState.PLANNING);
-  assert.equal(state.internalState.workflowState.generatePlan.progress?.operation, 'plan');
-  assert.equal(state.internalState.workflowState.generatePlan.progress?.stage, 'sources');
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
 
   completeDecision?.();
   const result = await generation;
@@ -8809,4 +8857,63 @@ test('remote deletion clears retained state without leaving the active course', 
   assert.notEqual(domain.source, null);
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.deepEqual(stopAudioCalls, []);
+});
+test('cancelAssessment rejects approval while cancellation is still pending', async () => {
+  let finishApproval = () => {};
+  let finishCancellation = () => {};
+  const resumeActiveDurableCourse = vi.fn();
+  const sendCourseInterviewDecision = vi.fn(async ({ decision }) => {
+    await new Promise<void>(resolve => {
+      if (decision.kind === 'cancel') finishCancellation = resolve;
+      else finishApproval = resolve;
+    });
+    return createInterviewSnapshot({ projectId: 'document-project' });
+  });
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'document-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      resumeActiveDurableCourse,
+      sendCourseInterviewDecision,
+    },
+  });
+  const approval = controller.confirmPlanGeneration();
+  await vi.waitFor(() => expect(sendCourseInterviewDecision).toHaveBeenCalledTimes(1));
+  const cancellation = controller.cancelAssessment();
+  await vi.waitFor(() => expect(sendCourseInterviewDecision).toHaveBeenCalledTimes(2));
+  finishApproval();
+  expect((await approval).outcome).toBe('failed');
+  expect(resumeActiveDurableCourse).not.toHaveBeenCalled();
+  expect(state.internalState.workflowState.generatePlan.status).toBe('idle');
+  finishCancellation();
+  await cancellation;
+});
+
+test('confirmPlanGeneration rejects a superseded approval response', async () => {
+  const decisionResolvers: Array<() => void> = [];
+  const resumeActiveDurableCourse = vi.fn();
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'document-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      resumeActiveDurableCourse,
+      sendCourseInterviewDecision: async () => {
+        await new Promise<void>(resolve => decisionResolvers.push(resolve));
+        return createInterviewSnapshot({ projectId: 'document-project' });
+      },
+    },
+  });
+
+  const superseded = controller.confirmPlanGeneration();
+  await vi.waitFor(() => assert.equal(decisionResolvers.length, 1));
+  const current = controller.confirmPlanGeneration();
+  await vi.waitFor(() => assert.equal(decisionResolvers.length, 2));
+  decisionResolvers[0]?.();
+
+  expect((await superseded).outcome).toBe('failed');
+  expect(resumeActiveDurableCourse).not.toHaveBeenCalled();
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
+
+  decisionResolvers[1]?.();
+  await current;
 });
