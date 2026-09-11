@@ -135,6 +135,7 @@ interface PersistSnapshotOptions {
 interface ProjectWriteState {
   batchFailed: boolean;
   batchNeedsAutosave: boolean;
+  deletion?: Promise<void>;
   pendingCount: number;
   queue: Promise<void>;
 }
@@ -784,6 +785,15 @@ export const useProjectLibrary = ({
 
   const saveStoredProjectCover = useCallback(
     async (projectId: string, cover: FileData): Promise<void> => {
+      const pendingDeletion = getProjectWriteState(projectId).deletion;
+      if (pendingDeletion) {
+        try {
+          await pendingDeletion;
+          return;
+        } catch {
+          // The project still exists, so cover persistence can continue.
+        }
+      }
       if (deletedProjectIdsRef.current.has(projectId)) return;
       await runTrackedProjectWrite(
         projectId,
@@ -794,7 +804,7 @@ export const useProjectLibrary = ({
         false
       );
     },
-    [getExpectedRevision, runTrackedProjectWrite]
+    [getExpectedRevision, getProjectWriteState, runTrackedProjectWrite]
   );
 
   const requestPersistentStorage = useCallback(async () => {
@@ -1768,12 +1778,14 @@ export const useProjectLibrary = ({
     getCurrentActiveSectionId: () => domainStateRef.current.activeSectionId,
     getCurrentProjectId: () => currentProjectIdRef.current,
     deleteStoredProject: async (projectId: string) => {
-      deletedProjectIdsRef.current.add(projectId);
+      const writeState = getProjectWriteState(projectId);
+      const deletion = projectRepositoryRef.current.deleteProject(projectId);
+      writeState.deletion = deletion;
       try {
-        await projectRepositoryRef.current.deleteProject(projectId);
-      } catch (error) {
-        deletedProjectIdsRef.current.delete(projectId);
-        throw error;
+        await deletion;
+        deletedProjectIdsRef.current.add(projectId);
+      } finally {
+        if (writeState.deletion === deletion) writeState.deletion = undefined;
       }
       await refreshLibraryState();
     },
@@ -1802,6 +1814,7 @@ export const useProjectLibrary = ({
       setProjectSyncState({ kind: 'import', phase: 'pending' });
       try {
         const imported = await projectRepositoryRef.current.importProject(data);
+        deletedProjectIdsRef.current.delete(imported.snapshot.id);
         await refreshLibraryState();
         setProjectSyncState({ kind: 'idle' });
         return imported;
