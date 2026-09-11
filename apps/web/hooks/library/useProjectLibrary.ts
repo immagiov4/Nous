@@ -715,7 +715,7 @@ export const useProjectLibrary = ({
     ) => {
       const writeState = getProjectWriteState(projectId);
       const pendingDeletion = writeState.deletion;
-      if (pendingDeletion) {
+      if (pendingDeletion !== undefined) {
         try {
           await pendingDeletion;
           return null;
@@ -1415,7 +1415,7 @@ export const useProjectLibrary = ({
     }
     const writeState = getProjectWriteState(pendingEvent.projectId);
     if (pendingEvent.deleted) {
-      if (writeState.deletion) {
+      if (writeState.deletion !== undefined) {
         return;
       }
       invalidateRemoteDeletedProject(pendingEvent.projectId);
@@ -1501,7 +1501,7 @@ export const useProjectLibrary = ({
     const loadedRevision = loadedProjectRevisionRef.current.revision;
     if (!remoteMeta) {
       if (loadedRevision !== undefined) {
-        if (getProjectWriteState(projectId).deletion) {
+        if (getProjectWriteState(projectId).deletion !== undefined) {
           setStorageError(null);
           return;
         }
