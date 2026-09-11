@@ -178,6 +178,9 @@ export const createAssessmentPlanningCommands = (
   let activeHomeChatStartPromise: Promise<HomeChatStartResult> | null = null;
   let activeHomeChatWorkspaceOwnership: AssessmentWorkspaceOwnership | null = null;
   let latestCourseConfirmationToken: symbol | null = null;
+  const isCourseConfirmationCurrent = (confirmationToken: symbol, projectId: string): boolean =>
+    latestCourseConfirmationToken === confirmationToken &&
+    projectLibrary.getCurrentProjectId() === projectId;
   const openProjectAttempts = new Map<number, PendingWorkspaceOpen>();
   const workspaceOwnershipByOpenProjectRequestId = new Map<
     number,
@@ -1377,10 +1380,7 @@ export const createAssessmentPlanningCommands = (
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
-      if (
-        latestCourseConfirmationToken !== confirmationToken ||
-        projectLibrary.getCurrentProjectId() !== projectId
-      ) {
+      if (!isCourseConfirmationCurrent(confirmationToken, projectId)) {
         throw new Error('Il corso selezionato è cambiato.');
       }
       applyInterviewSnapshot(approvedInterview);

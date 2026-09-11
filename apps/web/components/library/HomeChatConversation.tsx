@@ -459,6 +459,11 @@ const getConversationScrollClassName = (
   return `home-chat-scrollbar overflow-y-auto px-4 sm:px-5 max-md:min-h-0 max-md:flex-1 ${height} ${spacing}`;
 };
 
+const hasVisibleDiagnostic = (
+  homeChatMode: HomeChatMode,
+  diagnosticAdapter: DiagnosticAdapter | null | undefined
+): boolean => homeChatMode === 'new-course' && Boolean(diagnosticAdapter);
+
 const AssistantAvatar = ({ isDarkMode, show }: { isDarkMode: boolean; show: boolean }) => {
   if (!show) return null;
   const source = isDarkMode ? logoDarkModeUrl : logoUrl;
@@ -641,7 +646,7 @@ export default function HomeChatConversation({
       ref={messagesScrollRef}
       className={getConversationScrollClassName(
         compactWhenEmpty,
-        homeChatMode === 'new-course' && Boolean(diagnosticAdapter),
+        hasVisibleDiagnostic(homeChatMode, diagnosticAdapter),
         hasMessages,
         isLoading,
         reserveClearButtonSpace
