@@ -5604,6 +5604,48 @@ test.each([
   assert.equal(state.internalState.screenState, AppState.READING);
 });
 
+test('diagnostic approval keeps the chat visible while preparing the first pass', async () => {
+  let complete!: (snapshot: CourseInterviewSnapshot) => void;
+  const pending = new Promise<CourseInterviewSnapshot>(resolve => {
+    complete = resolve;
+  });
+  const proposal = {
+    ...createProposalSnapshot('document-project'),
+    supportsCoursePreferences: true,
+  };
+  const sendCourseInterviewDecision = vi.fn(() => pending);
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: proposal.projectId },
+    openRouter: {
+      getActiveCourseInterview: async () => proposal,
+      sendCourseInterviewDecision,
+    },
+  });
+  state.adapter.setScreenState(AppState.LIBRARY);
+  const confirmation = controller.confirmPlanGeneration();
+  await vi.waitFor(() => expect(sendCourseInterviewDecision).toHaveBeenCalledOnce());
+  expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+  complete({
+    ...proposal,
+    diagnostic: {
+      collectionId: 'collection',
+      stage: {
+        kind: 'self-assessment',
+        id: 'tree',
+        title: 'Argomenti',
+        topics: [{ id: 'topic', parentId: null, title: 'Tema' }],
+      },
+    },
+    wait: {
+      expiresAt: '2026-08-09T10:00:00.000Z',
+      signalType: 'diagnostic-submission',
+      waitId: 'diagnostic-wait',
+    },
+  });
+  expect((await confirmation).outcome).toBe('diagnostic');
+  expect(state.internalState.screenState).toBe(AppState.LIBRARY);
+});
+
 test('confirmPlanGeneration approves the durable proposal and resumes its course run', async () => {
   let completeDecision: (() => void) | undefined;
   const decisionGate = new Promise<void>(resolve => {

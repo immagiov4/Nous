@@ -1178,6 +1178,7 @@ const ENGLISH_UI_MESSAGES = {
     'Describe the course goal or attach source material and tell me what you want to achieve.',
   'Dettagli lezioni': 'Lesson details',
   'Genera artefatto': 'Generate artifact',
+  'Conferma le scelte per continuare.': 'Confirm your choices to continue.',
   'Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?':
     'I have gathered all the necessary information. Do you want to generate the course?',
   'Proposta pronta': 'Proposal ready',

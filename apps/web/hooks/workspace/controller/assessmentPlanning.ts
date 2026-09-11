@@ -1369,7 +1369,7 @@ export const createAssessmentPlanningCommands = (
       const courseProposal = interview.proposal ?? state.getCourseProposal();
       if (!courseProposal) throw new Error('La proposta del corso non è disponibile.');
       requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
-      state.setScreenState(AppState.PLANNING);
+      if (!interview.supportsCoursePreferences) state.setScreenState(AppState.PLANNING);
       progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       const approvedInterview = await openRouter.sendCourseInterviewDecision({
         decision: { kind: 'approve', ...(interview.supportsCoursePreferences ? preferences : {}) },
@@ -1390,6 +1390,7 @@ export const createAssessmentPlanningCommands = (
         state.succeedWorkflow('generatePlan', requestId);
         return { outcome: 'diagnostic' };
       }
+      state.setScreenState(AppState.PLANNING);
       const generated = await runDurableCourse({
         execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
         profile: courseProposal,

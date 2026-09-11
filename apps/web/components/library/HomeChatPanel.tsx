@@ -166,12 +166,12 @@ export default function HomeChatPanel({
 
   return (
     <HomeChatPanelFrame
-      hasActiveChat={hasActiveChat}
+      hasActiveChat={hasActiveChat || Boolean(diagnosticAdapter)}
       hideHeaderCopy={hideHeaderCopy}
       hideModeSelector={hideModeSelector}
       homeChatMode={homeChatMode}
       isAnyChatLoading={isLibraryModeLoading || isNewCourseLoading}
-      isCompactSurface={isCompactSurface}
+      isCompactSurface={isCompactSurface && !diagnosticAdapter}
       isLoading={isLoading}
       isMobileViewport={isMobileViewport}
       onCancelNewCourse={onCancelNewCourse}

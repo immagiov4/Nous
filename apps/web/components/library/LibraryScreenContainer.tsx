@@ -17,7 +17,7 @@ import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
-import { CourseControls } from './CourseControls.tsx';
+import { CourseControls, describeCourseControls } from './CourseControls.tsx';
 import { CourseLanguageProficiency } from './CourseLanguageProficiency.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
@@ -92,6 +92,10 @@ export const LibraryScreenContainer = ({
     scope: string;
     value: CoursePlanningPreferences;
   }>();
+  const [confirmedPreferences, setConfirmedPreferences] = useState<{
+    projectId: string | null;
+    text: string;
+  }>();
   const coursePreferences: CoursePlanningPreferences =
     preferenceDraft?.scope === preferenceScope
       ? preferenceDraft.value
@@ -122,7 +126,9 @@ export const LibraryScreenContainer = ({
     submitAssessment,
   } = controller;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
-  const isNewCourseLoading = controller.workflowState.assessment.status === 'pending';
+  const isNewCourseLoading =
+    controller.workflowState.assessment.status === 'pending' ||
+    controller.workflowState.generatePlan.status === 'pending';
   const isAnyHomeChatLoading = libraryAssistantChat.isLoading || isNewCourseLoading;
   const isAssessmentActive = assessmentMessages.length > 0 || isNewCourseLoading;
   const visibleHomeChatMode = isAssessmentActive ? 'new-course' : homeChatMode;
@@ -242,8 +248,17 @@ export const LibraryScreenContainer = ({
 
   const handleConfirmGenerate = async () => {
     setIsAddingAssessmentDetails(false);
+    if (controller.supportsCoursePreferences) {
+      setConfirmedPreferences({
+        projectId: controller.currentProjectId,
+        text: describeCourseControls(
+          coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
+        ),
+      });
+    }
     const result = await confirmPlanGeneration(coursePreferences);
     if (result.errorMessage) {
+      setConfirmedPreferences(undefined);
       notify(result.errorMessage);
     }
   };
@@ -299,7 +314,7 @@ export const LibraryScreenContainer = ({
         chatProps={{
           coursePreferences:
             controller.courseProposal && controller.supportsCoursePreferences ? (
-              <div className="space-y-4">
+              <div className="max-w-xl space-y-4">
                 <CourseControls
                   value={
                     coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
@@ -320,7 +335,10 @@ export const LibraryScreenContainer = ({
             ) : undefined,
           diagnosticAdapter: controller.diagnosticAdapter,
           assessmentComplete,
-          assessmentMessages,
+          assessmentMessages:
+            confirmedPreferences && confirmedPreferences.projectId === controller.currentProjectId
+              ? [...assessmentMessages, { role: 'user', text: confirmedPreferences.text }]
+              : assessmentMessages,
           homeChatMode: visibleHomeChatMode,
           isDarkMode: readerState.readerChrome.isDarkMode,
           isLibraryLoading,
@@ -341,7 +359,10 @@ export const LibraryScreenContainer = ({
           onClearPendingFile: () => setPendingHomeSourceFiles([]),
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
           onCancelNewCourse: cancelNewCourse,
-          onContinueAssessment: () => setIsAddingAssessmentDetails(true),
+          onContinueAssessment: () => {
+            setConfirmedPreferences(undefined);
+            setIsAddingAssessmentDetails(true);
+          },
           onConfirmGenerate: handleConfirmGenerate,
           onHomeChatModeChange: handleHomeChatModeChange,
           onLibraryMessageSend: libraryAssistantChat.sendLibraryMessage,
