@@ -544,10 +544,17 @@ describe('NewHomeView library interactions', () => {
       width: 400,
     });
     const originalVisualViewport = window.visualViewport;
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const renderedMenuHeight = 158;
     Object.defineProperty(window, 'visualViewport', {
       configurable: true,
       value: visualViewport,
     });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this === trigger) return bounds as DOMRect;
+      if (this.querySelector('button')) return { height: renderedMenuHeight } as DOMRect;
+      return originalGetBoundingClientRect.call(this);
+    };
 
     try {
       await user.click(trigger);
@@ -559,7 +566,8 @@ describe('NewHomeView library interactions', () => {
 
       bounds = { top: 300, bottom: 320, left: 700, right: 720 };
       window.dispatchEvent(new Event('scroll'));
-      await waitFor(() => expect(menu).toHaveStyle({ top: '84px' }));
+      await waitFor(() => expect(menu).toHaveStyle({ top: '138px' }));
+      expect(Number.parseInt(menu.style.top, 10) + renderedMenuHeight).toBe(bounds.top - 4);
       expect(exportButton).toHaveFocus();
 
       await user.keyboard('{Escape}');
@@ -568,6 +576,7 @@ describe('NewHomeView library interactions', () => {
       ).not.toBeInTheDocument();
       expect(trigger).toHaveFocus();
     } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
       Object.defineProperty(window, 'visualViewport', {
         configurable: true,
         value: originalVisualViewport,
