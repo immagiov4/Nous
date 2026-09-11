@@ -193,7 +193,7 @@ describe('NewHomeView library interactions', () => {
     }
   });
 
-  test('keeps the phone theme control grouped with the account actions', () => {
+  test('does not add a standalone theme control to the phone header', () => {
     mockPhoneViewport(true);
     const { container } = render(
       <NewHomeView
@@ -217,13 +217,10 @@ describe('NewHomeView library interactions', () => {
     );
 
     const mobileHeader = within(container.querySelector('header') as HTMLElement);
-    const themeControl = mobileHeader.getByRole('button', {
+    const themeControl = mobileHeader.queryByRole('button', {
       name: /Usa tema scuro|Use dark theme/,
     });
-    const accountControl = mobileHeader.getByRole('button', {
-      name: /Apri menu account|Open account menu/,
-    });
-    expect(themeControl.parentElement).toBe(accountControl.parentElement);
+    expect(themeControl?.parentElement).not.toBe(container.querySelector('header'));
   });
 
   test('imports a single course from the library header', async () => {
