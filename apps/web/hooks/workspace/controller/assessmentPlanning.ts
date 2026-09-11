@@ -181,6 +181,12 @@ export const createAssessmentPlanningCommands = (
   const isCourseConfirmationCurrent = (confirmationToken: symbol, projectId: string): boolean =>
     latestCourseConfirmationToken === confirmationToken &&
     projectLibrary.getCurrentProjectId() === projectId;
+  const presentApprovedDiagnostic = (interview: CourseInterviewSnapshot): boolean => {
+    applyInterviewSnapshot(interview);
+    if (!interview.diagnostic) return false;
+    state.setScreenState(AppState.LIBRARY);
+    return true;
+  };
   const openProjectAttempts = new Map<number, PendingWorkspaceOpen>();
   const workspaceOwnershipByOpenProjectRequestId = new Map<
     number,
@@ -1383,9 +1389,7 @@ export const createAssessmentPlanningCommands = (
       if (!isCourseConfirmationCurrent(confirmationToken, projectId)) {
         throw new Error('Il corso selezionato è cambiato.');
       }
-      applyInterviewSnapshot(approvedInterview);
-      if (approvedInterview.diagnostic) {
-        state.setScreenState(AppState.LIBRARY);
+      if (presentApprovedDiagnostic(approvedInterview)) {
         return { outcome: 'diagnostic' };
       }
       requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
