@@ -551,8 +551,7 @@ describe('NewHomeView library interactions', () => {
       value: visualViewport,
     });
     HTMLElement.prototype.getBoundingClientRect = function () {
-      if (this === trigger) return bounds as DOMRect;
-      if (this.querySelector('button')) return { height: renderedMenuHeight } as DOMRect;
+      if (this.classList.contains('w-48')) return new DOMRect(0, 0, 0, renderedMenuHeight);
       return originalGetBoundingClientRect.call(this);
     };
 
