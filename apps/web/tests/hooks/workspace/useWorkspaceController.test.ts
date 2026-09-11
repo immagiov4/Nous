@@ -5544,6 +5544,8 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
   state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
   expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
   expect(sendCourseInterviewDecision).not.toHaveBeenCalled();
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
   const adapter = setDiagnosticAdapter.mock.calls[0][0];
   await assert.rejects(
     adapter.submit({
@@ -5604,6 +5606,45 @@ test.each([
   assert.equal(state.internalState.screenState, AppState.READING);
 });
 
+test('confirmation presents diagnostics before starting course generation', async () => {
+  const projectId = 'document-project';
+  const resumeActiveDurableCourse = vi.fn();
+  const approvedInterview = createInterviewSnapshot({
+    projectId,
+    diagnostic: {
+      collectionId: 'collection',
+      stage: {
+        kind: 'self-assessment',
+        id: 'tree',
+        title: 'Argomenti',
+        topics: [{ id: 'topic', parentId: null, title: 'Tema' }],
+      },
+    },
+    wait: {
+      expiresAt: '2026-08-09T10:00:00.000Z',
+      signalType: 'diagnostic-submission',
+      waitId: 'diagnostic-wait',
+    },
+  });
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: projectId },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot(projectId),
+      resumeActiveDurableCourse,
+      sendCourseInterviewDecision: async () => approvedInterview,
+    },
+  });
+  const setDiagnosticAdapter = vi.fn();
+  state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
+
+  expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
+
+  expect(setDiagnosticAdapter).toHaveBeenCalledTimes(1);
+  expect(resumeActiveDurableCourse).not.toHaveBeenCalled();
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
+});
+
 test('confirmPlanGeneration approves the durable proposal and resumes its course run', async () => {
   let completeDecision: (() => void) | undefined;
   const decisionGate = new Promise<void>(resolve => {
@@ -5654,9 +5695,8 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
   const generation = controller.confirmPlanGeneration();
   await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
 
-  assert.equal(state.internalState.screenState, AppState.PLANNING);
-  assert.equal(state.internalState.workflowState.generatePlan.progress?.operation, 'plan');
-  assert.equal(state.internalState.workflowState.generatePlan.progress?.stage, 'sources');
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
 
   completeDecision?.();
   const result = await generation;

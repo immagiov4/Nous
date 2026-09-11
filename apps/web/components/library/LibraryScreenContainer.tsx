@@ -109,6 +109,8 @@ export const LibraryScreenContainer = ({
       : 'new-course'
   );
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
+  const [isConfirmingCourse, setIsConfirmingCourse] = useState(false);
+  const isConfirmingCourseRef = useRef(false);
   const newCourseRequestTokenRef = useRef(0);
 
   const {
@@ -241,10 +243,18 @@ export const LibraryScreenContainer = ({
   }, [consumeCourseAssessmentRequest, courseAssessmentRequest, handleNewCourseMessage]);
 
   const handleConfirmGenerate = async () => {
+    if (isConfirmingCourseRef.current) return;
+    isConfirmingCourseRef.current = true;
+    setIsConfirmingCourse(true);
     setIsAddingAssessmentDetails(false);
-    const result = await confirmPlanGeneration(coursePreferences);
-    if (result.errorMessage) {
-      notify(result.errorMessage);
+    try {
+      const result = await confirmPlanGeneration(coursePreferences);
+      if (result.errorMessage) {
+        notify(result.errorMessage);
+      }
+    } finally {
+      isConfirmingCourseRef.current = false;
+      setIsConfirmingCourse(false);
     }
   };
 
@@ -325,7 +335,7 @@ export const LibraryScreenContainer = ({
           isDarkMode: readerState.readerChrome.isDarkMode,
           isLibraryLoading,
           isLibraryModeLoading: libraryAssistantChat.isLoading,
-          isNewCourseLoading,
+          isNewCourseLoading: isNewCourseLoading || isConfirmingCourse,
           libraryAttachedContextRefs: libraryAssistantChat.attachedContextRefs,
           libraryArtifactPayloadsByToolCallId: libraryAssistantChat.artifactPayloadsByToolCallId,
           libraryFloatingArtifactPayloads: libraryAssistantChat.replacementDraftPayloads,

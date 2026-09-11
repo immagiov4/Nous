@@ -219,6 +219,10 @@ describe('HomeChatPanel', () => {
     };
     const { rerender } = render(<HomeChatPanel {...props} diagnosticAdapter={adapter} />);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    const diagnostic = screen.getByRole('region', { name: 'Conoscenze iniziali' });
+    const chatViewport = diagnostic.closest('.home-chat-scrollbar');
+    expect(chatViewport).toHaveClass('overflow-y-auto', 'h-auto', 'max-md:h-full');
+    expect(chatViewport).not.toHaveClass('md:h-[24rem]');
     rerender(<HomeChatPanel {...props} diagnosticAdapter={adapter} homeChatMode="library-query" />);
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });

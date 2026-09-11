@@ -1368,28 +1368,23 @@ export const createAssessmentPlanningCommands = (
       }
       const courseProposal = interview.proposal ?? state.getCourseProposal();
       if (!courseProposal) throw new Error('La proposta del corso non è disponibile.');
-      requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
-      state.setScreenState(AppState.PLANNING);
-      progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       const approvedInterview = await openRouter.sendCourseInterviewDecision({
         decision: { kind: 'approve', ...(interview.supportsCoursePreferences ? preferences : {}) },
         projectId,
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
-      if (
-        projectLibrary.getCurrentProjectId() !== projectId ||
-        !state.isWorkflowCurrent('generatePlan', requestId)
-      ) {
+      if (projectLibrary.getCurrentProjectId() !== projectId) {
         throw new Error('Il corso selezionato è cambiato.');
       }
       applyInterviewSnapshot(approvedInterview);
       if (approvedInterview.diagnostic) {
-        progressFeedback.progressObserver.dispose();
         state.setScreenState(AppState.LIBRARY);
-        state.succeedWorkflow('generatePlan', requestId);
         return { outcome: 'diagnostic' };
       }
+      requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
+      state.setScreenState(AppState.PLANNING);
+      progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       const generated = await runDurableCourse({
         execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
         profile: courseProposal,

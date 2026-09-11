@@ -446,6 +446,7 @@ const LibraryConversation = ({
 
 const getConversationScrollClassName = (
   compactWhenEmpty: boolean,
+  hasDiagnostic: boolean,
   hasMessages: boolean,
   isLoading: boolean,
   reserveClearButtonSpace: boolean
@@ -454,7 +455,8 @@ const getConversationScrollClassName = (
     return 'home-chat-scrollbar overflow-y-auto px-4 sm:px-5 max-md:min-h-0 max-md:flex-1 hidden h-0 py-0';
   }
   const spacing = reserveClearButtonSpace ? 'pb-4 pt-16' : 'py-4';
-  return `home-chat-scrollbar overflow-y-auto px-4 sm:px-5 max-md:min-h-0 max-md:flex-1 h-[14rem] md:h-[24rem] ${spacing}`;
+  const height = hasDiagnostic ? 'h-auto max-md:h-full' : 'h-[14rem] md:h-[24rem]';
+  return `home-chat-scrollbar overflow-y-auto px-4 sm:px-5 max-md:min-h-0 max-md:flex-1 ${height} ${spacing}`;
 };
 
 const AssistantAvatar = ({ isDarkMode, show }: { isDarkMode: boolean; show: boolean }) => {
@@ -639,6 +641,7 @@ export default function HomeChatConversation({
       ref={messagesScrollRef}
       className={getConversationScrollClassName(
         compactWhenEmpty,
+        Boolean(diagnosticAdapter),
         hasMessages,
         isLoading,
         reserveClearButtonSpace

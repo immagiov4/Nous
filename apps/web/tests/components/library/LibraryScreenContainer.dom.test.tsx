@@ -20,7 +20,9 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
     chatProps: {
       assessmentComplete: boolean;
       homeChatMode: string;
+      isNewCourseLoading: boolean;
       onCancelNewCourse: () => Promise<boolean>;
+      onConfirmGenerate: () => Promise<void>;
       onHomeChatModeChange: (mode: 'library-query' | 'new-course') => void;
       onSendAssessmentMessage: (message: string) => Promise<void>;
       pendingFileNames?: string[];
@@ -43,6 +45,9 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
       </button>
       <button type="button" onClick={() => void chatProps.onCancelNewCourse()}>
         Ferma nuovo corso
+      </button>
+      <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
+        {chatProps.isNewCourseLoading ? 'Conferma in corso' : 'Conferma corso'}
       </button>
     </>
   ),
@@ -228,6 +233,36 @@ describe('LibraryScreenContainer route fallback', () => {
       )
     );
     expect(props.notify).not.toHaveBeenCalledWith(expect.stringContaining('sentinel'));
+  });
+
+  test('keeps course confirmation single-flight without entering generation', async () => {
+    let resolveConfirmation: () => void = () => {};
+    const confirmation = new Promise<void>(resolve => {
+      resolveConfirmation = resolve;
+    });
+    const props = buildProps();
+    props.controller.assessmentMessages = [{ role: 'model', text: 'Confermi questa proposta?' }];
+    props.controller.courseProposal = {
+      context: 'Studio individuale',
+      experienceLevel: 'Base',
+      goals: 'Capire il tema',
+      language: 'Italiano',
+      learningStyle: 'Progressivo',
+      topic: 'Sistemi distribuiti',
+    };
+    props.controller.confirmPlanGeneration = vi.fn(async () => {
+      await confirmation;
+      return { outcome: 'diagnostic' as const };
+    });
+
+    render(<LibraryScreenContainer {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Conferma corso' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Conferma in corso' }));
+
+    expect(props.controller.confirmPlanGeneration).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:true');
+
+    await act(async () => resolveConfirmation());
   });
 
   test('preserves retained project, section, and workflow context across home page changes', () => {
