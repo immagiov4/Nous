@@ -1819,7 +1819,16 @@ export const useProjectLibrary = ({
     importProjectData: async (data: unknown) => {
       setProjectSyncState({ kind: 'import', phase: 'pending' });
       try {
-        const imported = await projectRepositoryRef.current.importProject(data);
+        const importedProjectId = normalizeStoredProject(data).id;
+        const writeState = getProjectWriteState(importedProjectId);
+        const importOperation = writeState.queue.then(() =>
+          projectRepositoryRef.current.importProject(data)
+        );
+        writeState.queue = importOperation.then(
+          () => undefined,
+          () => undefined
+        );
+        const imported = await importOperation;
         deletedProjectIdsRef.current.delete(imported.snapshot.id);
         await refreshLibraryState();
         setProjectSyncState({ kind: 'idle' });
