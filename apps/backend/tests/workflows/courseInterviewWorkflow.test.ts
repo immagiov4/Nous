@@ -208,6 +208,28 @@ describe('course interview workflow', () => {
     );
   });
 
+  test('cancellation remains available when language proficiency differs from the proposal', () => {
+    const definition = createCourseInterviewWorkflow(
+      config,
+      8,
+      CourseInterviewWorkflowConfigSchema,
+      'commit',
+      'diagnostic'
+    );
+    const wait = findNode(
+      'wait-for-course-interview-decision',
+      definition
+    ) as WaitForSignalDefinition<unknown, { kind: 'approve' | 'cancel' }, unknown>;
+    const turn = {
+      state: { ...state, languageProficiency: { language: 'English', level: 'B2' } },
+      turn: { kind: 'proposal', message: 'Pronto.', proposal: profile },
+    };
+    expect(wait.resume(turn, { kind: 'cancel' })).toMatchObject({ decision: 'cancel' });
+    expect(() => wait.resume(turn, { kind: 'approve' })).toThrow(
+      'Language proficiency must refer to the approved course language.'
+    );
+  });
+
   test('checkpoints the complete profile before starting one distinct generation', async () => {
     const saveCourseProfile = vi.fn(async () => undefined);
     const startCourseGeneration = vi.fn(async () => ({ runId: 'generation-1' }));

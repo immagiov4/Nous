@@ -207,8 +207,8 @@ describe('UnifiedAudioPanel', () => {
     expect(speedControl).toHaveAttribute('aria-valuetext', '1x');
     expect(speedControl).toHaveAttribute('aria-orientation', 'horizontal');
     expect(speedControl).toHaveClass('h-9', 'w-full', 'touch-pan-y');
-    expect(container.querySelectorAll('[data-playback-rate-marker]')).toHaveLength(5);
-    expect(container.querySelector('[data-playback-rate-fill]')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slider-marker]')).toHaveLength(5);
+    expect(container.querySelector('[data-slider-fill]')).toBeInTheDocument();
   });
 
   test('keeps voice selection separate from playback-speed changes', async () => {
@@ -312,9 +312,9 @@ describe('UnifiedAudioPanel', () => {
       />
     );
     const { container, rerender } = render(renderPanelAtSpeed(0.8));
-    const getFill = () => container.querySelector('[data-playback-rate-fill]');
+    const getFill = () => container.querySelector('[data-slider-fill]');
     const getMarker = (progress: number) =>
-      container.querySelector(`[data-playback-rate-marker="${progress}"]`);
+      container.querySelector(`[data-slider-marker="${progress}"]`);
 
     expect(getFill()).toHaveStyle({ width: 'calc(0% + 20px)' });
     expect(getMarker(0)).toHaveStyle({ left: 'calc(0% + 20px)' });

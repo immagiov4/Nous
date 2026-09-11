@@ -8,10 +8,13 @@ export {
   generateDurableCourse,
   repairDurablePdfMapping,
   resumeActiveDurableCourse,
+  resumeDurableCourse,
 } from './courseGenerationClient.ts';
 export {
   cancelCourseInterview,
   getActiveCourseInterview,
+  resumeCourseInterview,
+  sendCourseDiagnosticSubmission,
   sendCourseInterviewAnswer,
   sendCourseInterviewDecision,
   startCourseInterview,

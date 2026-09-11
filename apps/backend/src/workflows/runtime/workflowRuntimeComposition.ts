@@ -31,11 +31,15 @@ import {
   COURSE_GENERATION_WORKFLOW_ID,
   CourseGenerationWorkflowConfigSchema,
   createCourseGenerationWorkflow,
+  createPreviousControlsCourseGenerationWorkflow,
   createPreviousCourseGenerationWorkflow,
+  createPreviousDiagnosticCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
 import {
   courseGenerationStateSchemas,
+  preControlsCourseGenerationStateSchemas,
+  preDiagnosticCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
 } from '../courseGenerationWorkflowContract.js';
 import {
@@ -215,6 +219,12 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   const previousCourseWorkflow = createPreviousCourseGenerationWorkflow(
     courseWorkflow.executionDefaults
   );
+  const previousControlsCourseWorkflow = createPreviousControlsCourseGenerationWorkflow(
+    courseWorkflow.executionDefaults
+  );
+  const previousDiagnosticCourseWorkflow = createPreviousDiagnosticCourseGenerationWorkflow(
+    courseWorkflow.executionDefaults
+  );
   const previousPreferencesCourseWorkflow = createPreviousPreferencesCourseGenerationWorkflow(
     courseWorkflow.executionDefaults
   );
@@ -224,7 +234,10 @@ export const createProductionRegistry = (): WorkflowRegistry => {
       models,
       timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     },
-    COURSE_INTERVIEW_MAX_ITERATIONS
+    COURSE_INTERVIEW_MAX_ITERATIONS,
+    CourseInterviewWorkflowConfigSchema,
+    'commit',
+    'diagnostic'
   );
   const previousCourseInterviewWorkflow = createCourseInterviewWorkflow(
     courseInterviewWorkflow.executionDefaults,
@@ -232,6 +245,13 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     CourseInterviewWorkflowConfigSchema,
     'run',
     'previous'
+  );
+  const previousDiagnosticInterviewWorkflow = createCourseInterviewWorkflow(
+    courseInterviewWorkflow.executionDefaults,
+    COURSE_INTERVIEW_MAX_ITERATIONS,
+    CourseInterviewWorkflowConfigSchema,
+    'commit',
+    'current'
   );
   const previousPreferencesCourseInterviewWorkflow = createCourseInterviewWorkflow(
     courseInterviewWorkflow.executionDefaults,
@@ -264,6 +284,28 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     courseGenerationStateSchemas,
     PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
   );
+  const previousControlsPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
+    pdfMappingRepairWorkflow.executionDefaults,
+    CourseGenerationWorkflowConfigSchema,
+    preControlsCourseGenerationStateSchemas
+  );
+  const previousDiagnosticPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
+    pdfMappingRepairWorkflow.executionDefaults,
+    CourseGenerationWorkflowConfigSchema,
+    preDiagnosticCourseGenerationStateSchemas
+  );
+  const previousDiagnosticLegacyPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
+    pdfMappingRepairWorkflow.executionDefaults,
+    CourseGenerationWorkflowConfigSchema,
+    preDiagnosticCourseGenerationStateSchemas,
+    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+  );
+  const previousControlsLegacyPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
+    pdfMappingRepairWorkflow.executionDefaults,
+    CourseGenerationWorkflowConfigSchema,
+    preControlsCourseGenerationStateSchemas,
+    PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
+  );
   const previousPreferencesPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     pdfMappingRepairWorkflow.executionDefaults,
     CourseGenerationWorkflowConfigSchema,
@@ -289,6 +331,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: courseInterviewWorkflow,
     previous: [
+      previousDiagnosticInterviewWorkflow,
       previousPreferencesCourseInterviewWorkflow,
       preExternalEffectPrevious(previousPreferencesCourseInterviewWorkflow),
       preCompatibilityIdAndExternalEffectPrevious(previousCourseInterviewWorkflow),
@@ -297,6 +340,10 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: courseWorkflow,
     previous: [
+      previousDiagnosticCourseWorkflow,
+      previousControlsCourseWorkflow,
+      preProviderPostprocessingPrevious(previousControlsCourseWorkflow),
+      preExternalEffectPrevious(previousControlsCourseWorkflow),
       previousPreferencesCourseWorkflow,
       preProviderPostprocessingPrevious(previousPreferencesCourseWorkflow),
       preExternalEffectPrevious(previousPreferencesCourseWorkflow),
@@ -318,6 +365,12 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: pdfMappingRepairWorkflow,
     previous: [
+      previousDiagnosticPdfMappingRepairWorkflow,
+      previousDiagnosticLegacyPdfMappingRepairWorkflow,
+      previousControlsPdfMappingRepairWorkflow,
+      previousControlsLegacyPdfMappingRepairWorkflow,
+      preExternalEffectPrevious(previousControlsLegacyPdfMappingRepairWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(previousControlsLegacyPdfMappingRepairWorkflow),
       previousPdfMappingRepairWorkflow,
       previousPreferencesPdfMappingRepairWorkflow,
       preExternalEffectPrevious(previousPreferencesPdfMappingRepairWorkflow),

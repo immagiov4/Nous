@@ -1,3 +1,4 @@
+import type { CoursePlanningPreferences } from '@shared/coursePlanningControls';
 import type { LearningArtifactKind } from '@shared/learningArtifact';
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
@@ -9,7 +10,7 @@ import type { LessonInstructionPackId } from './utils/learning/lessonInstruction
 export type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
 export { ACTIVE_PAUSE_EXERCISE_TYPES } from '@shared/lessonGenerationPolicy';
 
-export interface UserProfile {
+export interface UserProfile extends CoursePlanningPreferences {
   teachingPreferences?: string;
   topic: string;
   experienceLevel: string;

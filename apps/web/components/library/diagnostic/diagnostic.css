@@ -1,0 +1,248 @@
+.diagnostic-flow {
+  --diagnostic-blue: #2563eb;
+  --diagnostic-thumb: 2.5rem;
+  --diagnostic-track: 2.25rem;
+  --diagnostic-marker: 0.4rem;
+  --diagnostic-disclosure-motion: 0.5s ease-in-out;
+  color: var(--ink-primary);
+  width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  overflow-anchor: none;
+}
+.diagnostic-flow :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.diagnostic-flow button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.diagnostic-primary,
+.diagnostic-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+}
+.diagnostic-primary {
+  background: var(--ink-primary);
+  color: var(--bg-surface);
+}
+.diagnostic-secondary {
+  border: 1px solid var(--border-subtle);
+}
+.diagnostic-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.diagnostic-tree > li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+.diagnostic-topic {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 1rem 0;
+  text-align: left;
+}
+.diagnostic-topic > svg {
+  flex-shrink: 0;
+}
+.diagnostic-chevron {
+  transition: transform var(--diagnostic-disclosure-motion);
+}
+.diagnostic-topic[aria-expanded="true"] .diagnostic-chevron {
+  transform: rotate(90deg);
+}
+.diagnostic-disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--diagnostic-disclosure-motion);
+}
+.diagnostic-disclosure[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.diagnostic-disclosure-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+.diagnostic-topic-content {
+  padding: 0 0 1rem 1rem;
+}
+.diagnostic-dot {
+  flex-shrink: 0;
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+}
+.diagnostic-dot[data-selected="true"] {
+  border: 0.3rem solid var(--accent);
+}
+.diagnostic-dot[data-complete="true"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: var(--accent);
+  color: var(--bg-surface);
+}
+.diagnostic-option {
+  cursor: pointer;
+}
+.diagnostic-option > input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.diagnostic-option:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.diagnostic-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.diagnostic-slider {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.diagnostic-selection {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--diagnostic-disclosure-motion);
+}
+.diagnostic-selection[data-selected="true"] {
+  grid-template-rows: 1fr;
+}
+.diagnostic-selection-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .diagnostic-selection,
+  .diagnostic-disclosure,
+  .diagnostic-chevron {
+    transition: none;
+  }
+}
+.diagnostic-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: var(--diagnostic-track);
+  background: var(--border-subtle);
+  border-radius: 999px;
+}
+.diagnostic-track-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.diagnostic-markers {
+  position: absolute;
+  inset: 0 calc(var(--diagnostic-thumb) / 2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.diagnostic-markers span {
+  border-radius: 50%;
+  width: var(--diagnostic-marker);
+  height: var(--diagnostic-marker);
+  background: var(--ink-secondary);
+}
+.diagnostic-track input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  appearance: none;
+  background: transparent;
+  touch-action: pan-y;
+  border-radius: 999px;
+}
+.diagnostic-track input::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--diagnostic-thumb);
+  height: var(--diagnostic-thumb);
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  box-shadow: 0 2px 4px var(--border-strong);
+}
+.diagnostic-track input::-moz-range-thumb {
+  width: var(--diagnostic-thumb);
+  height: var(--diagnostic-thumb);
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  box-shadow: 0 2px 4px var(--border-strong);
+}
+.diagnostic-slider:is([data-empty="true"], [data-uncertain="true"]) input::-webkit-slider-thumb {
+  opacity: 0;
+}
+.diagnostic-slider:is([data-empty="true"], [data-uncertain="true"]) input::-moz-range-thumb {
+  opacity: 0;
+}
+.diagnostic-slider-bridge {
+  width: 0.75rem;
+  height: 0.5rem;
+  background: var(--border-subtle);
+}
+.diagnostic-uncertain {
+  flex-shrink: 0;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--border-subtle);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+.diagnostic-slider[data-uncertain="true"] .diagnostic-track-fill {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--diagnostic-blue) 0 0.5rem,
+    color-mix(in srgb, var(--diagnostic-blue) 70%, white) 0.5rem 1rem
+  );
+}
+.diagnostic-slider[data-uncertain="true"] .diagnostic-markers span {
+  background: white;
+}
+.diagnostic-slider[data-uncertain="true"] .diagnostic-slider-bridge {
+  background: var(--diagnostic-blue);
+}
+.diagnostic-slider[data-uncertain="true"] .diagnostic-uncertain {
+  background: var(--diagnostic-blue);
+  color: white;
+  border-color: var(--diagnostic-blue);
+  box-shadow: inset 0 0 0 3px var(--bg-surface);
+}
+.diagnostic-flow .diagnostic-uncertain:focus-visible {
+  outline-offset: -2px;
+}
+@media (forced-colors: active) {
+  .diagnostic-option:has(input:checked) {
+    outline: 2px solid Highlight;
+  }
+  .diagnostic-dot[data-selected="true"] {
+    border-color: Highlight;
+  }
+  .diagnostic-uncertain {
+    border: 1px solid ButtonText;
+  }
+}

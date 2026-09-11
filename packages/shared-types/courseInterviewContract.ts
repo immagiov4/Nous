@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { CoursePlanningPreferencesSchema } from './coursePlanningControls';
 
 const NonEmptyTextSchema = z.string().min(1);
 
@@ -33,6 +34,11 @@ export const CourseInterviewDecisionSignalSchema = z.discriminatedUnion('kind', 
   z.object({ details: NonEmptyTextSchema, kind: z.literal('add-details') }),
   z.object({ kind: z.literal('cancel') }),
 ]);
+export const CourseInterviewDiagnosticDecisionSchema = z.discriminatedUnion('kind', [
+  CourseInterviewDecisionSignalSchema.options[0].extend(CoursePlanningPreferencesSchema.shape),
+  CourseInterviewDecisionSignalSchema.options[1],
+  CourseInterviewDecisionSignalSchema.options[2],
+]);
 
 export const CourseInterviewStartFieldsSchema = z.object({
   interfaceLocale: z.enum(['it', 'en']).optional(),
@@ -44,8 +50,11 @@ export const CourseInterviewStartFieldsSchema = z.object({
   sourceContext: NonEmptyTextSchema.optional(),
 });
 
-export const CourseInterviewStartRequestSchema =
-  CourseInterviewStartFieldsSchema.strict().superRefine((input, context) => {
+export const CourseInterviewStartRequestSchema = CourseInterviewStartFieldsSchema.extend(
+  CoursePlanningPreferencesSchema.shape
+)
+  .strict()
+  .superRefine((input, context) => {
     if (input.hasReliableSourceContext && !input.sourceContext) {
       context.addIssue({
         code: 'custom',
@@ -69,6 +78,11 @@ export const CourseInterviewMessageEventSchema = z.object({
 export const CourseInterviewProposalReadyEventSchema = z.object({
   proposal: CourseInterviewProposalSchema,
 });
+export const CourseInterviewConfigurableProposalEventSchema =
+  CourseInterviewProposalReadyEventSchema.extend({
+    proposal: CourseInterviewProposalSchema.extend(CoursePlanningPreferencesSchema.shape),
+    supportsCoursePreferences: z.literal(true),
+  });
 export const CourseInterviewGenerationStartedEventSchema = z.object({
   generationRunId: NonEmptyTextSchema,
   projectId: NonEmptyTextSchema,
@@ -84,7 +98,7 @@ export const CourseInterviewResultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('exhausted'), projectId: NonEmptyTextSchema }),
 ]);
 
-export type CourseInterviewDecisionSignal = z.infer<typeof CourseInterviewDecisionSignalSchema>;
+export type CourseInterviewDecisionSignal = z.infer<typeof CourseInterviewDiagnosticDecisionSchema>;
 export type CourseInterviewMessage = z.infer<typeof CourseInterviewMessageSchema>;
 export type CourseInterviewProposal = z.infer<typeof CourseInterviewProposalSchema>;
 export type CourseInterviewResult = z.infer<typeof CourseInterviewResultSchema>;

@@ -2,12 +2,15 @@ import {
   COURSE_INTERVIEW_DECISION_SIGNAL,
   COURSE_INTERVIEW_USER_ANSWER_SIGNAL,
 } from '@shared/courseInterviewContract';
+import type { CoursePlanningPreferences } from '@shared/coursePlanningControls';
 import type {
   CourseWorkflowResult,
   CourseWorkflowSnapshot,
   CourseWorkflowStage,
 } from '@shared/courseWorkflowContract';
-
+import { DIAGNOSTIC_SUBMISSION_SIGNAL } from '@shared/priorKnowledgeDiagnostic';
+import { DiagnosticStoppedError } from '../../../components/library/diagnostic/diagnosticFlow.ts';
+import { projectDiagnosticStage } from '../../../components/library/diagnostic/diagnosticStageProjection.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
@@ -208,6 +211,11 @@ export const createAssessmentPlanningCommands = (
   };
 
   const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
+    if (snapshot.diagnostic && (snapshot.status === 'failed' || snapshot.status === 'expired')) {
+      throw new DiagnosticStoppedError('Diagnostic collection terminated.');
+    }
+    const outcome = getCourseInterviewOutcome(snapshot);
+    state.setSupportsCoursePreferences?.(snapshot.supportsCoursePreferences === true);
     recordFeedbackWorkflowSnapshot({
       operation: 'assessment-interview',
       projectId: snapshot.projectId,
@@ -218,7 +226,47 @@ export const createAssessmentPlanningCommands = (
     state.setCourseProposal(
       snapshot.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL ? snapshot.proposal : null
     );
-    return getCourseInterviewOutcome(snapshot);
+    if (
+      snapshot.diagnostic &&
+      (snapshot.wait?.signalType === DIAGNOSTIC_SUBMISSION_SIGNAL ||
+        snapshot.diagnostic.stage.kind === 'complete')
+    ) {
+      const { diagnostic } = snapshot;
+      state.setDiagnosticAdapter?.({
+        collectionId: diagnostic.collectionId,
+        initial: projectDiagnosticStage(diagnostic.stage),
+        onComplete: async () => {
+          const current = await openRouter.resumeCourseInterview(
+            snapshot.runId,
+            snapshot.projectId
+          );
+          if (
+            !current.generationRunId ||
+            projectLibrary.getCurrentProjectId() !== snapshot.projectId
+          )
+            throw new Error('The approved course is not available.');
+          await resumePlanGeneration(snapshot.projectId, current.generationRunId);
+        },
+        submit: async submission => {
+          if (projectLibrary.getCurrentProjectId() !== snapshot.projectId)
+            throw new Error('The active course changed.');
+          if (snapshot.wait?.signalType !== DIAGNOSTIC_SUBMISSION_SIGNAL)
+            throw new Error('The diagnostic collection is not available.');
+          // Replay the same owned wait and request, including after a lost response.
+          const current = await openRouter.sendCourseDiagnosticSubmission({
+            submission,
+            projectId: snapshot.projectId,
+            runId: snapshot.runId,
+            waitId: snapshot.wait.waitId,
+          });
+          if (!current.diagnostic || projectLibrary.getCurrentProjectId() !== snapshot.projectId)
+            throw new Error('The active course changed.');
+          applyInterviewSnapshot(current);
+          return projectDiagnosticStage(current.diagnostic.stage);
+        },
+      });
+    } else state.setDiagnosticAdapter?.(undefined);
+    return outcome;
   };
 
   const resetInterviewClientState = (): void => {
@@ -509,13 +557,19 @@ export const createAssessmentPlanningCommands = (
     }
   };
 
-  async function resumePlanGeneration(projectId: string): Promise<'not-found' | 'resumed'> {
+  async function resumePlanGeneration(
+    projectId: string,
+    runId?: string
+  ): Promise<'not-found' | 'resumed'> {
     const requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
     state.setScreenState(AppState.PLANNING);
 
     try {
       const resumed = await runDurableCourse({
-        execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
+        execute: callbacks =>
+          runId
+            ? openRouter.resumeDurableCourse({ projectId, runId, ...callbacks })
+            : openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
         profile: domain.userProfile,
         projectId,
         requestId,
@@ -1291,9 +1345,9 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
-  async function confirmPlanGeneration(): Promise<{
+  async function confirmPlanGeneration(preferences?: CoursePlanningPreferences): Promise<{
     errorMessage?: string;
-    outcome: 'failed' | 'planned';
+    outcome: 'failed' | 'planned' | 'diagnostic';
   }> {
     let requestId: number | undefined;
     let progressFeedback: ReturnType<typeof createCourseProgressFeedback> | undefined;
@@ -1301,6 +1355,14 @@ export const createAssessmentPlanningCommands = (
       const projectId = projectLibrary.getCurrentProjectId();
       if (!projectId) throw new Error('Nessun corso da generare.');
       const interview = await openRouter.getActiveCourseInterview(projectId);
+      if (projectLibrary.getCurrentProjectId() !== projectId) {
+        throw new Error('Il corso selezionato è cambiato.');
+      }
+      if (interview?.diagnostic && interview.wait?.signalType === DIAGNOSTIC_SUBMISSION_SIGNAL) {
+        applyInterviewSnapshot(interview);
+        state.setScreenState(AppState.LIBRARY);
+        return { outcome: 'diagnostic' };
+      }
       if (interview?.wait?.signalType !== COURSE_INTERVIEW_DECISION_SIGNAL) {
         throw new Error('La proposta del corso non è pronta.');
       }
@@ -1310,12 +1372,24 @@ export const createAssessmentPlanningCommands = (
       state.setScreenState(AppState.PLANNING);
       progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       const approvedInterview = await openRouter.sendCourseInterviewDecision({
-        decision: { kind: 'approve' },
+        decision: { kind: 'approve', ...(interview.supportsCoursePreferences ? preferences : {}) },
         projectId,
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
+      if (
+        projectLibrary.getCurrentProjectId() !== projectId ||
+        !state.isWorkflowCurrent('generatePlan', requestId)
+      ) {
+        throw new Error('Il corso selezionato è cambiato.');
+      }
       applyInterviewSnapshot(approvedInterview);
+      if (approvedInterview.diagnostic) {
+        progressFeedback.progressObserver.dispose();
+        state.setScreenState(AppState.LIBRARY);
+        state.succeedWorkflow('generatePlan', requestId);
+        return { outcome: 'diagnostic' };
+      }
       const generated = await runDurableCourse({
         execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
         profile: courseProposal,

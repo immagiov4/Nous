@@ -71,7 +71,9 @@ describe('production course interview services', () => {
 
     await services.discardUnclaimedDraftProject(cleanupInput);
 
-    expect(dependencies.projectStore.deleteProject).toHaveBeenCalledWith('user-1', 'project-1');
+    expect(dependencies.projectStore.deleteProject).toHaveBeenCalledWith('user-1', 'project-1', {
+      preserveAcceptedDiagnostics: true,
+    });
   });
 
   test('makes repeated draft cleanup harmless after the first deletion', async () => {

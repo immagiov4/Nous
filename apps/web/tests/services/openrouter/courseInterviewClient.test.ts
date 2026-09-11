@@ -16,6 +16,7 @@ const {
   cancelCourseInterview,
   getActiveCourseInterview,
   sendCourseInterviewAnswer,
+  sendCourseDiagnosticSubmission,
   sendCourseInterviewDecision,
   startCourseInterview,
 } = await import('../../../services/openrouter/courseInterviewClient.ts');
@@ -113,6 +114,65 @@ describe('courseInterviewClient', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  test('replays the same diagnostic request after a lost response and rejects a changed request', async () => {
+    const submission = {
+      collectionId: 'collection-1',
+      stageId: 'round-1',
+      requestId: 'request-1',
+      answers: [{ itemId: 'q1', response: { kind: 'text', text: 'My answer' } }],
+    };
+    const input = {
+      submission,
+      runId: 'interview-1',
+      projectId: 'project-1',
+      waitId: 'diagnostic-wait-1',
+    };
+    fetchWithSupabaseAuthMock.mockRejectedValueOnce(new TypeError('Connection lost'));
+    await expect(sendCourseDiagnosticSubmission(input)).rejects.toThrow();
+    const firstRequest = requestBody(0);
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(jsonResponse({ success: true, signal: { status: 'replayed' } }))
+      .mockResolvedValueOnce(
+        runStateResponse({
+          status: 'waiting',
+          waits: [
+            { ...userAnswerWait, signalType: 'diagnostic-submission', waitId: 'diagnostic-wait-2' },
+          ],
+          events: [
+            event(
+              'course-diagnostic-stage',
+              {
+                collectionId: 'collection-1',
+                stage: {
+                  kind: 'round',
+                  id: 'round-2',
+                  title: 'Next task',
+                  questions: [{ id: 'q2', topic: 'Order', prompt: 'Explain it.', format: 'text' }],
+                },
+              },
+              '1'
+            ),
+          ],
+        })
+      );
+    await expect(sendCourseDiagnosticSubmission(input)).resolves.toMatchObject({
+      diagnostic: { stage: { id: 'round-2' } },
+    });
+    expect(requestBody(1)).toEqual(firstRequest);
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(jsonResponse({ success: false }, 409));
+    await expect(
+      sendCourseDiagnosticSubmission({
+        ...input,
+        submission: {
+          ...submission,
+          requestId: 'edited-request',
+          answers: [{ itemId: 'q1', response: { kind: 'text', text: 'Changed answer' } }],
+        },
+      })
+    ).rejects.toThrow();
+    expect(requestBody(3).requestKey).not.toBe(firstRequest.requestKey);
   });
 
   test('starts the interview, polls the generic workflow and maps messages and its active wait', async () => {
@@ -265,6 +325,29 @@ describe('courseInterviewClient', () => {
       'http://localhost:3301/api/course-interviews/project-1/active',
       { cache: 'no-store', signal: undefined },
       { expectedStatuses: [404] }
+    );
+  });
+  test.each([
+    false,
+    true,
+  ])('exposes course controls only when the proposal declares support: %s', async supported => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(runSummaryResponse('interview-1', 'waiting'))
+      .mockResolvedValueOnce(
+        runStateResponse({
+          status: 'waiting',
+          waits: [decisionWait],
+          events: [
+            event(
+              'course-proposal-ready',
+              { proposal, ...(supported ? { supportsCoursePreferences: true } : {}) },
+              '1'
+            ),
+          ],
+        })
+      );
+    expect((await getActiveCourseInterview('project-1'))?.supportsCoursePreferences).toBe(
+      supported
     );
   });
 

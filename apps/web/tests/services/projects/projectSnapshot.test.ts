@@ -34,6 +34,8 @@ test.each([
     goals: 'Understand',
     context: 'Study',
     language: 'English',
+    coursePlanningControls: { depth: 'more' as const, granularity: 'less' as const },
+    languageProficiency: { language: 'English', level: 'B2' as const },
     ...(teachingPreferences === undefined ? {} : { teachingPreferences }),
   };
   const snapshot = createProjectSnapshot({ id: 'profile-roundtrip', userProfile: profile });

@@ -4,6 +4,24 @@ import { describe, expect, test, vi } from 'vitest';
 import { useWorkspaceControllerState } from '../../../hooks/workspace/controller/state.ts';
 
 describe('useWorkspaceControllerState generation ownership', () => {
+  test('clears the diagnostic adapter when hydration resets the current session', () => {
+    const { result } = renderHook(() => useWorkspaceControllerState());
+    const adapter = {
+      collectionId: 'previous-course',
+      initial: {
+        kind: 'complete' as const,
+        id: 'complete',
+        title: 'Raccolta conclusa',
+        feedback: 'Fatto.',
+      },
+      submit: vi.fn(),
+    };
+    act(() => result.current.stateAdapter.setDiagnosticAdapter?.(adapter));
+    expect(result.current.diagnosticAdapter).toBe(adapter);
+    act(() => result.current.stateAdapter.resetSessionState());
+    expect(result.current.diagnosticAdapter).toBeUndefined();
+  });
+
   test('keeps open-section request ownership across adapter recreation', () => {
     const { result, rerender } = renderHook(() => useWorkspaceControllerState());
     const firstAdapter = result.current.stateAdapter;

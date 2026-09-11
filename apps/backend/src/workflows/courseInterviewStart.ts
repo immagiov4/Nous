@@ -7,6 +7,7 @@ import {
   COURSE_INTERVIEW_WORKFLOW_ID,
   type CourseInterviewStartRequest,
 } from '@shared/courseInterviewContract.js';
+import { CoursePlanningPreferencesSchema } from '@shared/coursePlanningControls.js';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import type { WorkflowRegistry } from './definition.js';
 import type { WorkflowRun } from './types.js';
@@ -41,6 +42,7 @@ export const createCourseInterviewStarter = (
     const models = await dependencies.resolveModels(input.aiProvider, input.aiProviderOverrides);
     const preferences = await dependencies.readPreferences?.(input.userId);
     const requestInput = {
+      ...CoursePlanningPreferencesSchema.parse(input),
       hasReliableSourceContext: input.hasReliableSourceContext,
       initialMessage: input.initialMessage,
       mode: input.mode,

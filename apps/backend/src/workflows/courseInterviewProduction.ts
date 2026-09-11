@@ -7,6 +7,8 @@ import {
 import { COURSE_GENERATION_WORKFLOW_ID } from './courseGenerationWorkflow.js';
 import { createCourseInterviewModel } from './courseInterviewModel.js';
 import type { CourseInterviewWorkflowServices } from './courseInterviewWorkflow.js';
+import { saveDiagnosticSnapshot } from './persistence/postgresDiagnosticSnapshotStore.js';
+import { createPriorKnowledgeDiagnosticModel } from './priorKnowledgeDiagnosticModel.js';
 import type { WorkflowRun } from './types.js';
 
 const COURSE_INTERVIEW_PROJECT_STATE = 'ASSESSMENT';
@@ -22,7 +24,8 @@ type CourseInterviewRunStore = CourseGenerationResolvedStartDependencies['store'
 interface ProductionCourseInterviewDependencies
   extends Omit<CourseGenerationResolvedStartDependencies, 'store'> {
   readonly patchProject?: typeof patchProjectInTransaction;
-  readonly projectStore: Pick<ProjectStore, 'deleteProject' | 'loadProject' | 'patchProject'>;
+  readonly projectStore: Pick<ProjectStore, 'deleteProject' | 'loadProject' | 'patchProject'> &
+    Partial<Pick<ProjectStore, 'loadProjectWithRevision'>>;
   readonly runStore: CourseInterviewRunStore;
 }
 
@@ -32,6 +35,18 @@ export const createProductionCourseInterviewServices = (
   const model = createCourseInterviewModel();
   const patchProject = dependencies.patchProject ?? patchProjectInTransaction;
   return {
+    diagnostic: {
+      model: createPriorKnowledgeDiagnosticModel(),
+      saveSnapshot: saveDiagnosticSnapshot,
+      async readIncarnation(userId, projectId) {
+        const project = await dependencies.projectStore.loadProjectWithRevision?.(
+          userId,
+          projectId
+        );
+        if (!project) throw new Error('Diagnostic project does not exist.');
+        return project.incarnationId;
+      },
+    },
     assessTurn: input => model.assessTurn(input),
     async discardUnclaimedDraftProject(input) {
       input.signal.throwIfAborted();
@@ -45,7 +60,9 @@ export const createProductionCourseInterviewServices = (
       const project = await dependencies.projectStore.loadProject(input.userId, input.projectId);
       if (!project || project.learningPlan || project.lastCourseGenerationRunId) return;
       input.signal.throwIfAborted();
-      await dependencies.projectStore.deleteProject(input.userId, input.projectId);
+      await dependencies.projectStore.deleteProject(input.userId, input.projectId, {
+        preserveAcceptedDiagnostics: true,
+      });
     },
     async saveCourseProfile(input) {
       await patchProject(input.transaction, {
@@ -77,6 +94,7 @@ export const createProductionCourseInterviewServices = (
         },
         {
           assessmentHistory: [...input.assessmentHistory],
+          ...(input.diagnosticRef ? { diagnosticRef: input.diagnosticRef } : {}),
           mode: input.mode,
           models: input.models,
           projectId: input.projectId,

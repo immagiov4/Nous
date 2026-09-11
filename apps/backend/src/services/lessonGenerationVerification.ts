@@ -45,6 +45,7 @@ import {
   YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '@shared/lessonWritingContract';
 import { generateText, jsonSchema, Output } from 'ai';
+import * as z from 'zod';
 
 import {
   resolveAiProviderForSlot,
@@ -86,7 +87,20 @@ interface LessonVerificationReportItem {
   status: LessonVerificationStatus;
 }
 
+const LessonIntegrityAssessmentSchema = z.strictObject({
+  preserved: z.boolean(),
+  evidence: z.string().regex(/\S/),
+});
+
+const LessonIntegritySchema = z.strictObject({
+  topic: LessonIntegrityAssessmentSchema,
+  objectives: LessonIntegrityAssessmentSchema,
+});
+const { $schema: _integritySchemaDialect, ...lessonIntegrityProviderSchema } =
+  LessonIntegritySchema.toJSONSchema();
+
 type VerifiedLessonContentDraft = LessonContentDraft & {
+  lessonIntegrity: z.infer<typeof LessonIntegritySchema>;
   verificationReport: LessonVerificationReportItem[];
 };
 
@@ -169,6 +183,7 @@ const buildVerificationSchema = (
     ...responseSchema.schema,
     properties: {
       ...responseSchema.schema.properties,
+      lessonIntegrity: lessonIntegrityProviderSchema,
       verificationReport: {
         items: {
           additionalProperties: false,
@@ -186,7 +201,7 @@ const buildVerificationSchema = (
         type: 'array',
       },
     },
-    required: [...responseSchema.schema.required, 'verificationReport'],
+    required: [...responseSchema.schema.required, 'lessonIntegrity', 'verificationReport'],
   },
 });
 
@@ -372,6 +387,9 @@ ${JSON.stringify(draft)}
 ${retryCorrection}
 VERIFICATION TASK:
 Correct ONLY what is necessary and preserve all valid content. Do not rewrite the lesson for stylistic preference.
+Content is valid only when it also respects the explicit course controls and current lesson scope. Remove surplus optional content when the selected depth requires it; do not preserve it merely because it is factually correct.
+contentBlocks must contain the complete corrected lesson for the student, including its required explanations and relevant exercises. Keep review commentary exclusively in verificationReport; a report or an exercise about the review process cannot replace the lesson.
+After correcting the content, assess lessonIntegrity against the supplied lesson title, description, objective and original draft. For topic and objectives separately, declare whether the final content preserves them and cite concrete evidence. Removing optional enrichment may preserve the objectives; removing the explanation needed to achieve them does not. Correct false material without preserving its errors. If the final content still loses the subject or a required learning objective, declare preserved false for the affected dimension rather than approving an incomplete lesson.
 For every checkId listed below, judge the actual draft and cite the concrete passage or reason in evidence. Do not mark a check as pass automatically merely because its rule appears in the instructions.
 Produce exactly one verificationReport entry for every checkId, including structural checks. Use ${LESSON_VERIFICATION_STATUS.notApplicable} only when the instruction allows it and the corresponding content does not exist in the draft.
 The presence of a repair check is not an invitation to add a feature. Create active pauses or generated visuals only when an explicit task requirement makes them necessary.
@@ -389,7 +407,7 @@ ${structuralCheckIds
   .map(checkId => `- ${checkId}: ${buildStructuralCheckInstruction(checkId)}`)
   .join('\n')}
 
-Return only the verified JSON with verificationReport and no external text.`;
+Return only the corrected lesson JSON with lessonIntegrity and verificationReport and no external text.`;
 };
 
 export const verifyLessonContentDraft = async (input: {
@@ -445,6 +463,23 @@ export const verifyLessonContentDraft = async (input: {
     });
   }
 
+  const integrity = LessonIntegritySchema.safeParse(verified.lessonIntegrity);
+  if (!integrity.success) {
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_review_integrity_invalid',
+      feedback:
+        'Return lessonIntegrity with separate topic and objectives assessments, each containing a boolean preserved and non-empty evidence about the corrected lesson.',
+      message: 'The lesson review omitted a valid integrity assessment.',
+    });
+  }
+  if (!integrity.data.topic.preserved || !integrity.data.objectives.preserved) {
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_review_integrity_failed',
+      feedback: `Restore the complete lesson about the supplied subject and required objectives. Keep review commentary in verificationReport. Integrity findings: ${JSON.stringify(integrity.data)}`,
+      message: 'The reviewed lesson did not preserve its subject and learning objectives.',
+    });
+  }
+
   if (!isLessonVerificationReportComplete(verified.verificationReport, checkIds)) {
     throw retryLessonGenerationCorrection({
       code: 'lesson_review_report_incomplete',
@@ -467,6 +502,10 @@ export const verifyLessonContentDraft = async (input: {
     });
   }
 
-  const { verificationReport: _verificationReport, ...draft } = verified;
+  const {
+    lessonIntegrity: _lessonIntegrity,
+    verificationReport: _verificationReport,
+    ...draft
+  } = verified;
   return draft;
 };

@@ -1,3 +1,4 @@
+import { CoursePlanningPreferencesSchema } from '@shared/coursePlanningControls';
 import { SOURCE_ARCHIVE_VERSION_HASH_PATTERN } from '@shared/lessonSourceContext';
 import {
   decodeProjectSnapshotWire,
@@ -591,6 +592,7 @@ const parseUserProfile = (value: unknown): UserProfile | null => {
 
   return {
     topic: ensureString(value.topic),
+    ...CoursePlanningPreferencesSchema.parse(value),
     experienceLevel: ensureString(value.experienceLevel),
     learningStyle: ensureString(value.learningStyle),
     ...(typeof value.teachingPreferences === 'string'

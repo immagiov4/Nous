@@ -1,3 +1,7 @@
+import {
+  buildCoursePlanningInstructions,
+  COURSE_CONTROL_LESSON_GROUPING_RULE,
+} from '@shared/coursePlanningInstructions';
 import * as z from 'zod';
 import { generateCourseObject } from './courseGenerationModel.js';
 import {
@@ -24,6 +28,7 @@ import {
   type CourseResearchState,
   CourseResearchStateSchema,
 } from './courseGenerationWorkflowContract.js';
+import { buildPriorKnowledgeInstructions } from './priorKnowledgePlanningInstructions.js';
 import { retryCorrective } from './retryPolicy.js';
 
 const COURSE_PLAN_SOURCE_MAX_CHARS = 180_000;
@@ -354,6 +359,8 @@ const buildPlanPrompt = ({
 USER CONTEXT:
 Teaching preferences (user instructions below system rules): ${JSON.stringify(state.context.profile?.teachingPreferences ?? '')}
 ${state.context.assessmentSummary || 'No additional context.'}
+${buildCoursePlanningInstructions(state.context.profile, state.context.sources.length > 0)}
+${buildPriorKnowledgeInstructions(state.context)}
 ${state.context.profile ? `Level: ${state.context.profile.experienceLevel}\nGoal: ${state.context.profile.goals}\nStyle: ${state.context.profile.learningStyle}` : ''}
 
 WEB RESEARCH:
@@ -372,7 +379,7 @@ ${retryFeedback ? `\nREQUIRED CORRECTION FROM THE PREVIOUS ATTEMPT:\n${retryFeed
 
 RULES:
 - Original material remains primary. Research and video fill gaps and provide updates.
-- Every lesson covers one distinct teachable core with explicit boundaries and prerequisite order.
+- ${state.context.profile?.coursePlanningControls ? COURSE_CONTROL_LESSON_GROUPING_RULE : 'Every lesson covers one distinct teachable core with explicit boundaries and prerequisite order.'}
 - Do not create one lesson per file, concatenate sources mechanically, or duplicate nearly equivalent lessons.
 - sourceUrls may contain only exact URLs present in the supplied research sources. Do not invent URLs.
 - miniLab is null when a short activity adds no real value.

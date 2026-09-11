@@ -25,6 +25,8 @@ import {
 
 const context = createPostgresWorkflowIntegrationContext();
 const { projectId, sql, userId } = context;
+// Registry construction is shared setup; the cases exercise persisted deployment transitions.
+const productionRegistry = context.enabled ? createProductionRegistry() : null;
 
 describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integration', () => {
   beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
@@ -34,9 +36,9 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     previousPdfMappingRepairDeployment,
     preHistoryPdfMappingRepairDeployment,
   ])('upgrades PDF mapping deployment $current.definitionHash without letting an old replica revoke persisted work', async previous => {
-    if (!sql) throw new Error('Workflow integration database is required.');
+    if (!sql || !productionRegistry) throw new Error('Workflow integration setup is required.');
     const store = createStore(sql, { enforceCurrentDefinitions: true });
-    const registry = createProductionRegistry();
+    const registry = productionRegistry;
     const boundary = previous.current;
     const deployments = registry
       .listDefinitionDeployments()

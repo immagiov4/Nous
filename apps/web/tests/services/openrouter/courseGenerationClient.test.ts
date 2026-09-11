@@ -11,9 +11,12 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
   getBackendUrl: () => 'http://localhost:3301',
 }));
 
-const { generateDurableCourse, repairDurablePdfMapping, resumeActiveDurableCourse } = await import(
-  '../../../services/openrouter/courseGenerationClient.ts'
-);
+const {
+  generateDurableCourse,
+  repairDurablePdfMapping,
+  resumeActiveDurableCourse,
+  resumeDurableCourse,
+} = await import('../../../services/openrouter/courseGenerationClient.ts');
 
 const completedResult = {
   firstSectionId: 'lesson-1',
@@ -70,6 +73,26 @@ describe('courseGenerationClient', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  test('opens the approved run after it has completed, without requiring an active run', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      workflowResponse({
+        id: 'approved-run',
+        mode: 'learn',
+        projectId: 'project-1',
+        status: 'completed',
+        stage: 'ready',
+        result: completedResult,
+      })
+    );
+    await expect(
+      resumeDurableCourse({ runId: 'approved-run', projectId: 'project-1' })
+    ).resolves.toEqual(completedResult);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
+    expect(fetchWithSupabaseAuthMock.mock.calls[0][0]).toBe(
+      'http://localhost:3301/api/course-workflows/runs/approved-run'
+    );
   });
 
   test('starts, polls, and forwards authoritative progress without rebuilding it', async () => {

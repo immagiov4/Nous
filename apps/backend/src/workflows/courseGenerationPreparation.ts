@@ -1,8 +1,17 @@
+import {
+  CourseLanguageProficiencySchema,
+  CoursePlanningControlsSchema,
+} from '@shared/coursePlanningControls';
 import { resolveProjectSourceTextKind } from '../projects/projectSource.js';
 import type { ProjectStore, StoredProjectSourceFile } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
 import type { CourseGenerationWorkflowServices } from './courseGenerationWorkflow.js';
 import { CoursePreparationStateSchema } from './courseGenerationWorkflowContract.js';
+import type { PostgresDiagnosticSnapshotStore } from './persistence/postgresDiagnosticSnapshotStore.js';
+import {
+  projectPriorKnowledge,
+  resolveDiagnosticPlanningEvidence,
+} from './priorKnowledgeDiagnosticSnapshot.js';
 import { failPermanently } from './retryPolicy.js';
 
 const readString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
@@ -20,6 +29,12 @@ const readProfile = (value: unknown) => {
   if (!Object.values(profile).every(field => field.length > 0)) return null;
   return {
     ...profile,
+    ...(value.coursePlanningControls !== undefined
+      ? { coursePlanningControls: CoursePlanningControlsSchema.parse(value.coursePlanningControls) }
+      : {}),
+    ...(value.languageProficiency !== undefined
+      ? { languageProficiency: CourseLanguageProficiencySchema.parse(value.languageProficiency) }
+      : {}),
     ...(typeof value.teachingPreferences === 'string'
       ? { teachingPreferences: value.teachingPreferences }
       : {}),
@@ -80,16 +95,47 @@ const readPersistedSourceSet = (
   return { descriptorCount: value.sources.length, usableIds };
 };
 
+async function loadPriorKnowledge(
+  input: Parameters<CourseGenerationWorkflowServices['prepareCourse']>[0]['input'],
+  incarnationId: string,
+  loadDiagnostic: PostgresDiagnosticSnapshotStore['load'] | undefined
+) {
+  const { projectId, userId } = input;
+  const diagnosticRef = input.diagnosticRef;
+  const snapshot = diagnosticRef ? await loadDiagnostic?.(userId, diagnosticRef) : null;
+  if (
+    diagnosticRef &&
+    (!snapshot ||
+      diagnosticRef.projectId !== projectId ||
+      diagnosticRef.incarnationId !== incarnationId)
+  ) {
+    throw failPermanently({
+      code: 'course_diagnostic_missing',
+      message: 'The approved diagnostic evidence could not be resolved.',
+    });
+  }
+  const priorKnowledge = snapshot
+    ? projectPriorKnowledge(snapshot)
+    : {
+        kind: 'not-collected' as const,
+        reason: 'No diagnostic collection was approved for this generation.',
+      };
+  const diagnosticEvidence = snapshot ? resolveDiagnosticPlanningEvidence(snapshot) : [];
+  return { priorKnowledge, diagnosticEvidence };
+}
+
 export const createCoursePreparationStage =
   ({
     loadProjectSources,
     loadProjectWithRevision,
+    loadDiagnostic,
   }: {
     readonly loadProjectSources: ProjectStore['loadProjectSources'];
     readonly loadProjectWithRevision: ProjectStore['loadProjectWithRevision'];
+    readonly loadDiagnostic?: PostgresDiagnosticSnapshotStore['load'];
   }): CourseGenerationWorkflowServices['prepareCourse'] =>
   async context => {
-    const { projectId, userId } = context.input;
+    const { projectId, userId, diagnosticRef } = context.input;
     const project = await loadProjectWithRevision(userId, projectId);
     if (!project) {
       throw failPermanently({
@@ -98,6 +144,11 @@ export const createCoursePreparationStage =
       });
     }
     const profile = readProfile(project.snapshot.userProfile);
+    const { priorKnowledge, diagnosticEvidence } = await loadPriorKnowledge(
+      context.input,
+      project.incarnationId,
+      loadDiagnostic
+    );
     const archiveSource = isArchiveSource(project.snapshot.source);
     const archiveDescriptor = readArchiveDescriptor(project.snapshot.source);
     const storedSources =
@@ -133,6 +184,8 @@ export const createCoursePreparationStage =
     const sourceNames = descriptors.map(source => source.name);
     return CoursePreparationStateSchema.parse({
       context: {
+        priorKnowledge,
+        diagnosticEvidence: JSON.stringify(diagnosticEvidence),
         assessmentSummary: context.input.assessmentHistory
           .map(message => {
             const text = message.text.trim();
@@ -154,6 +207,7 @@ export const createCoursePreparationStage =
       },
       projectRevision: project.revision,
       request: {
+        ...(diagnosticRef ? { diagnosticRef } : {}),
         mode: context.input.mode,
         projectId,
         userId,

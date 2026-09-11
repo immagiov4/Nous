@@ -1,4 +1,12 @@
+import {
+  CourseLanguageProficiencySchema,
+  CoursePlanningControlsSchema,
+} from '@shared/coursePlanningControls';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
+import {
+  DiagnosticSnapshotRefSchema,
+  PriorKnowledgePlanningInputSchema,
+} from '@shared/priorKnowledgePlanning';
 import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
@@ -325,11 +333,14 @@ export const CourseDocumentIndexSchema = z.object({
   sourceIds: z.array(z.string()).optional(),
 });
 
-export const CourseGenerationWorkflowInputSchema = z.object({
+const PreDiagnosticCourseGenerationInputSchema = z.object({
   assessmentHistory: z.array(CourseAssessmentMessageSchema),
   mode: z.enum(['document', 'learn']),
   projectId: z.string().min(1),
   userId: z.string().min(1),
+});
+export const CourseGenerationWorkflowInputSchema = PreDiagnosticCourseGenerationInputSchema.extend({
+  diagnosticRef: DiagnosticSnapshotRefSchema.optional(),
 });
 
 const PreviousCourseProfileSchema = z.object({
@@ -341,24 +352,40 @@ const PreviousCourseProfileSchema = z.object({
   topic: z.string(),
 });
 
-const CourseProfileSchema = PreviousCourseProfileSchema.extend({
+const PreControlsCourseProfileSchema = PreviousCourseProfileSchema.extend({
   teachingPreferences: z.string().optional(),
 });
 
+const CourseProfileSchema = PreControlsCourseProfileSchema.extend({
+  coursePlanningControls: CoursePlanningControlsSchema.optional(),
+  languageProficiency: CourseLanguageProficiencySchema.optional(),
+});
+
 const createCourseGenerationStateSchemas = (
-  profileSchema: z.ZodType<z.infer<typeof CourseProfileSchema>>
+  profileSchema: z.ZodType<z.infer<typeof CourseProfileSchema>>,
+  diagnostic = false
 ) => {
+  const inputSchema = diagnostic
+    ? CourseGenerationWorkflowInputSchema
+    : (PreDiagnosticCourseGenerationInputSchema as typeof CourseGenerationWorkflowInputSchema);
+  const diagnosticContextSchema = z.object({
+    assessmentSummary: z.string(),
+    language: z.string().min(1),
+    profile: profileSchema.nullable(),
+    sourceNames: z.array(z.string()),
+    sources: z.array(CourseSourceDescriptorSchema),
+    topic: z.string().min(1),
+    priorKnowledge: PriorKnowledgePlanningInputSchema.optional(),
+    diagnosticEvidence: z.string().optional(),
+  });
   const CoursePreparationStateSchema = z.object({
-    context: z.object({
-      assessmentSummary: z.string(),
-      language: z.string().min(1),
-      profile: profileSchema.nullable(),
-      sourceNames: z.array(z.string()),
-      sources: z.array(CourseSourceDescriptorSchema),
-      topic: z.string().min(1),
-    }),
+    context: diagnostic
+      ? diagnosticContextSchema
+      : (z.object(
+          diagnosticContextSchema.omit({ priorKnowledge: true, diagnosticEvidence: true }).shape
+        ) as typeof diagnosticContextSchema),
     projectRevision: z.number().int().nonnegative(),
-    request: CourseGenerationWorkflowInputSchema.omit({ assessmentHistory: true }),
+    request: inputSchema.omit({ assessmentHistory: true }),
     stage: z.literal('prepared'),
     strategy: z.enum(['learn', 'single-source', 'source-set', 'archive']),
   });
@@ -438,6 +465,7 @@ const createCourseGenerationStateSchemas = (
   });
 
   return {
+    CourseGenerationWorkflowInputSchema: inputSchema,
     CoursePreparationStateSchema,
     CourseResearchStateSchema,
     CoursePlanVerificationSchema,
@@ -450,7 +478,15 @@ const createCourseGenerationStateSchemas = (
   };
 };
 
-export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(CourseProfileSchema);
+export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(
+  CourseProfileSchema,
+  true
+);
+export const preDiagnosticCourseGenerationStateSchemas =
+  createCourseGenerationStateSchemas(CourseProfileSchema);
+export const preControlsCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
+  PreControlsCourseProfileSchema
+);
 // Persisted definitions retain their original schemas so in-flight courses can resume.
 export const previousCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
   PreviousCourseProfileSchema

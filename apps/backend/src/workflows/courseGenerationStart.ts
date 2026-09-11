@@ -46,6 +46,7 @@ export const startCourseGenerationWithModels = (
     configOverride: { models: input.models },
     dedupeKey: courseGenerationDedupeKey(input.projectId),
     input: {
+      ...(input.diagnosticRef ? { diagnosticRef: input.diagnosticRef } : {}),
       assessmentHistory: input.assessmentHistory,
       mode: input.mode,
       projectId: input.projectId,

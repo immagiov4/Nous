@@ -24,9 +24,13 @@ The following files were used as context for generating this wiki page:
 
 # Chat UI & AI Context Assistant
 
-The **Chat UI & AI Context Assistant** system provides a sophisticated, context-aware interaction layer within the Nous platform. It enables users to engage with an AI tutor that understands the specific pedagogical context of the current view—whether it be a specific text selection, an entire lesson, or the broader library. This system bridges the frontend user interface, which captures user intent and context, with a backend orchestration layer that leverages Large Language Models (LLMs) via providers like OpenRouter, OpenAI, and a proprietary Codex service.
+Nous chat answers questions about selected text, lessons, and courses. The React interface sends the selected context to the backend, which builds the model instructions and streams the answer. Model tools can retrieve lesson details, research sources, and generate visuals.
 
-The primary purpose of the assistant is to act as a "Professor Nous," providing clarifications, generating visual artifacts, and performing web-based research to supplement learning materials. It utilizes a tool-calling architecture to interact with the library's data, such as retrieving lesson details or proposing new study notes based on the conversation flow.
+- [System architecture](#system-architecture)
+- [Frontend components](#frontend-components)
+  - [Initial knowledge collection](#initial-knowledge-collection)
+- [Backend orchestration](#backend-orchestration)
+- [Context chat API](#api-reference-apichatcontext)
 
 ## System Architecture
 
@@ -82,6 +86,22 @@ Assessment completion contributes to an active chat only in `new-course` mode. A
 Selecting the current mode does not dispatch another mode change or clear the active surface. Keyboard activation of the selected tab preserves an open attachment or tool menu; pointer clicks outside the composer still dismiss menus normally.
 
 Sources: [apps/web/components/library/HomeChatPanel.tsx](../../../apps/web/components/library/HomeChatPanel.tsx), [apps/web/components/library/HomeChatPanelFrame.tsx](../../../apps/web/components/library/HomeChatPanelFrame.tsx), [apps/web/components/library/useHomeChatPanelState.ts](../../../apps/web/components/library/useHomeChatPanelState.ts), [apps/web/tests/components/library/HomeChatPanel.test.tsx](../../../apps/web/tests/components/library/HomeChatPanel.test.tsx)
+
+### Initial knowledge collection
+
+After course approval, `HomeChatConversation` displays `DiagnosticFlow` and hides the regular composer. Desktop and mobile use the same slider, with four verbal self-assessment categories and a separate uncertain stop. Answering a parent reveals its children. Completed branches stay open until the learner closes them. Only the active slider shows its description. When the previous description collapses, scroll compensation keeps the active control in view.
+
+Targeted questions reuse the lesson quiz option layout. Learners move between questions in a fixed pass while the client keeps their answer drafts. The final action submits the pass directly, including explicit omissions. Feedback appears after the whole collection ends and explains the starting point without a grade.
+
+Each submission keeps its original wait and request identity. If the network response is lost, the client retries the same submission. Learners can navigate the submitted answers but cannot edit them until the outcome is known. Terminal failures preserve visible answers and stop offering submission retries.
+
+A repeated approval adopts a diagnostic that already started, provided the course is still selected. After feedback, continuation opens the exact generation run, including one that completed while the learner was reading.
+
+The development route `/dev/diagnostic` uses the real chat and question components with fixed synthetic stages. It is enabled only in development.
+
+Proposal events identify support for course preferences. Resumed historical interviews keep their original controls. The [diagnostic workflow](01-p-course-gen.md#diagnostic-evidence-before-generation) owns evidence storage and evaluation.
+
+Sources: [DiagnosticFlow.tsx](../../../apps/web/components/library/diagnostic/DiagnosticFlow.tsx), [SelfAssessmentControl.tsx](../../../apps/web/components/library/diagnostic/SelfAssessmentControl.tsx), [assessmentPlanning.ts](../../../apps/web/hooks/workspace/controller/assessmentPlanning.ts), [courseInterviewClient.ts](../../../apps/web/services/openrouter/courseInterviewClient.ts)
 
 ### HomeChatComposer
 The `HomeChatComposer` is a specialized input component designed for the library view. It supports two primary modes: `new-course` for onboarding/assessment and `library-query` for interacting with the existing library.
@@ -200,6 +220,3 @@ Sources: [apps/backend/src/routes/openRouterProxy.ts:74-124](../../../apps/backe
 | `toolPreferences` | `object` | Booleans for `webSearch`, `annotate`, and `generateArtifacts`. |
 
 Sources: [apps/backend/src/routes/contextChat.ts:404-440](../../../apps/backend/src/routes/contextChat.ts#L404-L440), [apps/backend/tests/routes/chat.test.ts:245-280](../../../apps/backend/tests/routes/chat.test.ts#L245-L280)
-
-## Summary
-The Chat UI & AI Context Assistant is a multi-layered system that leverages the AI-SDK for streaming responses and tool execution. By strictly coupling the UI selection context with backend prompt engineering and a robust proxy layer, it provides a seamless "Professor Nous" experience that remains grounded in the user's specific study materials.

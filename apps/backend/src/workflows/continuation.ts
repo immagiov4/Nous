@@ -115,6 +115,7 @@ export interface WorkflowSignalInput<
   nodeInstanceId: string;
   nodes: readonly WorkflowNodeSnapshot[];
   payload: unknown;
+  receivedAt?: string;
   stepPolicies: WorkflowStepPolicies;
   waitIdForNode?: (nodeInstanceId: string) => string;
 }
@@ -678,12 +679,16 @@ export const planWorkflowSignal = <
   const signal = indexed.signals[definition.signal];
   if (!signal) throw new Error(`Unknown workflow signal ${definition.signal}.`);
   const payload = snapshotDurableJson(signal.schema.parse(input.payload));
-  const resume = definition.resume as (nodeInput: unknown, value: unknown) => unknown;
+  const resume = definition.resume as (
+    nodeInput: unknown,
+    value: unknown,
+    receivedAt?: string
+  ) => unknown;
   const plan = planCompletedNode(
     {
       completedNode: {
         nodeInstanceId: input.nodeInstanceId,
-        output: resume(node.input, payload),
+        output: resume(node.input, payload, input.receivedAt),
       },
       definition: input.definition,
       nodes: input.nodes,

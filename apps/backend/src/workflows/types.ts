@@ -183,9 +183,11 @@ export interface SequenceDefinition<
 
 export interface WaitForSignalDefinition<Input = unknown, Payload = unknown, Output = unknown>
   extends WorkflowNodeReference<Input, Output> {
+  /** Persists domain data in the same transaction that consumes the signal. */
+  readonly commit?: (context: { output: Output; transaction: TransactionSql }) => Promise<void>;
   readonly kind: 'waitForSignal';
   readonly payloadSchema: ZodType<Payload>;
-  readonly resume: (input: Input, payload: Payload) => Output;
+  readonly resume: (input: Input, payload: Payload, receivedAt?: string) => Output;
   readonly signal: string;
 }
 
@@ -269,9 +271,10 @@ interface RuntimeSequenceDefinition {
 }
 
 interface RuntimeWaitForSignalDefinition {
+  readonly commit?: (context: { output: never; transaction: TransactionSql }) => Promise<void>;
   readonly kind: 'waitForSignal';
   readonly payloadSchema: ZodType;
-  readonly resume: (input: never, payload: unknown) => unknown;
+  readonly resume: (input: never, payload: unknown, receivedAt?: string) => unknown;
   readonly signal: string;
 }
 

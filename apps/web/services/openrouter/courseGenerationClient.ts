@@ -206,6 +206,29 @@ export const generateDurableCourse = async ({
   return readCompletedResult(terminalJob, projectId);
 };
 
+/** Recovers the approved run even when generation finished while feedback was being read. */
+export const resumeDurableCourse = async ({
+  runId,
+  projectId,
+  ...callbacks
+}: ResumeActiveDurableCourseInput & { runId: string }): Promise<CourseWorkflowResult> => {
+  const job = await retryTransientWorkflowRequest(async () => {
+    const response = await fetchWithSupabaseAuth(
+      `${getBackendUrl()}/api/course-workflows/runs/${encodeURIComponent(runId)}`,
+      { cache: 'no-store' }
+    );
+    assertWorkflowPollResponse(response, COURSE_GENERATION_ERROR);
+    const snapshot = readWorkflowJob(
+      await readWorkflowPollJson(response, COURSE_GENERATION_ERROR),
+      isCourseWorkflowSnapshot
+    );
+    if (snapshot?.id !== runId || snapshot.projectId !== projectId)
+      throw new Error(COURSE_GENERATION_ERROR);
+    return snapshot;
+  });
+  return readCompletedResult(await waitForTerminalRun(job, callbacks), projectId);
+};
+
 export const resumeActiveDurableCourse = async ({
   onProgressStage,
   onWorkflowSnapshot,

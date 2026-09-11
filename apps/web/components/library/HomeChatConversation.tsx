@@ -20,10 +20,14 @@ import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import ChatToolActivityStrip from '../shared/ChatToolActivityStrip.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import StreamingMarkdownRenderer from '../shared/StreamingMarkdownRenderer.tsx';
+import DiagnosticFlow from './diagnostic/DiagnosticFlow.tsx';
+import type { DiagnosticAdapter } from './diagnostic/diagnosticFlow.ts';
 
 type LibraryToolPart = Extract<UIMessage['parts'][number], { type: `tool-${string}` }>;
 
 interface HomeChatConversationProps {
+  readonly coursePreferences?: ReactNode;
+  readonly diagnosticAdapter?: DiagnosticAdapter;
   readonly assessmentComplete: boolean;
   readonly assessmentMessages: Message[];
   readonly compactWhenEmpty: boolean;
@@ -498,7 +502,64 @@ const EmptyConversationState = ({
   );
 };
 
+function CourseApproval({
+  assessmentComplete,
+  coursePreferences,
+  diagnosticAdapter,
+  homeChatMode,
+  inputRef,
+  isLoading,
+  onConfirmGenerate,
+  onContinueAssessment,
+}: Pick<
+  HomeChatConversationProps,
+  | 'assessmentComplete'
+  | 'coursePreferences'
+  | 'diagnosticAdapter'
+  | 'homeChatMode'
+  | 'inputRef'
+  | 'isLoading'
+  | 'onConfirmGenerate'
+  | 'onContinueAssessment'
+>) {
+  if (homeChatMode !== 'new-course' || diagnosticAdapter || !assessmentComplete || isLoading)
+    return null;
+  return (
+    <>
+      {coursePreferences}
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
+        <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
+          {t('Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?')}
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            data-home-chat-target="confirm-generate"
+            type="button"
+            onClick={onConfirmGenerate}
+            className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+          >
+            <Sparkles className="h-4 w-4" />
+            {t('Sì, genera il corso')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onContinueAssessment?.();
+              inputRef.current?.focus();
+            }}
+            className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 dark:border-zinc-600 dark:bg-stone-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-stone-600"
+          >
+            {t('No, voglio aggiungere...')}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function HomeChatConversation({
+  coursePreferences,
+  diagnosticAdapter,
   assessmentComplete,
   assessmentMessages,
   compactWhenEmpty,
@@ -538,7 +599,7 @@ export default function HomeChatConversation({
   );
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
-  const hasMessages = activeMessages.length > 0;
+  const hasMessages = activeMessages.length > 0 || !!diagnosticAdapter;
   const activeContentLength =
     homeChatMode === 'new-course'
       ? assessmentMessages.reduce((total, message) => total + message.text.length, 0)
@@ -650,34 +711,29 @@ export default function HomeChatConversation({
             {libraryErrorMessage}
           </div>
         ) : null}
-        {homeChatMode === 'new-course' && assessmentComplete && !isLoading ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
-            <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
-              {t('Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?')}
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                data-home-chat-target="confirm-generate"
-                type="button"
-                onClick={onConfirmGenerate}
-                className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
-              >
-                <Sparkles className="h-4 w-4" />
-                {t('Sì, genera il corso')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onContinueAssessment?.();
-                  inputRef.current?.focus();
-                }}
-                className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 dark:border-zinc-600 dark:bg-stone-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-stone-600"
-              >
-                {t('No, voglio aggiungere...')}
-              </button>
+        {homeChatMode === 'new-course' && diagnosticAdapter ? (
+          <div className="flex min-w-0 items-start gap-2.5">
+            {assistantAvatar}
+            <div className="min-w-0 flex-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-6">
+              <DiagnosticFlow
+                key={diagnosticAdapter.collectionId}
+                adapter={diagnosticAdapter}
+                isDarkMode={isDarkMode}
+              />
             </div>
           </div>
         ) : null}
+
+        <CourseApproval
+          assessmentComplete={assessmentComplete}
+          coursePreferences={coursePreferences}
+          diagnosticAdapter={diagnosticAdapter}
+          homeChatMode={homeChatMode}
+          inputRef={inputRef}
+          isLoading={isLoading}
+          onConfirmGenerate={onConfirmGenerate}
+          onContinueAssessment={onContinueAssessment}
+        />
       </div>
     </div>
   );

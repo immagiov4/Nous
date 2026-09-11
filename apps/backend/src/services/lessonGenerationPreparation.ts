@@ -1,3 +1,5 @@
+import { CoursePlanningPreferencesSchema } from '@shared/coursePlanningControls';
+import { buildCoursePlanningInstructions } from '@shared/coursePlanningInstructions';
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
@@ -50,7 +52,12 @@ export const buildLessonPedagogicalContext = (
     typeof section.parentId === 'string' ? findLessonSection(project, section.parentId) : null;
   const syllabusItem = findNestedRecordById(project.syllabus, String(section.id));
   const researchLesson = findResearchLesson(project, String(section.id));
+  const coursePreferences = CoursePlanningPreferencesSchema.parse(project.userProfile ?? {});
   return [
+    buildCoursePlanningInstructions(
+      coursePreferences,
+      project.sourceKind === 'document' || project.sourceKind === 'codebase'
+    ),
     typeof section.contextPrompt === 'string' && section.contextPrompt.trim()
       ? `SPECIFIC LESSON OBJECTIVE:\n${section.contextPrompt.trim()}`
       : '',

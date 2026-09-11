@@ -7,8 +7,9 @@ import {
   COURSE_INTERVIEW_PROPOSAL_READY_EVENT,
   COURSE_INTERVIEW_USER_ANSWER_SIGNAL,
   COURSE_INTERVIEW_WORKFLOW_ID,
+  CourseInterviewConfigurableProposalEventSchema,
   type CourseInterviewDecisionSignal,
-  CourseInterviewDecisionSignalSchema,
+  CourseInterviewDiagnosticDecisionSchema,
   CourseInterviewGenerationStartedEventSchema,
   type CourseInterviewMessage,
   CourseInterviewMessageEventSchema,
@@ -21,6 +22,13 @@ import {
   CourseInterviewStartRequestSchema,
   CourseInterviewUserAnswerSignalSchema,
 } from '@shared/courseInterviewContract';
+import {
+  DIAGNOSTIC_STAGE_EVENT,
+  DIAGNOSTIC_SUBMISSION_SIGNAL,
+  type DiagnosticStage,
+  DiagnosticStageEventSchema,
+  DiagnosticSubmissionSchema,
+} from '@shared/priorKnowledgeDiagnostic';
 import { getAppLocale } from '../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { logBackendFailureCorrelationId } from '../feedback/browserDiagnostics.ts';
@@ -50,6 +58,7 @@ const COURSE_INTERVIEW_STATUSES = new Set([
   'waiting',
 ]);
 const COURSE_INTERVIEW_SIGNAL_TYPES = new Set([
+  DIAGNOSTIC_SUBMISSION_SIGNAL,
   COURSE_INTERVIEW_USER_ANSWER_SIGNAL,
   COURSE_INTERVIEW_DECISION_SIGNAL,
 ]);
@@ -75,12 +84,15 @@ const isCourseInterviewSignalType = (value: string): value is CourseInterviewWai
 export interface CourseInterviewWait {
   readonly expiresAt: string;
   readonly signalType:
+    | typeof DIAGNOSTIC_SUBMISSION_SIGNAL
     | typeof COURSE_INTERVIEW_USER_ANSWER_SIGNAL
     | typeof COURSE_INTERVIEW_DECISION_SIGNAL;
   readonly waitId: string;
 }
 
 export interface CourseInterviewSnapshot {
+  readonly supportsCoursePreferences?: boolean;
+  readonly diagnostic?: { collectionId: string; stage: DiagnosticStage };
   readonly errorCode?: string;
   readonly generationRunId?: string;
   readonly messages: readonly CourseInterviewMessage[];
@@ -284,6 +296,8 @@ const fetchRunState = async (
 };
 
 interface CourseInterviewProjection {
+  supportsCoursePreferences?: boolean;
+  diagnostic?: { collectionId: string; stage: DiagnosticStage };
   generationRunId?: string;
   messages: CourseInterviewMessage[];
   proposal: CourseInterviewProposal | null;
@@ -306,6 +320,10 @@ const projectCourseInterviewEvent = (
   projectId: string
 ): void => {
   if (event.schemaVersion !== COURSE_INTERVIEW_EVENT_SCHEMA_VERSION) return;
+  if (event.eventType === DIAGNOSTIC_STAGE_EVENT) {
+    projection.diagnostic = DiagnosticStageEventSchema.parse(event.payload);
+    return;
+  }
   if (event.eventType === COURSE_INTERVIEW_MESSAGE_EVENT) {
     const parsed = CourseInterviewMessageEventSchema.safeParse(event.payload);
     if (!parsed.success) throw new Error(COURSE_INTERVIEW_ERROR);
@@ -314,6 +332,9 @@ const projectCourseInterviewEvent = (
     const parsed = CourseInterviewProposalReadyEventSchema.safeParse(event.payload);
     if (!parsed.success) throw new Error(COURSE_INTERVIEW_ERROR);
     projection.proposal = parsed.data.proposal;
+    projection.supportsCoursePreferences = CourseInterviewConfigurableProposalEventSchema.safeParse(
+      event.payload
+    ).success;
   } else if (event.eventType === COURSE_INTERVIEW_GENERATION_STARTED_EVENT) {
     const parsed = CourseInterviewGenerationStartedEventSchema.safeParse(event.payload);
     if (!parsed.success || parsed.data.projectId !== projectId) {
@@ -372,6 +393,8 @@ const mapCourseInterviewSnapshot = (state: CourseInterviewRunSnapshot): CourseIn
 
   return {
     ...(state.errorCode ? { errorCode: state.errorCode } : {}),
+    ...(projection.diagnostic ? { diagnostic: projection.diagnostic } : {}),
+    supportsCoursePreferences: projection.supportsCoursePreferences === true,
     ...(projection.generationRunId ? { generationRunId: projection.generationRunId } : {}),
     messages: projection.messages,
     projectId: state.projectId,
@@ -442,6 +465,7 @@ const waitForActionableSnapshot = async (
 const sendInterviewSignal = async (
   input: {
     readonly payload: unknown;
+    readonly requestKey?: string;
     readonly projectId: string;
     readonly runId: string;
     readonly signalType: string;
@@ -450,9 +474,11 @@ const sendInterviewSignal = async (
   },
   options: CourseInterviewClientOptions
 ): Promise<CourseInterviewSnapshot> => {
-  const request = acquireWorkflowRequestKey(
-    `${COURSE_INTERVIEW_SIGNAL_KEY_PREFIX}${input.runId}:${input.waitId}`
-  );
+  const request = input.requestKey
+    ? { requestKey: input.requestKey, clear: () => undefined }
+    : acquireWorkflowRequestKey(
+        `${COURSE_INTERVIEW_SIGNAL_KEY_PREFIX}${input.runId}:${input.waitId}`
+      );
   const response = await fetchWithSupabaseAuth(
     `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(input.runId)}/waits/${encodeURIComponent(input.waitId)}/signals`,
     {
@@ -540,7 +566,7 @@ export const sendCourseInterviewDecision = (
   input: SendCourseInterviewDecisionInput,
   options: CourseInterviewClientOptions = {}
 ): Promise<CourseInterviewSnapshot> => {
-  const payload = CourseInterviewDecisionSignalSchema.parse(input.decision);
+  const payload = CourseInterviewDiagnosticDecisionSchema.parse(input.decision);
   const missingSnapshot: CourseInterviewSnapshot | undefined =
     payload.kind === 'cancel'
       ? {
@@ -558,6 +584,28 @@ export const sendCourseInterviewDecision = (
     options
   );
 };
+
+export const sendCourseDiagnosticSubmission = (
+  input: { submission: unknown; projectId: string; runId: string; waitId: string },
+  options: CourseInterviewClientOptions = {}
+): Promise<CourseInterviewSnapshot> => {
+  const payload = DiagnosticSubmissionSchema.parse(input.submission);
+  return sendInterviewSignal(
+    {
+      ...input,
+      payload,
+      signalType: DIAGNOSTIC_SUBMISSION_SIGNAL,
+      requestKey: `diagnostic:${input.runId}:${payload.requestId}`,
+    },
+    options
+  );
+};
+
+export const resumeCourseInterview = (
+  runId: string,
+  projectId: string,
+  options: CourseInterviewClientOptions = {}
+) => waitForActionableSnapshot(runId, projectId, options);
 
 export const cancelCourseInterview = async (
   input: CancelCourseInterviewInput,

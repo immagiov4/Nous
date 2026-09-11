@@ -14,7 +14,6 @@ import {
   type CourseGenerationWorkflowConfig,
   CourseGenerationWorkflowConfigSchema,
   type CourseGenerationWorkflowInput,
-  CourseGenerationWorkflowInputSchema,
   type CourseGenerationWorkflowResult,
   CourseGenerationWorkflowResultSchema,
   type CoursePersistenceState,
@@ -26,6 +25,8 @@ import {
   type CourseResearchState,
   type CourseSourcesFinalizedState,
   courseGenerationStateSchemas,
+  preControlsCourseGenerationStateSchemas,
+  preDiagnosticCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
   validateRefinedCoursePlan,
 } from './courseGenerationWorkflowContract.js';
@@ -155,6 +156,7 @@ const createCourseGenerationWorkflowDefinition = <
   schemas = courseGenerationStateSchemas
 ) => {
   const {
+    CourseGenerationWorkflowInputSchema,
     CoursePreparationStateSchema,
     CourseResearchStateSchema,
     CourseDraftPlanStateSchema,
@@ -561,4 +563,30 @@ export const createPreviousPreferencesCourseGenerationWorkflow = <
     configSchema,
     'current',
     previousCourseGenerationStateSchemas
+  );
+
+/** Retains the course definition used before explicit depth and granularity choices. */
+export const createPreviousControlsCourseGenerationWorkflow = <
+  Config extends CourseGenerationWorkflowConfig = CourseGenerationWorkflowConfig,
+  Services extends CourseGenerationWorkflowServices = CourseGenerationWorkflowServices,
+>(
+  executionDefaults: Config,
+  configSchema: z.ZodType<Config> = CourseGenerationWorkflowConfigSchema as z.ZodType<Config>
+) =>
+  createCourseGenerationWorkflowDefinition<Config, Services>(
+    executionDefaults,
+    configSchema,
+    'current',
+    preControlsCourseGenerationStateSchemas
+  );
+
+export const createPreviousDiagnosticCourseGenerationWorkflow = (
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema = CourseGenerationWorkflowConfigSchema
+) =>
+  createCourseGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    'current',
+    preDiagnosticCourseGenerationStateSchemas
   );

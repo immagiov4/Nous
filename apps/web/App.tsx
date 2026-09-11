@@ -7,6 +7,7 @@ import { ACCOUNT_SETUP_DEMO_PATH } from './services/preferences/accountSetup.ts'
 import { normalizePathname } from './utils/pathname.ts';
 
 const AccountSetupDemo = lazy(() => import('./components/account/setup/AccountSetupDemo.tsx'));
+const DiagnosticDemo = lazy(() => import('./components/library/diagnostic/DiagnosticDemo.tsx'));
 
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel.tsx'));
 const YouTubeResearchLab = lazy(() => import('./components/admin/YouTubeResearchLab.tsx'));
@@ -40,14 +41,25 @@ const AuthenticatedApp = () => {
   );
 };
 
-const App = () =>
-  import.meta.env.DEV &&
-  normalizePathname(globalThis.location.pathname) === ACCOUNT_SETUP_DEMO_PATH ? (
+const App = () => {
+  if (
+    import.meta.env.DEV &&
+    normalizePathname(globalThis.location.pathname) === '/dev/diagnostic'
+  ) {
+    return (
+      <Suspense fallback={null}>
+        <DiagnosticDemo />
+      </Suspense>
+    );
+  }
+  return import.meta.env.DEV &&
+    normalizePathname(globalThis.location.pathname) === ACCOUNT_SETUP_DEMO_PATH ? (
     <Suspense fallback={null}>
       <AccountSetupDemo />
     </Suspense>
   ) : (
     <AuthenticatedApp />
   );
+};
 
 export default App;

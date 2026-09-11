@@ -1,6 +1,14 @@
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { QuizQuestion } from '../../../types.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import {
+  QUIZ_FRAME,
+  QUIZ_OPTION,
+  QUIZ_TOPIC,
+  QUIZ_UNANSWERED_FRAME,
+  QUIZ_UNANSWERED_OPTION,
+  QuizOptionContent,
+} from '../../shared/QuizPresentation.tsx';
 
 interface WorkspaceReaderInlineQuestionProps {
   readonly isDarkMode: boolean;
@@ -33,7 +41,7 @@ const getQuizOptionClassName = ({
     return 'border-transparent bg-gray-50 opacity-60 dark:bg-zinc-800';
   }
 
-  return 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700';
+  return QUIZ_UNANSWERED_OPTION;
 };
 
 export default function WorkspaceReaderInlineQuestion({
@@ -51,14 +59,14 @@ export default function WorkspaceReaderInlineQuestion({
   return (
     <section
       data-nous-speech="ignore"
-      className={`my-8 rounded-[2rem] border px-5 py-5 shadow-sm transition-all sm:px-7 ${
+      className={`my-8 ${QUIZ_FRAME} ${
         isAnswered
           ? 'border-stone-200/90 bg-stone-50/90 dark:border-stone-600/80 dark:bg-stone-900/50'
-          : 'border-orange-200/80 bg-white/95 dark:border-orange-700/60 dark:bg-zinc-900/85'
+          : QUIZ_UNANSWERED_FRAME
       }`}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="rounded-full bg-orange-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+        <span className={QUIZ_TOPIC}>
           {t('Pausa attiva {questionNumber}', {
             questionNumber: questionIndex + 1,
           })}
@@ -124,25 +132,14 @@ export default function WorkspaceReaderInlineQuestion({
               // biome-ignore lint/suspicious/noArrayIndexKey: generated options have no IDs and may contain duplicate text; their order is immutable for the lifetime of this quiz.
               key={`${questionIndex}-${optionIndex}`}
               onClick={() => onSelectQuizAnswer(questionIndex, optionIndex)}
-              className={`relative block w-full overflow-hidden rounded-xl border p-4 text-left text-base transition-all ${getQuizOptionClassName(
-                {
-                  correctIndex: question.correctIndex,
-                  isAnswered,
-                  optionIndex,
-                  selectedIndex,
-                }
-              )}`}
+              className={`${QUIZ_OPTION} ${getQuizOptionClassName({
+                correctIndex: question.correctIndex,
+                isAnswered,
+                optionIndex,
+                selectedIndex,
+              })}`}
             >
-              <span className="float-left -ml-4 -mt-4 mb-1 mr-2 flex size-8 items-center justify-center rounded-br-2xl bg-stone-100/80 text-xs font-semibold text-stone-500 dark:bg-zinc-700/70 dark:text-stone-400">
-                {String.fromCodePoint(65 + optionIndex)}
-              </span>
-              <div className="min-w-0">
-                <MarkdownRenderer
-                  content={option}
-                  isDarkMode={isDarkMode}
-                  className="prose-sm max-w-none [&_p]:!my-0"
-                />
-              </div>
+              <QuizOptionContent index={optionIndex} text={option} isDarkMode={isDarkMode} />
             </button>
           ))}
         </div>

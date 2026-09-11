@@ -1,3 +1,7 @@
+import {
+  type CoursePlanningPreferences,
+  DEFAULT_COURSE_PLANNING_CONTROLS,
+} from '@shared/coursePlanningControls';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { useLibraryAssistantChat } from '../../hooks/library/useLibraryAssistantChat.ts';
 import type { useProjectLibrary } from '../../hooks/library/useProjectLibrary.ts';
@@ -13,6 +17,8 @@ import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
+import { CourseControls } from './CourseControls.tsx';
+import { CourseLanguageProficiency } from './CourseLanguageProficiency.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -78,6 +84,20 @@ export const LibraryScreenContainer = ({
   requestConfirmation,
 }: LibraryScreenContainerProps) => {
   const learningPlanRef = useRef(controller.learningPlan);
+  const preferenceScope = JSON.stringify([
+    controller.currentProjectId,
+    controller.courseProposal?.language,
+  ]);
+  const [preferenceDraft, setPreferenceDraft] = useState<{
+    scope: string;
+    value: CoursePlanningPreferences;
+  }>();
+  const coursePreferences: CoursePlanningPreferences =
+    preferenceDraft?.scope === preferenceScope
+      ? preferenceDraft.value
+      : { coursePlanningControls: DEFAULT_COURSE_PLANNING_CONTROLS };
+  const updateCoursePreferences = (value: CoursePlanningPreferences) =>
+    setPreferenceDraft({ scope: preferenceScope, value });
   useEffect(() => {
     learningPlanRef.current = controller.learningPlan;
   }, [controller.learningPlan]);
@@ -222,7 +242,7 @@ export const LibraryScreenContainer = ({
 
   const handleConfirmGenerate = async () => {
     setIsAddingAssessmentDetails(false);
-    const result = await confirmPlanGeneration();
+    const result = await confirmPlanGeneration(coursePreferences);
     if (result.errorMessage) {
       notify(result.errorMessage);
     }
@@ -277,6 +297,28 @@ export const LibraryScreenContainer = ({
       />
       <NewHomeView
         chatProps={{
+          coursePreferences:
+            controller.courseProposal && controller.supportsCoursePreferences ? (
+              <div className="space-y-4">
+                <CourseControls
+                  value={
+                    coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
+                  }
+                  hasReferenceMaterial={Boolean(controller.source)}
+                  onChange={coursePlanningControls =>
+                    updateCoursePreferences({ ...coursePreferences, coursePlanningControls })
+                  }
+                />
+                <CourseLanguageProficiency
+                  language={controller.courseProposal.language}
+                  value={coursePreferences.languageProficiency}
+                  onChange={languageProficiency =>
+                    updateCoursePreferences({ ...coursePreferences, languageProficiency })
+                  }
+                />
+              </div>
+            ) : undefined,
+          diagnosticAdapter: controller.diagnosticAdapter,
           assessmentComplete,
           assessmentMessages,
           homeChatMode: visibleHomeChatMode,

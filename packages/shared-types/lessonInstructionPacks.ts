@@ -1,3 +1,4 @@
+import { COURSE_CONTROL_DEPTH_REVIEW_RULE } from './coursePlanningInstructions';
 import { ACTIVE_PAUSE_REASONING_RULE } from './lessonGenerationPolicy';
 import { LESSON_COVERAGE_DEPTH_RULE } from './lessonWritingContract';
 
@@ -27,8 +28,7 @@ export const VISUAL_LEARNING_REQUIRED_REPRESENTATION_RULE =
 const UNIVERSAL_LESSON_VERIFICATION_CHECKS: readonly LessonVerificationChecklistItem[] = [
   {
     checkId: 'core.instructions',
-    instruction:
-      'The lesson respects the instructions, level, tone, language, pace, and explicit student preferences.',
+    instruction: `The lesson respects the instructions, level, tone, language, pace, and explicit student preferences. ${COURSE_CONTROL_DEPTH_REVIEW_RULE}`,
   },
   {
     checkId: 'core.coverage',
