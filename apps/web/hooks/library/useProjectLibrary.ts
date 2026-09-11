@@ -1779,8 +1779,14 @@ export const useProjectLibrary = ({
     getCurrentProjectId: () => currentProjectIdRef.current,
     deleteStoredProject: async (projectId: string) => {
       const writeState = getProjectWriteState(projectId);
-      const deletion = projectRepositoryRef.current.deleteProject(projectId);
+      const deletion = writeState.queue.then(() =>
+        projectRepositoryRef.current.deleteProject(projectId)
+      );
       writeState.deletion = deletion;
+      writeState.queue = deletion.then(
+        () => undefined,
+        () => undefined
+      );
       try {
         await deletion;
         deletedProjectIdsRef.current.add(projectId);

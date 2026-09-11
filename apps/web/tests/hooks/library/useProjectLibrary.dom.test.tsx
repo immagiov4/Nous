@@ -1953,6 +1953,38 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce();
   });
 
+  test('finishes an active cover write before deleting its draft', async () => {
+    const projectId = 'draft-with-active-cover-write';
+    const cover = { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'cover.png' };
+    let finishCoverWrite!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.saveProjectCover.mockReturnValue(
+      new Promise<SavedProjectMeta>(resolve => {
+        finishCoverWrite = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    const coverPersistence = result.current.saveStoredProjectCover(projectId, cover);
+    await waitFor(() => expect(repositoryMocks.saveProjectCover).toHaveBeenCalledOnce());
+    const deletion = result.current.deleteStoredProject(projectId);
+    expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishCoverWrite(buildMeta(projectId, '2026-04-02T10:00:00.000Z', 2));
+      await coverPersistence;
+      await deletion;
+    });
+
+    expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(projectId);
+    expect(result.current.projectSyncState).toEqual({ kind: 'idle' });
+  });
+
   test('allows cover persistence after importing a previously deleted project identity', async () => {
     const projectId = 'restored-project';
     const snapshot = buildSnapshot(projectId);
