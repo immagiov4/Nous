@@ -19,6 +19,7 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
   }: {
     chatProps: {
       assessmentComplete: boolean;
+      assessmentMessages: { text: string }[];
       homeChatMode: string;
       isNewCourseLoading: boolean;
       onCancelNewCourse: () => Promise<boolean>;
@@ -34,6 +35,12 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
         {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
         {chatProps.pendingFileNames?.join(',')}
       </div>
+      <div data-testid="confirmation-messages">
+        {chatProps.assessmentMessages.map(message => message.text).join('\n')}
+      </div>
+      <button type="button" onClick={() => void chatProps.onConfirmGenerate()}>
+        Conferma scelte
+      </button>
       <button type="button" onClick={() => onPageChange('library')}>
         Apri libreria
       </button>
@@ -67,7 +74,10 @@ const buildProps = () =>
       setLearningPlan: vi.fn(),
       startHomeChat: vi.fn(),
       submitAssessment: vi.fn(),
-      workflowState: { assessment: { message: '', status: 'idle' } },
+      workflowState: {
+        assessment: { message: '', status: 'idle' },
+        generatePlan: { status: 'idle' },
+      },
     },
     fileActions: {
       isExportingProject: false,
@@ -100,6 +110,39 @@ afterEach(() => {
 });
 
 describe('LibraryScreenContainer route fallback', () => {
+  test('clears the confirmation when approval fails', async () => {
+    const props = buildProps();
+    props.controller.currentProjectId = 'first-course';
+    props.controller.supportsCoursePreferences = true;
+    props.controller.confirmPlanGeneration = vi.fn(async () => ({
+      outcome: 'failed' as const,
+      errorMessage: 'Riprova',
+    }));
+    render(<LibraryScreenContainer {...props} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Conferma scelte' }));
+    });
+    expect(screen.getByTestId('confirmation-messages')).toBeEmptyDOMElement();
+    expect(props.notify).toHaveBeenCalledWith('Riprova');
+  });
+  test('keeps confirmed choices with their course while approval is pending', async () => {
+    const props = buildProps();
+    props.controller.currentProjectId = 'first-course';
+    props.controller.supportsCoursePreferences = true;
+    const { rerender } = render(<LibraryScreenContainer {...props} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Conferma scelte' }));
+    });
+    expect(props.controller.confirmPlanGeneration).toHaveBeenCalledWith({
+      coursePlanningControls: { depth: 'auto', granularity: 'auto' },
+    });
+    expect(screen.getByTestId('confirmation-messages')).toHaveTextContent(
+      'Approfondimento: Auto. Granularità: Auto.'
+    );
+    props.controller.currentProjectId = 'second-course';
+    rerender(<LibraryScreenContainer {...props} />);
+    expect(screen.getByTestId('confirmation-messages')).toBeEmptyDOMElement();
+  });
   test.each([
     '/percorso-sconosciuto',
     '/api/projects/covers/regenerate',

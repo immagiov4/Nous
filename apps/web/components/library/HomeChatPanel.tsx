@@ -163,15 +163,16 @@ export default function HomeChatPanel({
     onLibraryMessageSend,
   });
   const reserveClearButtonSpace = showClearChat && hideHeaderCopy && hideModeSelector;
+  const hasDiagnostic = homeChatMode === 'new-course' && Boolean(diagnosticAdapter);
 
   return (
     <HomeChatPanelFrame
-      hasActiveChat={hasActiveChat}
+      hasActiveChat={hasActiveChat || hasDiagnostic}
       hideHeaderCopy={hideHeaderCopy}
       hideModeSelector={hideModeSelector}
       homeChatMode={homeChatMode}
       isAnyChatLoading={isLibraryModeLoading || isNewCourseLoading}
-      isCompactSurface={isCompactSurface}
+      isCompactSurface={isCompactSurface && !hasDiagnostic}
       isLoading={isLoading}
       isMobileViewport={isMobileViewport}
       onCancelNewCourse={onCancelNewCourse}

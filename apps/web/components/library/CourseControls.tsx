@@ -37,6 +37,11 @@ interface CourseControlsProps {
   readonly onChange: (controls: CoursePlanningControls) => void;
 }
 
+export function describeCourseControls(value: CoursePlanningControls): string {
+  const descriptions = getControlDescriptions();
+  return `${t(CONTROL_LABELS.depth)}: ${descriptions.depth[value.depth]}. ${t(CONTROL_LABELS.granularity)}: ${descriptions.granularity[value.granularity]}.`;
+}
+
 /** Course-local choices remain independent of subject expertise and the learning goal. */
 export function CourseControls({
   value,

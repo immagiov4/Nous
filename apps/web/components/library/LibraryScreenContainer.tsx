@@ -17,7 +17,7 @@ import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import { formatSourceWarningSummary } from '../../services/projects/sourceWarningSummary.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { type NewHomePage, NewHomeView } from '../newHome/NewHomeView.tsx';
-import { CourseControls } from './CourseControls.tsx';
+import { CourseControls, describeCourseControls } from './CourseControls.tsx';
 import { CourseLanguageProficiency } from './CourseLanguageProficiency.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
@@ -91,6 +91,10 @@ export const LibraryScreenContainer = ({
   const [preferenceDraft, setPreferenceDraft] = useState<{
     scope: string;
     value: CoursePlanningPreferences;
+  }>();
+  const [confirmedPreferences, setConfirmedPreferences] = useState<{
+    projectId: string | null;
+    text: string;
   }>();
   const coursePreferences: CoursePlanningPreferences =
     preferenceDraft?.scope === preferenceScope
@@ -208,11 +212,16 @@ export const LibraryScreenContainer = ({
     newCourseRequestTokenRef.current += 1;
     try {
       await cancelAssessment();
+      isConfirmingCourseRef.current = false;
+      setIsConfirmingCourse(false);
+      setConfirmedPreferences(undefined);
       setIsAddingAssessmentDetails(false);
       setPendingHomeSourceFiles([]);
       setHomeChatMode('library-query');
       return true;
     } catch (error) {
+      isConfirmingCourseRef.current = false;
+      setIsConfirmingCourse(false);
       setHomeChatMode('new-course');
       pushNousDebugTrace('assessment:cancellation-failed', {
         errorMessage: getErrorMessage(error),
@@ -248,14 +257,27 @@ export const LibraryScreenContainer = ({
     isConfirmingCourseRef.current = true;
     setIsConfirmingCourse(true);
     setIsAddingAssessmentDetails(false);
+    const requestToken = newCourseRequestTokenRef.current;
+    if (controller.supportsCoursePreferences) {
+      setConfirmedPreferences({
+        projectId: controller.currentProjectId,
+        text: describeCourseControls(
+          coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
+        ),
+      });
+    }
     try {
       const result = await confirmPlanGeneration(coursePreferences);
+      if (requestToken !== newCourseRequestTokenRef.current) return;
+      if (result.outcome === 'failed') setConfirmedPreferences(undefined);
       if (result.errorMessage) {
         notify(result.errorMessage);
       }
     } finally {
-      isConfirmingCourseRef.current = false;
-      setIsConfirmingCourse(false);
+      if (requestToken === newCourseRequestTokenRef.current) {
+        isConfirmingCourseRef.current = false;
+        setIsConfirmingCourse(false);
+      }
     }
   };
 
@@ -310,7 +332,7 @@ export const LibraryScreenContainer = ({
         chatProps={{
           coursePreferences:
             controller.courseProposal && controller.supportsCoursePreferences ? (
-              <div className="space-y-4">
+              <div className="max-w-xl space-y-4">
                 <CourseControls
                   value={
                     coursePreferences.coursePlanningControls ?? DEFAULT_COURSE_PLANNING_CONTROLS
@@ -331,7 +353,10 @@ export const LibraryScreenContainer = ({
             ) : undefined,
           diagnosticAdapter: controller.diagnosticAdapter,
           assessmentComplete,
-          assessmentMessages,
+          assessmentMessages:
+            confirmedPreferences && confirmedPreferences.projectId === controller.currentProjectId
+              ? [...assessmentMessages, { role: 'user', text: confirmedPreferences.text }]
+              : assessmentMessages,
           homeChatMode: visibleHomeChatMode,
           isDarkMode: readerState.readerChrome.isDarkMode,
           isLibraryLoading,
@@ -352,7 +377,10 @@ export const LibraryScreenContainer = ({
           onClearPendingFile: () => setPendingHomeSourceFiles([]),
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
           onCancelNewCourse: cancelNewCourse,
-          onContinueAssessment: () => setIsAddingAssessmentDetails(true),
+          onContinueAssessment: () => {
+            setConfirmedPreferences(undefined);
+            setIsAddingAssessmentDetails(true);
+          },
           onConfirmGenerate: handleConfirmGenerate,
           onHomeChatModeChange: handleHomeChatModeChange,
           onLibraryMessageSend: libraryAssistantChat.sendLibraryMessage,

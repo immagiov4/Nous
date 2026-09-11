@@ -5559,9 +5559,11 @@ test('confirmation recovers an approval already waiting on diagnostics and prese
   assert.equal(setDiagnosticAdapter.mock.calls.length, 1);
 });
 test.each([
-  'lookup',
-  'approval',
-] as const)('confirmation cannot restore diagnostics after a project switch during %s', async phase => {
+  ['lookup', 'navigation'],
+  ['approval', 'navigation'],
+  ['lookup', 'cancellation'],
+  ['approval', 'cancellation'],
+] as const)('confirmation ignores %s responses after %s', async (phase, interruption) => {
   let complete!: (snapshot: CourseInterviewSnapshot) => void;
   const pending = new Promise<CourseInterviewSnapshot>(resolve => {
     complete = resolve;
@@ -5598,16 +5600,23 @@ test.each([
   if (phase === 'approval')
     await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
   projectLibrary.adapter.setCurrentProjectId('other-project');
-  state.adapter.invalidateWorkflows(['generatePlan']);
+  state.adapter.invalidateWorkflows([
+    interruption === 'navigation' ? 'generatePlan' : 'assessment',
+  ]);
+  projectLibrary.adapter.setCurrentProjectId(snapshot.projectId);
   state.adapter.setScreenState(AppState.READING);
   complete(snapshot);
-  assert.equal((await confirmation).outcome, 'failed');
+  assert.deepEqual(await confirmation, { outcome: 'failed' });
   assert.equal(setDiagnosticAdapter.mock.calls.length, 0);
   assert.equal(state.internalState.screenState, AppState.READING);
 });
 
 test('confirmation presents diagnostics before starting course generation', async () => {
   const projectId = 'document-project';
+  let complete!: (snapshot: CourseInterviewSnapshot) => void;
+  const pending = new Promise<CourseInterviewSnapshot>(resolve => {
+    complete = resolve;
+  });
   const resumeActiveDurableCourse = vi.fn();
   const approvedInterview = createInterviewSnapshot({
     projectId,
@@ -5631,13 +5640,18 @@ test('confirmation presents diagnostics before starting course generation', asyn
     openRouter: {
       getActiveCourseInterview: async () => createProposalSnapshot(projectId),
       resumeActiveDurableCourse,
-      sendCourseInterviewDecision: async () => approvedInterview,
+      sendCourseInterviewDecision: () => pending,
     },
   });
   const setDiagnosticAdapter = vi.fn();
   state.adapter.setDiagnosticAdapter = setDiagnosticAdapter;
 
-  expect((await controller.confirmPlanGeneration()).outcome).toBe('diagnostic');
+  const confirmation = controller.confirmPlanGeneration();
+  await Promise.resolve();
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
+  complete(approvedInterview);
+  expect((await confirmation).outcome).toBe('diagnostic');
 
   expect(setDiagnosticAdapter).toHaveBeenCalledTimes(1);
   expect(resumeActiveDurableCourse).not.toHaveBeenCalled();
