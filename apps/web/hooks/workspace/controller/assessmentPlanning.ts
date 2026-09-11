@@ -177,6 +177,7 @@ export const createAssessmentPlanningCommands = (
   let activeAssessmentCancellationPromise: Promise<void> | null = null;
   let activeHomeChatStartPromise: Promise<HomeChatStartResult> | null = null;
   let activeHomeChatWorkspaceOwnership: AssessmentWorkspaceOwnership | null = null;
+  let latestCourseConfirmationToken: symbol | null = null;
   const openProjectAttempts = new Map<number, PendingWorkspaceOpen>();
   const workspaceOwnershipByOpenProjectRequestId = new Map<
     number,
@@ -1349,6 +1350,8 @@ export const createAssessmentPlanningCommands = (
     errorMessage?: string;
     outcome: 'failed' | 'planned' | 'diagnostic';
   }> {
+    const confirmationToken = Symbol('course-confirmation');
+    latestCourseConfirmationToken = confirmationToken;
     let requestId: number | undefined;
     let progressFeedback: ReturnType<typeof createCourseProgressFeedback> | undefined;
     try {
@@ -1374,7 +1377,10 @@ export const createAssessmentPlanningCommands = (
         runId: interview.runId,
         waitId: interview.wait.waitId,
       });
-      if (projectLibrary.getCurrentProjectId() !== projectId) {
+      if (
+        latestCourseConfirmationToken !== confirmationToken ||
+        projectLibrary.getCurrentProjectId() !== projectId
+      ) {
         throw new Error('Il corso selezionato è cambiato.');
       }
       applyInterviewSnapshot(approvedInterview);
@@ -1405,6 +1411,10 @@ export const createAssessmentPlanningCommands = (
         state.failWorkflow('generatePlan', requestId, errorMessage);
       }
       return { outcome: 'failed', errorMessage };
+    } finally {
+      if (latestCourseConfirmationToken === confirmationToken) {
+        latestCourseConfirmationToken = null;
+      }
     }
   }
 

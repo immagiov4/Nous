@@ -235,7 +235,7 @@ describe('LibraryScreenContainer route fallback', () => {
     expect(props.notify).not.toHaveBeenCalledWith(expect.stringContaining('sentinel'));
   });
 
-  test('keeps course confirmation single-flight without entering generation', async () => {
+  test('keeps course confirmation single-flight while the diagnostic response is pending', async () => {
     let resolveConfirmation: () => void = () => {};
     const confirmation = new Promise<void>(resolve => {
       resolveConfirmation = resolve;

@@ -5718,6 +5718,35 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
   ]);
 });
 
+test('confirmPlanGeneration rejects a superseded approval response', async () => {
+  const decisionResolvers: Array<() => void> = [];
+  const resumeActiveDurableCourse = vi.fn();
+  const { controller, state } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'document-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      resumeActiveDurableCourse,
+      sendCourseInterviewDecision: async () => {
+        await new Promise<void>(resolve => decisionResolvers.push(resolve));
+        return createInterviewSnapshot({ projectId: 'document-project' });
+      },
+    },
+  });
+
+  const superseded = controller.confirmPlanGeneration();
+  await vi.waitFor(() => assert.equal(decisionResolvers.length, 1));
+  const current = controller.confirmPlanGeneration();
+  await vi.waitFor(() => assert.equal(decisionResolvers.length, 2));
+  decisionResolvers[0]?.();
+
+  expect((await superseded).outcome).toBe('failed');
+  expect(resumeActiveDurableCourse).not.toHaveBeenCalled();
+  assert.equal(state.internalState.workflowState.generatePlan.status, 'idle');
+
+  decisionResolvers[1]?.();
+  await current;
+});
+
 test('confirmPlanGeneration resumes a reopened archive without downloading the ZIP', async () => {
   const archiveSource = {
     file: {

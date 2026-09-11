@@ -641,7 +641,7 @@ export default function HomeChatConversation({
       ref={messagesScrollRef}
       className={getConversationScrollClassName(
         compactWhenEmpty,
-        Boolean(diagnosticAdapter),
+        homeChatMode === 'new-course' && Boolean(diagnosticAdapter),
         hasMessages,
         isLoading,
         reserveClearButtonSpace

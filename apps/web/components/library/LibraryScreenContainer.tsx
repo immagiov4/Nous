@@ -125,7 +125,8 @@ export const LibraryScreenContainer = ({
   } = controller;
   const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
   const isNewCourseLoading = controller.workflowState.assessment.status === 'pending';
-  const isAnyHomeChatLoading = libraryAssistantChat.isLoading || isNewCourseLoading;
+  const isAnyHomeChatLoading =
+    libraryAssistantChat.isLoading || isNewCourseLoading || isConfirmingCourse;
   const isAssessmentActive = assessmentMessages.length > 0 || isNewCourseLoading;
   const visibleHomeChatMode = isAssessmentActive ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
