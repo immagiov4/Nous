@@ -397,13 +397,22 @@ const assessSourceCoverage =
 
 const optionalYouTubeFailureWarnings = (
   context: {
-    readonly input: Pick<LessonSourcesState, 'request' | 'warnings'>;
+    readonly input: Pick<LessonSourcesState, 'request' | 'warnings' | 'researchRouting'>;
     readonly signal: AbortSignal;
   },
   error: unknown,
   logger: LessonStageLogger
 ) => {
   context.signal.throwIfAborted();
+  if (
+    context.input.researchRouting &&
+    (!context.input.researchRouting.suppliedSourcesSufficient ||
+      !isResearchProviderUnavailable(
+        error instanceof CourseModelProviderError ? error.cause : error
+      ))
+  ) {
+    throw error;
+  }
   const retryAfterMs = readRetryAfterMs(error);
   logger.warn('Optional lesson YouTube research failed.', {
     diagnostic: toWorkflowErrorDiagnostic(error),
@@ -745,6 +754,7 @@ export const createLessonGenerationStageServices = (
         config: modelConfig(context),
         level: 'lesson',
         topic: context.input.lessonInputData.sectionTitle,
+        coverageGaps: context.input.lessonInputData.coverageGaps,
         learningContext: [
           context.input.lessonInputData.description,
           context.input.youtubePlanning.context,
@@ -766,3 +776,6 @@ export const createLessonGenerationStageServices = (
     reviewLesson: reviewLesson(dependencies),
   };
 };
+
+import { isResearchProviderUnavailable } from '../services/researchProviderAvailability.js';
+import { CourseModelProviderError } from './courseGenerationModel.js';

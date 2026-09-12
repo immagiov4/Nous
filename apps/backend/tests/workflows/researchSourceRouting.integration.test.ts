@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { CodexAppServerError } from '../../src/services/codexAppServer.js';
 import {
   createCourseResearchNode,
   createCourseResearchServices,
@@ -12,6 +13,7 @@ import {
 } from '../../src/workflows/courseGenerationWorkflowContract.js';
 import { createWorkflowRegistry, workflow } from '../../src/workflows/definition.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
+import { retryCorrective } from '../../src/workflows/retryPolicy.js';
 import { runWorkflowStepClaim } from '../../src/workflows/workflowStepRunner.js';
 import { researchRoutingScenarios } from '../services/researchSourceRouting.scenarios.js';
 import {
@@ -23,6 +25,36 @@ import {
 } from './postgresWorkflowStore.integration.fixture.js';
 
 const context = createPostgresWorkflowIntegrationContext();
+const scenarios = [
+  ...researchRoutingScenarios.map(scenario => ({
+    ...scenario,
+    failure: null as Error | null,
+    suppliedSourcesSufficient: scenario.selected.length === 0,
+    expectedStatus: 'completed',
+  })),
+  ...(['web', 'youtube'] as const).flatMap(channel =>
+    [true, false].map(sufficient => ({
+      ...researchRoutingScenarios[0],
+      name: `${channel} unavailable with supplied sufficiency ${sufficient}`,
+      selected: [channel],
+      failure: new CodexAppServerError('Provider unavailable', 'process'),
+      suppliedSourcesSufficient: sufficient,
+      expectedStatus: sufficient ? 'completed' : 'failed',
+    }))
+  ),
+  {
+    ...researchRoutingScenarios[0],
+    name: 'optional web invalid contract',
+    selected: ['web' as const],
+    suppliedSourcesSufficient: true,
+    expectedStatus: 'failed',
+    failure: retryCorrective({
+      code: 'invalid',
+      message: 'Invalid output',
+      feedback: 'Correct the output.',
+    }),
+  },
+];
 
 describe
   .skipIf(!context.enabled)
@@ -30,14 +62,12 @@ describe
     beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
     afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
 
-    test.each(
-      researchRoutingScenarios
-    )('$name executes only selected retrieval branches', async scenario => {
+    test.each(scenarios)('$name executes only selected retrieval branches', async scenario => {
       const sql = context.sql;
       if (!sql) throw new Error('An isolated integration database is required.');
       const config = { models: getGlobalModelConfig(), maxAttempts: 1, timeoutMs: 60_000 };
       const routing = {
-        suppliedSourcesSufficient: scenario.selected.length === 0,
+        suppliedSourcesSufficient: scenario.suppliedSourcesSufficient,
         rationale: scenario.learningContext,
         channels: (['web', 'youtube'] as const).map(type => ({
           type,
@@ -49,29 +79,33 @@ describe
         if (input.name === 'research_source_routing') return routing;
         if (input.name === 'course_youtube_queries')
           return { queries: ['binary search pointers', 'binary search visualization'] };
+        if (scenario.failure) throw scenario.failure;
         return {
           brief: 'Authoritative researched facts.',
           sources: [{ title: 'Official reference', url: 'https://example.org/reference' }],
         };
       });
-      const researchYoutube = vi.fn(async () => ({
-        context: 'A sorted interval shrinks.',
-        discoveredVideoCount: 1,
-        rationale: 'Narrated demonstration.',
-        videoCandidates: [
-          {
-            title: 'Binary search demonstration',
-            url: 'https://www.youtube.com/watch?v=search-demo',
-            segments: [
-              {
-                startSeconds: 0,
-                endSeconds: 10,
-                text: 'Compare the midpoint and retain the possible half.',
-              },
-            ],
-          },
-        ],
-      }));
+      const researchYoutube = vi.fn(async () => {
+        if (scenario.failure) throw scenario.failure;
+        return {
+          context: 'A sorted interval shrinks.',
+          discoveredVideoCount: 1,
+          rationale: 'Narrated demonstration.',
+          videoCandidates: [
+            {
+              title: 'Binary search demonstration',
+              url: 'https://www.youtube.com/watch?v=search-demo',
+              segments: [
+                {
+                  startSeconds: 0,
+                  endSeconds: 10,
+                  text: 'Compare the midpoint and retain the possible half.',
+                },
+              ],
+            },
+          ],
+        };
+      });
       const services = createCourseResearchServices({
         generateObject: generateObject as never,
         readSourceMaterials: async () => [],
@@ -119,12 +153,11 @@ describe
       for (let steps = 0; steps < 20; steps += 1) {
         const claim = await claimNextStep(store, definition, 'research-routing-test');
         if (!claim) break;
-        expect(await runWorkflowStepClaim({ claim, registry, services, store })).toMatchObject({
-          status: 'checkpointed',
-        });
+        const result = await runWorkflowStepClaim({ claim, registry, services, store });
+        expect(['checkpointed', 'failure-recorded']).toContain(result.status);
       }
       const state = await store.getRunState({ runId: created.run.id, userId: context.userId });
-      expect(state?.run.status).toBe('completed');
+      expect(state?.run.status).toBe(scenario.expectedStatus);
       const calls = generateObject.mock.calls.map(([call]) => call.name);
       expect(calls.filter(name => name === 'research_source_routing')).toHaveLength(1);
       expect(calls.filter(name => name === 'course_web_research')).toHaveLength(
