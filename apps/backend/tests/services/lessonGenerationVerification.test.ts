@@ -160,6 +160,96 @@ describe('lesson review quality report contract', () => {
     await expect(review()).resolves.toEqual(original);
   });
 
+  const featureDrafts: [string, LessonContentDraft][] = [
+    ['quiz-quality', flawedAutomationLesson],
+    [
+      'image-reference',
+      {
+        ...original,
+        imageRefs: [{ assetId: 'diagram', alt: 'Diagramma', caption: 'Relazioni ordinate.' }],
+      },
+    ],
+    [
+      'youtube-structure',
+      {
+        ...original,
+        contentBlocks: [
+          ...original.contentBlocks,
+          {
+            type: 'youtube-clips',
+            clips: [
+              {
+                sourceIndex: 0,
+                startSeconds: 0,
+                endSeconds: 10,
+                title: 'Esclusione dei candidati',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      'generated-visual',
+      {
+        ...original,
+        contentBlocks: [
+          ...original.contentBlocks,
+          { type: 'generated-visual', slotId: 'comparison' },
+        ],
+      },
+    ],
+  ];
+
+  test.each(
+    featureDrafts
+  )('requires a judgment for existing %s content', async (checkId, draft) => {
+    mockReview(draft, preserved, { checkId, status: 'not-applicable' });
+    await expect(reviewLessonContentDraftStrict({ draft, generationInput })).rejects.toMatchObject({
+      code: 'lesson_review_report_incomplete',
+    });
+  });
+
+  test('requires a judgment for a removed quiz and for a quiz introduced by review', async () => {
+    for (const [draft, reviewed] of [
+      [flawedAutomationLesson, original],
+      [original, flawedAutomationLesson],
+    ]) {
+      mockReview(reviewed, preserved, { checkId: 'quiz-quality', status: 'not-applicable' });
+      await expect(
+        reviewLessonContentDraftStrict({ draft, generationInput })
+      ).rejects.toMatchObject({ code: 'lesson_review_report_incomplete' });
+    }
+  });
+
+  test.each([
+    ['math-structure', 'Il servizio costa $10.'],
+    ['code-structure', 'La parola `ordinamento` descrive la disposizione dei valori.'],
+  ])('allows semantic non-applicability for a %s syntax candidate', async (checkId, markdown) => {
+    const draft: LessonContentDraft = {
+      ...original,
+      contentBlocks: [{ type: 'markdown', markdown }],
+    };
+    mockReview(draft, preserved, { checkId, status: 'not-applicable' });
+    await expect(reviewLessonContentDraftStrict({ draft, generationInput })).resolves.toEqual(
+      draft
+    );
+  });
+
+  test('allows source images to satisfy the visual pack without generated visuals', async () => {
+    const draft = {
+      ...original,
+      imageRefs: [{ assetId: 'diagram', alt: 'Diagramma', caption: 'Relazioni ordinate.' }],
+    };
+    mockReview(draft, preserved, { checkId: 'generated-visual', status: 'not-applicable' });
+    await expect(
+      reviewLessonContentDraftStrict({
+        draft,
+        generationInput: { ...generationInput, instructionPacks: ['visual-learning'] },
+      })
+    ).resolves.toEqual(draft);
+  });
+
   test('returns corrected quiz text without restoring the original stray token', async () => {
     const repaired = structuredClone(flawedAutomationLesson);
     const quiz = repaired.contentBlocks[1];
