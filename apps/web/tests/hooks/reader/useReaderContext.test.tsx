@@ -4,6 +4,127 @@ import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { useReaderContext } from '../../../hooks/reader/useReaderContext.ts';
+import * as textProjection from '../../../utils/markdown/textProjection.ts';
+
+test('commits the selection menu before preparing context and cancels obsolete work', () => {
+  vi.useFakeTimers();
+  const frames: FrameRequestCallback[] = [];
+  const runFrame = () => {
+    const callback = frames.shift();
+    assert.ok(callback);
+    act(() => callback(0));
+  };
+  const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const projectionSpy = vi.spyOn(textProjection, 'buildVisibleProjection');
+  const container = document.createElement('div');
+  const textNode = document.createTextNode('Alpha beta gamma delta');
+  container.append(textNode);
+  document.body.append(container);
+  const range = document.createRange();
+  range.setStart(textNode, 6);
+  range.setEnd(textNode, 10);
+  range.getBoundingClientRect = () => new DOMRect(32, 64, 48, 18);
+  const selection = {
+    rangeCount: 1,
+    getRangeAt: () => range,
+    toString: () => 'beta',
+  } as unknown as Selection;
+  const { result, rerender, unmount } = renderHook(
+    ({ sectionId }) =>
+      useReaderContext({
+        activeSectionId: sectionId,
+        contentRef: { current: container },
+        scrollContainerRef: { current: container },
+        isMobileViewport: false,
+        sectionContent: 'Alpha beta gamma delta',
+      }),
+    { initialProps: { sectionId: 'section-1' } }
+  );
+
+  try {
+    act(() => {
+      result.current.openContextMenuFromSelection(selection, 'desktop-floating');
+    });
+    expect(result.current.contextMenu.visible).toBe(true);
+    expect(projectionSpy).not.toHaveBeenCalled();
+    container.scrollTop = 240;
+    act(() => {
+      result.current.openContextMenuFromSelection(
+        selection,
+        'desktop-floating',
+        undefined,
+        undefined,
+        { allowToggleClose: false }
+      );
+    });
+    expect(result.current.contextMenuScrollTopRef.current).toBe(240);
+    range.setStart(textNode, 11);
+    range.setEnd(textNode, 16);
+    runFrame();
+    expect(projectionSpy).not.toHaveBeenCalled();
+    runFrame();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(projectionSpy).toHaveBeenCalledOnce();
+    expect(result.current.contextMenu).toMatchObject({
+      contextBefore: 'Alpha ',
+      contextAfter: ' gamma delta',
+      selectedTextStart: 6,
+    });
+
+    act(() => {
+      result.current.openContextAnswer({ initialQuestion: 'Explain', selectedText: 'beta' });
+      result.current.openContextMenuFromSelection(selection, 'desktop-floating');
+    });
+    expect(result.current.contextMenu.visible).toBe(false);
+    act(() => {
+      while (frames.length) frames.shift()?.(0);
+      vi.runOnlyPendingTimers();
+    });
+    act(() => {
+      result.current.closeContextAnswer();
+    });
+    expect(result.current.contextMenu.visible).toBe(true);
+    runFrame();
+    runFrame();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(
+      result.current.contextMenu.type === 'selection' && result.current.contextMenu.prepareContext
+    ).toBeUndefined();
+
+    act(() => {
+      result.current.closeContextMenu();
+    });
+    projectionSpy.mockClear();
+    range.setStart(textNode, 6);
+    range.setEnd(textNode, 10);
+    act(() => {
+      result.current.openContextMenuFromSelection(selection, 'desktop-floating');
+    });
+    runFrame();
+    runFrame();
+    rerender({ sectionId: 'section-2' });
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(result.current.contextMenu.visible).toBe(false);
+    expect(projectionSpy).not.toHaveBeenCalled();
+    rerender({ sectionId: 'section-1' });
+    expect(result.current.contextMenu.visible).toBe(false);
+  } finally {
+    unmount();
+    container.remove();
+    projectionSpy.mockRestore();
+    frameSpy.mockRestore();
+    vi.useRealTimers();
+  }
+});
 
 const buildSelection = (_container: HTMLDivElement, textNode: Text, selectedText: string) => {
   const beforeRange = {

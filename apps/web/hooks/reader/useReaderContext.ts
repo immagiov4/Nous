@@ -10,7 +10,12 @@ import {
 } from 'react';
 import type { ContextAnswerState } from '../../components/workspace/shell/types.ts';
 import { createProjectId } from '../../services/projects/projectSnapshot.ts';
-import type { ContextMenuPlacement, ContextMenuState, SectionAnnotation } from '../../types.ts';
+import type {
+  ContextMenuPlacement,
+  ContextMenuState,
+  SectionAnnotation,
+  SelectionContextMenuState,
+} from '../../types.ts';
 import {
   createAnnotationContextMenuState,
   createClosedContextMenuState,
@@ -65,23 +70,13 @@ interface OpenSelectionMenuOptions {
   allowToggleClose?: boolean;
 }
 
-interface SelectionMenuIdentity {
-  contextAfter?: string;
-  contextBefore?: string;
-  placement: ContextMenuPlacement;
-  selectedText: string;
-  selectedTextStart?: number;
-}
-
-const getSelectionMenuKey = ({
-  contextAfter,
-  contextBefore,
-  placement,
-  selectedText,
-  selectedTextStart,
-}: SelectionMenuIdentity) => {
-  return `${placement}::${selectedText}::${selectedTextStart ?? ''}::${contextBefore || ''}::${contextAfter || ''}`;
-};
+const isSameSelectionMenu = (left: SelectionContextMenuState, right: SelectionContextMenuState) =>
+  left.placement === right.placement &&
+  left.selectedText === right.selectedText &&
+  left.selectionBoundary?.startContainer === right.selectionBoundary?.startContainer &&
+  left.selectionBoundary?.startOffset === right.selectionBoundary?.startOffset &&
+  left.selectionBoundary?.endContainer === right.selectionBoundary?.endContainer &&
+  left.selectionBoundary?.endOffset === right.selectionBoundary?.endOffset;
 
 const canOpenLessonContextMenu = (target: EventTarget | null, contentElement: HTMLElement) => {
   if (!(target instanceof Node)) {
@@ -130,7 +125,10 @@ export const useReaderContext = ({
     at: number;
     sectionId: string | null;
   } | null>(null);
-  const suppressedSelectionMenuRef = useRef<{ key: string; until: number } | null>(null);
+  const suppressedSelectionMenuRef = useRef<{
+    menu: SelectionContextMenuState;
+    until: number;
+  } | null>(null);
   const pendingDesktopSelectionContextMenuRef = useRef<{ x: number; y: number } | null>(null);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const contextAnswerDraftSizeRef = useRef<ContextAnswerSize>(CONTEXT_ANSWER_DEFAULT_SIZE);
@@ -146,6 +144,37 @@ export const useReaderContext = ({
   useEffect(() => {
     contextMenuStateRef.current = visibleContextMenu;
   }, [visibleContextMenu]);
+
+  useEffect(() => {
+    if (
+      !contextMenu.visible ||
+      contextMenu.type !== 'selection' ||
+      !contextMenu.prepareContext ||
+      contextAnswer ||
+      contextMenuOwnerSectionId !== activeSectionId
+    ) {
+      return;
+    }
+
+    const prepareContext = contextMenu.prepareContext;
+    const commitPreparedContext = () => {
+      if (contextMenuStateRef.current !== contextMenu) return;
+      const preparedMenu = { ...contextMenu, ...prepareContext(), prepareContext: undefined };
+      contextMenuStateRef.current = preparedMenu;
+      setContextMenu(preparedMenu);
+    };
+    let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+    // A task after the animation frame lets the shell paint before projection work.
+    let frame = globalThis.requestAnimationFrame(() => {
+      frame = globalThis.requestAnimationFrame(() => {
+        timeout = globalThis.setTimeout(commitPreparedContext);
+      });
+    });
+    return () => {
+      globalThis.cancelAnimationFrame(frame);
+      globalThis.clearTimeout(timeout);
+    };
+  }, [activeSectionId, contextAnswer, contextMenu, contextMenuOwnerSectionId]);
 
   // Mirror of sectionContent so that handleContentClick can read the latest
   // value without listing it as a useCallback dependency. sectionContent
@@ -272,6 +301,8 @@ export const useReaderContext = ({
     }
 
     previousActiveSectionIdRef.current = activeSectionId;
+    closeContextMenu();
+    suppressedSelectionMenuRef.current = null;
     const retainedLessonId = contextAnswerLessonRetentionRef.current?.lessonId;
     contextAnswerLessonRetentionRef.current = null;
     if (retainedLessonId === activeSectionId) {
@@ -279,7 +310,7 @@ export const useReaderContext = ({
     }
 
     setContextAnswer(null);
-  }, [activeSectionId]);
+  }, [activeSectionId, closeContextMenu]);
 
   const openContextAnswer = useCallback(
     ({
@@ -390,6 +421,7 @@ export const useReaderContext = ({
 
       const nextMenu = resolveContextMenuSelection({
         content: sectionContentRef.current,
+        deferContext: true,
         container: contentRef.current,
         fallbackAnchorX,
         fallbackAnchorY,
@@ -401,11 +433,10 @@ export const useReaderContext = ({
         return 'ignored';
       }
 
-      const nextMenuKey = getSelectionMenuKey(nextMenu);
       const suppressedSelection = suppressedSelectionMenuRef.current;
       if (
         suppressedSelection &&
-        suppressedSelection.key === nextMenuKey &&
+        isSameSelectionMenu(suppressedSelection.menu, nextMenu) &&
         suppressedSelection.until > Date.now()
       ) {
         return 'ignored';
@@ -415,10 +446,10 @@ export const useReaderContext = ({
         options?.allowToggleClose !== false &&
         contextMenuStateRef.current.visible &&
         contextMenuStateRef.current.type === 'selection' &&
-        getSelectionMenuKey(contextMenuStateRef.current) === nextMenuKey
+        isSameSelectionMenu(contextMenuStateRef.current, nextMenu)
       ) {
         suppressedSelectionMenuRef.current = {
-          key: nextMenuKey,
+          menu: nextMenu,
           until: Date.now() + SELECTION_MENU_REOPEN_SUPPRESSION_MS,
         };
         closeContextMenu();
@@ -426,23 +457,18 @@ export const useReaderContext = ({
       }
 
       captureContextMenuScrollTop();
+      const currentMenu = contextMenuStateRef.current;
+      if (
+        currentMenu.visible &&
+        currentMenu.type === 'selection' &&
+        isSameSelectionMenu(currentMenu, nextMenu)
+      ) {
+        return 'opened';
+      }
+
       setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
-      setContextMenu(currentMenu => {
-        if (
-          currentMenu.visible &&
-          currentMenu.type === 'selection' &&
-          currentMenu.placement === nextMenu.placement &&
-          currentMenu.selectedText === nextMenu.selectedText &&
-          currentMenu.selectedTextStart === nextMenu.selectedTextStart &&
-          currentMenu.contextBefore === nextMenu.contextBefore &&
-          currentMenu.contextAfter === nextMenu.contextAfter
-        ) {
-          return currentMenu;
-        }
-
-        return nextMenu;
-      });
+      setContextMenu(nextMenu);
 
       return 'opened';
     },
