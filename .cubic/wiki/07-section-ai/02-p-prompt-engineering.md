@@ -114,7 +114,24 @@ Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verific
 
 Lesson generation remains schema-driven. `LESSON_JOB_RESPONSE_SCHEMA` requires structured `contentBlocks`, `generatedVisuals` and `imageRefs`; the verifier extends that schema temporarily with a `verificationReport` entry for **every required semantic and structural check ID**.
 
-Each report item requires `checkId`, `status`, non-empty `evidence` and `action`. Verification status values have one canonical definition, the schema requires exactly the combined number of checks, and runtime validation also rejects whitespace-only evidence, duplicate/missing IDs or any required ID omission. The verification report is removed before the lesson draft continues through the pipeline.
+Each report item requires `checkId`, `status`, `evidence`, and `action`. Evidence must contain non-whitespace text. Action may be empty unless the status is `corrected`. Verification status values have one canonical definition, the schema requires exactly the combined number of checks, and runtime validation also rejects duplicate/missing IDs or any required ID omission. The verification report is removed before the lesson draft continues through the pipeline.
+
+The verifier assesses the complete corrected lesson, including its own edits. `pass` means the content already meets the check; `corrected` requires a repair described in `action`; `failed` means a defect remains. A failed check raises `lesson_review_checks_failed` and passes the findings into the existing corrective retry. Failed-check and integrity findings are delimited as untrusted report data; the teacher instructions preserve that distinction. Invalid statuses and corrections without an action are rejected as incomplete reports. Mandatory semantic checks require a judgment. Quiz, image-reference, video, and generated-visual checks also require a judgment when their explicit structure appears in the original or corrected draft. Code and math syntax candidates still require semantic assessment; currency markers and ordinary quoted words alone do not establish applicability. Source media may satisfy visual-learning requirements without generated visuals. When visual-learning is active and the corrected draft has no source images or video clips, generated-visual requires a judgment. A failed semantic report and unauthorized new structures contribute feedback to the same corrective attempt. Removing a feature is a correction, not a reason to skip its judgment. The durable lesson schema stays unchanged.
+
+### Educational prose review
+
+The prose audit applies the relevant plain-language and instruction-design principles from `docs-doc`, `unslop`, and `writing-for-agents` to existing shared rules. Documentation taxonomies and API-reference conventions do not govern lesson content.
+
+| Concern | Shared owner and completion evidence |
+| :--- | :--- |
+| Positive definitions | `LESSON_FIRST_EXPOSURE_RULE` reuses `LESSON_POSITIVE_DEFINITION_RULE`. Review cites the first introduction and positive explanation in reading order. |
+| Prerequisites | `LESSON_LOCAL_PROPEDEUTIC_RULES` covers every question and option, including distractors. `core.progression` cites the teaching passage before each pause; later prose and answer feedback cannot supply prior knowledge. |
+| Plain language and natural prose | `LESSON_LANGUAGE_CLARITY_RULES` covers ordinary foreign terms, consistent names, connected explanations, and unnecessary rhetorical framing. Exact terminology remains when it is taught or technically necessary. |
+| Review-introduced fragments | `LESSON_LEARNER_TEXT_INTEGRITY_RULE` applies to prose and exercise text. `core.integrity` compares changed learner text against the draft and checks every added fragment for a teaching role. |
+
+These are semantic assessments. Runtime validation checks the report contract and rejects declared unresolved defects; it does not classify lesson quality with word lists. Pedagogical evidence comes from the lesson and learner constraints. Source-grounding checks own factual support.
+
+`scripts/run-lesson-review-quality.ts` exercises the production drafting and strict-review services with `gpt-5.6-luna`. Set `REAL_LESSON_QUALITY_TESTS=I_ACCEPT_REAL_PROVIDER_COSTS` and run `bun run scripts/run-lesson-review-quality.ts` with the configured Codex provider available. It checks an intentionally flawed lesson, a newly drafted Italian lesson, repair of the reported failure pattern, and a Python lesson where `Any` is legitimate terminology. Corrective review attempts use the production registry's limit and retry decision, preserving the original draft and passing back the failure feedback. A separate structured model assessment judges observable quality criteria. The temporary output directory retains drafts, final lessons, failed attempts, and evaluations. These model evaluations supplement deterministic contract tests; they are not a guarantee for every generated lesson.
 
 ## Verification behavior
 

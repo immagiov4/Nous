@@ -94,6 +94,7 @@ describe('lesson generation corrective retries', () => {
     'lesson_review_report_incomplete',
     'lesson_review_integrity_invalid',
     'lesson_review_integrity_failed',
+    'lesson_review_checks_failed',
   ])('propagates %s as a corrective workflow failure', async code => {
     const services = servicesWithReview(
       vi.fn(async () => {
@@ -112,6 +113,30 @@ describe('lesson generation corrective retries', () => {
       feedback: 'Return every required verificationReport item.',
       kind: 'corrective',
       message: 'The lesson verification report is incomplete.',
+    });
+  });
+
+  test('retries a failed quality review from the durable draft and returns only the accepted lesson', async () => {
+    const feedback =
+      'Teach the concept before its active pause and remove the unrelated type fragment.';
+    const reviewContent = vi
+      .fn<LessonGenerationStageDependencies['reviewContent']>()
+      .mockRejectedValueOnce(
+        retryLessonGenerationCorrection({
+          code: 'lesson_review_checks_failed',
+          feedback,
+          message: 'The reviewed lesson still fails required checks.',
+        })
+      )
+      .mockImplementationOnce(async ({ draft }) => draft);
+    const services = servicesWithReview(reviewContent);
+    const failure = await services.reviewLesson(stageContext()).catch(error => error);
+    expect(failure.failure).toMatchObject({ kind: 'corrective', feedback });
+    const accepted = await services.reviewLesson(stageContext(failure.failure.feedback));
+    expect(accepted.stage).toBe('review');
+    expect(reviewContent.mock.calls[1][0]).toMatchObject({
+      draft: reviewContent.mock.calls[0][0].draft,
+      generationInput: { retryFeedback: feedback },
     });
   });
 });
