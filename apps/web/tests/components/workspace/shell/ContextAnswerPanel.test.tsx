@@ -1444,6 +1444,9 @@ describe('ContextAnswerPanel', () => {
     expect(updatedMessages[0].parts[1].output.artifacts[0].id).toBe(
       currentLessonArtifact.summary.id
     );
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    expect(screen.queryByRole('button', { name: /Salva artefatto/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Rigenera artefatto/i })).toBeInTheDocument();
     await act(async () => {
       await useChatMock.mock.lastCall?.[0].onToolCall({
         toolCall: {
@@ -1652,12 +1655,10 @@ describe('ContextAnswerPanel', () => {
     await user.click(
       await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
     );
-    await user.click(screen.getByRole('button', { name: /Salva artefatto nella lezione/i }));
-    expect(onSaveArtifactToLesson).toHaveBeenLastCalledWith(
-      { lessonId: 'lesson-1', projectId: 'project-1' },
-      { ...replacementDraftArtifact.visual, id: generatedDraftArtifact.visual.id },
-      expect.objectContaining({ artifactId: generatedDraftArtifact.summary.id })
-    );
+    expect(
+      screen.queryByRole('button', { name: /Salva artefatto nella lezione/i })
+    ).not.toBeInTheDocument();
+    expect(onSaveArtifactToLesson).toHaveBeenCalledOnce();
   });
 
   test('renders cross-course artifact attachments returned by the shared library executor', async () => {

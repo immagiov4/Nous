@@ -805,6 +805,11 @@ function ContextAnswerPanelSession({
     return payloads;
   }, [artifactPayloadsByToolCallId, originLessonArtifactPayloads]);
 
+  const savedArtifactIds = useMemo(
+    () => new Set(originLessonArtifactPayloads.map(payload => payload.summary.id)),
+    [originLessonArtifactPayloads]
+  );
+
   const contextChat = useChat<ContextChatMessage>({
     id: contextAnswer.id,
     transport,
@@ -1824,6 +1829,7 @@ function ContextAnswerPanelSession({
           openArtifactIdOverride={artifactPreviewIdOverride}
           portalContainer={artifactPortalContainer}
           regenerationLifecycle={artifactRegenerationLifecycle}
+          savedArtifactIds={savedArtifactIds}
           onDiscardArtifact={canMutateArtifacts ? handleDiscardArtifact : undefined}
           onRegenerateArtifact={canMutateArtifacts ? handleRegenerateArtifact : undefined}
           onReplaceArtifact={canMutateArtifacts ? handleReplaceArtifact : undefined}
@@ -1944,6 +1950,7 @@ function ContextAnswerPanelSession({
             {replacementDraftPayloads.length > 0 ? (
               <ChatArtifactRenderer
                 artifacts={replacementDraftPayloads}
+                savedArtifactIds={savedArtifactIds}
                 isDarkMode={isDarkMode}
                 onSaveArtifact={handleSaveGeneratedArtifact}
                 onDiscardArtifact={handleDiscardArtifact}
