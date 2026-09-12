@@ -100,7 +100,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const gaps = needsBrief
       ? openRouter.getExercisePrerequisiteGaps(learningPlan, exercise.id)
       : [];
-    if (!needsBrief || !learningPlan || gaps.length > 0) {
+    const isGeneratingExercise =
+      state.getGeneratingSectionId(projectLibrary.getCurrentProjectId()) === exercise.id;
+    if (!needsBrief || !learningPlan || gaps.length > 0 || isGeneratingExercise) {
       state.invalidateOpenSectionRequests();
       stopAudio(true);
       domain.setActiveSectionId(exercise.id);

@@ -56,6 +56,12 @@ Sources: [apps/web/components/workspace/WorkspaceReaderShell.tsx:90-112](../../.
 
 Sources: [apps/web/components/workspace/shell/types.ts:74-192](../../../apps/web/components/workspace/shell/types.ts#L74-L192), [apps/web/components/workspace/WorkspaceReaderShell.tsx:7-12](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx#L7-L12)
 
+### Navigation during exercise generation
+
+The sidebar keeps the exercise whose brief is being generated selectable. A learner can open a ready lesson and return to that exercise while the same request continues. `openExercise` matches the project-scoped generating section before applying the guard against another generation. Other ungenerated nodes remain disabled.
+
+Sources: [sidebar state](../../../apps/web/components/workspace/shell/WorkspaceReaderSidebar.tsx), [exercise navigation](../../../apps/web/hooks/workspace/controller/sectionProgression.ts).
+
 ### Regeneration Confirmation
 
 Regenerating the active lesson requires a shared modal confirmation. The header renders it inline on desktop and through a body portal on mobile, while preserving the same interaction contract: focus enters and remains inside the modal, an outside press or `Escape` dismisses it, and focus returns to the regeneration trigger. When a responsive layout change replaces the modal DOM node, focus containment is rebuilt against the new panel.
