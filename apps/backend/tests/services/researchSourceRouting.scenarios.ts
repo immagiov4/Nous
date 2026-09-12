@@ -9,6 +9,7 @@ export const researchRoutingScenarios: Array<{
   topic: string;
   learningContext: string;
   sourceContext: string;
+  suppliedSourcesSufficient: boolean;
   selected: ResearchSourceType[];
   skipped: ResearchSourceType[];
 }> = [
@@ -21,6 +22,7 @@ export const researchRoutingScenarios: Array<{
     sourceContext:
       'Academic source: Sigmund Freud, The Interpretation of Dreams, chapter VI, supplied in full for this focused lesson. Dream-work transforms latent thoughts into manifest content. Condensation combines several latent associations in one manifest element. The chapter supplies definitions, the Irma example and the distinction from displacement. The accompanying scholarly commentary defines each term, provides the historical setting and explains the example step by step. All facts and examples required by this lesson are covered.',
     selected: [],
+    suppliedSourcesSufficient: true,
     skipped: ['web', 'youtube'],
   },
   {
@@ -32,6 +34,7 @@ export const researchRoutingScenarios: Array<{
     sourceContext:
       'A supplied React 16 book describes class lifecycle methods, legacy context and ReactDOM.render. It does not cover releases after React 16.',
     selected: ['web'],
+    suppliedSourcesSufficient: false,
     skipped: ['youtube'],
   },
   {
@@ -43,6 +46,8 @@ export const researchRoutingScenarios: Array<{
     sourceContext:
       'Textbook pseudocode and invariant: if the target is present it lies in the current closed interval. Compare its midpoint and keep the possible half. The source contains only text and no animation.',
     selected: ['youtube'],
+    suppliedSourcesSufficient: true,
+    // The live evaluation requires video; a supplementary web lookup is unconstrained.
     skipped: [],
   },
   {
@@ -54,6 +59,7 @@ export const researchRoutingScenarios: Array<{
     sourceContext:
       'The peer-reviewed paper reports a ratio of 0.7120 with standard uncertainty 0.0004. The methods define calibration, repeatability and independent error propagation. The supplementary table provides each replicate and the calibration reference. The authors state the assumptions and limitations. The lesson needs only the reported ratio, meaning of uncertainty and how the supplied components combine.',
     selected: [],
+    suppliedSourcesSufficient: true,
     skipped: ['web', 'youtube'],
   },
   {
@@ -64,6 +70,7 @@ export const researchRoutingScenarios: Array<{
       'Build a course around current operational failure modes and current authoritative service documentation. Community case studies would be useful if that capability were available. Video demonstrations are unnecessary for this text-based incident analysis course.',
     sourceContext: '',
     selected: ['web'],
+    suppliedSourcesSufficient: false,
     skipped: ['youtube'],
   },
 ];

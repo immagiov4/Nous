@@ -75,6 +75,7 @@ Keep supplied authoritative material primary. Skip external retrieval when it ad
 At course level, video series can help establish pedagogical progression. At lesson level, video must help the exact concept. Choose only available capabilities; unavailable academic or community retrieval cannot be requested through this decision.
 Return exactly one channel decision, selected or skipped with a concise reason, for each available capability. Explain why selected channels add useful evidence and why skipped channels do not. Do not invent numerical scores, request budgets, or fallback policies.
 If the supplied sources are insufficient, select at least one available capability to address the missing evidence. Consider the assessed coverage gaps when deciding source sufficiency.
+suppliedSourcesSufficient describes factual coverage and authority of the supplied sources. Evaluate the added pedagogical value of retrieval separately: a video demonstration can be selected to improve understanding even when an authoritative text already provides sufficient factual evidence.
 
 AVAILABLE CAPABILITIES: ${JSON.stringify(input.availableChannels)}
 TOPIC: ${input.topic}

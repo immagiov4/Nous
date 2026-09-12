@@ -24,6 +24,9 @@ for (const repetition of [1, 2]) {
       signal: new AbortController().signal,
     });
     const mismatches = [
+      ...(decision.suppliedSourcesSufficient === scenario.suppliedSourcesSufficient
+        ? []
+        : ['suppliedSourcesSufficient']),
       ...scenario.selected.filter(type => !isResearchSourceSelected(decision, type)),
       ...scenario.skipped.filter(type => isResearchSourceSelected(decision, type)),
     ];

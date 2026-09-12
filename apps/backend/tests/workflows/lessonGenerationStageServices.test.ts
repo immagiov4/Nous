@@ -182,7 +182,7 @@ describe('lesson generation production stages', () => {
     researchRoutingScenarios
   )('$name applies the structured decision before lesson retrieval', async scenario => {
     const researchRouting = {
-      suppliedSourcesSufficient: scenario.selected.length === 0,
+      suppliedSourcesSufficient: scenario.suppliedSourcesSufficient,
       rationale: scenario.learningContext,
       channels: (['web', 'youtube'] as const).map(type => ({
         type,

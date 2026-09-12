@@ -85,6 +85,19 @@ describe('lesson research routing', () => {
     ).resolves.toBeNull();
     expect(research).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
+    if (!input.researchRouting) throw new Error('Missing test routing.');
+    input.researchRouting.channels = [
+      { type: 'web', selected: false, rationale: 'No web evidence needed.' },
+      { type: 'youtube', selected: true, rationale: 'Optional demonstration.' },
+    ];
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome,
+      })
+    ).resolves.toBeNull();
     warn.mockRestore();
     if (!input.researchRouting) throw new Error('Missing test routing.');
     input.researchRouting.suppliedSourcesSufficient = false;
@@ -93,7 +106,7 @@ describe('lesson research routing', () => {
         existingDossier: null,
         generationInput: input,
         research,
-        youtubeOutcome: null,
+        youtubeOutcome,
       })
     ).rejects.toThrow('Unavailable');
   });
