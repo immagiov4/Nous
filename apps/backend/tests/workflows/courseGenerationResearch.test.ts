@@ -30,6 +30,15 @@ const config: CourseGenerationWorkflowConfig = {
   timeoutMs: 600_000,
 };
 
+const allSourcesRouting = {
+  suppliedSourcesSufficient: false,
+  rationale: 'Multiple sources help.',
+  channels: [
+    { type: 'web', selected: true, rationale: 'Current facts.' },
+    { type: 'youtube', selected: true, rationale: 'Demonstrations.' },
+  ],
+};
+
 const prepared: CoursePreparationState = {
   context: {
     assessmentSummary: 'USER: Voglio capire i sistemi distribuiti.',
@@ -249,8 +258,8 @@ describe('course generation research', () => {
     expect(webPrompt.indexOf('a-source.txt')).toBeLessThan(webPrompt.indexOf('z-source.txt'));
   });
 
-  test('declares fail-fast research branches and ordered collect-mode query work', () => {
-    const gather = findNode('gather-course-research');
+  test('declares selected research branches and ordered collect-mode query work', () => {
+    const gather = findNode('gather-selected-course-research');
     const queries = findNode('research-course-youtube-queries');
     if (gather.kind !== 'fanOut' || queries.kind !== 'fanOut') {
       throw new Error('Course research composition is incomplete.');
@@ -260,13 +269,13 @@ describe('course generation research', () => {
       { queries: string[]; state: CoursePreparationState },
       CourseYoutubeQueryInput
     >;
-    const branches = gatherFanOut.inputs(prepared);
+    const branches = gatherFanOut.inputs({ ...prepared, routing: allSourcesRouting } as never);
     const queryInputs = queryFanOut.inputs({
       queries: ['first query', 'second query'],
       state: prepared,
     });
 
-    expect(gatherFanOut.failureMode).toBe('fail-fast');
+    expect(gatherFanOut.failureMode).toBe('collect');
     expect(branches.map(input => gatherFanOut.keyBy(input))).toEqual(['web', 'youtube']);
     expect(queryFanOut.failureMode).toBe('collect');
     expect(queryInputs.map(input => queryFanOut.keyBy(input))).toEqual(['0', '1']);
@@ -337,7 +346,7 @@ describe('course generation research', () => {
       ResearchBranchOutput,
       CourseResearchState
     >(
-      'gather-course-research',
+      'gather-selected-course-research',
       [
         {
           input: { branch: 'web', state: prepared },
@@ -352,7 +361,7 @@ describe('course generation research', () => {
           status: 'completed',
         },
       ],
-      prepared
+      { ...prepared, routing: allSourcesRouting } as never
     );
     expect(researchState).toMatchObject({
       research: { youtube: result.research },

@@ -8,8 +8,8 @@ import {
   PriorKnowledgePlanningInputSchema,
 } from '@shared/priorKnowledgePlanning';
 import * as z from 'zod';
-
 import type { GlobalModelConfig } from '../config/modelConfig.js';
+import { ResearchSourceRoutingSchema } from '../services/researchSourceRouting.js';
 import { WorkflowExecutionDefaultsSchema } from './config.js';
 import { GlobalModelConfigSchema } from './modelConfigSchema.js';
 import type {
@@ -363,7 +363,8 @@ const CourseProfileSchema = PreControlsCourseProfileSchema.extend({
 
 const createCourseGenerationStateSchemas = (
   profileSchema: z.ZodType<z.infer<typeof CourseProfileSchema>>,
-  diagnostic = false
+  diagnostic = false,
+  routing = false
 ) => {
   const inputSchema = diagnostic
     ? CourseGenerationWorkflowInputSchema
@@ -390,11 +391,18 @@ const createCourseGenerationStateSchemas = (
     strategy: z.enum(['learn', 'single-source', 'source-set', 'archive']),
   });
 
+  const researchShape = {
+    web: CourseWebResearchSchema,
+    youtube: CourseYoutubeResearchSchema,
+    routing: ResearchSourceRoutingSchema.optional(),
+  };
   const CourseResearchStateSchema = CoursePreparationStateSchema.omit({ stage: true }).extend({
-    research: z.object({
-      web: CourseWebResearchSchema,
-      youtube: CourseYoutubeResearchSchema,
-    }),
+    research: routing
+      ? z.object(researchShape)
+      : (z.object({
+          web: CourseWebResearchSchema,
+          youtube: CourseYoutubeResearchSchema,
+        }) as z.ZodObject<typeof researchShape>),
     stage: z.literal('research'),
   });
 
@@ -479,6 +487,11 @@ const createCourseGenerationStateSchemas = (
 };
 
 export const courseGenerationStateSchemas = createCourseGenerationStateSchemas(
+  CourseProfileSchema,
+  true,
+  true
+);
+export const preRoutingCourseGenerationStateSchemas = createCourseGenerationStateSchemas(
   CourseProfileSchema,
   true
 );

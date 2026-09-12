@@ -27,6 +27,7 @@ import type {
 } from './lessonGenerationTypes.js';
 import { verifyLessonContentDraft } from './lessonGenerationVerification.js';
 import { LessonResearchModelResponseSchema } from './lessonResearchContract.js';
+import { isResearchSourceSelected, type ResearchSourceRouting } from './researchSourceRouting.js';
 
 export type {
   GenerateResearch,
@@ -224,14 +225,25 @@ export type LessonResearchRequest =
 export const resolveLessonResearchRequest = ({
   config,
   coverageGaps,
+  researchRouting,
   refreshResearch,
   sourceContext,
 }: {
   readonly config: GlobalModelConfig;
   readonly coverageGaps?: readonly string[];
+  readonly researchRouting?: ResearchSourceRouting;
   readonly refreshResearch: boolean;
   readonly sourceContext: string;
 }): LessonResearchRequest => {
+  if (researchRouting) {
+    return isResearchSourceSelected(researchRouting, 'web')
+      ? {
+          mode: sourceContext.trim() ? 'source-backed-refresh' : 'source-free',
+          slot: 'research',
+          webSearch: true,
+        }
+      : { mode: 'source-sufficient', slot: 'lesson', webSearch: false };
+  }
   if (!sourceContext.trim()) {
     return { mode: 'source-free', slot: 'research', webSearch: true };
   }

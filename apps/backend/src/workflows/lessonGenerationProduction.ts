@@ -54,7 +54,7 @@ export const createProductionLessonGenerationServices = (
     loadProjectWithRevision: projectStore.loadProjectWithRevision.bind(projectStore),
     planYouTube: planLessonYouTubeSearch,
     researchYouTube: (query, language, signal) =>
-      buildYouTubeResearchOutcome(query, language, { signal }),
+      buildYouTubeResearchOutcome(query, language, { includeEngagementMetadata: false, signal }),
     resolveSourceMaterials: resolveLessonSourceMaterials,
     reviewContent: reviewLessonContentDraftStrict,
     selectCoverage: selectPrerequisiteSourceCoverage,

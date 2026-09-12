@@ -8,6 +8,7 @@ import type {
   LessonResearchSummary,
   NormalizedLessonBlock,
 } from './lessonGenerationTypes.js';
+import { isResearchSourceSelected } from './researchSourceRouting.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
 
 export type ResearchYouTube = (
@@ -62,11 +63,16 @@ export const generateLessonResearchSummary = async ({
 };
 
 export const shouldGenerateLessonResearch = (
-  generationInput: Pick<LessonGenerationInput, 'coverageGaps' | 'refreshResearch' | 'sourceContext'>
+  generationInput: Pick<
+    LessonGenerationInput,
+    'coverageGaps' | 'refreshResearch' | 'sourceContext' | 'researchRouting'
+  >
 ): boolean =>
-  generationInput.refreshResearch ||
-  !generationInput.sourceContext.trim() ||
-  Boolean(generationInput.coverageGaps?.length);
+  generationInput.researchRouting
+    ? isResearchSourceSelected(generationInput.researchRouting, 'web')
+    : generationInput.refreshResearch ||
+      !generationInput.sourceContext.trim() ||
+      Boolean(generationInput.coverageGaps?.length);
 
 export const selectLessonSources = ({
   discoveredYoutubeSources,
