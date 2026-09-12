@@ -8,7 +8,7 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import { formatLessonEvidence } from './lessonEvidence.js';
+import { formatLessonEvidence, type LessonEvidencePacket } from './lessonEvidence.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 
@@ -112,6 +112,14 @@ export const verifyLessonEvidence = async (
       })
     ).output;
   }
+  validateFactualReview(response, packet, draft);
+};
+
+const validateFactualReview = (
+  response: unknown,
+  packet: LessonEvidencePacket,
+  draft: LessonContentDraft
+) => {
   const parsed = FactualReviewSchema.safeParse(response);
   if (!parsed.success) throw invalidFactualReview();
   const blocks = parsed.data.blocks;

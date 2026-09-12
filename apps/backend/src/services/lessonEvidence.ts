@@ -137,6 +137,34 @@ const validRange = (
   material: LessonEvidenceMaterial
 ) => range.firstUnit <= range.lastUnit && range.lastUnit < material.units.length;
 
+const validateSelectedOverlaps = (
+  selection: LessonEvidencePacket['selection'],
+  byId: ReadonlyMap<string, LessonEvidenceMaterial>,
+  passages: LessonEvidencePacket['passages']
+) => {
+  for (const selected of selection.materials) {
+    const material = byId.get(selected.materialId);
+    assert(material);
+    for (const overlap of selected.overlaps) {
+      if (
+        !validRange(overlap, material) ||
+        overlap.retainedFirstUnit > overlap.retainedLastUnit ||
+        overlap.retainedMaterialId === selected.materialId ||
+        selected.passages.some(
+          range => range.firstUnit <= overlap.lastUnit && range.lastUnit >= overlap.firstUnit
+        ) ||
+        !passages.some(
+          range =>
+            range.materialId === overlap.retainedMaterialId &&
+            range.firstUnit <= overlap.retainedFirstUnit &&
+            range.lastUnit >= overlap.retainedLastUnit
+        )
+      )
+        throw invalidSelection();
+    }
+  }
+};
+
 /** Resolve model-selected references against immutable source units; never accept generated excerpts. */
 export const resolveLessonEvidence = (
   materials: LessonEvidenceMaterial[],
@@ -168,27 +196,7 @@ export const resolveLessonEvidence = (
       });
     }
   }
-  for (const selected of selection.materials) {
-    const material = byId.get(selected.materialId);
-    assert(material);
-    for (const overlap of selected.overlaps) {
-      if (
-        !validRange(overlap, material) ||
-        overlap.retainedFirstUnit > overlap.retainedLastUnit ||
-        overlap.retainedMaterialId === selected.materialId ||
-        selected.passages.some(
-          range => range.firstUnit <= overlap.lastUnit && range.lastUnit >= overlap.firstUnit
-        ) ||
-        !passages.some(
-          range =>
-            range.materialId === overlap.retainedMaterialId &&
-            range.firstUnit <= overlap.retainedFirstUnit &&
-            range.lastUnit >= overlap.retainedLastUnit
-        )
-      )
-        throw invalidSelection();
-    }
-  }
+  validateSelectedOverlaps(selection, byId, passages);
   return {
     version: 'lesson-evidence-v1',
     materialHash: buildSha256HexDigest(Buffer.from(canonicalJson(materials))),
