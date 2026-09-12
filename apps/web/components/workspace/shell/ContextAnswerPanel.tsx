@@ -1256,11 +1256,12 @@ function ContextAnswerPanelSession({
     if (!result.succeeded) {
       return result;
     }
+    const persistedVisual = { ...visual, id: sourcePayload.visual.id };
     const persistedPayload = buildGeneratedVisualLearningArtifactPayload({
       lesson: originLesson,
       projectId: contextAnswer.projectId,
       projectTitle: contextAnswer.projectTitle || t('Corso'),
-      visual: { ...visual, id: sourcePayload.visual.id },
+      visual: persistedVisual,
     });
     setOriginLessonArtifactPayloads(currentPayloads =>
       upsertLearningArtifactPayload(currentPayloads, persistedPayload)
@@ -1268,9 +1269,16 @@ function ContextAnswerPanelSession({
     setArtifactPayloadsByToolCallId(currentPayloads => {
       const next = { ...currentPayloads };
       for (const [key, payloads] of Object.entries(next)) {
+        // Direct regeneration drafts close on approval; conversation tool results stay available.
         next[key] = payloads
-          .filter(p => p.summary.id !== artifactId)
-          .map(p => (p.summary.id === replacementOfArtifactId ? persistedPayload : p));
+          .filter(
+            p => !key.startsWith(REPLACEMENT_DRAFT_TOOL_CALL_PREFIX) || p.summary.id !== artifactId
+          )
+          .map(p =>
+            p.summary.id === artifactId || p.summary.id === replacementOfArtifactId
+              ? persistedPayload
+              : p
+          );
         if (next[key].length === 0) {
           delete next[key];
         }
@@ -1280,6 +1288,7 @@ function ContextAnswerPanelSession({
     setGeneratedVisualsByArtifactId(currentVisuals => {
       const next = { ...currentVisuals };
       delete next[artifactId];
+      next[replacementOfArtifactId] = persistedVisual;
       return next;
     });
     if (latestGeneratedArtifactIdRef.current === artifactId) {

@@ -1109,6 +1109,63 @@ describe('ContextAnswerPanel', () => {
     );
   });
 
+  test('keeps a tool-generated replacement visible after applying it to the lesson', async () => {
+    const user = userEvent.setup();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [
+        {
+          id: 'assistant',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-generateCurrentLessonArtifact',
+              toolCallId: 'edit-saved',
+              state: 'output-available',
+              input: {},
+              output: { artifactId: replacementDraftArtifact.summary.id },
+            },
+          ],
+        },
+      ],
+    });
+    generateLessonArtifactDraftMock.mockResolvedValueOnce({
+      artifactId: replacementDraftArtifact.summary.id,
+      payload: replacementDraftArtifact,
+      visual: replacementDraftArtifact.visual,
+    });
+    const onReplaceArtifactInLesson = vi.fn(async () => ({ succeeded: true }));
+    render(
+      <ContextAnswerPanel {...buildProps()} onReplaceArtifactInLesson={onReplaceArtifactInLesson} />
+    );
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolCallId: 'edit-saved',
+          toolName: 'generateCurrentLessonArtifact',
+          input: {
+            mode: 'replacement-draft',
+            sourceArtifactId: currentLessonArtifact.summary.id,
+            prompt: 'Aggiorna il titolo.',
+          },
+        },
+      });
+    });
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(onReplaceArtifactInLesson).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      currentLessonArtifact.summary.id,
+      replacementDraftArtifact.visual
+    );
+    expect(
+      screen.getByRole('button', { name: /Apri mappa concettuale rivista/i })
+    ).toBeInTheDocument();
+  });
+
   test.each([
     { prompt: 'Aggiorna il titolo.' },
     { mode: 'replacement-draft', sourceArtifactId: 'missing', prompt: 'Aggiorna il titolo.' },
@@ -1233,6 +1290,7 @@ describe('ContextAnswerPanel', () => {
       <ContextAnswerPanel
         {...buildProps({ id: 'context-saved-origin-artifact' })}
         onSaveArtifactToLesson={onSaveArtifactToLesson}
+        onReplaceArtifactInLesson={async () => ({ succeeded: true })}
       />
     );
 
@@ -1268,6 +1326,35 @@ describe('ContextAnswerPanel', () => {
           artifacts: [currentLessonArtifact.summary, generatedDraftArtifact.summary],
         }),
       })
+    );
+
+    generateLessonArtifactDraftMock.mockResolvedValueOnce({
+      artifactId: replacementDraftArtifact.summary.id,
+      payload: {
+        ...replacementDraftArtifact,
+        summary: {
+          ...replacementDraftArtifact.summary,
+          replacementOfArtifactId: generatedDraftArtifact.summary.id,
+        },
+      },
+      visual: replacementDraftArtifact.visual,
+    });
+    await user.click(screen.getByRole('button', { name: /Apri schema nuovo/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+    await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Aggiorna il titolo.');
+    await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
+    );
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
+    );
+    await user.click(screen.getByRole('button', { name: /Salva artefatto nella lezione/i }));
+    expect(onSaveArtifactToLesson).toHaveBeenLastCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      { ...replacementDraftArtifact.visual, id: generatedDraftArtifact.visual.id },
+      expect.objectContaining({ artifactId: generatedDraftArtifact.summary.id })
     );
   });
 
