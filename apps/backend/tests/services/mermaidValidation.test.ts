@@ -17,7 +17,8 @@ test('reports parser execution failures separately from syntax rejection', async
 
 test('cancels the isolated parser with its caller', async () => {
   const controller = new AbortController();
+  const reason = new Error('Artifact generation cancelled.');
   const parsing = isParseableMermaid('classDiagram\nclass Animal', controller.signal);
-  controller.abort();
-  await expect(parsing).rejects.toThrow();
+  controller.abort(reason);
+  await expect(parsing).rejects.toBe(reason);
 });

@@ -10,7 +10,9 @@ export const isParseableMermaid = (code: string, signal: AbortSignal): Promise<b
       [fileURLToPath(new URL('./mermaidValidationProcess.mjs', import.meta.url))],
       { signal, windowsHide: true },
       (error, stdout) => {
-        if (error) {
+        if (signal.aborted) {
+          reject(signal.reason);
+        } else if (error) {
           reject(new Error('Mermaid validation process failed.', { cause: error }));
         } else if (stdout === 'valid' || stdout === 'invalid') {
           resolve(stdout === 'valid');
@@ -21,7 +23,11 @@ export const isParseableMermaid = (code: string, signal: AbortSignal): Promise<b
     );
     child.stdin?.on('error', error => {
       child.kill();
-      reject(new Error('Mermaid validation input failed.', { cause: error }));
+      reject(
+        signal.aborted
+          ? signal.reason
+          : new Error('Mermaid validation input failed.', { cause: error })
+      );
     });
     child.stdin?.end(code);
   });
