@@ -91,6 +91,8 @@ Primary-source preparation records document identity separately from excerpt tex
 
 Evidence selection remains downstream of research: research classifies candidate sources before final source indices exist, and sufficient primary material can skip research. Moving extraction into that call would require a different research contract and reference remapping, while retaining a separate path when research is skipped.
 
+Fresh normalized web sources join the final catalog before selection, including web-only lessons. Their `attributed-note` content remains distinct from canonical transcript excerpts: the current research contract supplies model-authored notes tied to URLs, not separately retrieved verbatim page text. Review checks what those notes support without treating them as independent corroboration or original quotation. Adjacent retained units of the same material form a continuous passage for clip and citation validation; omitted units still break that coverage. Historical definitions explicitly bypass selection rather than paying for a result their schema would discard.
+
 Sources: [lessonEvidence.ts](../../../apps/backend/src/services/lessonEvidence.ts), [lessonEvidenceModel.ts](../../../apps/backend/src/services/lessonEvidenceModel.ts), [lessonEvidenceVerification.ts](../../../apps/backend/src/services/lessonEvidenceVerification.ts), [lessonPrimarySourceContext.ts](../../../apps/backend/src/services/lessonPrimarySourceContext.ts), [lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
 
 #### Repeatable evidence measurement

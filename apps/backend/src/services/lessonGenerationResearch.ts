@@ -130,7 +130,7 @@ const collectSelectedVideoUrls = (
     )
   );
 
-const normalizeResearchedWebSources = (
+export const normalizeResearchedWebSources = (
   researchSummary: LessonResearchSummary | null
 ): ResearchSource[] =>
   (researchSummary?.sources || []).flatMap(source => {

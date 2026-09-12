@@ -149,6 +149,72 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test('carries fresh web research notes and identities into selected evidence and drafting', async () => {
+    const webSource = {
+      title: 'Source documentation',
+      url: 'https://example.org/reference',
+      note: 'A request identifier links the response to its request.',
+    };
+    const generateContent = vi.fn().mockResolvedValue({
+      contentBlocks: [
+        { type: 'markdown', markdown: 'A request identifier links the response to its request.' },
+      ],
+      generatedVisuals: [],
+      imageRefs: [],
+    });
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        generateContent,
+        generateResearch: vi.fn().mockResolvedValue({
+          avoidOversimplifying: [],
+          controversies: [],
+          difficultSteps: [],
+          factualSummary: 'Request-response correlation.',
+          keyExamples: [],
+          recentDevelopments: [],
+          sources: [webSource],
+          youtubeCandidateDecisions: [],
+        }),
+        selectEvidence: vi.fn(async input =>
+          resolveLessonEvidence(buildLessonEvidenceMaterials(input), {
+            materials: buildLessonEvidenceMaterials(input).map(material => ({
+              materialId: material.materialId,
+              reason:
+                material.kind === 'source'
+                  ? 'Attributed evidence for the lesson.'
+                  : 'Covered by the attributed note.',
+              passages:
+                material.kind === 'source'
+                  ? [{ firstUnit: 0, lastUnit: 0, claims: ['Request-response correlation.'] }]
+                  : [],
+              overlaps: [],
+            })),
+          })
+        ),
+      })
+    );
+    const state = LessonYouTubeStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      research: { context: '', youtube: null },
+      stage: 'youtube',
+    });
+    state.lessonInputData.sourceContext = '';
+    const researched = await services.researchLesson({
+      ...stageContext(state),
+      selectEvidence: true,
+    });
+    await services.draftLesson(stageContext(researched));
+    expect(researched.lessonSources).toEqual([webSource]);
+    expect(generateContent.mock.calls[0]?.[0].evidencePacket.passages).toEqual([
+      expect.objectContaining({
+        sourceIndex: 0,
+        sourceContent: 'attributed-note',
+        source: { title: webSource.title, url: webSource.url },
+        units: [{ text: webSource.note, startOffset: 0, endOffset: webSource.note.length }],
+      }),
+    ]);
+  });
   test.each([
     true,
     false,

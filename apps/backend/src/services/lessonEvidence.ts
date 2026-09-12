@@ -47,6 +47,7 @@ export interface LessonEvidenceMaterial {
   materialId: string;
   kind: 'primary' | 'research' | 'source';
   sourceIndex?: number;
+  sourceContent?: 'transcript' | 'attributed-note';
   source?: Omit<ResearchSource, 'youtubeTranscript' | 'note'>;
   units: EvidenceUnit[];
 }
@@ -59,6 +60,7 @@ export interface LessonEvidencePacket {
     materialId: string;
     kind: LessonEvidenceMaterial['kind'];
     sourceIndex?: number;
+    sourceContent?: LessonEvidenceMaterial['sourceContent'];
     source?: Omit<ResearchSource, 'youtubeTranscript' | 'note'>;
     firstUnit: number;
     lastUnit: number;
@@ -115,6 +117,7 @@ export const buildLessonEvidenceMaterials = (
       materialId: `source-${sourceIndex}`,
       kind: 'source',
       sourceIndex,
+      sourceContent: youtubeTranscript ? 'transcript' : 'attributed-note',
       source: identity,
       units: youtubeTranscript
         ? youtubeTranscript.segments.map(segment => ({ ...segment }))

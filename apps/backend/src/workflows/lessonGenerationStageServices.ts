@@ -21,6 +21,7 @@ import {
 import {
   findResearchLesson,
   generateLessonResearchSummary,
+  normalizeResearchedWebSources,
   type ResearchYouTube,
   selectLessonSources,
 } from '../services/lessonGenerationResearch.js';
@@ -588,7 +589,7 @@ const researchLesson =
         message: 'The lesson research model returned invalid structured output.',
       }
     );
-    const lessonSources = selectLessonSources({
+    const selectedSources = selectLessonSources({
       discoveredYoutubeSources:
         context.input.researchRouting && summary === null
           ? []
@@ -597,6 +598,9 @@ const researchLesson =
       originalSources: context.input.originalSources,
       researchSummary: summary,
     });
+    const lessonSources = context.selectEvidence
+      ? mergeSources(selectedSources, normalizeResearchedWebSources(summary))
+      : selectedSources;
     const researchContext = canonicalJson(existingDossier ?? summary ?? {});
     const researchState = {
       ...context.input,
