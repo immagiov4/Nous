@@ -171,3 +171,32 @@ test('hasOnlySuccessfulToolOutputs allows mixed tool results to continue', () =>
     false
   );
 });
+
+test('hasOnlySuccessfulToolOutputs stops after generation following a retrieval step', () => {
+  const messages = [
+    {
+      id: 'assistant-edit',
+      role: 'assistant',
+      parts: [
+        { type: 'step-start' },
+        {
+          type: 'tool-getCurrentLessonArtifacts',
+          toolCallId: 'lookup',
+          state: 'output-available',
+          input: {},
+          output: { artifacts: [{ id: 'source' }] },
+        },
+        { type: 'step-start' },
+        {
+          type: 'tool-generateCurrentLessonArtifact',
+          toolCallId: 'edit',
+          state: 'output-available',
+          input: { mode: 'replacement-draft', sourceArtifactId: 'source' },
+          output: { artifactId: 'replacement' },
+        },
+      ],
+    },
+  ] as UIMessage[];
+
+  expect(hasOnlySuccessfulToolOutputs(messages, 'tool-generateCurrentLessonArtifact')).toBe(true);
+});

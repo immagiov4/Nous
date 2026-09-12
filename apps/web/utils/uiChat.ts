@@ -161,7 +161,11 @@ export const hasOnlySuccessfulToolOutputs = (
     return false;
   }
 
-  const toolParts = lastMessage.parts.filter(isToolUIPart);
+  const lastStepStart = lastMessage.parts.reduce(
+    (lastIndex, part, index) => (part.type === 'step-start' ? index : lastIndex),
+    -1
+  );
+  const toolParts = lastMessage.parts.slice(lastStepStart + 1).filter(isToolUIPart);
   return (
     toolParts.length > 0 && toolParts.every(part => isSuccessfulToolOutput(part, toolPartType))
   );

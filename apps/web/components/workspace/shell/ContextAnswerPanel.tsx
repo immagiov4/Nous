@@ -132,7 +132,7 @@ interface CurrentLessonArtifactsToolInput {
 }
 
 interface GenerateCurrentLessonArtifactInput {
-  mode?: 'new' | 'replacement-draft';
+  mode: 'new' | 'replacement-draft';
   prompt: string;
   requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
   revisionInstructions?: string;
@@ -251,9 +251,10 @@ const readGenerateCurrentLessonArtifactInput = (
   }
 
   const candidate = value as Partial<GenerateCurrentLessonArtifactInput>;
+  if (candidate.mode !== 'new' && candidate.mode !== 'replacement-draft') return null;
   return typeof candidate.prompt === 'string' && candidate.prompt.trim()
     ? {
-        mode: candidate.mode === 'replacement-draft' ? 'replacement-draft' : 'new',
+        mode: candidate.mode,
         prompt: candidate.prompt.trim(),
         requestedVisualKind: isStoredLessonVisualKind(candidate.requestedVisualKind)
           ? candidate.requestedVisualKind
@@ -647,6 +648,16 @@ function ContextAnswerPanelSession({
     [contextRequestStateStore]
   );
 
+  const artifactPayloadsById = useMemo(() => {
+    const payloads = new Map(
+      originLessonArtifactPayloads.map(payload => [payload.summary.id, payload])
+    );
+    for (const payload of Object.values(artifactPayloadsByToolCallId).flat()) {
+      if (!payloads.has(payload.summary.id)) payloads.set(payload.summary.id, payload);
+    }
+    return payloads;
+  }, [artifactPayloadsByToolCallId, originLessonArtifactPayloads]);
+
   const contextChat = useChat<ContextChatMessage>({
     id: contextAnswer.id,
     transport,
@@ -711,7 +722,12 @@ function ContextAnswerPanelSession({
       }
       if (toolCall.toolName === 'getCurrentLessonArtifacts') {
         const artifactInput = readCurrentLessonArtifactsToolInput(toolCall.input);
-        const matchingPayloads = filterLearningArtifactPayloads(originLessonArtifactPayloads, {
+        const lessonPayloads = [...artifactPayloadsById.values()].filter(
+          payload =>
+            payload.summary.projectId === contextAnswer.projectId &&
+            payload.summary.lessonId === contextAnswer.lessonId
+        );
+        const matchingPayloads = filterLearningArtifactPayloads(lessonPayloads, {
           artifactIds: artifactInput.artifactIds,
           kinds: artifactInput.kinds,
           maxResults: artifactInput.maxResults,
@@ -739,19 +755,14 @@ function ContextAnswerPanelSession({
         const projectId = contextAnswer.projectId;
         const currentState = contextRequestStateStore.read();
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
-        const allArtifactPayloads = [
-          ...originLessonArtifactPayloads,
-          ...Object.values(artifactPayloadsByToolCallId).flat(),
-        ];
         const sourceArtifactId = artifactInput?.sourceArtifactId;
-        const sourceArtifact = sourceArtifactId
-          ? allArtifactPayloads.find(
-              payload =>
-                payload.summary.id === sourceArtifactId &&
-                payload.summary.kind === 'generated-visual' &&
-                'visual' in payload
-            )
+        const sourcePayload = sourceArtifactId
+          ? artifactPayloadsById.get(sourceArtifactId)
           : undefined;
+        const sourceArtifact =
+          sourcePayload?.summary.kind === 'generated-visual' && 'visual' in sourcePayload
+            ? sourcePayload
+            : undefined;
 
         if (!artifactInput || !projectId || !draftLesson || !currentState) {
           void addToolOutput({
@@ -904,13 +915,6 @@ function ContextAnswerPanelSession({
   });
   const { addToolOutput, error, messages, sendMessage, status, stop } = contextChat;
 
-  const artifactPayloadsById = useMemo(() => {
-    const payloads = [
-      ...originLessonArtifactPayloads,
-      ...Object.values(artifactPayloadsByToolCallId).flat(),
-    ];
-    return new Map(payloads.map(payload => [payload.summary.id, payload]));
-  }, [artifactPayloadsByToolCallId, originLessonArtifactPayloads]);
   const retrievedArtifactIds = useMemo(() => getRetrievedArtifactIds(messages), [messages]);
   const replacementDraftPayloads = useMemo(
     () =>
@@ -1212,12 +1216,42 @@ function ContextAnswerPanelSession({
       !('visual' in sourcePayload) ||
       !visual ||
       !originLesson ||
-      !contextAnswer.projectId ||
-      !onReplaceArtifactInLesson
+      !contextAnswer.projectId
     ) {
       return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
     }
 
+    const isSavedSource = originLessonArtifactPayloads.some(
+      source => source.summary.id === replacementOfArtifactId
+    );
+    if (!isSavedSource) {
+      const revisedDraft: LearningArtifactRenderPayload = {
+        ...payload,
+        summary: {
+          ...payload.summary,
+          replacementOfArtifactId: sourcePayload.summary.replacementOfArtifactId,
+        },
+      };
+      setArtifactPayloadsByToolCallId(currentPayloads =>
+        Object.fromEntries(
+          Object.entries(currentPayloads).map(([key, payloads]) => [
+            key,
+            payloads
+              .filter(artifact => artifact.summary.id !== replacementOfArtifactId)
+              .map(artifact => (artifact.summary.id === artifactId ? revisedDraft : artifact)),
+          ])
+        )
+      );
+      setGeneratedVisualsByArtifactId(currentVisuals => {
+        const next = { ...currentVisuals };
+        delete next[replacementOfArtifactId];
+        return next;
+      });
+      return { succeeded: true };
+    }
+    if (!onReplaceArtifactInLesson) {
+      return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
+    }
     const result = await onReplaceArtifactInLesson(mutationTarget, replacementOfArtifactId, visual);
     if (!result.succeeded) {
       return result;
@@ -1234,7 +1268,9 @@ function ContextAnswerPanelSession({
     setArtifactPayloadsByToolCallId(currentPayloads => {
       const next = { ...currentPayloads };
       for (const [key, payloads] of Object.entries(next)) {
-        next[key] = payloads.filter(p => p.summary.id !== artifactId);
+        next[key] = payloads
+          .filter(p => p.summary.id !== artifactId)
+          .map(p => (p.summary.id === replacementOfArtifactId ? persistedPayload : p));
         if (next[key].length === 0) {
           delete next[key];
         }
@@ -1787,6 +1823,7 @@ function ContextAnswerPanelSession({
               <ChatArtifactRenderer
                 artifacts={replacementDraftPayloads}
                 isDarkMode={isDarkMode}
+                onSaveArtifact={handleSaveGeneratedArtifact}
                 onDiscardArtifact={handleDiscardArtifact}
                 onRegenerateArtifact={handleRegenerateArtifact}
                 onReplaceArtifact={handleReplaceArtifact}
