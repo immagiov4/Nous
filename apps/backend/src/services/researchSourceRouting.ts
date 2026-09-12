@@ -4,7 +4,7 @@ import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { generateCourseObject } from '../workflows/courseGenerationModel.js';
 import type { DeepReadonly } from '../workflows/types.js';
 
-export const RESEARCH_SOURCE_TYPES = ['web', 'youtube'] as const;
+const RESEARCH_SOURCE_TYPES = ['web', 'youtube'] as const;
 export const ResearchSourceRoutingSchema = z.object({
   suppliedSourcesSufficient: z.boolean(),
   rationale: z.string().regex(/\S/),

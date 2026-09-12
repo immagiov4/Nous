@@ -138,7 +138,7 @@ A provider failure in optional research can leave a lesson on its sufficient sup
 
 Course and lesson backend callers explicitly set `includeEngagementMetadata: false`: they retain transcript evidence but do not consume engagement counts. The public research endpoint and administrator lab retain the default metadata behavior because their dossier prompt consumes those counts.
 
-The routing decision is retained in workflow state alongside step outcomes and attempt counts. Full selected transcript segments continue to reach source selection; downstream evidence extraction owns any further reduction. `scripts/evaluate-research-source-routing.ts --live` exercises the production Codex adapter with GPT-5.6 Luna on controlled subject scenarios and checks structured selections rather than prose.
+The routing decision is retained in workflow state alongside step outcomes and attempt counts. Full selected transcript segments continue to reach source selection; downstream evidence extraction owns any further reduction. `bun run eval:research-routing --live` exercises the production Codex adapter with GPT-5.6 Luna on controlled subject scenarios and checks structured selections rather than prose.
 
 ## Workflow Integration
 
