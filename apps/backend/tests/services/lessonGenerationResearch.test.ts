@@ -1,3 +1,4 @@
+import { APICallError } from 'ai';
 import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { CodexAppServerError } from '../../src/services/codexAppServer.js';
@@ -52,7 +53,16 @@ const youtubeOutcome = {
 };
 
 describe('lesson research routing', () => {
-  test('continues from sufficient supplied sources on an optional provider failure', async () => {
+  test.each([
+    new CodexAppServerError('Unavailable', 'process'),
+    new CodexAppServerError('Unavailable', 'timeout'),
+    new APICallError({
+      message: 'Unavailable',
+      statusCode: 503,
+      url: 'https://example.com',
+      requestBodyValues: {},
+    }),
+  ])('continues from sufficient supplied sources on an optional provider failure: %s', async error => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const input = generationInput({
       researchRouting: {
@@ -64,7 +74,7 @@ describe('lesson research routing', () => {
         ],
       },
     });
-    const research = vi.fn().mockRejectedValue(new CodexAppServerError('Unavailable', 'process'));
+    const research = vi.fn().mockRejectedValue(error);
     await expect(
       generateLessonResearchSummary({
         existingDossier: null,
@@ -97,15 +107,32 @@ describe('lesson research routing', () => {
         channels: [{ type: 'web', selected: true, rationale: 'Optional examples.' }],
       },
     });
-    const research = vi.fn().mockRejectedValue(new SyntaxError('Invalid structured response'));
-    await expect(
-      generateLessonResearchSummary({
-        existingDossier: null,
-        generationInput: input,
-        research,
-        youtubeOutcome: null,
-      })
-    ).rejects.toThrow('Invalid structured response');
+    const research = vi.fn();
+    for (const error of [
+      new SyntaxError('Invalid structured response'),
+      new CodexAppServerError('Invalid model response', 'protocol'),
+      new CodexAppServerError('Disabled configuration', 'disabled'),
+      new CodexAppServerError('Missing authentication', 'not_authenticated'),
+      ...[400, 401].map(
+        statusCode =>
+          new APICallError({
+            message: 'Invalid request',
+            statusCode,
+            url: 'https://example.com',
+            requestBodyValues: {},
+          })
+      ),
+    ]) {
+      research.mockRejectedValue(error);
+      await expect(
+        generateLessonResearchSummary({
+          existingDossier: null,
+          generationInput: input,
+          research,
+          youtubeOutcome: null,
+        })
+      ).rejects.toBe(error);
+    }
     controller.abort(new Error('Cancelled'));
     research.mockRejectedValue(new CodexAppServerError('Unavailable', 'process'));
     await expect(

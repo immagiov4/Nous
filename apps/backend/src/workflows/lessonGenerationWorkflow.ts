@@ -207,6 +207,7 @@ const researchModelSlot = (input: LessonYouTubeState, config: GlobalModelConfig)
   resolveLessonResearchRequest({
     config,
     coverageGaps: input.lessonInputData.coverageGaps,
+    researchRouting: input.researchRouting,
     refreshResearch: input.request.forceRegenerate,
     sourceContext: input.lessonInputData.sourceContext,
   }).slot;
