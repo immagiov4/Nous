@@ -95,7 +95,7 @@ export const LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE =
 export const LESSON_GUIDED_NOVICE_RULE =
   'When teaching a complex procedure or model to a student whom the context identifies as inexperienced or struggling, prefer guided progression. First show a worked or reasoned example that makes the steps explicit, then vary the case or ask the student to apply the principle. Do not force the student to discover steps that have not yet been taught.';
 
-export const LESSON_POSITIVE_DEFINITION_RULE =
+const LESSON_POSITIVE_DEFINITION_RULE =
   'When introducing a new concept, define it positively first by clarifying what it is or what it does. Use contrasts, negations, and phrases such as "it is not only" only after the basic meaning is already understandable.';
 
 export const LESSON_FIRST_EXPOSURE_RULE = `${LESSON_POSITIVE_DEFINITION_RULE} Apply this order from the first heading, opening sentence, label, or metaphor that introduces the concept. A heading may name it plainly; the opening explanation establishes its meaning before discussing its limits or alternatives.`;

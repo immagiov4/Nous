@@ -152,6 +152,7 @@ describe('lesson review quality report contract', () => {
 
   test('allows an absent optional feature to be assessed as not applicable', async () => {
     mockReview(original, preserved, {
+      action: '',
       checkId: 'generated-visual',
       evidence: 'The task and lesson require no generated representation.',
       status: 'not-applicable',

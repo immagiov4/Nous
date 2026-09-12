@@ -114,7 +114,7 @@ Specialist packs in `lessonInstructionPacks.ts` add writing and semantic verific
 
 Lesson generation remains schema-driven. `LESSON_JOB_RESPONSE_SCHEMA` requires structured `contentBlocks`, `generatedVisuals` and `imageRefs`; the verifier extends that schema temporarily with a `verificationReport` entry for **every required semantic and structural check ID**.
 
-Each report item requires `checkId`, `status`, non-empty `evidence` and `action`. Verification status values have one canonical definition, the schema requires exactly the combined number of checks, and runtime validation also rejects whitespace-only evidence, duplicate/missing IDs or any required ID omission. The verification report is removed before the lesson draft continues through the pipeline.
+Each report item requires `checkId`, `status`, `evidence`, and `action`. Evidence must contain non-whitespace text. Action may be empty unless the status is `corrected`. Verification status values have one canonical definition, the schema requires exactly the combined number of checks, and runtime validation also rejects duplicate/missing IDs or any required ID omission. The verification report is removed before the lesson draft continues through the pipeline.
 
 The verifier assesses the complete corrected lesson, including its own edits. `pass` means the content already meets the check; `corrected` requires a repair described in `action`; `failed` means a defect remains. A failed check raises `lesson_review_checks_failed` and passes the findings into the existing corrective retry. Invalid statuses, corrections without an action, and `not-applicable` on mandatory semantic checks are rejected as incomplete reports. The durable lesson schema stays unchanged.
 
