@@ -1371,6 +1371,139 @@ describe('ContextAnswerPanel', () => {
     );
   });
 
+  test.each([
+    'artifact',
+    'note',
+    'note-retry',
+  ])('waits for a pending %s save before persisting replacement approval', async saveKind => {
+    const user = userEvent.setup();
+    let finishSave!: (result: {
+      succeeded: true;
+      saved: true;
+      annotationId: string;
+      merged: false;
+    }) => void;
+    const saveRequest = new Promise<{
+      succeeded: true;
+      saved: true;
+      annotationId: string;
+      merged: false;
+    }>(resolve => {
+      finishSave = resolve;
+    });
+    const revisedDraft = {
+      ...replacementDraftArtifact,
+      summary: {
+        ...replacementDraftArtifact.summary,
+        replacementOfArtifactId: generatedDraftArtifact.summary.id,
+      },
+    };
+    const parts = [
+      {
+        type: 'tool-generateCurrentLessonArtifact',
+        toolCallId: 'new',
+        state: 'output-available',
+        input: {},
+        output: { artifactId: generatedDraftArtifact.summary.id },
+      },
+      {
+        type: 'tool-generateCurrentLessonArtifact',
+        toolCallId: 'edit',
+        state: 'output-available',
+        input: {},
+        output: { artifactId: revisedDraft.summary.id },
+      },
+      ...(saveKind !== 'artifact'
+        ? [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'save',
+              state: 'input-available',
+              input: {
+                artifactIds: [generatedDraftArtifact.summary.id],
+                noteDraft: 'Lo schema chiarisce il G-buffer.',
+                rationale: 'Conserva lo schema.',
+                selectedTextDraft: saveKind === 'note-retry' ? 'buffer' : 'G-buffer',
+              },
+            },
+          ]
+        : []),
+    ];
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [{ id: 'assistant', role: 'assistant', parts }],
+    });
+    let failFirstSave!: () => void;
+    const firstSaveRequest = new Promise<{ saved: false; merged: false }>(resolve => {
+      failFirstSave = () => resolve({ saved: false, merged: false });
+    });
+    const saveNote = vi.fn().mockImplementation(() => saveRequest);
+    if (saveKind === 'note-retry') saveNote.mockImplementationOnce(() => firstSaveRequest);
+    const replace = vi.fn(async () => ({ succeeded: true }));
+    render(
+      <ContextAnswerPanel
+        {...buildProps()}
+        onSaveArtifactToLesson={() => saveRequest}
+        onSaveConversationNote={saveNote}
+        onReplaceArtifactInLesson={replace}
+      />
+    );
+    const generate = async (
+      draft: Extract<LearningArtifactRenderPayload, { visual: unknown }>,
+      mode: string,
+      toolCallId: string
+    ) => {
+      generateLessonArtifactDraftMock.mockResolvedValueOnce({
+        artifactId: draft.summary.id,
+        payload: draft,
+        visual: draft.visual,
+      });
+      await act(async () => {
+        await useChatMock.mock.lastCall?.[0].onToolCall({
+          toolCall: {
+            dynamic: false,
+            toolName: 'generateCurrentLessonArtifact',
+            toolCallId,
+            input: {
+              mode,
+              sourceArtifactId: generatedDraftArtifact.summary.id,
+              prompt: 'Migliora lo schema.',
+            },
+          },
+        });
+      });
+    };
+    await generate(generatedDraftArtifact, 'new', 'new');
+    if (saveKind === 'artifact') {
+      await user.click(screen.getByRole('button', { name: /Apri schema nuovo/i }));
+      await user.click(screen.getByRole('button', { name: /Salva artefatto/i }));
+      await user.click(screen.getByRole('button', { name: 'Chiudi anteprima artefatto' }));
+    } else {
+      await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    }
+    await generate(revisedDraft, 'replacement-draft', 'edit');
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(replace).not.toHaveBeenCalled();
+    if (saveKind === 'note-retry') {
+      await act(async () => {
+        failFirstSave();
+      });
+      expect(saveNote).toHaveBeenCalledTimes(2);
+      expect(replace).not.toHaveBeenCalled();
+    }
+    await act(async () => {
+      finishSave({ succeeded: true, saved: true, annotationId: 'saved-note', merged: false });
+    });
+    expect(replace).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      generatedDraftArtifact.summary.id,
+      revisedDraft.visual
+    );
+  });
+
   test('keeps a saved replacement visible and exposes its persisted identity for the next edit', async () => {
     const user = userEvent.setup();
     useChatMock.mockReturnValue({

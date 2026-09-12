@@ -690,6 +690,37 @@ function ContextAnswerPanelSession({
   // after HARD_TIMEOUT.
   const stuckToolTimestampsRef = useRef<Map<string, number>>(new Map());
   const latestGeneratedArtifactIdRef = useRef<string | null>(null);
+  const pendingArtifactSavesRef = useRef(new Map<string, Promise<boolean>>());
+
+  const trackArtifactSave = (artifactIds: string[], completion: Promise<boolean>) => {
+    // The original caller reports failures; approval needs the settled persistence state.
+    const settledCompletion = completion.catch(() => false);
+    for (const artifactId of artifactIds) {
+      const pending = Promise.all([
+        pendingArtifactSavesRef.current.get(artifactId),
+        settledCompletion,
+      ]).then(results => results.includes(true));
+      pendingArtifactSavesRef.current.set(artifactId, pending);
+      void pending.then(() => {
+        if (pendingArtifactSavesRef.current.get(artifactId) === pending) {
+          pendingArtifactSavesRef.current.delete(artifactId);
+        }
+      });
+    }
+  };
+
+  const waitForArtifactSaves = async (artifactId: string): Promise<boolean> => {
+    let pending = pendingArtifactSavesRef.current.get(artifactId);
+    let saved = false;
+    while (pending) {
+      const succeeded = await pending;
+      saved = saved || succeeded;
+      // A note may have started its next candidate while the previous attempt settled.
+      const next = pendingArtifactSavesRef.current.get(artifactId);
+      pending = next === pending ? undefined : next;
+    }
+    return saved;
+  };
   const [expiredGraceTools, setExpiredGraceTools] = useState<Set<string>>(new Set());
   const [processingNoteToolCallIds, setProcessingNoteToolCallIds] = useState<Set<string>>(
     new Set()
@@ -1209,7 +1240,12 @@ function ContextAnswerPanelSession({
       });
 
       for (const candidate of candidates) {
-        const result = await runMutation(mutationTarget, candidate);
+        const saveRequest = runMutation(mutationTarget, candidate);
+        trackArtifactSave(
+          noteArtifactIds,
+          saveRequest.then(result => result.saved)
+        );
+        const result = await saveRequest;
         lastResult = result;
         if (result.saved) {
           const originLesson = buildContextDraftLesson(contextAnswer, currentState);
@@ -1289,7 +1325,12 @@ function ContextAnswerPanelSession({
       title: payload.summary.title,
     } as const;
     if (onSaveArtifactToLesson) {
-      const result = await onSaveArtifactToLesson(mutationTarget, visual, artifactRef);
+      const saveRequest = onSaveArtifactToLesson(mutationTarget, visual, artifactRef);
+      trackArtifactSave(
+        [artifactId],
+        saveRequest.then(result => result.succeeded)
+      );
+      const result = await saveRequest;
       if (result.succeeded) {
         setOriginLessonArtifactPayloads(currentPayloads =>
           upsertLearningArtifactPayload(currentPayloads, { ...payload, visual })
@@ -1361,9 +1402,10 @@ function ContextAnswerPanelSession({
       return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
     }
     const { artifact, root, replacedIds } = replacement;
-    const isSavedSource = originLessonArtifactPayloads.some(
-      source => source.summary.id === root.summary.id
-    );
+    const pendingSaveSucceeded = await waitForArtifactSaves(root.summary.id);
+    const isSavedSource =
+      pendingSaveSucceeded ||
+      originLessonArtifactPayloads.some(source => source.summary.id === root.summary.id);
     let approvedPayload: ContextGeneratedArtifact = {
       ...artifact,
       summary: { ...artifact.summary, replacementOfArtifactId: undefined },
