@@ -150,6 +150,7 @@ export const useReaderContext = ({
       !contextMenu.visible ||
       contextMenu.type !== 'selection' ||
       !contextMenu.prepareContext ||
+      contextAnswer ||
       contextMenuOwnerSectionId !== activeSectionId
     ) {
       return;
@@ -172,7 +173,7 @@ export const useReaderContext = ({
       globalThis.cancelAnimationFrame(frame);
       globalThis.clearTimeout(timeout);
     };
-  }, [activeSectionId, contextMenu, contextMenuOwnerSectionId]);
+  }, [activeSectionId, contextAnswer, contextMenu, contextMenuOwnerSectionId]);
 
   // Mirror of sectionContent so that handleContentClick can read the latest
   // value without listing it as a useCallback dependency. sectionContent

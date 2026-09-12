@@ -74,6 +74,28 @@ test('commits the selection menu before preparing context and cancels obsolete w
     });
 
     act(() => {
+      result.current.openContextAnswer({ initialQuestion: 'Explain', selectedText: 'beta' });
+      result.current.openContextMenuFromSelection(selection, 'desktop-floating');
+    });
+    expect(result.current.contextMenu.visible).toBe(false);
+    act(() => {
+      while (frames.length) frames.shift()?.(0);
+      vi.runOnlyPendingTimers();
+    });
+    act(() => {
+      result.current.closeContextAnswer();
+    });
+    expect(result.current.contextMenu.visible).toBe(true);
+    runFrame();
+    runFrame();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(
+      result.current.contextMenu.type === 'selection' && result.current.contextMenu.prepareContext
+    ).toBeUndefined();
+
+    act(() => {
       result.current.closeContextMenu();
     });
     projectionSpy.mockClear();
