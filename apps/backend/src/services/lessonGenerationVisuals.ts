@@ -40,6 +40,7 @@ import { createConfiguredTextModelFromResolution } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
 import { imageClient } from './imageClient.js';
 import type { LessonVisualModelConfig } from './lessonVisualModelConfig.js';
+import { isParseableMermaid } from './mermaidValidation.js';
 import { openRouterModelSupportsImages } from './openRouterModelCapabilities.js';
 
 export type { LessonVisualType } from '@shared/lessonGenerationPolicy';
@@ -537,11 +538,13 @@ const isUnsupportedOpenRouterImageInput = (error: unknown): boolean => {
   );
 };
 
-const normalizeArtifactDraft = (
+const normalizeArtifactDraft = async (
   draft: RenderedArtifactDraft,
+  signal: AbortSignal,
   existingEmbeddedAssets: readonly ProjectAssetRef[] = []
-): RenderedArtifactDraft | null => {
+): Promise<RenderedArtifactDraft | null> => {
   if (!isSafeGeneratedVisualCode(draft.kind, draft.code)) return null;
+  if (draft.kind === 'mermaid' && !(await isParseableMermaid(draft.code, signal))) return null;
   if (draft.kind !== 'html') return draft.imageRequests.length === 0 ? draft : null;
   const normalized = normalizeHtmlArtifactImageRequests(draft.imageRequests, draft.code);
   if (!normalized) return null;
@@ -566,7 +569,7 @@ export const generateLessonVisualArtifact = async (
 ): Promise<RenderedArtifactDraft | null> => {
   try {
     const draft = await requestArtifactRender(input);
-    return normalizeArtifactDraft(draft, input.existingEmbeddedAssets);
+    return await normalizeArtifactDraft(draft, input.signal, input.existingEmbeddedAssets);
   } catch (error) {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -583,7 +586,7 @@ export const reviseLessonVisualArtifact = async (
     ...(input.preview ? { preview: input.preview } : {}),
     previous: input.visual,
   });
-  return normalizeArtifactDraft(revision, input.existingEmbeddedAssets);
+  return normalizeArtifactDraft(revision, input.signal, input.existingEmbeddedAssets);
 };
 
 export const toVisualRetryPlan = (plan: LessonVisualDraftPlan): LessonVisualRetryPlan => ({
