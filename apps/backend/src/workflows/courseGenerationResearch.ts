@@ -3,7 +3,8 @@ import {
   formatSourceArchiveIndex,
 } from '@shared/sourceArchiveIndex';
 import * as z from 'zod';
-import type { GlobalModelConfig } from '../config/modelConfig.js';
+import type { GlobalModelConfig, TextModelSlot } from '../config/modelConfig.js';
+import { isResearchProviderUnavailable } from '../services/researchProviderAvailability.js';
 import {
   isResearchSourceSelected,
   planResearchSources,
@@ -40,9 +41,17 @@ import {
 } from './courseGenerationWorkflowContract.js';
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import { YouTubeResearchOutcomeSchema } from './lessonGenerationWorkflowSchemas.js';
-import { retryOperational, runWorkflowStage, WorkflowStepError } from './retryPolicy.js';
+import {
+  readRetryAfterMs,
+  retryOperational,
+  runWorkflowStage,
+  WorkflowStepError,
+} from './retryPolicy.js';
 import type { FanOutResult, StepExecutionContext } from './types.js';
-import { createWorkflowModelDiagnostic } from './workflowErrorDiagnostics.js';
+import {
+  createWorkflowModelDiagnostic,
+  toWorkflowErrorDiagnostic,
+} from './workflowErrorDiagnostics.js';
 
 const COURSE_RESEARCH_SOURCE_MAX_CHARS = 24_000;
 
@@ -270,22 +279,38 @@ export const createCourseResearchNode = <
   });
   const runResearchStage = <Input, Output>(
     context: StepExecutionContext<Input, Config, Services>,
-    operation: (stage: CourseGenerationStageContext<Input>) => Promise<Output>
-  ) =>
-    runWorkflowStage({
-      failure: {
-        code: 'course_research_failed',
-        details: {
-          model: createWorkflowModelDiagnostic(
-            context.config.models as GlobalModelConfig,
-            'research'
-          ),
-        },
-        message: 'The course research could not be completed.',
+    operation: (stage: CourseGenerationStageContext<Input>) => Promise<Output>,
+    modelSlot: TextModelSlot = 'research'
+  ) => {
+    const failure = {
+      code: 'course_research_failed',
+      details: {
+        model: createWorkflowModelDiagnostic(context.config.models as GlobalModelConfig, modelSlot),
       },
-      operation: () => operation(context),
+      message: 'The course research could not be completed.',
+    };
+    return runWorkflowStage({
+      failure,
+      operation: async () => {
+        try {
+          return await operation(context);
+        } catch (error) {
+          const providerError = error instanceof CourseModelProviderError ? error.cause : error;
+          if (!isResearchProviderUnavailable(providerError)) throw error;
+          throw retryOperational({
+            ...failure,
+            details: {
+              ...failure.details,
+              diagnostic: toWorkflowErrorDiagnostic(error),
+              providerUnavailable: true,
+            },
+            retryAfterMs: readRetryAfterMs(error),
+          });
+        }
+      },
       signal: context.signal,
     });
+  };
 
   const researchWeb = step<
     typeof CourseResearchBranchInputSchema,
@@ -455,10 +480,14 @@ export const createCourseResearchNode = <
     inputSchema: CoursePreparationStateSchema,
     outputSchema: RoutedCourseResearchSchema,
     run: context =>
-      runResearchStage(context, async stage => ({
-        ...stage.input,
-        routing: await context.services.planCourseResearchSources(stage),
-      })),
+      runResearchStage(
+        context,
+        async stage => ({
+          ...stage.input,
+          routing: await context.services.planCourseResearchSources(stage),
+        }),
+        'context'
+      ),
   });
   const selectedResearch = fanOut({
     id: 'gather-selected-course-research',
@@ -473,6 +502,15 @@ export const createCourseResearchNode = <
     worker: routeResearch,
     outputSchema: CourseResearchStateSchema,
     fanIn: (results, input): CourseResearchState => {
+      for (const result of results) {
+        if (
+          result.status === 'failed' &&
+          (!input.routing.suppliedSourcesSufficient ||
+            result.failure.details?.providerUnavailable !== true)
+        ) {
+          throw new WorkflowStepError(result.failure);
+        }
+      }
       const webFailed = results.some(result => result.key === 'web' && result.status === 'failed');
       const web =
         isResearchSourceSelected(input.routing, 'web') &&

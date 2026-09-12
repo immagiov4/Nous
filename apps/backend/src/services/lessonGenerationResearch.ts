@@ -1,7 +1,5 @@
-import { APICallError } from 'ai';
 import type { ProjectSnapshot } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
-import { CodexAppServerError } from './codexAppServer.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import { mergeSources, type ResearchSource } from './lessonGenerationSources.js';
 import type {
@@ -10,6 +8,7 @@ import type {
   LessonResearchSummary,
   NormalizedLessonBlock,
 } from './lessonGenerationTypes.js';
+import { isResearchProviderUnavailable } from './researchProviderAvailability.js';
 import { isResearchSourceSelected } from './researchSourceRouting.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
 
@@ -52,7 +51,7 @@ export const generateLessonResearchSummary = async ({
     if (
       !generationInput.researchRouting?.suppliedSourcesSufficient ||
       !isResearchSourceSelected(generationInput.researchRouting, 'web') ||
-      !(APICallError.isInstance(error) || error instanceof CodexAppServerError)
+      !isResearchProviderUnavailable(error)
     )
       throw error;
     console.warn('[Lesson workflow] Optional research unavailable; using supplied sources.', {

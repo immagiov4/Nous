@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { CodexAppServerError } from '../../src/services/codexAppServer.js';
 import type { YouTubeResearchOutcome } from '../../src/services/youtubeResearch.js';
 import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
 import { createCourseResearchServices } from '../../src/workflows/courseGenerationResearch.js';
@@ -170,7 +171,12 @@ describe('course generation research', () => {
         key: 'youtube',
         input: { branch: 'youtube', state: prepared },
         status: 'failed',
-        failure: { kind: 'operational', code: 'course_research_failed', message: 'Unavailable' },
+        failure: {
+          kind: 'operational',
+          code: 'course_research_failed',
+          message: 'Unavailable',
+          details: { providerUnavailable: true },
+        },
       },
     ];
     const routing = {
@@ -192,7 +198,58 @@ describe('course generation research', () => {
         ...prepared,
         routing: { ...routing, suppliedSourcesSufficient: false },
       })
-    ).toThrow('did not complete');
+    ).toThrow('Unavailable');
+  });
+
+  test('preserves contract and configuration failures through optional course fan-in', async () => {
+    for (const error of [
+      new CourseModelProviderError(new CodexAppServerError('Invalid response', 'protocol')),
+      new CourseModelProviderError(new CodexAppServerError('Missing login', 'not_authenticated')),
+      retryCorrective({
+        code: 'course_model_output_invalid',
+        message: 'Invalid output',
+        feedback: 'Correct the output.',
+      }),
+    ]) {
+      const services = {
+        researchCourseWeb: vi.fn().mockRejectedValue(error),
+      } as unknown as CourseGenerationWorkflowServices;
+      const failure = await runStep(
+        'research-course-web',
+        { branch: 'web', state: prepared },
+        services
+      ).catch(error => error);
+      expect(() =>
+        fanIn(
+          'gather-selected-course-research',
+          [
+            {
+              key: 'web',
+              input: { branch: 'web', state: prepared },
+              status: 'failed',
+              failure: failure.failure,
+            },
+          ],
+          { ...prepared, routing: { ...allSourcesRouting, suppliedSourcesSufficient: true } }
+        )
+      ).toThrow();
+    }
+  });
+
+  test('retains provider unavailability through the course step boundary', async () => {
+    const services = {
+      researchCourseWeb: vi
+        .fn()
+        .mockRejectedValue(
+          new CourseModelProviderError(new CodexAppServerError('Unavailable', 'process'))
+        ),
+    } as unknown as CourseGenerationWorkflowServices;
+    const error = await runStep(
+      'research-course-web',
+      { branch: 'web', state: prepared },
+      services
+    ).catch(error => error);
+    expect(error.failure.details.providerUnavailable).toBe(true);
   });
 
   test('keeps the web and YouTube provider calls atomic without changing their prompts', async () => {
