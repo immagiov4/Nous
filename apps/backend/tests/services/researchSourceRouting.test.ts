@@ -30,15 +30,50 @@ describe('research source routing boundary', () => {
     { ...decision, rationale: ' ' },
     { ...decision, suppliedSourcesSufficient: false },
   ])('rejects incomplete or invalid decisions before retrieval', value => {
-    expect(() => validateResearchSourceRouting(value, ['web', 'youtube'])).toThrow();
+    expect(() =>
+      validateResearchSourceRouting(value, ['web', 'youtube'], 'Supplied chapter')
+    ).toThrow();
   });
 
   test('limits selection to available capabilities', () => {
     expect(
-      validateResearchSourceRouting({ ...decision, channels: [decision.channels[0]] }, ['web'])
-        .channels
+      validateResearchSourceRouting(
+        { ...decision, channels: [decision.channels[0]] },
+        ['web'],
+        'Supplied chapter'
+      ).channels
     ).toHaveLength(1);
-    expect(() => validateResearchSourceRouting(decision, ['web'])).toThrow();
+    expect(() => validateResearchSourceRouting(decision, ['web'], 'Supplied chapter')).toThrow();
+  });
+
+  test.each([
+    '',
+    ' \n ',
+  ])('rejects source-free sufficiency through the production planner', async sourceContext => {
+    const generateObject = vi.fn().mockResolvedValue(decision);
+    const input: ResearchSourceRoutingInput = {
+      config: getGlobalModelConfig(),
+      level: 'course',
+      topic: 'Systems',
+      learningContext: 'Learn systems',
+      sourceContext,
+      availableChannels: ['web', 'youtube'],
+      signal: new AbortController().signal,
+    };
+    await expect(planResearchSources(input, generateObject)).rejects.toThrow(
+      'Absent supplied material'
+    );
+    generateObject.mockResolvedValue({
+      ...decision,
+      suppliedSourcesSufficient: false,
+      channels: decision.channels.map(channel => ({
+        ...channel,
+        selected: channel.type === 'web',
+      })),
+    });
+    await expect(planResearchSources(input, generateObject)).resolves.toMatchObject({
+      suppliedSourcesSufficient: false,
+    });
   });
 
   test.each([

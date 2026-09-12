@@ -38,6 +38,7 @@ import type {
 } from '../services/lessonYouTubePlanning.js';
 import {
   type ResearchSourceRouting,
+  type ResearchSourceType,
   planResearchSources as selectResearchSources,
 } from '../services/researchSourceRouting.js';
 import { isRecord } from '../utils/validation.js';
@@ -71,6 +72,7 @@ interface LessonStageLogger {
 }
 
 export interface LessonGenerationStageDependencies {
+  readonly availableResearchChannels: readonly ResearchSourceType[];
   readonly generateAids: (input: GenerateLessonLearningAidsInput) => Promise<readonly unknown[]>;
   readonly generateContent: GenerateLessonContent;
   readonly generateResearch: GenerateResearch;
@@ -763,7 +765,7 @@ export const createLessonGenerationStageServices = (
           .filter(Boolean)
           .join('\n'),
         sourceContext: context.input.lessonInputData.sourceContext,
-        availableChannels: ['web', 'youtube'],
+        availableChannels: dependencies.availableResearchChannels,
         signal: context.signal,
       });
       return { ...context.input, researchRouting };

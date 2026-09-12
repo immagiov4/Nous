@@ -175,6 +175,66 @@ const finalizeResearch = (
   );
 
 describe('course generation research', () => {
+  test('rejects unavailable capabilities in the production course planner', async () => {
+    const generateObject = vi.fn().mockResolvedValue({
+      ...allSourcesRouting,
+      channels: [allSourcesRouting.channels[0]],
+    });
+    const services = createCourseResearchServices({
+      availableChannels: ['web'],
+      generateObject,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+    });
+    await expect(services.planCourseResearchSources(stageContext(prepared))).resolves.toMatchObject(
+      { channels: [allSourcesRouting.channels[0]] }
+    );
+    generateObject.mockResolvedValue(allSourcesRouting);
+    await expect(services.planCourseResearchSources(stageContext(prepared))).rejects.toThrow(
+      'every available capability exactly once'
+    );
+  });
+
+  test('rejects empty required YouTube evidence and permits empty optional or accompanying research', async () => {
+    const routing = {
+      ...allSourcesRouting,
+      channels: allSourcesRouting.channels.map(channel => ({
+        ...channel,
+        selected: channel.type === 'youtube',
+      })),
+    };
+    const emptyYoutube = {
+      key: 'youtube',
+      input: { branch: 'youtube', state: prepared },
+      status: 'completed',
+      output: {
+        branch: 'youtube',
+        research: { candidates: [], context: '', rationale: 'No results', status: 'completed' },
+      },
+    };
+    await expect(
+      finalizeResearch([emptyYoutube] as never, { ...prepared, routing })
+    ).rejects.toThrow('Required YouTube research');
+    await expect(
+      finalizeResearch([emptyYoutube] as never, {
+        ...prepared,
+        routing: { ...routing, suppliedSourcesSufficient: true },
+      })
+    ).resolves.toMatchObject({ research: { youtube: { candidates: [] } } });
+    await expect(
+      finalizeResearch(
+        [
+          emptyYoutube,
+          {
+            key: 'web',
+            input: { branch: 'web', state: prepared },
+            status: 'completed',
+            output: { branch: 'web', research: { brief: 'Current verified facts', sources: [] } },
+          },
+        ] as never,
+        { ...prepared, routing: allSourcesRouting }
+      )
+    ).resolves.toMatchObject({ research: { web: { brief: 'Current verified facts' } } });
+  });
   test('propagates complete YouTube query failure without losing availability or corrective details', async () => {
     for (const failure of [
       {

@@ -9,7 +9,10 @@ import type {
   NormalizedLessonBlock,
 } from './lessonGenerationTypes.js';
 import { isResearchProviderUnavailable } from './researchProviderAvailability.js';
-import { isResearchSourceSelected } from './researchSourceRouting.js';
+import {
+  assertRequiredYouTubeEvidence,
+  isResearchSourceSelected,
+} from './researchSourceRouting.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
 
 export type ResearchYouTube = (
@@ -40,6 +43,10 @@ export const generateLessonResearchSummary = async ({
   youtubeOutcome: YouTubeResearchOutcome | null;
 }): Promise<LessonResearchSummary | null> => {
   if (existingDossier && !generationInput.refreshResearch) return null;
+  assertRequiredYouTubeEvidence(
+    generationInput.researchRouting,
+    youtubeOutcome?.videoCandidates.length ?? 0
+  );
   if (!shouldGenerateLessonResearch(generationInput) && !youtubeOutcome?.videoCandidates.length) {
     return null;
   }

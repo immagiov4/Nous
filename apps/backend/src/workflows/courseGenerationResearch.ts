@@ -6,13 +6,16 @@ import * as z from 'zod';
 import type { GlobalModelConfig, TextModelSlot } from '../config/modelConfig.js';
 import { isResearchProviderUnavailable } from '../services/researchProviderAvailability.js';
 import {
+  assertRequiredYouTubeEvidence,
   isResearchSourceSelected,
   planResearchSources,
   type ResearchSourceRouting,
   ResearchSourceRoutingSchema,
+  type ResearchSourceType,
 } from '../services/researchSourceRouting.js';
 import {
   buildYouTubeResearchOutcome,
+  isYouTubeResearchConfigured,
   mergeYouTubeResearchOutcomes,
   type YouTubeResearchOutcome,
 } from '../services/youtubeResearch.js';
@@ -162,7 +165,9 @@ export const createCourseResearchServices = ({
   readSourceMaterials,
   openArchive,
   researchYoutube = productionResearchYoutube,
+  availableChannels = isYouTubeResearchConfigured() ? ['web', 'youtube'] : ['web'],
 }: {
+  readonly availableChannels?: readonly ResearchSourceType[];
   readonly generateObject?: GenerateCourseObject;
   readonly openArchive?: ReturnType<typeof createCourseArchiveOpener>;
   readonly readSourceMaterials: ReadSourceMaterials;
@@ -189,7 +194,7 @@ export const createCourseResearchServices = ({
         topic: context.input.context.topic,
         learningContext: context.input.context.assessmentSummary,
         sourceContext,
-        availableChannels: ['web', 'youtube'],
+        availableChannels,
         signal: context.signal,
       },
       generateObject
@@ -594,6 +599,7 @@ export const createCourseResearchNode = <
       } else {
         youtube = completedBranch(results, 'youtube').research;
       }
+      assertRequiredYouTubeEvidence(input.routing, youtube.candidates.length);
       return CourseResearchStateSchema.parse({
         ...input,
         stage: 'research',

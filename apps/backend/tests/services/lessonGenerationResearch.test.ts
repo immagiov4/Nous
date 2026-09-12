@@ -54,6 +54,52 @@ const youtubeOutcome = {
 
 describe('lesson research routing', () => {
   test.each([
+    null,
+    { ...youtubeOutcome, videoCandidates: [] },
+  ])('requires evidence when YouTube is the only necessary channel', async emptyOutcome => {
+    const research = vi.fn().mockResolvedValue(researchSummary);
+    const input = generationInput({
+      researchRouting: {
+        suppliedSourcesSufficient: false,
+        rationale: 'Evidence needed',
+        channels: [
+          { type: 'web', selected: false, rationale: 'No web evidence needed' },
+          { type: 'youtube', selected: true, rationale: 'Required demonstration' },
+        ],
+      },
+    });
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome: emptyOutcome,
+      })
+    ).rejects.toThrow('Required YouTube research');
+    expect(research).not.toHaveBeenCalled();
+    if (!input.researchRouting) throw new Error('Missing test routing');
+    input.researchRouting.suppliedSourcesSufficient = true;
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome: emptyOutcome,
+      })
+    ).resolves.toBeNull();
+    input.researchRouting.suppliedSourcesSufficient = false;
+    input.researchRouting.channels[0].selected = true;
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome: emptyOutcome,
+      })
+    ).resolves.toBe(researchSummary);
+    expect(research).toHaveBeenCalledTimes(1);
+  });
+  test.each([
     new CodexAppServerError('Unavailable', 'process'),
     new CodexAppServerError('Unavailable', 'timeout'),
     new APICallError({

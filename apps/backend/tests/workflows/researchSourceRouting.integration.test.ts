@@ -42,6 +42,15 @@ const scenarios = [
       expectedStatus: sufficient ? 'completed' : 'failed',
     }))
   ),
+  ...[true, false].map(sufficient => ({
+    ...researchRoutingScenarios[0],
+    name: `empty YouTube with supplied sufficiency ${sufficient}`,
+    selected: ['youtube' as const],
+    emptyYoutube: true,
+    failure: null,
+    suppliedSourcesSufficient: sufficient,
+    expectedStatus: sufficient ? 'completed' : 'failed',
+  })),
   {
     ...researchRoutingScenarios[0],
     name: 'optional web invalid contract',
@@ -63,6 +72,7 @@ describe
     afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
 
     test.each(scenarios)('$name executes only selected retrieval branches', async scenario => {
+      const emptyYoutube = 'emptyYoutube' in scenario && scenario.emptyYoutube;
       const sql = context.sql;
       if (!sql) throw new Error('An isolated integration database is required.');
       const config = { models: getGlobalModelConfig(), maxAttempts: 1, timeoutMs: 60_000 };
@@ -87,6 +97,13 @@ describe
       });
       const researchYoutube = vi.fn(async () => {
         if (scenario.failure) throw scenario.failure;
+        if (emptyYoutube)
+          return {
+            context: '',
+            discoveredVideoCount: 0,
+            rationale: 'No results',
+            videoCandidates: [],
+          };
         return {
           context: 'A sorted interval shrinks.',
           discoveredVideoCount: 1,
@@ -107,8 +124,20 @@ describe
         };
       });
       const services = createCourseResearchServices({
+        availableChannels: ['web', 'youtube'],
         generateObject: generateObject as never,
-        readSourceMaterials: async () => [],
+        readSourceMaterials: async () => [
+          {
+            descriptor: {
+              hash: 'a'.repeat(64),
+              id: 'source-1',
+              kind: 'text',
+              mimeType: 'text/plain',
+              name: 'supplied-source.txt',
+            },
+            text: scenario.sourceContext,
+          },
+        ],
         researchYoutube,
       });
       const registry = createWorkflowRegistry();
@@ -166,9 +195,9 @@ describe
         const output = CourseResearchStateSchema.parse(finalized?.output);
         expect(output.research.routing).toEqual(routing);
         expect(output.research.youtube.candidates).toHaveLength(
-          scenario.selected.includes('youtube') && !scenario.failure ? 1 : 0
+          scenario.selected.includes('youtube') && !scenario.failure && !emptyYoutube ? 1 : 0
         );
-        if (scenario.selected.includes('youtube') && !scenario.failure) {
+        if (scenario.selected.includes('youtube') && !scenario.failure && !emptyYoutube) {
           expect(output.research.youtube.candidates[0]?.youtubeTranscript.segments).toEqual([
             {
               startSeconds: 0,

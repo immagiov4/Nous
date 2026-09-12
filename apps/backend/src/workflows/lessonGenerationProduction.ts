@@ -20,7 +20,10 @@ import {
 import { planLessonYouTubeSearch } from '../services/lessonYouTubePlanning.js';
 import { captionPdfImage } from '../services/pdfImageCaption.js';
 import { extractPdfImages } from '../services/pdfImageExtractor.js';
-import { buildYouTubeResearchOutcome } from '../services/youtubeResearch.js';
+import {
+  buildYouTubeResearchOutcome,
+  isYouTubeResearchConfigured,
+} from '../services/youtubeResearch.js';
 import { timestampIso } from '../utils/time.js';
 import type { ArtifactDraftWorkflowServices } from './artifactDraftWorkflow.js';
 import { createLessonDocumentSourceStage } from './lessonGenerationDocumentStage.js';
@@ -47,6 +50,7 @@ export const createProductionLessonGenerationServices = (
   projectStore: ProjectStore = getProjectStore()
 ): LessonGenerationWorkflowServices & ArtifactDraftWorkflowServices => {
   const generation = createLessonGenerationStageServices({
+    availableResearchChannels: isYouTubeResearchConfigured() ? ['web', 'youtube'] : ['web'],
     generateAids: generateLessonLearningAids,
     generateContent: generateLessonContent,
     generateResearch: generateResearchSummary,

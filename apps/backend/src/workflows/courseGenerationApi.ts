@@ -16,7 +16,16 @@ import type { WorkflowRun } from './types.js';
 import { WorkflowRunNotFoundError } from './workflowErrors.js';
 import type { WorkflowNodeRunState, WorkflowRunState } from './workflowReadModel.js';
 
-const SOURCE_STAGE_NODES = new Set(['prepare-course', 'gather-course-research']);
+const SOURCE_STAGE_NODES = new Set([
+  'prepare-course',
+  'gather-course-research',
+  'plan-course-research-sources',
+  'research-course-web',
+  'plan-course-youtube-queries',
+  'research-course-youtube-query',
+  'finalize-course-youtube-research',
+  'finalize-selected-course-research',
+]);
 const STRUCTURE_STAGE_NODES = new Set([
   'draft-course-plan',
   'draft-archive-course',

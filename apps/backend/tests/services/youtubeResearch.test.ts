@@ -1,10 +1,11 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   buildYouTubeResearchDiagnostic,
   buildYouTubeResearchOutcome,
   DecodoDiscoveryProvider,
   DecodoMetadataProvider,
   DecodoTranscriptProvider,
+  isYouTubeResearchConfigured,
   type YouTubeCandidate,
   type YouTubeDiscoveryProvider,
   type YouTubeTranscriptProvider,
@@ -12,6 +13,61 @@ import {
 import { readRetryAfterMs } from '../../src/workflows/retryPolicy.js';
 
 describe('YouTube research', () => {
+  test.each([
+    ['', false],
+    ['  ', false],
+    ['configured-key', true],
+  ] as const)('reports configured availability for %s', (key, configured) => {
+    vi.stubEnv('DECODO_SCRAPING_API_KEY', key);
+    try {
+      expect(isYouTubeResearchConfigured()).toBe(configured);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test.each([
+    'search',
+    'metadata',
+    'transcript',
+  ] as const)('normalizes only %s transport failures and preserves cancellation and malformed responses', async operation => {
+    const controller = new AbortController();
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed'));
+    const call = () => {
+      if (operation === 'search')
+        return new DecodoDiscoveryProvider('secret', fetcher).search('query', controller.signal);
+      if (operation === 'metadata')
+        return new DecodoMetadataProvider('secret', fetcher).getMetadata(
+          'video',
+          controller.signal
+        );
+      return new DecodoTranscriptProvider('secret', fetcher).getTranscriptDiagnostic(
+        'video',
+        ['en'],
+        controller.signal
+      );
+    };
+    const failure = await call().catch(error => error);
+    expect(isResearchProviderUnavailable(failure)).toBe(true);
+    expect(failure.cause).toBeInstanceOf(TypeError);
+    fetcher.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new TypeError('Connection closed during response'));
+          },
+        })
+      )
+    );
+    const bodyFailure = await call().catch(error => error);
+    expect(isResearchProviderUnavailable(bodyFailure)).toBe(true);
+    expect(bodyFailure.cause).toBeInstanceOf(TypeError);
+    fetcher.mockResolvedValue(new Response('invalid JSON'));
+    await expect(call()).rejects.toBeInstanceOf(SyntaxError);
+    controller.abort(new Error('Cancelled'));
+    await expect(call()).rejects.toThrow('Cancelled');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
   test('omits engagement retrieval per caller while preserving transcript evidence and discovery diagnostics', async () => {
     let metadataCalls = 0;
     const options = {

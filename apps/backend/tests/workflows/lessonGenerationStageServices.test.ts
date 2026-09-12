@@ -70,6 +70,7 @@ const unused = vi.fn(async () => {
 const dependencies = (
   overrides: Partial<LessonGenerationStageDependencies> = {}
 ): LessonGenerationStageDependencies => ({
+  availableResearchChannels: ['web', 'youtube'],
   generateAids: unused,
   generateContent: unused,
   generateResearch: unused,
@@ -131,6 +132,21 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test('passes only configured capabilities to the lesson planner', async () => {
+    const planner = vi.fn().mockResolvedValue({
+      suppliedSourcesSufficient: false,
+      rationale: 'Current sources required',
+      channels: [{ type: 'web', selected: true, rationale: 'Current facts' }],
+    });
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        availableResearchChannels: ['web'],
+        planResearchSources: planner,
+      })
+    );
+    await services.planResearchSources(stageContext(lessonSourcesState()));
+    expect(planner).toHaveBeenCalledWith(expect.objectContaining({ availableChannels: ['web'] }));
+  });
   test.each([
     true,
     false,
