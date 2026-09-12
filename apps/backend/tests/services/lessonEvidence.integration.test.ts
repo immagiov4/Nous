@@ -261,6 +261,33 @@ const mockModels = () => {
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test('accepts grounded distractor explanations but rejects a contradicted answer key', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    runCodexAppServerTurn.mockImplementation(async request => {
+      const { draft } = JSON.parse(request.input[0].text);
+      const quiz = draft.contentBlocks[3].quiz;
+      const report = factualReport(true);
+      const quizAssessment = report.blocks[3]?.assessments[0];
+      if (!quizAssessment) throw new Error('Missing quiz assessment fixture.');
+      quizAssessment.claim =
+        'La risposta marcata e la spiegazione distinguono le alternative errate usando la condizione scalare.';
+      quizAssessment.status = quiz.correctIndex === 0 ? 'supported' : 'contradicted';
+      return JSON.stringify(report);
+    });
+    await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
+    const wrongKey = structuredClone(evidenceLesson);
+    const quizBlock = wrongKey.contentBlocks[3];
+    if (quizBlock?.type !== 'inline-quiz') throw new Error('Missing quiz fixture.');
+    quizBlock.quiz.correctIndex = 1;
+    await expect(verifyLessonEvidence(input, wrongKey)).rejects.toMatchObject({
+      code: 'lesson_factual_support_failed',
+    });
+  });
   test('accepts factual citations inside retained passages and rejects reversed or outside ranges', async () => {
     const input = generationInput();
     input.researchContext = JSON.stringify(evidenceResearch);
