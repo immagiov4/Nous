@@ -757,6 +757,7 @@ export const createLessonGenerationStageServices = (
         level: 'lesson',
         topic: context.input.lessonInputData.sectionTitle,
         coverageGaps: context.input.lessonInputData.coverageGaps,
+        retryFeedback: context.retryFeedback,
         learningContext: [
           context.input.lessonInputData.description,
           context.input.youtubePlanning.context,

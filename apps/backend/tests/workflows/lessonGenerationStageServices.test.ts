@@ -5,6 +5,7 @@ import { CodexAppServerError } from '../../src/services/codexAppServer.js';
 import { resolveLessonResearchRequest } from '../../src/services/lessonGenerationModel.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
+import { validateResearchSourceRouting } from '../../src/services/researchSourceRouting.js';
 import {
   createLessonGenerationStageServices,
   type LessonGenerationStageDependencies,
@@ -132,6 +133,38 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test('preserves corrective routing failures and forwards feedback to the next lesson decision', async () => {
+    let selected = false;
+    const planner = vi.fn(async input =>
+      validateResearchSourceRouting(
+        {
+          suppliedSourcesSufficient: false,
+          rationale: 'Required facts',
+          channels: [{ type: 'web', selected, rationale: 'Current sources' }],
+        },
+        input.availableChannels,
+        input.sourceContext
+      )
+    );
+    const services = createLessonGenerationStageServices(
+      dependencies({ availableResearchChannels: ['web'], planResearchSources: planner })
+    );
+    const node = [...indexWorkflowNodes(createLessonGenerationWorkflow(config)).values()].find(
+      entry => entry.node.id === 'plan-lesson-research-sources'
+    )?.node;
+    if (node?.kind !== 'step') throw new Error('Missing routing step');
+    const context = { ...stageContext(lessonSourcesState()), services };
+    const error = await node.run(context as never).catch(error => error);
+    expect(error.failure).toMatchObject({
+      kind: 'corrective',
+      code: 'research_source_routing_invalid',
+    });
+    selected = true;
+    await expect(
+      node.run({ ...context, attemptNumber: 2, retryFeedback: error.failure.feedback } as never)
+    ).resolves.toMatchObject({ researchRouting: { channels: [{ type: 'web', selected: true }] } });
+    expect(planner.mock.calls[1][0].retryFeedback).toBe(error.failure.feedback);
+  });
   test('passes only configured capabilities to the lesson planner', async () => {
     const planner = vi.fn().mockResolvedValue({
       suppliedSourcesSufficient: false,

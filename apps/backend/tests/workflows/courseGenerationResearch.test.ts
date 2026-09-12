@@ -175,6 +175,38 @@ const finalizeResearch = (
   );
 
 describe('course generation research', () => {
+  test('preserves corrective routing failures and supplies feedback to the next course decision', async () => {
+    const generateObject = vi.fn().mockResolvedValue({
+      ...allSourcesRouting,
+      channels: [{ ...allSourcesRouting.channels[0], selected: false }],
+    });
+    const services = createCourseResearchServices({
+      availableChannels: ['web'],
+      generateObject,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+    });
+    const error = await runStep(
+      'plan-course-research-sources',
+      prepared,
+      workflowServices(services)
+    ).catch(error => error);
+    expect(error.failure).toMatchObject({
+      kind: 'corrective',
+      code: 'research_source_routing_invalid',
+      feedback: 'Insufficient supplied sources require a selected research capability.',
+    });
+    generateObject.mockResolvedValue({
+      ...allSourcesRouting,
+      channels: [allSourcesRouting.channels[0]],
+    });
+    await expect(
+      services.planCourseResearchSources({
+        ...stageContext(prepared, 2),
+        retryFeedback: error.failure.feedback,
+      })
+    ).resolves.toMatchObject({ channels: [allSourcesRouting.channels[0]] });
+    expect(generateObject.mock.calls[1][0].prompt.endsWith(error.failure.feedback)).toBe(true);
+  });
   test('rejects unavailable capabilities in the production course planner', async () => {
     const generateObject = vi.fn().mockResolvedValue({
       ...allSourcesRouting,

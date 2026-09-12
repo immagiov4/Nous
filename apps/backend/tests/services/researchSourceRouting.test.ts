@@ -5,6 +5,7 @@ import {
   type ResearchSourceRoutingInput,
   validateResearchSourceRouting,
 } from '../../src/services/researchSourceRouting.js';
+import { getRetryDecision, WorkflowStepError } from '../../src/workflows/retryPolicy.js';
 
 const decision = {
   suppliedSourcesSufficient: true,
@@ -30,9 +31,21 @@ describe('research source routing boundary', () => {
     { ...decision, rationale: ' ' },
     { ...decision, suppliedSourcesSufficient: false },
   ])('rejects incomplete or invalid decisions before retrieval', value => {
-    expect(() =>
-      validateResearchSourceRouting(value, ['web', 'youtube'], 'Supplied chapter')
-    ).toThrow();
+    try {
+      validateResearchSourceRouting(value, ['web', 'youtube'], 'Supplied chapter');
+      throw new Error('Invalid decision was accepted');
+    } catch (error) {
+      expect(error).toBeInstanceOf(WorkflowStepError);
+      if (!(error instanceof WorkflowStepError)) throw error;
+      expect(error.failure).toMatchObject({
+        kind: 'corrective',
+        code: 'research_source_routing_invalid',
+        feedback: expect.any(String),
+      });
+      expect(
+        getRetryDecision({ failure: error.failure, attemptNumber: 1, maxAttempts: 3 })
+      ).toEqual({ retry: true, delayMs: 0 });
+    }
   });
 
   test('limits selection to available capabilities', () => {

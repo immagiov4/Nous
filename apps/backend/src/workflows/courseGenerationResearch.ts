@@ -193,6 +193,7 @@ export const createCourseResearchServices = ({
         level: 'course',
         topic: context.input.context.topic,
         learningContext: context.input.context.assessmentSummary,
+        retryFeedback: context.retryFeedback,
         sourceContext,
         availableChannels,
         signal: context.signal,
