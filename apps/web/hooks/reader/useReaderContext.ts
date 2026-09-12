@@ -157,16 +157,17 @@ export const useReaderContext = ({
     }
 
     const prepareContext = contextMenu.prepareContext;
+    const commitPreparedContext = () => {
+      if (contextMenuStateRef.current !== contextMenu) return;
+      const preparedMenu = { ...contextMenu, ...prepareContext(), prepareContext: undefined };
+      contextMenuStateRef.current = preparedMenu;
+      setContextMenu(preparedMenu);
+    };
     let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
     // A task after the animation frame lets the shell paint before projection work.
     let frame = globalThis.requestAnimationFrame(() => {
       frame = globalThis.requestAnimationFrame(() => {
-        timeout = globalThis.setTimeout(() => {
-          if (contextMenuStateRef.current !== contextMenu) return;
-          const preparedMenu = { ...contextMenu, ...prepareContext(), prepareContext: undefined };
-          contextMenuStateRef.current = preparedMenu;
-          setContextMenu(preparedMenu);
-        });
+        timeout = globalThis.setTimeout(commitPreparedContext);
       });
     });
     return () => {
