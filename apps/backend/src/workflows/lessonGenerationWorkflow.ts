@@ -597,14 +597,14 @@ const createLessonGenerationWorkflowDefinition = <
     id: 'route-youtube-research',
     inputSchema: durableSchemas.LessonSourcesStateSchema,
     outputSchema: durableSchemas.LessonYouTubeStateSchema,
-    select: input =>
-      input.researchRouting
-        ? isResearchSourceSelected(input.researchRouting, 'youtube')
-          ? 'research'
-          : 'bypass'
-        : input.request.forceRegenerate || input.existingDossierJson === null
-          ? 'research'
-          : 'bypass',
+    select: input => {
+      if (input.researchRouting) {
+        return isResearchSourceSelected(input.researchRouting, 'youtube') ? 'research' : 'bypass';
+      }
+      return input.request.forceRegenerate || input.existingDossierJson === null
+        ? 'research'
+        : 'bypass';
+    },
   });
 
   const researchLesson = step<

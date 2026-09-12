@@ -722,11 +722,12 @@ const buildYouTubeResearch = async (
   options.signal?.throwIfAborted();
   const discovery = options.discovery || createDefaultDiscoveryProvider();
   const transcripts = options.transcripts || createDefaultTranscriptProvider();
-  const metadata =
-    options.includeEngagementMetadata === false
-      ? undefined
-      : options.metadata ||
-        (options.discovery || options.transcripts ? undefined : createDefaultMetadataProvider());
+  let metadata = options.metadata;
+  if (options.includeEngagementMetadata === false) {
+    metadata = undefined;
+  } else if (!metadata && !options.discovery && !options.transcripts) {
+    metadata = createDefaultMetadataProvider();
+  }
   const budget = calculateTranscriptBudget(options.budget);
   const startedAt = Date.now();
   const discoveryStartedAt = Date.now();
