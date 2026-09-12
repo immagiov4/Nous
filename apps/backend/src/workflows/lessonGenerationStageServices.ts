@@ -580,7 +580,10 @@ const researchLesson =
       }
     );
     const lessonSources = selectLessonSources({
-      discoveredYoutubeSources: context.input.discoveredYoutubeSources,
+      discoveredYoutubeSources:
+        context.input.researchRouting && summary === null
+          ? []
+          : context.input.discoveredYoutubeSources,
       existingSources: context.input.existingSources,
       originalSources: context.input.originalSources,
       researchSummary: summary,

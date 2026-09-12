@@ -231,18 +231,21 @@ export const createCourseResearchServices = ({
     researchYoutube(context.input.query, context.input.language, context.signal),
 });
 
-const completedBranch = (
+const completedBranch = <Branch extends 'web' | 'youtube'>(
   results: readonly FanOutResult<
     { branch: 'web' | 'youtube'; state: CoursePreparationState },
     z.infer<typeof CourseResearchBranchOutputSchema>
   >[],
-  branch: 'web' | 'youtube'
-) => {
+  branch: Branch
+): Extract<z.infer<typeof CourseResearchBranchOutputSchema>, { branch: Branch }> => {
   const result = results.find(entry => entry.key === branch);
   if (result?.status !== 'completed' || result.output.branch !== branch) {
     throw new Error(`Course research branch ${branch} did not complete.`);
   }
-  return result.output;
+  return result.output as Extract<
+    z.infer<typeof CourseResearchBranchOutputSchema>,
+    { branch: Branch }
+  >;
 };
 
 export const createCourseResearchNode = <
@@ -479,16 +482,20 @@ export const createCourseResearchNode = <
       const youtubeFailed = results.some(
         result => result.key === 'youtube' && result.status === 'failed'
       );
-      const youtube =
-        isResearchSourceSelected(input.routing, 'youtube') && !youtubeFailed
-          ? completedBranch(results, 'youtube').research
-          : {
-              candidates: [],
-              context: '',
-              rationale:
-                input.routing.channels.find(channel => channel.type === 'youtube')?.rationale ?? '',
-              status: 'completed' as const,
-            };
+      let youtube: CourseResearchState['research']['youtube'];
+      if (!isResearchSourceSelected(input.routing, 'youtube')) {
+        youtube = {
+          candidates: [],
+          context: '',
+          rationale:
+            input.routing.channels.find(channel => channel.type === 'youtube')?.rationale ?? '',
+          status: 'completed' as const,
+        };
+      } else if (youtubeFailed && input.routing.suppliedSourcesSufficient) {
+        youtube = unavailableYoutubeResearch();
+      } else {
+        youtube = completedBranch(results, 'youtube').research;
+      }
       return CourseResearchStateSchema.parse({
         ...input,
         stage: 'research',

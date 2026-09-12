@@ -5,6 +5,7 @@ const STORE_CONTRACT_FILES = [
   'apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts',
   'apps/backend/tests/workflows/postgresWorkflowSignalStore.integration.test.ts',
   'apps/backend/tests/workflows/courseDiagnostic.integration.test.ts',
+  'apps/backend/tests/workflows/researchSourceRouting.integration.test.ts',
 ];
 
 const FULL_CONTRACT_FILES = [

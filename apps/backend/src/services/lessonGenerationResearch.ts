@@ -1,5 +1,7 @@
+import { APICallError } from 'ai';
 import type { ProjectSnapshot } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
+import { CodexAppServerError } from './codexAppServer.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import { mergeSources, type ResearchSource } from './lessonGenerationSources.js';
 import type {
@@ -42,7 +44,22 @@ export const generateLessonResearchSummary = async ({
   if (!shouldGenerateLessonResearch(generationInput) && !youtubeOutcome?.videoCandidates.length) {
     return null;
   }
-  const summary = await research(generationInput);
+  let summary: LessonResearchSummary;
+  try {
+    summary = await research(generationInput);
+  } catch (error) {
+    generationInput.signal.throwIfAborted();
+    if (
+      !generationInput.researchRouting?.suppliedSourcesSufficient ||
+      !isResearchSourceSelected(generationInput.researchRouting, 'web') ||
+      !(APICallError.isInstance(error) || error instanceof CodexAppServerError)
+    )
+      throw error;
+    console.warn('[Lesson workflow] Optional research unavailable; using supplied sources.', {
+      error,
+    });
+    return null;
+  }
   if (youtubeOutcome?.videoCandidates.length) {
     const decisions = summary.youtubeCandidateDecisions ?? [];
     const decisionUrls = new Set(decisions.map(decision => decision.url));

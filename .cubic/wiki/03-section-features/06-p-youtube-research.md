@@ -128,6 +128,18 @@ const RESEARCH_LESSON_DOSSIER_RESPONSE_SCHEMA = {
 
 Sources: [apps/web/services/openrouter/research.ts:40-65](../../../apps/web/services/openrouter/research.ts#L40-L65)
 
+## Research source selection
+
+Production course and lesson workflows call `planResearchSources` before retrieval. The configured `context` model decides whether supplied material is sufficient and returns one selected or skipped decision, with a reason, for each available capability. Available capabilities are web and YouTube. The planner receives source excerpts or archive-index previews, the topic, and the learning context. Capability selection contains no provider names.
+
+`plan-course-research-sources` persists the decision before creating only the selected parallel branches. `plan-lesson-research-sources` persists the decision before YouTube discovery and controls web access in the lesson research model. A skipped channel performs no retrieval or query-planning calls. Stored dossiers remain reusable. Previous workflow definitions retain their schemas for in-flight runs.
+
+A provider failure in optional research can leave a lesson on its sufficient supplied sources. Cancellation and invalid structured output remain failures. Unclassified discovered videos are excluded from that result. Existing query limits, transcript context limits and retry policies remain the retrieval boundaries; the router adds no numerical ranking or request policy.
+
+Course and lesson backend callers explicitly set `includeEngagementMetadata: false`: they retain transcript evidence but do not consume engagement counts. The public research endpoint and administrator lab retain the default metadata behavior because their dossier prompt consumes those counts.
+
+The routing decision is retained in workflow state alongside step outcomes and attempt counts. Full selected transcript segments continue to reach source selection; downstream evidence extraction owns any further reduction. `scripts/evaluate-research-source-routing.ts --live` exercises the production Codex adapter with GPT-5.6 Luna on controlled subject scenarios and checks structured selections rather than prose.
+
 ## Workflow Integration
 
 The Research Lab implementation mimics the actual production workflows used during course generation.
