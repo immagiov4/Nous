@@ -140,6 +140,7 @@ const main = async () => {
           text: JSON.stringify({
             criteria,
             course: {
+              sectionTitle: generationInput.sectionTitle,
               description: generationInput.description,
               pedagogicalContext: generationInput.pedagogicalContext,
               sourceContext: generationInput.sourceContext,

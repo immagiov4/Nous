@@ -5,6 +5,7 @@ import {
   buildLessonEvidenceMaterials,
   resolveLessonEvidence,
 } from '../../src/services/lessonEvidence.js';
+import { getLessonReferenceAvailability } from '../../src/services/lessonGenerationPrompt.js';
 import { encodeLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 
 const sources = [
@@ -72,6 +73,30 @@ const selection = () => ({
 });
 
 describe('lesson evidence references', () => {
+  test('derives available reference roles from retained passages and preserves legacy inputs', () => {
+    const input = { sourceContext: 'Omitted primary document', researchContext: '', sources };
+    expect(getLessonReferenceAvailability(input)).toEqual({
+      hasPrimaryMaterial: true,
+      hasReferenceMaterial: true,
+      isResearchOnly: false,
+    });
+    const evidencePacket = resolveLessonEvidence(materials(), selection());
+    expect(getLessonReferenceAvailability({ ...input, evidencePacket })).toEqual({
+      hasPrimaryMaterial: false,
+      hasReferenceMaterial: true,
+      isResearchOnly: true,
+    });
+    expect(
+      getLessonReferenceAvailability({
+        ...input,
+        evidencePacket: { ...evidencePacket, passages: [] },
+      })
+    ).toEqual({
+      hasPrimaryMaterial: false,
+      hasReferenceMaterial: false,
+      isResearchOnly: false,
+    });
+  });
   test('forwards selected web-note lines without repeating the full note in source identity', () => {
     const source = {
       title: 'Documentazione',

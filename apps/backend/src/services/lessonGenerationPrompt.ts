@@ -39,6 +39,22 @@ import type { LessonGenerationInput } from './lessonGenerationTypes.js';
 
 type LessonPromptInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
 
+export const getLessonReferenceAvailability = (
+  input: Pick<LessonPromptInput, 'evidencePacket' | 'sourceContext' | 'researchContext' | 'sources'>
+) => {
+  const hasPrimaryMaterial = input.evidencePacket
+    ? input.evidencePacket.passages.some(passage => passage.kind === 'primary')
+    : Boolean(input.sourceContext);
+  const hasReferenceMaterial = input.evidencePacket
+    ? input.evidencePacket.passages.length > 0
+    : Boolean(input.sourceContext || input.researchContext || input.sources.length > 0);
+  return {
+    hasPrimaryMaterial,
+    hasReferenceMaterial,
+    isResearchOnly: !hasPrimaryMaterial && hasReferenceMaterial,
+  };
+};
+
 const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
   exercise => `- ${exercise.type}: ${exercise.instruction}`
 ).join('\n');
@@ -111,7 +127,7 @@ export const buildLessonGenerationPrompt = (input: LessonPromptInput): string =>
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
   const noRepetitionRule = buildLessonNoRepetitionRule(input.previousLessonTitles);
   const scopeRules = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
-  const sourceModeRules = input.sourceContext
+  const sourceModeRules = getLessonReferenceAvailability(input).hasPrimaryMaterial
     ? [LESSON_PRIMARY_SOURCE_INTEGRATION_RULE, LESSON_SOURCE_PRECEDENCE_RULE]
     : [LESSON_RESEARCH_TRANSFORMATION_RULE];
 

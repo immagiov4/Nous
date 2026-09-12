@@ -1,6 +1,7 @@
 """Count preserved lesson prompt payloads exported by lessonEvidence.integration.test.ts.
 
-Requires tiktoken. Counts visible text and JSON Schema, excluding provider framing
+Install with: python -m pip install tiktoken==0.14.0
+Counts visible text and JSON Schema, excluding provider framing
 and hidden prompts. These are reproducible tokenizer counts, not billed usage.
 """
 
@@ -32,11 +33,15 @@ def main():
         fixture = json.loads(path.read_text(encoding="utf-8"))
         encoding = tiktoken.encoding_for_model(fixture["model"])
         materials = {material["materialId"]: material for material in fixture["materials"]}
-        overlaps = sum(
-            len(unit["text"])
+        overlap_units = {
+            (decision["materialId"], unit_index)
             for decision in fixture["selection"]["materials"]
             for overlap in decision["overlaps"]
-            for unit in materials[decision["materialId"]]["units"][overlap["firstUnit"]:overlap["lastUnit"] + 1]
+            for unit_index in range(overlap["firstUnit"], overlap["lastUnit"] + 1)
+        }
+        overlaps = sum(
+            len(materials[material_id]["units"][unit_index]["text"])
+            for material_id, unit_index in overlap_units
         )
         measurements.append({
             "fixture": path.name,

@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import {
+  buildLessonEvidenceMaterials,
+  resolveLessonEvidence,
+} from '../../src/services/lessonEvidence.js';
 import { retryLessonGenerationCorrection } from '../../src/services/lessonGenerationCorrection.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
 import {
@@ -73,6 +77,50 @@ const servicesWithReview = (reviewContent: LessonGenerationStageDependencies['re
   } as unknown as LessonGenerationStageDependencies);
 
 describe('lesson generation corrective retries', () => {
+  test('classifies stale restored evidence as corrective before drafting or reviewing', async () => {
+    const context = stageContext();
+    const materials = buildLessonEvidenceMaterials({
+      sourceContext: context.input.lessonInputData.sourceContext,
+      researchContext: context.input.research.context,
+      sources: context.input.lessonSources,
+    });
+    const packet = resolveLessonEvidence(materials, {
+      materials: materials.map(material => ({
+        materialId: material.materialId,
+        passages: [],
+        overlaps: [],
+        reason: 'Not needed for this lesson.',
+      })),
+    });
+    context.input.evidencePacketJson = JSON.stringify({
+      version: packet.version,
+      materialHash: packet.materialHash,
+      selection: packet.selection,
+      materials,
+    });
+    context.input.lessonInputData.sourceContext = 'Changed original material';
+    const generateContent = vi.fn();
+    const reviewContent = vi.fn();
+    const services = createLessonGenerationStageServices({
+      generateContent,
+      reviewContent,
+    } as unknown as LessonGenerationStageDependencies);
+    const draftFailure = await services
+      .draftLesson({
+        ...context,
+        input: { ...context.input, stage: 'research' },
+      })
+      .catch(error => error);
+    const reviewFailure = await services.reviewLesson(context).catch(error => error);
+    for (const error of [draftFailure, reviewFailure]) {
+      expect(error.failure).toMatchObject({
+        kind: 'corrective',
+        code: 'lesson_evidence_selection_invalid',
+      });
+    }
+    expect(generateContent).not.toHaveBeenCalled();
+    expect(reviewContent).not.toHaveBeenCalled();
+  });
   test('passes durable corrective feedback into the next lesson review request', async () => {
     const reviewContent = vi.fn(async ({ draft }) => draft);
     const services = servicesWithReview(reviewContent);
@@ -130,10 +178,18 @@ describe('lesson generation corrective retries', () => {
       )
       .mockImplementationOnce(async ({ draft }) => draft);
     const services = servicesWithReview(reviewContent);
-    const failure = await services.reviewLesson(stageContext()).catch(error => error);
+    const firstContext = stageContext();
+    firstContext.input.draft.contentBlocks = [
+      { type: 'markdown', markdown: '## Durable lesson\n\nPreserve this saved draft.' },
+    ];
+    const failure = await services.reviewLesson(firstContext).catch(error => error);
     expect(failure.failure).toMatchObject({ kind: 'corrective', feedback });
-    const accepted = await services.reviewLesson(stageContext(failure.failure.feedback));
+    const accepted = await services.reviewLesson({
+      ...stageContext(failure.failure.feedback),
+      input: firstContext.input,
+    });
     expect(accepted.stage).toBe('review');
+    expect(accepted.draft.contentBlocks).toEqual(firstContext.input.draft.contentBlocks);
     expect(reviewContent.mock.calls[1][0]).toMatchObject({
       draft: reviewContent.mock.calls[0][0].draft,
       generationInput: { retryFeedback: feedback },

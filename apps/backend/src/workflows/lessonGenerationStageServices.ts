@@ -655,9 +655,8 @@ const draftLesson =
     dependencies: LessonGenerationStageDependencies
   ): LessonGenerationWorkflowServices['draftLesson'] =>
   async context => {
-    const generationInput = buildEvidenceGenerationInput(context);
     const draft = await runCorrectableLessonOperation(
-      () => dependencies.generateContent(generationInput),
+      () => dependencies.generateContent(buildEvidenceGenerationInput(context)),
       {
         code: 'lesson_draft_output_invalid',
         feedback:
