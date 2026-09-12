@@ -267,7 +267,7 @@ describe('course generation research', () => {
           ],
           { ...prepared, routing: { ...allSourcesRouting, suppliedSourcesSufficient: true } }
         )
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ failure: failure.failure });
     }
   });
 

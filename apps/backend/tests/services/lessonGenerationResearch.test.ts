@@ -98,7 +98,6 @@ describe('lesson research routing', () => {
         youtubeOutcome,
       })
     ).resolves.toBeNull();
-    warn.mockRestore();
     if (!input.researchRouting) throw new Error('Missing test routing.');
     input.researchRouting.suppliedSourcesSufficient = false;
     await expect(
@@ -109,6 +108,9 @@ describe('lesson research routing', () => {
         youtubeOutcome,
       })
     ).rejects.toThrow('Unavailable');
+    expect(research).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
   test('preserves contract errors and cancellation even with sufficient sources', async () => {
     const controller = new AbortController();
