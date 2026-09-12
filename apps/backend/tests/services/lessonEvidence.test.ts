@@ -72,6 +72,31 @@ const selection = () => ({
 });
 
 describe('lesson evidence references', () => {
+  test('forwards selected web-note lines without repeating the full note in source identity', () => {
+    const source = {
+      title: 'Documentazione',
+      url: 'https://example.org',
+      note: 'Regola utile.\nDettagli estranei.',
+    };
+    const original = buildLessonEvidenceMaterials({
+      sourceContext: '',
+      researchContext: '',
+      sources: [source],
+    });
+    const packet = resolveLessonEvidence(original, {
+      materials: [
+        {
+          materialId: 'source-0',
+          reason: 'Sostiene la regola.',
+          overlaps: [],
+          passages: [{ firstUnit: 0, lastUnit: 0, claims: ['Regola utile.'] }],
+        },
+      ],
+    });
+    expect(packet.passages[0]?.source).toEqual({ title: source.title, url: source.url });
+    expect(packet.passages[0]?.units.map(unit => unit.text).join('')).toBe('Regola utile.\n');
+    expect(source.note).toBe('Regola utile.\nDettagli estranei.');
+  });
   test('accepts overlap citations narrowed to units inside a retained passage', () => {
     const response = selection();
     const overlap = response.materials[1]?.overlaps[0];

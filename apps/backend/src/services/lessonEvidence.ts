@@ -47,7 +47,7 @@ export interface LessonEvidenceMaterial {
   materialId: string;
   kind: 'primary' | 'research' | 'source';
   sourceIndex?: number;
-  source?: Omit<ResearchSource, 'youtubeTranscript'>;
+  source?: Omit<ResearchSource, 'youtubeTranscript' | 'note'>;
   units: EvidenceUnit[];
 }
 
@@ -59,7 +59,7 @@ export interface LessonEvidencePacket {
     materialId: string;
     kind: LessonEvidenceMaterial['kind'];
     sourceIndex?: number;
-    source?: Omit<ResearchSource, 'youtubeTranscript'>;
+    source?: Omit<ResearchSource, 'youtubeTranscript' | 'note'>;
     firstUnit: number;
     lastUnit: number;
     claims: string[];
@@ -110,7 +110,7 @@ export const buildLessonEvidenceMaterials = (
     });
   }
   input.sources.forEach((source, sourceIndex) => {
-    const { youtubeTranscript, ...identity } = source;
+    const { youtubeTranscript, note, ...identity } = source;
     materials.push({
       materialId: `source-${sourceIndex}`,
       kind: 'source',
@@ -118,7 +118,7 @@ export const buildLessonEvidenceMaterials = (
       source: identity,
       units: youtubeTranscript
         ? youtubeTranscript.segments.map(segment => ({ ...segment }))
-        : textUnits(source.note ?? ''),
+        : textUnits(note ?? ''),
     });
   });
   return materials;
