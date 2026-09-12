@@ -431,11 +431,19 @@ test('new exports keep one inspectable transcript representation and round-trip 
           },
         ],
         title: 'Lezione',
+        evidencePacketJson: JSON.stringify({
+          version: 'lesson-evidence-v1',
+          selection: { materials: [] },
+        }),
       },
     },
   });
 
   const exported = exportProjectData(snapshot);
+  assert.equal(
+    normalizeImportedProject(exported).researchDossiersBySectionId?.lesson?.evidencePacketJson,
+    snapshot.researchDossiersBySectionId?.lesson?.evidencePacketJson
+  );
   const transcript =
     normalizeImportedProject(exported).researchDossiersBySectionId?.lesson?.sources[0]
       ?.youtubeTranscript;

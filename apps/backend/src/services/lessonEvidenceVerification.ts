@@ -45,16 +45,32 @@ export const verifyLessonEvidence = async (
 ): Promise<void> => {
   const packet = input.evidencePacket;
   if (!packet) return;
-  const unsupportedClip = draft.contentBlocks.some(block => block.type === 'youtube-clips' && block.clips.some(clip => !packet.passages.some(passage => {
-    const first = passage.units[0];
-    const last = passage.units.at(-1);
-    return passage.sourceIndex === clip.sourceIndex && first?.startSeconds !== undefined && last?.endSeconds !== undefined && clip.startSeconds >= first.startSeconds && clip.endSeconds <= last.endSeconds && clip.startSeconds < clip.endSeconds;
-  })));
-  if (unsupportedClip) throw retryLessonGenerationCorrection({
-    code: 'lesson_clip_evidence_missing',
-    feedback: 'Use only clip intervals entirely contained in retained transcript passages, with their original sourceIndex. Remove clips whose required evidence was omitted.',
-    message: 'A lesson clip references an interval outside the selected evidence.',
-  });
+  const unsupportedClip = draft.contentBlocks.some(
+    block =>
+      block.type === 'youtube-clips' &&
+      block.clips.some(
+        clip =>
+          !packet.passages.some(passage => {
+            const first = passage.units[0];
+            const last = passage.units.at(-1);
+            return (
+              passage.sourceIndex === clip.sourceIndex &&
+              first?.startSeconds !== undefined &&
+              last?.endSeconds !== undefined &&
+              clip.startSeconds >= first.startSeconds &&
+              clip.endSeconds <= last.endSeconds &&
+              clip.startSeconds < clip.endSeconds
+            );
+          })
+      )
+  );
+  if (unsupportedClip)
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_clip_evidence_missing',
+      feedback:
+        'Use only clip intervals entirely contained in retained transcript passages, with their original sourceIndex. Remove clips whose required evidence was omitted.',
+      message: 'A lesson clip references an interval outside the selected evidence.',
+    });
   const prompt = JSON.stringify({
     title: input.sectionTitle,
     description: input.description,

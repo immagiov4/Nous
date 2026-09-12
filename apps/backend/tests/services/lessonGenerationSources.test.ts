@@ -1,5 +1,4 @@
 import { expect, test, vi } from 'vitest';
-
 import {
   buildMappedSourceContext,
   isPdfAssetSoftTimeoutError,
@@ -11,6 +10,7 @@ import {
   readProjectLanguage,
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
+import { readLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 
 const mappedProject = {
   documentIndex: {
@@ -26,7 +26,7 @@ test('explicit chunks take priority over neighbors within the context cap', () =
   const context = buildMappedSourceContext(mappedProject, {
     primaryChunkIds: ['c02', 'c05', 'c08'],
   });
-  expect([...context.matchAll(/^CHUNK (\S+)/gm)].map(match => match[1])).toEqual([
+  expect(readLessonPrimarySources(context)?.flatMap(part => part.source.chunkIds ?? [])).toEqual([
     'c01',
     'c02',
     'c03',
@@ -49,7 +49,10 @@ test.each([
 
 test('absent mappings retain the default document excerpts', () => {
   const context = buildMappedSourceContext(mappedProject, {});
-  expect([...context.matchAll(/^CHUNK (\S+)/gm)].map(match => match[1])).toEqual(['c01', 'c02']);
+  expect(readLessonPrimarySources(context)?.flatMap(part => part.source.chunkIds ?? [])).toEqual([
+    'c01',
+    'c02',
+  ]);
 });
 
 test.each([
@@ -150,7 +153,12 @@ test('mapped source context preserves chunk boundaries and heading paths', () =>
     }
   );
 
-  expect(context).toContain(
+  const parts = readLessonPrimarySources(context);
+  expect(parts?.[0].source).toMatchObject({
+    sourceId: 'source-a',
+    chunkIds: ['source-a:chunk-001'],
+  });
+  expect(parts?.[0].text).toContain(
     'CHUNK source-a:chunk-001\nHeading path: Basi > Definizioni\nDefinizione del concetto.'
   );
   expect(context).not.toContain('Contenuto di un altro file.');

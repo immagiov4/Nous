@@ -1,8 +1,11 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
-import { buildLessonEvidenceMaterials, resolveLessonEvidence } from '../../src/services/lessonEvidence.js';
 import type { ProjectSnapshot, ProjectStore } from '../../src/projects/types.js';
+import {
+  buildLessonEvidenceMaterials,
+  resolveLessonEvidence,
+} from '../../src/services/lessonEvidence.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
 import {
@@ -83,7 +86,14 @@ const dependencies = (
   selectCoverage: unused,
   selectEvidence: vi.fn(async input => {
     const materials = buildLessonEvidenceMaterials(input);
-    return resolveLessonEvidence(materials, { materials: materials.map(material => ({ materialId: material.materialId, reason: 'No evidence required by this stage fixture.', passages: [], overlaps: [] })) });
+    return resolveLessonEvidence(materials, {
+      materials: materials.map(material => ({
+        materialId: material.materialId,
+        reason: 'No evidence required by this stage fixture.',
+        passages: [],
+        overlaps: [],
+      })),
+    });
   }),
   store: {} as ProjectStore,
   ...overrides,

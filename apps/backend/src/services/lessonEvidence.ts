@@ -1,10 +1,15 @@
-import * as z from 'zod';
 import assert from 'node:assert/strict';
+import * as z from 'zod';
 
 import { buildSha256HexDigest } from '../utils/hash.js';
+import { canonicalJson } from '../workflows/schemaFingerprint.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import type { ResearchSource } from './lessonGenerationSources.js';
 import type { LessonGenerationInput } from './lessonGenerationTypes.js';
+import {
+  type LessonPrimarySourceIdentity,
+  readLessonPrimarySources,
+} from './lessonPrimarySourceContext.js';
 
 const UnitRangeSchema = z.object({
   firstUnit: z.number().int().nonnegative(),
@@ -31,6 +36,7 @@ export const LessonEvidenceSelectionSchema = z.object({
 
 type EvidenceUnit = {
   text: string;
+  source?: LessonPrimarySourceIdentity;
   startOffset?: number;
   endOffset?: number;
   startSeconds?: number;
@@ -83,12 +89,20 @@ export const buildLessonEvidenceMaterials = (
     materials.push({
       materialId: 'primary',
       kind: 'primary',
-      units: textUnits(input.sourceContext),
+      units:
+        readLessonPrimarySources(input.sourceContext)?.flatMap(part =>
+          textUnits(part.text).map(unit => ({ ...unit, source: part.source }))
+        ) ?? textUnits(input.sourceContext),
     });
   if (input.researchContext) {
     // Dossiers can contain the same full sources as the source catalog.
     const dossier = JSON.parse(input.researchContext) as Record<string, unknown>;
-    const { sources: _sources, youtubeResearch: _youtubeResearch, evidencePacketJson: _previousEvidence, ...content } = dossier;
+    const {
+      sources: _sources,
+      youtubeResearch: _youtubeResearch,
+      evidencePacketJson: _previousEvidence,
+      ...content
+    } = dossier;
     materials.push({
       materialId: 'research',
       kind: 'research',
@@ -176,7 +190,7 @@ export const resolveLessonEvidence = (
   }
   return {
     version: 'lesson-evidence-v1',
-    materialHash: buildSha256HexDigest(Buffer.from(JSON.stringify(materials))),
+    materialHash: buildSha256HexDigest(Buffer.from(canonicalJson(materials))),
     selection,
     passages,
   };
@@ -202,5 +216,13 @@ export const restoreLessonEvidence = (
   return packet;
 };
 
-export const serializeLessonEvidence = (input: LessonGenerationInput, packet: LessonEvidencePacket): string =>
-  JSON.stringify({ version: packet.version, materialHash: packet.materialHash, selection: packet.selection, materials: buildLessonEvidenceMaterials(input) });
+export const serializeLessonEvidence = (
+  input: LessonGenerationInput,
+  packet: LessonEvidencePacket
+): string =>
+  JSON.stringify({
+    version: packet.version,
+    materialHash: packet.materialHash,
+    selection: packet.selection,
+    materials: buildLessonEvidenceMaterials(input),
+  });

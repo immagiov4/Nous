@@ -51,6 +51,7 @@ import {
   type LessonYouTubeSearchStateSchema,
   type LessonYouTubeState,
   type LessonYouTubeStateSchema,
+  PreviousEvidenceLessonGenerationDurableSchemaSet,
   PreviousLessonGenerationDurableSchemaSet,
   PreviousQuizExplanationLessonGenerationDurableSchemaSet,
   PreviousResearchContractLessonGenerationDurableSchemaSet,
@@ -801,7 +802,8 @@ const createLessonGenerationWorkflowDefinition = <
       unwrapGenerationContext,
       assessSourceCoverage,
       stageDocumentSources,
-      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet
+      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet ||
+      durableSchemas === PreviousEvidenceLessonGenerationDurableSchemaSet
         ? ([planSourceResearch] as const)
         : []),
       routeYouTubeResearch,
@@ -906,4 +908,14 @@ export const createPreviousRoutingLessonGenerationWorkflow = (
     executionDefaults,
     configSchema,
     PreviousRoutingLessonGenerationDurableSchemaSet
+  );
+
+export const createPreviousEvidenceLessonGenerationWorkflow = (
+  executionDefaults: LessonGenerationWorkflowConfig,
+  configSchema: z.ZodType<LessonGenerationWorkflowConfig> = LessonGenerationWorkflowConfigSchema
+) =>
+  createLessonGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    PreviousEvidenceLessonGenerationDurableSchemaSet
   );

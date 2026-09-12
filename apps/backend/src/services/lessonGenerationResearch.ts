@@ -175,6 +175,7 @@ const buildYouTubeResearchRecord = ({
 };
 
 export const buildResearchDossier = ({
+  evidencePacketJson,
   contentBlocks,
   existingDossier,
   generatedAt,
@@ -184,6 +185,7 @@ export const buildResearchDossier = ({
   sectionTitle,
   youtubeOutcome,
 }: {
+  evidencePacketJson?: string;
   contentBlocks: NormalizedLessonBlock[];
   existingDossier: Record<string, unknown> | null;
   generatedAt?: string;
@@ -195,6 +197,7 @@ export const buildResearchDossier = ({
 }): Record<string, unknown> => {
   const dossier: Record<string, unknown> = {
     ...existingDossier,
+    ...(evidencePacketJson ? { evidencePacketJson } : {}),
     sectionId,
     sources: mergeSources(lessonSources, normalizeResearchedWebSources(researchSummary)),
     title: sectionTitle,

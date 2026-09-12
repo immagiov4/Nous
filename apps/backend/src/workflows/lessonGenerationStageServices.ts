@@ -1,8 +1,12 @@
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
+import {
+  type LessonEvidencePacket,
+  restoreLessonEvidence,
+  serializeLessonEvidence,
+} from '../services/lessonEvidence.js';
 import type { GenerateLessonLearningAidsInput } from '../services/lessonGenerationAids.js';
-import { restoreLessonEvidence, serializeLessonEvidence, type LessonEvidencePacket } from '../services/lessonEvidence.js';
 import {
   isLessonStructuredOutputError,
   type LessonGenerationCorrection,
@@ -46,7 +50,10 @@ import {
   buildLessonGenerationSourceFingerprint,
   buildLessonGenerationTargetFingerprint,
 } from './lessonGenerationAuthority.js';
-import type { LessonGenerationStageContext, LessonGenerationWorkflowServices } from './lessonGenerationWorkflow.js';
+import type {
+  LessonGenerationStageContext,
+  LessonGenerationWorkflowServices,
+} from './lessonGenerationWorkflow.js';
 import type {
   LessonContextState,
   LessonGenerationPreparationOutcome,
@@ -584,7 +591,8 @@ const researchLesson =
       () => dependencies.selectEvidence(evidenceInput),
       {
         code: 'lesson_evidence_selection_invalid',
-        feedback: 'Return valid evidence selections with existing material IDs and complete inclusive unit ranges. Preserve qualifications and required factual support.',
+        feedback:
+          'Return valid evidence selections with existing material IDs and complete inclusive unit ranges. Preserve qualifications and required factual support.',
         message: 'The lesson evidence selector returned invalid structured output.',
       }
     );
@@ -608,9 +616,17 @@ const toDurableLessonDraft = (draft: LessonContentDraft) => ({
   imageRefs: draft.imageRefs.map(reference => ({ ...reference, anchorHeading: '' })),
 });
 
-const buildEvidenceGenerationInput = (context: LessonGenerationStageContext<LessonResearchState>): LessonGenerationInput => {
+const buildEvidenceGenerationInput = (
+  context: LessonGenerationStageContext<Omit<LessonResearchState, 'stage'>>
+): LessonGenerationInput => {
   const input = {
-    ...buildGenerationInput(context.input, modelConfig(context), context.signal, context.input.lessonSources, context.retryFeedback),
+    ...buildGenerationInput(
+      context.input,
+      modelConfig(context),
+      context.signal,
+      context.input.lessonSources,
+      context.retryFeedback
+    ),
     researchContext: context.input.research.context,
   };
   return context.input.evidencePacketJson
@@ -625,8 +641,7 @@ const draftLesson =
   async context => {
     const generationInput = buildEvidenceGenerationInput(context);
     const draft = await runCorrectableLessonOperation(
-      () =>
-        dependencies.generateContent(generationInput),
+      () => dependencies.generateContent(generationInput),
       {
         code: 'lesson_draft_output_invalid',
         feedback:
@@ -656,7 +671,9 @@ const reviewLesson =
       }
     );
     return {
-      ...(context.input.evidencePacketJson ? { evidencePacketJson: context.input.evidencePacketJson } : {}),
+      ...(context.input.evidencePacketJson
+        ? { evidencePacketJson: context.input.evidencePacketJson }
+        : {}),
       documentAssetOwners: context.input.documentAssetOwners,
       documentSourceHash: context.input.documentSourceHash,
       draft: toDurableLessonDraft(draft),

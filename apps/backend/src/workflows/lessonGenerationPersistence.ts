@@ -123,6 +123,7 @@ const buildPersistenceState = (
   const existingDossier = input.existingDossierJson ? parseRecord(input.existingDossierJson) : null;
   const researchDossier = LessonResearchDossierSchema.parse(
     buildResearchDossier({
+      evidencePacketJson: input.evidencePacketJson,
       contentBlocks: input.contentBlocks,
       existingDossier,
       generatedAt: persistedAt,

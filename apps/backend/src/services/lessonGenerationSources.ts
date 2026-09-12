@@ -20,6 +20,10 @@ import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { isRecord } from '../utils/validation.js';
+import {
+  encodeLessonPrimarySources,
+  type LessonPrimarySourcePart,
+} from './lessonPrimarySourceContext.js';
 import type { ExtractedPdfImage, extractPdfImages } from './pdfImageExtractor.js';
 import { isPdfProjectSourceFile, readProjectSourceText } from './projectSourceText.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
@@ -215,18 +219,37 @@ export const buildMappedSourceContext = (
       contextIndexes.add(index);
     });
   }
-  return [...contextIndexes]
+  const parts = [...contextIndexes]
     .sort((left, right) => left - right)
     .map(index => chunks[index])
-    .map(chunk => {
-      if (!isRecord(chunk) || typeof chunk.text !== 'string' || !chunk.text.trim()) return '';
+    .flatMap(chunk => {
+      if (!isRecord(chunk) || typeof chunk.text !== 'string' || !chunk.text.trim()) return [];
       const headingPath = Array.isArray(chunk.headingPath)
         ? chunk.headingPath.filter((heading): heading is string => typeof heading === 'string')
         : [];
-      return `CHUNK ${String(chunk.id)}\nHeading path: ${headingPath.join(' > ') || 'Nessuno'}\n${chunk.text.trim()}`;
-    })
-    .filter(Boolean)
-    .join('\n\n---\n\n');
+      const sourceId = typeof chunk.sourceId === 'string' ? chunk.sourceId : undefined;
+      const descriptor =
+        isRecord(project.source) && Array.isArray(project.source.sources)
+          ? project.source.sources.find(source => isRecord(source) && source.id === sourceId)
+          : undefined;
+      const source = {
+        title:
+          isRecord(descriptor) && typeof descriptor.name === 'string'
+            ? descriptor.name
+            : String(chunk.id),
+        ...(sourceId ? { sourceId } : {}),
+        chunkIds: [String(chunk.id)],
+        ...(typeof chunk.pageStart === 'number' ? { pageStart: chunk.pageStart } : {}),
+        ...(typeof chunk.pageEnd === 'number' ? { pageEnd: chunk.pageEnd } : {}),
+      };
+      return [
+        {
+          source,
+          text: `CHUNK ${String(chunk.id)}\nHeading path: ${headingPath.join(' > ') || 'Nessuno'}\n${chunk.text.trim()}`,
+        },
+      ];
+    });
+  return encodeLessonPrimarySources(parts);
 };
 
 interface StoredSourceCandidate {
@@ -308,16 +331,37 @@ export const buildStoredDocumentSourceContext = async (
     await loadStoredSourceCandidates(store, userId, projectId),
     section
   );
-  const blocks: string[] = [];
+  const parts: LessonPrimarySourcePart[] = [];
   for (const candidate of candidates) {
     signal.throwIfAborted();
     const content = clipSourceContext(
       await readProjectSourceText(candidate.file),
       MAX_LESSON_SOURCE_CONTEXT_CHARS
     );
-    if (content) blocks.push(`ORIGINAL SOURCE: ${candidate.file.name}\n${content}`);
+    if (content)
+      parts.push({
+        source: { title: candidate.file.name, sourceId: candidate.id },
+        text: `ORIGINAL SOURCE: ${candidate.file.name}\n${content}`,
+      });
   }
-  return clipSourceContext(blocks.join('\n\n---\n\n'), MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS);
+  const separator = '\n\n---\n\n';
+  const combined = clipSourceContext(
+    parts.map(part => part.text).join(separator),
+    MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS
+  );
+  let offset = 0;
+  return encodeLessonPrimarySources(
+    parts.flatMap(part => {
+      const start = offset;
+      offset += part.text.length + separator.length;
+      if (start >= MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS) return [];
+      const text = combined.slice(
+        start,
+        offset >= MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS ? undefined : offset
+      );
+      return text ? [{ source: part.source, text }] : [];
+    })
+  );
 };
 
 export const buildArchiveSourceContext = async (
@@ -361,7 +405,12 @@ export const buildArchiveSourceContext = async (
       }),
   });
   const files = await access.resolveSelectors(selectors);
-  return files.map(file => `FILE ${file.path}\n${file.text}`).join('\n\n---\n\n');
+  return encodeLessonPrimarySources(
+    files.map(file => ({
+      source: { title: file.path, path: file.path, sourceId: index.version.sourceId },
+      text: `FILE ${file.path}\n${file.text}`,
+    }))
+  );
 };
 
 export const parseResearchSource = (value: unknown): ResearchSource | null => {

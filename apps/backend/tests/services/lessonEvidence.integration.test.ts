@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
@@ -13,6 +15,18 @@ import {
 } from '../../src/services/lessonGenerationModel.js';
 import { buildResearchDossier } from '../../src/services/lessonGenerationResearch.js';
 import type { LessonGenerationInput } from '../../src/services/lessonGenerationTypes.js';
+import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
+import { createLessonNormalizationStage } from '../../src/workflows/lessonGenerationNormalizationStage.js';
+import { createLessonPersistenceStage } from '../../src/workflows/lessonGenerationPersistence.js';
+import { createLessonGenerationStageServices } from '../../src/workflows/lessonGenerationStageServices.js';
+import {
+  LessonDraftStateSchema,
+  LessonGenerationWorkflowResultSchema,
+  LessonResearchStateSchema,
+  LessonReviewedStateSchema,
+  LessonSourcesStateSchema,
+} from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 import {
   evidenceLesson,
   evidencePrimaryContext,
@@ -190,7 +204,7 @@ const factualReport = (supported: boolean) => ({
   ],
 });
 
-const mockModels = (loseEvidence = false) => {
+const mockModels = () => {
   runCodexAppServerTurn.mockReset();
   runCodexAppServerTurn.mockImplementation(async request => {
     const properties = request.outputSchema.properties;
@@ -219,12 +233,231 @@ const mockModels = (loseEvidence = false) => {
           })
         ),
       });
-    if (properties.blocks) return JSON.stringify(factualReport(!loseEvidence));
+    if (properties.blocks) {
+      const reviewed = JSON.parse(request.input[0].text);
+      const primary = reviewed.evidence.find(
+        (passage: { materialId: string }) => passage.materialId === 'primary'
+      );
+      const report = factualReport(
+        primary.units.some(
+          (unit: { text: string }) => unit.text === `${evidencePrimaryContext.split('\n')[3]}\n`
+        )
+      );
+      for (const block of report.blocks) {
+        block.assessments = block.assessments.map(assessment => ({
+          ...assessment,
+          evidence: assessment.evidence.map(citation =>
+            citation.materialId === 'primary'
+              ? { ...citation, lastUnit: primary.lastUnit }
+              : citation
+          ),
+        }));
+      }
+      return JSON.stringify(report);
+    }
     return JSON.stringify(evidenceLesson);
   });
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test.each([
+    false,
+    true,
+  ])('measures complete prompt payloads with reused dossier=%s', async reuseDossier => {
+    mockModels();
+    const input = generationInput();
+    input.researchContext = JSON.stringify({
+      ...evidenceResearch,
+      ...(reuseDossier ? { sources: input.sources } : {}),
+    });
+    const beforeDraft = await generateLessonContent(input);
+    await reviewLessonContentDraftStrict({ draft: beforeDraft, generationInput: input });
+    const before = runCodexAppServerTurn.mock.calls.map(([request]) => request);
+    runCodexAppServerTurn.mockClear();
+    input.evidencePacket = await selectLessonEvidence(input);
+    const afterDraft = await generateLessonContent(input);
+    await reviewLessonContentDraftStrict({ draft: afterDraft, generationInput: input });
+    const after = runCodexAppServerTurn.mock.calls.map(([request]) => request);
+    const fullCharacters = buildLessonEvidenceMaterials(input)
+      .filter(material => material.kind !== 'research')
+      .flatMap(material => material.units)
+      .reduce((total, unit) => total + unit.text.length, 0);
+    const retainedCharacters = input.evidencePacket.passages
+      .flatMap(passage => passage.units)
+      .reduce((total, unit) => total + unit.text.length, 0);
+    expect(retainedCharacters).toBeLessThan(fullCharacters);
+    expect(afterDraft).toEqual(beforeDraft);
+    const directory = process.env.LESSON_EVIDENCE_MEASUREMENTS_DIR;
+    if (directory) {
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        join(directory, `${reuseDossier ? 'reused' : 'fresh'}-dossier.json`),
+        JSON.stringify(
+          {
+            model: input.config.codexLessonModel,
+            fullCharacters,
+            retainedCharacters,
+            before: before.map((request, index) => ({
+              stage: ['drafting', 'combined-review'][index],
+              request,
+            })),
+            after: after.map((request, index) => ({
+              stage: ['selection', 'drafting', 'pedagogical-review', 'factual-review'][index],
+              request,
+            })),
+            selection: input.evidencePacket.selection,
+            materials: buildLessonEvidenceMaterials(input),
+          },
+          null,
+          2
+        )
+      );
+    }
+  });
+  test('replays production stages through a durable result with complete archived evidence', async () => {
+    mockModels();
+    const input = generationInput();
+    const store = new InMemoryProjectStore();
+    const timestamp = '2026-09-12T18:00:00.000Z';
+    const sourceFile = {
+      name: 'Appunti del corso',
+      mimeType: 'text/plain',
+      data: Buffer.from(evidencePrimaryContext).toString('base64'),
+      sourceId: 'course-notes',
+    };
+    await store.saveProject('user-1', {
+      id: 'project-1',
+      version: '4.1',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastOpenedAt: timestamp,
+      sourceKind: 'document',
+      source: {
+        kind: 'document',
+        file: sourceFile,
+        sources: [
+          {
+            id: 'course-notes',
+            name: 'Appunti del corso',
+            hash: 'a'.repeat(64),
+            kind: 'text',
+            outline: [],
+            outlineOrigin: 'none',
+            position: 0,
+            status: 'ready',
+            file: sourceFile,
+          },
+        ],
+      },
+      userProfile: { language: 'Italiano' },
+      learningPlan: {
+        title: 'Sistemi distribuiti',
+        modules: [
+          {
+            id: 'module-1',
+            title: 'Eventi',
+            children: [
+              {
+                id: 'causality',
+                kind: 'lesson',
+                type: 'core',
+                title: input.sectionTitle,
+                description: input.description,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const config = {
+      maxAttempts: 3,
+      timeoutMs: 90_000,
+      models: input.config,
+      visual: resolveLessonVisualModelConfig(input.config),
+    };
+    const context = <Input>(state: Input) => ({
+      input: state,
+      config,
+      attemptNumber: 1,
+      execution: { runId: 'evidence-run', nodeInstanceId: 'evidence-node' },
+      idempotencyKey: 'evidence-key',
+      retryFeedback: '',
+      signal: input.signal,
+    });
+    const services = createLessonGenerationStageServices({
+      generateAids: vi.fn(async () => []),
+      generateContent: generateLessonContent,
+      generateResearch: generateResearchSummary,
+      selectEvidence: selectLessonEvidence,
+      reviewContent: reviewLessonContentDraftStrict,
+      loadProject: store.loadProject.bind(store),
+      loadProjectWithRevision: store.loadProjectWithRevision.bind(store),
+      store,
+      resolveSourceMaterials: vi.fn(async () => ({
+        sourceContext: evidencePrimaryContext,
+        existingSources: [],
+        existingDossier: null,
+      })),
+      selectCoverage: vi.fn(async () => ({ needsResearch: false, missingTopics: [] })),
+      planYouTube: vi.fn(async () => ({
+        specificQuery: 'precedenza causale',
+        fallbackQuery: 'orologi logici',
+        focusConcept: 'catena di messaggi',
+      })),
+      researchYouTube: vi.fn(async () => ({
+        context: '',
+        discoveredVideoCount: 4,
+        rationale: 'Controlled retrieved lectures.',
+        videoCandidates: evidenceSources.slice(1).map(source => ({
+          title: source.title,
+          url: source.url ?? '',
+          segments: source.youtubeTranscript?.segments ?? [],
+        })),
+      })),
+    });
+    const prepared = await services.prepareLesson(
+      context({
+        userId: 'user-1',
+        projectId: 'project-1',
+        sectionId: 'causality',
+        forceRegenerate: false,
+      })
+    );
+    if (prepared.kind !== 'generate') throw new Error('Expected a new lesson.');
+    const covered = await services.assessSourceCoverage(context(prepared.state));
+    const staged = LessonSourcesStateSchema.parse({
+      ...covered,
+      stage: 'sources',
+      documentAssetOwners: [],
+      pdfImages: [],
+    });
+    const planned = await services.planYouTubeResearch(context(staged));
+    const retrieved = await services.researchSpecificYouTube(context(planned));
+    const finalized = await services.finalizeYouTubeResearch(context(retrieved));
+    const researched = LessonResearchStateSchema.parse(
+      await services.researchLesson(context(finalized))
+    );
+    const drafted = LessonDraftStateSchema.parse(await services.draftLesson(context(researched)));
+    const reviewed = LessonReviewedStateSchema.parse(await services.reviewLesson(context(drafted)));
+    const aided = await services.generateLearningAids(context(reviewed));
+    const normalized = await createLessonNormalizationStage({ now: () => timestamp })(
+      context({ lesson: aided, stage: 'visual-results' as const, visualResults: [] })
+    );
+    const persisted = await createLessonPersistenceStage({
+      loadProject: store.loadProject.bind(store),
+      now: () => timestamp,
+    })(context(normalized));
+    const result = LessonGenerationWorkflowResultSchema.parse(persisted.result);
+    expect(result.researchDossier?.sources).toEqual(researched.lessonSources);
+    expect(result.researchDossier?.evidencePacketJson).toBe(researched.evidencePacketJson);
+    const archive = JSON.parse(result.researchDossier?.evidencePacketJson ?? '{}');
+    expect(
+      archive.materials
+        .find((material: { materialId: string }) => material.materialId === 'source-4')
+        .units.map((unit: { text: string }) => unit.text)
+    ).toEqual(evidenceSources[4]?.youtubeTranscript?.segments.map(segment => segment.text));
+    expect(result.contentBlocks).toEqual(evidenceLesson.contentBlocks);
+  });
   test('research, selection, drafting, pedagogical review and final factual review preserve support and canonical sources', async () => {
     mockModels();
     const input = generationInput();
@@ -274,12 +507,21 @@ describe('role-specific lesson evidence through the production Luna model path',
   });
 
   test('rejects declared evidence loss on the final lesson instead of publishing a weaker factual result', async () => {
-    mockModels(true);
+    mockModels();
     const input = generationInput();
     input.researchContext = JSON.stringify(evidenceResearch);
+    const missingQualification = structuredClone(evidenceSelection);
+    const primarySelection = missingQualification.materials.find(
+      material => material.materialId === 'primary'
+    );
+    if (!primarySelection?.passages[0]) throw new Error('Missing primary selection fixture.');
+    primarySelection.passages[0].lastUnit = 2;
+    for (const material of missingQualification.materials) {
+      for (const overlap of material.overlaps) overlap.retainedLastUnit = 2;
+    }
     input.evidencePacket = resolveLessonEvidence(
       buildLessonEvidenceMaterials(input),
-      evidenceSelection
+      missingQualification
     );
     await expect(
       reviewLessonContentDraftStrict({ draft: evidenceLesson, generationInput: input })
