@@ -68,6 +68,8 @@ interface ChatArtifactRendererProps {
   readonly openArtifactIdOverride?: string | null;
   readonly portalContainer?: HTMLElement | null;
   readonly regenerationLifecycle?: ChatArtifactRegenerationLifecycle;
+  /** Artifacts already persisted by the owning conversation. */
+  readonly savedArtifactIds?: ReadonlySet<string>;
   /** When set, replaces the Maximize2 icon with an X remove button inside the card. */
   readonly onRemoveArtifact?: (artifactId: string) => void;
 }
@@ -475,6 +477,7 @@ const ChatArtifactRenderer = ({
   openArtifactIdOverride,
   portalContainer,
   regenerationLifecycle,
+  savedArtifactIds,
   onDiscardArtifact,
   onRegenerateArtifact,
   onRemoveArtifact,
@@ -643,7 +646,9 @@ const ChatArtifactRenderer = ({
       onDiscardArtifact={handleDiscardFromOverlay}
       onRegenerateArtifact={handleRegenerateFromOverlay}
       onReplaceArtifact={handleReplaceFromOverlay}
-      onSaveArtifact={handleSaveFromOverlay}
+      onSaveArtifact={
+        savedArtifactIds?.has(openArtifact.summary.id) ? undefined : handleSaveFromOverlay
+      }
     />
   ) : null;
 
