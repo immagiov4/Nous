@@ -27,6 +27,7 @@ describe('research source routing boundary', () => {
       channels: [{ ...decision.channels[0], selected: 'false' }, decision.channels[1]],
     },
     { ...decision, rationale: ' ' },
+    { ...decision, suppliedSourcesSufficient: false },
   ])('rejects incomplete or invalid decisions before retrieval', value => {
     expect(() => validateResearchSourceRouting(value, ['web', 'youtube'])).toThrow();
   });

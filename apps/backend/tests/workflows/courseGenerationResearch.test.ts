@@ -164,8 +164,44 @@ const finalizeYoutube = (
 ): Promise<ResearchBranchOutput> =>
   runStep('finalize-course-youtube-research', collection, services);
 
+const finalizeResearch = (
+  results: readonly FanOutResult<ResearchBranchInput, ResearchBranchOutput>[],
+  state: CoursePreparationState & { routing: typeof allSourcesRouting }
+): Promise<CourseResearchState> =>
+  runStep(
+    'finalize-selected-course-research',
+    fanIn('gather-selected-course-research', results, state),
+    {} as CourseGenerationWorkflowServices
+  );
+
 describe('course generation research', () => {
-  test('marks a selected failed optional YouTube branch unavailable and preserves failure without sufficient sources', () => {
+  test('propagates complete YouTube query failure without losing availability or corrective details', async () => {
+    for (const failure of [
+      {
+        kind: 'operational' as const,
+        code: 'course_research_failed',
+        message: 'Unavailable',
+        details: { providerUnavailable: true },
+      },
+      retryCorrective({ code: 'invalid', message: 'Invalid output', feedback: 'Correct output.' })
+        .failure,
+    ]) {
+      await expect(
+        finalizeYoutube(
+          collectYoutube([
+            {
+              key: '0',
+              input: { query: 'query', queryIndex: 0, language: 'en' },
+              status: 'failed',
+              failure,
+            },
+          ]),
+          {} as CourseGenerationWorkflowServices
+        )
+      ).rejects.toMatchObject({ failure });
+    }
+  });
+  test('marks a selected failed optional YouTube branch unavailable and preserves failure without sufficient sources', async () => {
     const results = [
       {
         key: 'youtube',
@@ -187,18 +223,18 @@ describe('course generation research', () => {
         selected: channel.type === 'youtube',
       })),
     };
-    const collected = fanIn('gather-selected-course-research', results as never, {
+    const collected = await finalizeResearch(results as never, {
       ...prepared,
       routing,
-    }) as CourseResearchState;
+    });
     expect(collected.research.youtube.status).toBe('unavailable');
     expect(collected.research.youtube.candidates).toEqual([]);
-    expect(() =>
-      fanIn('gather-selected-course-research', results as never, {
+    await expect(
+      finalizeResearch(results as never, {
         ...prepared,
         routing: { ...routing, suppliedSourcesSufficient: false },
       })
-    ).toThrow('Unavailable');
+    ).rejects.toThrow('Unavailable');
   });
 
   test('preserves contract and configuration failures through optional course fan-in', async () => {
@@ -219,9 +255,8 @@ describe('course generation research', () => {
         { branch: 'web', state: prepared },
         services
       ).catch(error => error);
-      expect(() =>
-        fanIn(
-          'gather-selected-course-research',
+      await expect(
+        finalizeResearch(
           [
             {
               key: 'web',
@@ -232,7 +267,7 @@ describe('course generation research', () => {
           ],
           { ...prepared, routing: { ...allSourcesRouting, suppliedSourcesSufficient: true } }
         )
-      ).toThrow();
+      ).rejects.toThrow();
     }
   });
 
@@ -428,13 +463,7 @@ describe('course generation research', () => {
       research: { candidates: [{ title: 'Successful video' }], status: 'completed' },
     });
     expect(result.research.context).toContain('Risultato valido.');
-    const researchState = fanIn<
-      CoursePreparationState,
-      ResearchBranchInput,
-      ResearchBranchOutput,
-      CourseResearchState
-    >(
-      'gather-selected-course-research',
+    const researchState = await finalizeResearch(
       [
         {
           input: { branch: 'web', state: prepared },
@@ -512,23 +541,17 @@ describe('course generation research', () => {
       input,
       workflowServices(services)
     ).catch(error => error);
-    const collection = collectYoutube([
-      {
-        failure: queryFailure.failure,
-        input,
-        key: '0',
-        status: 'failed',
-      },
-    ]);
-
-    const finalFailure = await finalizeYoutube(collection, workflowServices(services)).catch(
-      error => error
-    );
-
     expect(queryFailure).toMatchObject({ failure: { retryAfterMs: 23_000 } });
-    expect(finalFailure).toMatchObject({
-      failure: { code: 'course_research_failed', retryAfterMs: 23_000 },
-    });
+    await expect(
+      finalizeYoutube(
+        collectYoutube([{ failure: queryFailure.failure, input, key: '0', status: 'failed' }]),
+        workflowServices(services)
+      )
+    ).rejects.toMatchObject(
+      expect.objectContaining({
+        failure: expect.objectContaining({ code: 'course_research_failed', retryAfterMs: 23_000 }),
+      })
+    );
   });
 
   test.each([

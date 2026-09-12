@@ -42,12 +42,13 @@ import {
 import { fanOut, routeBy, sequence, step } from './definition.js';
 import { YouTubeResearchOutcomeSchema } from './lessonGenerationWorkflowSchemas.js';
 import {
+  parseStepFailure,
   readRetryAfterMs,
   retryOperational,
   runWorkflowStage,
   WorkflowStepError,
 } from './retryPolicy.js';
-import type { FanOutResult, StepExecutionContext } from './types.js';
+import type { StepExecutionContext } from './types.js';
 import {
   createWorkflowModelDiagnostic,
   toWorkflowErrorDiagnostic,
@@ -241,10 +242,10 @@ export const createCourseResearchServices = ({
 });
 
 const completedBranch = <Branch extends 'web' | 'youtube'>(
-  results: readonly FanOutResult<
-    { branch: 'web' | 'youtube'; state: CoursePreparationState },
-    z.infer<typeof CourseResearchBranchOutputSchema>
-  >[],
+  results: readonly (
+    | { key: string; status: 'completed'; output: z.infer<typeof CourseResearchBranchOutputSchema> }
+    | { key: string; status: 'failed' }
+  )[],
   branch: Branch
 ): Extract<z.infer<typeof CourseResearchBranchOutputSchema>, { branch: Branch }> => {
   const result = results.find(entry => entry.key === branch);
@@ -273,7 +274,12 @@ export const createCourseResearchNode = <
     state: CoursePreparationStateSchema,
   });
   const CourseYoutubeCollectionStateSchema = z.object({
-    failures: z.array(z.object({ retryAfterMs: z.number().int().nonnegative().optional() })),
+    failures: z.array(
+      z.object({
+        retryAfterMs: z.number().int().nonnegative().optional(),
+        ...(adaptiveRouting ? { failureJson: z.string().optional() } : {}),
+      })
+    ),
     outcomes: z.array(YouTubeResearchOutcomeSchema),
     state: CoursePreparationStateSchema,
   });
@@ -368,13 +374,22 @@ export const createCourseResearchNode = <
 
   const researchYoutubeQueries = fanOut({
     failureMode: 'collect',
-    fanIn: (results, parentInput) => ({
-      failures: results.flatMap(result =>
-        result.status === 'failed' ? [{ retryAfterMs: result.failure.retryAfterMs }] : []
-      ),
-      outcomes: results.flatMap(result => (result.status === 'completed' ? [result.output] : [])),
-      state: parentInput.state,
-    }),
+    fanIn: (results, parentInput) => {
+      return {
+        failures: results.flatMap(result =>
+          result.status === 'failed'
+            ? [
+                {
+                  retryAfterMs: result.failure.retryAfterMs,
+                  ...(adaptiveRouting ? { failureJson: JSON.stringify(result.failure) } : {}),
+                },
+              ]
+            : []
+        ),
+        outcomes: results.flatMap(result => (result.status === 'completed' ? [result.output] : [])),
+        state: parentInput.state,
+      };
+    },
     id: 'research-course-youtube-queries',
     inputSchema: CourseYoutubeQueryPlanStateSchema,
     inputs: input =>
@@ -409,6 +424,16 @@ export const createCourseResearchNode = <
         });
       }
       if (context.input.outcomes.length === 0) {
+        if (adaptiveRouting) {
+          const failures = context.input.failures.flatMap(failure =>
+            typeof failure.failureJson === 'string'
+              ? [parseStepFailure(JSON.parse(failure.failureJson))]
+              : []
+          );
+          const failure =
+            failures.find(failure => failure.details?.providerUnavailable !== true) ?? failures[0];
+          if (failure) throw new WorkflowStepError(failure);
+        }
         const retryAfterMs = context.input.failures.find(
           failure => failure.retryAfterMs !== undefined
         )?.retryAfterMs;
@@ -489,6 +514,19 @@ export const createCourseResearchNode = <
         'context'
       ),
   });
+  const CollectedResearchSchema = z.object({
+    state: RoutedCourseResearchSchema,
+    results: z.array(
+      z.discriminatedUnion('status', [
+        z.object({
+          key: z.string(),
+          status: z.literal('completed'),
+          output: CourseResearchBranchOutputSchema,
+        }),
+        z.object({ key: z.string(), status: z.literal('failed'), failureJson: z.string() }),
+      ])
+    ),
+  });
   const selectedResearch = fanOut({
     id: 'gather-selected-course-research',
     failureMode: 'collect',
@@ -500,15 +538,37 @@ export const createCourseResearchNode = <
     itemSchema: CourseResearchBranchInputSchema,
     keyBy: input => input.branch,
     worker: routeResearch,
+    outputSchema: CollectedResearchSchema,
+    fanIn: (results, state) => ({
+      state,
+      results: results.map(result =>
+        result.status === 'completed'
+          ? { key: result.key, status: result.status, output: result.output }
+          : { key: result.key, status: result.status, failureJson: JSON.stringify(result.failure) }
+      ),
+    }),
+  });
+  // Fan-in runs during checkpoint planning; executable steps own research failures.
+  const finalizeSelectedResearch = step<
+    typeof CollectedResearchSchema,
+    typeof CourseResearchStateSchema,
+    Config,
+    Services
+  >({
+    id: 'finalize-selected-course-research',
+    inputSchema: CollectedResearchSchema,
     outputSchema: CourseResearchStateSchema,
-    fanIn: (results, input): CourseResearchState => {
+    run: async context => {
+      context.signal.throwIfAborted();
+      const { results, state: input } = context.input;
       for (const result of results) {
+        if (result.status !== 'failed') continue;
+        const failure = parseStepFailure(JSON.parse(result.failureJson));
         if (
-          result.status === 'failed' &&
-          (!input.routing.suppliedSourcesSufficient ||
-            result.failure.details?.providerUnavailable !== true)
+          !input.routing.suppliedSourcesSufficient ||
+          failure.details?.providerUnavailable !== true
         ) {
-          throw new WorkflowStepError(result.failure);
+          throw new WorkflowStepError(failure);
         }
       }
       const webFailed = results.some(result => result.key === 'web' && result.status === 'failed');
@@ -543,6 +603,6 @@ export const createCourseResearchNode = <
   });
   return sequence({
     id: 'plan-and-gather-course-research',
-    nodes: [planSources, selectedResearch] as const,
+    nodes: [planSources, selectedResearch, finalizeSelectedResearch] as const,
   });
 };

@@ -178,12 +178,14 @@ describe('YouTube research', () => {
     expect(receivedSignals).toEqual([controller.signal, controller.signal, controller.signal]);
   });
 
-  test('preserves retry timing while passing cancellation to Decodo fetch', async () => {
+  test.each([
+    401, 429, 503,
+  ])('classifies Decodo HTTP %s while preserving retry timing and cancellation', async status => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | null | undefined;
     const provider = new DecodoDiscoveryProvider('secret', async (_input, init) => {
       receivedSignal = init?.signal;
-      return new Response('', { headers: { 'retry-after': '23' }, status: 429 });
+      return new Response('', { headers: { 'retry-after': '23' }, status });
     });
 
     const failure = await provider
@@ -191,6 +193,7 @@ describe('YouTube research', () => {
       .catch(error => error);
 
     expect(receivedSignal).toBe(controller.signal);
+    expect(isResearchProviderUnavailable(failure)).toBe(status !== 401);
     expect(readRetryAfterMs(failure)).toBe(23_000);
     expect(failure.responseHeaders).toEqual({ 'retry-after': '23' });
   });
@@ -774,3 +777,5 @@ describe('YouTube research', () => {
     expect(diagnostic.budget.usedTokens).toBe(0);
   });
 });
+
+import { isResearchProviderUnavailable } from '../../src/services/researchProviderAvailability.js';

@@ -1,4 +1,5 @@
 import { formatYouTubeTranscript, type YouTubeTranscriptSegment } from '@shared/youtubeTranscript';
+import { APICallError } from 'ai';
 
 const VIDEO_RESULT_LIMIT = 6;
 const PLAYLIST_RESULT_LIMIT = 2;
@@ -178,12 +179,17 @@ interface TranscriptCacheEntry {
 
 const sharedDecodoTranscriptCache = new Map<string, TranscriptCacheEntry>();
 
-class DecodoProviderError extends Error {
+class DecodoProviderError extends APICallError {
   readonly responseHeaders: Record<string, string>;
   readonly status: number;
 
   constructor(operation: string, response: Response) {
-    super(`Decodo ${operation} failed with status ${response.status}.`);
+    super({
+      message: `Decodo ${operation} failed with status ${response.status}.`,
+      requestBodyValues: {},
+      statusCode: response.status,
+      url: response.url,
+    });
     this.name = 'DecodoProviderError';
     this.status = response.status;
     this.responseHeaders = Object.fromEntries(

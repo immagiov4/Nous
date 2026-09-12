@@ -360,6 +360,7 @@ describe('course generation workflow', () => {
         'prepare-course',
         'plan-course-research-sources',
         'gather-selected-course-research',
+        'finalize-selected-course-research',
         'route-course-research',
         'research-course-web',
         'research-course-youtube',
