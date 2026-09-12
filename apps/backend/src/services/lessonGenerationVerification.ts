@@ -25,12 +25,12 @@ import {
   LESSON_HEADING_STRUCTURE_RULE,
   LESSON_KATEX_FORMATTING_RULE,
   LESSON_LANGUAGE_CLARITY_RULES,
+  LESSON_LEARNER_TEXT_INTEGRITY_RULE,
   LESSON_LIST_STRUCTURE_RULE,
   LESSON_LOCAL_PROPEDEUTIC_RULES,
   LESSON_MAIN_PROSE_RULE,
   LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE,
   LESSON_NAMED_SOURCE_ATTRIBUTION_RULE,
-  LESSON_POSITIVE_DEFINITION_RULE,
   LESSON_PRIMARY_SOURCE_INTEGRATION_RULE,
   LESSON_REFERENCE_SECTION_LABELS,
   LESSON_RELEVANCE_STYLE_RULES,
@@ -72,20 +72,20 @@ interface LessonResponseSchemaContract {
 
 const LESSON_VERIFICATION_STATUS = {
   corrected: 'corrected',
+  failed: 'failed',
   notApplicable: 'not-applicable',
   pass: 'pass',
 } as const;
 
 const LESSON_VERIFICATION_STATUS_VALUES = Object.values(LESSON_VERIFICATION_STATUS);
-type LessonVerificationStatus =
-  (typeof LESSON_VERIFICATION_STATUS)[keyof typeof LESSON_VERIFICATION_STATUS];
-
-interface LessonVerificationReportItem {
-  action: string;
-  checkId: string;
-  evidence: string;
-  status: LessonVerificationStatus;
-}
+const LessonVerificationReportSchema = z.array(
+  z.strictObject({
+    action: z.string(),
+    checkId: z.string(),
+    evidence: z.string().regex(/\S/),
+    status: z.enum(LESSON_VERIFICATION_STATUS_VALUES),
+  })
+);
 
 const LessonIntegrityAssessmentSchema = z.strictObject({
   preserved: z.boolean(),
@@ -101,7 +101,7 @@ const { $schema: _integritySchemaDialect, ...lessonIntegrityProviderSchema } =
 
 type VerifiedLessonContentDraft = LessonContentDraft & {
   lessonIntegrity: z.infer<typeof LessonIntegritySchema>;
-  verificationReport: LessonVerificationReportItem[];
+  verificationReport: z.infer<typeof LessonVerificationReportSchema>;
 };
 
 type LessonVerificationInput = Omit<LessonGenerationInput, 'config' | 'signal'>;
@@ -139,6 +139,15 @@ const BASE_LESSON_VERIFICATION_STRUCTURAL_CHECK_IDS: readonly LessonVerification
     'generated-visual',
   ];
 
+const CHECKS_ALLOWING_NOT_APPLICABLE = new Set<string>([
+  'code-structure',
+  'math-structure',
+  'quiz-quality',
+  'image-reference',
+  'youtube-structure',
+  'generated-visual',
+]);
+
 const CODE_MARKUP_MARKERS = ['`', '~~~'] as const;
 const INDENTED_CODE_BLOCK_PATTERN = /(?:^|\n[ \t]*\n)(?: {4}|\t)\S/;
 const MATH_MARKUP_MARKERS = [
@@ -159,7 +168,7 @@ const LOCAL_PROPEDEUTIC_VERIFICATION_RULES = LESSON_LOCAL_PROPEDEUTIC_RULES.join
 const LANGUAGE_CLARITY_VERIFICATION_RULES = `${LESSON_STUDENT_STYLE_OVERRIDE_RULE} ${LESSON_LANGUAGE_CLARITY_RULES.join(' ')}`;
 const RELEVANCE_STYLE_VERIFICATION_RULES = `${LESSON_STUDENT_STYLE_OVERRIDE_RULE} ${LESSON_RELEVANCE_STYLE_RULES.join(' ')}`;
 const MARKDOWN_STRUCTURE_CHECK = `${LESSON_HEADING_STRUCTURE_RULE} ${LESSON_MAIN_PROSE_RULE} ${LESSON_LIST_STRUCTURE_RULE} ${LESSON_MARKDOWN_CONTENT_INTEGRITY_RULE}`;
-const POSITIVE_DEFINITION_CHECK = `${LESSON_FIRST_EXPOSURE_RULE} ${LESSON_POSITIVE_DEFINITION_RULE}`;
+const POSITIVE_DEFINITION_CHECK = `${LESSON_FIRST_EXPOSURE_RULE} Cite the first introduction and the positive explanation in their reading order, including any heading that frames the concept.`;
 const IMAGE_REFERENCE_CHECK = `${ORIGINAL_IMAGE_USAGE_RULES.join(' ')} Evaluate both the selectable original images and any existing imageRefs. If no original candidate is useful and no imageRefs exist, mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
 const YOUTUBE_STRUCTURE_CHECK = `If the references contain a timestamped YouTube transcript but the draft has no clips, apply the pedagogical rules below to the omission decision as well. Add only the minimum useful interval when a clip is genuinely necessary. Otherwise mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}. Every existing or added clip must use a valid sourceIndex and timestamps entirely within the transcript. Its title must describe the specific moment, and its block must follow text that says what to observe.`;
 const CODE_STRUCTURE_CHECK = `${LESSON_CODE_FORMATTING_RULE} If the draft contains no code, pseudocode, commands, or output, mark the check as ${LESSON_VERIFICATION_STATUS.notApplicable}.`;
@@ -325,7 +334,7 @@ const applyLessonVerificationContext = (
     case 'core.progression':
       return {
         ...item,
-        instruction: `${LOCAL_PROPEDEUTIC_VERIFICATION_RULES} ${LESSON_GUIDED_NOVICE_RULE}`,
+        instruction: `${LOCAL_PROPEDEUTIC_VERIFICATION_RULES} ${LESSON_GUIDED_NOVICE_RULE} For each active pause, cite the preceding teaching passage that supplies the prerequisites for the question and every option. Review in reading order, without treating later explanations as prior knowledge.`,
       };
     case 'core.clarity':
       return {
@@ -356,6 +365,11 @@ const applyLessonVerificationContext = (
       return {
         ...item,
         instruction: RELEVANCE_STYLE_VERIFICATION_RULES,
+      };
+    case 'core.integrity':
+      return {
+        ...item,
+        instruction: `${item.instruction} ${LESSON_LEARNER_TEXT_INTEGRITY_RULE} Compare learner-visible text you changed with the original draft, especially each question ending, option, and explanation. Check every added fragment for its teaching role and remove accidental schema or type residue before approving the final lesson.`,
       };
     default:
       return item;
@@ -390,8 +404,9 @@ Correct ONLY what is necessary and preserve all valid content. Do not rewrite th
 Content is valid only when it also respects the explicit course controls and current lesson scope. Remove surplus optional content when the selected depth requires it; do not preserve it merely because it is factually correct.
 contentBlocks must contain the complete corrected lesson for the student, including its required explanations and relevant exercises. Keep review commentary exclusively in verificationReport; a report or an exercise about the review process cannot replace the lesson.
 After correcting the content, assess lessonIntegrity against the supplied lesson title, description, objective and original draft. For topic and objectives separately, declare whether the final content preserves them and cite concrete evidence. Removing optional enrichment may preserve the objectives; removing the explanation needed to achieve them does not. Correct false material without preserving its errors. If the final content still loses the subject or a required learning objective, declare preserved false for the affected dimension rather than approving an incomplete lesson.
-For every checkId listed below, judge the actual draft and cite the concrete passage or reason in evidence. Do not mark a check as pass automatically merely because its rule appears in the instructions.
+For every checkId listed below, inspect the lesson in reading order, make the necessary repairs, then evaluate the complete corrected lesson, including your own edits. Cite concrete passages or reasons in evidence. Use ${LESSON_VERIFICATION_STATUS.pass} for content that already meets the check, ${LESSON_VERIFICATION_STATUS.corrected} only after the repair meets it, and ${LESSON_VERIFICATION_STATUS.failed} when a defect remains. For a correction, name the changed passage and repair in action. A rule appearing in these instructions is not evidence that the lesson meets it.
 Produce exactly one verificationReport entry for every checkId, including structural checks. Use ${LESSON_VERIFICATION_STATUS.notApplicable} only when the instruction allows it and the corresponding content does not exist in the draft.
+The semantic checklist and these structural checks always require pass, corrected, or failed: ${structuralCheckIds.filter(checkId => !CHECKS_ALLOWING_NOT_APPLICABLE.has(checkId)).join(', ')}. An absent prohibited feature satisfies its prohibition; report pass with that evidence.
 The presence of a repair check is not an invitation to add a feature. Create active pauses or generated visuals only when an explicit task requirement makes them necessary.
 Do not introduce imageRefs or YouTube clips unless the corresponding checkId is listed below. If you must remove an invalid artifact and the replacement format check is absent, correct the content in prose or remove the artifact instead of introducing an unchecked feature.
 
@@ -480,12 +495,33 @@ export const verifyLessonContentDraft = async (input: {
     });
   }
 
-  if (!isLessonVerificationReportComplete(verified.verificationReport, checkIds)) {
+  const report = LessonVerificationReportSchema.safeParse(verified.verificationReport);
+  if (
+    !report.success ||
+    !isLessonVerificationReportComplete(report.data, checkIds) ||
+    report.data.some(
+      item =>
+        (item.status === LESSON_VERIFICATION_STATUS.corrected && !item.action.trim()) ||
+        (item.status === LESSON_VERIFICATION_STATUS.notApplicable &&
+          !CHECKS_ALLOWING_NOT_APPLICABLE.has(item.checkId))
+    )
+  ) {
     throw retryLessonGenerationCorrection({
       code: 'lesson_review_report_incomplete',
       feedback:
-        'Return exactly one verificationReport entry for every required checkId. Do not omit, duplicate, or invent checkIds, and give every entry non-empty concrete evidence from the corrected draft.',
+        'Return exactly one verificationReport entry for every required checkId, with a valid status and non-empty concrete evidence from the corrected draft. For corrected checks, describe the repair in action. Use not-applicable only where the check instruction permits it.',
       message: 'The lesson verification report is incomplete.',
+    });
+  }
+
+  const failedChecks = report.data.filter(
+    item => item.status === LESSON_VERIFICATION_STATUS.failed
+  );
+  if (failedChecks.length > 0) {
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_review_checks_failed',
+      feedback: `Repair the unresolved lesson checks and evaluate the corrected lesson again: ${JSON.stringify(failedChecks)}`,
+      message: 'The reviewed lesson still fails required checks.',
     });
   }
 
