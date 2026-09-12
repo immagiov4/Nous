@@ -137,6 +137,7 @@ export interface YouTubeResearchBudgetInput {
 export interface YouTubeResearchOptions {
   budget?: YouTubeResearchBudgetInput;
   discovery?: YouTubeDiscoveryProvider;
+  includeEngagementMetadata?: boolean;
   metadata?: YouTubeMetadataProvider;
   signal?: AbortSignal;
   transcripts?: YouTubeTranscriptProvider;
@@ -716,8 +717,10 @@ const buildYouTubeResearch = async (
   const discovery = options.discovery || createDefaultDiscoveryProvider();
   const transcripts = options.transcripts || createDefaultTranscriptProvider();
   const metadata =
-    options.metadata ||
-    (options.discovery || options.transcripts ? undefined : createDefaultMetadataProvider());
+    options.includeEngagementMetadata === false
+      ? undefined
+      : options.metadata ||
+        (options.discovery || options.transcripts ? undefined : createDefaultMetadataProvider());
   const budget = calculateTranscriptBudget(options.budget);
   const startedAt = Date.now();
   const discoveryStartedAt = Date.now();

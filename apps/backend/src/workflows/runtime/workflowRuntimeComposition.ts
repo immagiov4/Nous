@@ -35,6 +35,7 @@ import {
   createPreviousCourseGenerationWorkflow,
   createPreviousDiagnosticCourseGenerationWorkflow,
   createPreviousPreferencesCourseGenerationWorkflow,
+  createPreviousRoutingCourseGenerationWorkflow,
 } from '../courseGenerationWorkflow.js';
 import {
   courseGenerationStateSchemas,
@@ -77,6 +78,7 @@ import {
   createPreviousLessonGenerationWorkflow,
   createPreviousQuizExplanationLessonGenerationWorkflow,
   createPreviousResearchContractLessonGenerationWorkflow,
+  createPreviousRoutingLessonGenerationWorkflow,
 } from '../lessonGenerationWorkflow.js';
 import {
   createLessonVisualRetryStarter,
@@ -216,6 +218,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     models,
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
   });
+  const previousRoutingCourseWorkflow = createPreviousRoutingCourseGenerationWorkflow(
+    courseWorkflow.executionDefaults
+  );
   const previousCourseWorkflow = createPreviousCourseGenerationWorkflow(
     courseWorkflow.executionDefaults
   );
@@ -266,6 +271,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     visual,
   });
+  const previousRoutingLessonWorkflow = createPreviousRoutingLessonGenerationWorkflow(
+    lessonWorkflow.executionDefaults
+  );
   const previousLessonWorkflow = createPreviousLessonGenerationWorkflow(
     lessonWorkflow.executionDefaults
   );
@@ -340,6 +348,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: courseWorkflow,
     previous: [
+      previousRoutingCourseWorkflow,
       previousDiagnosticCourseWorkflow,
       previousControlsCourseWorkflow,
       preProviderPostprocessingPrevious(previousControlsCourseWorkflow),
@@ -354,6 +363,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: lessonWorkflow,
     previous: [
+      previousRoutingLessonWorkflow,
       previousQuizExplanationLessonWorkflow,
       previousResearchContractLessonWorkflow,
       previousLessonWorkflow,

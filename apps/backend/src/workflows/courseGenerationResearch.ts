@@ -1,11 +1,21 @@
+import {
+  ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+  formatSourceArchiveIndex,
+} from '@shared/sourceArchiveIndex';
 import * as z from 'zod';
-
 import type { GlobalModelConfig } from '../config/modelConfig.js';
+import {
+  isResearchSourceSelected,
+  planResearchSources,
+  type ResearchSourceRouting,
+  ResearchSourceRoutingSchema,
+} from '../services/researchSourceRouting.js';
 import {
   buildYouTubeResearchOutcome,
   mergeYouTubeResearchOutcomes,
   type YouTubeResearchOutcome,
 } from '../services/youtubeResearch.js';
+import type { createCourseArchiveOpener } from './courseGenerationArchiveAccess.js';
 import { CourseModelProviderError, generateCourseObject } from './courseGenerationModel.js';
 import {
   type CourseSourceMaterial,
@@ -59,6 +69,10 @@ type ResearchYoutube = (
 ) => Promise<YouTubeResearchOutcome>;
 
 export interface CourseResearchServices {
+  readonly planCourseResearchSources: CourseGenerationStage<
+    CoursePreparationState,
+    ResearchSourceRouting
+  >;
   readonly planCourseYoutubeQueries: CourseGenerationStage<
     CoursePreparationState,
     CourseYoutubeQueryPlan
@@ -125,7 +139,10 @@ const unavailableYoutubeResearch = () => ({
 
 const productionResearchYoutube: ResearchYoutube = async (query, language, signal) => {
   signal.throwIfAborted();
-  const outcome = await buildYouTubeResearchOutcome(query, language, { signal });
+  const outcome = await buildYouTubeResearchOutcome(query, language, {
+    includeEngagementMetadata: false,
+    signal,
+  });
   signal.throwIfAborted();
   return outcome;
 };
@@ -133,12 +150,41 @@ const productionResearchYoutube: ResearchYoutube = async (query, language, signa
 export const createCourseResearchServices = ({
   generateObject = generateCourseObject,
   readSourceMaterials,
+  openArchive,
   researchYoutube = productionResearchYoutube,
 }: {
   readonly generateObject?: GenerateCourseObject;
+  readonly openArchive?: ReturnType<typeof createCourseArchiveOpener>;
   readonly readSourceMaterials: ReadSourceMaterials;
   readonly researchYoutube?: ResearchYoutube;
 }): CourseResearchServices => ({
+  planCourseResearchSources: async context => {
+    let sourceContext: string;
+    if (context.input.strategy === 'archive') {
+      if (!openArchive) throw new Error('Archive source access is required for research routing.');
+      const archive = await openArchive(context.input, context.signal);
+      sourceContext = formatSourceArchiveIndex(archive.index, {
+        previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+      });
+    } else {
+      sourceContext = formatCourseSourceMaterials(
+        await readSourceMaterials(context.input, context.signal),
+        COURSE_RESEARCH_SOURCE_MAX_CHARS
+      );
+    }
+    return planResearchSources(
+      {
+        config: context.config.models,
+        level: 'course',
+        topic: context.input.context.topic,
+        learningContext: context.input.context.assessmentSummary,
+        sourceContext,
+        availableChannels: ['web', 'youtube'],
+        signal: context.signal,
+      },
+      generateObject
+    );
+  },
   planCourseYoutubeQueries: async context => {
     try {
       const plan = await generateObject({
@@ -203,7 +249,8 @@ export const createCourseResearchNode = <
   Config extends CourseGenerationWorkflowConfig,
   Services extends CourseResearchServices,
 >(
-  schemas = courseGenerationStateSchemas
+  schemas = courseGenerationStateSchemas,
+  adaptiveRouting = true
 ) => {
   const { CoursePreparationStateSchema, CourseResearchStateSchema } = schemas;
   const CourseResearchBranchInputSchema = z.object({
@@ -368,7 +415,7 @@ export const createCourseResearchNode = <
     select: input => input.branch,
   });
 
-  return fanOut({
+  const legacyResearch = fanOut({
     failureMode: 'fail-fast',
     fanIn: (results, parentInput): CourseResearchState => {
       const web = completedBranch(results, 'web');
@@ -389,5 +436,68 @@ export const createCourseResearchNode = <
     keyBy: input => input.branch,
     outputSchema: CourseResearchStateSchema,
     worker: routeResearch,
+  });
+  if (!adaptiveRouting) return legacyResearch;
+  const RoutedCourseResearchSchema = CoursePreparationStateSchema.extend({
+    routing: ResearchSourceRoutingSchema,
+  });
+  const planSources = step<
+    typeof CoursePreparationStateSchema,
+    typeof RoutedCourseResearchSchema,
+    Config,
+    Services
+  >({
+    id: 'plan-course-research-sources',
+    externalEffect: 'provider',
+    inputSchema: CoursePreparationStateSchema,
+    outputSchema: RoutedCourseResearchSchema,
+    run: context =>
+      runResearchStage(context, async stage => ({
+        ...stage.input,
+        routing: await context.services.planCourseResearchSources(stage),
+      })),
+  });
+  const selectedResearch = fanOut({
+    id: 'gather-selected-course-research',
+    failureMode: 'collect',
+    inputSchema: RoutedCourseResearchSchema,
+    inputs: input =>
+      input.routing.channels
+        .filter(channel => channel.selected)
+        .map(channel => ({ branch: channel.type, state: input })),
+    itemSchema: CourseResearchBranchInputSchema,
+    keyBy: input => input.branch,
+    worker: routeResearch,
+    outputSchema: CourseResearchStateSchema,
+    fanIn: (results, input): CourseResearchState => {
+      const webFailed = results.some(result => result.key === 'web' && result.status === 'failed');
+      const web =
+        isResearchSourceSelected(input.routing, 'web') &&
+        !(webFailed && input.routing.suppliedSourcesSufficient)
+          ? completedBranch(results, 'web').research
+          : { brief: '', sources: [] };
+      const youtubeFailed = results.some(
+        result => result.key === 'youtube' && result.status === 'failed'
+      );
+      const youtube =
+        isResearchSourceSelected(input.routing, 'youtube') && !youtubeFailed
+          ? completedBranch(results, 'youtube').research
+          : {
+              candidates: [],
+              context: '',
+              rationale:
+                input.routing.channels.find(channel => channel.type === 'youtube')?.rationale ?? '',
+              status: 'completed' as const,
+            };
+      return CourseResearchStateSchema.parse({
+        ...input,
+        stage: 'research',
+        research: { web, youtube, routing: input.routing },
+      });
+    },
+  });
+  return sequence({
+    id: 'plan-and-gather-course-research',
+    nodes: [planSources, selectedResearch] as const,
   });
 };

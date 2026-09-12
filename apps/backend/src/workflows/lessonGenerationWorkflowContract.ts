@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { ResearchSourceRoutingSchema } from '../services/researchSourceRouting.js';
 import {
   CourseDocumentIndexSchema,
   CourseLessonSchema,
@@ -128,6 +129,7 @@ const LessonVisualFanOutResultSchema = z.discriminatedUnion('status', [
 ]);
 
 const createLessonGenerationDurableSchemaSet = ({
+  routing = false,
   pdfImageMetadataSchema,
   documentAssetsSchema,
   lessonResearchSummarySchema,
@@ -136,6 +138,7 @@ const createLessonGenerationDurableSchemaSet = ({
   lessonQuizSchema,
   lessonResultBlockSchema,
 }: {
+  routing?: boolean;
   pdfImageMetadataSchema: typeof LessonPdfImageMetadataSchema;
   documentAssetsSchema: typeof LessonDocumentAssetsSchema;
   lessonResearchSummarySchema: typeof LessonResearchSummarySchema;
@@ -144,7 +147,13 @@ const createLessonGenerationDurableSchemaSet = ({
   lessonQuizSchema: z.ZodType<z.infer<typeof LessonQuizSchema>>;
   lessonResultBlockSchema: z.ZodType<z.infer<typeof LessonResultBlockSchema>>;
 }) => {
-  const LessonSourcesStateSchema = LessonCoverageStateSchema.extend({
+  const routingShape = { researchRouting: ResearchSourceRoutingSchema.optional() };
+  const sourceSchema = routing
+    ? LessonCoverageStateSchema.extend(routingShape)
+    : (LessonCoverageStateSchema as ReturnType<
+        typeof LessonCoverageStateSchema.extend<typeof routingShape>
+      >);
+  const LessonSourcesStateSchema = sourceSchema.extend({
     documentAssetOwners: z.array(LessonAssetOwnerSchema),
     pdfImages: z.array(pdfImageMetadataSchema),
     stage: z.literal('sources'),
@@ -295,7 +304,11 @@ const currentLessonSchemas = {
   pdfImageMetadataSchema: LessonPdfImageMetadataSchema,
 };
 
-export const CurrentLessonGenerationDurableSchemaSet =
+export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
+  ...currentLessonSchemas,
+  routing: true,
+});
+export const PreviousRoutingLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet(currentLessonSchemas);
 
 const previousQuizLessonSchemas = {
