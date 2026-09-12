@@ -1448,6 +1448,13 @@ function ContextAnswerPanelSession({
       next[approvedPayload.summary.id] = approvedPayload.visual;
       return next;
     });
+    setArtifactRegenerationStates(currentStates => {
+      const next = { ...currentStates };
+      for (const replacedId of replacedIds) {
+        if (next[replacedId] === 'succeeded') delete next[replacedId];
+      }
+      return next;
+    });
     if (
       latestGeneratedArtifactIdRef.current &&
       replacedIds.has(latestGeneratedArtifactIdRef.current)

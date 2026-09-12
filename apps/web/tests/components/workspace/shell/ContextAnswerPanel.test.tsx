@@ -2961,11 +2961,13 @@ describe('ContextAnswerPanel', () => {
   });
 
   test.each([
-    { actionLabel: /Scarta artefatto/i, actionName: 'discard' },
-    { actionLabel: /Sostituisci artefatto/i, actionName: 'replace' },
-  ])('shares regeneration lifecycle across source and draft surfaces on $actionName', async ({
+    { actionLabel: /Scarta artefatto/i, actionName: 'discard', nested: false },
+    { actionLabel: /Sostituisci artefatto/i, actionName: 'replace', nested: false },
+    { actionLabel: /Sostituisci artefatto/i, actionName: 'replace', nested: true },
+  ])('shares regeneration lifecycle across source and draft surfaces on $actionName, nested=$nested', async ({
     actionLabel,
     actionName,
+    nested,
   }) => {
     const user = userEvent.setup();
     let onToolCall:
@@ -3063,6 +3065,28 @@ describe('ContextAnswerPanel', () => {
     expect(screen.queryByText('Nuova bozza pronta.')).toBeNull();
 
     await user.click(draftButton);
+    if (nested) {
+      const nextDraft = {
+        ...replacementDraftArtifact,
+        summary: {
+          ...replacementDraftArtifact.summary,
+          id: 'generated-visual:second-revision',
+          replacementOfArtifactId: replacementDraftArtifact.summary.id,
+        },
+        visual: { ...replacementDraftArtifact.visual, id: 'second-revision' },
+      };
+      generateLessonArtifactDraftMock.mockResolvedValue({
+        artifactId: nextDraft.summary.id,
+        payload: nextDraft,
+        visual: nextDraft.visual,
+      });
+      await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+      await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Semplifica ancora.');
+      await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
+      await user.click(
+        await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
+      );
+    }
     await user.click(screen.getByRole('button', { name: actionLabel }));
 
     if (actionName === 'replace') {
@@ -3097,7 +3121,9 @@ describe('ContextAnswerPanel', () => {
       expect(onReplaceArtifactInLesson).toHaveBeenLastCalledWith(
         { lessonId: 'lesson-1', projectId: 'project-1' },
         currentLessonArtifact.summary.id,
-        replacementDraftArtifact.visual
+        nested
+          ? { ...replacementDraftArtifact.visual, id: 'second-revision' }
+          : replacementDraftArtifact.visual
       );
       expect(onReplaceArtifactInLesson).toHaveBeenCalledTimes(2);
 
