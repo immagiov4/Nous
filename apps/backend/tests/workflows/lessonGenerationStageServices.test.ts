@@ -162,8 +162,12 @@ describe('lesson generation production stages', () => {
   test('reads detached original bytes when no document index is available', async () => {
     const store = new InMemoryProjectStore();
     const sourceText = 'Il documento originale descrive la fase luminosa nei tilacoidi.';
+    const unmappedProject = structuredClone(project);
+    const section = unmappedProject.learningPlan?.modules?.[0]?.children?.[0];
+    if (!section) throw new Error('Missing test lesson.');
+    section.sourceReferences = [];
     await store.saveProject('user-1', {
-      ...project,
+      ...unmappedProject,
       documentIndex: undefined,
       source: {
         file: {
@@ -198,6 +202,44 @@ describe('lesson generation production stages', () => {
     expect(outcome.state.originalSources).toEqual([
       expect.objectContaining({ title: 'appunti-biologia.txt' }),
     ]);
+  });
+
+  test.each([
+    undefined,
+    { chunks: [{ id: 'chunk-1', sourceId: 'source-1', text: 'Known passage.' }] },
+  ])('rejects unresolved selections before reading unrelated stored material', async documentIndex => {
+    const unresolvedProject = structuredClone(project);
+    unresolvedProject.documentIndex = documentIndex;
+    const section = unresolvedProject.learningPlan?.modules?.[0]?.children?.[0];
+    if (!section) throw new Error('Missing test lesson.');
+    section.sourceReferences = [{ chunkIds: ['chunk-1', 'missing'], sourceId: 'source-1' }];
+    const loadProjectSources = vi.fn();
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        loadProjectWithRevision: vi
+          .fn()
+          .mockResolvedValue({ revision: 3, snapshot: unresolvedProject }),
+        resolveSourceMaterials: resolveLessonSourceMaterials,
+        store: { loadProjectSources } as unknown as ProjectStore,
+      })
+    );
+    await expect(
+      services.prepareLesson(
+        stageContext({
+          forceRegenerate: true,
+          projectId: 'project-1',
+          sectionId: 'lesson-1',
+          userId: 'user-1',
+        })
+      )
+    ).rejects.toMatchObject({
+      failure: {
+        code: 'lesson_source_unavailable',
+        kind: 'permanent',
+        message: 'The lesson source is unavailable.',
+      },
+    });
+    expect(loadProjectSources).not.toHaveBeenCalled();
   });
 
   test('returns a stable source error when required detached bytes are missing', async () => {
@@ -245,6 +287,7 @@ describe('lesson generation production stages', () => {
     const section = archiveProject.learningPlan?.modules?.[0]?.children?.[0];
     if (!section) throw new Error('Missing archive test lesson.');
     section.sourceArchiveSelectors = [];
+    section.sourceReferences = [];
     section.type = 'lesson';
     archiveProject.documentIndex = undefined;
     archiveProject.source = { kind: 'archive', name: 'src.zip' };

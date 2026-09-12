@@ -73,6 +73,10 @@ The pipeline begins by determining if the request is for an existing lesson or a
 Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)
 
 ### 2. Research and Source Staging
+Mapped document context reserves the six-chunk limit for explicitly selected chunks before adding same-source neighbors, then presents the result in document order. Unresolved explicit chunk references, including partially resolved selections or a missing index, produce the existing `lesson_source_unavailable` failure. Sections without chunk selections use the first two indexed chunks, or stored document text when the index is absent.
+
+Source deduplication prefers an explicit `sourceId`. URL identity normalizes scheme and hostname case while preserving path, query, and fragment case. The existing trailing-slash equivalence also applies. Sources: [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts), [apps/backend/src/services/lessonGenerationPreparation.ts](../../../apps/backend/src/services/lessonGenerationPreparation.ts)
+
 The system assesses the primary source material for coverage gaps. If the lesson is a "prerequisite" type, it identifies missing topics that require external research.
 * **YouTube Research:** A branching path that plans specific and fallback queries to find timestamped transcripts.
 * **Research Dossier:** The `generateResearchSummary` service creates a dense factual dossier, including controversies and recent developments, which serves as factual support for drafting.

@@ -3,6 +3,7 @@ import { expect, test, vi } from 'vitest';
 import {
   buildMappedSourceContext,
   isPdfAssetSoftTimeoutError,
+  LessonSourceUnavailableError,
   mergeSources,
   parseResearchSource,
   readConfiguredProjectLanguage,
@@ -10,6 +11,76 @@ import {
   readProjectLanguage,
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
+
+const mappedProject = {
+  documentIndex: {
+    chunks: Array.from({ length: 10 }, (_, index) => ({
+      id: `c${String(index + 1).padStart(2, '0')}`,
+      sourceId: 'source-a',
+      text: `Passage ${index + 1}`,
+    })),
+  },
+} as never;
+
+test('explicit chunks take priority over neighbors within the context cap', () => {
+  const context = buildMappedSourceContext(mappedProject, {
+    primaryChunkIds: ['c02', 'c05', 'c08'],
+  });
+  expect([...context.matchAll(/^CHUNK (\S+)/gm)].map(match => match[1])).toEqual([
+    'c01',
+    'c02',
+    'c03',
+    'c04',
+    'c05',
+    'c08',
+  ]);
+});
+
+test.each([
+  ['missing'],
+  ['c02', 'missing'],
+])('explicit unresolved mappings fail source resolution: %j', (...chunkIds) => {
+  expect(() =>
+    buildMappedSourceContext(mappedProject, {
+      sourceReferences: [{ sourceId: 'source-a', chunkIds }],
+    })
+  ).toThrow(LessonSourceUnavailableError);
+});
+
+test('absent mappings retain the default document excerpts', () => {
+  const context = buildMappedSourceContext(mappedProject, {});
+  expect([...context.matchAll(/^CHUNK (\S+)/gm)].map(match => match[1])).toEqual(['c01', 'c02']);
+});
+
+test.each([
+  ['https://example.org/docs/API', 'https://example.org/docs/api'],
+  ['https://example.org/?Key=Value', 'https://example.org/?key=Value'],
+  ['https://example.org/?key=Value', 'https://example.org/?key=value'],
+  ['https://example.org/#API', 'https://example.org/#api'],
+])('source identity preserves URL component case: %s', (first, second) => {
+  expect(
+    mergeSources([
+      { title: 'First', url: first },
+      { title: 'Second', url: second },
+    ])
+  ).toHaveLength(2);
+});
+
+test('source identity normalizes scheme and host case and retains sourceId precedence', () => {
+  expect(
+    mergeSources([
+      { title: 'First', url: 'HTTPS://EXAMPLE.ORG/docs/API' },
+      { title: 'Second', url: 'https://example.org/docs/API/' },
+    ])
+  ).toHaveLength(1);
+  expect(
+    mergeSources([
+      { sourceId: 'source-a', title: 'First', url: 'https://example.org/A' },
+      { sourceId: 'source-a', title: 'Second', url: 'https://example.org/B' },
+      { sourceId: 'source-b', title: 'Third', url: 'https://example.org/A' },
+    ])
+  ).toHaveLength(2);
+});
 
 test.each([
   ['whitespace-only', { language: '   ' }],

@@ -179,20 +179,24 @@ export const buildMappedSourceContext = (
   project: ProjectSnapshot,
   section: Record<string, unknown>
 ) => {
-  if (!isRecord(project.documentIndex) || !Array.isArray(project.documentIndex.chunks)) return '';
-  const chunks = project.documentIndex.chunks.filter(isRecord);
   const selectedIds = readSectionChunkIds(section);
+  const chunks =
+    isRecord(project.documentIndex) && Array.isArray(project.documentIndex.chunks)
+      ? project.documentIndex.chunks.filter(isRecord)
+      : [];
   const selectedIndexes = chunks.flatMap((chunk, index) =>
     selectedIds.has(String(chunk.id)) ? [index] : []
   );
-  const contextIndexes = new Set<number>();
+  const resolvedIds = new Set(selectedIndexes.map(index => String(chunks[index].id)));
+  if ([...selectedIds].some(id => !resolvedIds.has(id))) throw new LessonSourceUnavailableError();
+  const contextIndexes = new Set(selectedIndexes.slice(0, MAX_LESSON_CONTEXT_CHUNKS));
   for (const index of selectedIndexes) {
     const selectedChunk = chunks[index];
     const selectedSourceId =
       isRecord(selectedChunk) && typeof selectedChunk.sourceId === 'string'
         ? selectedChunk.sourceId
         : null;
-    for (const candidateIndex of [index, index - 1, index + 1]) {
+    for (const candidateIndex of [index - 1, index + 1]) {
       const candidate = chunks[candidateIndex];
       const sharesSource =
         !selectedSourceId || (isRecord(candidate) && candidate.sourceId === selectedSourceId);
@@ -206,7 +210,7 @@ export const buildMappedSourceContext = (
       }
     }
   }
-  if (contextIndexes.size === 0) {
+  if (selectedIds.size === 0) {
     chunks.slice(0, DEFAULT_LESSON_CONTEXT_CHUNKS).forEach((_chunk, index) => {
       contextIndexes.add(index);
     });
@@ -411,7 +415,13 @@ export const readProjectLanguage = (project: ProjectSnapshot): string =>
 
 const sourceKey = (source: ResearchSource): string => {
   if (source.sourceId?.trim()) return `source:${source.sourceId.trim()}`;
-  let url = source.url?.trim().toLocaleLowerCase();
+  let url = source.url
+    ?.trim()
+    .replace(
+      /^([a-z][a-z\d+.-]*:)(\/\/(?:[^/?#]*@)?)([^/?#]*)/iu,
+      (_match, scheme: string, authorityPrefix: string, host: string) =>
+        `${scheme.toLowerCase()}${authorityPrefix}${host.toLowerCase()}`
+    );
   while (url?.endsWith('/')) url = url.slice(0, -1);
   return url || source.title.trim().normalize('NFKC').toLocaleLowerCase();
 };
