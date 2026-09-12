@@ -250,6 +250,68 @@ describe('lesson review quality report contract', () => {
     ).resolves.toEqual(draft);
   });
 
+  test.each([
+    false,
+    true,
+  ])('requires visual judgment when source images were removed: %s', async hadImage => {
+    const draft = {
+      ...original,
+      imageRefs: hadImage
+        ? [{ assetId: 'diagram', alt: 'Diagramma', caption: 'Relazioni ordinate.' }]
+        : [],
+    };
+    mockReview(original, preserved, { checkId: 'generated-visual', status: 'not-applicable' });
+    await expect(
+      reviewLessonContentDraftStrict({
+        draft,
+        generationInput: { ...generationInput, instructionPacks: ['visual-learning'] },
+      })
+    ).rejects.toMatchObject({ code: 'lesson_review_report_incomplete' });
+  });
+
+  test('allows source video to satisfy the visual pack without generated visuals', async () => {
+    const draft: LessonContentDraft = {
+      ...original,
+      contentBlocks: [
+        ...original.contentBlocks,
+        {
+          type: 'youtube-clips',
+          clips: [{ sourceIndex: 0, startSeconds: 0, endSeconds: 10, title: 'Ordinamento' }],
+        },
+      ],
+    };
+    mockReview(draft, preserved, { checkId: 'generated-visual', status: 'not-applicable' });
+    await expect(
+      reviewLessonContentDraftStrict({
+        draft,
+        generationInput: { ...generationInput, instructionPacks: ['visual-learning'] },
+      })
+    ).resolves.toEqual(draft);
+  });
+
+  test.each([
+    'pass',
+    'failed',
+  ])('reports unauthorized structures alongside %s semantic checks', async status => {
+    const draft = {
+      ...original,
+      imageRefs: [{ assetId: 'unrequested', alt: 'Diagramma', caption: 'Relazioni ordinate.' }],
+    };
+    const checkId = 'core.progression';
+    mockReview(draft, preserved, { checkId, status });
+    const error = await review().catch((cause: unknown) => cause);
+    expect(error).toMatchObject({
+      code:
+        status === 'failed'
+          ? 'lesson_review_checks_failed'
+          : 'lesson_review_unchecked_structural_feature',
+      feedback: expect.stringContaining('image-reference'),
+    });
+    if (status === 'failed') {
+      expect(error).toMatchObject({ feedback: expect.stringContaining(checkId) });
+    }
+  });
+
   test('returns corrected quiz text without restoring the original stray token', async () => {
     const repaired = structuredClone(flawedAutomationLesson);
     const quiz = repaired.contentBlocks[1];
