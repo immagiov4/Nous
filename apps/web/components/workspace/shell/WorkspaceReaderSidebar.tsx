@@ -86,7 +86,7 @@ const getSidebarSectionState = ({
 }>) => {
   const isActive = activeSectionId === section.id;
   const hasGeneratedContent = section.kind === 'lesson' && Boolean(section.content?.trim());
-  const isGenerationInProgress = section.kind === 'lesson' && generatingSectionId === section.id;
+  const isGenerationInProgress = generatingSectionId === section.id;
   const isFirstTimeGeneration = isGenerationInProgress && !hasGeneratedContent;
   const isCachedLessonLoading = isGenerationInProgress && hasGeneratedContent;
   const hasAnotherGeneratingSection =

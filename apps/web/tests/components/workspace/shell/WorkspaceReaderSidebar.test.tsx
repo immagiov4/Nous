@@ -429,6 +429,56 @@ describe('WorkspaceReaderSidebar', () => {
     );
   });
 
+  test('reopens the generating exercise while other ungenerated nodes remain disabled', () => {
+    const exercise = {
+      kind: 'exercise' as const,
+      id: 'exercise-1',
+      title: 'Esercizio in generazione',
+      description: 'Applica il metodo',
+      assessedObjective: 'Applicare il metodo',
+      attachments: [],
+      currentFeedback: null,
+      isCompleted: false,
+      feedbackStale: false,
+      updatedAt: '2026-05-12T12:00:00.000Z',
+    };
+    const props = buildProps({
+      activeSectionId: exercise.id,
+      generatingSectionId: exercise.id,
+      isSectionLoading: true,
+    });
+    props.sidebarGroups[0].sections.push(
+      exercise,
+      {
+        ...exercise,
+        id: 'exercise-2',
+        title: 'Altro esercizio',
+      },
+      {
+        kind: 'lesson',
+        id: 'ready-lesson',
+        title: 'Lezione pronta',
+        description: 'Descrizione',
+        content: 'Contenuto disponibile',
+        isCompleted: false,
+        type: 'core',
+      }
+    );
+    const { rerender } = render(<WorkspaceReaderSidebar {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Lezione pronta' }));
+    expect(props.onSelectSection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ready-lesson' })
+    );
+    rerender(<WorkspaceReaderSidebar {...props} activeSectionId="ready-lesson" />);
+
+    const generatingExercise = screen.getByRole('button', { name: exercise.title });
+    expect(generatingExercise).toBeEnabled();
+    fireEvent.click(generatingExercise);
+    expect(props.onSelectExercise).toHaveBeenCalledExactlyOnceWith(exercise);
+    expect(screen.getByRole('button', { name: 'Altro esercizio' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /PROTECT:/ })).toBeDisabled();
+  });
+
   test('shows the application exercise repair action when a course needs labs', () => {
     const onRepairApplicationExercises = vi.fn();
     render(

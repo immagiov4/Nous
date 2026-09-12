@@ -7780,6 +7780,65 @@ test('an active lesson generation blocks exercise brief and placement generation
   assert.equal(await lessonGeneration, 'loaded');
 });
 
+test('openExercise reopens its running brief without starting concurrent generation', async () => {
+  const exercise: ApplicationExerciseNode = {
+    kind: 'exercise',
+    id: 'exercise-1',
+    title: 'Laboratorio',
+    description: 'Applica il metodo.',
+    assessedObjective: 'Applicare il metodo correttamente.',
+    attachments: [],
+    currentFeedback: null,
+    feedbackStale: false,
+    isCompleted: false,
+    updatedAt: '2026-03-20T10:00:00.000Z',
+  };
+  const readyLesson = buildTestLesson({ id: 'ready-lesson', content: '# Lezione pronta' });
+  const ungeneratedLesson = buildTestLesson({ id: 'new-lesson' });
+  const otherExercise = { ...exercise, id: 'exercise-2' };
+  const plan = buildPlan({ sections: [readyLesson, ungeneratedLesson] });
+  plan.modules[0]?.children.push(exercise, otherExercise);
+  let releaseBrief!: (result: { brief: string; groundingSources: [] }) => void;
+  const briefResult = new Promise<{ brief: string; groundingSources: [] }>(resolve => {
+    releaseBrief = resolve;
+  });
+  const generateApplicationExerciseBrief = vi.fn(() => briefResult);
+  const { controller, domain, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateApplicationExerciseBrief,
+      getExercisePrerequisiteGaps: () => [],
+    },
+  });
+
+  const generation = controller.openExercise(exercise);
+  try {
+    assert.equal(generateApplicationExerciseBrief.mock.calls.length, 1);
+    assert.equal(await controller.openSection(readyLesson), 'reused-cached');
+    assert.equal(domain.activeSectionId, readyLesson.id);
+    const requestId = state.adapter.getWorkflowState().loadSection.requestId;
+
+    await controller.openExercise(otherExercise);
+    assert.equal(domain.activeSectionId, readyLesson.id);
+    assert.equal(await controller.openSection(ungeneratedLesson), 'ignored-busy');
+
+    await controller.openExercise(exercise);
+    assert.equal(domain.activeSectionId, exercise.id);
+    assert.equal(state.adapter.getWorkflowState().loadSection.status, 'pending');
+    assert.equal(state.adapter.getWorkflowState().loadSection.requestId, requestId);
+    assert.equal(generateApplicationExerciseBrief.mock.calls.length, 1);
+  } finally {
+    releaseBrief({ brief: '# Consegna', groundingSources: [] });
+    await generation;
+  }
+  assert.equal(state.adapter.getWorkflowState().loadSection.status, 'succeeded');
+  assert.equal(state.adapter.getGeneratingSectionId('project-1'), null);
+  const generatedExercise = findPathNodeById(domain.learningPlan?.modules, exercise.id);
+  assert.equal(generatedExercise?.kind, 'exercise');
+  assert.equal(generatedExercise.brief, '# Consegna');
+});
+
 test('exercise brief generation keeps its gate after workflow invalidation until the provider call settles', async () => {
   const exercise: ApplicationExerciseNode = {
     kind: 'exercise',
