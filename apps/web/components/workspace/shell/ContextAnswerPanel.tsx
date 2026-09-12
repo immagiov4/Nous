@@ -712,7 +712,7 @@ function ContextAnswerPanelSession({
   const waitForArtifactSaves = async (artifactId: string): Promise<boolean> => {
     let pending = pendingArtifactSavesRef.current.get(artifactId);
     let saved = false;
-    while (pending) {
+    while (pending !== undefined) {
       const succeeded = await pending;
       saved = saved || succeeded;
       // A note may have started its next candidate while the previous attempt settled.
@@ -1426,14 +1426,13 @@ function ContextAnswerPanelSession({
         upsertLearningArtifactPayload(currentPayloads, approvedPayload)
       );
     }
-    contextChat.setMessages(currentMessages =>
-      currentMessages.map(message => ({
-        ...message,
-        parts: message.parts.map(part =>
-          updateApprovedArtifactReference(part, replacedIds, approvedPayload.summary)
-        ),
-      }))
-    );
+    const updateMessageReferences = (message: ContextChatMessage): ContextChatMessage => ({
+      ...message,
+      parts: message.parts.map(part =>
+        updateApprovedArtifactReference(part, replacedIds, approvedPayload.summary)
+      ),
+    });
+    contextChat.setMessages(currentMessages => currentMessages.map(updateMessageReferences));
     setArtifactPayloadsByToolCallId(currentPayloads =>
       applyApprovedArtifactPayloads(currentPayloads, {
         artifactId,
