@@ -60,6 +60,7 @@
     "test:workflow-postgres": "bun run scripts/run-workflow-postgres-contract.ts full",
     "test:workflow-postgres:critical": "bun run scripts/run-workflow-postgres-contract.ts critical",
     "test:workflow-codex": "bun run scripts/run-real-workflow-provider-tests.ts",
+    "test:lesson-quality": "bun run scripts/run-lesson-review-quality.ts",
     "test:watch": "bun --bun vitest --config apps/web/vitest.config.ts",
     "test:coverage": "bun run prepare:coverage && vitest run --coverage --config apps/web/vitest.config.ts --maxWorkers=4"
   },
