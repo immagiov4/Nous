@@ -86,6 +86,8 @@ Sources: [packages/shared-types/lessonVisualContracts.ts:153-164](../../../packa
 
 ## Visual Rendering and Sandboxing
 
+Generated and revised Mermaid drafts must pass the bundled Mermaid parser before acceptance. `normalizeArtifactDraft` returns `null` for invalid syntax, which sends generation through the existing corrective retry. The parser runs in a disposable child process with JSDOM because Mermaid's sanitizer requires a DOM even for parsing. The child closes its DOM after validation and follows caller cancellation. Process failures propagate separately from syntax rejection. This check establishes parseability; visual review remains a separate step.
+
 Generated visuals, especially HTML and SVG artifacts, are rendered within a secured environment to protect the host application.
 
 ### Safety and Security

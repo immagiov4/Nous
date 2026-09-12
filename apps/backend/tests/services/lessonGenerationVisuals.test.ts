@@ -24,6 +24,7 @@ vi.mock('../../src/services/openRouterModelCapabilities.js', () => ({
 import { getLessonRasterImageSubject } from '@shared/lessonVisualContracts';
 import { imageClient } from '../../src/services/imageClient.js';
 import {
+  generateLessonVisualArtifact,
   generateLessonVisualRaster,
   isSafeGeneratedVisualCode,
   reviseLessonVisualArtifact,
@@ -46,6 +47,26 @@ const visualPlan = {
   visualDirection: 'Tessuto reale visto dall alto con frecce e poche etichette.',
   visualType: 'structural_svg' as const,
 };
+
+test.each([
+  [
+    'classDiagram\n--- title: Il flusso end-to-end della software factory agent-assisted ---',
+    false,
+  ],
+  ['classDiagram\nclass Animal {\n+String name\n}\nAnimal <|-- Duck', true],
+  ['erDiagram\nCUSTOMER ||--o{ ORDER : places', true],
+] as const)('validates generated and revised Mermaid syntax: %s', async (code, valid) => {
+  generateTextMock.mockReset().mockResolvedValue({ output: { code, imageRequests: [] } });
+  const input = {
+    ...reviewInput,
+    plan: { ...visualPlan, visualType: 'mermaid_class' as const },
+    preview: undefined,
+    visual: { code, imageRequests: [], kind: 'mermaid' as const },
+  };
+  const expected = valid ? input.visual : null;
+  await expect(generateLessonVisualArtifact(input)).resolves.toEqual(expected);
+  await expect(reviseLessonVisualArtifact(input)).resolves.toEqual(expected);
+});
 
 const reviewInput = {
   config: {
