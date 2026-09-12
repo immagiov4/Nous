@@ -174,6 +174,7 @@ export const resolveLessonEvidence = (
     for (const overlap of selected.overlaps) {
       if (
         !validRange(overlap, material) ||
+        overlap.retainedFirstUnit > overlap.retainedLastUnit ||
         overlap.retainedMaterialId === selected.materialId ||
         selected.passages.some(
           range => range.firstUnit <= overlap.lastUnit && range.lastUnit >= overlap.firstUnit
@@ -181,8 +182,8 @@ export const resolveLessonEvidence = (
         !passages.some(
           range =>
             range.materialId === overlap.retainedMaterialId &&
-            range.firstUnit === overlap.retainedFirstUnit &&
-            range.lastUnit === overlap.retainedLastUnit
+            range.firstUnit <= overlap.retainedFirstUnit &&
+            range.lastUnit >= overlap.retainedLastUnit
         )
       )
         throw invalidSelection();

@@ -72,6 +72,15 @@ const selection = () => ({
 });
 
 describe('lesson evidence references', () => {
+  test('accepts overlap citations narrowed to units inside a retained passage', () => {
+    const response = selection();
+    const overlap = response.materials[1]?.overlaps[0];
+    assert(overlap);
+    overlap.retainedLastUnit = 1;
+    expect(resolveLessonEvidence(materials(), response).selection).toEqual(response);
+    overlap.retainedFirstUnit = 2;
+    expect(() => resolveLessonEvidence(materials(), response)).toThrow('invalid source references');
+  });
   test('retains each document identity when selecting content without its header', () => {
     const parts = ['source-a', 'source-b'].map(sourceId => ({
       source: {

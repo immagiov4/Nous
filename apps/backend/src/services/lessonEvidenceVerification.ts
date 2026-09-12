@@ -132,8 +132,9 @@ export const verifyLessonEvidence = async (
             !packet.passages.some(
               passage =>
                 passage.materialId === reference.materialId &&
-                passage.firstUnit === reference.firstUnit &&
-                passage.lastUnit === reference.lastUnit
+                reference.firstUnit <= reference.lastUnit &&
+                passage.firstUnit <= reference.firstUnit &&
+                passage.lastUnit >= reference.lastUnit
             )
         )
       )

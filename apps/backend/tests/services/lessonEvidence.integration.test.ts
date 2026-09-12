@@ -8,6 +8,7 @@ import {
   resolveLessonEvidence,
 } from '../../src/services/lessonEvidence.js';
 import { selectLessonEvidence } from '../../src/services/lessonEvidenceModel.js';
+import { verifyLessonEvidence } from '../../src/services/lessonEvidenceVerification.js';
 import {
   generateLessonContent,
   generateResearchSummary,
@@ -260,6 +261,35 @@ const mockModels = () => {
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test('accepts factual citations inside retained passages and rejects reversed or outside ranges', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    const report = factualReport(true);
+    for (const block of report.blocks)
+      for (const assessment of block.assessments)
+        assessment.evidence = assessment.evidence.map(citation => ({
+          ...citation,
+          firstUnit: citation.lastUnit,
+        }));
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
+    const citation = report.blocks[0]?.assessments[0]?.evidence[0];
+    if (!citation) throw new Error('Missing factual citation fixture.');
+    citation.firstUnit = citation.lastUnit + 1;
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_factual_review_invalid',
+    });
+    citation.lastUnit = citation.firstUnit;
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_factual_review_invalid',
+    });
+  });
   test.each([
     false,
     true,
