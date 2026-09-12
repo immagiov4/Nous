@@ -455,6 +455,7 @@ export const useReaderContext = ({
         return 'closed';
       }
 
+      captureContextMenuScrollTop();
       const currentMenu = contextMenuStateRef.current;
       if (
         currentMenu.visible &&
@@ -464,7 +465,6 @@ export const useReaderContext = ({
         return 'opened';
       }
 
-      captureContextMenuScrollTop();
       setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
       setContextMenu(nextMenu);

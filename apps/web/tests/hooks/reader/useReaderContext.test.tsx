@@ -37,6 +37,7 @@ test('commits the selection menu before preparing context and cancels obsolete w
       useReaderContext({
         activeSectionId: sectionId,
         contentRef: { current: container },
+        scrollContainerRef: { current: container },
         isMobileViewport: false,
         sectionContent: 'Alpha beta gamma delta',
       }),
@@ -49,6 +50,7 @@ test('commits the selection menu before preparing context and cancels obsolete w
     });
     expect(result.current.contextMenu.visible).toBe(true);
     expect(projectionSpy).not.toHaveBeenCalled();
+    container.scrollTop = 240;
     act(() => {
       result.current.openContextMenuFromSelection(
         selection,
@@ -58,6 +60,7 @@ test('commits the selection menu before preparing context and cancels obsolete w
         { allowToggleClose: false }
       );
     });
+    expect(result.current.contextMenuScrollTopRef.current).toBe(240);
     range.setStart(textNode, 11);
     range.setEnd(textNode, 16);
     runFrame();
