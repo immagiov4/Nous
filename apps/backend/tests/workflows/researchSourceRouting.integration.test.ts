@@ -29,7 +29,7 @@ const scenarios = [
   ...researchRoutingScenarios.map(scenario => ({
     ...scenario,
     failure: null as Error | null,
-    suppliedSourcesSufficient: scenario.selected.length === 0,
+    suppliedSourcesSufficient: scenario.suppliedSourcesSufficient,
     expectedStatus: 'completed',
   })),
   ...(['web', 'youtube'] as const).flatMap(channel =>
@@ -158,6 +158,26 @@ describe
       }
       const state = await store.getRunState({ runId: created.run.id, userId: context.userId });
       expect(state?.run.status).toBe(scenario.expectedStatus);
+      if (scenario.expectedStatus === 'completed') {
+        const [finalized] = await sql<{ output: unknown }[]>`
+          select output from public.workflow_node_runs
+          where run_id = ${created.run.id} and node_definition_id = 'finalize-selected-course-research'
+        `;
+        const output = CourseResearchStateSchema.parse(finalized?.output);
+        expect(output.research.routing).toEqual(routing);
+        expect(output.research.youtube.candidates).toHaveLength(
+          scenario.selected.includes('youtube') && !scenario.failure ? 1 : 0
+        );
+        if (scenario.selected.includes('youtube') && !scenario.failure) {
+          expect(output.research.youtube.candidates[0]?.youtubeTranscript.segments).toEqual([
+            {
+              startSeconds: 0,
+              endSeconds: 10,
+              text: 'Compare the midpoint and retain the possible half.',
+            },
+          ]);
+        }
+      }
       const calls = generateObject.mock.calls.map(([call]) => call.name);
       expect(calls.filter(name => name === 'research_source_routing')).toHaveLength(1);
       expect(calls.filter(name => name === 'course_web_research')).toHaveLength(

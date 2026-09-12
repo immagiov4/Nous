@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
   planResearchSources,
+  type ResearchSourceRoutingInput,
   validateResearchSourceRouting,
 } from '../../src/services/researchSourceRouting.js';
 
@@ -40,26 +41,38 @@ describe('research source routing boundary', () => {
     expect(() => validateResearchSourceRouting(decision, ['web'])).toThrow();
   });
 
-  test('uses the production context slot without retrieval tools', async () => {
-    const generateObject = vi.fn().mockResolvedValue(decision);
+  test.each([
+    decision,
+    {
+      ...decision,
+      suppliedSourcesSufficient: false,
+      channels: decision.channels.map(channel => ({
+        ...channel,
+        selected: channel.type === 'web',
+      })),
+    },
+  ])('accepts sufficient sources or selected retrieval through the production planner', async modelDecision => {
+    const generateObject = vi.fn().mockResolvedValue(modelDecision);
     const signal = new AbortController().signal;
-    const result = await planResearchSources(
-      {
-        config: getGlobalModelConfig(),
-        level: 'lesson',
-        topic: 'Freud: dream-work',
-        learningContext: 'Explain condensation in its historical setting.',
-        sourceContext: 'Academic chapter with definitions and examples.',
-        availableChannels: ['web', 'youtube'],
-        signal,
-      },
-      generateObject
-    );
-    expect(result).toEqual(decision);
+    const input: ResearchSourceRoutingInput = {
+      config: getGlobalModelConfig(),
+      level: 'lesson',
+      topic: 'Freud: dream-work',
+      learningContext: 'Explain condensation in its historical setting.',
+      sourceContext: 'Academic chapter with definitions and examples.',
+      availableChannels: ['web', 'youtube'],
+      signal,
+    };
+    const result = await planResearchSources(input, generateObject);
+    expect(result).toEqual(modelDecision);
     expect(generateObject).toHaveBeenCalledTimes(1);
     expect(generateObject).toHaveBeenCalledWith(
       expect.objectContaining({ slot: 'context', webSearch: false, signal })
     );
     expect(generateObject.mock.calls[0][0].tools).toBeUndefined();
+    generateObject.mockResolvedValue({ ...decision, suppliedSourcesSufficient: false });
+    await expect(planResearchSources(input, generateObject)).rejects.toThrow(
+      'Insufficient supplied sources require a selected research capability.'
+    );
   });
 });

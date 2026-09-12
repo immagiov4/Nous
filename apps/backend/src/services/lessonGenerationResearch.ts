@@ -50,7 +50,6 @@ export const generateLessonResearchSummary = async ({
     generationInput.signal.throwIfAborted();
     if (
       !generationInput.researchRouting?.suppliedSourcesSufficient ||
-      !isResearchSourceSelected(generationInput.researchRouting, 'web') ||
       !isResearchProviderUnavailable(error)
     )
       throw error;

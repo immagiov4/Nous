@@ -85,7 +85,19 @@ describe('lesson research routing', () => {
     ).resolves.toBeNull();
     expect(research).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
+    if (!input.researchRouting) throw new Error('Missing test routing.');
+    input.researchRouting.channels = [
+      { type: 'web', selected: false, rationale: 'No web evidence needed.' },
+      { type: 'youtube', selected: true, rationale: 'Optional demonstration.' },
+    ];
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome,
+      })
+    ).resolves.toBeNull();
     if (!input.researchRouting) throw new Error('Missing test routing.');
     input.researchRouting.suppliedSourcesSufficient = false;
     await expect(
@@ -93,9 +105,12 @@ describe('lesson research routing', () => {
         existingDossier: null,
         generationInput: input,
         research,
-        youtubeOutcome: null,
+        youtubeOutcome,
       })
     ).rejects.toThrow('Unavailable');
+    expect(research).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
   test('preserves contract errors and cancellation even with sufficient sources', async () => {
     const controller = new AbortController();

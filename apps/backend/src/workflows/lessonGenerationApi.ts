@@ -21,6 +21,7 @@ const SOURCE_STAGE_NODES = new Set([
   'compact-sublesson-request',
   'finalize-sublesson',
   'prepare-lesson',
+  'plan-lesson-research-sources',
   'return-existing-lesson',
   'stage-document-sources',
 ]);
