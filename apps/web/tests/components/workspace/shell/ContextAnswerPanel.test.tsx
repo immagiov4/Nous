@@ -19,6 +19,7 @@ const defaultChatTransportInstances: Array<{
   prepareSendMessagesRequest?: (args: unknown) => unknown;
 }> = [];
 const sendMessageMock = vi.fn();
+const setMessagesMock = vi.fn();
 const stopMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
@@ -38,7 +39,7 @@ const chatTextComposerProps: Array<{
 }> = [];
 
 vi.mock('@ai-sdk/react', () => ({
-  useChat: useChatMock,
+  useChat: (...args: unknown[]) => ({ setMessages: setMessagesMock, ...useChatMock(...args) }),
 }));
 
 vi.mock('ai', () => ({
@@ -270,6 +271,7 @@ describe('ContextAnswerPanel', () => {
   beforeEach(() => {
     defaultChatTransportInstances.length = 0;
     sendMessageMock.mockReset();
+    setMessagesMock.mockReset();
     stopMock.mockReset();
     addToolOutputMock.mockReset();
     useChatMock.mockReset();
@@ -309,6 +311,45 @@ describe('ContextAnswerPanel', () => {
     expect(panel?.style.maxHeight).toBe('528px');
     expect(screen.getByRole('button', { name: 'Chiudi' })).toHaveClass('right-4', 'top-4');
     expect(screen.queryByRole('button', { name: 'Ridimensiona pannello risposta' })).toBeNull();
+  });
+
+  test.each([
+    ['replacement-draft', false],
+    ['new', true],
+  ])('continues after retrieval and %s generation: %s', (mode, shouldContinue) => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    render(<ContextAnswerPanel {...buildProps()} />);
+    const messages = [
+      {
+        id: 'assistant-generated',
+        role: 'assistant',
+        parts: [
+          { type: 'step-start' },
+          {
+            type: 'tool-getCurrentLessonArtifacts',
+            toolCallId: 'retrieve',
+            state: 'output-available',
+            input: {},
+            output: { artifacts: [] },
+          },
+          { type: 'step-start' },
+          {
+            type: 'tool-generateCurrentLessonArtifact',
+            toolCallId: 'generate',
+            state: 'output-available',
+            input: { mode, prompt: 'Crea uno schema.' },
+            output: { artifactId: 'generated' },
+          },
+        ],
+      },
+    ];
+    expect(useChatMock.mock.lastCall?.[0].sendAutomaticallyWhen({ messages })).toBe(shouldContinue);
   });
 
   test('dismisses the mobile keyboard on follow-up submit so streaming can use the 80% sheet', async () => {
@@ -1008,6 +1049,13 @@ describe('ContextAnswerPanel', () => {
               input: {},
               output: { artifactId: revisedDraft.summary.id },
             },
+            {
+              type: 'tool-getCurrentLessonArtifacts',
+              toolCallId: 'lookup',
+              state: 'output-available',
+              input: {},
+              output: { artifacts: [generatedDraftArtifact.summary], renderMode: 'metadata-only' },
+            },
           ],
         },
       ],
@@ -1100,6 +1148,11 @@ describe('ContextAnswerPanel', () => {
     await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
     await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
     expect(onReplaceArtifactInLesson).not.toHaveBeenCalled();
+    const updatedMessages = setMessagesMock.mock.lastCall?.[0](
+      useChatMock.mock.results.at(-1)?.value.messages
+    );
+    expect(updatedMessages[0].parts[0].output.artifact.replacementOfArtifactId).toBeUndefined();
+    expect(updatedMessages[0].parts[1].output.artifacts[0].id).toBe(revisedDraft.summary.id);
     await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
     await user.click(screen.getByRole('button', { name: /Salva artefatto/i }));
     expect(onSaveArtifactToLesson).toHaveBeenCalledWith(
@@ -1109,7 +1162,7 @@ describe('ContextAnswerPanel', () => {
     );
   });
 
-  test('keeps a tool-generated replacement visible after applying it to the lesson', async () => {
+  test('keeps a saved replacement visible and exposes its persisted identity for the next edit', async () => {
     const user = userEvent.setup();
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
@@ -1126,6 +1179,16 @@ describe('ContextAnswerPanel', () => {
               state: 'output-available',
               input: {},
               output: { artifactId: replacementDraftArtifact.summary.id },
+            },
+            {
+              type: 'tool-getCurrentLessonArtifacts',
+              toolCallId: 'retrieve-draft',
+              state: 'output-available',
+              input: {},
+              output: {
+                artifacts: [replacementDraftArtifact.summary],
+                renderMode: 'metadata-only',
+              },
             },
           ],
         },
@@ -1164,6 +1227,36 @@ describe('ContextAnswerPanel', () => {
     expect(
       screen.getByRole('button', { name: /Apri mappa concettuale rivista/i })
     ).toBeInTheDocument();
+    const conversation = useChatMock.mock.results.at(-1)?.value.messages;
+    const updatedMessages = setMessagesMock.mock.lastCall?.[0](conversation);
+    const updatedOutput = updatedMessages[0].parts[0].output;
+    expect(updatedOutput.artifactId).toBe(currentLessonArtifact.summary.id);
+    expect(updatedOutput.artifact.id).toBe(currentLessonArtifact.summary.id);
+    expect(updatedMessages[0].parts[1].output.artifacts[0].id).toBe(
+      currentLessonArtifact.summary.id
+    );
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolCallId: 'edit-again',
+          toolName: 'generateCurrentLessonArtifact',
+          input: {
+            mode: 'replacement-draft',
+            sourceArtifactId: updatedOutput.artifactId,
+            prompt: 'Aggiungi un esempio.',
+          },
+        },
+      });
+    });
+    expect(generateLessonArtifactDraftMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceArtifactId: currentLessonArtifact.summary.id,
+        sourceArtifact: expect.objectContaining({
+          visual: { ...replacementDraftArtifact.visual, id: currentLessonArtifact.visual.id },
+        }),
+      })
+    );
   });
 
   test.each([

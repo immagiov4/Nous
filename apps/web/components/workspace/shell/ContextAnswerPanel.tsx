@@ -173,9 +173,26 @@ const hasPendingAddToNotesRequest = (messages: ContextChatMessage[]): boolean =>
     )
   );
 
-const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean =>
-  !hasOnlySuccessfulToolOutputs(messages, 'tool-generateCurrentLessonArtifact') &&
-  lastAssistantMessageIsCompleteWithToolCalls({ messages });
+const shouldContinueContextResponse = (messages: ContextChatMessage[]): boolean => {
+  const lastMessage = messages.at(-1);
+  const lastStepStart = lastMessage?.parts.reduce(
+    (lastIndex, part, index) => (part.type === 'step-start' ? index : lastIndex),
+    -1
+  );
+  const lastStepParts = lastMessage?.parts.slice((lastStepStart ?? -1) + 1) ?? [];
+  const isReplacementStep = lastStepParts.some(
+    part =>
+      part.type === 'tool-generateCurrentLessonArtifact' &&
+      readGenerateCurrentLessonArtifactInput(part.input)?.mode === 'replacement-draft'
+  );
+  // Replacement approval belongs to the card; new generation can still lead to a save tool.
+  const completionMessages =
+    isReplacementStep && lastMessage ? [{ ...lastMessage, parts: lastStepParts }] : messages;
+  return (
+    !hasOnlySuccessfulToolOutputs(completionMessages, 'tool-generateCurrentLessonArtifact') &&
+    lastAssistantMessageIsCompleteWithToolCalls({ messages })
+  );
+};
 
 const hasPendingResponsePart = (message: ContextChatMessage): boolean =>
   message.parts.some(part => {
@@ -195,6 +212,40 @@ const hasPendingResponsePart = (message: ContextChatMessage): boolean =>
 const readArtifactId = (artifact: unknown): string | null => {
   if (!artifact || typeof artifact !== 'object' || !('id' in artifact)) return null;
   return typeof artifact.id === 'string' ? artifact.id : null;
+};
+
+// Subsequent turns must reference the approved artifact and its current content.
+const updateApprovedArtifactReference = (
+  part: ContextChatMessage['parts'][number],
+  replacedId: string,
+  summary: LearningArtifactRenderPayload['summary']
+): ContextChatMessage['parts'][number] => {
+  if (!isToolUIPart(part) || part.state !== 'output-available') return part;
+  const output = part.output;
+  if (!output || typeof output !== 'object') return part;
+  if (
+    part.type === 'tool-generateCurrentLessonArtifact' &&
+    'artifactId' in output &&
+    (output.artifactId === replacedId || output.artifactId === summary.id)
+  ) {
+    return { ...part, output: { ...output, artifact: summary, artifactId: summary.id } };
+  }
+  if (
+    part.type === 'tool-getCurrentLessonArtifacts' &&
+    'artifacts' in output &&
+    Array.isArray(output.artifacts)
+  ) {
+    return {
+      ...part,
+      output: {
+        ...output,
+        artifacts: output.artifacts.map(artifact =>
+          [replacedId, summary.id].includes(readArtifactId(artifact) ?? '') ? summary : artifact
+        ),
+      },
+    };
+  }
+  return part;
 };
 
 const readArtifactIds = (output: unknown): string[] => {
@@ -1232,6 +1283,14 @@ function ContextAnswerPanelSession({
           replacementOfArtifactId: sourcePayload.summary.replacementOfArtifactId,
         },
       };
+      contextChat.setMessages(currentMessages =>
+        currentMessages.map(message => ({
+          ...message,
+          parts: message.parts.map(part =>
+            updateApprovedArtifactReference(part, replacementOfArtifactId, revisedDraft.summary)
+          ),
+        }))
+      );
       setArtifactPayloadsByToolCallId(currentPayloads =>
         Object.fromEntries(
           Object.entries(currentPayloads).map(([key, payloads]) => [
@@ -1265,6 +1324,14 @@ function ContextAnswerPanelSession({
     });
     setOriginLessonArtifactPayloads(currentPayloads =>
       upsertLearningArtifactPayload(currentPayloads, persistedPayload)
+    );
+    contextChat.setMessages(currentMessages =>
+      currentMessages.map(message => ({
+        ...message,
+        parts: message.parts.map(part =>
+          updateApprovedArtifactReference(part, artifactId, persistedPayload.summary)
+        ),
+      }))
     );
     setArtifactPayloadsByToolCallId(currentPayloads => {
       const next = { ...currentPayloads };

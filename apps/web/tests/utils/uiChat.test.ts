@@ -172,7 +172,7 @@ test('hasOnlySuccessfulToolOutputs allows mixed tool results to continue', () =>
   );
 });
 
-test('hasOnlySuccessfulToolOutputs stops after generation following a retrieval step', () => {
+test('hasOnlySuccessfulToolOutputs preserves continuation after retrieval and generation', () => {
   const messages = [
     {
       id: 'assistant-edit',
@@ -198,5 +198,5 @@ test('hasOnlySuccessfulToolOutputs stops after generation following a retrieval 
     },
   ] as UIMessage[];
 
-  expect(hasOnlySuccessfulToolOutputs(messages, 'tool-generateCurrentLessonArtifact')).toBe(true);
+  expect(hasOnlySuccessfulToolOutputs(messages, 'tool-generateCurrentLessonArtifact')).toBe(false);
 });
