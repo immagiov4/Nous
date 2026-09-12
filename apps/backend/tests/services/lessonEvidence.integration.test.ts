@@ -529,6 +529,12 @@ describe('role-specific lesson evidence through the production Luna model path',
     for (const [request] of runCodexAppServerTurn.mock.calls)
       expect(request.model).toBe('gpt-5.6-luna');
     const selectorInput = JSON.parse(runCodexAppServerTurn.mock.calls[1]?.[0].input[0].text);
+    expect(selectorInput.task).toMatchObject({
+      title: input.sectionTitle,
+      description: input.description,
+      pedagogicalContext: input.pedagogicalContext,
+      instructionPacks: input.instructionPacks,
+    });
     expect(
       selectorInput.materials.find(
         (material: { materialId: string }) => material.materialId === 'source-4'

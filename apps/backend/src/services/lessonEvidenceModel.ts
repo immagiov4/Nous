@@ -27,7 +27,14 @@ export const selectLessonEvidence = async (
   const materials = buildLessonEvidenceMaterials(input);
   if (!materials.length) return resolveLessonEvidence(materials, { materials: [] });
   const prompt = JSON.stringify({
-    task: { title: input.sectionTitle, description: input.description, language: input.language },
+    task: {
+      title: input.sectionTitle,
+      description: input.description,
+      language: input.language,
+      generationNotes: input.generationNotes,
+      pedagogicalContext: input.pedagogicalContext,
+      instructionPacks: input.instructionPacks,
+    },
     materials: materials.map(material => ({
       ...material,
       units: material.units.map((unit, unitIndex) => ({ unitIndex, ...unit })),

@@ -101,15 +101,15 @@ With `gpt-5.6-luna`, `tiktoken` 0.14.0 and `o200k_base`, visible input includes 
 
 | Call | Fresh dossier before | Reused dossier before | Evidence path |
 | --- | ---: | ---: | ---: |
-| Evidence selection | — | — | 5,879 |
+| Evidence selection | — | — | 5,921 |
 | Drafting | 8,832 | 12,463 | 5,706 |
 | Pedagogical review (previously combined) | 10,593 | 14,224 | 6,913 |
 | Final factual review | — | — | 1,959 |
 | Drafting and reviews | 19,425 | 26,687 | 14,578 |
-| Total including selection | 19,425 | 26,687 | 20,457 |
+| Total including selection | 19,425 | 26,687 | 20,499 |
 | Largest call | 10,593 | 14,224 | 6,913 |
 
-The fresh-dossier total increases 5.3%; the reused-dossier total decreases 23.3%. The largest downstream request and the combined drafting/review input decrease in both cases. Research is upstream and excluded from this comparison. The extra selection and factual calls are an explicit cost; no automatic cutoff or model change is applied to hide it.
+The fresh-dossier total increases 5.5%; the reused-dossier total decreases 23.2%. The largest downstream request and the combined drafting/review input decrease in both cases. Research is upstream and excluded from this comparison. The extra selection and factual calls are an explicit cost; no automatic cutoff or model change is applied to hide it.
 
 To reproduce, install `tiktoken==0.14.0` in a separate Python environment, set `LESSON_EVIDENCE_MEASUREMENTS_DIR` to an output directory outside the repository, run `bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/services/lessonEvidence.integration.test.ts`, then run `python scripts/measure-lesson-evidence.py <output-directory>`. The evidence-loss case removes the scalar-clock qualification from retained evidence and verifies that the final factual check rejects the resulting unsupported claim. The full-context comparison retains that qualification. Actual pedagogical effectiveness requires model evaluation beyond this deterministic contract test.
 
