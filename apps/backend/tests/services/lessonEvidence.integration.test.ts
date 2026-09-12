@@ -261,6 +261,36 @@ const mockModels = () => {
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test('supports clips and citations across adjacent selections while rejecting omitted units', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    const splitSelection = structuredClone(evidenceSelection);
+    const video = splitSelection.materials.find(material => material.materialId === 'source-2');
+    if (!video) throw new Error('Missing video fixture.');
+    video.passages = [
+      { firstUnit: 1, lastUnit: 1, claims: ['Catena causale.'] },
+      { firstUnit: 2, lastUnit: 3, claims: ['Concorrenza e ritardo.'] },
+    ];
+    const selected = structuredClone(splitSelection);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      splitSelection
+    );
+    expect(input.evidencePacket.selection).toEqual(selected);
+    expect(
+      input.evidencePacket.passages.find(passage => passage.materialId === 'source-2')
+    ).toMatchObject({ firstUnit: 1, lastUnit: 3 });
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(factualReport(true)));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
+    video.passages[1].firstUnit = 3;
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      splitSelection
+    );
+    await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
+      code: 'lesson_clip_evidence_missing',
+    });
+  });
   test('accepts grounded distractor explanations but rejects a contradicted answer key', async () => {
     const input = generationInput();
     input.researchContext = JSON.stringify(evidenceResearch);
@@ -492,7 +522,7 @@ describe('role-specific lesson evidence through the production Luna model path',
     const retrieved = await services.researchSpecificYouTube(context(planned));
     const finalized = await services.finalizeYouTubeResearch(context(retrieved));
     const researched = LessonResearchStateSchema.parse(
-      await services.researchLesson(context(finalized))
+      await services.researchLesson({ ...context(finalized), selectEvidence: true })
     );
     const drafted = LessonDraftStateSchema.parse(await services.draftLesson(context(researched)));
     const reviewed = LessonReviewedStateSchema.parse(await services.reviewLesson(context(drafted)));

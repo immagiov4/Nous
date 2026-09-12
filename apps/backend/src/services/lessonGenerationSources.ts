@@ -353,11 +353,12 @@ export const buildStoredDocumentSourceContext = async (
   return encodeLessonPrimarySources(
     parts.flatMap(part => {
       const start = offset;
+      const end = start + part.text.length;
       offset += part.text.length + separator.length;
       if (start >= MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS) return [];
       const text = combined.slice(
         start,
-        offset >= MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS ? undefined : offset
+        end >= MAX_LESSON_COMBINED_SOURCE_CONTEXT_CHARS ? undefined : end
       );
       return text ? [{ source: part.source, text }] : [];
     })

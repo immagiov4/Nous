@@ -13,7 +13,10 @@ import {
   createLessonGenerationStageServices,
   type LessonGenerationStageDependencies,
 } from '../../src/workflows/lessonGenerationStageServices.js';
-import { createLessonGenerationWorkflow } from '../../src/workflows/lessonGenerationWorkflow.js';
+import {
+  createLessonGenerationWorkflow,
+  createPreviousEvidenceLessonGenerationWorkflow,
+} from '../../src/workflows/lessonGenerationWorkflow.js';
 import {
   LessonContextStateSchema,
   LessonDraftStateSchema,
@@ -146,6 +149,41 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test.each([
+    true,
+    false,
+  ])('selects evidence only for the evidence-capable durable definition: %s', async current => {
+    const definition = current
+      ? createLessonGenerationWorkflow(config)
+      : createPreviousEvidenceLessonGenerationWorkflow(config);
+    const node = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'research-lesson'
+    )?.node;
+    if (node?.kind !== 'step') throw new Error('Missing research step.');
+    const stageDependencies = dependencies({
+      generateResearch: vi.fn().mockResolvedValue({
+        avoidOversimplifying: [],
+        controversies: [],
+        difficultSteps: [],
+        factualSummary: 'Sintesi.',
+        keyExamples: [],
+        recentDevelopments: [],
+        sources: [],
+        youtubeCandidateDecisions: [],
+      }),
+    });
+    const services = createLessonGenerationStageServices(stageDependencies);
+    const state = LessonYouTubeStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      research: { context: '', youtube: null },
+      stage: 'youtube',
+    });
+    const result = await node.run({ ...stageContext(state), services } as never);
+    expect(stageDependencies.selectEvidence).toHaveBeenCalledTimes(current ? 1 : 0);
+    expect(Object.hasOwn(result as object, 'evidencePacketJson')).toBe(current);
+    expect(result).toMatchObject({ stage: 'research', lessonSources: [] });
+  });
   test.each([
     true,
     false,
@@ -438,7 +476,7 @@ describe('lesson generation production stages', () => {
       stage: 'youtube',
     });
 
-    await services.researchLesson(stageContext(youtubeState));
+    await services.researchLesson({ ...stageContext(youtubeState), selectEvidence: true });
 
     expect(prepared.state.lessonInputData.sourceContext).toBe('');
     expect(generateResearch).toHaveBeenCalledWith(
@@ -873,7 +911,10 @@ describe('lesson generation production stages', () => {
       youtubePlanning: { courseTitle: 'Corso', keyConcepts: [] },
     });
 
-    const researchState = await services.researchLesson(stageContext(youtubeState));
+    const researchState = await services.researchLesson({
+      ...stageContext(youtubeState),
+      selectEvidence: true,
+    });
     await services.draftLesson(stageContext(researchState));
 
     const writtenSources = generateContent.mock.calls[0]?.[0]?.sources ?? [];

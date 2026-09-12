@@ -598,6 +598,13 @@ const researchLesson =
       researchSummary: summary,
     });
     const researchContext = canonicalJson(existingDossier ?? summary ?? {});
+    const researchState = {
+      ...context.input,
+      lessonSources,
+      research: { context: researchContext, summary, youtube: context.input.research.youtube },
+      stage: 'research' as const,
+    };
+    if (!context.selectEvidence) return researchState;
     const evidenceInput = { ...generationInput, sources: lessonSources, researchContext };
     const evidence = await runCorrectableLessonOperation(
       () => dependencies.selectEvidence(evidenceInput),
@@ -609,15 +616,8 @@ const researchLesson =
       }
     );
     return {
-      ...context.input,
+      ...researchState,
       evidencePacketJson: serializeLessonEvidence(evidenceInput, evidence),
-      lessonSources,
-      research: {
-        context: researchContext,
-        summary,
-        youtube: context.input.research.youtube,
-      },
-      stage: 'research',
     };
   };
 

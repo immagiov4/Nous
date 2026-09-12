@@ -152,7 +152,9 @@ export interface LessonGenerationWorkflowServices extends LessonVisualWorkflowSe
     LessonYouTubeSearchState,
     LessonYouTubeSearchState
   >;
-  readonly researchLesson: LessonGenerationStage<LessonYouTubeState, LessonResearchState>;
+  readonly researchLesson: (
+    context: LessonGenerationStageContext<LessonYouTubeState> & { readonly selectEvidence: boolean }
+  ) => Promise<LessonResearchState>;
   readonly researchSpecificYouTube: LessonGenerationStage<
     LessonYouTubePlanState,
     LessonYouTubeSearchState
@@ -626,7 +628,11 @@ const createLessonGenerationWorkflowDefinition = <
           message: 'The lesson research could not be completed.',
           modelSlot: researchModelSlot,
         },
-        stage => context.services.researchLesson(stage)
+        stage =>
+          context.services.researchLesson({
+            ...stage,
+            selectEvidence: durableSchemas === CurrentLessonGenerationDurableSchemaSet,
+          })
       ),
   });
 

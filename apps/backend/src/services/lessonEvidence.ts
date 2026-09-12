@@ -165,6 +165,24 @@ const validateSelectedOverlaps = (
   }
 };
 
+const mergeAdjacentPassages = (passages: LessonEvidencePacket['passages']) => {
+  const merged: LessonEvidencePacket['passages'] = [];
+  for (const passage of passages) {
+    const previous = merged.at(-1);
+    if (
+      previous?.materialId === passage.materialId &&
+      previous.lastUnit + 1 === passage.firstUnit
+    ) {
+      previous.lastUnit = passage.lastUnit;
+      previous.claims.push(...passage.claims);
+      previous.units.push(...passage.units);
+    } else {
+      merged.push({ ...passage, claims: [...passage.claims], units: [...passage.units] });
+    }
+  }
+  return merged;
+};
+
 /** Resolve model-selected references against immutable source units; never accept generated excerpts. */
 export const resolveLessonEvidence = (
   materials: LessonEvidenceMaterial[],
@@ -196,12 +214,13 @@ export const resolveLessonEvidence = (
       });
     }
   }
-  validateSelectedOverlaps(selection, byId, passages);
+  const retainedPassages = mergeAdjacentPassages(passages);
+  validateSelectedOverlaps(selection, byId, retainedPassages);
   return {
     version: 'lesson-evidence-v1',
     materialHash: buildSha256HexDigest(Buffer.from(canonicalJson(materials))),
     selection,
-    passages,
+    passages: retainedPassages,
   };
 };
 
