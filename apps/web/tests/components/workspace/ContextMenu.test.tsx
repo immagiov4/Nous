@@ -287,6 +287,23 @@ describe('ContextMenu', () => {
     expect(screen.getByRole('button', { name: 'Dettatura test' })).toBeDisabled();
   });
 
+  test.each([
+    'pointerDown',
+    'touchStart',
+  ] as const)('keeps mobile %s actions pending while context loads', eventType => {
+    const props = buildProps();
+    props.placement = 'mobile-sheet';
+    props.isLoading = true;
+    render(<ContextMenu {...props} askInputValue="Explain this passage" />);
+
+    fireEvent[eventType](screen.getByRole('button', { name: /Evidenzia selezione/i }));
+    fireEvent[eventType](screen.getByRole('button', { name: /Invia domanda/i }));
+
+    expect(props.onHighlight).not.toHaveBeenCalled();
+    expect(props.onAsk).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
   test('shows voice on empty desktop input and switches to send after transcription', async () => {
     const user = userEvent.setup();
     const props = buildProps();

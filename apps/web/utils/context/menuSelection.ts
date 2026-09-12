@@ -16,6 +16,7 @@ import { READER_NON_SPEECH_SELECTOR } from '../reader/readingText.ts';
 
 interface ResolveContextMenuSelectionArgs {
   content?: string;
+  deferContext?: boolean;
   container: HTMLElement;
   fallbackAnchorX?: number;
   fallbackAnchorY?: number;
@@ -257,6 +258,7 @@ export const resolveMobileContextMenuSyncAction = ({
 
 export const resolveContextMenuSelection = ({
   content,
+  deferContext = false,
   container,
   fallbackAnchorX,
   fallbackAnchorY,
@@ -285,12 +287,10 @@ export const resolveContextMenuSelection = ({
   }
 
   const selectionRect = getSelectionRect(range);
-  const { contextBefore, contextAfter, selectedTextStart } = getSelectionContext(
-    selectionContainer,
-    range,
-    content,
-    selectedText
-  );
+  // The native selection can move while the menu is opening.
+  const contextRange = deferContext ? range.cloneRange() : range;
+  const prepareContext = () =>
+    getSelectionContext(selectionContainer, contextRange, content, selectedText);
   const containerRect = container.getBoundingClientRect?.();
   const anchorX = fallbackAnchorX ?? selectionRect.left + selectionRect.width / 2;
   const anchorY = fallbackAnchorY ?? selectionRect.top + selectionRect.height;
@@ -309,8 +309,16 @@ export const resolveContextMenuSelection = ({
         }
       : undefined,
     selectionRect,
-    contextBefore,
-    contextAfter,
-    selectedTextStart,
+    ...(deferContext
+      ? {
+          prepareContext,
+          selectionBoundary: {
+            startContainer: range.startContainer,
+            startOffset: range.startOffset,
+            endContainer: range.endContainer,
+            endOffset: range.endOffset,
+          },
+        }
+      : prepareContext()),
   };
 };

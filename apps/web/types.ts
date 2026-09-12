@@ -747,6 +747,11 @@ export interface SelectionContextMenuState extends BaseContextMenuState {
   contextBefore?: string;
   contextAfter?: string;
   selectedTextStart?: number;
+  selectionBoundary?: Pick<Range, 'startContainer' | 'startOffset' | 'endContainer' | 'endOffset'>;
+  prepareContext?: () => Pick<
+    SelectionContextMenuState,
+    'contextBefore' | 'contextAfter' | 'selectedTextStart'
+  >;
 }
 
 export interface LessonContextMenuState extends BaseContextMenuState {

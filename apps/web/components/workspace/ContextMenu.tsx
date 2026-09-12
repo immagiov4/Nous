@@ -259,7 +259,7 @@ const ContextMenu = ({
   };
 
   const submitAsk = () => {
-    if (!trimmedInput) {
+    if (isLoading || !trimmedInput) {
       return;
     }
 
@@ -285,7 +285,7 @@ const ContextMenu = ({
   const handleAskClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (askInteractionLockRef.current) {
+    if (isLoading || askInteractionLockRef.current) {
       return;
     }
     askInteractionLockRef.current = true;
@@ -298,7 +298,7 @@ const ContextMenu = ({
   const handleAskPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (askInteractionLockRef.current) {
+    if (isLoading || askInteractionLockRef.current) {
       return;
     }
     askInteractionLockRef.current = true;
@@ -311,7 +311,7 @@ const ContextMenu = ({
   const handleAskTouchStart = (event: TouchEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (askInteractionLockRef.current) {
+    if (isLoading || askInteractionLockRef.current) {
       return;
     }
     askInteractionLockRef.current = true;
@@ -324,7 +324,7 @@ const ContextMenu = ({
   const handleHighlightClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (highlightInteractionLockRef.current) {
+    if (isLoading || highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
@@ -341,7 +341,7 @@ const ContextMenu = ({
   const handleHighlightPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (highlightInteractionLockRef.current) {
+    if (isLoading || highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
@@ -358,7 +358,7 @@ const ContextMenu = ({
   const handleHighlightTouchStart = (event: TouchEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (highlightInteractionLockRef.current) {
+    if (isLoading || highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
