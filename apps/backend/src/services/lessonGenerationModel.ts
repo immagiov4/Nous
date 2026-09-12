@@ -15,6 +15,7 @@ import {
 import { firstSanitizedZodIssue, formatValidationPath } from '../utils/zodDiagnostics.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
+import { verifyLessonEvidence } from './lessonEvidenceVerification.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import { buildLessonGenerationPrompt } from './lessonGenerationPrompt.js';
 import { formatSourcesForPrompt } from './lessonGenerationSources.js';
@@ -513,5 +514,6 @@ export const reviewLessonContentDraftStrict = async ({
   assertValidQuizPlacement(verifiedDraft);
   assertQuizExplanations(verifiedDraft);
   assertBalancedLatexEnvironments(verifiedDraft);
+  await verifyLessonEvidence(generationInput, verifiedDraft);
   return verifiedDraft;
 };

@@ -380,7 +380,7 @@ const buildLessonVerificationPrompt = (
   const retryCorrection = input.retryFeedback?.trim()
     ? `\nREQUIRED CORRECTION FROM THE PREVIOUS ATTEMPT:\n${input.retryFeedback.trim()}\n`
     : '';
-  return `${buildLessonGenerationReferenceContext(input)}
+  return `${buildLessonGenerationReferenceContext(input, 'pedagogical-review')}
 
 DRAFT TO VERIFY:
 ${JSON.stringify(draft)}

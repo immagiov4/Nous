@@ -1,0 +1,123 @@
+import { describe, expect, test } from 'vitest';
+
+import {
+  buildLessonEvidenceMaterials,
+  resolveLessonEvidence,
+} from '../../src/services/lessonEvidence.js';
+
+const sources = [
+  {
+    sourceId: 'video-source',
+    title: 'Misure',
+    url: 'https://www.youtube.com/watch?v=evidence',
+    youtubeTranscript: {
+      segments: [
+        { startSeconds: 0.25, endSeconds: 2.75, text: 'Introduzione al canale.' },
+        { startSeconds: 2.5, endSeconds: 5.8, text: 'La temperatura diminuisce.' },
+        {
+          startSeconds: 5.8,
+          endSeconds: 8.125,
+          text: 'Questo vale soltanto a pressione costante.',
+        },
+        { startSeconds: 9, endSeconds: 14, text: 'Iscrivetevi per altri video.' },
+      ],
+    },
+  },
+  {
+    title: 'Ripetizione',
+    youtubeTranscript: {
+      segments: [
+        { startSeconds: 0, endSeconds: 3, text: 'A pressione costante la temperatura diminuisce.' },
+      ],
+    },
+  },
+  { title: 'Tema estraneo', note: 'Storia della fotografia.' },
+];
+const materials = () =>
+  buildLessonEvidenceMaterials({ sourceContext: '', researchContext: '', sources });
+const selection = () => ({
+  materials: [
+    {
+      materialId: 'source-0',
+      reason: 'Mostra il fenomeno e la condizione.',
+      passages: [
+        { firstUnit: 1, lastUnit: 2, claims: ['La temperatura diminuisce a pressione costante.'] },
+      ],
+      overlaps: [],
+    },
+    {
+      materialId: 'source-1',
+      reason: 'Ripete il contenuto già sostenuto.',
+      passages: [],
+      overlaps: [
+        {
+          firstUnit: 0,
+          lastUnit: 0,
+          retainedMaterialId: 'source-0',
+          retainedFirstUnit: 1,
+          retainedLastUnit: 2,
+          reason: 'Stessa affermazione e stessa condizione.',
+        },
+      ],
+    },
+    {
+      materialId: 'source-2',
+      reason: 'Non sostiene il fenomeno della lezione.',
+      passages: [],
+      overlaps: [],
+    },
+  ],
+});
+
+describe('lesson evidence references', () => {
+  test('keeps canonical text, overlapping timestamps, qualifier and source identity without mutating originals', () => {
+    const original = structuredClone(sources);
+    const packet = resolveLessonEvidence(materials(), selection());
+    expect(packet.passages).toHaveLength(1);
+    expect(packet.passages[0]).toMatchObject({
+      sourceIndex: 0,
+      source: { sourceId: 'video-source', url: sources[0].url },
+      units: sources[0].youtubeTranscript?.segments.slice(1, 3),
+    });
+    expect(sources).toEqual(original);
+    expect(packet.selection.materials[2]?.passages).toEqual([]);
+  });
+
+  test('preserves exact primary-text offsets and removes duplicated dossier transcript expansion', () => {
+    const primary = 'Prima riga.\r\nSeconda riga.\n';
+    const result = buildLessonEvidenceMaterials({
+      sourceContext: primary,
+      researchContext: JSON.stringify({ factualSummary: 'Sintesi', sources }),
+      sources,
+    });
+    const units = result[0]!.units;
+    expect(units.map(unit => primary.slice(unit.startOffset, unit.endOffset)).join('')).toBe(
+      primary
+    );
+    expect(result[1]!.units.map(unit => unit.text).join('')).toBe(
+      JSON.stringify({ factualSummary: 'Sintesi' }, null, 2)
+    );
+  });
+
+  test.each([
+    'unknown',
+    'missing',
+    'duplicate',
+    'out-of-range',
+    'reversed',
+    'overlap',
+    'unretained-duplicate',
+  ] as const)('rejects %s references instead of inventing source support', defect => {
+    const response = selection();
+    if (defect === 'unknown') response.materials[0]!.materialId = 'source-99';
+    if (defect === 'missing') response.materials.pop();
+    if (defect === 'duplicate') response.materials[2]!.materialId = 'source-0';
+    if (defect === 'out-of-range') response.materials[0]!.passages[0]!.lastUnit = 99;
+    if (defect === 'reversed') response.materials[0]!.passages[0]!.firstUnit = 3;
+    if (defect === 'overlap')
+      response.materials[0]!.passages.push({ firstUnit: 2, lastUnit: 3, claims: ['Duplicato'] });
+    if (defect === 'unretained-duplicate')
+      response.materials[1]!.overlaps[0]!.retainedFirstUnit = 0;
+    expect(() => resolveLessonEvidence(materials(), response)).toThrow('invalid source references');
+  });
+});
