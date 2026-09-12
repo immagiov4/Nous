@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { CodexAppServerError } from '../../src/services/codexAppServer.js';
 import {
   buildResearchDossier,
   generateLessonResearchSummary,
@@ -52,6 +52,72 @@ const youtubeOutcome = {
 };
 
 describe('lesson research routing', () => {
+  test('continues from sufficient supplied sources on an optional provider failure', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const input = generationInput({
+      researchRouting: {
+        suppliedSourcesSufficient: true,
+        rationale: 'Enough factual sources, current examples optional.',
+        channels: [
+          { type: 'web', selected: true, rationale: 'Current examples.' },
+          { type: 'youtube', selected: false, rationale: 'No demonstration needed.' },
+        ],
+      },
+    });
+    const research = vi.fn().mockRejectedValue(new CodexAppServerError('Unavailable', 'process'));
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome: null,
+      })
+    ).resolves.toBeNull();
+    expect(research).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+    if (!input.researchRouting) throw new Error('Missing test routing.');
+    input.researchRouting.suppliedSourcesSufficient = false;
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome: null,
+      })
+    ).rejects.toThrow('Unavailable');
+  });
+  test('preserves contract errors and cancellation even with sufficient sources', async () => {
+    const controller = new AbortController();
+    const input = generationInput({
+      signal: controller.signal,
+      researchRouting: {
+        suppliedSourcesSufficient: true,
+        rationale: 'Enough.',
+        channels: [{ type: 'web', selected: true, rationale: 'Optional examples.' }],
+      },
+    });
+    const research = vi.fn().mockRejectedValue(new SyntaxError('Invalid structured response'));
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome: null,
+      })
+    ).rejects.toThrow('Invalid structured response');
+    controller.abort(new Error('Cancelled'));
+    research.mockRejectedValue(new CodexAppServerError('Unavailable', 'process'));
+    await expect(
+      generateLessonResearchSummary({
+        existingDossier: null,
+        generationInput: input,
+        research,
+        youtubeOutcome: null,
+      })
+    ).rejects.toThrow('Cancelled');
+  });
+
   test('does not call a provider for source-backed material without gaps or video candidates', async () => {
     const research = vi.fn().mockResolvedValue(researchSummary);
     const input = generationInput();

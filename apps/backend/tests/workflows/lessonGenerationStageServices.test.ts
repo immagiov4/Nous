@@ -1,13 +1,14 @@
 import { describe, expect, test, vi } from 'vitest';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import type { ProjectSnapshot, ProjectStore } from '../../src/projects/types.js';
+import { resolveLessonResearchRequest } from '../../src/services/lessonGenerationModel.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
 import {
   createLessonGenerationStageServices,
   type LessonGenerationStageDependencies,
 } from '../../src/workflows/lessonGenerationStageServices.js';
+import { createLessonGenerationWorkflow } from '../../src/workflows/lessonGenerationWorkflow.js';
 import {
   LessonContextStateSchema,
   LessonDraftStateSchema,
@@ -16,7 +17,9 @@ import {
   LessonSourcesStateSchema,
   LessonYouTubeStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
+import { researchRoutingScenarios } from '../services/researchSourceRouting.scenarios.js';
 
 const project: ProjectSnapshot = {
   createdAt: '2026-07-29T20:00:00.000Z',
@@ -127,6 +130,45 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test.each(
+    researchRoutingScenarios
+  )('$name applies the structured decision before lesson retrieval', async scenario => {
+    const researchRouting = {
+      suppliedSourcesSufficient: scenario.selected.length === 0,
+      rationale: scenario.learningContext,
+      channels: (['web', 'youtube'] as const).map(type => ({
+        type,
+        selected: scenario.selected.includes(type),
+        rationale: scenario.name,
+      })),
+    };
+    const planner = vi.fn().mockResolvedValue(researchRouting);
+    const services = createLessonGenerationStageServices(
+      dependencies({ planResearchSources: planner })
+    );
+    const input = lessonSourcesState();
+    input.lessonInputData.sectionTitle = scenario.topic;
+    input.lessonInputData.sourceContext = scenario.sourceContext;
+    const routed = await services.planResearchSources(stageContext(input));
+    const definition = createLessonGenerationWorkflow(config);
+    const route = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'route-youtube-research'
+    )?.node;
+    if (route?.kind !== 'routeBy') throw new Error('Missing YouTube route.');
+    expect(route.select(routed)).toBe(
+      scenario.selected.includes('youtube') ? 'research' : 'bypass'
+    );
+    expect(
+      resolveLessonResearchRequest({
+        config: modelConfig,
+        refreshResearch: true,
+        sourceContext: scenario.sourceContext,
+        researchRouting: routed.researchRouting,
+      }).webSearch
+    ).toBe(scenario.selected.includes('web'));
+    expect(planner).toHaveBeenCalledTimes(1);
+  });
+
   test('full regeneration discards the saved dossier and its derived sources', async () => {
     const services = createLessonGenerationStageServices(
       dependencies({

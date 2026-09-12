@@ -164,6 +164,37 @@ const finalizeYoutube = (
   runStep('finalize-course-youtube-research', collection, services);
 
 describe('course generation research', () => {
+  test('marks a selected failed optional YouTube branch unavailable and preserves failure without sufficient sources', () => {
+    const results = [
+      {
+        key: 'youtube',
+        input: { branch: 'youtube', state: prepared },
+        status: 'failed',
+        failure: { kind: 'operational', code: 'course_research_failed', message: 'Unavailable' },
+      },
+    ];
+    const routing = {
+      ...allSourcesRouting,
+      suppliedSourcesSufficient: true,
+      channels: allSourcesRouting.channels.map(channel => ({
+        ...channel,
+        selected: channel.type === 'youtube',
+      })),
+    };
+    const collected = fanIn('gather-selected-course-research', results as never, {
+      ...prepared,
+      routing,
+    }) as CourseResearchState;
+    expect(collected.research.youtube.status).toBe('unavailable');
+    expect(collected.research.youtube.candidates).toEqual([]);
+    expect(() =>
+      fanIn('gather-selected-course-research', results as never, {
+        ...prepared,
+        routing: { ...routing, suppliedSourcesSufficient: false },
+      })
+    ).toThrow('did not complete');
+  });
+
   test('keeps the web and YouTube provider calls atomic without changing their prompts', async () => {
     let webPrompt = '';
     const generateObject = vi.fn(async (input: { name: string; prompt: string }) => {
