@@ -214,19 +214,69 @@ const readArtifactId = (artifact: unknown): string | null => {
   return typeof artifact.id === 'string' ? artifact.id : null;
 };
 
+type ContextGeneratedArtifact = Extract<LearningArtifactRenderPayload, { visual: unknown }>;
+
+// A draft chain belongs to one lesson and ends at the artifact that approval replaces.
+const resolveContextArtifact = (
+  payloads: ReadonlyMap<string, LearningArtifactRenderPayload>,
+  artifactId: string,
+  origin: Pick<ContextAnswerState, 'projectId' | 'lessonId'>
+): {
+  artifact: ContextGeneratedArtifact;
+  root: ContextGeneratedArtifact;
+  replacedIds: Set<string>;
+} | null => {
+  const replacedIds = new Set<string>();
+  let currentId: string | undefined = artifactId;
+  let artifact: ContextGeneratedArtifact | undefined;
+  while (currentId) {
+    const payload = payloads.get(currentId);
+    if (
+      !payload ||
+      !('visual' in payload) ||
+      payload.summary.projectId !== origin.projectId ||
+      payload.summary.lessonId !== origin.lessonId ||
+      replacedIds.has(currentId)
+    )
+      return null;
+    replacedIds.add(currentId);
+    artifact ??= payload;
+    currentId = payload.summary.replacementOfArtifactId;
+    if (!currentId) return { artifact, root: payload, replacedIds };
+  }
+  return null;
+};
+
 // Subsequent turns must reference the approved artifact and its current content.
 const updateApprovedArtifactReference = (
   part: ContextChatMessage['parts'][number],
-  replacedId: string,
+  replacedIds: ReadonlySet<string>,
   summary: LearningArtifactRenderPayload['summary']
 ): ContextChatMessage['parts'][number] => {
-  if (!isToolUIPart(part) || part.state !== 'output-available') return part;
+  if (!isToolUIPart(part)) return part;
+  if (
+    part.type === 'tool-requestAddToNotes' &&
+    part.state === 'input-available' &&
+    isRequestAddToNotesInput(part.input)
+  ) {
+    return {
+      ...part,
+      input: {
+        ...part.input,
+        artifactIds: part.input.artifactIds
+          ? [...new Set(part.input.artifactIds.map(id => (replacedIds.has(id) ? summary.id : id)))]
+          : undefined,
+      },
+    };
+  }
+  if (part.state !== 'output-available') return part;
   const output = part.output;
   if (!output || typeof output !== 'object') return part;
   if (
     part.type === 'tool-generateCurrentLessonArtifact' &&
     'artifactId' in output &&
-    (output.artifactId === replacedId || output.artifactId === summary.id)
+    typeof output.artifactId === 'string' &&
+    replacedIds.has(output.artifactId)
   ) {
     return { ...part, output: { ...output, artifact: summary, artifactId: summary.id } };
   }
@@ -240,12 +290,58 @@ const updateApprovedArtifactReference = (
       output: {
         ...output,
         artifacts: output.artifacts.map(artifact =>
-          [replacedId, summary.id].includes(readArtifactId(artifact) ?? '') ? summary : artifact
+          replacedIds.has(readArtifactId(artifact) ?? '') ? summary : artifact
         ),
       },
     };
   }
   return part;
+};
+
+const applyApprovedArtifactPayloads = (
+  currentPayloads: Record<string, LearningArtifactRenderPayload[]>,
+  {
+    artifactId,
+    approvedPayload,
+    replacedIds,
+    isSavedSource,
+  }: {
+    artifactId: string;
+    approvedPayload: ContextGeneratedArtifact;
+    replacedIds: ReadonlySet<string>;
+    isSavedSource: boolean;
+  }
+): Record<string, LearningArtifactRenderPayload[]> => {
+  const next = { ...currentPayloads };
+  for (const [key, payloads] of Object.entries(next)) {
+    next[key] = payloads
+      .filter(payload => {
+        if (!replacedIds.has(payload.summary.id)) return true;
+        // Direct drafts close after persistence; temporary approval keeps its revised card.
+        return isSavedSource
+          ? !key.startsWith(REPLACEMENT_DRAFT_TOOL_CALL_PREFIX)
+          : payload.summary.id === artifactId;
+      })
+      .map(payload => {
+        if (replacedIds.has(payload.summary.id)) return approvedPayload;
+        if (
+          'visual' in payload &&
+          payload.summary.replacementOfArtifactId &&
+          replacedIds.has(payload.summary.replacementOfArtifactId)
+        ) {
+          return {
+            ...payload,
+            summary: {
+              ...payload.summary,
+              replacementOfArtifactId: approvedPayload.summary.id,
+            },
+          };
+        }
+        return payload;
+      });
+    if (next[key].length === 0) delete next[key];
+  }
+  return next;
 };
 
 const readArtifactIds = (output: unknown): string[] => {
@@ -807,13 +903,9 @@ function ContextAnswerPanelSession({
         const currentState = contextRequestStateStore.read();
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
         const sourceArtifactId = artifactInput?.sourceArtifactId;
-        const sourcePayload = sourceArtifactId
-          ? artifactPayloadsById.get(sourceArtifactId)
+        const sourceArtifact = sourceArtifactId
+          ? resolveContextArtifact(artifactPayloadsById, sourceArtifactId, contextAnswer)?.artifact
           : undefined;
-        const sourceArtifact =
-          sourcePayload?.summary.kind === 'generated-visual' && 'visual' in sourcePayload
-            ? sourcePayload
-            : undefined;
 
         if (!artifactInput || !projectId || !draftLesson || !currentState) {
           void addToolOutput({
@@ -1207,7 +1299,11 @@ function ContextAnswerPanelSession({
     artifactId,
     instructions,
   }: ChatArtifactRegenerateRequest): Promise<boolean> => {
-    const payload = artifactPayloadsById.get(artifactId);
+    const payload = resolveContextArtifact(
+      artifactPayloadsById,
+      artifactId,
+      contextAnswer
+    )?.artifact;
     const currentState = contextRequestStateStore.read();
     const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
     if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson)
@@ -1252,116 +1348,66 @@ function ContextAnswerPanelSession({
     return true;
   };
 
-  const handleReplaceArtifact = async ({
-    artifactId,
-    replacementOfArtifactId,
-  }: ChatArtifactReplaceRequest) => {
-    const payload = artifactPayloadsById.get(artifactId);
-    const sourcePayload = artifactPayloadsById.get(replacementOfArtifactId);
+  const handleReplaceArtifact = async ({ artifactId }: ChatArtifactReplaceRequest) => {
+    const replacement = resolveContextArtifact(artifactPayloadsById, artifactId, contextAnswer);
     const visual = generatedVisualsByArtifactId[artifactId];
     const originLesson = buildContextDraftLesson(contextAnswer, contextRequestStateStore.read());
-    if (
-      !payload ||
-      !('visual' in payload) ||
-      !sourcePayload ||
-      !('visual' in sourcePayload) ||
-      !visual ||
-      !originLesson ||
-      !contextAnswer.projectId
-    ) {
+    if (!replacement || !visual || !originLesson || !contextAnswer.projectId) {
       return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
     }
-
+    const { artifact, root, replacedIds } = replacement;
     const isSavedSource = originLessonArtifactPayloads.some(
-      source => source.summary.id === replacementOfArtifactId
+      source => source.summary.id === root.summary.id
     );
-    if (!isSavedSource) {
-      const revisedDraft: LearningArtifactRenderPayload = {
-        ...payload,
-        summary: {
-          ...payload.summary,
-          replacementOfArtifactId: sourcePayload.summary.replacementOfArtifactId,
-        },
-      };
-      contextChat.setMessages(currentMessages =>
-        currentMessages.map(message => ({
-          ...message,
-          parts: message.parts.map(part =>
-            updateApprovedArtifactReference(part, replacementOfArtifactId, revisedDraft.summary)
-          ),
-        }))
+    let approvedPayload: ContextGeneratedArtifact = {
+      ...artifact,
+      summary: { ...artifact.summary, replacementOfArtifactId: undefined },
+    };
+    if (isSavedSource) {
+      if (!onReplaceArtifactInLesson) {
+        return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
+      }
+      const result = await onReplaceArtifactInLesson(mutationTarget, root.summary.id, visual);
+      if (!result.succeeded) return result;
+      approvedPayload = buildGeneratedVisualLearningArtifactPayload({
+        lesson: originLesson,
+        projectId: contextAnswer.projectId,
+        projectTitle: contextAnswer.projectTitle || t('Corso'),
+        visual: { ...visual, id: root.visual.id },
+      }) as ContextGeneratedArtifact;
+      setOriginLessonArtifactPayloads(currentPayloads =>
+        upsertLearningArtifactPayload(currentPayloads, approvedPayload)
       );
-      setArtifactPayloadsByToolCallId(currentPayloads =>
-        Object.fromEntries(
-          Object.entries(currentPayloads).map(([key, payloads]) => [
-            key,
-            payloads
-              .filter(artifact => artifact.summary.id !== replacementOfArtifactId)
-              .map(artifact => (artifact.summary.id === artifactId ? revisedDraft : artifact)),
-          ])
-        )
-      );
-      setGeneratedVisualsByArtifactId(currentVisuals => {
-        const next = { ...currentVisuals };
-        delete next[replacementOfArtifactId];
-        return next;
-      });
-      return { succeeded: true };
     }
-    if (!onReplaceArtifactInLesson) {
-      return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
-    }
-    const result = await onReplaceArtifactInLesson(mutationTarget, replacementOfArtifactId, visual);
-    if (!result.succeeded) {
-      return result;
-    }
-    const persistedVisual = { ...visual, id: sourcePayload.visual.id };
-    const persistedPayload = buildGeneratedVisualLearningArtifactPayload({
-      lesson: originLesson,
-      projectId: contextAnswer.projectId,
-      projectTitle: contextAnswer.projectTitle || t('Corso'),
-      visual: persistedVisual,
-    });
-    setOriginLessonArtifactPayloads(currentPayloads =>
-      upsertLearningArtifactPayload(currentPayloads, persistedPayload)
-    );
     contextChat.setMessages(currentMessages =>
       currentMessages.map(message => ({
         ...message,
         parts: message.parts.map(part =>
-          updateApprovedArtifactReference(part, artifactId, persistedPayload.summary)
+          updateApprovedArtifactReference(part, replacedIds, approvedPayload.summary)
         ),
       }))
     );
-    setArtifactPayloadsByToolCallId(currentPayloads => {
-      const next = { ...currentPayloads };
-      for (const [key, payloads] of Object.entries(next)) {
-        // Direct regeneration drafts close on approval; conversation tool results stay available.
-        next[key] = payloads
-          .filter(
-            p => !key.startsWith(REPLACEMENT_DRAFT_TOOL_CALL_PREFIX) || p.summary.id !== artifactId
-          )
-          .map(p =>
-            p.summary.id === artifactId || p.summary.id === replacementOfArtifactId
-              ? persistedPayload
-              : p
-          );
-        if (next[key].length === 0) {
-          delete next[key];
-        }
-      }
-      return next;
-    });
+    setArtifactPayloadsByToolCallId(currentPayloads =>
+      applyApprovedArtifactPayloads(currentPayloads, {
+        artifactId,
+        approvedPayload,
+        replacedIds,
+        isSavedSource,
+      })
+    );
     setGeneratedVisualsByArtifactId(currentVisuals => {
       const next = { ...currentVisuals };
-      delete next[artifactId];
-      next[replacementOfArtifactId] = persistedVisual;
+      for (const replacedId of replacedIds) delete next[replacedId];
+      next[approvedPayload.summary.id] = approvedPayload.visual;
       return next;
     });
-    if (latestGeneratedArtifactIdRef.current === artifactId) {
-      latestGeneratedArtifactIdRef.current = replacementOfArtifactId;
+    if (
+      latestGeneratedArtifactIdRef.current &&
+      replacedIds.has(latestGeneratedArtifactIdRef.current)
+    ) {
+      latestGeneratedArtifactIdRef.current = approvedPayload.summary.id;
     }
-    return result;
+    return { succeeded: true };
   };
 
   const handleDiscardArtifact = ({ artifactId }: ChatArtifactActionRequest) => {
