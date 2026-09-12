@@ -41,6 +41,7 @@ vi.mock('@ai-sdk/react', () => ({
 
 vi.mock('ai', () => ({
   DefaultChatTransport: MockDefaultChatTransport,
+  isToolUIPart: (part: { type: string }) => part.type.startsWith('tool-'),
   lastAssistantMessageIsCompleteWithToolCalls: lastAssistantMessageIsCompleteWithToolCallsMock,
 }));
 
@@ -125,6 +126,43 @@ describe('useLibraryAssistantChat', () => {
     placementByProjectId: {},
     rootNodes: [],
   };
+
+  test('continues from lesson retrieval and artifact generation to the requested save tool', () => {
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [],
+        tree: emptyTree,
+      })
+    );
+    const messages = [
+      {
+        id: 'assistant-generated',
+        role: 'assistant',
+        parts: [
+          { type: 'step-start' },
+          {
+            type: 'tool-getLessonDetails',
+            toolCallId: 'retrieve',
+            state: 'output-available',
+            input: {},
+            output: { lessons: [] },
+          },
+          { type: 'step-start' },
+          {
+            type: 'tool-generateLearningArtifact',
+            toolCallId: 'generate',
+            state: 'output-available',
+            input: { prompt: 'Crea e salva uno schema.' },
+            output: { artifactId: 'generated' },
+          },
+        ],
+      },
+    ];
+    expect(useChatMock.mock.lastCall?.[0].sendAutomaticallyWhen({ messages })).toBe(true);
+  });
 
   test('exposes the active AI SDK cancellation through the library message sender', () => {
     const { result } = renderHook(() =>

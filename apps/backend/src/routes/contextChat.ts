@@ -164,9 +164,9 @@ const createContextSearchWebTool = ({
 const contextChatTools = {
   generateCurrentLessonArtifact: tool({
     description:
-      'Generate a new temporary visual artifact for the current lesson from the user request. Use it for raster images, concept maps, charts, diagrams, or interactive HTML widgets requested immediately. If the user specifies a format, pass it in requestedVisualKind. After showing it, call requestAddToNotes with artifactIds if the user asks to save it.',
+      'Generate a temporary visual artifact or a replacement draft for an existing generated-visual in the current lesson. For edits, including title or description changes, use replacement-draft with the exact sourceArtifactId returned by artifact tools. PDF images and future assets cannot be edited through this tool. Call once for the requested artifact and wait for the result before reporting availability. If the user specifies a format, pass it in requestedVisualKind. After showing it, call requestAddToNotes with artifactIds if the user asks to save it.',
     inputSchema: jsonSchema<{
-      mode?: 'new' | 'replacement-draft';
+      mode: 'new' | 'replacement-draft';
       prompt: string;
       requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
       revisionInstructions?: string;
@@ -179,7 +179,7 @@ const contextChatTools = {
           type: 'string',
           enum: ['new', 'replacement-draft'],
           description:
-            'Use replacement-draft when the user asks to modify or replace an existing artifact. Otherwise use new.',
+            'Use replacement-draft when the user asks to modify or replace an existing generated-visual. Otherwise use new.',
         },
         prompt: {
           type: 'string',
@@ -199,10 +199,11 @@ const contextChatTools = {
         },
         sourceArtifactId: {
           type: 'string',
-          description: 'Exact ID of the source artifact to modify when mode is replacement-draft.',
+          description:
+            'Exact ID of the source generated-visual to modify when mode is replacement-draft.',
         },
       },
-      required: ['prompt'],
+      required: ['mode', 'prompt'],
     }),
     outputSchema: jsonSchema<Record<string, unknown>>({
       type: 'object',

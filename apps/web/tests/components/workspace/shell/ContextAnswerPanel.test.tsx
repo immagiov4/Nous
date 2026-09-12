@@ -4,7 +4,8 @@ import '@testing-library/jest-dom/vitest';
 
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createRef, type ReactNode, StrictMode } from 'react';
+import type { UIMessage } from 'ai';
+import { createRef, type ReactNode, StrictMode, useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ContextAnswerState } from '../../../../components/workspace/shell/types.ts';
 
@@ -19,6 +20,7 @@ const defaultChatTransportInstances: Array<{
   prepareSendMessagesRequest?: (args: unknown) => unknown;
 }> = [];
 const sendMessageMock = vi.fn();
+const setMessagesMock = vi.fn();
 const stopMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
@@ -38,7 +40,7 @@ const chatTextComposerProps: Array<{
 }> = [];
 
 vi.mock('@ai-sdk/react', () => ({
-  useChat: useChatMock,
+  useChat: (...args: unknown[]) => ({ setMessages: setMessagesMock, ...useChatMock(...args) }),
 }));
 
 vi.mock('ai', () => ({
@@ -270,6 +272,7 @@ describe('ContextAnswerPanel', () => {
   beforeEach(() => {
     defaultChatTransportInstances.length = 0;
     sendMessageMock.mockReset();
+    setMessagesMock.mockReset();
     stopMock.mockReset();
     addToolOutputMock.mockReset();
     useChatMock.mockReset();
@@ -309,6 +312,45 @@ describe('ContextAnswerPanel', () => {
     expect(panel?.style.maxHeight).toBe('528px');
     expect(screen.getByRole('button', { name: 'Chiudi' })).toHaveClass('right-4', 'top-4');
     expect(screen.queryByRole('button', { name: 'Ridimensiona pannello risposta' })).toBeNull();
+  });
+
+  test.each([
+    ['replacement-draft', false],
+    ['new', true],
+  ])('continues after retrieval and %s generation: %s', (mode, shouldContinue) => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    render(<ContextAnswerPanel {...buildProps()} />);
+    const messages = [
+      {
+        id: 'assistant-generated',
+        role: 'assistant',
+        parts: [
+          { type: 'step-start' },
+          {
+            type: 'tool-getCurrentLessonArtifacts',
+            toolCallId: 'retrieve',
+            state: 'output-available',
+            input: {},
+            output: { artifacts: [] },
+          },
+          { type: 'step-start' },
+          {
+            type: 'tool-generateCurrentLessonArtifact',
+            toolCallId: 'generate',
+            state: 'output-available',
+            input: { mode, prompt: 'Crea uno schema.' },
+            output: { artifactId: 'generated' },
+          },
+        ],
+      },
+    ];
+    expect(useChatMock.mock.lastCall?.[0].sendAutomaticallyWhen({ messages })).toBe(shouldContinue);
   });
 
   test('dismisses the mobile keyboard on follow-up submit so streaming can use the 80% sheet', async () => {
@@ -442,7 +484,7 @@ describe('ContextAnswerPanel', () => {
       onToolCall: (args: {
         toolCall: {
           dynamic: false;
-          input: { prompt: string };
+          input: { mode: 'new'; prompt: string };
           toolCallId: string;
           toolName: 'generateCurrentLessonArtifact';
         };
@@ -478,7 +520,7 @@ describe('ContextAnswerPanel', () => {
       toolCallRequest = chatOptions.onToolCall({
         toolCall: {
           dynamic: false,
-          input: { prompt: 'Crea uno schema.' },
+          input: { mode: 'new', prompt: 'Crea uno schema.' },
           toolCallId: 'deferred-context-artifact',
           toolName: 'generateCurrentLessonArtifact',
         },
@@ -524,7 +566,7 @@ describe('ContextAnswerPanel', () => {
       | ((args: {
           toolCall: {
             dynamic: false;
-            input: { prompt: string };
+            input: { mode: 'new'; prompt: string };
             toolCallId: string;
             toolName: 'generateCurrentLessonArtifact';
           };
@@ -548,7 +590,7 @@ describe('ContextAnswerPanel', () => {
       toolCallRequest = onToolCall?.({
         toolCall: {
           dynamic: false,
-          input: { prompt: 'Crea uno schema.' },
+          input: { mode: 'new', prompt: 'Crea uno schema.' },
           toolCallId: 'unmounted-context-artifact',
           toolName: 'generateCurrentLessonArtifact',
         },
@@ -983,6 +1025,612 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByRole('button', { name: /Apri mappa concettuale/i })).toBeInTheDocument();
   });
 
+  test('retrieves a displayed draft and targets it for a replacement only after generation completes', async () => {
+    const user = userEvent.setup();
+    const revisedDraft = {
+      ...replacementDraftArtifact,
+      summary: {
+        ...replacementDraftArtifact.summary,
+        replacementOfArtifactId: generatedDraftArtifact.summary.id,
+      },
+    };
+    const onSaveArtifactToLesson = vi.fn(async () => ({ succeeded: true }));
+    const onReplaceArtifactInLesson = vi.fn();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [
+        {
+          id: 'assistant',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-generateCurrentLessonArtifact',
+              toolCallId: 'edit',
+              state: 'output-available',
+              input: {},
+              output: { artifactId: revisedDraft.summary.id },
+            },
+            {
+              type: 'tool-getCurrentLessonArtifacts',
+              toolCallId: 'lookup',
+              state: 'output-available',
+              input: {},
+              output: { artifacts: [generatedDraftArtifact.summary], renderMode: 'metadata-only' },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    generateLessonArtifactDraftMock.mockResolvedValueOnce({
+      artifactId: generatedDraftArtifact.summary.id,
+      payload: generatedDraftArtifact,
+      visual: generatedDraftArtifact.visual,
+    });
+    render(
+      <ContextAnswerPanel
+        {...buildProps()}
+        onSaveArtifactToLesson={onSaveArtifactToLesson}
+        onReplaceArtifactInLesson={onReplaceArtifactInLesson}
+      />
+    );
+    const callTool = (toolName: string, input: Record<string, unknown>, toolCallId: string) =>
+      useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: { dynamic: false, input, toolCallId, toolName },
+      });
+
+    await act(async () => {
+      await callTool(
+        'generateCurrentLessonArtifact',
+        { mode: 'new', prompt: 'Crea uno schema.' },
+        'create'
+      );
+    });
+    await act(async () => {
+      await callTool(
+        'getCurrentLessonArtifacts',
+        { artifactIds: [generatedDraftArtifact.summary.id] },
+        'lookup'
+      );
+    });
+    expect(addToolOutputMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        output: expect.objectContaining({ artifacts: [generatedDraftArtifact.summary] }),
+      })
+    );
+
+    let resolveDraft!: (draft: unknown) => void;
+    generateLessonArtifactDraftMock.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveDraft = resolve;
+      })
+    );
+    let pending: Promise<void>;
+    act(() => {
+      pending = callTool(
+        'generateCurrentLessonArtifact',
+        {
+          mode: 'replacement-draft',
+          sourceArtifactId: generatedDraftArtifact.summary.id,
+          prompt: 'Aggiorna il titolo.',
+          revisionInstructions: 'Titolo rivisto',
+        },
+        'edit'
+      );
+    });
+    expect(generateLessonArtifactDraftMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: 'replacement-draft',
+        sourceArtifact: generatedDraftArtifact,
+        sourceArtifactId: generatedDraftArtifact.summary.id,
+      })
+    );
+    expect(addToolOutputMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'edit' })
+    );
+    await act(async () => {
+      resolveDraft({
+        artifactId: replacementDraftArtifact.summary.id,
+        payload: revisedDraft,
+        visual: replacementDraftArtifact.visual,
+      });
+      await pending;
+    });
+    expect(addToolOutputMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        toolCallId: 'edit',
+        output: expect.objectContaining({
+          artifactId: replacementDraftArtifact.summary.id,
+          renderedArtifactCount: 1,
+        }),
+      })
+    );
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(onReplaceArtifactInLesson).not.toHaveBeenCalled();
+    const updatedMessages = setMessagesMock.mock.lastCall?.[0](
+      useChatMock.mock.results.at(-1)?.value.messages
+    );
+    expect(updatedMessages[0].parts[0].output.artifact.replacementOfArtifactId).toBeUndefined();
+    expect(updatedMessages[0].parts[1].output.artifacts[0].id).toBe(revisedDraft.summary.id);
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    await user.click(screen.getByRole('button', { name: /Salva artefatto/i }));
+    expect(onSaveArtifactToLesson).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      revisedDraft.visual,
+      expect.objectContaining({ artifactId: revisedDraft.summary.id })
+    );
+  });
+
+  test('persists the saved root when a replacement draft is revised again', async () => {
+    const user = userEvent.setup();
+    const finalDraft = {
+      ...replacementDraftArtifact,
+      summary: {
+        ...replacementDraftArtifact.summary,
+        id: 'final-draft',
+        title: 'Versione finale',
+        replacementOfArtifactId: replacementDraftArtifact.summary.id,
+      },
+      visual: { ...replacementDraftArtifact.visual, id: 'final-visual', title: 'Versione finale' },
+    };
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [
+        {
+          id: 'assistant',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-generateCurrentLessonArtifact',
+              toolCallId: 'first',
+              state: 'output-available',
+              input: {},
+              output: { artifactId: replacementDraftArtifact.summary.id },
+            },
+            {
+              type: 'tool-generateCurrentLessonArtifact',
+              toolCallId: 'second',
+              state: 'output-available',
+              input: {},
+              output: { artifactId: finalDraft.summary.id },
+            },
+          ],
+        },
+      ],
+    });
+    const replace = vi.fn(async () => ({ succeeded: true }));
+    render(<ContextAnswerPanel {...buildProps()} onReplaceArtifactInLesson={replace} />);
+    for (const [draft, sourceArtifactId, toolCallId] of [
+      [replacementDraftArtifact, currentLessonArtifact.summary.id, 'first'],
+      [finalDraft, replacementDraftArtifact.summary.id, 'second'],
+    ] as const) {
+      generateLessonArtifactDraftMock.mockResolvedValueOnce({
+        artifactId: draft.summary.id,
+        payload: draft,
+        visual: draft.visual,
+      });
+      await act(async () => {
+        await useChatMock.mock.lastCall?.[0].onToolCall({
+          toolCall: {
+            dynamic: false,
+            toolName: 'generateCurrentLessonArtifact',
+            toolCallId,
+            input: { mode: 'replacement-draft', sourceArtifactId, prompt: 'Migliora lo schema.' },
+          },
+        });
+      });
+    }
+    await user.click(screen.getByRole('button', { name: /Apri Versione finale/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(replace).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      currentLessonArtifact.summary.id,
+      finalDraft.visual
+    );
+  });
+
+  test('rejects a foreign legacy visual returned by library retrieval as an edit source', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [],
+    });
+    const baseProps = buildProps();
+    render(
+      <ContextAnswerPanel
+        {...baseProps}
+        libraryAssistantDataSource={{
+          ...baseProps.libraryAssistantDataSource,
+          loadProjectsById: vi.fn(async () => [crossCourseSnapshot]),
+          projects: [buildTestProjectMeta({ id: 'project-2', title: 'Reti', lessonCount: 1 })],
+        }}
+      />
+    );
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolName: 'getLearningArtifacts',
+          toolCallId: 'foreign',
+          input: { projectIds: ['project-2'], renderMode: 'attachments' },
+        },
+      });
+    });
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolName: 'generateCurrentLessonArtifact',
+          toolCallId: 'edit-foreign',
+          input: {
+            mode: 'replacement-draft',
+            sourceArtifactId: crossCourseArtifact.summary.id,
+            prompt: 'Modifica il titolo.',
+          },
+        },
+      });
+    });
+    expect(generateLessonArtifactDraftMock).not.toHaveBeenCalled();
+    expect(addToolOutputMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        toolCallId: 'edit-foreign',
+        output: expect.objectContaining({ artifact: null }),
+      })
+    );
+  });
+
+  test('saves the revised temporary visual through an already pending note confirmation', async () => {
+    const user = userEvent.setup();
+    const revisedDraft = {
+      ...replacementDraftArtifact,
+      summary: {
+        ...replacementDraftArtifact.summary,
+        replacementOfArtifactId: generatedDraftArtifact.summary.id,
+      },
+    };
+    const initialMessages = [
+      {
+        id: 'assistant',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-generateCurrentLessonArtifact',
+            toolCallId: 'new',
+            state: 'output-available',
+            input: {},
+            output: { artifactId: generatedDraftArtifact.summary.id },
+          },
+          {
+            type: 'tool-requestAddToNotes',
+            toolCallId: 'save',
+            state: 'input-available',
+            input: {
+              artifactIds: [generatedDraftArtifact.summary.id],
+              noteDraft: 'Lo schema chiarisce il G-buffer.',
+              rationale: 'Conserva lo schema.',
+              selectedTextDraft: 'G-buffer',
+            },
+          },
+          {
+            type: 'tool-generateCurrentLessonArtifact',
+            toolCallId: 'edit',
+            state: 'output-available',
+            input: {},
+            output: { artifactId: revisedDraft.summary.id },
+          },
+        ],
+      },
+    ] as UIMessage[];
+    useChatMock.mockImplementation(() => {
+      const [messages, setMessages] = useState(initialMessages);
+      return {
+        addToolOutput: addToolOutputMock,
+        sendMessage: sendMessageMock,
+        status: 'ready',
+        messages,
+        setMessages,
+      };
+    });
+    const save = vi.fn(async () => ({ saved: true, annotationId: 'saved-note', merged: false }));
+    render(<ContextAnswerPanel {...buildProps()} onSaveConversationNote={save} />);
+    for (const [draft, mode, toolCallId] of [
+      [generatedDraftArtifact, 'new', 'new'],
+      [revisedDraft, 'replacement-draft', 'edit'],
+    ] as const) {
+      generateLessonArtifactDraftMock.mockResolvedValueOnce({
+        artifactId: draft.summary.id,
+        payload: draft,
+        visual: draft.visual,
+      });
+      await act(async () => {
+        await useChatMock.mock.lastCall?.[0].onToolCall({
+          toolCall: {
+            dynamic: false,
+            toolName: 'generateCurrentLessonArtifact',
+            toolCallId,
+            input: {
+              mode,
+              sourceArtifactId: generatedDraftArtifact.summary.id,
+              prompt: 'Migliora lo schema.',
+            },
+          },
+        });
+      });
+    }
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(save).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      expect.objectContaining({ generatedVisuals: [revisedDraft.visual] })
+    );
+  });
+
+  test.each([
+    'artifact',
+    'note',
+    'note-retry',
+  ])('waits for a pending %s save before persisting replacement approval', async saveKind => {
+    const user = userEvent.setup();
+    let finishSave!: (result: {
+      succeeded: true;
+      saved: true;
+      annotationId: string;
+      merged: false;
+    }) => void;
+    const saveRequest = new Promise<{
+      succeeded: true;
+      saved: true;
+      annotationId: string;
+      merged: false;
+    }>(resolve => {
+      finishSave = resolve;
+    });
+    const revisedDraft = {
+      ...replacementDraftArtifact,
+      summary: {
+        ...replacementDraftArtifact.summary,
+        replacementOfArtifactId: generatedDraftArtifact.summary.id,
+      },
+    };
+    const parts = [
+      {
+        type: 'tool-generateCurrentLessonArtifact',
+        toolCallId: 'new',
+        state: 'output-available',
+        input: {},
+        output: { artifactId: generatedDraftArtifact.summary.id },
+      },
+      {
+        type: 'tool-generateCurrentLessonArtifact',
+        toolCallId: 'edit',
+        state: 'output-available',
+        input: {},
+        output: { artifactId: revisedDraft.summary.id },
+      },
+      ...(saveKind !== 'artifact'
+        ? [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'save',
+              state: 'input-available',
+              input: {
+                artifactIds: [generatedDraftArtifact.summary.id],
+                noteDraft: 'Lo schema chiarisce il G-buffer.',
+                rationale: 'Conserva lo schema.',
+                selectedTextDraft: saveKind === 'note-retry' ? 'buffer' : 'G-buffer',
+              },
+            },
+          ]
+        : []),
+    ];
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [{ id: 'assistant', role: 'assistant', parts }],
+    });
+    let failFirstSave!: () => void;
+    const firstSaveRequest = new Promise<{ saved: false; merged: false }>(resolve => {
+      failFirstSave = () => resolve({ saved: false, merged: false });
+    });
+    const saveNote = vi.fn().mockImplementation(() => saveRequest);
+    if (saveKind === 'note-retry') saveNote.mockImplementationOnce(() => firstSaveRequest);
+    const replace = vi.fn(async () => ({ succeeded: true }));
+    render(
+      <ContextAnswerPanel
+        {...buildProps()}
+        onSaveArtifactToLesson={() => saveRequest}
+        onSaveConversationNote={saveNote}
+        onReplaceArtifactInLesson={replace}
+      />
+    );
+    const generate = async (
+      draft: Extract<LearningArtifactRenderPayload, { visual: unknown }>,
+      mode: string,
+      toolCallId: string
+    ) => {
+      generateLessonArtifactDraftMock.mockResolvedValueOnce({
+        artifactId: draft.summary.id,
+        payload: draft,
+        visual: draft.visual,
+      });
+      await act(async () => {
+        await useChatMock.mock.lastCall?.[0].onToolCall({
+          toolCall: {
+            dynamic: false,
+            toolName: 'generateCurrentLessonArtifact',
+            toolCallId,
+            input: {
+              mode,
+              sourceArtifactId: generatedDraftArtifact.summary.id,
+              prompt: 'Migliora lo schema.',
+            },
+          },
+        });
+      });
+    };
+    await generate(generatedDraftArtifact, 'new', 'new');
+    if (saveKind === 'artifact') {
+      await user.click(screen.getByRole('button', { name: /Apri schema nuovo/i }));
+      await user.click(screen.getByRole('button', { name: /Salva artefatto/i }));
+      await user.click(screen.getByRole('button', { name: 'Chiudi anteprima artefatto' }));
+    } else {
+      await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    }
+    await generate(revisedDraft, 'replacement-draft', 'edit');
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(replace).not.toHaveBeenCalled();
+    if (saveKind === 'note-retry') {
+      await act(async () => {
+        failFirstSave();
+      });
+      expect(saveNote).toHaveBeenCalledTimes(2);
+      expect(replace).not.toHaveBeenCalled();
+    }
+    await act(async () => {
+      finishSave({ succeeded: true, saved: true, annotationId: 'saved-note', merged: false });
+    });
+    expect(replace).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      generatedDraftArtifact.summary.id,
+      revisedDraft.visual
+    );
+  });
+
+  test('keeps a saved replacement visible and exposes its persisted identity for the next edit', async () => {
+    const user = userEvent.setup();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      sendMessage: sendMessageMock,
+      status: 'ready',
+      messages: [
+        {
+          id: 'assistant',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-generateCurrentLessonArtifact',
+              toolCallId: 'edit-saved',
+              state: 'output-available',
+              input: {},
+              output: { artifactId: replacementDraftArtifact.summary.id },
+            },
+            {
+              type: 'tool-getCurrentLessonArtifacts',
+              toolCallId: 'retrieve-draft',
+              state: 'output-available',
+              input: {},
+              output: {
+                artifacts: [replacementDraftArtifact.summary],
+                renderMode: 'metadata-only',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    generateLessonArtifactDraftMock.mockResolvedValueOnce({
+      artifactId: replacementDraftArtifact.summary.id,
+      payload: replacementDraftArtifact,
+      visual: replacementDraftArtifact.visual,
+    });
+    const onReplaceArtifactInLesson = vi.fn(async () => ({ succeeded: true }));
+    render(
+      <ContextAnswerPanel {...buildProps()} onReplaceArtifactInLesson={onReplaceArtifactInLesson} />
+    );
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolCallId: 'edit-saved',
+          toolName: 'generateCurrentLessonArtifact',
+          input: {
+            mode: 'replacement-draft',
+            sourceArtifactId: currentLessonArtifact.summary.id,
+            prompt: 'Aggiorna il titolo.',
+          },
+        },
+      });
+    });
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    expect(onReplaceArtifactInLesson).toHaveBeenCalledWith(
+      { lessonId: 'lesson-1', projectId: 'project-1' },
+      currentLessonArtifact.summary.id,
+      replacementDraftArtifact.visual
+    );
+    expect(
+      screen.getByRole('button', { name: /Apri mappa concettuale rivista/i })
+    ).toBeInTheDocument();
+    const conversation = useChatMock.mock.results.at(-1)?.value.messages;
+    const updatedMessages = setMessagesMock.mock.lastCall?.[0](conversation);
+    const updatedOutput = updatedMessages[0].parts[0].output;
+    expect(updatedOutput.artifactId).toBe(currentLessonArtifact.summary.id);
+    expect(updatedOutput.artifact.id).toBe(currentLessonArtifact.summary.id);
+    expect(updatedMessages[0].parts[1].output.artifacts[0].id).toBe(
+      currentLessonArtifact.summary.id
+    );
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale rivista/i }));
+    expect(screen.queryByRole('button', { name: /Salva artefatto/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Rigenera artefatto/i })).toBeInTheDocument();
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          toolCallId: 'edit-again',
+          toolName: 'generateCurrentLessonArtifact',
+          input: {
+            mode: 'replacement-draft',
+            sourceArtifactId: updatedOutput.artifactId,
+            prompt: 'Aggiungi un esempio.',
+          },
+        },
+      });
+    });
+    expect(generateLessonArtifactDraftMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceArtifactId: currentLessonArtifact.summary.id,
+        sourceArtifact: expect.objectContaining({
+          visual: { ...replacementDraftArtifact.visual, id: currentLessonArtifact.visual.id },
+        }),
+      })
+    );
+  });
+
+  test.each([
+    { prompt: 'Aggiorna il titolo.' },
+    { mode: 'replacement-draft', sourceArtifactId: 'missing', prompt: 'Aggiorna il titolo.' },
+  ])('does not create an unrelated draft for an incomplete edit contract: %j', async input => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    render(<ContextAnswerPanel {...buildProps()} />);
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: {
+          dynamic: false,
+          input,
+          toolCallId: 'edit',
+          toolName: 'generateCurrentLessonArtifact',
+        },
+      });
+    });
+    expect(generateLessonArtifactDraftMock).not.toHaveBeenCalled();
+    expect(addToolOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({ output: expect.objectContaining({ artifact: null }) })
+    );
+  });
+
   test('keeps current-lesson artifact tools bound to the retained answer origin', async () => {
     let onToolCall:
       | ((args: {
@@ -1061,7 +1709,7 @@ describe('ContextAnswerPanel', () => {
                 type: 'tool-generateCurrentLessonArtifact',
                 toolCallId: 'tool-generate-artifact',
                 state: 'output-available',
-                input: { prompt: 'Crea uno schema.' },
+                input: { mode: 'new', prompt: 'Crea uno schema.' },
                 output: {
                   artifact: generatedDraftArtifact.summary,
                   artifactId: generatedDraftArtifact.summary.id,
@@ -1080,6 +1728,7 @@ describe('ContextAnswerPanel', () => {
       <ContextAnswerPanel
         {...buildProps({ id: 'context-saved-origin-artifact' })}
         onSaveArtifactToLesson={onSaveArtifactToLesson}
+        onReplaceArtifactInLesson={async () => ({ succeeded: true })}
       />
     );
 
@@ -1087,7 +1736,7 @@ describe('ContextAnswerPanel', () => {
       await onToolCall?.({
         toolCall: {
           dynamic: false,
-          input: { prompt: 'Crea uno schema.' },
+          input: { mode: 'new', prompt: 'Crea uno schema.' },
           toolCallId: 'tool-generate-artifact',
           toolName: 'generateCurrentLessonArtifact',
         },
@@ -1116,6 +1765,33 @@ describe('ContextAnswerPanel', () => {
         }),
       })
     );
+
+    generateLessonArtifactDraftMock.mockResolvedValueOnce({
+      artifactId: replacementDraftArtifact.summary.id,
+      payload: {
+        ...replacementDraftArtifact,
+        summary: {
+          ...replacementDraftArtifact.summary,
+          replacementOfArtifactId: generatedDraftArtifact.summary.id,
+        },
+      },
+      visual: replacementDraftArtifact.visual,
+    });
+    await user.click(screen.getByRole('button', { name: /Apri schema nuovo/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+    await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Aggiorna il titolo.');
+    await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
+    );
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
+    );
+    expect(
+      screen.queryByRole('button', { name: /Salva artefatto nella lezione/i })
+    ).not.toBeInTheDocument();
+    expect(onSaveArtifactToLesson).toHaveBeenCalledOnce();
   });
 
   test('renders cross-course artifact attachments returned by the shared library executor', async () => {
@@ -2285,11 +2961,13 @@ describe('ContextAnswerPanel', () => {
   });
 
   test.each([
-    { actionLabel: /Scarta artefatto/i, actionName: 'discard' },
-    { actionLabel: /Sostituisci artefatto/i, actionName: 'replace' },
-  ])('shares regeneration lifecycle across source and draft surfaces on $actionName', async ({
+    { actionLabel: /Scarta artefatto/i, actionName: 'discard', nested: false },
+    { actionLabel: /Sostituisci artefatto/i, actionName: 'replace', nested: false },
+    { actionLabel: /Sostituisci artefatto/i, actionName: 'replace', nested: true },
+  ])('shares regeneration lifecycle across source and draft surfaces on $actionName, nested=$nested', async ({
     actionLabel,
     actionName,
+    nested,
   }) => {
     const user = userEvent.setup();
     let onToolCall:
@@ -2355,6 +3033,17 @@ describe('ContextAnswerPanel', () => {
       />
     );
 
+    await act(async () => {
+      await onToolCall?.({
+        toolCall: {
+          dynamic: false,
+          input: { renderMode: 'attachments' },
+          toolCallId: 'tool-artifacts-regeneration',
+          toolName: 'getCurrentLessonArtifacts',
+        },
+      });
+    });
+
     await user.click(screen.getByRole('button', { name: /Apri mappa concettuale$/i }));
     await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
     const sourceDialog = screen.getByRole('dialog', { name: /mappa concettuale/i });
@@ -2376,6 +3065,28 @@ describe('ContextAnswerPanel', () => {
     expect(screen.queryByText('Nuova bozza pronta.')).toBeNull();
 
     await user.click(draftButton);
+    if (nested) {
+      const nextDraft = {
+        ...replacementDraftArtifact,
+        summary: {
+          ...replacementDraftArtifact.summary,
+          id: 'generated-visual:second-revision',
+          replacementOfArtifactId: replacementDraftArtifact.summary.id,
+        },
+        visual: { ...replacementDraftArtifact.visual, id: 'second-revision' },
+      };
+      generateLessonArtifactDraftMock.mockResolvedValue({
+        artifactId: nextDraft.summary.id,
+        payload: nextDraft,
+        visual: nextDraft.visual,
+      });
+      await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+      await user.type(screen.getByLabelText(/Istruzioni rigenerazione/i), 'Semplifica ancora.');
+      await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
+      await user.click(
+        await screen.findByRole('button', { name: /Apri mappa concettuale rivista/i })
+      );
+    }
     await user.click(screen.getByRole('button', { name: actionLabel }));
 
     if (actionName === 'replace') {
@@ -2410,7 +3121,9 @@ describe('ContextAnswerPanel', () => {
       expect(onReplaceArtifactInLesson).toHaveBeenLastCalledWith(
         { lessonId: 'lesson-1', projectId: 'project-1' },
         currentLessonArtifact.summary.id,
-        replacementDraftArtifact.visual
+        nested
+          ? { ...replacementDraftArtifact.visual, id: 'second-revision' }
+          : replacementDraftArtifact.visual
       );
       expect(onReplaceArtifactInLesson).toHaveBeenCalledTimes(2);
 
