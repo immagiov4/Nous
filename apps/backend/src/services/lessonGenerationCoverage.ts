@@ -74,7 +74,7 @@ export const selectPrerequisiteSourceCoverage = async (input: {
   const retryCorrection = input.retryFeedback?.trim()
     ? `\nREQUIRED CORRECTION FROM THE PREVIOUS ATTEMPT:\n${input.retryFeedback.trim()}\n`
     : '';
-  const prompt = `PREREQUISITE LESSON: ${input.title}
+  const prompt = `LESSON: ${input.title}
 OBJECTIVE: ${input.description}
 
 ORIGINAL MATERIAL:

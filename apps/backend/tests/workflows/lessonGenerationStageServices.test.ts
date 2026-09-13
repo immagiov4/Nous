@@ -520,11 +520,20 @@ describe('lesson generation production stages', () => {
     expect(outcome.state.requiresCoverageAssessment).toBe(true);
   });
 
-  test('assesses source coverage for a core lesson before research routing', async () => {
+  test('routes core lesson coverage gaps into research planning', async () => {
     const coreProject = structuredClone(project);
     const section = coreProject.learningPlan?.modules?.[0]?.children?.[0];
     if (!section) throw new Error('Missing test lesson.');
     section.type = 'core';
+    const selectCoverage = vi.fn().mockResolvedValue({
+      missingTopics: ['Blast radius'],
+      needsResearch: true,
+    });
+    const planResearchSources = vi.fn().mockResolvedValue({
+      suppliedSourcesSufficient: false,
+      channels: [],
+      rationale: 'Missing coverage.',
+    });
     const services = createLessonGenerationStageServices(
       dependencies({
         loadProject: vi.fn().mockResolvedValue(coreProject),
@@ -537,6 +546,8 @@ describe('lesson generation production stages', () => {
           existingSources: [],
           sourceContext: 'CHUNK chunk-1\nContenuto originale.',
         }),
+        selectCoverage,
+        planResearchSources,
       })
     );
 
@@ -552,6 +563,12 @@ describe('lesson generation production stages', () => {
     expect(outcome.kind).toBe('generate');
     if (outcome.kind !== 'generate') throw new Error('Expected generation context.');
     expect(outcome.state.requiresCoverageAssessment).toBe(true);
+    const covered = await services.assessSourceCoverage(stageContext(outcome.state));
+    await services.planResearchSources(stageContext(covered));
+    expect(selectCoverage).toHaveBeenCalledTimes(1);
+    expect(planResearchSources).toHaveBeenCalledWith(
+      expect.objectContaining({ coverageGaps: ['Blast radius'] })
+    );
   });
 
   test('reads detached original bytes when no document index is available', async () => {
