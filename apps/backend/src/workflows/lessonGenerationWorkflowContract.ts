@@ -19,6 +19,7 @@ import {
   LessonResultBlockSchema,
   LessonVisualPlanningDecisionSchema,
   LessonYouTubePlanningSchema,
+  PreviousEvidenceLessonResearchDossierSchema,
   PreviousLessonContentDraftSchema,
   PreviousLessonPdfImageMetadataSchema,
   PreviousLessonQuizSchema,
@@ -129,6 +130,7 @@ const LessonVisualFanOutResultSchema = z.discriminatedUnion('status', [
 ]);
 
 const createLessonGenerationDurableSchemaSet = ({
+  evidence = false,
   routing = false,
   pdfImageMetadataSchema,
   documentAssetsSchema,
@@ -138,11 +140,12 @@ const createLessonGenerationDurableSchemaSet = ({
   lessonQuizSchema,
   lessonResultBlockSchema,
 }: {
+  evidence?: boolean;
   routing?: boolean;
   pdfImageMetadataSchema: typeof LessonPdfImageMetadataSchema;
   documentAssetsSchema: typeof LessonDocumentAssetsSchema;
   lessonResearchSummarySchema: typeof LessonResearchSummarySchema;
-  lessonResearchDossierSchema: typeof LessonResearchDossierSchema;
+  lessonResearchDossierSchema: z.ZodType<z.infer<typeof LessonResearchDossierSchema>>;
   lessonContentDraftSchema: z.ZodType<z.infer<typeof LessonContentDraftSchema>>;
   lessonQuizSchema: z.ZodType<z.infer<typeof LessonQuizSchema>>;
   lessonResultBlockSchema: z.ZodType<z.infer<typeof LessonResultBlockSchema>>;
@@ -180,7 +183,13 @@ const createLessonGenerationDurableSchemaSet = ({
     }),
     stage: z.literal('youtube'),
   });
-  const LessonResearchStateSchema = LessonYouTubeStateSchema.extend({
+  const evidenceShape = { evidencePacketJson: z.string().optional() };
+  const evidenceSourceSchema = evidence
+    ? LessonYouTubeStateSchema.extend(evidenceShape)
+    : (LessonYouTubeStateSchema as ReturnType<
+        typeof LessonYouTubeStateSchema.extend<typeof evidenceShape>
+      >);
+  const LessonResearchStateSchema = evidenceSourceSchema.extend({
     lessonSources: z.array(ResearchSourceSchema),
     research: z.object({
       context: z.string(),
@@ -193,7 +202,7 @@ const createLessonGenerationDurableSchemaSet = ({
     draft: lessonContentDraftSchema,
     stage: z.literal('draft'),
   });
-  const LessonReviewedStateSchema = z.object({
+  const reviewedSchema = z.object({
     documentAssetOwners: z.array(LessonAssetOwnerSchema),
     documentSourceHash: z.string().length(64).nullable(),
     draft: lessonContentDraftSchema,
@@ -215,6 +224,9 @@ const createLessonGenerationDurableSchemaSet = ({
     targetFingerprint: z.string().length(64),
     warnings: z.array(LessonGenerationWarningSchema),
   });
+  const LessonReviewedStateSchema = evidence
+    ? reviewedSchema.extend(evidenceShape)
+    : (reviewedSchema as ReturnType<typeof reviewedSchema.extend<typeof evidenceShape>>);
   const LessonAidsStateSchema = LessonReviewedStateSchema.extend({
     learningAids: z.array(LessonLearningAidSchema),
     stage: z.literal('aids'),
@@ -298,7 +310,7 @@ const currentLessonSchemas = {
   documentAssetsSchema: LessonDocumentAssetsSchema,
   lessonContentDraftSchema: LessonContentDraftSchema,
   lessonQuizSchema: LessonQuizSchema,
-  lessonResearchDossierSchema: LessonResearchDossierSchema,
+  lessonResearchDossierSchema: PreviousEvidenceLessonResearchDossierSchema,
   lessonResearchSummarySchema: LessonResearchSummarySchema,
   lessonResultBlockSchema: LessonResultBlockSchema,
   pdfImageMetadataSchema: LessonPdfImageMetadataSchema,
@@ -306,8 +318,15 @@ const currentLessonSchemas = {
 
 export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
   ...currentLessonSchemas,
+  evidence: true,
+  lessonResearchDossierSchema: LessonResearchDossierSchema,
   routing: true,
 });
+export const PreviousEvidenceLessonGenerationDurableSchemaSet =
+  createLessonGenerationDurableSchemaSet({
+    ...currentLessonSchemas,
+    routing: true,
+  });
 export const PreviousRoutingLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet(currentLessonSchemas);
 

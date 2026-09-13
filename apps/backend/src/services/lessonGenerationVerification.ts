@@ -58,7 +58,10 @@ import {
   isLessonStructuredOutputError,
   retryLessonGenerationCorrection,
 } from './lessonGenerationCorrection.js';
-import { buildLessonGenerationReferenceContext } from './lessonGenerationPrompt.js';
+import {
+  buildLessonGenerationReferenceContext,
+  getLessonReferenceAvailability,
+} from './lessonGenerationPrompt.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 
 interface LessonResponseSchemaContract {
@@ -349,15 +352,15 @@ const buildStructuralCheckInstruction = (checkId: LessonVerificationStructuralCh
 const applyLessonVerificationContext = (
   item: LessonVerificationChecklistItem,
   context: {
+    hasPrimaryMaterial: boolean;
     hasReferenceMaterial: boolean;
-    input: LessonVerificationInput;
     isResearchOnly: boolean;
   }
 ): LessonVerificationChecklistItem => {
-  const { hasReferenceMaterial, input, isResearchOnly } = context;
+  const { hasPrimaryMaterial, hasReferenceMaterial, isResearchOnly } = context;
   switch (item.checkId) {
     case 'core.coverage':
-      return input.sourceContext
+      return hasPrimaryMaterial
         ? {
             ...item,
             instruction: `${item.instruction} ${LESSON_PRIMARY_SOURCE_INTEGRATION_RULE}`,
@@ -375,7 +378,7 @@ const applyLessonVerificationContext = (
       };
     case 'core.correctness': {
       const sourceRules = [
-        input.sourceContext ? LESSON_SOURCE_PRECEDENCE_RULE : '',
+        hasPrimaryMaterial ? LESSON_SOURCE_PRECEDENCE_RULE : '',
         hasReferenceMaterial ? LESSON_NAMED_SOURCE_ATTRIBUTION_RULE : '',
       ]
         .filter(Boolean)
@@ -412,13 +415,9 @@ const buildLessonVerificationPrompt = (
   input: LessonVerificationInput,
   draft: LessonContentDraft
 ): string => {
-  const hasReferenceMaterial = Boolean(
-    input.sourceContext || input.researchContext || input.sources.length > 0
-  );
-  const isResearchOnly =
-    !input.sourceContext && Boolean(input.researchContext || input.sources.length > 0);
+  const referenceAvailability = getLessonReferenceAvailability(input);
   const checklist = buildLessonVerificationChecklist(input.instructionPacks).map(item =>
-    applyLessonVerificationContext(item, { hasReferenceMaterial, input, isResearchOnly })
+    applyLessonVerificationContext(item, referenceAvailability)
   );
   const structuralCheckIds = buildRequiredLessonVerificationStructuralCheckIds(input, draft);
   const continuityRule = buildLessonContinuityRule(input.previousLessonTitles);
@@ -426,7 +425,7 @@ const buildLessonVerificationPrompt = (
   const retryCorrection = input.retryFeedback?.trim()
     ? `\nREQUIRED CORRECTION FROM THE PREVIOUS ATTEMPT:\n${input.retryFeedback.trim()}\n`
     : '';
-  return `${buildLessonGenerationReferenceContext(input)}
+  return `${buildLessonGenerationReferenceContext(input, 'pedagogical-review')}
 
 DRAFT TO VERIFY:
 ${JSON.stringify(draft)}

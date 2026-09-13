@@ -89,9 +89,13 @@ const createLessonResearchDossierSchema = (
       .optional(),
   });
 
-export const LessonResearchDossierSchema = createLessonResearchDossierSchema(
+export const PreviousEvidenceLessonResearchDossierSchema = createLessonResearchDossierSchema(
   YouTubeCandidateDecisionSchema
 );
+
+export const LessonResearchDossierSchema = PreviousEvidenceLessonResearchDossierSchema.extend({
+  evidencePacketJson: z.string().optional(),
+});
 
 export const PreviousLessonResearchDossierSchema = createLessonResearchDossierSchema(
   PreviousYouTubeCandidateDecisionSchema

@@ -15,6 +15,7 @@ import {
 import { firstSanitizedZodIssue, formatValidationPath } from '../utils/zodDiagnostics.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
+import { verifyLessonEvidence } from './lessonEvidenceVerification.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import { buildLessonGenerationPrompt } from './lessonGenerationPrompt.js';
 import { formatSourcesForPrompt } from './lessonGenerationSources.js';
@@ -514,18 +515,25 @@ export const reviewLessonContentDraftStrict = async ({
   draft,
   generationInput,
   verify = verifyLessonContentDraft,
+  checkpointReview,
 }: {
   draft: LessonContentDraft;
   generationInput: LessonGenerationInput;
   verify?: VerifyLessonDraft;
+  checkpointReview?: (operation: () => Promise<LessonContentDraft>) => Promise<LessonContentDraft>;
 }): Promise<LessonContentDraft> => {
-  const verifiedDraft = await verify({
-    draft,
-    generationInput,
-    responseSchema: LESSON_JOB_RESPONSE_SCHEMA,
-  });
-  assertValidQuizPlacement(verifiedDraft);
-  assertQuizExplanations(verifiedDraft);
-  assertBalancedLatexEnvironments(verifiedDraft);
+  const review = async () => {
+    const verifiedDraft = await verify({
+      draft,
+      generationInput,
+      responseSchema: LESSON_JOB_RESPONSE_SCHEMA,
+    });
+    assertValidQuizPlacement(verifiedDraft);
+    assertQuizExplanations(verifiedDraft);
+    assertBalancedLatexEnvironments(verifiedDraft);
+    return verifiedDraft;
+  };
+  const verifiedDraft = await (checkpointReview ? checkpointReview(review) : review());
+  await verifyLessonEvidence(generationInput, verifiedDraft);
   return verifiedDraft;
 };

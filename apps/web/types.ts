@@ -110,6 +110,7 @@ export interface ResearchCoursePlan {
 }
 
 export interface ResearchLessonDossier {
+  evidencePacketJson?: string;
   avoidOversimplifying: string[];
   controversies: string[];
   difficultSteps: string[];

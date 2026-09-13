@@ -1,7 +1,9 @@
 import { expect, test, vi } from 'vitest';
-
+import type { ProjectStore } from '../../src/projects/types.js';
+import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import {
   buildMappedSourceContext,
+  buildStoredDocumentSourceContext,
   isPdfAssetSoftTimeoutError,
   LessonSourceUnavailableError,
   mergeSources,
@@ -11,6 +13,63 @@ import {
   readProjectLanguage,
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
+import { readLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
+
+test('restores a legacy document using its authoritative project source identity', async () => {
+  const store = {
+    loadProjectSources: vi.fn().mockResolvedValue([]),
+    loadProjectSource: vi.fn().mockResolvedValue({
+      name: 'legacy.txt',
+      mimeType: 'text/plain',
+      data: Buffer.from('Original text.').toString('base64'),
+    }),
+  } as unknown as ProjectStore;
+  const result = await resolveLessonSourceMaterials({
+    project: { sourceKind: 'document', source: { ref: { id: 'original-source-id' } } } as never,
+    store,
+    userId: 'user',
+    projectId: 'project',
+    sectionId: 'lesson',
+    section: {},
+    signal: new AbortController().signal,
+  });
+  expect(readLessonPrimarySources(result.sourceContext)).toEqual([
+    {
+      source: { sourceId: 'original-source-id', title: 'legacy.txt' },
+      text: 'ORIGINAL SOURCE: legacy.txt\nOriginal text.',
+    },
+  ]);
+});
+
+test('keeps document delimiters outside original source excerpts', async () => {
+  const contents = ['Prima parte.\n---\nSeconda parte.', 'Altro documento.'];
+  const store = {
+    loadProjectSources: vi.fn().mockResolvedValue(
+      contents.map((content, index) => ({
+        file: {
+          name: `document-${index}.txt`,
+          mimeType: 'text/plain',
+          data: Buffer.from(content).toString('base64'),
+        },
+        ref: { id: `source-${index}`, hash: 'a'.repeat(64) },
+      }))
+    ),
+  } as unknown as ProjectStore;
+  const context = await buildStoredDocumentSourceContext({
+    store,
+    userId: 'user',
+    projectId: 'project',
+    section: {},
+    signal: new AbortController().signal,
+    primarySourceId: '',
+  });
+  expect(readLessonPrimarySources(context)).toEqual(
+    contents.map((content, index) => ({
+      source: { sourceId: `source-${index}`, title: `document-${index}.txt` },
+      text: `ORIGINAL SOURCE: document-${index}.txt\n${content}`,
+    }))
+  );
+});
 
 const mappedProject = {
   documentIndex: {
@@ -26,7 +85,7 @@ test('explicit chunks take priority over neighbors within the context cap', () =
   const context = buildMappedSourceContext(mappedProject, {
     primaryChunkIds: ['c02', 'c05', 'c08'],
   });
-  expect([...context.matchAll(/^CHUNK (\S+)/gm)].map(match => match[1])).toEqual([
+  expect(readLessonPrimarySources(context)?.flatMap(part => part.source.chunkIds ?? [])).toEqual([
     'c01',
     'c02',
     'c03',
@@ -49,7 +108,10 @@ test.each([
 
 test('absent mappings retain the default document excerpts', () => {
   const context = buildMappedSourceContext(mappedProject, {});
-  expect([...context.matchAll(/^CHUNK (\S+)/gm)].map(match => match[1])).toEqual(['c01', 'c02']);
+  expect(readLessonPrimarySources(context)?.flatMap(part => part.source.chunkIds ?? [])).toEqual([
+    'c01',
+    'c02',
+  ]);
 });
 
 test.each([
@@ -150,7 +212,12 @@ test('mapped source context preserves chunk boundaries and heading paths', () =>
     }
   );
 
-  expect(context).toContain(
+  const parts = readLessonPrimarySources(context);
+  expect(parts?.[0].source).toMatchObject({
+    sourceId: 'source-a',
+    chunkIds: ['source-a:chunk-001'],
+  });
+  expect(parts?.[0].text).toContain(
     'CHUNK source-a:chunk-001\nHeading path: Basi > Definizioni\nDefinizione del concetto.'
   );
   expect(context).not.toContain('Contenuto di un altro file.');

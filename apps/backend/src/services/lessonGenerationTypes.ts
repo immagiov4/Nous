@@ -1,5 +1,6 @@
 import type { LessonInstructionPackId } from '@shared/lessonInstructionPacks';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
+import type { LessonEvidencePacket } from './lessonEvidence.js';
 import type { StoredLessonLearningAid } from './lessonGenerationAids.js';
 import type { LessonImageCandidate, ResearchSource } from './lessonGenerationSources.js';
 import type { LessonVisualDraftPlan, LessonVisualRetryPlan } from './lessonGenerationVisuals.js';
@@ -68,6 +69,7 @@ export type LessonContentDraft = Omit<LessonGenerationDraft, 'learningAids'>;
 
 export interface LessonGenerationInput {
   config: GlobalModelConfig;
+  evidencePacket?: LessonEvidencePacket;
   coverageGaps?: string[];
   description: string;
   generationNotes?: string;

@@ -152,7 +152,7 @@ const collectSelectedVideoUrls = (
     )
   );
 
-const normalizeResearchedWebSources = (
+export const normalizeResearchedWebSources = (
   researchSummary: LessonResearchSummary | null
 ): ResearchSource[] =>
   (researchSummary?.sources || []).flatMap(source => {
@@ -208,6 +208,7 @@ const buildYouTubeResearchRecord = ({
 };
 
 export const buildResearchDossier = ({
+  evidencePacketJson,
   contentBlocks,
   existingDossier,
   generatedAt,
@@ -217,6 +218,7 @@ export const buildResearchDossier = ({
   sectionTitle,
   youtubeOutcome,
 }: {
+  evidencePacketJson?: string;
   contentBlocks: NormalizedLessonBlock[];
   existingDossier: Record<string, unknown> | null;
   generatedAt?: string;
@@ -234,6 +236,7 @@ export const buildResearchDossier = ({
   });
   const dossier: Record<string, unknown> = {
     ...existingDossier,
+    ...(evidencePacketJson ? { evidencePacketJson } : {}),
     sectionId,
     sources: mergeSources(lessonSources, normalizeResearchedWebSources(researchSummary)),
     title: sectionTitle,

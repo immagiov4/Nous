@@ -691,6 +691,9 @@ const parseResearchDossiers = (value: unknown): ProjectSnapshot['researchDossier
           title: ensureString(dossier.title),
           generatedAt: ensureString(dossier.generatedAt, now),
           factualSummary: ensureString(dossier.factualSummary),
+          ...(typeof dossier.evidencePacketJson === 'string'
+            ? { evidencePacketJson: dossier.evidencePacketJson }
+            : {}),
           keyExamples: parseStringArray(dossier.keyExamples),
           difficultSteps: parseStringArray(dossier.difficultSteps),
           recentDevelopments: parseStringArray(dossier.recentDevelopments),

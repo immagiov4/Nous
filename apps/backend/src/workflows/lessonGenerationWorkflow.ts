@@ -51,6 +51,7 @@ import {
   type LessonYouTubeSearchStateSchema,
   type LessonYouTubeState,
   type LessonYouTubeStateSchema,
+  PreviousEvidenceLessonGenerationDurableSchemaSet,
   PreviousLessonGenerationDurableSchemaSet,
   PreviousQuizExplanationLessonGenerationDurableSchemaSet,
   PreviousResearchContractLessonGenerationDurableSchemaSet,
@@ -118,6 +119,7 @@ export interface LessonGenerationWorkflowServices extends LessonVisualWorkflowSe
     LessonPersistenceState
   >;
   readonly draftLesson: LessonGenerationStage<LessonResearchState, LessonDraftState>;
+  readonly selectLessonEvidence: LessonGenerationStage<LessonResearchState, LessonResearchState>;
   readonly finalizeLesson: LessonGenerationStage<
     LessonPersistenceState,
     LessonGenerationWorkflowResult
@@ -151,7 +153,9 @@ export interface LessonGenerationWorkflowServices extends LessonVisualWorkflowSe
     LessonYouTubeSearchState,
     LessonYouTubeSearchState
   >;
-  readonly researchLesson: LessonGenerationStage<LessonYouTubeState, LessonResearchState>;
+  readonly researchLesson: (
+    context: LessonGenerationStageContext<LessonYouTubeState> & { readonly selectEvidence: boolean }
+  ) => Promise<LessonResearchState>;
   readonly researchSpecificYouTube: LessonGenerationStage<
     LessonYouTubePlanState,
     LessonYouTubeSearchState
@@ -625,7 +629,33 @@ const createLessonGenerationWorkflowDefinition = <
           message: 'The lesson research could not be completed.',
           modelSlot: researchModelSlot,
         },
-        stage => context.services.researchLesson(stage)
+        stage =>
+          context.services.researchLesson({
+            ...stage,
+            selectEvidence: durableSchemas === CurrentLessonGenerationDurableSchemaSet,
+          })
+      ),
+  });
+
+  const selectLessonEvidence = step<
+    typeof LessonResearchStateSchema,
+    typeof LessonResearchStateSchema,
+    Config,
+    Services
+  >({
+    externalEffect: 'provider',
+    id: 'select-lesson-evidence',
+    inputSchema: durableSchemas.LessonResearchStateSchema,
+    outputSchema: durableSchemas.LessonResearchStateSchema,
+    run: context =>
+      runStage(
+        context,
+        {
+          code: 'lesson_evidence_selection_failed',
+          message: 'The lesson evidence could not be selected.',
+          modelSlot: 'lesson',
+        },
+        stage => context.services.selectLessonEvidence(stage)
       ),
   });
 
@@ -657,7 +687,10 @@ const createLessonGenerationWorkflowDefinition = <
     Config,
     Services
   >({
-    externalEffect: 'provider',
+    externalEffect:
+      durableSchemas === CurrentLessonGenerationDurableSchemaSet
+        ? 'provider-with-postprocessing'
+        : 'provider',
     id: 'review-lesson',
     inputSchema: durableSchemas.LessonDraftStateSchema,
     outputSchema: durableSchemas.LessonReviewedStateSchema,
@@ -802,11 +835,15 @@ const createLessonGenerationWorkflowDefinition = <
       unwrapGenerationContext,
       assessSourceCoverage,
       stageDocumentSources,
-      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet
+      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet ||
+      durableSchemas === PreviousEvidenceLessonGenerationDurableSchemaSet
         ? ([planSourceResearch] as const)
         : []),
       routeYouTubeResearch,
       researchLesson,
+      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet
+        ? ([selectLessonEvidence] as const)
+        : []),
       draftLesson,
       reviewLesson,
       generateLearningAids,
@@ -907,4 +944,14 @@ export const createPreviousRoutingLessonGenerationWorkflow = (
     executionDefaults,
     configSchema,
     PreviousRoutingLessonGenerationDurableSchemaSet
+  );
+
+export const createPreviousEvidenceLessonGenerationWorkflow = (
+  executionDefaults: LessonGenerationWorkflowConfig,
+  configSchema: z.ZodType<LessonGenerationWorkflowConfig> = LessonGenerationWorkflowConfigSchema
+) =>
+  createLessonGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    PreviousEvidenceLessonGenerationDurableSchemaSet
   );

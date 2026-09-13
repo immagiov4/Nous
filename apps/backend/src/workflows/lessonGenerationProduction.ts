@@ -1,6 +1,7 @@
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
+import { selectLessonEvidence } from '../services/lessonEvidenceModel.js';
 import { generateLessonLearningAids } from '../services/lessonGenerationAids.js';
 import { selectPrerequisiteSourceCoverage } from '../services/lessonGenerationCoverage.js';
 import {
@@ -62,6 +63,7 @@ export const createProductionLessonGenerationServices = (
     resolveSourceMaterials: resolveLessonSourceMaterials,
     reviewContent: reviewLessonContentDraftStrict,
     selectCoverage: selectPrerequisiteSourceCoverage,
+    selectEvidence: selectLessonEvidence,
     store: projectStore,
   });
   const persistence = workflowStore.lessonGenerationPersistence;

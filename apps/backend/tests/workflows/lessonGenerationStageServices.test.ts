@@ -2,6 +2,11 @@ import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import type { ProjectSnapshot, ProjectStore } from '../../src/projects/types.js';
 import { CodexAppServerError } from '../../src/services/codexAppServer.js';
+import {
+  buildLessonEvidenceMaterials,
+  resolveLessonEvidence,
+} from '../../src/services/lessonEvidence.js';
+import { retryLessonGenerationCorrection } from '../../src/services/lessonGenerationCorrection.js';
 import { resolveLessonResearchRequest } from '../../src/services/lessonGenerationModel.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
@@ -10,7 +15,10 @@ import {
   createLessonGenerationStageServices,
   type LessonGenerationStageDependencies,
 } from '../../src/workflows/lessonGenerationStageServices.js';
-import { createLessonGenerationWorkflow } from '../../src/workflows/lessonGenerationWorkflow.js';
+import {
+  createLessonGenerationWorkflow,
+  createPreviousEvidenceLessonGenerationWorkflow,
+} from '../../src/workflows/lessonGenerationWorkflow.js';
 import {
   LessonContextStateSchema,
   LessonDraftStateSchema,
@@ -86,6 +94,17 @@ const dependencies = (
   }),
   reviewContent: unused,
   selectCoverage: unused,
+  selectEvidence: vi.fn(async input => {
+    const materials = buildLessonEvidenceMaterials(input);
+    return resolveLessonEvidence(materials, {
+      materials: materials.map(material => ({
+        materialId: material.materialId,
+        reason: 'No evidence required by this stage fixture.',
+        passages: [],
+        overlaps: [],
+      })),
+    });
+  }),
   store: {} as ProjectStore,
   ...overrides,
 });
@@ -133,6 +152,142 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test('carries fresh web research notes and identities into selected evidence and drafting', async () => {
+    const webSource = {
+      title: 'Source documentation',
+      url: 'https://example.org/reference',
+      note: 'A request identifier links the response to its request.',
+    };
+    const generateContent = vi.fn().mockResolvedValue({
+      contentBlocks: [
+        { type: 'markdown', markdown: 'A request identifier links the response to its request.' },
+      ],
+      generatedVisuals: [],
+      imageRefs: [],
+    });
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        generateContent,
+        generateResearch: vi.fn().mockResolvedValue({
+          avoidOversimplifying: [],
+          controversies: [],
+          difficultSteps: [],
+          factualSummary: 'Request-response correlation.',
+          keyExamples: [],
+          recentDevelopments: [],
+          sources: [webSource],
+          youtubeCandidateDecisions: [],
+        }),
+        selectEvidence: vi.fn(async input =>
+          resolveLessonEvidence(buildLessonEvidenceMaterials(input), {
+            materials: buildLessonEvidenceMaterials(input).map(material => ({
+              materialId: material.materialId,
+              reason:
+                material.kind === 'source'
+                  ? 'Attributed evidence for the lesson.'
+                  : 'Covered by the attributed note.',
+              passages:
+                material.kind === 'source'
+                  ? [{ firstUnit: 0, lastUnit: 0, claims: ['Request-response correlation.'] }]
+                  : [],
+              overlaps: [],
+            })),
+          })
+        ),
+      })
+    );
+    const state = LessonYouTubeStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      research: { context: '', youtube: null },
+      stage: 'youtube',
+    });
+    state.lessonInputData.sourceContext = '';
+    const researched = await services.researchLesson({
+      ...stageContext(state),
+      selectEvidence: true,
+    });
+    const selected = await services.selectLessonEvidence(stageContext(researched));
+    await services.draftLesson(stageContext(selected));
+    expect(researched.lessonSources).toEqual([webSource]);
+    expect(generateContent.mock.calls[0]?.[0].evidencePacket.passages).toEqual([
+      expect.objectContaining({
+        sourceIndex: 0,
+        sourceContent: 'attributed-note',
+        source: { title: webSource.title, url: webSource.url },
+        units: [{ text: webSource.note, startOffset: 0, endOffset: webSource.note.length }],
+      }),
+    ]);
+  });
+  test.each([
+    true,
+    false,
+  ])('selects evidence only for the evidence-capable durable definition: %s', async current => {
+    const definition = current
+      ? createLessonGenerationWorkflow(config)
+      : createPreviousEvidenceLessonGenerationWorkflow(config);
+    const node = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'research-lesson'
+    )?.node;
+    if (node?.kind !== 'step') throw new Error('Missing research step.');
+    const stageDependencies = dependencies({
+      generateResearch: vi.fn().mockResolvedValue({
+        avoidOversimplifying: [],
+        controversies: [],
+        difficultSteps: [],
+        factualSummary: 'Sintesi.',
+        keyExamples: [],
+        recentDevelopments: [],
+        sources: [],
+        youtubeCandidateDecisions: [],
+      }),
+    });
+    const services = createLessonGenerationStageServices(stageDependencies);
+    const state = LessonYouTubeStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      research: { context: '', youtube: null },
+      stage: 'youtube',
+    });
+    const researched = await node.run({ ...stageContext(state), services } as never);
+    const selectionNode = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'select-lesson-evidence'
+    )?.node;
+    if (selectionNode?.kind === 'step') {
+      vi.mocked(stageDependencies.selectEvidence).mockRejectedValueOnce(
+        retryLessonGenerationCorrection({
+          code: 'lesson_evidence_selection_invalid',
+          feedback: 'Repair the retained source references.',
+          message: 'Invalid evidence selection.',
+        })
+      );
+      await expect(
+        selectionNode.run({ ...stageContext(researched), services } as never)
+      ).rejects.toMatchObject({ failure: { kind: 'corrective' } });
+    }
+    const result =
+      selectionNode?.kind === 'step'
+        ? await selectionNode.run({
+            ...stageContext(researched),
+            retryFeedback: 'Repair the retained source references.',
+            attemptNumber: 2,
+            services,
+          } as never)
+        : researched;
+    expect(Boolean(selectionNode)).toBe(current);
+    expect(stageDependencies.selectEvidence).toHaveBeenCalledTimes(current ? 2 : 0);
+    expect(stageDependencies.generateResearch).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(stageDependencies.generateResearch).mock.calls[0][0].retryFeedback
+    ).toBeUndefined();
+    if (current) {
+      expect(vi.mocked(stageDependencies.selectEvidence).mock.calls[1][0].retryFeedback).toBe(
+        'Repair the retained source references.'
+      );
+    }
+    expect(Object.hasOwn(result as object, 'evidencePacketJson')).toBe(current);
+    expect(result).toMatchObject({ stage: 'research', lessonSources: [] });
+  });
   test.each([
     'recover',
     'exhaust',
@@ -535,7 +690,7 @@ describe('lesson generation production stages', () => {
       stage: 'youtube',
     });
 
-    await services.researchLesson(stageContext(youtubeState));
+    await services.researchLesson({ ...stageContext(youtubeState), selectEvidence: true });
 
     expect(prepared.state.lessonInputData.sourceContext).toBe('');
     expect(generateResearch).toHaveBeenCalledWith(
@@ -970,7 +1125,10 @@ describe('lesson generation production stages', () => {
       youtubePlanning: { courseTitle: 'Corso', keyConcepts: [] },
     });
 
-    const researchState = await services.researchLesson(stageContext(youtubeState));
+    const researchState = await services.researchLesson({
+      ...stageContext(youtubeState),
+      selectEvidence: true,
+    });
     await services.draftLesson(stageContext(researchState));
 
     const writtenSources = generateContent.mock.calls[0]?.[0]?.sources ?? [];

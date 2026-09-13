@@ -1,6 +1,11 @@
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
+import {
+  type LessonEvidencePacket,
+  restoreLessonEvidence,
+  serializeLessonEvidence,
+} from '../services/lessonEvidence.js';
 import type { GenerateLessonLearningAidsInput } from '../services/lessonGenerationAids.js';
 import {
   isLessonStructuredOutputError,
@@ -16,6 +21,7 @@ import {
 import {
   findResearchLesson,
   generateLessonResearchSummary,
+  normalizeResearchedWebSources,
   type ResearchYouTube,
   selectLessonSources,
 } from '../services/lessonGenerationResearch.js';
@@ -46,13 +52,18 @@ import {
   buildLessonGenerationSourceFingerprint,
   buildLessonGenerationTargetFingerprint,
 } from './lessonGenerationAuthority.js';
-import type { LessonGenerationWorkflowServices } from './lessonGenerationWorkflow.js';
+import type {
+  LessonGenerationStageContext,
+  LessonGenerationWorkflowServices,
+} from './lessonGenerationWorkflow.js';
 import type {
   LessonContextState,
   LessonGenerationPreparationOutcome,
+  LessonResearchState,
   LessonSourcesState,
 } from './lessonGenerationWorkflowContract.js';
 import {
+  LessonContentDraftSchema,
   LessonDocumentAssetsSchema,
   LessonGenerationWarningSchema,
   LessonLearningAidSchema,
@@ -63,6 +74,7 @@ import {
   LessonVisualPlanningDecisionSchema,
   ProjectLessonVisualSchema,
 } from './lessonGenerationWorkflowSchemas.js';
+import { readLessonReviewRetry, serializeLessonReviewRetry } from './lessonReviewCheckpoint.js';
 import { failPermanently, readRetryAfterMs, retryCorrective } from './retryPolicy.js';
 import { canonicalJson } from './schemaFingerprint.js';
 import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
@@ -76,6 +88,7 @@ export interface LessonGenerationStageDependencies {
   readonly generateAids: (input: GenerateLessonLearningAidsInput) => Promise<readonly unknown[]>;
   readonly generateContent: GenerateLessonContent;
   readonly generateResearch: GenerateResearch;
+  readonly selectEvidence: (input: LessonGenerationInput) => Promise<LessonEvidencePacket>;
   readonly loadProject: ProjectStore['loadProject'];
   readonly loadProjectWithRevision: ProjectStore['loadProjectWithRevision'];
   readonly logger?: LessonStageLogger;
@@ -98,6 +111,9 @@ export interface LessonGenerationStageDependencies {
   readonly reviewContent: (input: {
     draft: LessonContentDraft;
     generationInput: LessonGenerationInput;
+    checkpointReview?: (
+      operation: () => Promise<LessonContentDraft>
+    ) => Promise<LessonContentDraft>;
   }) => Promise<LessonContentDraft>;
   readonly selectCoverage: (input: {
     config: GlobalModelConfig;
@@ -148,7 +164,9 @@ const buildGenerationInput = (
 
 const runCorrectableLessonOperation = async <Output>(
   operation: () => Promise<Output>,
-  invalidOutput: LessonGenerationCorrection
+  invalidOutput: LessonGenerationCorrection,
+  formatFeedback: (correction: LessonGenerationCorrection) => string = correction =>
+    correction.feedback
 ): Promise<Output> => {
   try {
     return await operation();
@@ -156,12 +174,12 @@ const runCorrectableLessonOperation = async <Output>(
     if (error instanceof LessonGenerationCorrectionError) {
       throw retryCorrective({
         code: error.code,
-        feedback: error.feedback,
+        feedback: formatFeedback(error),
         message: error.message,
       });
     }
     if (isLessonStructuredOutputError(error)) {
-      throw retryCorrective(invalidOutput);
+      throw retryCorrective({ ...invalidOutput, feedback: formatFeedback(invalidOutput) });
     }
     throw error;
   }
@@ -584,7 +602,7 @@ const researchLesson =
         message: 'The lesson research model returned invalid structured output.',
       }
     );
-    const lessonSources = selectLessonSources({
+    const selectedSources = selectLessonSources({
       discoveredYoutubeSources:
         context.input.researchRouting && summary === null
           ? []
@@ -593,15 +611,37 @@ const researchLesson =
       originalSources: context.input.originalSources,
       researchSummary: summary,
     });
-    return {
+    const lessonSources = context.selectEvidence
+      ? mergeSources(selectedSources, normalizeResearchedWebSources(summary))
+      : selectedSources;
+    const researchContext = canonicalJson(existingDossier ?? summary ?? {});
+    const researchState = {
       ...context.input,
       lessonSources,
-      research: {
-        context: canonicalJson(existingDossier ?? summary ?? {}),
-        summary,
-        youtube: context.input.research.youtube,
-      },
-      stage: 'research',
+      research: { context: researchContext, summary, youtube: context.input.research.youtube },
+      stage: 'research' as const,
+    };
+    return researchState;
+  };
+
+const selectLessonEvidence =
+  (
+    dependencies: LessonGenerationStageDependencies
+  ): LessonGenerationWorkflowServices['selectLessonEvidence'] =>
+  async context => {
+    const evidenceInput = buildEvidenceGenerationInput(context);
+    const evidence = await runCorrectableLessonOperation(
+      () => dependencies.selectEvidence(evidenceInput),
+      {
+        code: 'lesson_evidence_selection_invalid',
+        feedback:
+          'Return valid evidence selections with existing material IDs and complete inclusive unit ranges. Preserve qualifications and required factual support.',
+        message: 'The lesson evidence selector returned invalid structured output.',
+      }
+    );
+    return {
+      ...context.input,
+      evidencePacketJson: serializeLessonEvidence(evidenceInput, evidence),
     };
   };
 
@@ -612,23 +652,31 @@ const toDurableLessonDraft = (draft: LessonContentDraft) => ({
   imageRefs: draft.imageRefs.map(reference => ({ ...reference, anchorHeading: '' })),
 });
 
+const buildEvidenceGenerationInput = (
+  context: LessonGenerationStageContext<Omit<LessonResearchState, 'stage'>>
+): LessonGenerationInput => {
+  const input = {
+    ...buildGenerationInput(
+      context.input,
+      modelConfig(context),
+      context.signal,
+      context.input.lessonSources,
+      context.retryFeedback
+    ),
+    researchContext: context.input.research.context,
+  };
+  return context.input.evidencePacketJson
+    ? { ...input, evidencePacket: restoreLessonEvidence(input, context.input.evidencePacketJson) }
+    : input;
+};
+
 const draftLesson =
   (
     dependencies: LessonGenerationStageDependencies
   ): LessonGenerationWorkflowServices['draftLesson'] =>
   async context => {
     const draft = await runCorrectableLessonOperation(
-      () =>
-        dependencies.generateContent({
-          ...buildGenerationInput(
-            context.input,
-            modelConfig(context),
-            context.signal,
-            context.input.lessonSources,
-            context.retryFeedback
-          ),
-          researchContext: context.input.research.context,
-        }),
+      () => dependencies.generateContent(buildEvidenceGenerationInput(context)),
       {
         code: 'lesson_draft_output_invalid',
         feedback:
@@ -644,29 +692,51 @@ const reviewLesson =
     dependencies: LessonGenerationStageDependencies
   ): LessonGenerationWorkflowServices['reviewLesson'] =>
   async context => {
+    const retry = readLessonReviewRetry(context.retryFeedback);
+    const providerEffect = context.providerEffect;
+    const checkpointReview = providerEffect
+      ? (operation: () => Promise<LessonContentDraft>) =>
+          providerEffect.run({
+            key: `pedagogical-review:${retry.pedagogicalRevision}`,
+            operation: async () => toDurableLessonDraft(await operation()),
+            outputSchema: LessonContentDraftSchema,
+          })
+      : undefined;
     const draft = await runCorrectableLessonOperation(
-      () =>
-        dependencies.reviewContent({
-          draft: context.input.draft,
-          generationInput: {
-            ...buildGenerationInput(
-              context.input,
-              modelConfig(context),
-              context.signal,
-              context.input.lessonSources,
-              context.retryFeedback
-            ),
-            researchContext: context.input.research.context,
-          },
-        }),
+      async () => {
+        const generationInput = buildEvidenceGenerationInput({
+          ...context,
+          retryFeedback: retry.feedback,
+        });
+        let draft = context.input.draft;
+        if (providerEffect && retry.pedagogicalRevision > 0) {
+          draft = await providerEffect.run({
+            key: `pedagogical-review:${retry.pedagogicalRevision - 1}`,
+            outputSchema: LessonContentDraftSchema,
+            operation: async () => {
+              throw new Error('The preceding pedagogical review checkpoint is missing.');
+            },
+          });
+        }
+        return dependencies.reviewContent({
+          draft,
+          generationInput,
+          ...(checkpointReview ? { checkpointReview } : {}),
+        });
+      },
       {
         code: 'lesson_review_output_invalid',
         feedback:
           'Return only valid lesson verification JSON matching the required schema, including the complete evidence-bearing verificationReport.',
         message: 'The lesson verifier returned invalid structured output.',
-      }
+      },
+      correction =>
+        providerEffect ? serializeLessonReviewRetry(retry, correction) : correction.feedback
     );
     return {
+      ...(context.input.evidencePacketJson
+        ? { evidencePacketJson: context.input.evidencePacketJson }
+        : {}),
       documentAssetOwners: context.input.documentAssetOwners,
       documentSourceHash: context.input.documentSourceHash,
       draft: toDurableLessonDraft(draft),
@@ -744,6 +814,7 @@ export const createLessonGenerationStageServices = (
   | 'prepareLesson'
   | 'researchFallbackYouTube'
   | 'researchLesson'
+  | 'selectLessonEvidence'
   | 'researchSpecificYouTube'
   | 'reviewLesson'
 > => {
@@ -779,6 +850,7 @@ export const createLessonGenerationStageServices = (
     prepareLesson: prepareLesson(dependencies),
     researchFallbackYouTube: researchFallbackYouTube(dependencies, logger),
     researchLesson: researchLesson(dependencies),
+    selectLessonEvidence: selectLessonEvidence(dependencies),
     researchSpecificYouTube: researchSpecificYouTube(dependencies, logger),
     reviewLesson: reviewLesson(dependencies),
   };
