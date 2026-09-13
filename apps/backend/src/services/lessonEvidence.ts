@@ -127,11 +127,10 @@ export const buildLessonEvidenceMaterials = (
   return materials;
 };
 
-const invalidSelection = () =>
+const invalidSelection = (detail: string) =>
   retryLessonGenerationCorrection({
     code: 'lesson_evidence_selection_invalid',
-    feedback:
-      'Select evidence using existing material IDs and inclusive unit ranges. Classify every material exactly once. Retained ranges must be disjoint, valid and have supported claims. Every omitted overlap must point to a retained range in another material. Preserve qualifiers and context required for meaning.',
+    feedback: `Select evidence using existing material IDs and inclusive unit ranges. Classify every material exactly once. Retained ranges must be disjoint, valid and have supported claims. Every omitted overlap must point to a retained range in another material. Preserve qualifiers and context required for meaning. Fix this violation: ${detail}`,
     message: 'The lesson evidence selection contains invalid source references.',
   });
 
@@ -163,7 +162,7 @@ const validateSelectedOverlaps = (
             range.lastUnit >= overlap.retainedLastUnit
         )
       )
-        throw invalidSelection();
+        throw invalidSelection(`Invalid overlap in material ${selected.materialId}.`);
     }
   }
 };
@@ -192,22 +191,33 @@ export const resolveLessonEvidence = (
   response: unknown
 ): LessonEvidencePacket => {
   const parsed = LessonEvidenceSelectionSchema.safeParse(response);
-  if (!parsed.success) throw invalidSelection();
+  if (!parsed.success)
+    throw invalidSelection(
+      parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ')
+    );
   const selection = parsed.data;
   const byId = new Map(materials.map(material => [material.materialId, material]));
   if (
     selection.materials.length !== materials.length ||
     new Set(selection.materials.map(item => item.materialId)).size !== materials.length
   )
-    throw invalidSelection();
+    throw invalidSelection(
+      `Expected exactly ${materials.length} unique material decisions; received ${selection.materials.length}: ${selection.materials.map(item => item.materialId).join(', ')}.`
+    );
   const passages: LessonEvidencePacket['passages'] = [];
   for (const selected of selection.materials) {
     const material = byId.get(selected.materialId);
-    if (!material) throw invalidSelection();
+    if (!material)
+      throw invalidSelection(
+        `Unknown materialId ${selected.materialId}; expected one of ${[...byId.keys()].join(', ')}.`
+      );
     const ranges = [...selected.passages].sort((a, b) => a.firstUnit - b.firstUnit);
     let previousEnd = -1;
     for (const range of ranges) {
-      if (!validRange(range, material) || range.firstUnit <= previousEnd) throw invalidSelection();
+      if (!validRange(range, material) || range.firstUnit <= previousEnd)
+        throw invalidSelection(
+          `Invalid or overlapping range ${range.firstUnit}-${range.lastUnit} for ${selected.materialId}; valid units are 0-${material.units.length - 1}.`
+        );
       previousEnd = range.lastUnit;
       const { units, ...identity } = material;
       passages.push({
@@ -243,7 +253,8 @@ export const restoreLessonEvidence = (
 ): LessonEvidencePacket => {
   const saved = StoredSelectionSchema.parse(JSON.parse(serialized));
   const packet = resolveLessonEvidence(buildLessonEvidenceMaterials(input), saved.selection);
-  if (packet.materialHash !== saved.materialHash) throw invalidSelection();
+  if (packet.materialHash !== saved.materialHash)
+    throw invalidSelection('Stored evidence no longer matches the source materials.');
   return packet;
 };
 

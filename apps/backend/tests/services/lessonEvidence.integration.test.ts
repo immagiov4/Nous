@@ -360,6 +360,21 @@ describe('role-specific lesson evidence through the production Luna model path',
     });
     expect(retried).toEqual(initial);
   });
+  test('returns actionable feedback for an invalid material reference', () => {
+    const input = generationInput();
+    const invalid = structuredClone(evidenceSelection);
+    invalid.materials[0].materialId = 'missing-material';
+    let failure: unknown;
+    try {
+      resolveLessonEvidence(buildLessonEvidenceMaterials(input), invalid);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({
+      code: 'lesson_evidence_selection_invalid',
+      feedback: expect.stringContaining('missing-material'),
+    });
+  });
   test('supports clips and citations across adjacent selections while rejecting omitted units', async () => {
     const input = generationInput();
     input.researchContext = JSON.stringify(evidenceResearch);
