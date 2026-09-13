@@ -1036,6 +1036,7 @@ describe('lesson generation production stages', () => {
       })
     );
     const sources = lessonSourcesState();
+    sources.lessonInputData.coverageGaps = ['Contratto API attuale'];
 
     const signal = new AbortController().signal;
     const context = stageContext(sources, signal);
@@ -1049,6 +1050,9 @@ describe('lesson generation production stages', () => {
     await services.finalizeYouTubeResearch(stageContext(searched, signal));
 
     expect(planYouTube).toHaveBeenCalledOnce();
+    expect(planYouTube).toHaveBeenCalledWith(
+      expect.objectContaining({ coverageGaps: ['Contratto API attuale'] })
+    );
     expect(researchYouTube.mock.calls.map(call => call[0])).toEqual(expectedQueries);
     expect(researchYouTube.mock.calls.map(call => call[2])).toEqual(
       expectedQueries.map(() => signal)

@@ -471,6 +471,9 @@ const planYouTubeResearch =
           config: modelConfig(context),
           context: context.input.youtubePlanning.context,
           courseTitle: context.input.youtubePlanning.courseTitle,
+          ...(context.input.lessonInputData.coverageGaps?.length
+            ? { coverageGaps: context.input.lessonInputData.coverageGaps }
+            : {}),
           ...(context.input.youtubePlanning.keyConcepts.length > 0
             ? { keyConcepts: context.input.youtubePlanning.keyConcepts }
             : {}),

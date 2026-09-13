@@ -105,15 +105,17 @@ test.each([
   '```mermaid',
   '~~~mermaid',
   '```` mermaid',
-])('rejects %s fences before model review', async fence => {
+])('lets the reviewer remove an original %s fence', async fence => {
   const draft = structuredClone(original);
   const markdown = draft.contentBlocks[0];
   if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
   markdown.markdown += `\n\n${fence}\ngraph TD\nA-->B\n${fence.startsWith('~') ? '~~~' : '````'}`;
-  await expect(reviewLessonContentDraftStrict({ draft, generationInput })).rejects.toMatchObject({
-    code: 'lesson_embedded_mermaid_unsupported',
-  });
-  expect(runCodexAppServerTurn).not.toHaveBeenCalled();
+  mockReview(original, preserved);
+
+  await expect(reviewLessonContentDraftStrict({ draft, generationInput })).resolves.toEqual(
+    original
+  );
+  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
 });
 
 test('rejects Mermaid fences introduced by model review', async () => {

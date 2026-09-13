@@ -484,7 +484,6 @@ export const verifyLessonContentDraft = async (input: {
       message: 'Lesson markdown contains an unvalidated Mermaid diagram.',
     });
   };
-  rejectEmbeddedMermaid(input.draft);
   const prompt = buildLessonVerificationPrompt(generationInput, input.draft);
   const checkIds = buildRequiredLessonVerificationCheckIds(generationInput, input.draft);
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
