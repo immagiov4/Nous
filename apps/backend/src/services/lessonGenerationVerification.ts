@@ -482,13 +482,15 @@ export const verifyLessonContentDraft = async (input: {
         input: [{ text: prompt, type: 'text' }],
         model: modelConfig.model,
         outputSchema: schema.schema,
-        reasoningEffort: modelConfig.reasoningEffort,
+        reasoningEffort: 'low',
         serviceTier: resolveCodexServiceTierForSlot(generationInput.config, 'lesson'),
         signal: generationInput.signal,
       });
       verified = JSON.parse(response) as VerifiedLessonContentDraft;
     } else {
-      const configured = createConfiguredTextModel(generationInput.config, 'lesson');
+      const configured = createConfiguredTextModel(generationInput.config, 'lesson', {
+        reasoningEffort: 'low',
+      });
       const { output } = await generateText({
         abortSignal: generationInput.signal,
         maxRetries: 0,

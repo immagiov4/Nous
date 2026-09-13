@@ -382,6 +382,7 @@ describe('lesson review preserves its subject and learning objectives', () => {
     mockReview(original, preserved);
     await expect(review()).resolves.toEqual(original);
     expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+    expect(runCodexAppServerTurn.mock.calls[0][0].reasoningEffort).toBe('low');
     const schema = runCodexAppServerTurn.mock.calls[0][0].outputSchema;
     expect(schema.properties.lessonIntegrity).not.toHaveProperty('$schema');
     expect(schema.required).toEqual(

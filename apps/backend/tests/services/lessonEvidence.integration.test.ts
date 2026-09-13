@@ -344,6 +344,7 @@ describe('role-specific lesson evidence through the production Luna model path',
     runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(factualReport(true)));
     await verifyLessonEvidence({ ...input, retryFeedback: failure.feedback }, evidenceLesson);
     const request = runCodexAppServerTurn.mock.calls.at(-1)?.[0];
+    expect(request.reasoningEffort).toBe('low');
     expect(JSON.parse(request.input[0].text).retryFeedback).toBe(failure.feedback);
   });
 
