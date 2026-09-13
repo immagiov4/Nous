@@ -108,16 +108,18 @@ With `gpt-5.6-luna`, `tiktoken` 0.14.0 and `o200k_base`, visible input includes 
 | Evidence selection | — | — | 5,993 |
 | Drafting | 8,832 | 12,463 | 5,712 |
 | Pedagogical review (previously combined) | 10,593 | 14,224 | 6,919 |
-| Final factual review | — | — | 2,078 |
-| Drafting and reviews | 19,425 | 26,687 | 14,709 |
-| Total including selection | 19,425 | 26,687 | 20,702 |
+| Final factual review | — | — | 2,169 |
+| Drafting and reviews | 19,425 | 26,687 | 14,800 |
+| Total including selection | 19,425 | 26,687 | 20,793 |
 | Largest call | 10,593 | 14,224 | 6,919 |
 
-The fresh-dossier total increases 6.6%; the reused-dossier total decreases 22.4%. The largest downstream request and the combined drafting/review input decrease in both cases. Research is upstream and excluded from this comparison. The extra selection and factual calls are an explicit cost; no automatic cutoff or model change is applied to hide it.
+The fresh-dossier total increases 7.0%; the reused-dossier total decreases 22.1%. The largest downstream request and the combined drafting/review input decrease in both cases. Research is upstream and excluded from this comparison. The extra selection and factual calls are an explicit cost; no automatic cutoff or model change is applied to hide it.
 
 To reproduce, install `tiktoken==0.14.0` in a separate Python environment, set `LESSON_EVIDENCE_MEASUREMENTS_DIR` to an output directory outside the repository, run `bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/services/lessonEvidence.integration.test.ts`, then run `python scripts/measure-lesson-evidence.py <output-directory>`. The evidence-loss case removes the scalar-clock qualification from retained evidence and verifies that the final factual check rejects the resulting unsupported claim. The full-context comparison retains that qualification. Actual pedagogical effectiveness requires model evaluation beyond this deterministic contract test.
 
 #### Real-model evaluation
+
+Factual support includes valid deductions from the supplied definitions and premises, even when the conclusion is not stated verbatim. An unsupported finding must identify a missing external premise or an invalid inference. Run `bun --tsconfig-override apps/backend/tsconfig.json scripts/run-lesson-evidence-quality.ts` with `REAL_LESSON_QUALITY_TESTS=I_ACCEPT_REAL_PROVIDER_COSTS` to evaluate this boundary with Luna. The two real-provider cases require acceptance of a valid deduction and rejection of an exact value requiring an absent premise. Inputs, outcomes and usage are written to a temporary directory. These semantic checks use the real provider rather than asserting prompt wording.
 
 A Luna evaluation on the same authored materials selected primary units 1–3 and transcript `source-1` units 2 and 5 (90.25–135.5 and 225.25–270.5 seconds). The initial range validation rejected valid contained references; validation now accepts ordered subranges inside retained passages. Factual instructions distinguish endorsed assertions from quiz distractors, hypothetical examples, visual plans and absent optional captions.
 
