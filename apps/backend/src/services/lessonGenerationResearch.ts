@@ -33,11 +33,13 @@ export const findResearchLesson = (
     : null;
 
 export const generateLessonResearchSummary = async ({
+  allowOptionalFailure = false,
   existingDossier,
   generationInput,
   research,
   youtubeOutcome,
 }: {
+  allowOptionalFailure?: boolean;
   existingDossier: Record<string, unknown> | null;
   generationInput: LessonGenerationInput;
   research: GenerateResearch;
@@ -57,6 +59,7 @@ export const generateLessonResearchSummary = async ({
   } catch (error) {
     generationInput.signal.throwIfAborted();
     if (
+      !allowOptionalFailure ||
       !generationInput.researchRouting?.suppliedSourcesSufficient ||
       !isResearchProviderUnavailable(error)
     )

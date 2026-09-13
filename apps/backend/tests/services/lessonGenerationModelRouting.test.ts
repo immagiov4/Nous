@@ -6,6 +6,47 @@ import { resolveLessonResearchRequest } from '../../src/services/lessonGeneratio
 const config = getGlobalModelConfig();
 
 describe('lesson research model routing', () => {
+  test.each([
+    false,
+    true,
+  ])('retains assessed gaps after routed selection with refresh %s', refreshResearch => {
+    const input = {
+      config,
+      coverageGaps: ['Missing prerequisite'],
+      refreshResearch,
+      sourceContext: 'Supplied chapter',
+      researchRouting: {
+        suppliedSourcesSufficient: false,
+        rationale: 'Fill prerequisite gap',
+        channels: [{ type: 'web' as const, selected: true, rationale: 'Missing facts' }],
+      },
+    };
+    expect(resolveLessonResearchRequest(input)).toEqual({
+      mode: 'source-backed-gaps',
+      slot: 'research',
+      webSearch: true,
+    });
+    expect(resolveLessonResearchRequest({ ...input, coverageGaps: [] })).toEqual({
+      mode: 'source-backed-refresh',
+      slot: 'research',
+      webSearch: true,
+    });
+    expect(resolveLessonResearchRequest({ ...input, sourceContext: '' })).toEqual({
+      mode: 'source-free',
+      slot: 'research',
+      webSearch: true,
+    });
+    expect(
+      resolveLessonResearchRequest({
+        ...input,
+        researchRouting: {
+          ...input.researchRouting,
+          suppliedSourcesSufficient: true,
+          channels: [{ type: 'web', selected: false, rationale: 'Enough sources' }],
+        },
+      })
+    ).toEqual({ mode: 'source-sufficient', slot: 'lesson', webSearch: false });
+  });
   test('uses the lesson model without web search when only source material must be structured', () => {
     expect(
       resolveLessonResearchRequest({

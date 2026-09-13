@@ -133,6 +133,55 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test.each([
+    'recover',
+    'exhaust',
+  ] as const)('uses configured attempts for optional web research: %s', async outcome => {
+    const providerError = new CodexAppServerError('Unavailable', 'process');
+    const summary = {
+      avoidOversimplifying: [],
+      controversies: [],
+      difficultSteps: [],
+      factualSummary: 'Verified facts',
+      keyExamples: [],
+      recentDevelopments: [],
+      sources: [],
+    };
+    const generateResearch = vi.fn().mockRejectedValue(providerError);
+    if (outcome === 'recover')
+      generateResearch.mockRejectedValueOnce(providerError).mockResolvedValue(summary);
+    const services = createLessonGenerationStageServices(dependencies({ generateResearch }));
+    const input = LessonYouTubeStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      research: { context: '', youtube: null },
+      stage: 'youtube',
+      researchRouting: {
+        suppliedSourcesSufficient: true,
+        rationale: 'Optional current context',
+        channels: [
+          { type: 'web', selected: true, rationale: 'Current examples' },
+          { type: 'youtube', selected: false, rationale: 'Text only' },
+        ],
+      },
+    });
+    const attempts = outcome === 'recover' ? 2 : config.maxAttempts;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      for (let attemptNumber = 1; attemptNumber <= attempts; attemptNumber += 1) {
+        const result = services.researchLesson({ ...stageContext(input), attemptNumber });
+        if (attemptNumber < attempts) await expect(result).rejects.toBe(providerError);
+        else
+          await expect(result).resolves.toMatchObject({
+            research: { summary: outcome === 'recover' ? summary : null },
+          });
+      }
+      expect(generateResearch).toHaveBeenCalledTimes(attempts);
+      expect(warn).toHaveBeenCalledTimes(outcome === 'recover' ? 0 : 1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
   test('preserves corrective routing failures and forwards feedback to the next lesson decision', async () => {
     let selected = false;
     const planner = vi.fn(async input =>
@@ -202,7 +251,11 @@ describe('lesson generation production stages', () => {
         { type: 'youtube', selected: true, rationale: 'Demonstration required.' },
       ],
     };
-    const planning = services.planYouTubeResearch(stageContext(input));
+    await expect(services.planYouTubeResearch(stageContext(input))).rejects.toBe(providerError);
+    const planning = services.planYouTubeResearch({
+      ...stageContext(input),
+      attemptNumber: config.maxAttempts,
+    });
     if (suppliedSourcesSufficient)
       await expect(planning).resolves.toMatchObject({ youtubeSearchPlan: null });
     else await expect(planning).rejects.toBe(providerError);
@@ -211,14 +264,24 @@ describe('lesson generation production stages', () => {
       fallbackQuery: 'fallback',
       focusConcept: 'concept',
     });
-    const planned = await services.planYouTubeResearch(stageContext(input));
-    const specific = services.researchSpecificYouTube(stageContext(planned));
+    const planned = await services.planYouTubeResearch({
+      ...stageContext(input),
+      attemptNumber: 2,
+    });
+    await expect(services.researchSpecificYouTube(stageContext(planned))).rejects.toBe(
+      providerError
+    );
+    const specific = services.researchSpecificYouTube({
+      ...stageContext(planned),
+      attemptNumber: config.maxAttempts,
+    });
     if (suppliedSourcesSufficient)
       await expect(specific).resolves.toMatchObject({ youtubeSearchOutcome: null });
     else await expect(specific).rejects.toBe(providerError);
-    const fallback = services.researchFallbackYouTube(
-      stageContext({ ...planned, stage: 'youtube-search', youtubeSearchOutcome: null })
-    );
+    const fallback = services.researchFallbackYouTube({
+      ...stageContext({ ...planned, stage: 'youtube-search', youtubeSearchOutcome: null }),
+      attemptNumber: config.maxAttempts,
+    });
     if (suppliedSourcesSufficient)
       await expect(fallback).resolves.toMatchObject({ youtubeSearchOutcome: null });
     else await expect(fallback).rejects.toBe(providerError);

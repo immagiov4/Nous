@@ -236,13 +236,15 @@ export const resolveLessonResearchRequest = ({
   readonly sourceContext: string;
 }): LessonResearchRequest => {
   if (researchRouting) {
-    return isResearchSourceSelected(researchRouting, 'web')
-      ? {
-          mode: sourceContext.trim() ? 'source-backed-refresh' : 'source-free',
-          slot: 'research',
-          webSearch: true,
-        }
-      : { mode: 'source-sufficient', slot: 'lesson', webSearch: false };
+    if (!isResearchSourceSelected(researchRouting, 'web')) {
+      return { mode: 'source-sufficient', slot: 'lesson', webSearch: false };
+    }
+    if (!sourceContext.trim()) return { mode: 'source-free', slot: 'research', webSearch: true };
+    return {
+      mode: coverageGaps?.length ? 'source-backed-gaps' : 'source-backed-refresh',
+      slot: 'research',
+      webSearch: true,
+    };
   }
   if (!sourceContext.trim()) {
     return { mode: 'source-free', slot: 'research', webSearch: true };

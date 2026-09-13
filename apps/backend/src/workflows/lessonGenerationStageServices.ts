@@ -399,6 +399,8 @@ const assessSourceCoverage =
 
 const optionalYouTubeFailureWarnings = (
   context: {
+    readonly attemptNumber: number;
+    readonly config: { readonly maxAttempts: number };
     readonly input: Pick<LessonSourcesState, 'request' | 'warnings' | 'researchRouting'>;
     readonly signal: AbortSignal;
   },
@@ -408,7 +410,8 @@ const optionalYouTubeFailureWarnings = (
   context.signal.throwIfAborted();
   if (
     context.input.researchRouting &&
-    (!context.input.researchRouting.suppliedSourcesSufficient ||
+    (context.attemptNumber < context.config.maxAttempts ||
+      !context.input.researchRouting.suppliedSourcesSufficient ||
       !isResearchProviderUnavailable(
         error instanceof CourseModelProviderError ? error.cause : error
       ))
@@ -568,6 +571,7 @@ const researchLesson =
     const summary = await runCorrectableLessonOperation(
       () =>
         generateLessonResearchSummary({
+          allowOptionalFailure: context.attemptNumber >= context.config.maxAttempts,
           existingDossier,
           generationInput,
           research: dependencies.generateResearch,
