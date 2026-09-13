@@ -101,6 +101,17 @@ beforeEach(() => {
   runCodexAppServerTurn.mockReset();
 });
 
+test('rejects Mermaid fences before model review', async () => {
+  const draft = structuredClone(original);
+  const markdown = draft.contentBlocks[0];
+  if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
+  markdown.markdown += '\n\n```mermaid\ngraph TD\nA-->B\n```';
+  await expect(reviewLessonContentDraftStrict({ draft, generationInput })).rejects.toMatchObject({
+    code: 'lesson_embedded_mermaid_unsupported',
+  });
+  expect(runCodexAppServerTurn).not.toHaveBeenCalled();
+});
+
 describe('lesson review quality report contract', () => {
   test('rejects a reviewer-introduced quiz fragment declared unresolved', async () => {
     const cleanDraft = structuredClone(flawedAutomationLesson);

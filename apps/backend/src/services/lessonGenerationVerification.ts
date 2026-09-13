@@ -462,6 +462,13 @@ export const verifyLessonContentDraft = async (input: {
   responseSchema: LessonResponseSchemaContract;
 }): Promise<LessonContentDraft> => {
   const generationInput = input.generationInput;
+  if (draftMarkdownMatches(input.draft, /```mermaid\b/i))
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_embedded_mermaid_unsupported',
+      feedback:
+        'Remove Mermaid code fences from lesson markdown. Diagrams are generated and validated through generatedVisuals after lesson review.',
+      message: 'Lesson markdown contains an unvalidated Mermaid diagram.',
+    });
   const prompt = buildLessonVerificationPrompt(generationInput, input.draft);
   const checkIds = buildRequiredLessonVerificationCheckIds(generationInput, input.draft);
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
