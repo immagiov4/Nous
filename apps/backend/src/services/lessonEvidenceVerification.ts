@@ -126,14 +126,14 @@ export const verifyLessonEvidence = async (
         input: [{ text: prompt, type: 'text' }],
         model: model.model,
         outputSchema: schema,
-        reasoningEffort: 'low',
+        reasoningEffort: 'medium',
         serviceTier: resolveCodexServiceTierForSlot(input.config, 'lesson'),
         signal: input.signal,
       })
     );
   } else {
     const configured = createConfiguredTextModel(input.config, 'lesson', {
-      reasoningEffort: 'low',
+      reasoningEffort: 'medium',
     });
     response = (
       await generateText({
