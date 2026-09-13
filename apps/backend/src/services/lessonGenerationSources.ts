@@ -320,15 +320,23 @@ const filterReferencedStoredSources = (
     : candidates;
 };
 
-export const buildStoredDocumentSourceContext = async (
-  store: ProjectStore,
-  userId: string,
-  projectId: string,
-  section: Record<string, unknown>,
-  signal: AbortSignal
-): Promise<string> => {
+export const buildStoredDocumentSourceContext = async ({
+  store,
+  userId,
+  projectId,
+  section,
+  signal,
+  primarySourceId,
+}: {
+  store: ProjectStore;
+  userId: string;
+  projectId: string;
+  section: Record<string, unknown>;
+  signal: AbortSignal;
+  primarySourceId: string;
+}): Promise<string> => {
   const candidates = filterReferencedStoredSources(
-    await loadStoredSourceCandidates(store, userId, projectId),
+    await loadStoredSourceCandidates(store, userId, projectId, primarySourceId),
     section
   );
   const parts: LessonPrimarySourcePart[] = [];

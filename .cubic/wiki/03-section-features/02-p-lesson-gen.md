@@ -97,6 +97,8 @@ Sources: [lessonEvidence.ts](../../../apps/backend/src/services/lessonEvidence.t
 
 #### Repeatable evidence measurement
 
+The current review step persists the validated pedagogical draft through `providerEffect` before factual verification. Malformed factual reports and transport retries reuse that result. A structured corrective-feedback envelope advances the pedagogical revision only when factual claims or clip evidence require content changes; the existing attempt budget still applies. Referenced PDF images contribute their stored caption, page and nearby text to factual evidence. This validates textual support, not image pixels. Legacy document loading resolves the primary source ID from the authoritative project reference before constructing excerpts.
+
 The integration fixture contains authored Italian course notes and four simulated lectures, including an overlapping explanation, a timestamped demonstration and unrelated material. It establishes a new measurement baseline; it does not reconstruct the historical run reported in issue #197. The provider boundary is controlled so the same lesson and evidence decisions can be compared through production prompt construction, model routing, stage schemas and persistence preparation. This proves reference preservation and corrective failures, not semantic quality of nondeterministic generations.
 
 With `gpt-5.6-luna`, `tiktoken` 0.14.0 and `o200k_base`, visible input includes request text, developer instructions and serialized output schema. Counts exclude provider framing and hidden instructions and are not billed usage. The fixture retains 1,917 of 13,795 original-source characters and omits 2,781 characters explicitly classified as overlap. Source ranges, omission reasons, overlap references and complete source units are exported with each request.
@@ -106,12 +108,12 @@ With `gpt-5.6-luna`, `tiktoken` 0.14.0 and `o200k_base`, visible input includes 
 | Evidence selection | — | — | 5,972 |
 | Drafting | 8,832 | 12,463 | 5,712 |
 | Pedagogical review (previously combined) | 10,593 | 14,224 | 6,919 |
-| Final factual review | — | — | 2,008 |
-| Drafting and reviews | 19,425 | 26,687 | 14,639 |
-| Total including selection | 19,425 | 26,687 | 20,611 |
+| Final factual review | — | — | 2,052 |
+| Drafting and reviews | 19,425 | 26,687 | 14,683 |
+| Total including selection | 19,425 | 26,687 | 20,655 |
 | Largest call | 10,593 | 14,224 | 6,919 |
 
-The fresh-dossier total increases 6.1%; the reused-dossier total decreases 22.8%. The largest downstream request and the combined drafting/review input decrease in both cases. Research is upstream and excluded from this comparison. The extra selection and factual calls are an explicit cost; no automatic cutoff or model change is applied to hide it.
+The fresh-dossier total increases 6.3%; the reused-dossier total decreases 22.6%. The largest downstream request and the combined drafting/review input decrease in both cases. Research is upstream and excluded from this comparison. The extra selection and factual calls are an explicit cost; no automatic cutoff or model change is applied to hide it.
 
 To reproduce, install `tiktoken==0.14.0` in a separate Python environment, set `LESSON_EVIDENCE_MEASUREMENTS_DIR` to an output directory outside the repository, run `bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/services/lessonEvidence.integration.test.ts`, then run `python scripts/measure-lesson-evidence.py <output-directory>`. The evidence-loss case removes the scalar-clock qualification from retained evidence and verifies that the final factual check rejects the resulting unsupported claim. The full-context comparison retains that qualification. Actual pedagogical effectiveness requires model evaluation beyond this deterministic contract test.
 

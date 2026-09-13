@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import type { ProjectStore } from '../../src/projects/types.js';
+import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import {
   buildMappedSourceContext,
   buildStoredDocumentSourceContext,
@@ -13,6 +14,32 @@ import {
   withPdfAssetSoftTimeout,
 } from '../../src/services/lessonGenerationSources.js';
 import { readLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
+
+test('restores a legacy document using its authoritative project source identity', async () => {
+  const store = {
+    loadProjectSources: vi.fn().mockResolvedValue([]),
+    loadProjectSource: vi.fn().mockResolvedValue({
+      name: 'legacy.txt',
+      mimeType: 'text/plain',
+      data: Buffer.from('Original text.').toString('base64'),
+    }),
+  } as unknown as ProjectStore;
+  const result = await resolveLessonSourceMaterials({
+    project: { sourceKind: 'document', source: { ref: { id: 'original-source-id' } } } as never,
+    store,
+    userId: 'user',
+    projectId: 'project',
+    sectionId: 'lesson',
+    section: {},
+    signal: new AbortController().signal,
+  });
+  expect(readLessonPrimarySources(result.sourceContext)).toEqual([
+    {
+      source: { sourceId: 'original-source-id', title: 'legacy.txt' },
+      text: 'ORIGINAL SOURCE: legacy.txt\nOriginal text.',
+    },
+  ]);
+});
 
 test('keeps document delimiters outside original source excerpts', async () => {
   const contents = ['Prima parte.\n---\nSeconda parte.', 'Altro documento.'];
@@ -28,13 +55,14 @@ test('keeps document delimiters outside original source excerpts', async () => {
       }))
     ),
   } as unknown as ProjectStore;
-  const context = await buildStoredDocumentSourceContext(
+  const context = await buildStoredDocumentSourceContext({
     store,
-    'user',
-    'project',
-    {},
-    new AbortController().signal
-  );
+    userId: 'user',
+    projectId: 'project',
+    section: {},
+    signal: new AbortController().signal,
+    primarySourceId: '',
+  });
   expect(readLessonPrimarySources(context)).toEqual(
     contents.map((content, index) => ({
       source: { sourceId: `source-${index}`, title: `document-${index}.txt` },

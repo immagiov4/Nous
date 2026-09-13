@@ -687,7 +687,10 @@ const createLessonGenerationWorkflowDefinition = <
     Config,
     Services
   >({
-    externalEffect: 'provider',
+    externalEffect:
+      durableSchemas === CurrentLessonGenerationDurableSchemaSet
+        ? 'provider-with-postprocessing'
+        : 'provider',
     id: 'review-lesson',
     inputSchema: durableSchemas.LessonDraftStateSchema,
     outputSchema: durableSchemas.LessonReviewedStateSchema,

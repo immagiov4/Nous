@@ -8,7 +8,6 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import { formatLessonEvidence, type LessonEvidencePacket } from './lessonEvidence.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 
@@ -38,6 +37,7 @@ const FACTUAL_REVIEW_INSTRUCTIONS = `Verify factual support of the final lesson,
 Judge each statement in its teaching role. Quiz distractors, rejected misconceptions and explicitly false counterexamples are not assertions endorsed by the lesson: verify that the marked answer and explanation correctly distinguish them using the evidence. Do not reject an intentionally incorrect option merely because it contradicts a source. Hypothetical examples and deductions may instantiate source-supported rules with new names or numbers; verify the reasoning and assumptions instead of requiring those exact examples to appear in a source. Concrete claims about the world still need source support.
 Assess only claims actually present in the supplied draft. Generated visuals are plans awaiting rendering: assess their factual requirements, not whether an unseen rendering implements them. Clip titles are supplied; an absent optional caption is not an unsupported assertion. Do not invent claims about missing output or require artifacts produced by later stages.
 Source content marked attributed-note is a research note tied to a source URL, not independently retrieved verbatim text. Check what it actually supports and do not present it as original quotation or independent corroboration of the dossier.
+Image-context materials contain the stored caption, page and surrounding text for referenced image resources. They are textual evidence, not inspection of the image pixels. Check captions against this available context without claiming that unseen visual details were verified.
 Return exactly one block entry per contentBlocks index. Identify every material factual assertion and compare it to the supplied original evidence, preserving qualifications, scope, exceptions and disagreements. Cite exact retained ranges. Synthesized research claims alone cannot replace original evidence when original excerpts are available. Mark unsupported or contradicted claims explicitly and explain the required correction. Do not infer support from a title, URL or agreement with model memory. An empty assessments array requires a concrete reason why this block has no factual claims.
 Clip timestamps must belong to retained source evidence and the explanation must match the moment. Validate generatedVisuals factualRequirements with the generated-visual block and imageRefs factual captions with their containing markdown blocks. Every supported assessment requires at least one actual evidence reference.`;
 
@@ -79,11 +79,36 @@ export const verifyLessonEvidence = async (
         'Use only clip intervals entirely contained in retained transcript passages, with their original sourceIndex. Remove clips whose required evidence was omitted.',
       message: 'A lesson clip references an interval outside the selected evidence.',
     });
+  const referencedImages = new Set(draft.imageRefs.map(reference => reference.assetId));
+  const evidence = [
+    ...packet.passages,
+    ...input.imageCandidates
+      .filter(candidate => referencedImages.has(candidate.id))
+      .map(candidate => ({
+        materialId: `image:${candidate.id}`,
+        kind: 'image-context',
+        firstUnit: 0,
+        lastUnit: 0,
+        units: [
+          {
+            text: JSON.stringify({
+              resourceId: candidate.id,
+              caption: candidate.caption,
+              pageNumber: candidate.pageNumber,
+              textBefore: candidate.textBefore,
+              textCurrent: candidate.textCurrent,
+              textAfter: candidate.textAfter,
+              visibleLabel: candidate.visibleLabel,
+            }),
+          },
+        ],
+      })),
+  ];
   const prompt = JSON.stringify({
     title: input.sectionTitle,
     description: input.description,
     draft,
-    evidence: JSON.parse(formatLessonEvidence(packet)),
+    evidence,
     ...(input.retryFeedback?.trim() ? { retryFeedback: input.retryFeedback.trim() } : {}),
   });
   const { $schema: _dialect, ...schema } = FactualReviewSchema.toJSONSchema();
@@ -119,12 +144,12 @@ export const verifyLessonEvidence = async (
       })
     ).output;
   }
-  validateFactualReview(response, packet, draft);
+  validateFactualReview(response, evidence, draft);
 };
 
 const validateFactualReview = (
   response: unknown,
-  packet: LessonEvidencePacket,
+  evidence: readonly { materialId: string; firstUnit: number; lastUnit: number }[],
   draft: LessonContentDraft
 ) => {
   const parsed = FactualReviewSchema.safeParse(response);
@@ -146,7 +171,7 @@ const validateFactualReview = (
         (assessment.status === 'supported' && !assessment.evidence.length) ||
         assessment.evidence.some(
           reference =>
-            !packet.passages.some(
+            !evidence.some(
               passage =>
                 passage.materialId === reference.materialId &&
                 reference.firstUnit <= reference.lastUnit &&

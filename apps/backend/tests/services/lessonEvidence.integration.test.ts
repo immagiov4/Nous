@@ -261,6 +261,51 @@ const mockModels = () => {
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test('grounds referenced image captions in stored context and rejects unused image references', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    input.imageCandidates = [
+      {
+        id: 'used',
+        caption: 'P sends to Q.',
+        pageNumber: 4,
+        textCurrent: 'Message from P to Q.',
+        sourceOrder: 0,
+        visibleLabel: 'Figure 1',
+      },
+      { id: 'unused', caption: 'A different diagram.', sourceOrder: 1, visibleLabel: 'Figure 2' },
+    ];
+    const draft = structuredClone(evidenceLesson);
+    draft.imageRefs = [{ assetId: 'used', alt: 'Message', caption: 'P sends to Q.' }];
+    const report = factualReport(true);
+    report.blocks[0].assessments[0].evidence = [
+      { materialId: 'image:used', firstUnit: 0, lastUnit: 0 },
+    ];
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, draft)).resolves.toBeUndefined();
+    const prompt = JSON.parse(runCodexAppServerTurn.mock.lastCall?.[0].input[0].text);
+    const images = prompt.evidence.filter(
+      (entry: { kind: string }) => entry.kind === 'image-context'
+    );
+    expect(images).toHaveLength(1);
+    expect(JSON.parse(images[0].units[0].text)).toEqual({
+      resourceId: 'used',
+      caption: 'P sends to Q.',
+      pageNumber: 4,
+      textCurrent: 'Message from P to Q.',
+      visibleLabel: 'Figure 1',
+    });
+    report.blocks[0].assessments[0].evidence[0].materialId = 'image:unused';
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
+    await expect(verifyLessonEvidence(input, draft)).rejects.toMatchObject({
+      code: 'lesson_factual_review_invalid',
+    });
+  });
+
   test('checks imported unordered and nested transcript intervals without changing source order', async () => {
     const input = generationInput();
     input.researchContext = JSON.stringify(evidenceResearch);

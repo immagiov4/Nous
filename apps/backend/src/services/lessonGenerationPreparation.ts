@@ -13,6 +13,7 @@ import {
   LessonSourceUnavailableError,
   parseResearchSource,
   type ResearchSource,
+  readAuthoritativePrimarySourceId,
   readExistingDossier,
   readProjectLanguage,
 } from './lessonGenerationSources.js';
@@ -103,13 +104,14 @@ export const resolveLessonSourceMaterials = async ({
   const archiveContext = await buildArchiveSourceContext(store, userId, projectId, section);
   let sourceContext = archiveContext || buildMappedSourceContext(project, section);
   if (!sourceContext && project.sourceKind === 'document') {
-    sourceContext = await buildStoredDocumentSourceContext(
+    sourceContext = await buildStoredDocumentSourceContext({
       store,
       userId,
       projectId,
       section,
-      signal
-    );
+      signal,
+      primarySourceId: readAuthoritativePrimarySourceId(project),
+    });
     if (!sourceContext) throw new LessonSourceUnavailableError();
   }
   const existingDossier = readExistingDossier(project, sectionId);

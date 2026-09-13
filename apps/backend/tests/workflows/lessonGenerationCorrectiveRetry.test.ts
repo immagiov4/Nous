@@ -6,12 +6,17 @@ import {
   resolveLessonEvidence,
 } from '../../src/services/lessonEvidence.js';
 import { retryLessonGenerationCorrection } from '../../src/services/lessonGenerationCorrection.js';
+import { reviewLessonContentDraftStrict } from '../../src/services/lessonGenerationModel.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
 import {
   createLessonGenerationStageServices,
   type LessonGenerationStageDependencies,
 } from '../../src/workflows/lessonGenerationStageServices.js';
 import { LessonDraftStateSchema } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import type { WorkflowProviderEffectExecutor } from '../../src/workflows/types.js';
+
+const { verifyLessonEvidence } = vi.hoisted(() => ({ verifyLessonEvidence: vi.fn() }));
+vi.mock('../../src/services/lessonEvidenceVerification.js', () => ({ verifyLessonEvidence }));
 
 const modelConfig = getGlobalModelConfig();
 const config = {
@@ -77,6 +82,114 @@ const servicesWithReview = (reviewContent: LessonGenerationStageDependencies['re
   } as unknown as LessonGenerationStageDependencies);
 
 describe('lesson generation corrective retries', () => {
+  test.each([
+    'lesson_factual_review_invalid',
+    'malformed-json',
+    'transport',
+  ])('restores pedagogical output after %s', async failureKind => {
+    const paidReview = vi.fn(async ({ draft }) => ({
+      ...structuredClone(draft),
+      imageRefs: [{ assetId: 'image-1', alt: 'Diagram', caption: 'Supported caption.' }],
+    }));
+    const reviewContent: LessonGenerationStageDependencies['reviewContent'] = input =>
+      reviewLessonContentDraftStrict({ ...input, verify: paidReview });
+    const failure =
+      failureKind === 'malformed-json'
+        ? new SyntaxError('Invalid JSON')
+        : failureKind === 'transport'
+          ? new Error('Connection interrupted')
+          : retryLessonGenerationCorrection({
+              code: failureKind,
+              feedback: 'Complete factual references.',
+              message: 'Incomplete report.',
+            });
+    verifyLessonEvidence
+      .mockReset()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(undefined);
+    const persisted = new Map<string, unknown>();
+    const restoredProviderEffect = (): WorkflowProviderEffectExecutor => ({
+      async run({ key, operation, outputSchema }) {
+        if (!persisted.has(key)) persisted.set(key, JSON.parse(JSON.stringify(await operation())));
+        return outputSchema.parse(persisted.get(key));
+      },
+    });
+    const first = await servicesWithReview(reviewContent)
+      .reviewLesson({ ...stageContext(), providerEffect: restoredProviderEffect() })
+      .catch(error => error);
+    const feedback = first.failure?.feedback ?? '';
+    const accepted = await servicesWithReview(reviewContent).reviewLesson({
+      ...stageContext(feedback),
+      providerEffect: restoredProviderEffect(),
+    });
+    expect(paidReview).toHaveBeenCalledTimes(1);
+    expect(verifyLessonEvidence).toHaveBeenCalledTimes(2);
+    expect(accepted.draft).toEqual({
+      ...draftState().draft,
+      imageRefs: [
+        { assetId: 'image-1', alt: 'Diagram', caption: 'Supported caption.', anchorHeading: '' },
+      ],
+    });
+    expect([...persisted.keys()]).toEqual(['pedagogical-review:0']);
+  });
+
+  test('keeps the corrected pedagogical revision when its factual report needs another attempt', async () => {
+    const paidReview = vi.fn(async ({ draft }) => ({
+      ...draft,
+      contentBlocks: [
+        { type: 'markdown' as const, markdown: `Revision ${paidReview.mock.calls.length}` },
+      ],
+    }));
+    const reviewContent: LessonGenerationStageDependencies['reviewContent'] = input =>
+      reviewLessonContentDraftStrict({ ...input, verify: paidReview });
+    verifyLessonEvidence
+      .mockReset()
+      .mockRejectedValueOnce(
+        retryLessonGenerationCorrection({
+          code: 'lesson_factual_support_failed',
+          feedback: 'Correct the unsupported claim.',
+          message: 'Unsupported claim.',
+        })
+      )
+      .mockRejectedValueOnce(
+        retryLessonGenerationCorrection({
+          code: 'lesson_factual_review_invalid',
+          feedback: 'Complete factual references.',
+          message: 'Incomplete report.',
+        })
+      )
+      .mockResolvedValueOnce(undefined);
+    const persisted = new Map<string, unknown>();
+    const providerEffect: WorkflowProviderEffectExecutor = {
+      async run({ key, operation, outputSchema }) {
+        if (!persisted.has(key)) persisted.set(key, JSON.parse(JSON.stringify(await operation())));
+        return outputSchema.parse(persisted.get(key));
+      },
+    };
+    let feedback = '';
+    let accepted:
+      | Awaited<ReturnType<ReturnType<typeof servicesWithReview>['reviewLesson']>>
+      | undefined;
+    for (let attemptNumber = 1; attemptNumber <= config.maxAttempts; attemptNumber++) {
+      try {
+        accepted = await servicesWithReview(reviewContent).reviewLesson({
+          ...stageContext(feedback),
+          attemptNumber,
+          providerEffect,
+        });
+      } catch (error) {
+        feedback = (error as { failure: { feedback: string } }).failure.feedback;
+      }
+    }
+    expect(paidReview).toHaveBeenCalledTimes(2);
+    expect(paidReview.mock.calls[1][0].generationInput.retryFeedback).toBe(
+      'Correct the unsupported claim.'
+    );
+    expect(accepted?.draft.contentBlocks).toEqual([{ type: 'markdown', markdown: 'Revision 2' }]);
+    expect([...persisted.keys()]).toEqual(['pedagogical-review:0', 'pedagogical-review:1']);
+    expect(verifyLessonEvidence.mock.calls[2][1]).toEqual(verifyLessonEvidence.mock.calls[1][1]);
+  });
+
   test('classifies stale restored evidence as corrective before drafting or reviewing', async () => {
     const context = stageContext();
     const materials = buildLessonEvidenceMaterials({
