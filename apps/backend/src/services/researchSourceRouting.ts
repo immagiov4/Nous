@@ -52,6 +52,23 @@ export const assertRequiredYouTubeEvidence = (
   }
 };
 
+export const assertRequiredWebEvidence = (
+  routing: ResearchSourceRouting | undefined,
+  factualContent: string,
+  sourceCount: number
+): void => {
+  if (!routing || routing.suppliedSourcesSufficient || isResearchSourceSelected(routing, 'youtube'))
+    return;
+  if (!factualContent.trim() && sourceCount === 0) {
+    throw retryCorrective({
+      code: 'research_web_evidence_missing',
+      feedback:
+        'Return factual content or sources from the selected web research; both were empty.',
+      message: 'Required web research returned no factual content or sources.',
+    });
+  }
+};
+
 /** Validate capability coverage before any selected channel can perform retrieval. */
 export const validateResearchSourceRouting = (
   value: unknown,

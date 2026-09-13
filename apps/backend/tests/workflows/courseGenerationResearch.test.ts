@@ -175,6 +175,34 @@ const finalizeResearch = (
   );
 
 describe('course generation research', () => {
+  test('supplies the persisted course profile and diagnostic context even without assessment messages', async () => {
+    const generateObject = vi
+      .fn()
+      .mockResolvedValue({ ...allSourcesRouting, channels: [allSourcesRouting.channels[0]] });
+    const services = createCourseResearchServices({
+      availableChannels: ['web'],
+      generateObject,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+    });
+    const input = {
+      ...prepared,
+      context: {
+        ...prepared.context,
+        assessmentSummary: '',
+        diagnosticEvidence: 'Confirmed prerequisite gap',
+      },
+    };
+    await services.planCourseResearchSources(stageContext(input));
+    const contextJson = generateObject.mock.calls[0][0].prompt
+      .split('\nLEARNING CONTEXT: ')[1]
+      .split('\nASSESSED COVERAGE GAPS:')[0];
+    expect(JSON.parse(contextJson)).toEqual({
+      assessmentSummary: '',
+      profile: input.context.profile,
+      language: input.context.language,
+      diagnosticEvidence: input.context.diagnosticEvidence,
+    });
+  });
   test('preserves corrective routing failures and supplies feedback to the next course decision', async () => {
     const generateObject = vi.fn().mockResolvedValue({
       ...allSourcesRouting,

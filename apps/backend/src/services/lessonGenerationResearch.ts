@@ -10,6 +10,7 @@ import type {
 } from './lessonGenerationTypes.js';
 import { isResearchProviderUnavailable } from './researchProviderAvailability.js';
 import {
+  assertRequiredWebEvidence,
   assertRequiredYouTubeEvidence,
   isResearchSourceSelected,
 } from './researchSourceRouting.js';
@@ -81,6 +82,11 @@ export const generateLessonResearchSummary = async ({
       });
     }
   }
+  assertRequiredWebEvidence(
+    generationInput.researchRouting,
+    summary.factualSummary,
+    summary.sources.length
+  );
   return summary;
 };
 
@@ -168,7 +174,7 @@ const buildYouTubeResearchRecord = ({
   researchSummary: LessonResearchSummary | null;
   selectedVideoUrls: Set<string>;
   youtubeOutcome: YouTubeResearchOutcome | null;
-}): Record<string, unknown> => {
+}): Record<string, unknown> | null => {
   if (youtubeOutcome) {
     const candidateDecisions =
       researchSummary?.youtubeCandidateDecisions ||
@@ -189,11 +195,7 @@ const buildYouTubeResearchRecord = ({
     };
   }
   if (isRecord(existingDossier?.youtubeResearch)) return existingDossier.youtubeResearch;
-  return {
-    candidateDecisions: [],
-    outcome: 'failed',
-    rationale: 'Nessun transcript video disponibile per questa generazione.',
-  };
+  return null;
 };
 
 export const buildResearchDossier = ({
@@ -215,17 +217,18 @@ export const buildResearchDossier = ({
   sectionTitle: string;
   youtubeOutcome: YouTubeResearchOutcome | null;
 }): Record<string, unknown> => {
+  const youtubeResearch = buildYouTubeResearchRecord({
+    existingDossier,
+    researchSummary,
+    selectedVideoUrls: collectSelectedVideoUrls(contentBlocks, lessonSources),
+    youtubeOutcome,
+  });
   const dossier: Record<string, unknown> = {
     ...existingDossier,
     sectionId,
     sources: mergeSources(lessonSources, normalizeResearchedWebSources(researchSummary)),
     title: sectionTitle,
-    youtubeResearch: buildYouTubeResearchRecord({
-      existingDossier,
-      researchSummary,
-      selectedVideoUrls: collectSelectedVideoUrls(contentBlocks, lessonSources),
-      youtubeOutcome,
-    }),
+    ...(youtubeResearch ? { youtubeResearch } : {}),
   };
   if (researchSummary) {
     Object.assign(dossier, {

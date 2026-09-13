@@ -54,6 +54,55 @@ const youtubeOutcome = {
 
 describe('lesson research routing', () => {
   test.each([
+    '',
+    ' \n ',
+  ])('corrects empty required web research while retaining optional results', async factualSummary => {
+    const input = generationInput({
+      researchRouting: {
+        suppliedSourcesSufficient: false,
+        rationale: 'Required facts',
+        channels: [
+          { type: 'web', selected: true, rationale: 'Current facts' },
+          { type: 'youtube', selected: false, rationale: 'Text only' },
+        ],
+      },
+    });
+    const research = vi.fn().mockResolvedValue({ ...researchSummary, factualSummary });
+    const args = { existingDossier: null, generationInput: input, research, youtubeOutcome: null };
+    const failure = await generateLessonResearchSummary(args).catch(error => error);
+    expect(failure.failure).toMatchObject({
+      kind: 'corrective',
+      code: 'research_web_evidence_missing',
+    });
+    research.mockResolvedValue(researchSummary);
+    await expect(generateLessonResearchSummary(args)).resolves.toBe(researchSummary);
+    if (!input.researchRouting) throw new Error('Missing test routing');
+    input.researchRouting.suppliedSourcesSufficient = true;
+    research.mockResolvedValue({ ...researchSummary, factualSummary });
+    await expect(generateLessonResearchSummary(args)).resolves.toMatchObject({ factualSummary });
+  });
+  test('omits a new YouTube record without an outcome and retains an existing record', () => {
+    const input = {
+      contentBlocks: [],
+      existingDossier: null,
+      lessonSources: [],
+      researchSummary: null,
+      sectionId: 'lesson-1',
+      sectionTitle: 'Lesson',
+      youtubeOutcome: null,
+    };
+    expect(buildResearchDossier(input)).not.toHaveProperty('youtubeResearch');
+    const previous = {
+      candidateDecisions: [],
+      outcome: 'completed',
+      rationale: 'Previously completed research',
+    };
+    expect(
+      buildResearchDossier({ ...input, existingDossier: { youtubeResearch: previous } })
+        .youtubeResearch
+    ).toEqual(previous);
+  });
+  test.each([
     null,
     { ...youtubeOutcome, videoCandidates: [] },
   ])('requires evidence when YouTube is the only necessary channel', async emptyOutcome => {
