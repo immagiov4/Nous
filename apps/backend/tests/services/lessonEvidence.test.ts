@@ -130,6 +130,9 @@ describe('lesson evidence references', () => {
     expect(resolveLessonEvidence(materials(), response).selection).toEqual(response);
     overlap.retainedFirstUnit = 2;
     expect(() => resolveLessonEvidence(materials(), response)).toThrow('invalid source references');
+    overlap.retainedFirstUnit = 3;
+    overlap.retainedLastUnit = 3;
+    expect(() => resolveLessonEvidence(materials(), response)).toThrow('invalid source references');
   });
   test('retains each document identity when selecting content without its header', () => {
     const parts = ['source-a', 'source-b'].map(sourceId => ({
