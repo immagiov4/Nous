@@ -445,17 +445,17 @@ export const createCourseResearchNode = <
           runId: context.execution.runId,
         });
       }
+      if (adaptiveRouting) {
+        const failures = context.input.failures.flatMap(failure =>
+          typeof failure.failureJson === 'string'
+            ? [parseStepFailure(JSON.parse(failure.failureJson))]
+            : []
+        );
+        let failure = failures.find(failure => failure.details?.providerUnavailable !== true);
+        if (!failure && context.input.outcomes.length === 0) failure = failures[0];
+        if (failure) throw new WorkflowStepError(failure);
+      }
       if (context.input.outcomes.length === 0) {
-        if (adaptiveRouting) {
-          const failures = context.input.failures.flatMap(failure =>
-            typeof failure.failureJson === 'string'
-              ? [parseStepFailure(JSON.parse(failure.failureJson))]
-              : []
-          );
-          const failure =
-            failures.find(failure => failure.details?.providerUnavailable !== true) ?? failures[0];
-          if (failure) throw new WorkflowStepError(failure);
-        }
         const retryAfterMs = context.input.failures.find(
           failure => failure.retryAfterMs !== undefined
         )?.retryAfterMs;

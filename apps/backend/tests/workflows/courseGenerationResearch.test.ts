@@ -554,7 +554,7 @@ describe('course generation research', () => {
     expect(generateObject).toHaveBeenCalledTimes(1);
   });
 
-  test('keeps successful YouTube evidence when another query fails', async () => {
+  test('keeps successful YouTube evidence only when another query has an explicit provider outage', async () => {
     const successful = youtubeOutcome(
       'Successful video',
       'https://www.youtube.com/watch?v=success',
@@ -568,7 +568,12 @@ describe('course generation research', () => {
     const collection = collectYoutube([
       { input: input('successful query', 0), key: '0', output: successful, status: 'completed' },
       {
-        failure: { code: 'course_research_failed', kind: 'operational', message: 'failed' },
+        failure: {
+          code: 'course_research_failed',
+          kind: 'operational',
+          message: 'failed',
+          details: { providerUnavailable: true },
+        },
         input: input('failed query', 1),
         key: '1',
         status: 'failed',
@@ -608,6 +613,30 @@ describe('course generation research', () => {
       '[Workflow] Course YouTube research unavailable.',
       expect.objectContaining({ failedQueryCount: 1 })
     );
+    for (const failure of [
+      retryCorrective({
+        code: 'invalid_query',
+        message: 'Invalid query',
+        feedback: 'Correct query',
+      }).failure,
+      { kind: 'permanent' as const, code: 'configuration', message: 'Invalid configuration' },
+      { kind: 'operational' as const, code: 'unknown', message: 'Unknown failure' },
+    ]) {
+      await expect(
+        finalizeYoutube(
+          collectYoutube([
+            {
+              input: input('successful query', 0),
+              key: '0',
+              output: successful,
+              status: 'completed',
+            },
+            { input: input('failed query', 1), key: '1', status: 'failed', failure },
+          ]),
+          {} as CourseGenerationWorkflowServices
+        )
+      ).rejects.toMatchObject({ failure });
+    }
     warn.mockRestore();
   });
 
