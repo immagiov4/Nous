@@ -430,6 +430,7 @@ describe('role-specific lesson evidence through the production Luna model path',
     quizBlock.quiz.correctIndex = 1;
     await expect(verifyLessonEvidence(input, wrongKey)).rejects.toMatchObject({
       code: 'lesson_factual_support_failed',
+      feedback: expect.stringContaining('Do not replace them with new factual claims.'),
     });
   });
   test('accepts factual citations inside retained passages and rejects reversed or outside ranges', async () => {
