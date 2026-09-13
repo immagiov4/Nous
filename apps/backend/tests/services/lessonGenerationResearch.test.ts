@@ -54,6 +54,48 @@ const youtubeOutcome = {
 
 describe('lesson research routing', () => {
   test.each([
+    'empty',
+    'web',
+    'youtube',
+  ] as const)('validates combined required evidence: %s', async evidence => {
+    const summary = {
+      ...researchSummary,
+      factualSummary: evidence === 'web' ? 'Verified facts' : ' \n ',
+      youtubeCandidateDecisions:
+        evidence === 'youtube'
+          ? [
+              {
+                url: youtubeOutcome.videoCandidates[0].url,
+                decision: 'selected-source',
+                rationale: 'Relevant evidence',
+              },
+            ]
+          : [],
+    };
+    const result = generateLessonResearchSummary({
+      existingDossier: null,
+      generationInput: generationInput({
+        researchRouting: {
+          suppliedSourcesSufficient: false,
+          rationale: 'Required evidence',
+          channels: [
+            { type: 'web', selected: true, rationale: 'Facts' },
+            { type: 'youtube', selected: true, rationale: 'Demonstration' },
+          ],
+        },
+      }),
+      research: vi.fn().mockResolvedValue(summary),
+      youtubeOutcome: evidence === 'youtube' ? youtubeOutcome : null,
+    });
+    if (evidence === 'empty') {
+      await expect(result).rejects.toMatchObject({
+        failure: { kind: 'permanent', code: 'research_evidence_missing' },
+      });
+    } else {
+      await expect(result).resolves.toBe(summary);
+    }
+  });
+  test.each([
     '',
     ' \n ',
   ])('corrects empty required web research while retaining optional results', async factualSummary => {

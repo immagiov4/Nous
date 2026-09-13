@@ -2,7 +2,7 @@ import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { generateCourseObject } from '../workflows/courseGenerationModel.js';
-import { retryCorrective } from '../workflows/retryPolicy.js';
+import { failPermanently, retryCorrective } from '../workflows/retryPolicy.js';
 import type { DeepReadonly } from '../workflows/types.js';
 
 const RESEARCH_SOURCE_TYPES = ['web', 'youtube'] as const;
@@ -65,6 +65,25 @@ export const assertRequiredWebEvidence = (
       feedback:
         'Return factual content or sources from the selected web research; both were empty.',
       message: 'Required web research returned no factual content or sources.',
+    });
+  }
+};
+
+/** Validate collected evidence independently of which channels were selected. */
+export const assertRequiredResearchEvidence = (
+  routing: ResearchSourceRouting | undefined,
+  evidence: { factualContent: string; sourceCount: number; youtubeCandidateCount: number }
+): void => {
+  if (
+    routing &&
+    !routing.suppliedSourcesSufficient &&
+    !evidence.factualContent.trim() &&
+    evidence.sourceCount === 0 &&
+    evidence.youtubeCandidateCount === 0
+  ) {
+    throw failPermanently({
+      code: 'research_evidence_missing',
+      message: 'Required research returned no evidence across the selected channels.',
     });
   }
 };

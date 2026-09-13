@@ -136,6 +136,8 @@ Production course and lesson workflows call `planResearchSources` before retriev
 
 Invalid routing decisions use the workflow's corrective retry path. Both planners receive the validation feedback on the next attempt. Course routing also receives the persisted profile, language, prior-knowledge context and diagnostic evidence. When web is the only required channel, a response with both empty factual content and no sources triggers correction in the provider step, which reruns with that feedback.
 
+Course finalization and lesson research also validate the combined results: insufficient supplied sources plus empty factual content, no sources and no YouTube candidates fail before drafting. Selecting both channels does not exempt an empty aggregate from this check.
+
 A temporary provider failure in optional research can leave a course or lesson on its sufficient supplied sources. Selected research failures propagate when supplied sources are insufficient. When YouTube is the only selected channel and supplied sources are insufficient, an empty retrieval result fails before drafting. Decodo transport failures are classified at the HTTP request boundary. Cancellation, invalid structured output, configuration errors, and authentication errors remain failures. Unclassified discovered videos are excluded from that result. Existing query limits, transcript context limits and retry policies remain the retrieval boundaries; the router adds no numerical ranking or request policy.
 
 Course query collection can retain partial results when another query has an explicitly classified provider outage. Corrective, permanent and unclassified failures propagate even when a sibling query succeeded.

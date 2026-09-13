@@ -10,6 +10,7 @@ import type {
 } from './lessonGenerationTypes.js';
 import { isResearchProviderUnavailable } from './researchProviderAvailability.js';
 import {
+  assertRequiredResearchEvidence,
   assertRequiredWebEvidence,
   assertRequiredYouTubeEvidence,
   isResearchSourceSelected,
@@ -90,6 +91,11 @@ export const generateLessonResearchSummary = async ({
     summary.factualSummary,
     summary.sources.length
   );
+  assertRequiredResearchEvidence(generationInput.researchRouting, {
+    factualContent: summary.factualSummary,
+    sourceCount: summary.sources.length,
+    youtubeCandidateCount: youtubeOutcome?.videoCandidates.length ?? 0,
+  });
   return summary;
 };
 

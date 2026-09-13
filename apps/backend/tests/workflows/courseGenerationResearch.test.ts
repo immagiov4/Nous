@@ -295,6 +295,58 @@ describe('course generation research', () => {
       )
     ).resolves.toMatchObject({ research: { web: { brief: 'Current verified facts' } } });
   });
+  test.each([
+    'empty',
+    'web',
+    'youtube',
+  ] as const)('validates combined required evidence: %s', async evidence => {
+    const results: FanOutResult<ResearchBranchInput, ResearchBranchOutput>[] = [
+      {
+        key: 'web',
+        input: { branch: 'web', state: prepared },
+        status: 'completed',
+        output: {
+          branch: 'web',
+          research: { brief: evidence === 'web' ? 'Verified facts' : ' \n ', sources: [] },
+        },
+      },
+      {
+        key: 'youtube',
+        input: { branch: 'youtube', state: prepared },
+        status: 'completed',
+        output: {
+          branch: 'youtube',
+          research: {
+            candidates:
+              evidence === 'youtube'
+                ? [
+                    {
+                      title: 'Demonstration',
+                      url: 'https://www.youtube.com/watch?v=video-1',
+                      youtubeTranscript: {
+                        segments: [
+                          { startSeconds: 0, endSeconds: 5, text: 'Verified explanation' },
+                        ],
+                      },
+                    },
+                  ]
+                : [],
+            context: '',
+            rationale: 'Collected results',
+            status: 'completed',
+          },
+        },
+      },
+    ];
+    const result = finalizeResearch(results, { ...prepared, routing: allSourcesRouting });
+    if (evidence === 'empty') {
+      await expect(result).rejects.toMatchObject({
+        failure: { kind: 'permanent', code: 'research_evidence_missing' },
+      });
+    } else {
+      await expect(result).resolves.toMatchObject({ stage: 'research' });
+    }
+  });
   test('propagates complete YouTube query failure without losing availability or corrective details', async () => {
     for (const failure of [
       {

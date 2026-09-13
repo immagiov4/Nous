@@ -26,6 +26,16 @@ import {
 
 const context = createPostgresWorkflowIntegrationContext();
 const scenarios = [
+  ...(['empty', 'web', 'youtube'] as const).map(combinedEvidence => ({
+    ...researchRoutingScenarios[0],
+    name: `combined required research with ${combinedEvidence} evidence`,
+    selected: ['web' as const, 'youtube' as const],
+    combinedEvidence,
+    emptyYoutube: combinedEvidence !== 'youtube',
+    failure: null,
+    suppliedSourcesSufficient: false,
+    expectedStatus: combinedEvidence === 'empty' ? 'failed' : 'completed',
+  })),
   ...(['recover', 'always'] as const).map(emptyWeb => ({
     ...researchRoutingScenarios[0],
     name: `empty required web ${emptyWeb}`,
@@ -87,7 +97,7 @@ describe
       if (!sql) throw new Error('An isolated integration database is required.');
       const config = {
         models: getGlobalModelConfig(),
-        maxAttempts: emptyWeb ? 3 : 1,
+        maxAttempts: emptyWeb || 'combinedEvidence' in scenario ? 3 : 1,
         timeoutMs: 60_000,
       };
       const routing = {
@@ -106,7 +116,11 @@ describe
           return { queries: ['binary search pointers', 'binary search visualization'] };
         if (scenario.failure) throw scenario.failure;
         webAttempts += 1;
-        if (emptyWeb === 'always' || (emptyWeb === 'recover' && webAttempts === 1))
+        if (
+          emptyWeb === 'always' ||
+          (emptyWeb === 'recover' && webAttempts === 1) ||
+          ('combinedEvidence' in scenario && scenario.combinedEvidence !== 'web')
+        )
           return { brief: '', sources: [] };
         return {
           brief: 'Authoritative researched facts.',
@@ -205,6 +219,13 @@ describe
       }
       const state = await store.getRunState({ runId: created.run.id, userId: context.userId });
       expect(state?.run.status).toBe(scenario.expectedStatus);
+      if ('combinedEvidence' in scenario) {
+        const finalizer = state?.nodes.find(
+          node => node.definitionId === 'finalize-selected-course-research'
+        );
+        expect(finalizer?.status).toBe(scenario.expectedStatus);
+        expect(finalizer?.attemptCount).toBe(1);
+      }
       if (scenario.expectedStatus === 'completed') {
         const [finalized] = await sql<{ output: unknown }[]>`
           select output from public.workflow_node_runs

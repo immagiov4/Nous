@@ -6,6 +6,7 @@ import * as z from 'zod';
 import type { GlobalModelConfig, TextModelSlot } from '../config/modelConfig.js';
 import { isResearchProviderUnavailable } from '../services/researchProviderAvailability.js';
 import {
+  assertRequiredResearchEvidence,
   assertRequiredWebEvidence,
   assertRequiredYouTubeEvidence,
   isResearchSourceSelected,
@@ -617,6 +618,11 @@ export const createCourseResearchNode = <
         youtube = completedBranch(results, 'youtube').research;
       }
       assertRequiredYouTubeEvidence(input.routing, youtube.candidates.length);
+      assertRequiredResearchEvidence(input.routing, {
+        factualContent: web.brief,
+        sourceCount: web.sources.length,
+        youtubeCandidateCount: youtube.candidates.length,
+      });
       return CourseResearchStateSchema.parse({
         ...input,
         stage: 'research',
