@@ -520,6 +520,67 @@ describe('lesson generation production stages', () => {
     expect(outcome.state.requiresCoverageAssessment).toBe(true);
   });
 
+  test('routes core lesson coverage gaps into research planning', async () => {
+    const coreProject = structuredClone(project);
+    const section = coreProject.learningPlan?.modules?.[0]?.children?.[0];
+    if (!section) throw new Error('Missing test lesson.');
+    section.type = 'core';
+    section.contextPrompt = 'Assess the blast radius.';
+    section.instructionPacks = ['code'];
+    coreProject.learningPlan.generationNotes = 'Use the current API contract.';
+    const selectCoverage = vi.fn().mockResolvedValue({
+      missingTopics: ['Blast radius'],
+      needsResearch: true,
+    });
+    const planResearchSources = vi.fn().mockResolvedValue({
+      suppliedSourcesSufficient: false,
+      channels: [],
+      rationale: 'Missing coverage.',
+    });
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        loadProject: vi.fn().mockResolvedValue(coreProject),
+        loadProjectWithRevision: vi.fn().mockResolvedValue({
+          revision: 1,
+          snapshot: coreProject,
+        }),
+        resolveSourceMaterials: vi.fn().mockResolvedValue({
+          existingDossier: null,
+          existingSources: [],
+          sourceContext: 'CHUNK chunk-1\nContenuto originale.',
+        }),
+        selectCoverage,
+        planResearchSources,
+      })
+    );
+
+    const outcome = await services.prepareLesson(
+      stageContext({
+        forceRegenerate: false,
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        userId: 'user-1',
+      })
+    );
+
+    expect(outcome.kind).toBe('generate');
+    if (outcome.kind !== 'generate') throw new Error('Expected generation context.');
+    expect(outcome.state.requiresCoverageAssessment).toBe(true);
+    const covered = await services.assessSourceCoverage(stageContext(outcome.state));
+    await services.planResearchSources(stageContext(covered));
+    expect(selectCoverage).toHaveBeenCalledTimes(1);
+    expect(selectCoverage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        learningContext: expect.stringMatching(
+          /blast radius[\s\S]*current API contract[\s\S]*code|current API contract[\s\S]*code[\s\S]*blast radius/
+        ),
+      })
+    );
+    expect(planResearchSources).toHaveBeenCalledWith(
+      expect.objectContaining({ coverageGaps: ['Blast radius'] })
+    );
+  });
+
   test('reads detached original bytes when no document index is available', async () => {
     const store = new InMemoryProjectStore();
     const sourceText = 'Il documento originale descrive la fase luminosa nei tilacoidi.';
@@ -975,6 +1036,7 @@ describe('lesson generation production stages', () => {
       })
     );
     const sources = lessonSourcesState();
+    sources.lessonInputData.coverageGaps = ['Contratto API attuale'];
 
     const signal = new AbortController().signal;
     const context = stageContext(sources, signal);
@@ -988,6 +1050,9 @@ describe('lesson generation production stages', () => {
     await services.finalizeYouTubeResearch(stageContext(searched, signal));
 
     expect(planYouTube).toHaveBeenCalledOnce();
+    expect(planYouTube).toHaveBeenCalledWith(
+      expect.objectContaining({ coverageGaps: ['Contratto API attuale'] })
+    );
     expect(researchYouTube.mock.calls.map(call => call[0])).toEqual(expectedQueries);
     expect(researchYouTube.mock.calls.map(call => call[2])).toEqual(
       expectedQueries.map(() => signal)

@@ -101,6 +101,37 @@ beforeEach(() => {
   runCodexAppServerTurn.mockReset();
 });
 
+test.each([
+  '```mermaid',
+  '~~~mermaid',
+  '```` mermaid',
+  '> ```mermaid',
+])('lets the reviewer remove an original %s fence', async fence => {
+  const draft = structuredClone(original);
+  const markdown = draft.contentBlocks[0];
+  if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
+  markdown.markdown += `\n\n${fence}\ngraph TD\nA-->B\n${fence.startsWith('~') ? '~~~' : '````'}`;
+  mockReview(original, preserved);
+
+  await expect(reviewLessonContentDraftStrict({ draft, generationInput })).resolves.toEqual(
+    original
+  );
+  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+});
+
+test('rejects Mermaid fences introduced by model review', async () => {
+  const reviewed = structuredClone(original);
+  const markdown = reviewed.contentBlocks[0];
+  if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
+  markdown.markdown += '\n\n```mermaid\ngraph TD\nA-->B\n```';
+  mockReview(reviewed, preserved);
+
+  await expect(review()).rejects.toMatchObject({
+    code: 'lesson_embedded_mermaid_unsupported',
+  });
+  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+});
+
 describe('lesson review quality report contract', () => {
   test('rejects a reviewer-introduced quiz fragment declared unresolved', async () => {
     const cleanDraft = structuredClone(flawedAutomationLesson);
@@ -371,6 +402,7 @@ describe('lesson review preserves its subject and learning objectives', () => {
     mockReview(original, preserved);
     await expect(review()).resolves.toEqual(original);
     expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+    expect(runCodexAppServerTurn.mock.calls[0][0].reasoningEffort).toBe('medium');
     const schema = runCodexAppServerTurn.mock.calls[0][0].outputSchema;
     expect(schema.properties.lessonIntegrity).not.toHaveProperty('$schema');
     expect(schema.required).toEqual(

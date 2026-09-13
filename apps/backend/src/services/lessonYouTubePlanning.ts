@@ -18,6 +18,7 @@ const YOUTUBE_QUERY_SYSTEM_INSTRUCTION = `Sei un planner di query per la ricerca
 export interface LessonYouTubeSearchInput {
   config: GlobalModelConfig;
   context?: string;
+  coverageGaps?: string[];
   courseTitle: string;
   keyConcepts?: string[];
   language: string;
@@ -102,6 +103,7 @@ CONTESTO:
 ${JSON.stringify({
   context: input.context,
   courseTitle: input.courseTitle,
+  coverageGaps: input.coverageGaps,
   keyConcepts: input.keyConcepts,
   language: input.language,
   lessonDescription: input.lessonDescription,

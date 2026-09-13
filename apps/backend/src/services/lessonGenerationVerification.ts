@@ -185,6 +185,20 @@ const draftMarkdownContains = (draft: LessonContentDraft, markers: readonly stri
 const draftMarkdownMatches = (draft: LessonContentDraft, pattern: RegExp): boolean =>
   draft.contentBlocks.some(block => block.type === 'markdown' && pattern.test(block.markdown));
 
+const containsMermaidFence = (draft: LessonContentDraft): boolean =>
+  draft.contentBlocks.some(block => {
+    if (block.type !== 'markdown') return false;
+    return block.markdown.split('\n').some(line => {
+      let trimmed = line.trimStart();
+      while (trimmed.startsWith('>')) trimmed = trimmed.slice(1).trimStart();
+      const fence = trimmed[0];
+      if (fence !== '`' && fence !== '~') return false;
+      let fenceLength = 0;
+      while (trimmed[fenceLength] === fence) fenceLength += 1;
+      return fenceLength >= 3 && /^mermaid\b/i.test(trimmed.slice(fenceLength).trimStart());
+    });
+  });
+
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
   checkIds: string[]
@@ -462,6 +476,15 @@ export const verifyLessonContentDraft = async (input: {
   responseSchema: LessonResponseSchemaContract;
 }): Promise<LessonContentDraft> => {
   const generationInput = input.generationInput;
+  const rejectEmbeddedMermaid = (draft: LessonContentDraft) => {
+    if (!containsMermaidFence(draft)) return;
+    throw retryLessonGenerationCorrection({
+      code: 'lesson_embedded_mermaid_unsupported',
+      feedback:
+        'Remove Mermaid code fences from lesson markdown. Diagrams are generated and validated through generatedVisuals after lesson review.',
+      message: 'Lesson markdown contains an unvalidated Mermaid diagram.',
+    });
+  };
   const prompt = buildLessonVerificationPrompt(generationInput, input.draft);
   const checkIds = buildRequiredLessonVerificationCheckIds(generationInput, input.draft);
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
@@ -475,13 +498,15 @@ export const verifyLessonContentDraft = async (input: {
         input: [{ text: prompt, type: 'text' }],
         model: modelConfig.model,
         outputSchema: schema.schema,
-        reasoningEffort: modelConfig.reasoningEffort,
+        reasoningEffort: 'medium',
         serviceTier: resolveCodexServiceTierForSlot(generationInput.config, 'lesson'),
         signal: generationInput.signal,
       });
       verified = JSON.parse(response) as VerifiedLessonContentDraft;
     } else {
-      const configured = createConfiguredTextModel(generationInput.config, 'lesson');
+      const configured = createConfiguredTextModel(generationInput.config, 'lesson', {
+        reasoningEffort: 'medium',
+      });
       const { output } = await generateText({
         abortSignal: generationInput.signal,
         maxRetries: 0,
@@ -508,6 +533,7 @@ export const verifyLessonContentDraft = async (input: {
       message: 'The lesson verifier returned invalid structured output.',
     });
   }
+  rejectEmbeddedMermaid(verified);
 
   const integrity = LessonIntegritySchema.safeParse(verified.lessonIntegrity);
   if (!integrity.success) {

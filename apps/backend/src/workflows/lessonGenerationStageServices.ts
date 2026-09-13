@@ -1,3 +1,6 @@
+import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
+import { buildUserGenerationNotesBlock } from '@shared/lessonWritingContract';
+
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
@@ -12,7 +15,7 @@ import {
   type LessonGenerationCorrection,
   LessonGenerationCorrectionError,
 } from '../services/lessonGenerationCorrection.js';
-import type { PrerequisiteCoverageDecision } from '../services/lessonGenerationCoverage.js';
+import type { LessonCoverageDecision } from '../services/lessonGenerationCoverage.js';
 import {
   buildLessonGenerationInput,
   buildLessonPedagogicalContext,
@@ -118,11 +121,12 @@ export interface LessonGenerationStageDependencies {
   readonly selectCoverage: (input: {
     config: GlobalModelConfig;
     description: string;
+    learningContext?: string;
     retryFeedback?: string;
     signal: AbortSignal;
     sourceContext: string;
     title: string;
-  }) => Promise<PrerequisiteCoverageDecision>;
+  }) => Promise<LessonCoverageDecision>;
   readonly store?: ProjectStore;
 }
 
@@ -361,9 +365,7 @@ const prepareLesson =
         },
         originalSources,
         request: context.input,
-        requiresCoverageAssessment:
-          section.type === 'prerequisite' &&
-          (forceRegenerate || sourceMaterials.existingDossier === null),
+        requiresCoverageAssessment: forceRegenerate || sourceMaterials.existingDossier === null,
         sourceFingerprint: buildLessonGenerationSourceFingerprint(record.snapshot, sectionId),
         stage: 'context',
         targetFingerprint: buildLessonGenerationTargetFingerprint(record.snapshot, sectionId),
@@ -393,6 +395,16 @@ const assessSourceCoverage =
         dependencies.selectCoverage({
           config: modelConfig(context),
           description: context.input.lessonInputData.description,
+          learningContext: JSON.stringify({
+            generationNotes: buildUserGenerationNotesBlock(
+              context.input.lessonInputData.generationNotes
+            ),
+            instructionPacks: buildLessonInstructionPackBlock(
+              context.input.lessonInputData.instructionPacks,
+              'writing'
+            ),
+            pedagogicalContext: context.input.lessonInputData.pedagogicalContext,
+          }),
           ...(context.retryFeedback ? { retryFeedback: context.retryFeedback } : {}),
           signal: context.signal,
           sourceContext: context.input.lessonInputData.sourceContext,
@@ -463,6 +475,9 @@ const planYouTubeResearch =
           config: modelConfig(context),
           context: context.input.youtubePlanning.context,
           courseTitle: context.input.youtubePlanning.courseTitle,
+          ...(context.input.lessonInputData.coverageGaps?.length
+            ? { coverageGaps: context.input.lessonInputData.coverageGaps }
+            : {}),
           ...(context.input.youtubePlanning.keyConcepts.length > 0
             ? { keyConcepts: context.input.youtubePlanning.keyConcepts }
             : {}),

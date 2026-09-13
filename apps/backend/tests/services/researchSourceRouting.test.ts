@@ -59,6 +59,14 @@ describe('research source routing boundary', () => {
     expect(() => validateResearchSourceRouting(decision, ['web'], 'Supplied chapter')).toThrow();
   });
 
+  test('rejects source sufficiency when prior assessment found coverage gaps', () => {
+    expect(() =>
+      validateResearchSourceRouting(decision, ['web', 'youtube'], 'Supplied chapter', [
+        'Current API contract',
+      ])
+    ).toThrow('Assessed coverage gaps require external research.');
+  });
+
   test.each([
     '',
     ' \n ',
