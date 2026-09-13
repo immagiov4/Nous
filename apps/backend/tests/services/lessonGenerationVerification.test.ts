@@ -105,6 +105,7 @@ test.each([
   '```mermaid',
   '~~~mermaid',
   '```` mermaid',
+  '> ```mermaid',
 ])('lets the reviewer remove an original %s fence', async fence => {
   const draft = structuredClone(original);
   const markdown = draft.contentBlocks[0];

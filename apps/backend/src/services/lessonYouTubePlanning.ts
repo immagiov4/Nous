@@ -61,13 +61,10 @@ const limitQuery = (value: string): string =>
 
 const fallbackPlan = (input: LessonYouTubeSearchInput): LessonYouTubeSearchPlan => {
   const specificQuery = limitQuery(input.lessonTitle || input.courseTitle);
-  const fallbackQuery = limitQuery(
-    input.coverageGaps?.[0] || input.keyConcepts?.[0] || input.courseTitle || specificQuery
-  );
+  const fallbackQuery = limitQuery(input.keyConcepts?.[0] || input.courseTitle || specificQuery);
   return {
     fallbackQuery: fallbackQuery || specificQuery,
-    focusConcept:
-      input.coverageGaps?.[0] || input.keyConcepts?.[0] || input.lessonTitle || input.courseTitle,
+    focusConcept: input.keyConcepts?.[0] || input.lessonTitle || input.courseTitle,
     specificQuery,
   };
 };

@@ -189,7 +189,8 @@ const containsMermaidFence = (draft: LessonContentDraft): boolean =>
   draft.contentBlocks.some(block => {
     if (block.type !== 'markdown') return false;
     return block.markdown.split('\n').some(line => {
-      const trimmed = line.trimStart();
+      let trimmed = line.trimStart();
+      while (trimmed.startsWith('>')) trimmed = trimmed.slice(1).trimStart();
       const fence = trimmed[0];
       if (fence !== '`' && fence !== '~') return false;
       let fenceLength = 0;

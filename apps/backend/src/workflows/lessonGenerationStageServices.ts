@@ -1,3 +1,4 @@
+import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks';
 import { buildUserGenerationNotesBlock } from '@shared/lessonWritingContract';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
@@ -398,7 +399,10 @@ const assessSourceCoverage =
             generationNotes: buildUserGenerationNotesBlock(
               context.input.lessonInputData.generationNotes
             ),
-            instructionPacks: context.input.lessonInputData.instructionPacks,
+            instructionPacks: buildLessonInstructionPackBlock(
+              context.input.lessonInputData.instructionPacks,
+              'writing'
+            ),
             pedagogicalContext: context.input.lessonInputData.pedagogicalContext,
           }),
           ...(context.retryFeedback ? { retryFeedback: context.retryFeedback } : {}),
