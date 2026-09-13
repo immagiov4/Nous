@@ -8,6 +8,7 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
+import type { LessonEvidencePacket } from './lessonEvidence.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 
@@ -42,6 +43,27 @@ Image-context materials contain the stored caption, page and surrounding text fo
 Return exactly one block entry per contentBlocks index. Identify every material factual assertion and compare it to the supplied original evidence, preserving qualifications, scope, exceptions and disagreements. Cite exact retained ranges. Synthesized research claims alone cannot replace original evidence when original excerpts are available. Mark unsupported or contradicted claims explicitly and explain the required correction. Do not infer support from a title, URL or agreement with model memory. An empty assessments array requires a concrete reason why this block has no factual claims.
 Clip timestamps must belong to retained source evidence and the explanation must match the moment. Validate generatedVisuals factualRequirements with the generated-visual block and imageRefs factual captions with their containing markdown blocks. Every supported assessment requires at least one actual evidence reference.`;
 
+const isClipWithinPassage = (
+  clip: { sourceIndex: number; startSeconds: number; endSeconds: number },
+  passage: LessonEvidencePacket['passages'][number]
+): boolean => {
+  const intervals = passage.units
+    .flatMap(unit =>
+      unit.startSeconds === undefined || unit.endSeconds === undefined
+        ? []
+        : [{ start: unit.startSeconds, end: unit.endSeconds }]
+    )
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  const first = intervals[0];
+  return (
+    passage.sourceIndex === clip.sourceIndex &&
+    first !== undefined &&
+    clip.startSeconds >= first.start &&
+    clip.endSeconds <= Math.max(...intervals.map(interval => interval.end)) &&
+    clip.startSeconds < clip.endSeconds
+  );
+};
+
 /** Check the final authored content, so pedagogical corrections cannot bypass grounding. */
 export const verifyLessonEvidence = async (
   input: LessonGenerationInput,
@@ -52,26 +74,7 @@ export const verifyLessonEvidence = async (
   const unsupportedClip = draft.contentBlocks.some(
     block =>
       block.type === 'youtube-clips' &&
-      block.clips.some(
-        clip =>
-          !packet.passages.some(passage => {
-            const intervals = passage.units
-              .flatMap(unit =>
-                unit.startSeconds === undefined || unit.endSeconds === undefined
-                  ? []
-                  : [{ start: unit.startSeconds, end: unit.endSeconds }]
-              )
-              .sort((left, right) => left.start - right.start || left.end - right.end);
-            const first = intervals[0];
-            return (
-              passage.sourceIndex === clip.sourceIndex &&
-              first !== undefined &&
-              clip.startSeconds >= first.start &&
-              clip.endSeconds <= Math.max(...intervals.map(interval => interval.end)) &&
-              clip.startSeconds < clip.endSeconds
-            );
-          })
-      )
+      block.clips.some(clip => !packet.passages.some(passage => isClipWithinPassage(clip, passage)))
   );
   if (unsupportedClip)
     throw retryLessonGenerationCorrection({

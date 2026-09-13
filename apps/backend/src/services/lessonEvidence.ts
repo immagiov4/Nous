@@ -60,7 +60,7 @@ export interface LessonEvidencePacket {
     materialId: string;
     kind: LessonEvidenceMaterial['kind'];
     sourceIndex?: number;
-    sourceContent?: LessonEvidenceMaterial['sourceContent'];
+    sourceContent?: NonNullable<LessonEvidenceMaterial['sourceContent']>;
     source?: Omit<ResearchSource, 'youtubeTranscript' | 'note'>;
     firstUnit: number;
     lastUnit: number;

@@ -694,6 +694,14 @@ const reviewLesson =
   async context => {
     const retry = readLessonReviewRetry(context.retryFeedback);
     const providerEffect = context.providerEffect;
+    const checkpointReview = providerEffect
+      ? (operation: () => Promise<LessonContentDraft>) =>
+          providerEffect.run({
+            key: `pedagogical-review:${retry.pedagogicalRevision}`,
+            operation: async () => toDurableLessonDraft(await operation()),
+            outputSchema: LessonContentDraftSchema,
+          })
+      : undefined;
     const draft = await runCorrectableLessonOperation(
       async () => {
         const generationInput = buildEvidenceGenerationInput({
@@ -713,16 +721,7 @@ const reviewLesson =
         return dependencies.reviewContent({
           draft,
           generationInput,
-          ...(providerEffect
-            ? {
-                checkpointReview: (operation: () => Promise<LessonContentDraft>) =>
-                  providerEffect.run({
-                    key: `pedagogical-review:${retry.pedagogicalRevision}`,
-                    operation: async () => toDurableLessonDraft(await operation()),
-                    outputSchema: LessonContentDraftSchema,
-                  }),
-              }
-            : {}),
+          ...(checkpointReview ? { checkpointReview } : {}),
         });
       },
       {
