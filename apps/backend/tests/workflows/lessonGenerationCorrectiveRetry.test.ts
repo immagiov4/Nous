@@ -81,6 +81,15 @@ const servicesWithReview = (reviewContent: LessonGenerationStageDependencies['re
     reviewContent,
   } as unknown as LessonGenerationStageDependencies);
 
+const createPersistedReviewExecutor = (
+  results: Map<string, unknown>
+): WorkflowProviderEffectExecutor => ({
+  async run({ key, operation, outputSchema }) {
+    if (!results.has(key)) results.set(key, JSON.parse(JSON.stringify(await operation())));
+    return outputSchema.parse(results.get(key));
+  },
+});
+
 describe('lesson generation corrective retries', () => {
   test.each([
     'lesson_factual_review_invalid',
@@ -108,19 +117,13 @@ describe('lesson generation corrective retries', () => {
       .mockRejectedValueOnce(failure)
       .mockResolvedValueOnce(undefined);
     const persisted = new Map<string, unknown>();
-    const restoredProviderEffect = (): WorkflowProviderEffectExecutor => ({
-      async run({ key, operation, outputSchema }) {
-        if (!persisted.has(key)) persisted.set(key, JSON.parse(JSON.stringify(await operation())));
-        return outputSchema.parse(persisted.get(key));
-      },
-    });
     const first = await servicesWithReview(reviewContent)
-      .reviewLesson({ ...stageContext(), providerEffect: restoredProviderEffect() })
+      .reviewLesson({ ...stageContext(), providerEffect: createPersistedReviewExecutor(persisted) })
       .catch(error => error);
     const feedback = first.failure?.feedback ?? '';
     const accepted = await servicesWithReview(reviewContent).reviewLesson({
       ...stageContext(feedback),
-      providerEffect: restoredProviderEffect(),
+      providerEffect: createPersistedReviewExecutor(persisted),
     });
     expect(paidReview).toHaveBeenCalledTimes(1);
     expect(verifyLessonEvidence).toHaveBeenCalledTimes(2);
@@ -160,12 +163,7 @@ describe('lesson generation corrective retries', () => {
       )
       .mockResolvedValueOnce(undefined);
     const persisted = new Map<string, unknown>();
-    const providerEffect: WorkflowProviderEffectExecutor = {
-      async run({ key, operation, outputSchema }) {
-        if (!persisted.has(key)) persisted.set(key, JSON.parse(JSON.stringify(await operation())));
-        return outputSchema.parse(persisted.get(key));
-      },
-    };
+    const providerEffect = createPersistedReviewExecutor(persisted);
     let feedback = '';
     let accepted:
       | Awaited<ReturnType<ReturnType<typeof servicesWithReview>['reviewLesson']>>
@@ -188,6 +186,86 @@ describe('lesson generation corrective retries', () => {
     expect(accepted?.draft.contentBlocks).toEqual([{ type: 'markdown', markdown: 'Revision 2' }]);
     expect([...persisted.keys()]).toEqual(['pedagogical-review:0', 'pedagogical-review:1']);
     expect(verifyLessonEvidence.mock.calls[2][1]).toEqual(verifyLessonEvidence.mock.calls[1][1]);
+  });
+
+  test('preserves correction A when the next factual finding requires correction B', async () => {
+    const initial = stageContext();
+    initial.input.draft.contentBlocks = [
+      { type: 'markdown', markdown: 'Unsupported A' },
+      { type: 'markdown', markdown: 'Unsupported B' },
+    ];
+    const paidReview = vi.fn(
+      async ({
+        draft,
+        generationInput,
+      }: Parameters<LessonGenerationStageDependencies['reviewContent']>[0]) => {
+        const corrected = structuredClone(draft);
+        if (generationInput.retryFeedback === 'Repair A')
+          corrected.contentBlocks[0] = { type: 'markdown', markdown: 'Supported A' };
+        if (generationInput.retryFeedback === 'Repair B')
+          corrected.contentBlocks[1] = { type: 'markdown', markdown: 'Supported B' };
+        return corrected;
+      }
+    );
+    const reviewContent: LessonGenerationStageDependencies['reviewContent'] = input =>
+      reviewLessonContentDraftStrict({ ...input, verify: paidReview });
+    verifyLessonEvidence
+      .mockReset()
+      .mockRejectedValueOnce(
+        retryLessonGenerationCorrection({
+          code: 'lesson_factual_support_failed',
+          feedback: 'Repair A',
+          message: 'Unsupported A',
+        })
+      )
+      .mockRejectedValueOnce(
+        retryLessonGenerationCorrection({
+          code: 'lesson_factual_support_failed',
+          feedback: 'Repair B',
+          message: 'Unsupported B',
+        })
+      )
+      .mockResolvedValueOnce(undefined);
+    const persisted = new Map<string, unknown>();
+    const attempt = (attemptNumber: number, feedback: string) =>
+      servicesWithReview(reviewContent).reviewLesson({
+        ...initial,
+        attemptNumber,
+        retryFeedback: feedback,
+        providerEffect: createPersistedReviewExecutor(persisted),
+      });
+    const first = await attempt(1, '').catch(error => error);
+    const second = await attempt(2, first.failure.feedback).catch(error => error);
+    const accepted = await attempt(3, second.failure.feedback);
+    expect(paidReview.mock.calls[2][0].draft.contentBlocks).toEqual([
+      { type: 'markdown', markdown: 'Supported A' },
+      { type: 'markdown', markdown: 'Unsupported B' },
+    ]);
+    expect(accepted.draft.contentBlocks).toEqual([
+      { type: 'markdown', markdown: 'Supported A' },
+      { type: 'markdown', markdown: 'Supported B' },
+    ]);
+    expect(initial.input.draft.contentBlocks[0]).toEqual({
+      type: 'markdown',
+      markdown: 'Unsupported A',
+    });
+  });
+
+  test('fails explicitly when a required earlier pedagogical revision is missing', async () => {
+    const reviewContent = vi.fn();
+    await expect(
+      servicesWithReview(reviewContent).reviewLesson({
+        ...stageContext(
+          JSON.stringify({
+            kind: 'lesson-review-retry-v1',
+            pedagogicalRevision: 1,
+            feedback: 'Repair A',
+          })
+        ),
+        providerEffect: createPersistedReviewExecutor(new Map()),
+      })
+    ).rejects.toThrow('The preceding pedagogical review checkpoint is missing.');
+    expect(reviewContent).not.toHaveBeenCalled();
   });
 
   test('classifies stale restored evidence as corrective before drafting or reviewing', async () => {

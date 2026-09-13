@@ -695,13 +695,24 @@ const reviewLesson =
     const retry = readLessonReviewRetry(context.retryFeedback);
     const providerEffect = context.providerEffect;
     const draft = await runCorrectableLessonOperation(
-      () =>
-        dependencies.reviewContent({
-          draft: context.input.draft,
-          generationInput: buildEvidenceGenerationInput({
-            ...context,
-            retryFeedback: retry.feedback,
-          }),
+      async () => {
+        const generationInput = buildEvidenceGenerationInput({
+          ...context,
+          retryFeedback: retry.feedback,
+        });
+        let draft = context.input.draft;
+        if (providerEffect && retry.pedagogicalRevision > 0) {
+          draft = await providerEffect.run({
+            key: `pedagogical-review:${retry.pedagogicalRevision - 1}`,
+            outputSchema: LessonContentDraftSchema,
+            operation: async () => {
+              throw new Error('The preceding pedagogical review checkpoint is missing.');
+            },
+          });
+        }
+        return dependencies.reviewContent({
+          draft,
+          generationInput,
           ...(providerEffect
             ? {
                 checkpointReview: (operation: () => Promise<LessonContentDraft>) =>
@@ -712,7 +723,8 @@ const reviewLesson =
                   }),
               }
             : {}),
-        }),
+        });
+      },
       {
         code: 'lesson_review_output_invalid',
         feedback:
