@@ -118,6 +118,7 @@ export interface LessonGenerationStageDependencies {
   readonly selectCoverage: (input: {
     config: GlobalModelConfig;
     description: string;
+    learningContext?: string;
     retryFeedback?: string;
     signal: AbortSignal;
     sourceContext: string;
@@ -391,6 +392,7 @@ const assessSourceCoverage =
         dependencies.selectCoverage({
           config: modelConfig(context),
           description: context.input.lessonInputData.description,
+          learningContext: context.input.lessonInputData.pedagogicalContext,
           ...(context.retryFeedback ? { retryFeedback: context.retryFeedback } : {}),
           signal: context.signal,
           sourceContext: context.input.lessonInputData.sourceContext,

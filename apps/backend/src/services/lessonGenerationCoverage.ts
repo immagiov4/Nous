@@ -57,6 +57,7 @@ const PREREQUISITE_COVERAGE_SCHEMA = {
 export const selectPrerequisiteSourceCoverage = async (input: {
   config: GlobalModelConfig;
   description: string;
+  learningContext?: string;
   retryFeedback?: string;
   signal: AbortSignal;
   sourceContext: string;
@@ -76,6 +77,7 @@ export const selectPrerequisiteSourceCoverage = async (input: {
     : '';
   const prompt = `LESSON: ${input.title}
 OBJECTIVE: ${input.description}
+${input.learningContext ? `BINDING LEARNING CONTEXT:\n${input.learningContext}\n` : ''}
 
 ORIGINAL MATERIAL:
 ${sourceContext}

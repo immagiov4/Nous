@@ -77,7 +77,7 @@ Mapped document context reserves the six-chunk limit for explicitly selected chu
 
 Source deduplication prefers an explicit `sourceId`. URL identity normalizes scheme and hostname case while preserving path, query, and fragment case. The existing trailing-slash equivalence also applies. Sources: [apps/backend/src/services/lessonGenerationSources.ts](../../../apps/backend/src/services/lessonGenerationSources.ts), [apps/backend/src/services/lessonGenerationPreparation.ts](../../../apps/backend/src/services/lessonGenerationPreparation.ts)
 
-The system assesses the primary source material for coverage gaps. If the lesson is a "prerequisite" type, it identifies missing topics that require external research.
+For every fresh lesson generation, the system compares the primary source material with the complete binding lesson context and identifies missing topics before research routing. Existing research dossiers keep their reuse fast path.
 * **YouTube Research:** A branching path that plans specific and fallback queries to find timestamped transcripts.
 * **Research Dossier:** The `generateResearchSummary` service creates a dense factual dossier, including controversies and recent developments, which serves as factual support for drafting.
 Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/services/lessonGenerationModel.ts](../../../apps/backend/src/services/lessonGenerationModel.ts)
