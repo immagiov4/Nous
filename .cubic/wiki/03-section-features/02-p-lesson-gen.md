@@ -115,6 +115,14 @@ The fresh-dossier total increases 6.1%; the reused-dossier total decreases 22.8%
 
 To reproduce, install `tiktoken==0.14.0` in a separate Python environment, set `LESSON_EVIDENCE_MEASUREMENTS_DIR` to an output directory outside the repository, run `bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/services/lessonEvidence.integration.test.ts`, then run `python scripts/measure-lesson-evidence.py <output-directory>`. The evidence-loss case removes the scalar-clock qualification from retained evidence and verifies that the final factual check rejects the resulting unsupported claim. The full-context comparison retains that qualification. Actual pedagogical effectiveness requires model evaluation beyond this deterministic contract test.
 
+#### Real-model evaluation
+
+A Luna evaluation on the same authored materials selected primary units 1–3 and transcript `source-1` units 2 and 5 (90.25–135.5 and 225.25–270.5 seconds). The initial range validation rejected valid contained references; validation now accepts ordered subranges inside retained passages. Factual instructions distinguish endorsed assertions from quiz distractors, hypothetical examples, visual plans and absent optional captions.
+
+The automatic pedagogical/factual review cycle accepted the original generated draft on its second completed attempt, using corrective feedback and the existing maximum of three attempts. The accepted lesson has eight blocks, two quizzes, one planned visual and two clips. The first attempt identified assertions exceeding the selected evidence. The successful second attempt used 20,901 input / 8,418 output tokens for pedagogical review and 15,640 / 8,454 for factual review. The two completed automatic attempts total 72,799 input / 34,350 output tokens. An interrupted second attempt had completed its pedagogical call (20,889 / 6,852) before the evaluation was paused; it has no completed factual result.
+
+An earlier diagnostic copy passed factual review after manually deleting one unsupported clock-synchronization sentence. That diagnostic is separate from the subsequent automatic success on the original draft. One authored example and model-based acceptance establish this execution path, not general pedagogical effectiveness or rendered media quality. The durable integration tests separately cover persistence, exports, original source identity, rejected evidence and historical workflow hashes.
+
 The `draftLesson` stage uses the `Professor Nous` system prompt to generate the lesson body. The writer and focused verifier share canonical pedagogical contracts without sending the complete generation prompt through verification a second time.
 
 | Rule Category | Description |
