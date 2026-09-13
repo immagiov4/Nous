@@ -16,7 +16,7 @@ const UnitRangeSchema = z.object({
   lastUnit: z.number().int().nonnegative(),
 });
 
-export const LessonEvidenceSelectionSchema = z.object({
+const LessonEvidenceSelectionSchema = z.object({
   materials: z.array(
     z.object({
       materialId: z.string().min(1),
