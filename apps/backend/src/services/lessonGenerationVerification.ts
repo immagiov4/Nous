@@ -185,6 +185,19 @@ const draftMarkdownContains = (draft: LessonContentDraft, markers: readonly stri
 const draftMarkdownMatches = (draft: LessonContentDraft, pattern: RegExp): boolean =>
   draft.contentBlocks.some(block => block.type === 'markdown' && pattern.test(block.markdown));
 
+const containsMermaidFence = (draft: LessonContentDraft): boolean =>
+  draft.contentBlocks.some(block => {
+    if (block.type !== 'markdown') return false;
+    return block.markdown.split('\n').some(line => {
+      const trimmed = line.trimStart();
+      const fence = trimmed[0];
+      if (fence !== '`' && fence !== '~') return false;
+      let fenceLength = 0;
+      while (trimmed[fenceLength] === fence) fenceLength += 1;
+      return fenceLength >= 3 && /^mermaid\b/i.test(trimmed.slice(fenceLength).trimStart());
+    });
+  });
+
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
   checkIds: string[]
@@ -463,7 +476,7 @@ export const verifyLessonContentDraft = async (input: {
 }): Promise<LessonContentDraft> => {
   const generationInput = input.generationInput;
   const rejectEmbeddedMermaid = (draft: LessonContentDraft) => {
-    if (!draftMarkdownMatches(draft, /(?:`{3,}|~{3,})\s*mermaid\b/i)) return;
+    if (!containsMermaidFence(draft)) return;
     throw retryLessonGenerationCorrection({
       code: 'lesson_embedded_mermaid_unsupported',
       feedback:

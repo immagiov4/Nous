@@ -30,11 +30,9 @@ export const normalizeLessonCoverageDecision = (
     ...new Set(decision.missingTopics.map(topic => topic.trim()).filter(Boolean)),
   ];
   const needsResearch = !decision.sufficient || missingTopics.length > 0;
-  const normalizedMissingTopics = needsResearch
-    ? missingTopics.length > 0
-      ? missingTopics
-      : [title]
-    : [];
+  let normalizedMissingTopics = missingTopics;
+  if (!needsResearch) normalizedMissingTopics = [];
+  else if (missingTopics.length === 0) normalizedMissingTopics = [title];
   return {
     missingTopics: normalizedMissingTopics,
     needsResearch,
