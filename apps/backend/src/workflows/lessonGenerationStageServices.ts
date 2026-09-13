@@ -614,8 +614,15 @@ const researchLesson =
       research: { context: researchContext, summary, youtube: context.input.research.youtube },
       stage: 'research' as const,
     };
-    if (!context.selectEvidence) return researchState;
-    const evidenceInput = { ...generationInput, sources: lessonSources, researchContext };
+    return researchState;
+  };
+
+const selectLessonEvidence =
+  (
+    dependencies: LessonGenerationStageDependencies
+  ): LessonGenerationWorkflowServices['selectLessonEvidence'] =>
+  async context => {
+    const evidenceInput = buildEvidenceGenerationInput(context);
     const evidence = await runCorrectableLessonOperation(
       () => dependencies.selectEvidence(evidenceInput),
       {
@@ -626,7 +633,7 @@ const researchLesson =
       }
     );
     return {
-      ...researchState,
+      ...context.input,
       evidencePacketJson: serializeLessonEvidence(evidenceInput, evidence),
     };
   };
@@ -772,6 +779,7 @@ export const createLessonGenerationStageServices = (
   | 'prepareLesson'
   | 'researchFallbackYouTube'
   | 'researchLesson'
+  | 'selectLessonEvidence'
   | 'researchSpecificYouTube'
   | 'reviewLesson'
 > => {
@@ -807,6 +815,7 @@ export const createLessonGenerationStageServices = (
     prepareLesson: prepareLesson(dependencies),
     researchFallbackYouTube: researchFallbackYouTube(dependencies, logger),
     researchLesson: researchLesson(dependencies),
+    selectLessonEvidence: selectLessonEvidence(dependencies),
     researchSpecificYouTube: researchSpecificYouTube(dependencies, logger),
     reviewLesson: reviewLesson(dependencies),
   };

@@ -12,6 +12,7 @@ import {
   isLessonStructuredOutputError,
   retryLessonGenerationCorrection,
 } from './lessonGenerationCorrection.js';
+import { readLessonPrimarySources } from './lessonPrimarySourceContext.js';
 
 const MIN_COVERAGE_CONTEXT_CHARS = 120;
 const COVERAGE_SYSTEM_INSTRUCTION =
@@ -61,7 +62,11 @@ export const selectPrerequisiteSourceCoverage = async (input: {
   sourceContext: string;
   title: string;
 }): Promise<PrerequisiteCoverageDecision> => {
-  const sourceContext = input.sourceContext.trim();
+  const sourceContext = (
+    readLessonPrimarySources(input.sourceContext)
+      ?.map(part => part.text)
+      .join('\n\n') ?? input.sourceContext
+  ).trim();
   if (sourceContext.length < MIN_COVERAGE_CONTEXT_CHARS) {
     return { missingTopics: [input.title], needsResearch: true };
   }

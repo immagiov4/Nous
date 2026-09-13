@@ -119,6 +119,7 @@ export interface LessonGenerationWorkflowServices extends LessonVisualWorkflowSe
     LessonPersistenceState
   >;
   readonly draftLesson: LessonGenerationStage<LessonResearchState, LessonDraftState>;
+  readonly selectLessonEvidence: LessonGenerationStage<LessonResearchState, LessonResearchState>;
   readonly finalizeLesson: LessonGenerationStage<
     LessonPersistenceState,
     LessonGenerationWorkflowResult
@@ -636,6 +637,28 @@ const createLessonGenerationWorkflowDefinition = <
       ),
   });
 
+  const selectLessonEvidence = step<
+    typeof LessonResearchStateSchema,
+    typeof LessonResearchStateSchema,
+    Config,
+    Services
+  >({
+    externalEffect: 'provider',
+    id: 'select-lesson-evidence',
+    inputSchema: durableSchemas.LessonResearchStateSchema,
+    outputSchema: durableSchemas.LessonResearchStateSchema,
+    run: context =>
+      runStage(
+        context,
+        {
+          code: 'lesson_evidence_selection_failed',
+          message: 'The lesson evidence could not be selected.',
+          modelSlot: 'lesson',
+        },
+        stage => context.services.selectLessonEvidence(stage)
+      ),
+  });
+
   const draftLesson = step<
     typeof LessonResearchStateSchema,
     typeof LessonDraftStateSchema,
@@ -815,6 +838,9 @@ const createLessonGenerationWorkflowDefinition = <
         : []),
       routeYouTubeResearch,
       researchLesson,
+      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet
+        ? ([selectLessonEvidence] as const)
+        : []),
       draftLesson,
       reviewLesson,
       generateLearningAids,

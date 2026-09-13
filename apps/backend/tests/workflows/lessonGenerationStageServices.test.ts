@@ -6,6 +6,7 @@ import {
   buildLessonEvidenceMaterials,
   resolveLessonEvidence,
 } from '../../src/services/lessonEvidence.js';
+import { retryLessonGenerationCorrection } from '../../src/services/lessonGenerationCorrection.js';
 import { resolveLessonResearchRequest } from '../../src/services/lessonGenerationModel.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
@@ -206,7 +207,8 @@ describe('lesson generation production stages', () => {
       ...stageContext(state),
       selectEvidence: true,
     });
-    await services.draftLesson(stageContext(researched));
+    const selected = await services.selectLessonEvidence(stageContext(researched));
+    await services.draftLesson(stageContext(selected));
     expect(researched.lessonSources).toEqual([webSource]);
     expect(generateContent.mock.calls[0]?.[0].evidencePacket.passages).toEqual([
       expect.objectContaining({
@@ -247,8 +249,42 @@ describe('lesson generation production stages', () => {
       research: { context: '', youtube: null },
       stage: 'youtube',
     });
-    const result = await node.run({ ...stageContext(state), services } as never);
-    expect(stageDependencies.selectEvidence).toHaveBeenCalledTimes(current ? 1 : 0);
+    const researched = await node.run({ ...stageContext(state), services } as never);
+    const selectionNode = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'select-lesson-evidence'
+    )?.node;
+    if (selectionNode?.kind === 'step') {
+      vi.mocked(stageDependencies.selectEvidence).mockRejectedValueOnce(
+        retryLessonGenerationCorrection({
+          code: 'lesson_evidence_selection_invalid',
+          feedback: 'Repair the retained source references.',
+          message: 'Invalid evidence selection.',
+        })
+      );
+      await expect(
+        selectionNode.run({ ...stageContext(researched), services } as never)
+      ).rejects.toMatchObject({ failure: { kind: 'corrective' } });
+    }
+    const result =
+      selectionNode?.kind === 'step'
+        ? await selectionNode.run({
+            ...stageContext(researched),
+            retryFeedback: 'Repair the retained source references.',
+            attemptNumber: 2,
+            services,
+          } as never)
+        : researched;
+    expect(Boolean(selectionNode)).toBe(current);
+    expect(stageDependencies.selectEvidence).toHaveBeenCalledTimes(current ? 2 : 0);
+    expect(stageDependencies.generateResearch).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(stageDependencies.generateResearch).mock.calls[0][0].retryFeedback
+    ).toBeUndefined();
+    if (current) {
+      expect(vi.mocked(stageDependencies.selectEvidence).mock.calls[1][0].retryFeedback).toBe(
+        'Repair the retained source references.'
+      );
+    }
     expect(Object.hasOwn(result as object, 'evidencePacketJson')).toBe(current);
     expect(result).toMatchObject({ stage: 'research', lessonSources: [] });
   });

@@ -275,6 +275,7 @@ describe('lesson generation workflow', () => {
         'research-fallback-youtube',
         'finalize-youtube-research',
         'research-lesson',
+        'select-lesson-evidence',
         'draft-lesson',
         'review-lesson',
         'generate-learning-aids',

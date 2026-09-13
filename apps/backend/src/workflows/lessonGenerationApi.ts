@@ -29,6 +29,7 @@ const STRUCTURE_STAGE_NODES = new Set([
   'assess-source-coverage',
   'plan-sublesson',
   'research-lesson',
+  'select-lesson-evidence',
   'research-youtube',
   'unwrap-generation-context',
 ]);

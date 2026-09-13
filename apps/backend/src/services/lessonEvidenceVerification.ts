@@ -54,14 +54,19 @@ export const verifyLessonEvidence = async (
       block.clips.some(
         clip =>
           !packet.passages.some(passage => {
-            const first = passage.units[0];
-            const last = passage.units.at(-1);
+            const intervals = passage.units
+              .flatMap(unit =>
+                unit.startSeconds === undefined || unit.endSeconds === undefined
+                  ? []
+                  : [{ start: unit.startSeconds, end: unit.endSeconds }]
+              )
+              .sort((left, right) => left.start - right.start || left.end - right.end);
+            const first = intervals[0];
             return (
               passage.sourceIndex === clip.sourceIndex &&
-              first?.startSeconds !== undefined &&
-              last?.endSeconds !== undefined &&
-              clip.startSeconds >= first.startSeconds &&
-              clip.endSeconds <= last.endSeconds &&
+              first !== undefined &&
+              clip.startSeconds >= first.start &&
+              clip.endSeconds <= Math.max(...intervals.map(interval => interval.end)) &&
               clip.startSeconds < clip.endSeconds
             );
           })
@@ -79,6 +84,7 @@ export const verifyLessonEvidence = async (
     description: input.description,
     draft,
     evidence: JSON.parse(formatLessonEvidence(packet)),
+    ...(input.retryFeedback?.trim() ? { retryFeedback: input.retryFeedback.trim() } : {}),
   });
   const { $schema: _dialect, ...schema } = FactualReviewSchema.toJSONSchema();
   let response: unknown;

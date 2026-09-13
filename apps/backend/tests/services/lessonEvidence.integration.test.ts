@@ -261,6 +261,43 @@ const mockModels = () => {
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test('checks imported unordered and nested transcript intervals without changing source order', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    const passage = input.evidencePacket.passages.find(entry => entry.materialId === 'source-2');
+    if (!passage) throw new Error('Missing retained video.');
+    passage.units.reverse();
+    const preserved = structuredClone(passage.units);
+    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(factualReport(true)));
+    await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
+    expect(passage.units).toEqual(preserved);
+    passage.units[1].endSeconds = passage.units[0].endSeconds;
+    const start = passage.units[0].startSeconds;
+    if (start === undefined) throw new Error('Missing transcript timestamp.');
+    passage.units[0].endSeconds = start + 1;
+    await expect(verifyLessonEvidence(input, evidenceLesson)).resolves.toBeUndefined();
+    expect(preserved[0].startSeconds).toBe(passage.units[0].startSeconds);
+  });
+
+  test('passes invalid factual-report feedback to the next factual request', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify({ blocks: [] }));
+    const failure = await verifyLessonEvidence(input, evidenceLesson).catch(error => error);
+    expect(failure.code).toBe('lesson_factual_review_invalid');
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(factualReport(true)));
+    await verifyLessonEvidence({ ...input, retryFeedback: failure.feedback }, evidenceLesson);
+    const request = runCodexAppServerTurn.mock.calls.at(-1)?.[0];
+    expect(JSON.parse(request.input[0].text).retryFeedback).toBe(failure.feedback);
+  });
   test('supports clips and citations across adjacent selections while rejecting omitted units', async () => {
     const input = generationInput();
     input.researchContext = JSON.stringify(evidenceResearch);
@@ -522,7 +559,9 @@ describe('role-specific lesson evidence through the production Luna model path',
     const retrieved = await services.researchSpecificYouTube(context(planned));
     const finalized = await services.finalizeYouTubeResearch(context(retrieved));
     const researched = LessonResearchStateSchema.parse(
-      await services.researchLesson({ ...context(finalized), selectEvidence: true })
+      await services.selectLessonEvidence(
+        context(await services.researchLesson({ ...context(finalized), selectEvidence: true }))
+      )
     );
     const drafted = LessonDraftStateSchema.parse(await services.draftLesson(context(researched)));
     const reviewed = LessonReviewedStateSchema.parse(await services.reviewLesson(context(drafted)));
