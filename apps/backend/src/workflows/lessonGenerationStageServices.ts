@@ -12,7 +12,7 @@ import {
   type LessonGenerationCorrection,
   LessonGenerationCorrectionError,
 } from '../services/lessonGenerationCorrection.js';
-import type { PrerequisiteCoverageDecision } from '../services/lessonGenerationCoverage.js';
+import type { LessonCoverageDecision } from '../services/lessonGenerationCoverage.js';
 import {
   buildLessonGenerationInput,
   buildLessonPedagogicalContext,
@@ -123,7 +123,7 @@ export interface LessonGenerationStageDependencies {
     signal: AbortSignal;
     sourceContext: string;
     title: string;
-  }) => Promise<PrerequisiteCoverageDecision>;
+  }) => Promise<LessonCoverageDecision>;
   readonly store?: ProjectStore;
 }
 
@@ -392,7 +392,11 @@ const assessSourceCoverage =
         dependencies.selectCoverage({
           config: modelConfig(context),
           description: context.input.lessonInputData.description,
-          learningContext: context.input.lessonInputData.pedagogicalContext,
+          learningContext: JSON.stringify({
+            generationNotes: context.input.lessonInputData.generationNotes,
+            instructionPacks: context.input.lessonInputData.instructionPacks,
+            pedagogicalContext: context.input.lessonInputData.pedagogicalContext,
+          }),
           ...(context.retryFeedback ? { retryFeedback: context.retryFeedback } : {}),
           signal: context.signal,
           sourceContext: context.input.lessonInputData.sourceContext,

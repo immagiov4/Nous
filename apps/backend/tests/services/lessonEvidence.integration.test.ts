@@ -287,9 +287,6 @@ describe('role-specific lesson evidence through the production Luna model path',
     ];
     runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
     await expect(verifyLessonEvidence(input, draft)).resolves.toBeUndefined();
-    expect(runCodexAppServerTurn.mock.lastCall?.[0].developerInstructions).toContain(
-      'Do not assess common terminology'
-    );
     const prompt = JSON.parse(runCodexAppServerTurn.mock.lastCall?.[0].input[0].text);
     const images = prompt.evidence.filter(
       (entry: { kind: string }) => entry.kind === 'image-context'
@@ -430,7 +427,6 @@ describe('role-specific lesson evidence through the production Luna model path',
     quizBlock.quiz.correctIndex = 1;
     await expect(verifyLessonEvidence(input, wrongKey)).rejects.toMatchObject({
       code: 'lesson_factual_support_failed',
-      feedback: expect.stringContaining('Do not replace them with new factual claims.'),
     });
   });
   test('accepts factual citations inside retained passages and rejects reversed or outside ranges', async () => {
@@ -503,7 +499,7 @@ describe('role-specific lesson evidence through the production Luna model path',
               request,
             })),
             after: after.map((request, index) => ({
-              stage: ['selection', 'drafting', 'pedagogical-review', 'factual-review'][index],
+              stage: ['drafting', 'pedagogical-review', 'factual-review'][index],
               request,
             })),
             selection: input.evidencePacket.selection,

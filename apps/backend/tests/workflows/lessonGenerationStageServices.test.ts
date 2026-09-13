@@ -526,6 +526,8 @@ describe('lesson generation production stages', () => {
     if (!section) throw new Error('Missing test lesson.');
     section.type = 'core';
     section.contextPrompt = 'Assess the blast radius.';
+    section.instructionPacks = ['code'];
+    coreProject.learningPlan.generationNotes = 'Use the current API contract.';
     const selectCoverage = vi.fn().mockResolvedValue({
       missingTopics: ['Blast radius'],
       needsResearch: true,
@@ -568,7 +570,11 @@ describe('lesson generation production stages', () => {
     await services.planResearchSources(stageContext(covered));
     expect(selectCoverage).toHaveBeenCalledTimes(1);
     expect(selectCoverage).toHaveBeenCalledWith(
-      expect.objectContaining({ learningContext: expect.stringContaining('blast radius') })
+      expect.objectContaining({
+        learningContext: expect.stringMatching(
+          /blast radius[\s\S]*current API contract[\s\S]*code|current API contract[\s\S]*code[\s\S]*blast radius/
+        ),
+      })
     );
     expect(planResearchSources).toHaveBeenCalledWith(
       expect.objectContaining({ coverageGaps: ['Blast radius'] })

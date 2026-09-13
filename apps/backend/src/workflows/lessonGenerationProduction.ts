@@ -3,7 +3,7 @@ import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
 import { selectLessonEvidence } from '../services/lessonEvidenceModel.js';
 import { generateLessonLearningAids } from '../services/lessonGenerationAids.js';
-import { selectPrerequisiteSourceCoverage } from '../services/lessonGenerationCoverage.js';
+import { selectLessonSourceCoverage } from '../services/lessonGenerationCoverage.js';
 import {
   generateLessonContent,
   generateResearchSummary,
@@ -62,7 +62,7 @@ export const createProductionLessonGenerationServices = (
       buildYouTubeResearchOutcome(query, language, { includeEngagementMetadata: false, signal }),
     resolveSourceMaterials: resolveLessonSourceMaterials,
     reviewContent: reviewLessonContentDraftStrict,
-    selectCoverage: selectPrerequisiteSourceCoverage,
+    selectCoverage: selectLessonSourceCoverage,
     selectEvidence: selectLessonEvidence,
     store: projectStore,
   });
