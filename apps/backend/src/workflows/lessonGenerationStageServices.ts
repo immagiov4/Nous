@@ -361,9 +361,7 @@ const prepareLesson =
         },
         originalSources,
         request: context.input,
-        requiresCoverageAssessment:
-          section.type === 'prerequisite' &&
-          (forceRegenerate || sourceMaterials.existingDossier === null),
+        requiresCoverageAssessment: forceRegenerate || sourceMaterials.existingDossier === null,
         sourceFingerprint: buildLessonGenerationSourceFingerprint(record.snapshot, sectionId),
         stage: 'context',
         targetFingerprint: buildLessonGenerationTargetFingerprint(record.snapshot, sectionId),

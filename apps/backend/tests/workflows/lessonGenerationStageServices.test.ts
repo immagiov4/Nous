@@ -520,6 +520,40 @@ describe('lesson generation production stages', () => {
     expect(outcome.state.requiresCoverageAssessment).toBe(true);
   });
 
+  test('assesses source coverage for a core lesson before research routing', async () => {
+    const coreProject = structuredClone(project);
+    const section = coreProject.learningPlan?.modules?.[0]?.children?.[0];
+    if (!section) throw new Error('Missing test lesson.');
+    section.type = 'core';
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        loadProject: vi.fn().mockResolvedValue(coreProject),
+        loadProjectWithRevision: vi.fn().mockResolvedValue({
+          revision: 1,
+          snapshot: coreProject,
+        }),
+        resolveSourceMaterials: vi.fn().mockResolvedValue({
+          existingDossier: null,
+          existingSources: [],
+          sourceContext: 'CHUNK chunk-1\nContenuto originale.',
+        }),
+      })
+    );
+
+    const outcome = await services.prepareLesson(
+      stageContext({
+        forceRegenerate: false,
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        userId: 'user-1',
+      })
+    );
+
+    expect(outcome.kind).toBe('generate');
+    if (outcome.kind !== 'generate') throw new Error('Expected generation context.');
+    expect(outcome.state.requiresCoverageAssessment).toBe(true);
+  });
+
   test('reads detached original bytes when no document index is available', async () => {
     const store = new InMemoryProjectStore();
     const sourceText = 'Il documento originale descrive la fase luminosa nei tilacoidi.';
