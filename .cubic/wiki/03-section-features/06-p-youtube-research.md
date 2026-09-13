@@ -130,15 +130,25 @@ Sources: [apps/web/services/openrouter/research.ts:40-65](../../../apps/web/serv
 
 ## Research source selection
 
-Production course and lesson workflows call `planResearchSources` before retrieval. The configured `context` model decides whether supplied material is sufficient and returns one selected or skipped decision, with a reason, for each available capability. Available capabilities are web and YouTube. The planner receives source excerpts or archive-index previews, the topic, the learning context, and assessed lesson coverage gaps. A decision declaring insufficient supplied sources must select at least one capability. Sufficiency describes factual coverage and authority; a video can still be selected for pedagogical value when supplied text is sufficient. Capability selection contains no provider names.
+Production course and lesson workflows call `planResearchSources` before retrieval. The configured `context` model decides whether supplied material is sufficient and returns one selected or skipped decision, with a reason, for each available capability. Web is available through the configured model; YouTube is offered only when its retrieval provider is configured. The planner receives source excerpts or archive-index previews, the topic, the learning context, and assessed lesson coverage gaps. A decision declaring insufficient supplied sources must select at least one capability. Absent supplied material cannot be declared sufficient. Sufficiency describes factual coverage and authority; a video can still be selected for pedagogical value when supplied text is sufficient. Capability selection contains no provider names.
 
 `plan-course-research-sources` persists the decision before creating only the selected parallel branches. `plan-lesson-research-sources` persists the decision before YouTube discovery and controls web access in the lesson research model. A skipped channel performs no retrieval or query-planning calls. Stored dossiers remain reusable. Previous workflow definitions retain their schemas for in-flight runs.
 
-A temporary provider failure in optional research can leave a course or lesson on its sufficient supplied sources. Selected research failures propagate when supplied sources are insufficient. Cancellation, invalid structured output, configuration errors, and authentication errors remain failures. Unclassified discovered videos are excluded from that result. Existing query limits, transcript context limits and retry policies remain the retrieval boundaries; the router adds no numerical ranking or request policy.
+Invalid routing decisions use the workflow's corrective retry path. Both planners receive the validation feedback on the next attempt. Course routing also receives the persisted profile, language, prior-knowledge context and diagnostic evidence. When web is the only required channel, a response with both empty factual content and no sources triggers correction in the provider step, which reruns with that feedback.
+
+Course finalization and lesson research also validate the combined results: insufficient supplied sources plus empty factual content, no sources and no YouTube candidates fail before drafting. Selecting both channels does not exempt an empty aggregate from this check.
+
+A temporary provider failure in optional research can leave a course or lesson on its sufficient supplied sources. Selected research failures propagate when supplied sources are insufficient. When YouTube is the only selected channel and supplied sources are insufficient, an empty retrieval result fails before drafting. Decodo transport failures are classified at the HTTP request boundary. Cancellation, invalid structured output, configuration errors, and authentication errors remain failures. Unclassified discovered videos are excluded from that result. Existing query limits, transcript context limits and retry policies remain the retrieval boundaries; the router adds no numerical ranking or request policy.
+
+Course query collection can retain partial results when another query has an explicitly classified provider outage. Corrective, permanent and unclassified failures propagate even when a sibling query succeeded.
+
+Optional lesson web and YouTube research use the configured workflow attempts before falling back to sufficient supplied sources. Routed source-backed research with assessed gaps retains the gap-specific request mode, including during regeneration.
 
 Course and lesson backend callers explicitly set `includeEngagementMetadata: false`: they retain transcript evidence but do not consume engagement counts. The public research endpoint and administrator lab retain the default metadata behavior because their dossier prompt consumes those counts.
 
 The routing decision is retained in workflow state alongside step outcomes and attempt counts. Full selected transcript segments continue to reach source selection; downstream evidence extraction owns any further reduction. `bun run eval:research-routing --live` exercises the production Codex adapter with GPT-5.6 Luna on controlled subject scenarios and checks structured selections rather than prose.
+
+A lesson dossier without a new YouTube outcome retains its previous YouTube record, when present, and otherwise omits the optional record. Skipping a channel therefore creates no failure record; actual generation warnings retain their existing persistence path.
 
 ## Workflow Integration
 

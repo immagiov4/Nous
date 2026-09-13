@@ -178,6 +178,36 @@ describe('course generation workflow API', () => {
     }
   });
 
+  test.each([
+    'plan-course-research-sources',
+    'research-course-web',
+    'plan-course-youtube-queries',
+    'research-course-youtube-query',
+    'finalize-course-youtube-research',
+    'finalize-selected-course-research',
+  ])('reports running and retrying research progress for %s', async definitionId => {
+    for (const status of ['running', 'retrying'] as const) {
+      const api = createCourseGenerationApi(
+        dependencies({
+          runReader: {
+            getRun: vi.fn().mockResolvedValue(run()),
+            getRunState: vi.fn().mockResolvedValue(
+              state([
+                { definitionId: 'prepare-course', status: 'completed', attemptCount: 1 },
+                { definitionId, status, attemptCount: 2 },
+              ])
+            ),
+          },
+        })
+      );
+      await expect(api.get({ runId: 'run-1', userId: 'user-1' })).resolves.toMatchObject({
+        stage: 'sources',
+        attempt: 2,
+        retrying: status === 'retrying',
+      });
+    }
+  });
+
   test('preserves retry timing and returns ready only after durable completion', async () => {
     const retryApi = createCourseGenerationApi(
       dependencies({

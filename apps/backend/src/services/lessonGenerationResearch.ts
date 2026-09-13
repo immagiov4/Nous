@@ -9,7 +9,12 @@ import type {
   NormalizedLessonBlock,
 } from './lessonGenerationTypes.js';
 import { isResearchProviderUnavailable } from './researchProviderAvailability.js';
-import { isResearchSourceSelected } from './researchSourceRouting.js';
+import {
+  assertRequiredResearchEvidence,
+  assertRequiredWebEvidence,
+  assertRequiredYouTubeEvidence,
+  isResearchSourceSelected,
+} from './researchSourceRouting.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
 
 export type ResearchYouTube = (
@@ -29,17 +34,23 @@ export const findResearchLesson = (
     : null;
 
 export const generateLessonResearchSummary = async ({
+  allowOptionalFailure = false,
   existingDossier,
   generationInput,
   research,
   youtubeOutcome,
 }: {
+  allowOptionalFailure?: boolean;
   existingDossier: Record<string, unknown> | null;
   generationInput: LessonGenerationInput;
   research: GenerateResearch;
   youtubeOutcome: YouTubeResearchOutcome | null;
 }): Promise<LessonResearchSummary | null> => {
   if (existingDossier && !generationInput.refreshResearch) return null;
+  assertRequiredYouTubeEvidence(
+    generationInput.researchRouting,
+    youtubeOutcome?.videoCandidates.length ?? 0
+  );
   if (!shouldGenerateLessonResearch(generationInput) && !youtubeOutcome?.videoCandidates.length) {
     return null;
   }
@@ -49,6 +60,7 @@ export const generateLessonResearchSummary = async ({
   } catch (error) {
     generationInput.signal.throwIfAborted();
     if (
+      !allowOptionalFailure ||
       !generationInput.researchRouting?.suppliedSourcesSufficient ||
       !isResearchProviderUnavailable(error)
     )
@@ -74,6 +86,16 @@ export const generateLessonResearchSummary = async ({
       });
     }
   }
+  assertRequiredWebEvidence(
+    generationInput.researchRouting,
+    summary.factualSummary,
+    summary.sources.length
+  );
+  assertRequiredResearchEvidence(generationInput.researchRouting, {
+    factualContent: summary.factualSummary,
+    sourceCount: summary.sources.length,
+    youtubeCandidateCount: youtubeOutcome?.videoCandidates.length ?? 0,
+  });
   return summary;
 };
 
@@ -161,7 +183,7 @@ const buildYouTubeResearchRecord = ({
   researchSummary: LessonResearchSummary | null;
   selectedVideoUrls: Set<string>;
   youtubeOutcome: YouTubeResearchOutcome | null;
-}): Record<string, unknown> => {
+}): Record<string, unknown> | null => {
   if (youtubeOutcome) {
     const candidateDecisions =
       researchSummary?.youtubeCandidateDecisions ||
@@ -182,11 +204,7 @@ const buildYouTubeResearchRecord = ({
     };
   }
   if (isRecord(existingDossier?.youtubeResearch)) return existingDossier.youtubeResearch;
-  return {
-    candidateDecisions: [],
-    outcome: 'failed',
-    rationale: 'Nessun transcript video disponibile per questa generazione.',
-  };
+  return null;
 };
 
 export const buildResearchDossier = ({
@@ -210,18 +228,19 @@ export const buildResearchDossier = ({
   sectionTitle: string;
   youtubeOutcome: YouTubeResearchOutcome | null;
 }): Record<string, unknown> => {
+  const youtubeResearch = buildYouTubeResearchRecord({
+    existingDossier,
+    researchSummary,
+    selectedVideoUrls: collectSelectedVideoUrls(contentBlocks, lessonSources),
+    youtubeOutcome,
+  });
   const dossier: Record<string, unknown> = {
     ...existingDossier,
     ...(evidencePacketJson ? { evidencePacketJson } : {}),
     sectionId,
     sources: mergeSources(lessonSources, normalizeResearchedWebSources(researchSummary)),
     title: sectionTitle,
-    youtubeResearch: buildYouTubeResearchRecord({
-      existingDossier,
-      researchSummary,
-      selectedVideoUrls: collectSelectedVideoUrls(contentBlocks, lessonSources),
-      youtubeOutcome,
-    }),
+    ...(youtubeResearch ? { youtubeResearch } : {}),
   };
   if (researchSummary) {
     Object.assign(dossier, {

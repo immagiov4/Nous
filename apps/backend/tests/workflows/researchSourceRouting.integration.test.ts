@@ -26,6 +26,25 @@ import {
 
 const context = createPostgresWorkflowIntegrationContext();
 const scenarios = [
+  ...(['empty', 'web', 'youtube'] as const).map(combinedEvidence => ({
+    ...researchRoutingScenarios[0],
+    name: `combined required research with ${combinedEvidence} evidence`,
+    selected: ['web' as const, 'youtube' as const],
+    combinedEvidence,
+    emptyYoutube: combinedEvidence !== 'youtube',
+    failure: null,
+    suppliedSourcesSufficient: false,
+    expectedStatus: combinedEvidence === 'empty' ? 'failed' : 'completed',
+  })),
+  ...(['recover', 'always'] as const).map(emptyWeb => ({
+    ...researchRoutingScenarios[0],
+    name: `empty required web ${emptyWeb}`,
+    selected: ['web' as const],
+    emptyWeb,
+    failure: null,
+    suppliedSourcesSufficient: false,
+    expectedStatus: emptyWeb === 'recover' ? 'completed' : 'failed',
+  })),
   ...researchRoutingScenarios.map(scenario => ({
     ...scenario,
     failure: null as Error | null,
@@ -42,6 +61,15 @@ const scenarios = [
       expectedStatus: sufficient ? 'completed' : 'failed',
     }))
   ),
+  ...[true, false].map(sufficient => ({
+    ...researchRoutingScenarios[0],
+    name: `empty YouTube with supplied sufficiency ${sufficient}`,
+    selected: ['youtube' as const],
+    emptyYoutube: true,
+    failure: null,
+    suppliedSourcesSufficient: sufficient,
+    expectedStatus: sufficient ? 'completed' : 'failed',
+  })),
   {
     ...researchRoutingScenarios[0],
     name: 'optional web invalid contract',
@@ -63,9 +91,15 @@ describe
     afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
 
     test.each(scenarios)('$name executes only selected retrieval branches', async scenario => {
+      const emptyWeb = 'emptyWeb' in scenario ? scenario.emptyWeb : null;
+      const emptyYoutube = 'emptyYoutube' in scenario && scenario.emptyYoutube;
       const sql = context.sql;
       if (!sql) throw new Error('An isolated integration database is required.');
-      const config = { models: getGlobalModelConfig(), maxAttempts: 1, timeoutMs: 60_000 };
+      const config = {
+        models: getGlobalModelConfig(),
+        maxAttempts: emptyWeb || 'combinedEvidence' in scenario ? 3 : 1,
+        timeoutMs: 60_000,
+      };
       const routing = {
         suppliedSourcesSufficient: scenario.suppliedSourcesSufficient,
         rationale: scenario.learningContext,
@@ -75,11 +109,19 @@ describe
           rationale: `Controlled ${type} decision for ${scenario.name}.`,
         })),
       };
-      const generateObject = vi.fn(async (input: { name: string }) => {
+      let webAttempts = 0;
+      const generateObject = vi.fn(async (input: { name: string; prompt: string }) => {
         if (input.name === 'research_source_routing') return routing;
         if (input.name === 'course_youtube_queries')
           return { queries: ['binary search pointers', 'binary search visualization'] };
         if (scenario.failure) throw scenario.failure;
+        webAttempts += 1;
+        if (
+          emptyWeb === 'always' ||
+          (emptyWeb === 'recover' && webAttempts === 1) ||
+          ('combinedEvidence' in scenario && scenario.combinedEvidence !== 'web')
+        )
+          return { brief: '', sources: [] };
         return {
           brief: 'Authoritative researched facts.',
           sources: [{ title: 'Official reference', url: 'https://example.org/reference' }],
@@ -87,6 +129,13 @@ describe
       });
       const researchYoutube = vi.fn(async () => {
         if (scenario.failure) throw scenario.failure;
+        if (emptyYoutube)
+          return {
+            context: '',
+            discoveredVideoCount: 0,
+            rationale: 'No results',
+            videoCandidates: [],
+          };
         return {
           context: 'A sorted interval shrinks.',
           discoveredVideoCount: 1,
@@ -107,8 +156,20 @@ describe
         };
       });
       const services = createCourseResearchServices({
+        availableChannels: ['web', 'youtube'],
         generateObject: generateObject as never,
-        readSourceMaterials: async () => [],
+        readSourceMaterials: async () => [
+          {
+            descriptor: {
+              hash: 'a'.repeat(64),
+              id: 'source-1',
+              kind: 'text',
+              mimeType: 'text/plain',
+              name: 'supplied-source.txt',
+            },
+            text: scenario.sourceContext,
+          },
+        ],
         researchYoutube,
       });
       const registry = createWorkflowRegistry();
@@ -158,6 +219,13 @@ describe
       }
       const state = await store.getRunState({ runId: created.run.id, userId: context.userId });
       expect(state?.run.status).toBe(scenario.expectedStatus);
+      if ('combinedEvidence' in scenario) {
+        const finalizer = state?.nodes.find(
+          node => node.definitionId === 'finalize-selected-course-research'
+        );
+        expect(finalizer?.status).toBe(scenario.expectedStatus);
+        expect(finalizer?.attemptCount).toBe(1);
+      }
       if (scenario.expectedStatus === 'completed') {
         const [finalized] = await sql<{ output: unknown }[]>`
           select output from public.workflow_node_runs
@@ -166,9 +234,9 @@ describe
         const output = CourseResearchStateSchema.parse(finalized?.output);
         expect(output.research.routing).toEqual(routing);
         expect(output.research.youtube.candidates).toHaveLength(
-          scenario.selected.includes('youtube') && !scenario.failure ? 1 : 0
+          scenario.selected.includes('youtube') && !scenario.failure && !emptyYoutube ? 1 : 0
         );
-        if (scenario.selected.includes('youtube') && !scenario.failure) {
+        if (scenario.selected.includes('youtube') && !scenario.failure && !emptyYoutube) {
           expect(output.research.youtube.candidates[0]?.youtubeTranscript.segments).toEqual([
             {
               startSeconds: 0,
@@ -180,9 +248,23 @@ describe
       }
       const calls = generateObject.mock.calls.map(([call]) => call.name);
       expect(calls.filter(name => name === 'research_source_routing')).toHaveLength(1);
-      expect(calls.filter(name => name === 'course_web_research')).toHaveLength(
-        scenario.selected.includes('web') ? 1 : 0
-      );
+      let expectedWebCalls = scenario.selected.includes('web') ? 1 : 0;
+      if (emptyWeb === 'recover') expectedWebCalls = 2;
+      else if (emptyWeb === 'always') expectedWebCalls = config.maxAttempts;
+      expect(calls.filter(name => name === 'course_web_research')).toHaveLength(expectedWebCalls);
+      if (emptyWeb) {
+        const webStep = state?.nodes.find(node => node.definitionId === 'research-course-web');
+        expect(webStep?.attemptCount).toBe(emptyWeb === 'recover' ? 2 : config.maxAttempts);
+        expect(webStep?.status).toBe(emptyWeb === 'recover' ? 'completed' : 'failed');
+        const requests = generateObject.mock.calls
+          .map(([request]) => request)
+          .filter(request => request.name === 'course_web_research');
+        expect(
+          requests[1].prompt.endsWith(
+            'Return factual content or sources from the selected web research; both were empty.'
+          )
+        ).toBe(true);
+      }
       expect(calls.filter(name => name === 'course_youtube_queries')).toHaveLength(
         scenario.selected.includes('youtube') ? 1 : 0
       );

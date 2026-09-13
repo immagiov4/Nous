@@ -44,6 +44,7 @@ import type {
 } from '../services/lessonYouTubePlanning.js';
 import {
   type ResearchSourceRouting,
+  type ResearchSourceType,
   planResearchSources as selectResearchSources,
 } from '../services/researchSourceRouting.js';
 import { isRecord } from '../utils/validation.js';
@@ -81,6 +82,7 @@ interface LessonStageLogger {
 }
 
 export interface LessonGenerationStageDependencies {
+  readonly availableResearchChannels: readonly ResearchSourceType[];
   readonly generateAids: (input: GenerateLessonLearningAidsInput) => Promise<readonly unknown[]>;
   readonly generateContent: GenerateLessonContent;
   readonly generateResearch: GenerateResearch;
@@ -408,6 +410,8 @@ const assessSourceCoverage =
 
 const optionalYouTubeFailureWarnings = (
   context: {
+    readonly attemptNumber: number;
+    readonly config: { readonly maxAttempts: number };
     readonly input: Pick<LessonSourcesState, 'request' | 'warnings' | 'researchRouting'>;
     readonly signal: AbortSignal;
   },
@@ -417,7 +421,8 @@ const optionalYouTubeFailureWarnings = (
   context.signal.throwIfAborted();
   if (
     context.input.researchRouting &&
-    (!context.input.researchRouting.suppliedSourcesSufficient ||
+    (context.attemptNumber < context.config.maxAttempts ||
+      !context.input.researchRouting.suppliedSourcesSufficient ||
       !isResearchProviderUnavailable(
         error instanceof CourseModelProviderError ? error.cause : error
       ))
@@ -577,6 +582,7 @@ const researchLesson =
     const summary = await runCorrectableLessonOperation(
       () =>
         generateLessonResearchSummary({
+          allowOptionalFailure: context.attemptNumber >= context.config.maxAttempts,
           existingDossier,
           generationInput,
           research: dependencies.generateResearch,
@@ -783,6 +789,7 @@ export const createLessonGenerationStageServices = (
         level: 'lesson',
         topic: context.input.lessonInputData.sectionTitle,
         coverageGaps: context.input.lessonInputData.coverageGaps,
+        retryFeedback: context.retryFeedback,
         learningContext: [
           context.input.lessonInputData.description,
           context.input.youtubePlanning.context,
@@ -791,7 +798,7 @@ export const createLessonGenerationStageServices = (
           .filter(Boolean)
           .join('\n'),
         sourceContext: context.input.lessonInputData.sourceContext,
-        availableChannels: ['web', 'youtube'],
+        availableChannels: dependencies.availableResearchChannels,
         signal: context.signal,
       });
       return { ...context.input, researchRouting };
