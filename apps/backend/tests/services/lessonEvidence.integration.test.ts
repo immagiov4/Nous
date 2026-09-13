@@ -287,6 +287,9 @@ describe('role-specific lesson evidence through the production Luna model path',
     ];
     runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
     await expect(verifyLessonEvidence(input, draft)).resolves.toBeUndefined();
+    expect(runCodexAppServerTurn.mock.lastCall?.[0].developerInstructions).toContain(
+      'Do not assess common terminology'
+    );
     const prompt = JSON.parse(runCodexAppServerTurn.mock.lastCall?.[0].input[0].text);
     const images = prompt.evidence.filter(
       (entry: { kind: string }) => entry.kind === 'image-context'
