@@ -101,11 +101,15 @@ beforeEach(() => {
   runCodexAppServerTurn.mockReset();
 });
 
-test('rejects Mermaid fences before model review', async () => {
+test.each([
+  '```mermaid',
+  '~~~mermaid',
+  '```` mermaid',
+])('rejects %s fences before model review', async fence => {
   const draft = structuredClone(original);
   const markdown = draft.contentBlocks[0];
   if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
-  markdown.markdown += '\n\n```mermaid\ngraph TD\nA-->B\n```';
+  markdown.markdown += `\n\n${fence}\ngraph TD\nA-->B\n${fence.startsWith('~') ? '~~~' : '````'}`;
   await expect(reviewLessonContentDraftStrict({ draft, generationInput })).rejects.toMatchObject({
     code: 'lesson_embedded_mermaid_unsupported',
   });

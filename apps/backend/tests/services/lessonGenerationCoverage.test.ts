@@ -28,6 +28,16 @@ test('coverage decisions preserve complete material and normalize factual gaps',
     missingTopics: ['Ipotesi matematiche', 'Limiti del metodo'],
     needsResearch: true,
   });
+
+  expect(
+    normalizeLessonCoverageDecision(
+      { missingTopics: ['Contratto API attuale'], sufficient: true },
+      'Basi'
+    )
+  ).toEqual({
+    missingTopics: ['Contratto API attuale'],
+    needsResearch: true,
+  });
 });
 
 test('missing source evidence requests research without invoking a model', async () => {

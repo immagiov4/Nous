@@ -1,3 +1,5 @@
+import { buildUserGenerationNotesBlock } from '@shared/lessonWritingContract';
+
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
@@ -393,7 +395,9 @@ const assessSourceCoverage =
           config: modelConfig(context),
           description: context.input.lessonInputData.description,
           learningContext: JSON.stringify({
-            generationNotes: context.input.lessonInputData.generationNotes,
+            generationNotes: buildUserGenerationNotesBlock(
+              context.input.lessonInputData.generationNotes
+            ),
             instructionPacks: context.input.lessonInputData.instructionPacks,
             pedagogicalContext: context.input.lessonInputData.pedagogicalContext,
           }),

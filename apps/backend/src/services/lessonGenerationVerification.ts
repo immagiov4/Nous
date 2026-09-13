@@ -463,7 +463,7 @@ export const verifyLessonContentDraft = async (input: {
 }): Promise<LessonContentDraft> => {
   const generationInput = input.generationInput;
   const rejectEmbeddedMermaid = (draft: LessonContentDraft) => {
-    if (!draftMarkdownMatches(draft, /```mermaid\b/i)) return;
+    if (!draftMarkdownMatches(draft, /(?:`{3,}|~{3,})\s*mermaid\b/i)) return;
     throw retryLessonGenerationCorrection({
       code: 'lesson_embedded_mermaid_unsupported',
       feedback:
