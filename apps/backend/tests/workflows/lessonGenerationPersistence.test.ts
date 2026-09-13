@@ -341,6 +341,7 @@ describe('durable lesson generation persistence', () => {
       generatedAt: NOW,
       sectionId: 'lesson-1',
     });
+    expect(state.result.researchDossier).not.toHaveProperty('youtubeResearch');
     expect(state.committedTargetFingerprint).toMatch(/^[a-f0-9]{64}$/u);
   });
 
@@ -349,6 +350,7 @@ describe('durable lesson generation persistence', () => {
     const input = visualsState(snapshot);
     input.content = 'Copia Markdown obsoleta';
     input.warnings = [
+      { code: 'lesson_youtube_research_unavailable', stage: 'sources' },
       {
         code: 'lesson_pdf_image_extraction_incomplete',
         pageNumber: 4,
@@ -417,6 +419,7 @@ describe('durable lesson generation persistence', () => {
       customMetadata: 'preserve-me',
       factualSummary: 'Sintesi verificata.',
     });
+    expect(patch.researchDossiersBySectionId?.['lesson-1']).not.toHaveProperty('youtubeResearch');
     expect(patch.researchDossiersBySectionId?.['lesson-2']).toEqual({
       customMetadata: 'concurrent-dossier',
       sectionId: 'lesson-2',

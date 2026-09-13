@@ -1,13 +1,16 @@
 import { describe, expect, test, vi } from 'vitest';
-
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import type { ProjectSnapshot, ProjectStore } from '../../src/projects/types.js';
+import { CodexAppServerError } from '../../src/services/codexAppServer.js';
+import { resolveLessonResearchRequest } from '../../src/services/lessonGenerationModel.js';
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
+import { validateResearchSourceRouting } from '../../src/services/researchSourceRouting.js';
 import {
   createLessonGenerationStageServices,
   type LessonGenerationStageDependencies,
 } from '../../src/workflows/lessonGenerationStageServices.js';
+import { createLessonGenerationWorkflow } from '../../src/workflows/lessonGenerationWorkflow.js';
 import {
   LessonContextStateSchema,
   LessonDraftStateSchema,
@@ -16,7 +19,9 @@ import {
   LessonSourcesStateSchema,
   LessonYouTubeStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
+import { researchRoutingScenarios } from '../services/researchSourceRouting.scenarios.js';
 
 const project: ProjectSnapshot = {
   createdAt: '2026-07-29T20:00:00.000Z',
@@ -66,6 +71,7 @@ const unused = vi.fn(async () => {
 const dependencies = (
   overrides: Partial<LessonGenerationStageDependencies> = {}
 ): LessonGenerationStageDependencies => ({
+  availableResearchChannels: ['web', 'youtube'],
   generateAids: unused,
   generateContent: unused,
   generateResearch: unused,
@@ -127,6 +133,206 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test.each([
+    'recover',
+    'exhaust',
+  ] as const)('uses configured attempts for optional web research: %s', async outcome => {
+    const providerError = new CodexAppServerError('Unavailable', 'process');
+    const summary = {
+      avoidOversimplifying: [],
+      controversies: [],
+      difficultSteps: [],
+      factualSummary: 'Verified facts',
+      keyExamples: [],
+      recentDevelopments: [],
+      sources: [],
+    };
+    const generateResearch = vi.fn().mockRejectedValue(providerError);
+    if (outcome === 'recover')
+      generateResearch.mockRejectedValueOnce(providerError).mockResolvedValue(summary);
+    const services = createLessonGenerationStageServices(dependencies({ generateResearch }));
+    const input = LessonYouTubeStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      research: { context: '', youtube: null },
+      stage: 'youtube',
+      researchRouting: {
+        suppliedSourcesSufficient: true,
+        rationale: 'Optional current context',
+        channels: [
+          { type: 'web', selected: true, rationale: 'Current examples' },
+          { type: 'youtube', selected: false, rationale: 'Text only' },
+        ],
+      },
+    });
+    const attempts = outcome === 'recover' ? 2 : config.maxAttempts;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      for (let attemptNumber = 1; attemptNumber <= attempts; attemptNumber += 1) {
+        const result = services.researchLesson({ ...stageContext(input), attemptNumber });
+        if (attemptNumber < attempts) await expect(result).rejects.toBe(providerError);
+        else
+          await expect(result).resolves.toMatchObject({
+            research: { summary: outcome === 'recover' ? summary : null },
+          });
+      }
+      expect(generateResearch).toHaveBeenCalledTimes(attempts);
+      expect(warn).toHaveBeenCalledTimes(outcome === 'recover' ? 0 : 1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  test('preserves corrective routing failures and forwards feedback to the next lesson decision', async () => {
+    let selected = false;
+    const planner = vi.fn(async input =>
+      validateResearchSourceRouting(
+        {
+          suppliedSourcesSufficient: false,
+          rationale: 'Required facts',
+          channels: [{ type: 'web', selected, rationale: 'Current sources' }],
+        },
+        input.availableChannels,
+        input.sourceContext
+      )
+    );
+    const services = createLessonGenerationStageServices(
+      dependencies({ availableResearchChannels: ['web'], planResearchSources: planner })
+    );
+    const node = [...indexWorkflowNodes(createLessonGenerationWorkflow(config)).values()].find(
+      entry => entry.node.id === 'plan-lesson-research-sources'
+    )?.node;
+    if (node?.kind !== 'step') throw new Error('Missing routing step');
+    const context = { ...stageContext(lessonSourcesState()), services };
+    const error = await node.run(context as never).catch(error => error);
+    expect(error.failure).toMatchObject({
+      kind: 'corrective',
+      code: 'research_source_routing_invalid',
+    });
+    selected = true;
+    await expect(
+      node.run({ ...context, attemptNumber: 2, retryFeedback: error.failure.feedback } as never)
+    ).resolves.toMatchObject({ researchRouting: { channels: [{ type: 'web', selected: true }] } });
+    expect(planner.mock.calls[1][0].retryFeedback).toBe(error.failure.feedback);
+  });
+  test('passes only configured capabilities to the lesson planner', async () => {
+    const planner = vi.fn().mockResolvedValue({
+      suppliedSourcesSufficient: false,
+      rationale: 'Current sources required',
+      channels: [{ type: 'web', selected: true, rationale: 'Current facts' }],
+    });
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        availableResearchChannels: ['web'],
+        planResearchSources: planner,
+      })
+    );
+    await services.planResearchSources(stageContext(lessonSourcesState()));
+    expect(planner).toHaveBeenCalledWith(expect.objectContaining({ availableChannels: ['web'] }));
+  });
+  test.each([
+    true,
+    false,
+  ])('propagates necessary YouTube failures with supplied sufficiency %s', async suppliedSourcesSufficient => {
+    const providerError = new CodexAppServerError('Unavailable', 'process');
+    const planYouTube = vi.fn().mockRejectedValue(providerError);
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        planYouTube,
+        researchYouTube: vi.fn().mockRejectedValue(providerError),
+        logger: { warn: vi.fn() },
+      })
+    );
+    const input = lessonSourcesState();
+    input.researchRouting = {
+      suppliedSourcesSufficient,
+      rationale: 'Video evidence.',
+      channels: [
+        { type: 'web', selected: false, rationale: 'No web evidence needed.' },
+        { type: 'youtube', selected: true, rationale: 'Demonstration required.' },
+      ],
+    };
+    await expect(services.planYouTubeResearch(stageContext(input))).rejects.toBe(providerError);
+    const planning = services.planYouTubeResearch({
+      ...stageContext(input),
+      attemptNumber: config.maxAttempts,
+    });
+    if (suppliedSourcesSufficient)
+      await expect(planning).resolves.toMatchObject({ youtubeSearchPlan: null });
+    else await expect(planning).rejects.toBe(providerError);
+    planYouTube.mockResolvedValue({
+      specificQuery: 'specific',
+      fallbackQuery: 'fallback',
+      focusConcept: 'concept',
+    });
+    const planned = await services.planYouTubeResearch({
+      ...stageContext(input),
+      attemptNumber: 2,
+    });
+    await expect(services.researchSpecificYouTube(stageContext(planned))).rejects.toBe(
+      providerError
+    );
+    const specific = services.researchSpecificYouTube({
+      ...stageContext(planned),
+      attemptNumber: config.maxAttempts,
+    });
+    if (suppliedSourcesSufficient)
+      await expect(specific).resolves.toMatchObject({ youtubeSearchOutcome: null });
+    else await expect(specific).rejects.toBe(providerError);
+    const fallback = services.researchFallbackYouTube({
+      ...stageContext({ ...planned, stage: 'youtube-search', youtubeSearchOutcome: null }),
+      attemptNumber: config.maxAttempts,
+    });
+    if (suppliedSourcesSufficient)
+      await expect(fallback).resolves.toMatchObject({ youtubeSearchOutcome: null });
+    else await expect(fallback).rejects.toBe(providerError);
+    planYouTube.mockRejectedValue(new CodexAppServerError('Invalid response', 'protocol'));
+    await expect(services.planYouTubeResearch(stageContext(input))).rejects.toThrow(
+      'Invalid response'
+    );
+  });
+  test.each(
+    researchRoutingScenarios
+  )('$name applies the structured decision before lesson retrieval', async scenario => {
+    const researchRouting = {
+      suppliedSourcesSufficient: scenario.suppliedSourcesSufficient,
+      rationale: scenario.learningContext,
+      channels: (['web', 'youtube'] as const).map(type => ({
+        type,
+        selected: scenario.selected.includes(type),
+        rationale: scenario.name,
+      })),
+    };
+    const planner = vi.fn().mockResolvedValue(researchRouting);
+    const services = createLessonGenerationStageServices(
+      dependencies({ planResearchSources: planner })
+    );
+    const input = lessonSourcesState();
+    input.lessonInputData.sectionTitle = scenario.topic;
+    input.lessonInputData.sourceContext = scenario.sourceContext;
+    input.lessonInputData.coverageGaps = ['Required prerequisite evidence'];
+    const routed = await services.planResearchSources(stageContext(input));
+    expect(planner).toHaveBeenCalledWith(
+      expect.objectContaining({ coverageGaps: input.lessonInputData.coverageGaps })
+    );
+    const definition = createLessonGenerationWorkflow(config);
+    const route = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'route-youtube-research'
+    )?.node;
+    if (route?.kind !== 'routeBy') throw new Error('Missing YouTube route.');
+    expect(route.select(routed)).toBe(
+      scenario.selected.includes('youtube') ? 'research' : 'bypass'
+    );
+    expect(
+      resolveLessonResearchRequest({
+        config: modelConfig,
+        refreshResearch: true,
+        sourceContext: scenario.sourceContext,
+        researchRouting: routed.researchRouting,
+      }).webSearch
+    ).toBe(scenario.selected.includes('web'));
+    expect(planner).toHaveBeenCalledTimes(1);
+  });
+
   test('full regeneration discards the saved dossier and its derived sources', async () => {
     const services = createLessonGenerationStageServices(
       dependencies({

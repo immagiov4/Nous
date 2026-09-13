@@ -1,9 +1,9 @@
 import type { LessonInstructionPackId } from '@shared/lessonInstructionPacks';
-
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import type { StoredLessonLearningAid } from './lessonGenerationAids.js';
 import type { LessonImageCandidate, ResearchSource } from './lessonGenerationSources.js';
 import type { LessonVisualDraftPlan, LessonVisualRetryPlan } from './lessonGenerationVisuals.js';
+import type { ResearchSourceRouting } from './researchSourceRouting.js';
 
 export interface LessonResearchSummary {
   avoidOversimplifying: string[];
@@ -76,6 +76,7 @@ export interface LessonGenerationInput {
   language: string;
   pedagogicalContext: string;
   previousLessonTitles: string[];
+  researchRouting?: ResearchSourceRouting;
   refreshResearch: boolean;
   researchContext: string;
   retryFeedback?: string;

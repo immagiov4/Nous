@@ -8,6 +8,13 @@ import type {
   LessonResearchSummary,
   NormalizedLessonBlock,
 } from './lessonGenerationTypes.js';
+import { isResearchProviderUnavailable } from './researchProviderAvailability.js';
+import {
+  assertRequiredResearchEvidence,
+  assertRequiredWebEvidence,
+  assertRequiredYouTubeEvidence,
+  isResearchSourceSelected,
+} from './researchSourceRouting.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
 
 export type ResearchYouTube = (
@@ -27,21 +34,42 @@ export const findResearchLesson = (
     : null;
 
 export const generateLessonResearchSummary = async ({
+  allowOptionalFailure = false,
   existingDossier,
   generationInput,
   research,
   youtubeOutcome,
 }: {
+  allowOptionalFailure?: boolean;
   existingDossier: Record<string, unknown> | null;
   generationInput: LessonGenerationInput;
   research: GenerateResearch;
   youtubeOutcome: YouTubeResearchOutcome | null;
 }): Promise<LessonResearchSummary | null> => {
   if (existingDossier && !generationInput.refreshResearch) return null;
+  assertRequiredYouTubeEvidence(
+    generationInput.researchRouting,
+    youtubeOutcome?.videoCandidates.length ?? 0
+  );
   if (!shouldGenerateLessonResearch(generationInput) && !youtubeOutcome?.videoCandidates.length) {
     return null;
   }
-  const summary = await research(generationInput);
+  let summary: LessonResearchSummary;
+  try {
+    summary = await research(generationInput);
+  } catch (error) {
+    generationInput.signal.throwIfAborted();
+    if (
+      !allowOptionalFailure ||
+      !generationInput.researchRouting?.suppliedSourcesSufficient ||
+      !isResearchProviderUnavailable(error)
+    )
+      throw error;
+    console.warn('[Lesson workflow] Optional research unavailable; using supplied sources.', {
+      error,
+    });
+    return null;
+  }
   if (youtubeOutcome?.videoCandidates.length) {
     const decisions = summary.youtubeCandidateDecisions ?? [];
     const decisionUrls = new Set(decisions.map(decision => decision.url));
@@ -58,15 +86,30 @@ export const generateLessonResearchSummary = async ({
       });
     }
   }
+  assertRequiredWebEvidence(
+    generationInput.researchRouting,
+    summary.factualSummary,
+    summary.sources.length
+  );
+  assertRequiredResearchEvidence(generationInput.researchRouting, {
+    factualContent: summary.factualSummary,
+    sourceCount: summary.sources.length,
+    youtubeCandidateCount: youtubeOutcome?.videoCandidates.length ?? 0,
+  });
   return summary;
 };
 
 export const shouldGenerateLessonResearch = (
-  generationInput: Pick<LessonGenerationInput, 'coverageGaps' | 'refreshResearch' | 'sourceContext'>
+  generationInput: Pick<
+    LessonGenerationInput,
+    'coverageGaps' | 'refreshResearch' | 'sourceContext' | 'researchRouting'
+  >
 ): boolean =>
-  generationInput.refreshResearch ||
-  !generationInput.sourceContext.trim() ||
-  Boolean(generationInput.coverageGaps?.length);
+  generationInput.researchRouting
+    ? isResearchSourceSelected(generationInput.researchRouting, 'web')
+    : generationInput.refreshResearch ||
+      !generationInput.sourceContext.trim() ||
+      Boolean(generationInput.coverageGaps?.length);
 
 export const selectLessonSources = ({
   discoveredYoutubeSources,
@@ -140,7 +183,7 @@ const buildYouTubeResearchRecord = ({
   researchSummary: LessonResearchSummary | null;
   selectedVideoUrls: Set<string>;
   youtubeOutcome: YouTubeResearchOutcome | null;
-}): Record<string, unknown> => {
+}): Record<string, unknown> | null => {
   if (youtubeOutcome) {
     const candidateDecisions =
       researchSummary?.youtubeCandidateDecisions ||
@@ -161,11 +204,7 @@ const buildYouTubeResearchRecord = ({
     };
   }
   if (isRecord(existingDossier?.youtubeResearch)) return existingDossier.youtubeResearch;
-  return {
-    candidateDecisions: [],
-    outcome: 'failed',
-    rationale: 'Nessun transcript video disponibile per questa generazione.',
-  };
+  return null;
 };
 
 export const buildResearchDossier = ({
@@ -187,17 +226,18 @@ export const buildResearchDossier = ({
   sectionTitle: string;
   youtubeOutcome: YouTubeResearchOutcome | null;
 }): Record<string, unknown> => {
+  const youtubeResearch = buildYouTubeResearchRecord({
+    existingDossier,
+    researchSummary,
+    selectedVideoUrls: collectSelectedVideoUrls(contentBlocks, lessonSources),
+    youtubeOutcome,
+  });
   const dossier: Record<string, unknown> = {
     ...existingDossier,
     sectionId,
     sources: mergeSources(lessonSources, normalizeResearchedWebSources(researchSummary)),
     title: sectionTitle,
-    youtubeResearch: buildYouTubeResearchRecord({
-      existingDossier,
-      researchSummary,
-      selectedVideoUrls: collectSelectedVideoUrls(contentBlocks, lessonSources),
-      youtubeOutcome,
-    }),
+    ...(youtubeResearch ? { youtubeResearch } : {}),
   };
   if (researchSummary) {
     Object.assign(dossier, {

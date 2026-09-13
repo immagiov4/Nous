@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { CodexAppServerError } from '../../src/services/codexAppServer.js';
 import type { YouTubeResearchOutcome } from '../../src/services/youtubeResearch.js';
 import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
 import { createCourseResearchServices } from '../../src/workflows/courseGenerationResearch.js';
@@ -28,6 +29,15 @@ const config: CourseGenerationWorkflowConfig = {
   maxAttempts: 3,
   models: getGlobalModelConfig(),
   timeoutMs: 600_000,
+};
+
+const allSourcesRouting = {
+  suppliedSourcesSufficient: false,
+  rationale: 'Multiple sources help.',
+  channels: [
+    { type: 'web', selected: true, rationale: 'Current facts.' },
+    { type: 'youtube', selected: true, rationale: 'Demonstrations.' },
+  ],
 };
 
 const prepared: CoursePreparationState = {
@@ -154,7 +164,301 @@ const finalizeYoutube = (
 ): Promise<ResearchBranchOutput> =>
   runStep('finalize-course-youtube-research', collection, services);
 
+const finalizeResearch = (
+  results: readonly FanOutResult<ResearchBranchInput, ResearchBranchOutput>[],
+  state: CoursePreparationState & { routing: typeof allSourcesRouting }
+): Promise<CourseResearchState> =>
+  runStep(
+    'finalize-selected-course-research',
+    fanIn('gather-selected-course-research', results, state),
+    {} as CourseGenerationWorkflowServices
+  );
+
 describe('course generation research', () => {
+  test('supplies the persisted course profile and diagnostic context even without assessment messages', async () => {
+    const generateObject = vi
+      .fn()
+      .mockResolvedValue({ ...allSourcesRouting, channels: [allSourcesRouting.channels[0]] });
+    const services = createCourseResearchServices({
+      availableChannels: ['web'],
+      generateObject,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+    });
+    const input = {
+      ...prepared,
+      context: {
+        ...prepared.context,
+        assessmentSummary: '',
+        diagnosticEvidence: 'Confirmed prerequisite gap',
+      },
+    };
+    await services.planCourseResearchSources(stageContext(input));
+    const contextJson = generateObject.mock.calls[0][0].prompt
+      .split('\nLEARNING CONTEXT: ')[1]
+      .split('\nASSESSED COVERAGE GAPS:')[0];
+    expect(JSON.parse(contextJson)).toEqual({
+      assessmentSummary: '',
+      profile: input.context.profile,
+      language: input.context.language,
+      diagnosticEvidence: input.context.diagnosticEvidence,
+    });
+  });
+  test('preserves corrective routing failures and supplies feedback to the next course decision', async () => {
+    const generateObject = vi.fn().mockResolvedValue({
+      ...allSourcesRouting,
+      channels: [{ ...allSourcesRouting.channels[0], selected: false }],
+    });
+    const services = createCourseResearchServices({
+      availableChannels: ['web'],
+      generateObject,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+    });
+    const error = await runStep(
+      'plan-course-research-sources',
+      prepared,
+      workflowServices(services)
+    ).catch(error => error);
+    expect(error.failure).toMatchObject({
+      kind: 'corrective',
+      code: 'research_source_routing_invalid',
+      feedback: 'Insufficient supplied sources require a selected research capability.',
+    });
+    generateObject.mockResolvedValue({
+      ...allSourcesRouting,
+      channels: [allSourcesRouting.channels[0]],
+    });
+    await expect(
+      services.planCourseResearchSources({
+        ...stageContext(prepared, 2),
+        retryFeedback: error.failure.feedback,
+      })
+    ).resolves.toMatchObject({ channels: [allSourcesRouting.channels[0]] });
+    expect(generateObject.mock.calls[1][0].prompt.endsWith(error.failure.feedback)).toBe(true);
+  });
+  test('rejects unavailable capabilities in the production course planner', async () => {
+    const generateObject = vi.fn().mockResolvedValue({
+      ...allSourcesRouting,
+      channels: [allSourcesRouting.channels[0]],
+    });
+    const services = createCourseResearchServices({
+      availableChannels: ['web'],
+      generateObject,
+      readSourceMaterials: vi.fn().mockResolvedValue([]),
+    });
+    await expect(services.planCourseResearchSources(stageContext(prepared))).resolves.toMatchObject(
+      { channels: [allSourcesRouting.channels[0]] }
+    );
+    generateObject.mockResolvedValue(allSourcesRouting);
+    await expect(services.planCourseResearchSources(stageContext(prepared))).rejects.toThrow(
+      'every available capability exactly once'
+    );
+  });
+
+  test('rejects empty required YouTube evidence and permits empty optional or accompanying research', async () => {
+    const routing = {
+      ...allSourcesRouting,
+      channels: allSourcesRouting.channels.map(channel => ({
+        ...channel,
+        selected: channel.type === 'youtube',
+      })),
+    };
+    const emptyYoutube = {
+      key: 'youtube',
+      input: { branch: 'youtube', state: prepared },
+      status: 'completed',
+      output: {
+        branch: 'youtube',
+        research: { candidates: [], context: '', rationale: 'No results', status: 'completed' },
+      },
+    };
+    await expect(
+      finalizeResearch([emptyYoutube] as never, { ...prepared, routing })
+    ).rejects.toThrow('Required YouTube research');
+    await expect(
+      finalizeResearch([emptyYoutube] as never, {
+        ...prepared,
+        routing: { ...routing, suppliedSourcesSufficient: true },
+      })
+    ).resolves.toMatchObject({ research: { youtube: { candidates: [] } } });
+    await expect(
+      finalizeResearch(
+        [
+          emptyYoutube,
+          {
+            key: 'web',
+            input: { branch: 'web', state: prepared },
+            status: 'completed',
+            output: { branch: 'web', research: { brief: 'Current verified facts', sources: [] } },
+          },
+        ] as never,
+        { ...prepared, routing: allSourcesRouting }
+      )
+    ).resolves.toMatchObject({ research: { web: { brief: 'Current verified facts' } } });
+  });
+  test.each([
+    'empty',
+    'web',
+    'youtube',
+  ] as const)('validates combined required evidence: %s', async evidence => {
+    const results: FanOutResult<ResearchBranchInput, ResearchBranchOutput>[] = [
+      {
+        key: 'web',
+        input: { branch: 'web', state: prepared },
+        status: 'completed',
+        output: {
+          branch: 'web',
+          research: { brief: evidence === 'web' ? 'Verified facts' : ' \n ', sources: [] },
+        },
+      },
+      {
+        key: 'youtube',
+        input: { branch: 'youtube', state: prepared },
+        status: 'completed',
+        output: {
+          branch: 'youtube',
+          research: {
+            candidates:
+              evidence === 'youtube'
+                ? [
+                    {
+                      title: 'Demonstration',
+                      url: 'https://www.youtube.com/watch?v=video-1',
+                      youtubeTranscript: {
+                        segments: [
+                          { startSeconds: 0, endSeconds: 5, text: 'Verified explanation' },
+                        ],
+                      },
+                    },
+                  ]
+                : [],
+            context: '',
+            rationale: 'Collected results',
+            status: 'completed',
+          },
+        },
+      },
+    ];
+    const result = finalizeResearch(results, { ...prepared, routing: allSourcesRouting });
+    if (evidence === 'empty') {
+      await expect(result).rejects.toMatchObject({
+        failure: { kind: 'permanent', code: 'research_evidence_missing' },
+      });
+    } else {
+      await expect(result).resolves.toMatchObject({ stage: 'research' });
+    }
+  });
+  test('propagates complete YouTube query failure without losing availability or corrective details', async () => {
+    for (const failure of [
+      {
+        kind: 'operational' as const,
+        code: 'course_research_failed',
+        message: 'Unavailable',
+        details: { providerUnavailable: true },
+      },
+      retryCorrective({ code: 'invalid', message: 'Invalid output', feedback: 'Correct output.' })
+        .failure,
+    ]) {
+      await expect(
+        finalizeYoutube(
+          collectYoutube([
+            {
+              key: '0',
+              input: { query: 'query', queryIndex: 0, language: 'en' },
+              status: 'failed',
+              failure,
+            },
+          ]),
+          {} as CourseGenerationWorkflowServices
+        )
+      ).rejects.toMatchObject({ failure });
+    }
+  });
+  test('marks a selected failed optional YouTube branch unavailable and preserves failure without sufficient sources', async () => {
+    const results = [
+      {
+        key: 'youtube',
+        input: { branch: 'youtube', state: prepared },
+        status: 'failed',
+        failure: {
+          kind: 'operational',
+          code: 'course_research_failed',
+          message: 'Unavailable',
+          details: { providerUnavailable: true },
+        },
+      },
+    ];
+    const routing = {
+      ...allSourcesRouting,
+      suppliedSourcesSufficient: true,
+      channels: allSourcesRouting.channels.map(channel => ({
+        ...channel,
+        selected: channel.type === 'youtube',
+      })),
+    };
+    const collected = await finalizeResearch(results as never, {
+      ...prepared,
+      routing,
+    });
+    expect(collected.research.youtube.status).toBe('unavailable');
+    expect(collected.research.youtube.candidates).toEqual([]);
+    await expect(
+      finalizeResearch(results as never, {
+        ...prepared,
+        routing: { ...routing, suppliedSourcesSufficient: false },
+      })
+    ).rejects.toThrow('Unavailable');
+  });
+
+  test('preserves contract and configuration failures through optional course fan-in', async () => {
+    for (const error of [
+      new CourseModelProviderError(new CodexAppServerError('Invalid response', 'protocol')),
+      new CourseModelProviderError(new CodexAppServerError('Missing login', 'not_authenticated')),
+      retryCorrective({
+        code: 'course_model_output_invalid',
+        message: 'Invalid output',
+        feedback: 'Correct the output.',
+      }),
+    ]) {
+      const services = {
+        researchCourseWeb: vi.fn().mockRejectedValue(error),
+      } as unknown as CourseGenerationWorkflowServices;
+      const failure = await runStep(
+        'research-course-web',
+        { branch: 'web', state: prepared },
+        services
+      ).catch(error => error);
+      await expect(
+        finalizeResearch(
+          [
+            {
+              key: 'web',
+              input: { branch: 'web', state: prepared },
+              status: 'failed',
+              failure: failure.failure,
+            },
+          ],
+          { ...prepared, routing: { ...allSourcesRouting, suppliedSourcesSufficient: true } }
+        )
+      ).rejects.toMatchObject({ failure: failure.failure });
+    }
+  });
+
+  test('retains provider unavailability through the course step boundary', async () => {
+    const services = {
+      researchCourseWeb: vi
+        .fn()
+        .mockRejectedValue(
+          new CourseModelProviderError(new CodexAppServerError('Unavailable', 'process'))
+        ),
+    } as unknown as CourseGenerationWorkflowServices;
+    const error = await runStep(
+      'research-course-web',
+      { branch: 'web', state: prepared },
+      services
+    ).catch(error => error);
+    expect(error.failure.details.providerUnavailable).toBe(true);
+  });
+
   test('keeps the web and YouTube provider calls atomic without changing their prompts', async () => {
     let webPrompt = '';
     const generateObject = vi.fn(async (input: { name: string; prompt: string }) => {
@@ -249,8 +553,8 @@ describe('course generation research', () => {
     expect(webPrompt.indexOf('a-source.txt')).toBeLessThan(webPrompt.indexOf('z-source.txt'));
   });
 
-  test('declares fail-fast research branches and ordered collect-mode query work', () => {
-    const gather = findNode('gather-course-research');
+  test('declares selected research branches and ordered collect-mode query work', () => {
+    const gather = findNode('gather-selected-course-research');
     const queries = findNode('research-course-youtube-queries');
     if (gather.kind !== 'fanOut' || queries.kind !== 'fanOut') {
       throw new Error('Course research composition is incomplete.');
@@ -260,13 +564,13 @@ describe('course generation research', () => {
       { queries: string[]; state: CoursePreparationState },
       CourseYoutubeQueryInput
     >;
-    const branches = gatherFanOut.inputs(prepared);
+    const branches = gatherFanOut.inputs({ ...prepared, routing: allSourcesRouting } as never);
     const queryInputs = queryFanOut.inputs({
       queries: ['first query', 'second query'],
       state: prepared,
     });
 
-    expect(gatherFanOut.failureMode).toBe('fail-fast');
+    expect(gatherFanOut.failureMode).toBe('collect');
     expect(branches.map(input => gatherFanOut.keyBy(input))).toEqual(['web', 'youtube']);
     expect(queryFanOut.failureMode).toBe('collect');
     expect(queryInputs.map(input => queryFanOut.keyBy(input))).toEqual(['0', '1']);
@@ -302,7 +606,7 @@ describe('course generation research', () => {
     expect(generateObject).toHaveBeenCalledTimes(1);
   });
 
-  test('keeps successful YouTube evidence when another query fails', async () => {
+  test('keeps successful YouTube evidence only when another query has an explicit provider outage', async () => {
     const successful = youtubeOutcome(
       'Successful video',
       'https://www.youtube.com/watch?v=success',
@@ -316,7 +620,12 @@ describe('course generation research', () => {
     const collection = collectYoutube([
       { input: input('successful query', 0), key: '0', output: successful, status: 'completed' },
       {
-        failure: { code: 'course_research_failed', kind: 'operational', message: 'failed' },
+        failure: {
+          code: 'course_research_failed',
+          kind: 'operational',
+          message: 'failed',
+          details: { providerUnavailable: true },
+        },
         input: input('failed query', 1),
         key: '1',
         status: 'failed',
@@ -331,13 +640,7 @@ describe('course generation research', () => {
       research: { candidates: [{ title: 'Successful video' }], status: 'completed' },
     });
     expect(result.research.context).toContain('Risultato valido.');
-    const researchState = fanIn<
-      CoursePreparationState,
-      ResearchBranchInput,
-      ResearchBranchOutput,
-      CourseResearchState
-    >(
-      'gather-course-research',
+    const researchState = await finalizeResearch(
       [
         {
           input: { branch: 'web', state: prepared },
@@ -352,7 +655,7 @@ describe('course generation research', () => {
           status: 'completed',
         },
       ],
-      prepared
+      { ...prepared, routing: allSourcesRouting } as never
     );
     expect(researchState).toMatchObject({
       research: { youtube: result.research },
@@ -362,6 +665,30 @@ describe('course generation research', () => {
       '[Workflow] Course YouTube research unavailable.',
       expect.objectContaining({ failedQueryCount: 1 })
     );
+    for (const failure of [
+      retryCorrective({
+        code: 'invalid_query',
+        message: 'Invalid query',
+        feedback: 'Correct query',
+      }).failure,
+      { kind: 'permanent' as const, code: 'configuration', message: 'Invalid configuration' },
+      { kind: 'operational' as const, code: 'unknown', message: 'Unknown failure' },
+    ]) {
+      await expect(
+        finalizeYoutube(
+          collectYoutube([
+            {
+              input: input('successful query', 0),
+              key: '0',
+              output: successful,
+              status: 'completed',
+            },
+            { input: input('failed query', 1), key: '1', status: 'failed', failure },
+          ]),
+          {} as CourseGenerationWorkflowServices
+        )
+      ).rejects.toMatchObject({ failure });
+    }
     warn.mockRestore();
   });
 
@@ -415,23 +742,17 @@ describe('course generation research', () => {
       input,
       workflowServices(services)
     ).catch(error => error);
-    const collection = collectYoutube([
-      {
-        failure: queryFailure.failure,
-        input,
-        key: '0',
-        status: 'failed',
-      },
-    ]);
-
-    const finalFailure = await finalizeYoutube(collection, workflowServices(services)).catch(
-      error => error
-    );
-
     expect(queryFailure).toMatchObject({ failure: { retryAfterMs: 23_000 } });
-    expect(finalFailure).toMatchObject({
-      failure: { code: 'course_research_failed', retryAfterMs: 23_000 },
-    });
+    await expect(
+      finalizeYoutube(
+        collectYoutube([{ failure: queryFailure.failure, input, key: '0', status: 'failed' }]),
+        workflowServices(services)
+      )
+    ).rejects.toMatchObject(
+      expect.objectContaining({
+        failure: expect.objectContaining({ code: 'course_research_failed', retryAfterMs: 23_000 }),
+      })
+    );
   });
 
   test.each([

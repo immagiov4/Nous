@@ -36,6 +36,11 @@ import type {
   LessonYouTubeSearchInput,
   LessonYouTubeSearchPlan,
 } from '../services/lessonYouTubePlanning.js';
+import {
+  type ResearchSourceRouting,
+  type ResearchSourceType,
+  planResearchSources as selectResearchSources,
+} from '../services/researchSourceRouting.js';
 import { isRecord } from '../utils/validation.js';
 import {
   buildLessonGenerationSourceFingerprint,
@@ -67,12 +72,14 @@ interface LessonStageLogger {
 }
 
 export interface LessonGenerationStageDependencies {
+  readonly availableResearchChannels: readonly ResearchSourceType[];
   readonly generateAids: (input: GenerateLessonLearningAidsInput) => Promise<readonly unknown[]>;
   readonly generateContent: GenerateLessonContent;
   readonly generateResearch: GenerateResearch;
   readonly loadProject: ProjectStore['loadProject'];
   readonly loadProjectWithRevision: ProjectStore['loadProjectWithRevision'];
   readonly logger?: LessonStageLogger;
+  readonly planResearchSources?: typeof selectResearchSources;
   readonly planYouTube: (input: LessonYouTubeSearchInput) => Promise<LessonYouTubeSearchPlan>;
   readonly researchYouTube: ResearchYouTube;
   readonly resolveSourceMaterials: (input: {
@@ -117,7 +124,7 @@ const parseJsonRecord = (value: string | null): Record<string, unknown> | null =
 type LessonGenerationInputState = Pick<
   LessonContextState,
   'existingSources' | 'lessonInputData' | 'request'
->;
+> & { readonly researchRouting?: ResearchSourceRouting };
 
 const buildGenerationInput = (
   state: LessonGenerationInputState,
@@ -129,6 +136,7 @@ const buildGenerationInput = (
   const correction = retryFeedback?.trim();
   return {
     ...state.lessonInputData,
+    ...(state.researchRouting ? { researchRouting: state.researchRouting } : {}),
     config,
     refreshResearch: state.request.forceRegenerate,
     researchContext: '',
@@ -391,13 +399,25 @@ const assessSourceCoverage =
 
 const optionalYouTubeFailureWarnings = (
   context: {
-    readonly input: Pick<LessonSourcesState, 'request' | 'warnings'>;
+    readonly attemptNumber: number;
+    readonly config: { readonly maxAttempts: number };
+    readonly input: Pick<LessonSourcesState, 'request' | 'warnings' | 'researchRouting'>;
     readonly signal: AbortSignal;
   },
   error: unknown,
   logger: LessonStageLogger
 ) => {
   context.signal.throwIfAborted();
+  if (
+    context.input.researchRouting &&
+    (context.attemptNumber < context.config.maxAttempts ||
+      !context.input.researchRouting.suppliedSourcesSufficient ||
+      !isResearchProviderUnavailable(
+        error instanceof CourseModelProviderError ? error.cause : error
+      ))
+  ) {
+    throw error;
+  }
   const retryAfterMs = readRetryAfterMs(error);
   logger.warn('Optional lesson YouTube research failed.', {
     diagnostic: toWorkflowErrorDiagnostic(error),
@@ -551,6 +571,7 @@ const researchLesson =
     const summary = await runCorrectableLessonOperation(
       () =>
         generateLessonResearchSummary({
+          allowOptionalFailure: context.attemptNumber >= context.config.maxAttempts,
           existingDossier,
           generationInput,
           research: dependencies.generateResearch,
@@ -564,7 +585,10 @@ const researchLesson =
       }
     );
     const lessonSources = selectLessonSources({
-      discoveredYoutubeSources: context.input.discoveredYoutubeSources,
+      discoveredYoutubeSources:
+        context.input.researchRouting && summary === null
+          ? []
+          : context.input.discoveredYoutubeSources,
       existingSources: context.input.existingSources,
       originalSources: context.input.originalSources,
       researchSummary: summary,
@@ -716,6 +740,7 @@ export const createLessonGenerationStageServices = (
   | 'generateLearningAids'
   | 'finalizeYouTubeResearch'
   | 'planYouTubeResearch'
+  | 'planResearchSources'
   | 'prepareLesson'
   | 'researchFallbackYouTube'
   | 'researchLesson'
@@ -728,6 +753,28 @@ export const createLessonGenerationStageServices = (
     draftLesson: draftLesson(dependencies),
     finalizeYouTubeResearch: finalizeYouTubeResearch(logger),
     generateLearningAids: generateLearningAids(dependencies, logger),
+    planResearchSources: async context => {
+      if (context.input.existingDossierJson !== null && !context.input.request.forceRegenerate)
+        return context.input;
+      const researchRouting = await (dependencies.planResearchSources ?? selectResearchSources)({
+        config: modelConfig(context),
+        level: 'lesson',
+        topic: context.input.lessonInputData.sectionTitle,
+        coverageGaps: context.input.lessonInputData.coverageGaps,
+        retryFeedback: context.retryFeedback,
+        learningContext: [
+          context.input.lessonInputData.description,
+          context.input.youtubePlanning.context,
+          context.input.lessonInputData.pedagogicalContext,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        sourceContext: context.input.lessonInputData.sourceContext,
+        availableChannels: dependencies.availableResearchChannels,
+        signal: context.signal,
+      });
+      return { ...context.input, researchRouting };
+    },
     planYouTubeResearch: planYouTubeResearch(dependencies, logger),
     prepareLesson: prepareLesson(dependencies),
     researchFallbackYouTube: researchFallbackYouTube(dependencies, logger),
@@ -736,3 +783,6 @@ export const createLessonGenerationStageServices = (
     reviewLesson: reviewLesson(dependencies),
   };
 };
+
+import { isResearchProviderUnavailable } from '../services/researchProviderAvailability.js';
+import { CourseModelProviderError } from './courseGenerationModel.js';

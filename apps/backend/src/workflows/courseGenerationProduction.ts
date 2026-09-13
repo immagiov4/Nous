@@ -107,7 +107,7 @@ export const createProductionCourseGenerationServices = (
       now: timestampIso,
       readSourceMaterials,
     }),
-    ...createCourseResearchServices({ readSourceMaterials }),
+    ...createCourseResearchServices({ openArchive, readSourceMaterials }),
     persistCourse: persistence.persistCourse,
     placeApplicationExercises: createCourseExercisePlanningStage({ now: timestampIso }),
     prepareCourse: createCoursePreparationStage({

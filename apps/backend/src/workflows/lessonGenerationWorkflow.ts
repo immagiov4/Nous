@@ -2,7 +2,6 @@ import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import type { TransactionSql } from 'postgres';
 import type * as z from 'zod';
 import type { GlobalModelConfig, TextModelSlot } from '../config/modelConfig.js';
-
 import { resolveLessonResearchRequest } from '../services/lessonGenerationModel.js';
 import {
   collectLessonVisualPlans,
@@ -12,6 +11,7 @@ import {
   type LessonVisualModelConfig,
   LessonVisualModelConfigSchema,
 } from '../services/lessonVisualModelConfig.js';
+import { isResearchSourceSelected } from '../services/researchSourceRouting.js';
 import { WorkflowExecutionDefaultsSchema } from './config.js';
 import { emit, fanOut, routeBy, sequence, step, workflow } from './definition.js';
 import {
@@ -54,6 +54,7 @@ import {
   PreviousLessonGenerationDurableSchemaSet,
   PreviousQuizExplanationLessonGenerationDurableSchemaSet,
   PreviousResearchContractLessonGenerationDurableSchemaSet,
+  PreviousRoutingLessonGenerationDurableSchemaSet,
   type SublessonPlanState,
   SublessonPlanStateSchema,
   type SublessonReadyState,
@@ -144,6 +145,7 @@ export interface LessonGenerationWorkflowServices extends LessonVisualWorkflowSe
     LessonYouTubeSearchState,
     LessonYouTubeState
   >;
+  readonly planResearchSources: LessonGenerationStage<LessonSourcesState, LessonSourcesState>;
   readonly planYouTubeResearch: LessonGenerationStage<LessonSourcesState, LessonYouTubePlanState>;
   readonly researchFallbackYouTube: LessonGenerationStage<
     LessonYouTubeSearchState,
@@ -204,6 +206,7 @@ const researchModelSlot = (input: LessonYouTubeState, config: GlobalModelConfig)
   resolveLessonResearchRequest({
     config,
     coverageGaps: input.lessonInputData.coverageGaps,
+    researchRouting: input.researchRouting,
     refreshResearch: input.request.forceRegenerate,
     sourceContext: input.lessonInputData.sourceContext,
   }).slot;
@@ -568,13 +571,40 @@ const createLessonGenerationWorkflowDefinition = <
     ] as const,
   });
 
+  const planSourceResearch = step<
+    typeof LessonSourcesStateSchema,
+    typeof LessonSourcesStateSchema,
+    Config,
+    Services
+  >({
+    id: 'plan-lesson-research-sources',
+    externalEffect: 'provider',
+    inputSchema: durableSchemas.LessonSourcesStateSchema,
+    outputSchema: durableSchemas.LessonSourcesStateSchema,
+    run: context =>
+      runStage(
+        context,
+        {
+          code: 'lesson_research_routing_failed',
+          message: 'The lesson research sources could not be selected.',
+          modelSlot: 'context',
+        },
+        stage => context.services.planResearchSources(stage)
+      ),
+  });
   const routeYouTubeResearch = routeBy({
     cases: { bypass: bypassYouTubeResearch, research: researchYouTube },
     id: 'route-youtube-research',
     inputSchema: durableSchemas.LessonSourcesStateSchema,
     outputSchema: durableSchemas.LessonYouTubeStateSchema,
-    select: input =>
-      input.request.forceRegenerate || input.existingDossierJson === null ? 'research' : 'bypass',
+    select: input => {
+      if (input.researchRouting) {
+        return isResearchSourceSelected(input.researchRouting, 'youtube') ? 'research' : 'bypass';
+      }
+      return input.request.forceRegenerate || input.existingDossierJson === null
+        ? 'research'
+        : 'bypass';
+    },
   });
 
   const researchLesson = step<
@@ -772,6 +802,9 @@ const createLessonGenerationWorkflowDefinition = <
       unwrapGenerationContext,
       assessSourceCoverage,
       stageDocumentSources,
+      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet
+        ? ([planSourceResearch] as const)
+        : []),
       routeYouTubeResearch,
       researchLesson,
       draftLesson,
@@ -864,4 +897,14 @@ export const createPreviousQuizExplanationLessonGenerationWorkflow = <
     executionDefaults,
     configSchema,
     PreviousQuizExplanationLessonGenerationDurableSchemaSet
+  );
+
+export const createPreviousRoutingLessonGenerationWorkflow = (
+  executionDefaults: LessonGenerationWorkflowConfig,
+  configSchema: z.ZodType<LessonGenerationWorkflowConfig> = LessonGenerationWorkflowConfigSchema
+) =>
+  createLessonGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    PreviousRoutingLessonGenerationDurableSchemaSet
   );

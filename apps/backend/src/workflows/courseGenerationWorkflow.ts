@@ -27,6 +27,7 @@ import {
   courseGenerationStateSchemas,
   preControlsCourseGenerationStateSchemas,
   preDiagnosticCourseGenerationStateSchemas,
+  preRoutingCourseGenerationStateSchemas,
   previousCourseGenerationStateSchemas,
   validateRefinedCoursePlan,
 } from './courseGenerationWorkflowContract.js';
@@ -195,7 +196,10 @@ const createCourseGenerationWorkflowDefinition = <
       ),
   });
 
-  const courseResearch = createCourseResearchNode<Config, Services>(schemas);
+  const courseResearch = createCourseResearchNode<Config, Services>(
+    schemas,
+    schemas === courseGenerationStateSchemas
+  );
 
   const draftCoursePlan = step<
     typeof CourseResearchStateSchema,
@@ -589,4 +593,15 @@ export const createPreviousDiagnosticCourseGenerationWorkflow = (
     configSchema,
     'current',
     preDiagnosticCourseGenerationStateSchemas
+  );
+
+export const createPreviousRoutingCourseGenerationWorkflow = (
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema = CourseGenerationWorkflowConfigSchema
+) =>
+  createCourseGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    'current',
+    preRoutingCourseGenerationStateSchemas
   );

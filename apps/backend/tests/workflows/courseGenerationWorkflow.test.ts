@@ -300,7 +300,10 @@ describe('course generation workflow', () => {
       ...(version === 'current' ? { teachingPreferences: 'One step at a time.' } : {}),
     };
     const prepared = { ...preparationState, context: { ...preparationState.context, profile } };
-    const research = findNode('gather-course-research', definition);
+    const research = findNode(
+      version === 'current' ? 'plan-and-gather-course-research' : 'gather-course-research',
+      definition
+    );
     expect(research.inputSchema.parse(prepared)).toMatchObject({ context: { profile } });
     const researched = CourseResearchStateSchema.parse({
       ...prepared,
@@ -355,7 +358,9 @@ describe('course generation workflow', () => {
     expect(nodeIds).toEqual(
       expect.arrayContaining([
         'prepare-course',
-        'gather-course-research',
+        'plan-course-research-sources',
+        'gather-selected-course-research',
+        'finalize-selected-course-research',
         'route-course-research',
         'research-course-web',
         'research-course-youtube',

@@ -10,6 +10,7 @@
   "scripts": {
     "deps:install": "bun install --frozen-lockfile --force",
     "predev": "bun run scripts/ensure-local-dev-services.ts",
+    "eval:research-routing": "bun run scripts/evaluate-research-source-routing.ts",
     "doctor": "bun run scripts/doctor.ts",
     "doctor:gate": "bun run scripts/doctor.ts --profile gate",
     "feature-map": "bun run scripts/run-feature-map.ts",

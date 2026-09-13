@@ -391,6 +391,8 @@ describe('lesson generation workflow API', () => {
       [{ definitionId: 'plan-sublesson', status: 'running' }, 'structure'],
       [{ definitionId: 'finalize-sublesson', status: 'running' }, 'sources'],
       [{ definitionId: 'stage-document-sources', status: 'running' }, 'sources'],
+      [{ definitionId: 'plan-lesson-research-sources', status: 'running' }, 'sources'],
+      [{ definitionId: 'plan-lesson-research-sources', status: 'retrying' }, 'sources'],
       [{ definitionId: 'research-lesson', status: 'running' }, 'structure'],
       [{ definitionId: 'draft-lesson', status: 'running' }, 'drafting'],
       [{ definitionId: 'review-lesson', status: 'queued' }, 'quiz'],

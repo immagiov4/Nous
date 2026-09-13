@@ -1,10 +1,11 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   buildYouTubeResearchDiagnostic,
   buildYouTubeResearchOutcome,
   DecodoDiscoveryProvider,
   DecodoMetadataProvider,
   DecodoTranscriptProvider,
+  isYouTubeResearchConfigured,
   type YouTubeCandidate,
   type YouTubeDiscoveryProvider,
   type YouTubeTranscriptProvider,
@@ -12,6 +13,110 @@ import {
 import { readRetryAfterMs } from '../../src/workflows/retryPolicy.js';
 
 describe('YouTube research', () => {
+  test.each([
+    ['', false],
+    ['  ', false],
+    ['configured-key', true],
+  ] as const)('reports configured availability for %s', (key, configured) => {
+    vi.stubEnv('DECODO_SCRAPING_API_KEY', key);
+    try {
+      expect(isYouTubeResearchConfigured()).toBe(configured);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test.each([
+    'search',
+    'metadata',
+    'transcript',
+  ] as const)('normalizes only %s transport failures and preserves cancellation and malformed responses', async operation => {
+    const controller = new AbortController();
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed'));
+    const call = () => {
+      if (operation === 'search')
+        return new DecodoDiscoveryProvider('secret', fetcher).search('query', controller.signal);
+      if (operation === 'metadata')
+        return new DecodoMetadataProvider('secret', fetcher).getMetadata(
+          'video',
+          controller.signal
+        );
+      return new DecodoTranscriptProvider('secret', fetcher).getTranscriptDiagnostic(
+        'video',
+        ['en'],
+        controller.signal
+      );
+    };
+    const failure = await call().catch(error => error);
+    expect(isResearchProviderUnavailable(failure)).toBe(true);
+    expect(failure.cause).toBeInstanceOf(TypeError);
+    fetcher.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new TypeError('Connection closed during response'));
+          },
+        })
+      )
+    );
+    const bodyFailure = await call().catch(error => error);
+    expect(isResearchProviderUnavailable(bodyFailure)).toBe(true);
+    expect(bodyFailure.cause).toBeInstanceOf(TypeError);
+    fetcher.mockResolvedValue(new Response('invalid JSON'));
+    await expect(call()).rejects.toBeInstanceOf(SyntaxError);
+    controller.abort(new Error('Cancelled'));
+    await expect(call()).rejects.toThrow('Cancelled');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  test('omits engagement retrieval per caller while preserving transcript evidence and discovery diagnostics', async () => {
+    let metadataCalls = 0;
+    const options = {
+      discovery: {
+        search: async () => [
+          {
+            id: 'video-1',
+            kind: 'video' as const,
+            title: 'Binary search',
+            url: 'https://www.youtube.com/watch?v=video-1',
+            channelTitle: 'Algorithms',
+            channelVerified: true,
+            viewCount: 500,
+          },
+        ],
+        expandPlaylist: async () => [],
+      },
+      transcripts: {
+        getTranscript: async () => ({
+          kind: 'manual' as const,
+          language: 'en',
+          segments: [
+            { startSeconds: 0, endSeconds: 10, text: 'Halve the sorted search interval.' },
+          ],
+        }),
+      },
+      metadata: {
+        getMetadata: async () => {
+          metadataCalls += 1;
+          return { viewCount: 600, likeCount: 20 };
+        },
+      },
+    };
+    const skipped = await buildYouTubeResearchDiagnostic('binary search', 'English', {
+      ...options,
+      includeEngagementMetadata: false,
+    });
+    expect(metadataCalls).toBe(0);
+    expect(skipped.candidates[0].viewCount).toBe(500);
+    const included = await buildYouTubeResearchDiagnostic('binary search', 'English', options);
+    expect(metadataCalls).toBe(1);
+    expect(skipped.bundle.context).toBe(included.bundle.context);
+    expect(skipped.bundle.videoCandidates[0].segments).toEqual(
+      included.bundle.videoCandidates[0].segments
+    );
+    expect(skipped.bundle.videoCandidates[0]).not.toHaveProperty('likeCount');
+    expect(included.bundle.videoCandidates[0]).toMatchObject({ viewCount: 600, likeCount: 20 });
+  });
+
   test('discovers YouTube candidates through Decodo without local semantic ranking', async () => {
     const calls: Array<{ body: string; url: string }> = [];
     const provider = new DecodoDiscoveryProvider('secret', async (input, init) => {
@@ -129,12 +234,14 @@ describe('YouTube research', () => {
     expect(receivedSignals).toEqual([controller.signal, controller.signal, controller.signal]);
   });
 
-  test('preserves retry timing while passing cancellation to Decodo fetch', async () => {
+  test.each([
+    401, 429, 503,
+  ])('classifies Decodo HTTP %s while preserving retry timing and cancellation', async status => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | null | undefined;
     const provider = new DecodoDiscoveryProvider('secret', async (_input, init) => {
       receivedSignal = init?.signal;
-      return new Response('', { headers: { 'retry-after': '23' }, status: 429 });
+      return new Response('', { headers: { 'retry-after': '23' }, status });
     });
 
     const failure = await provider
@@ -142,6 +249,7 @@ describe('YouTube research', () => {
       .catch(error => error);
 
     expect(receivedSignal).toBe(controller.signal);
+    expect(isResearchProviderUnavailable(failure)).toBe(status !== 401);
     expect(readRetryAfterMs(failure)).toBe(23_000);
     expect(failure.responseHeaders).toEqual({ 'retry-after': '23' });
   });
@@ -725,3 +833,5 @@ describe('YouTube research', () => {
     expect(diagnostic.budget.usedTokens).toBe(0);
   });
 });
+
+import { isResearchProviderUnavailable } from '../../src/services/researchProviderAvailability.js';
