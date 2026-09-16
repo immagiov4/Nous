@@ -67,6 +67,7 @@ export const buildConversationNoteSaveCandidates = ({
   const primarySelectedText =
     normalizeRequiredText(toolInput.selectedText) || normalizedAnchor.selectedText;
   const canReuseAnchorContext = primarySelectedText === normalizedAnchor.selectedText;
+  const canReuseAnchorPosition = normalizedAnchor.selectedText.includes(primarySelectedText);
   const primaryContextAfter =
     normalizeOptionalText(toolInput.contextAfter) ||
     (canReuseAnchorContext ? normalizedAnchor.contextAfter : undefined);
@@ -79,7 +80,8 @@ export const buildConversationNoteSaveCandidates = ({
     selectedText: primarySelectedText,
   } satisfies ConversationSelectionAnchor;
   const primarySelectionStart =
-    normalizeSelectedTextStart(toolInput.selectedTextStart) ?? normalizedAnchor.selectedTextStart;
+    normalizeSelectedTextStart(toolInput.selectedTextStart) ??
+    (canReuseAnchorPosition ? normalizedAnchor.selectedTextStart : undefined);
   const primarySelection = {
     ...primaryTextSelection,
     ...(primarySelectionStart !== undefined ? { selectedTextStart: primarySelectionStart } : {}),

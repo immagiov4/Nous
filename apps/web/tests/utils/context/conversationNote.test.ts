@@ -39,6 +39,22 @@ test('keeps a single candidate when the refined selection matches the original a
   ]);
 });
 
+test('does not reuse the original offset for a different proposed anchor', () => {
+  const [candidate] = buildConversationNoteSaveCandidates({
+    anchor: { selectedText: 'primo passaggio', selectedTextStart: 0 },
+    toolInput: { note: 'Nota', selectedText: 'passaggio più sotto' },
+  });
+
+  assert.ok(candidate);
+  expect(candidate?.selectedTextStart).toBeUndefined();
+  expect(
+    hasAnchorableConversationNoteCandidate(
+      'primo passaggio e, molto più avanti, passaggio più sotto',
+      candidate
+    )
+  ).toBe(true);
+});
+
 test('rejects note proposals whose text is absent or only belongs to an image', () => {
   const content = 'Testo della lezione.\n\n![Schema della pipeline](asset://pipeline)';
 
@@ -341,7 +357,6 @@ test('does not inherit stale boundary context when the proposed text changes', (
     },
     note: 'Nota',
     selectedText: 'passaggio raffinato',
-    selectedTextStart: 10,
   });
 });
 
