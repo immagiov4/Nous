@@ -2,7 +2,7 @@
 
 import '@testing-library/jest-dom/vitest';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
 import { describe, expect, test, vi } from 'vitest';
@@ -86,7 +86,10 @@ describe('WorkspaceReaderOverlays', () => {
     expect(backdrop).not.toHaveClass('fixed', 'backdrop-blur-[1px]');
     expect(screen.getByTestId('context-answer-panel')).toBeInTheDocument();
 
-    await user.click(backdrop);
+    fireEvent.click(backdrop);
+    expect(onCloseContextAnswer).not.toHaveBeenCalled();
+
+    await user.pointer({ keys: '[MouseLeft]', target: backdrop });
 
     expect(onCloseContextAnswer).toHaveBeenCalledTimes(1);
   });

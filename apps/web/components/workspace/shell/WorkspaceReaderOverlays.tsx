@@ -56,7 +56,7 @@ function WorkspaceReaderOverlays({
               data-context-answer-backdrop="true"
               aria-label={t('Chiudi follow-up dallo sfondo')}
               className="absolute inset-0 z-40 bg-black/40"
-              onClick={onCloseContextAnswer}
+              onPointerDown={onCloseContextAnswer}
             />
           ) : null}
           <ContextAnswerPanel
