@@ -181,17 +181,35 @@ describe('SupabaseProjectSourceStorage', () => {
   });
 
   test('reports stable typed request failures without exposing response bodies', async () => {
-    const fetcher = createFetchMock(new Response('sensitive provider details', { status: 409 }));
+    const fetcher = createFetchMock(
+      new Response('{"message":"object exists token=private","api_key":"private-key"}', {
+        status: 409,
+      })
+    );
     const storage = createStorage(fetcher);
 
-    await expect(
-      storage.upload('user-1/project-1/hash', new Uint8Array([1]), 'application/pdf')
-    ).rejects.toMatchObject({
+    const failure = await storage
+      .upload('user-1/project-1/hash', new Uint8Array([1]), 'application/pdf')
+      .catch(error => error);
+    expect(failure).toMatchObject({
       code: 'upload-failed',
       message: 'Supabase project source upload failed.',
       name: 'ProjectSourceStorageError',
       status: 409,
+      cause: expect.objectContaining({
+        message: expect.stringContaining('object exists token=[REDACTED]'),
+      }),
     });
+    expect(failure.cause.message).not.toContain('private-key');
+  });
+
+  test('bounds stored HTTP failure diagnostics', async () => {
+    const storage = createStorage(
+      createFetchMock(new Response('x'.repeat(10_000), { status: 503 }))
+    );
+    const failure = await storage.delete('user-1/project-1/hash').catch(error => error);
+    expect(failure.message).toBe('Supabase project source deletion failed.');
+    expect(failure.cause.message).toHaveLength(2048);
   });
 });
 

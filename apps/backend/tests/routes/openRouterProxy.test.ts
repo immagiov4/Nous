@@ -89,10 +89,15 @@ describe('/api/openrouter proxy', () => {
   test('records provider-specific AI failures for non-successful upstream responses', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ privateProviderResponse: 'must-not-be-logged' }), {
-        headers: { 'content-type': 'application/json' },
-        status: 429,
-      })
+      new Response(
+        JSON.stringify({
+          error: { code: 'rate_limit', message: 'quota exhausted token=private-provider' },
+        }),
+        {
+          headers: { 'content-type': 'application/json' },
+          status: 429,
+        }
+      )
     );
 
     const response = await request(createApp())
@@ -101,13 +106,16 @@ describe('/api/openrouter proxy', () => {
       .send({ messages: [{ role: 'user', content: 'Ciao' }] });
 
     expect(response.status).toBe(429);
+    expect(JSON.stringify(response.body)).not.toContain('quota exhausted');
+    expect(JSON.stringify(response.body)).not.toContain('private-provider');
     const lifecycleFailure = errorLog.mock.calls
       .flat()
       .find(value => typeof value === 'string' && value.includes('"operation":"ai_generation"'));
     expect(lifecycleFailure).toContain('"failureCode":"ai_provider_http_429"');
     expect(lifecycleFailure).toContain('"provider":"openrouter"');
     expect(lifecycleFailure).toContain('"statusCode":429');
-    expect(lifecycleFailure).not.toContain('must-not-be-logged');
+    expect(lifecycleFailure).toContain('quota exhausted token=[REDACTED]');
+    expect(lifecycleFailure).not.toContain('private-provider');
     errorLog.mockRestore();
   });
 

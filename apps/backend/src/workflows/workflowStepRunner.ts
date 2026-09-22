@@ -105,8 +105,9 @@ export type WorkflowStepRunnerResult =
     }
   | { status: 'cancelled' | 'lease-lost' };
 
-const timeoutFailure = (): StepFailure => ({
+const timeoutFailure = (cause: unknown): StepFailure => ({
   code: 'workflow_step_timeout',
+  details: { diagnostic: toWorkflowErrorDiagnostic(cause) },
   kind: 'operational',
   message: 'The workflow step exceeded its execution timeout.',
 });
@@ -442,11 +443,18 @@ const executeStepCallback = async <Services>(input: {
             return value;
           },
           async error => {
-            await flushPendingAiUsage({
-              leaseMs: input.leaseMs,
-              pendingAiUsage,
-              store: input.store,
-            });
+            try {
+              await flushPendingAiUsage({
+                leaseMs: input.leaseMs,
+                pendingAiUsage,
+                store: input.store,
+              });
+            } catch (flushError) {
+              console.error('[Workflow] AI usage flush failed after step failure.', {
+                diagnostic: toWorkflowErrorDiagnostic(flushError),
+                runId: input.claim.runId,
+              });
+            }
             throw error;
           }
         ),
@@ -474,7 +482,7 @@ const finishFailedStepAttempt = async (input: {
     aiUsage: input.attempt.pendingAiUsage,
     claim: input.claim,
     definition: input.definition,
-    failure: input.attempt.timedOut ? timeoutFailure() : toStepFailure(failureCause),
+    failure: input.attempt.timedOut ? timeoutFailure(failureCause) : toStepFailure(failureCause),
     store: input.store,
   });
 };

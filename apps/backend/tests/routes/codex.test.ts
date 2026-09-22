@@ -121,8 +121,9 @@ describe('Codex app-server account routes', () => {
   });
 
   test('never exposes app-server process details in an HTTP failure', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     codexMocks.startCodexDeviceLogin.mockRejectedValue(
-      new Error('C:\\Users\\reader\\.codex\\auth.json contained an invalid refresh token')
+      new Error('Codex device login rejected token=private')
     );
 
     const response = await request(createApp()).post('/api/codex/login');
@@ -132,7 +133,19 @@ describe('Codex app-server account routes', () => {
       success: false,
       error: 'Codex non ha completato l’operazione. Riprova.',
     });
-    expect(JSON.stringify(response.body)).not.toContain('.codex');
-    expect(JSON.stringify(response.body)).not.toContain('refresh token');
+    expect(JSON.stringify(response.body)).not.toContain('private');
+    expect(log.mock.calls).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([
+          expect.any(String),
+          expect.objectContaining({
+            diagnostic: expect.objectContaining({
+              originalMessage: 'Codex device login rejected token=[REDACTED]',
+            }),
+          }),
+        ]),
+      ])
+    );
+    log.mockRestore();
   });
 });

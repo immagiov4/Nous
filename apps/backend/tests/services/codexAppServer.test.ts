@@ -7,6 +7,7 @@ import {
   buildCodexAppServerCommand,
   buildCodexAppServerEnvironment,
   type CodexAppServerError,
+  CodexJsonRpcClient,
   listCodexModels,
   normalizeCodexReasoningEffort,
   readCodexAccount,
@@ -87,6 +88,46 @@ const sendInterruptedTurnCompletion = (
 };
 
 describe('Codex app-server protocol client', () => {
+  test('keeps the parser exception behind an invalid JSON protocol error', async () => {
+    const process = new FakeCodexProcess(() => undefined);
+    const client = new CodexJsonRpcClient(process);
+    try {
+      const pending = client.request('test/ping');
+      process.stdout.write('not-json\n');
+      const error = await pending.catch(reason => reason);
+      expect(error).toMatchObject({ code: 'protocol', cause: expect.any(SyntaxError) });
+    } finally {
+      client.close();
+    }
+  });
+  test('logs a redacted client-tool handler error while returning only a safe protocol error', async () => {
+    const process = new FakeCodexProcess(() => undefined);
+    const client = new CodexJsonRpcClient(process);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      client.handleServerRequests(async () => {
+        throw new Error('tool rejected token=private');
+      });
+      process.send({ id: 99, method: 'item/tool/call', params: {} });
+      await vi.waitFor(() => expect(process.received).toHaveLength(1));
+      expect(JSON.stringify(process.received[0])).not.toContain('private');
+      expect(log.mock.calls).toEqual(
+        expect.arrayContaining([
+          expect.arrayContaining([
+            expect.any(String),
+            expect.objectContaining({
+              diagnostic: expect.objectContaining({
+                originalMessage: 'tool rejected token=[REDACTED]',
+              }),
+            }),
+          ]),
+        ])
+      );
+    } finally {
+      log.mockRestore();
+      client.close();
+    }
+  });
   beforeEach(() => {
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
   });

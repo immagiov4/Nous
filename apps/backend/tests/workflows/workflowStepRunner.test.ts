@@ -560,6 +560,7 @@ describe('single workflow step runner', () => {
     expect(result).toMatchObject({ status: 'failure-recorded' });
     expect(recordFailure.mock.calls[0]?.[0].failure).toMatchObject({
       code: 'workflow_step_timeout',
+      details: { diagnostic: { originalMessage: 'Workflow step timed out.' } },
       kind: 'operational',
     });
   });
@@ -1360,6 +1361,58 @@ describe('single workflow step runner', () => {
     );
     expect(recordFailure.mock.calls[0]?.[0].aiUsage).not.toContain(persistedUsage);
     expect(store.checkpointStep).not.toHaveBeenCalled();
+  });
+
+  test('keeps the primary step error when usage flushing also fails', async () => {
+    const work = step({
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async () => {
+        await recordWorkflowAiUsage({
+          inputTokens: 1,
+          model: 'model',
+          outputTokens: 1,
+          provider: 'provider',
+        });
+        throw Object.assign(new Error('provider failed token=private'), {
+          code: 'provider_rejected',
+        });
+      },
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'usage-dual-error',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const recordFailure = vi.fn(
+      async (_input: Parameters<WorkflowStepRunnerStore['steps']['recordFailure']>[0]) => ({
+        status: 'failed' as const,
+        transientEvents: [],
+      })
+    );
+    await runWorkflowStepClaim({
+      claim: makeClaim(registered, { nodeInstanceId: 'work' }),
+      registry,
+      services: {},
+      store: makeStore({
+        recordAiUsage: vi.fn(async () => {
+          throw postgresError('23505');
+        }),
+        recordFailure,
+      }),
+    });
+    expect(recordFailure.mock.calls[0]?.[0].failure.details?.diagnostic).toMatchObject({
+      code: 'provider_rejected',
+      originalMessage: 'provider failed token=[REDACTED]',
+    });
   });
 
   test('keeps recorded usage when cancellation wins during checkpoint', async () => {

@@ -1,5 +1,6 @@
 // Server-only Supabase Storage client for immutable project-source objects.
 import { createHash } from 'node:crypto';
+import { readDiagnosticResponseText } from '../utils/sanitizeDiagnosticText.js';
 
 export const PROJECT_SOURCE_BUCKET = 'project-sources';
 
@@ -253,7 +254,10 @@ export class SupabaseProjectSourceStorage {
     }
 
     if (!response.ok) {
-      throw new ProjectSourceStorageError(errorCode, response.status);
+      const message = await readDiagnosticResponseText(response);
+      throw new ProjectSourceStorageError(errorCode, response.status, {
+        ...(message ? { cause: new Error(message) } : {}),
+      });
     }
     return response;
   }

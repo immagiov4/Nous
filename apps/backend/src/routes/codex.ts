@@ -11,13 +11,14 @@ import {
   startCodexDeviceLogin,
 } from '../services/codexAppServer.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const CODEX_UNAVAILABLE_MESSAGE = 'Codex non è disponibile su questo server.';
 const CODEX_OPERATION_FAILED_MESSAGE = 'Codex non ha completato l’operazione. Riprova.';
 
 const sendCodexError = (res: Response, error: unknown): void => {
   console.error('[Codex app-server] Request failed.', {
-    errorType: error instanceof Error ? error.name : 'unknown',
+    diagnostic: toWorkflowErrorDiagnostic(error),
   });
   res.status(503).json({ success: false, error: CODEX_OPERATION_FAILED_MESSAGE });
 };

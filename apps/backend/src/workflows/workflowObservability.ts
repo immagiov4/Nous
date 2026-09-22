@@ -189,6 +189,7 @@ interface WorkflowRuntimeLogEvent {
   readonly action: 'loop-failed';
   readonly event: 'workflow.runtime';
   readonly failureCode: typeof WORKFLOW_RUNTIME_LOOP_FAILURE_CODE;
+  readonly failureDiagnostic?: WorkflowErrorDiagnostic;
   readonly level: 'error';
   readonly loop: WorkflowRuntimeLoop;
 }
@@ -322,6 +323,7 @@ interface WorkflowNotificationLogSource {
 interface WorkflowRuntimeLogSource {
   readonly action: 'loop-failed';
   readonly entity: 'runtime';
+  readonly failureDiagnostic?: WorkflowErrorDiagnostic;
   readonly loop: WorkflowRuntimeLoop;
 }
 
@@ -568,6 +570,9 @@ const projectRuntimeLogEvent = (source: WorkflowRuntimeLogSource): WorkflowRunti
   action: source.action,
   event: 'workflow.runtime',
   failureCode: WORKFLOW_RUNTIME_LOOP_FAILURE_CODE,
+  ...(source.failureDiagnostic
+    ? { failureDiagnostic: readWorkflowErrorDiagnostic(source.failureDiagnostic) }
+    : {}),
   level: 'error',
   loop: source.loop,
 });

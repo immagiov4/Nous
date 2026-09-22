@@ -11,6 +11,7 @@ import {
   executeWorkflowCheckpointWithRetry,
   isTransientPostgresCheckpointError,
 } from './workflowCheckpointRetry.js';
+import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 import {
   DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
@@ -151,14 +152,16 @@ const resolveWorkflowUndoClaim = (
   }
 };
 
-const timeoutFailure = (): StepFailure => ({
+const timeoutFailure = (cause: unknown): StepFailure => ({
   code: 'workflow_undo_timeout',
+  details: { diagnostic: toWorkflowErrorDiagnostic(cause) },
   kind: 'operational',
   message: 'The workflow undo exceeded its execution timeout.',
 });
 
-const completionFailure = (): StepFailure => ({
+const completionFailure = (error: unknown): StepFailure => ({
   code: 'workflow_undo_completion_failed',
+  details: { diagnostic: toWorkflowErrorDiagnostic(error) },
   kind: 'permanent',
   message: 'The workflow undo could not be recorded as completed.',
 });
@@ -235,7 +238,7 @@ export const runWorkflowUndoClaim = async <Services>(
     return recordFailure(
       input.store,
       input.claim,
-      timedOut ? timeoutFailure() : toStepFailure(failureCause)
+      timedOut ? timeoutFailure(failureCause) : toStepFailure(failureCause)
     );
   }
 
@@ -251,8 +254,10 @@ export const runWorkflowUndoClaim = async <Services>(
       return { status: 'lease-lost' };
     }
     if (isTransientPostgresCheckpointError(error)) {
-      throw new Error('Transient undo completion retry ended without losing the lease.');
+      throw new Error('Transient undo completion retry ended without losing the lease.', {
+        cause: error,
+      });
     }
-    return recordFailure(input.store, input.claim, completionFailure());
+    return recordFailure(input.store, input.claim, completionFailure(error));
   }
 };

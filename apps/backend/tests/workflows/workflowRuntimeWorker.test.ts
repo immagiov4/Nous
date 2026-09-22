@@ -358,7 +358,7 @@ describe('workflow runtime worker', () => {
     vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
     const worker = createWorkflowRuntimeWorker({
       deliverNotification: vi.fn(async () => {
-        throw new Error('private listener detail');
+        throw new Error('delivery refused token=private-listener-detail');
       }),
       onLoopError: vi.fn(),
       pollIntervalMs: POLL_INTERVAL_MS,
@@ -378,13 +378,16 @@ describe('workflow runtime worker', () => {
       claim: outboxClaim,
       failure: {
         code: 'notification_delivery_failed',
+        details: {
+          diagnostic: { originalMessage: 'delivery refused token=[REDACTED]', type: 'Error' },
+        },
         kind: 'operational',
         message: 'The durable notification could not be delivered.',
       },
       retryDelayMs: POLL_INTERVAL_MS,
     });
     expect(JSON.stringify(vi.mocked(store.outbox.recordFailure).mock.calls)).not.toContain(
-      'private listener detail'
+      'private-listener-detail'
     );
     await worker.stop();
   });
@@ -820,7 +823,9 @@ describe('workflow runtime worker', () => {
   test('isolates loop errors, sanitizes the callback and waits for a future wake before retrying', async () => {
     const { registry } = registerStepWorkflow(async text => text);
     const store = makeStore();
-    vi.mocked(store.steps.claimNext).mockRejectedValue(new Error('secret database detail'));
+    vi.mocked(store.steps.claimNext).mockRejectedValue(
+      new Error('database refused token=private-database-detail')
+    );
     vi.mocked(store.waits.expireNext)
       .mockResolvedValueOnce({ nodeInstanceId: 'work', runId: 'run', waitId: 'wait' })
       .mockResolvedValue(null);
@@ -851,17 +856,18 @@ describe('workflow runtime worker', () => {
         message: 'A workflow runtime loop failed.',
       },
     ]);
-    expect(JSON.stringify(errors)).not.toContain('secret database detail');
+    expect(JSON.stringify(errors)).not.toContain('private-database-detail');
     expect(logEvents).toEqual([
       {
         action: 'loop-failed',
         event: 'workflow.runtime',
         failureCode: 'workflow_runtime_loop_failed',
+        failureDiagnostic: { originalMessage: 'database refused token=[REDACTED]', type: 'Error' },
         level: 'error',
         loop: 'step',
       },
     ]);
-    expect(JSON.stringify(logEvents)).not.toContain('secret database detail');
+    expect(JSON.stringify(logEvents)).not.toContain('private-database-detail');
 
     wakeSource.emit('step');
     await settleDrains();

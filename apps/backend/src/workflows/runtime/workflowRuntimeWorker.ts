@@ -12,6 +12,7 @@ import type {
   WorkflowDefinitionBoundary,
   WorkflowStepClaim,
 } from '../types.js';
+import { toWorkflowErrorDiagnostic } from '../workflowErrorDiagnostics.js';
 import { WorkflowOutboxLeaseLostError } from '../workflowErrors.js';
 import {
   consoleWorkflowLogger,
@@ -286,9 +287,9 @@ class WorkflowRuntimeWorker<Services> {
         while (this.active && (await this.runOnce(loop))) {
           // PostgreSQL owns eligibility; drain until its atomic claim returns null.
         }
-      } catch {
+      } catch (error) {
         state.pending = false;
-        this.reportLoopError(loop);
+        this.reportLoopError(loop, error);
         return;
       }
     } while (this.active && state.pending);
@@ -372,6 +373,7 @@ class WorkflowRuntimeWorker<Services> {
             ? deliveryError.failure
             : {
                 code: 'notification_delivery_failed',
+                details: { diagnostic: toWorkflowErrorDiagnostic(deliveryError) },
                 kind: 'operational',
                 message: 'The durable notification could not be delivered.',
               },
@@ -489,10 +491,11 @@ class WorkflowRuntimeWorker<Services> {
       : null;
   }
 
-  private reportLoopError(loop: WorkflowRuntimeLoop): void {
+  private reportLoopError(loop: WorkflowRuntimeLoop, error: unknown): void {
     emitWorkflowLog(this.input.logger ?? consoleWorkflowLogger, {
       action: 'loop-failed',
       entity: 'runtime',
+      failureDiagnostic: toWorkflowErrorDiagnostic(error),
       loop,
     });
     try {

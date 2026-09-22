@@ -24,3 +24,35 @@ export const sanitizeDiagnosticText = (value: string, maxLength: number): string
     .replaceAll(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
     .slice(0, maxLength)
     .trim();
+
+export const readDiagnosticResponseText = async (response: Response): Promise<string> => {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let detail = '';
+  try {
+    while (detail.length < 2048) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      detail += decoder.decode(chunk.value, { stream: true });
+    }
+  } catch {
+    // Status is still useful if the error body cannot be read.
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  if (/^\s*[[{]/u.test(detail)) {
+    try {
+      detail = JSON.stringify(JSON.parse(detail), (key, value) =>
+        /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret)$/iu.test(
+          key
+        )
+          ? '[REDACTED]'
+          : value
+      );
+    } catch {
+      return '';
+    }
+  }
+  return sanitizeDiagnosticText(detail, 2048);
+};

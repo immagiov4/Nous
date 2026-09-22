@@ -25,6 +25,7 @@ import {
   runCodexAppServerTurn,
 } from '../services/codexAppServer.js';
 import { openRouterModelSupportsImages } from '../services/openRouterModelCapabilities.js';
+import { readDiagnosticResponseText } from '../utils/sanitizeDiagnosticText.js';
 import { isRecord } from '../utils/validation.js';
 import {
   toWorkflowErrorDiagnostic,
@@ -550,12 +551,19 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
     );
 
     if (!upstreamResponse.ok) {
+      const detail = await readDiagnosticResponseText(upstreamResponse);
       emitAiGenerationFailure({
         code: `ai_provider_http_${upstreamResponse.status}`,
+        ...(detail ? { diagnostic: toWorkflowErrorDiagnostic(new Error(detail)) } : {}),
         message: 'The AI provider returned a non-success status.',
         provider: resolvedRequest.provider,
         statusCode: upstreamResponse.status,
       });
+      res.status(upstreamResponse.status).json({
+        error: 'Il servizio AI non ha completato la richiesta. Riprova tra poco.',
+        success: false,
+      });
+      return;
     }
     pipeAiResponse(upstreamResponse, res);
   } catch (error) {

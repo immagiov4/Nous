@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 
 import type { ReasoningEffort } from '../config/modelConfig.js';
 import { recordWorkflowAiUsage, type WorkflowAiUsage } from '../workflows/workflowAiMetering.js';
+import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
 const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
@@ -146,9 +147,10 @@ export const normalizeCodexReasoningEffort = (
 export class CodexAppServerError extends Error {
   constructor(
     message: string,
-    readonly code: 'disabled' | 'not_authenticated' | 'process' | 'protocol' | 'timeout'
+    readonly code: 'disabled' | 'not_authenticated' | 'process' | 'protocol' | 'timeout',
+    options?: ErrorOptions
   ) {
-    super(message);
+    super(message, options);
     this.name = 'CodexAppServerError';
   }
 }
@@ -275,9 +277,9 @@ export class CodexJsonRpcClient {
     let message: unknown;
     try {
       message = JSON.parse(line);
-    } catch {
+    } catch (cause) {
       this.#failPending(
-        new CodexAppServerError('Codex app-server returned invalid JSON.', 'protocol')
+        new CodexAppServerError('Codex app-server returned invalid JSON.', 'protocol', { cause })
       );
       return;
     }
@@ -333,8 +335,11 @@ export class CodexJsonRpcClient {
       }
       const result = await this.#serverRequestHandler(request);
       this.#write({ id: request.id, result });
-    } catch {
-      console.error('[Codex app-server] Client tool request failed.', { method: request.method });
+    } catch (error) {
+      console.error('[Codex app-server] Client tool request failed.', {
+        diagnostic: toWorkflowErrorDiagnostic(error),
+        method: request.method,
+      });
       this.#write({
         id: request.id,
         error: { code: -32_603, message: 'Operazione non riuscita.' },

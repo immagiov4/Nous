@@ -305,6 +305,7 @@ describe('single workflow undo runner', () => {
     await expect(execution).resolves.toMatchObject({ status: 'failure-recorded' });
     expect(recordFailure.mock.calls[0]?.[0].failure).toMatchObject({
       code: 'workflow_undo_timeout',
+      details: { diagnostic: { originalMessage: 'Workflow undo timed out.' } },
       kind: 'operational',
     });
   });
@@ -405,6 +406,30 @@ describe('single workflow undo runner', () => {
 
     expect(undo).toHaveBeenCalledOnce();
     expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  test('records the original completion error privately', async () => {
+    const { registered, registry } = registerUndoWorkflow(async () => undefined);
+    const store = makeStore({
+      complete: vi.fn(async () => {
+        throw Object.assign(new Error('database unavailable token=private'), { code: '23505' });
+      }),
+    });
+    const result = await runWorkflowUndoClaim({
+      claim: makeClaim(registered),
+      registry,
+      services: {},
+      store,
+    });
+    expect(result).toMatchObject({
+      status: 'failure-recorded',
+      failure: {
+        code: 'workflow_undo_completion_failed',
+        details: {
+          diagnostic: { code: '23505', originalMessage: 'database unavailable token=[REDACTED]' },
+        },
+      },
+    });
   });
 
   test('treats a fenced completion as lease loss', async () => {
