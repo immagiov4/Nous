@@ -101,7 +101,12 @@ describe('workflow observability', () => {
         code: 'provider_unavailable',
         details: {
           diagnostic: {
-            cause: { code: 'provider_rejected', status: 400, type: 'AI_APICallError' },
+            cause: {
+              code: 'provider_rejected',
+              originalMessage: 'Unsupported output schema. api_key=hidden',
+              status: 400,
+              type: 'AI_APICallError',
+            },
             type: 'ProviderTransientError',
           },
           model: {
@@ -136,7 +141,12 @@ describe('workflow observability', () => {
       failureCode: 'provider_unavailable',
       failureKind: 'operational',
       failureDiagnostic: {
-        cause: { code: 'provider_rejected', status: 400, type: 'AI_APICallError' },
+        cause: {
+          code: 'provider_rejected',
+          originalMessage: 'Unsupported output schema. api_key=[REDACTED]',
+          status: 400,
+          type: 'AI_APICallError',
+        },
         type: 'ProviderTransientError',
       },
       fencingToken: '4',
@@ -161,6 +171,7 @@ describe('workflow observability', () => {
     expect(serialized).not.toContain('source');
     expect(serialized).not.toContain('response');
     expect(serialized).not.toContain('apiKey');
+    expect(serialized).not.toContain('api_key=hidden');
   });
 
   test('drops durable notification payloads while preserving delivery correlation', () => {

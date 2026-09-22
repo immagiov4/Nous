@@ -228,7 +228,7 @@ describe('artifact draft workflow', () => {
 
   test('preserves provider retry timing and a safe diagnostic when planning fails', async () => {
     const { plan } = workflowNodes();
-    const providerError = Object.assign(new Error('secret provider response'), {
+    const providerError = Object.assign(new Error('secret=provider-response'), {
       code: 'RATE_LIMIT',
       responseHeaders: { 'retry-after': '7' },
       status: 429,
@@ -253,12 +253,19 @@ describe('artifact draft workflow', () => {
     expect(failure).toMatchObject({
       failure: {
         code: 'artifact_draft_planning_failed',
-        details: { diagnostic: { code: 'RATE_LIMIT', status: 429, type: 'Error' } },
+        details: {
+          diagnostic: {
+            code: 'RATE_LIMIT',
+            originalMessage: 'secret=[REDACTED]',
+            status: 429,
+            type: 'Error',
+          },
+        },
         kind: 'operational',
         retryAfterMs: 7_000,
       },
     });
-    expect(JSON.stringify(failure)).not.toContain('secret provider response');
+    expect(JSON.stringify(failure)).not.toContain('provider-response');
   });
 
   test('adopts every rendered asset in the final commit and returns only the typed visual', async () => {

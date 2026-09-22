@@ -103,9 +103,10 @@ describe('workflow retry policy', () => {
     });
   });
 
-  test('sanitizes unknown exceptions instead of persisting raw messages', () => {
+  test('persists a redacted original cause for unknown exceptions', () => {
     expect(toStepFailure(new Error('password=do-not-persist'))).toEqual({
       code: 'step_failed',
+      details: { diagnostic: { originalMessage: 'password=[REDACTED]', type: 'Error' } },
       kind: 'operational',
       message: 'The workflow step failed.',
     });
@@ -135,6 +136,7 @@ describe('workflow retry policy', () => {
           diagnostic: {
             code: 'invalid_request',
             message: 'Lesson research failed.',
+            originalMessage: 'private provider response secret=[REDACTED]',
             status: 400,
             type: 'Error',
           },

@@ -615,6 +615,7 @@ describe('lesson generation workflow', () => {
           },
           code: 'lesson_provider_failed',
           message: 'The lesson draft could not be generated.',
+          originalMessage: 'token=[REDACTED]',
           type: 'ProviderTransientError',
         },
         model: createWorkflowModelDiagnostic(modelConfig, 'lesson'),

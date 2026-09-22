@@ -15,7 +15,7 @@ export const sanitizeDiagnosticText = (value: string, maxLength: number): string
     .replaceAll(/\b(authorization)(\s*[=:]\s*)[^\r\n]+/gi, '$1$2[REDACTED]')
     .replaceAll(/(bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
     .replaceAll(
-      /\b(access[_-]?token|refresh[_-]?token|api[_-]?key|password|secret)(\s*[=:]\s*)[^\s,;"']+/gi,
+      /\b(access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret)(\s*[=:]\s*)[^\s,;"']+/gi,
       '$1$2[REDACTED]'
     )
     .replaceAll(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[JWT REDACTED]')

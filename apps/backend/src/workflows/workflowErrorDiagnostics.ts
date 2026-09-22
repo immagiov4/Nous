@@ -14,6 +14,7 @@ import type { JsonValue } from './types.js';
 
 const MAX_ERROR_CAUSE_DEPTH = 3;
 const MAX_TECHNICAL_IDENTIFIER_LENGTH = 128;
+const MAX_ORIGINAL_ERROR_MESSAGE_LENGTH = 2_048;
 const DIAGNOSTIC_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
 const TECHNICAL_IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]*$/u;
 const MODEL_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u;
@@ -131,6 +132,7 @@ const createDiagnosticProjection = (input: {
   cause: WorkflowErrorDiagnostic | undefined;
   code: DiagnosticCode | undefined;
   message: string | undefined;
+  originalMessage: string | undefined;
   providerFields: ProviderDiagnosticFields;
   status: number | undefined;
   type: string;
@@ -138,6 +140,7 @@ const createDiagnosticProjection = (input: {
   ...(input.cause ? { cause: input.cause } : {}),
   ...(input.code === undefined ? {} : { code: input.code }),
   ...(input.message ? { message: input.message } : {}),
+  ...(input.originalMessage ? { originalMessage: input.originalMessage } : {}),
   ...(input.providerFields.parameter ? { parameter: input.providerFields.parameter } : {}),
   ...(input.providerFields.providerCode === undefined
     ? {}
@@ -155,7 +158,15 @@ const createDiagnostic = (
   persisted: boolean,
   trustedMessage?: string
 ): WorkflowErrorDiagnostic | undefined => {
-  if (!isRecord(value)) return persisted ? undefined : { type: 'UnknownError' };
+  if (!isRecord(value)) {
+    if (persisted) return undefined;
+    return {
+      ...(typeof value === 'string'
+        ? { originalMessage: sanitizeDiagnosticText(value, MAX_ORIGINAL_ERROR_MESSAGE_LENGTH) }
+        : {}),
+      type: 'UnknownError',
+    };
+  }
   const type = readTechnicalIdentifier(persisted ? value.type : errorType(value));
   if (!type) return undefined;
   const providerFields = persisted
@@ -170,6 +181,11 @@ const createDiagnostic = (
     storedMessage: value.message,
     trustedMessage,
   });
+  const originalMessage = persisted
+    ? value.originalMessage
+    : APICallError.isInstance(value)
+      ? undefined
+      : value.message;
   const status = readStatus(value);
   const cause =
     depth < MAX_ERROR_CAUSE_DEPTH && value.cause !== undefined
@@ -179,6 +195,10 @@ const createDiagnostic = (
     cause,
     code,
     message,
+    originalMessage:
+      typeof originalMessage === 'string'
+        ? sanitizeDiagnosticText(originalMessage, MAX_ORIGINAL_ERROR_MESSAGE_LENGTH) || undefined
+        : undefined,
     providerFields,
     status,
     type,

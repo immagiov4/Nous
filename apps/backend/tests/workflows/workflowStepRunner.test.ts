@@ -1438,7 +1438,11 @@ describe('single workflow step runner', () => {
     });
 
     expect(result).toMatchObject({
-      failure: { code: 'workflow_step_checkpoint_failed', kind: 'permanent' },
+      failure: {
+        code: 'workflow_step_checkpoint_failed',
+        details: { diagnostic: { code, originalMessage: `PostgreSQL ${code}` } },
+        kind: 'permanent',
+      },
       status: 'failure-recorded',
     });
     expect(run).toHaveBeenCalledOnce();

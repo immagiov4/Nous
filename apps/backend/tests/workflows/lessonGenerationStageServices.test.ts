@@ -263,7 +263,12 @@ describe('lesson generation production stages', () => {
       );
       await expect(
         selectionNode.run({ ...stageContext(researched), services } as never)
-      ).rejects.toMatchObject({ failure: { kind: 'corrective' } });
+      ).rejects.toMatchObject({
+        failure: {
+          details: { diagnostic: { originalMessage: 'Invalid evidence selection.' } },
+          kind: 'corrective',
+        },
+      });
     }
     const result =
       selectionNode?.kind === 'step'
@@ -1204,7 +1209,7 @@ describe('lesson generation production stages', () => {
 
   test('keeps optional YouTube failure outside the terminal lesson failure path', async () => {
     const warn = vi.fn();
-    const providerError = Object.assign(new Error('secret provider response'), {
+    const providerError = Object.assign(new Error('secret=provider-response'), {
       code: 'RATE_LIMIT',
       responseHeaders: { 'retry-after': '7' },
       status: 429,
@@ -1232,12 +1237,17 @@ describe('lesson generation production stages', () => {
       { code: 'lesson_youtube_research_unavailable', stage: 'youtube' },
     ]);
     expect(warn).toHaveBeenCalledWith('Optional lesson YouTube research failed.', {
-      diagnostic: { code: 'RATE_LIMIT', status: 429, type: 'Error' },
+      diagnostic: {
+        code: 'RATE_LIMIT',
+        originalMessage: 'secret=[REDACTED]',
+        status: 429,
+        type: 'Error',
+      },
       projectId: 'project-1',
       retryAfterMs: 7_000,
       sectionId: 'lesson-1',
     });
-    expect(JSON.stringify(warn.mock.calls)).not.toContain('secret provider response');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('provider-response');
   });
 
   test('propagates cancellation instead of converting it into an optional warning', async () => {

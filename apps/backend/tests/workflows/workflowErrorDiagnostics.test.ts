@@ -9,6 +9,12 @@ import {
 } from '../../src/workflows/workflowErrorDiagnostics.js';
 
 describe('workflow error diagnostics', () => {
+  test('retains thrown strings as redacted original diagnostics', () => {
+    expect(toWorkflowErrorDiagnostic('Codex failed: api_key=hidden')).toEqual({
+      originalMessage: 'Codex failed: api_key=[REDACTED]',
+      type: 'UnknownError',
+    });
+  });
   test('keeps only a trusted stage message with bounded technical identifiers, status, and cause', () => {
     const providerError = Object.assign(new Error('private response body'), {
       code: 'invalid_request',
@@ -27,15 +33,17 @@ describe('workflow error diagnostics', () => {
     expect(diagnostic).toEqual({
       cause: {
         code: 'invalid_request',
+        originalMessage: 'private response body',
         status: 400,
         type: 'Error',
       },
       code: 'lesson_provider_failed',
       message: 'Lesson research failed. api_key=[REDACTED]',
+      originalMessage: 'private prompt',
       type: 'ProviderTransientError',
     });
-    expect(JSON.stringify(diagnostic)).not.toContain('private prompt');
-    expect(JSON.stringify(diagnostic)).not.toContain('private response body');
+    expect(JSON.stringify(diagnostic)).toContain('private prompt');
+    expect(JSON.stringify(diagnostic)).toContain('private response body');
     expect(JSON.stringify(diagnostic)).not.toContain('private-key');
     expect(JSON.stringify(diagnostic)).not.toContain('provider-secret');
     expect(JSON.stringify(diagnostic)).not.toContain('responseBody');
@@ -73,6 +81,7 @@ describe('workflow error diagnostics', () => {
         status: 400,
         type: 'AI_APICallError',
       },
+      originalMessage: 'private outer message',
       type: 'Error',
     });
     const serialized = JSON.stringify(toWorkflowErrorDiagnostic(providerError));
@@ -100,6 +109,7 @@ describe('workflow error diagnostics', () => {
       readWorkflowErrorDiagnostic({
         cause: {
           message: 'PRIVATE_LESSON_MARKER',
+          originalMessage: 'Codex rejected the schema. password=hidden',
           providerCode: 'reasoning_required',
           providerErrorType: 'invalid_request',
           type: 'AI_APICallError',
@@ -110,6 +120,7 @@ describe('workflow error diagnostics', () => {
     ).toEqual({
       cause: {
         message: 'Provider error: invalid_request.',
+        originalMessage: 'Codex rejected the schema. password=[REDACTED]',
         providerCode: 'reasoning_required',
         providerErrorType: 'invalid_request',
         type: 'AI_APICallError',

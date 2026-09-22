@@ -28,6 +28,7 @@ import {
   type WorkflowAiUsageRecord,
 } from './workflowAiMetering.js';
 import { executeWorkflowCheckpointWithRetry } from './workflowCheckpointRetry.js';
+import { toWorkflowErrorDiagnostic } from './workflowErrorDiagnostics.js';
 import { WorkflowCancellationRequestedError, WorkflowLeaseLostError } from './workflowErrors.js';
 import {
   type AbortableOperationResult,
@@ -126,8 +127,9 @@ const invalidOutputFailure = (issue?: SanitizedZodIssue): StepFailure => ({
   message: 'The workflow step returned an invalid output.',
 });
 
-const checkpointFailure = (): StepFailure => ({
+const checkpointFailure = (error: unknown): StepFailure => ({
   code: 'workflow_step_checkpoint_failed',
+  details: { diagnostic: toWorkflowErrorDiagnostic(error) },
   kind: 'permanent',
   message: 'The workflow step output could not be committed.',
 });
@@ -530,7 +532,7 @@ const checkpointStepOutput = async <Services>(input: {
     return recordFailure({
       claim: input.claim,
       definition: input.resolved.definition,
-      failure: checkpointFailure(),
+      failure: checkpointFailure(error),
       store: input.store,
     });
   }

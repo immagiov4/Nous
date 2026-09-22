@@ -178,12 +178,17 @@ const runCorrectableLessonOperation = async <Output>(
     if (error instanceof LessonGenerationCorrectionError) {
       throw retryCorrective({
         code: error.code,
+        details: { diagnostic: toWorkflowErrorDiagnostic(error) },
         feedback: formatFeedback(error),
         message: error.message,
       });
     }
     if (isLessonStructuredOutputError(error)) {
-      throw retryCorrective({ ...invalidOutput, feedback: formatFeedback(invalidOutput) });
+      throw retryCorrective({
+        ...invalidOutput,
+        details: { diagnostic: toWorkflowErrorDiagnostic(error) },
+        feedback: formatFeedback(invalidOutput),
+      });
     }
     throw error;
   }

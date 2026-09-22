@@ -201,6 +201,7 @@ export const toStepFailure = (error: unknown): StepFailure => {
   const retryAfterMs = readRetryAfterMs(error);
   return parseStepFailure({
     code: 'step_failed',
+    details: { diagnostic: toWorkflowErrorDiagnostic(error) },
     kind: 'operational',
     message: 'The workflow step failed.',
     ...(retryAfterMs === undefined ? {} : { retryAfterMs }),

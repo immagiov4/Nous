@@ -349,6 +349,13 @@ describe('lesson generation corrective retries', () => {
 
     expect(failure.failure).toEqual({
       code,
+      details: {
+        diagnostic: {
+          code,
+          originalMessage: 'The lesson verification report is incomplete.',
+          type: 'LessonGenerationCorrectionError',
+        },
+      },
       feedback: 'Return every required verificationReport item.',
       kind: 'corrective',
       message: 'The lesson verification report is incomplete.',
