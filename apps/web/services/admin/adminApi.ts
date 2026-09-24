@@ -357,8 +357,8 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   progressReasoningEffort: 'low',
   researchModel: 'perplexity/sonar-pro-search',
   researchReasoningEffort: 'none',
-  ttsModel: 'x-ai/grok-voice-tts-1.0',
-  ttsVoice: 'Ara',
+  ttsModel: 'google/gemini-3.8-flash-tts',
+  ttsVoice: 'Zephyr',
   updatedAt: '',
 };
 

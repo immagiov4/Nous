@@ -62,11 +62,11 @@ describe('useTtsPlayer', () => {
       contentType: 'audio/mpeg',
     });
     openRouterMocks.getTTSModels.mockResolvedValue({
-      defaultModel: 'x-ai/grok-voice-tts-1.0',
+      defaultModel: 'google/gemini-3.8-flash-tts',
       models: [
         {
           contextLength: 4096,
-          id: 'x-ai/grok-voice-tts-1.0',
+          id: 'google/gemini-3.8-flash-tts',
           name: 'OpenAI: GPT-4o Mini TTS',
           pricing: { completion: '0', prompt: '0.0000006' },
           supportedParameters: ['response_format'],
@@ -75,7 +75,7 @@ describe('useTtsPlayer', () => {
       ],
     });
     openRouterMocks.getTTSVoices.mockResolvedValue([
-      { id: 'Ara', label: 'Ara', language: 'it-IT' },
+      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
     ]);
 
     vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
@@ -136,7 +136,7 @@ describe('useTtsPlayer', () => {
     await waitFor(() => expect(result.current.ttsConnected).toBe(true));
 
     expect(result.current.availableVoices).toEqual([
-      { id: 'Ara', label: 'Ara', language: 'it-IT' },
+      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
     ]);
     expect(result.current.availableModels).toHaveLength(1);
   });
@@ -191,8 +191,8 @@ describe('useTtsPlayer', () => {
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledWith(
       expect.any(String),
-      'Ara',
-      'x-ai/grok-voice-tts-1.0'
+      'Zephyr',
+      'google/gemini-3.8-flash-tts'
     );
     expect(result.current.audioState.currentChunkIndex).toBe(0);
 
@@ -244,7 +244,7 @@ describe('useTtsPlayer', () => {
 
     await waitFor(() => expect(result.current.ttsConnected).toBe(false));
     expect(result.current.availableVoices).toEqual([
-      { id: 'Ara', label: 'Ara', language: 'it-IT' },
+      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
     ]);
   });
 

@@ -12,8 +12,8 @@ export type TextModelSlot =
 export type ModelProviderSlot = TextModelSlot | 'image';
 export type ModelProviderOverrides = Partial<Record<ModelProviderSlot, AiProvider>>;
 
-export const DEFAULT_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
-export const DEFAULT_TTS_VOICE = 'Ara';
+export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
+export const DEFAULT_TTS_VOICE = 'Zephyr';
 export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-lite-image';
 export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2';
 export const DEFAULT_OPENAI_RESEARCH_MODEL = 'gpt-5-search-api';
