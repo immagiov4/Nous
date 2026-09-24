@@ -1006,7 +1006,7 @@ export const LandingProductVideoFrame = ({
     SettingsPanelSectionId[]
   >(['course-notes']);
   const [isTtsPlaying, setIsTtsPlaying] = useState(false);
-  const [ttsVoice, setTtsVoice] = useState<VoiceProfileId>('Ara');
+  const [ttsVoice, setTtsVoice] = useState<VoiceProfileId>('Zephyr');
   const [ttsChunkIndex, setTtsChunkIndex] = useState(0);
   const [ttsPlaybackRate, setTtsPlaybackRate] = useState(1);
   const [quizAnswersBySection, setQuizAnswersBySection] = useState<Record<string, number[]>>({});
@@ -1656,8 +1656,8 @@ export const LandingProductVideoFrame = ({
       syncState: 'saved',
       tts: {
         availableVoices: [
-          { id: 'Ara', label: 'Ara', language: 'it-IT' },
-          { id: 'Eve', label: 'Eve', language: 'it-IT' },
+          { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
+          { id: 'Puck', label: 'Puck', language: 'it-IT' },
         ],
         chunkOptions: [
           {

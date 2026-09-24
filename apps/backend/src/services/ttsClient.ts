@@ -47,22 +47,22 @@ class OpenRouterTtsError extends Error {
   }
 }
 
-const DEFAULT_TTS_VOICE_IDS = ['Ara', 'Eve', 'Rex', 'Sal', 'Leo'] as const;
+const DEFAULT_TTS_VOICE_IDS = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'] as const;
 
 const VOICE_PROFILE_MODES = new Set(['openrouter_voice', 'voice_design']);
 
 const DEFAULT_TTS_MODEL_SUMMARY: TtsModelSummary = {
   contextLength: 0,
   id: DEFAULT_TTS_MODEL,
-  name: 'xAI: Grok Voice TTS 1.0',
+  name: 'Google: Gemini 3.8 Flash TTS',
   pricing: {
-    completion: '0',
-    prompt: '0.000015',
+    completion: '0.000009',
+    prompt: '0.0000005',
   },
   supportedParameters: ['response_format'],
   supportsVoiceCloning: false,
   voiceHelpLabel: 'Voci OpenRouter',
-  voiceHelpUrl: 'https://openrouter.ai/x-ai/grok-voice-tts-1.0/api',
+  voiceHelpUrl: 'https://openrouter.ai/google/gemini-3.8-flash-tts/api',
 };
 
 const formatVoiceName = (voiceId: string): string =>
@@ -179,6 +179,7 @@ class TTSClient {
   }
 
   private async requestSpeech(attempt: OpenRouterSpeechAttempt): Promise<GeneratedSpeechAudio> {
+    const geminiTts = attempt.model === 'google/gemini-3.8-flash-tts';
     const response = await fetch(`${OPENROUTER_API_BASE_URL}/audio/speech`, {
       method: 'POST',
       headers: getOpenRouterJsonHeaders(),
@@ -186,7 +187,7 @@ class TTSClient {
         model: attempt.model,
         input: attempt.text,
         voice: attempt.voice,
-        response_format: TTS_RESPONSE_FORMAT,
+        response_format: geminiTts ? 'pcm' : TTS_RESPONSE_FORMAT,
         speed: attempt.speed,
       }),
     });
@@ -206,8 +207,38 @@ class TTSClient {
       );
     }
 
+    const audioBuffer = await response.arrayBuffer();
+    if (geminiTts) {
+      const format = /^audio\/pcm;rate=(\d+);channels=(\d+)$/i.exec(
+        response.headers.get('content-type') || ''
+      );
+      if (!format || audioBuffer.byteLength % 2 !== 0) {
+        throw new Error('Invalid Gemini TTS PCM response.');
+      }
+      const sampleRate = Number(format[1]);
+      const channels = Number(format[2]);
+      const wav = Buffer.alloc(44 + audioBuffer.byteLength);
+      wav.write('RIFF', 0);
+      wav.writeUInt32LE(wav.length - 8, 4);
+      wav.write('WAVEfmt ', 8);
+      wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20);
+      wav.writeUInt16LE(channels, 22);
+      wav.writeUInt32LE(sampleRate, 24);
+      wav.writeUInt32LE(sampleRate * channels * 2, 28);
+      wav.writeUInt16LE(channels * 2, 32);
+      wav.writeUInt16LE(16, 34);
+      wav.write('data', 36);
+      wav.writeUInt32LE(audioBuffer.byteLength, 40);
+      Buffer.from(audioBuffer).copy(wav, 44);
+      return {
+        audioBuffer: Uint8Array.from(wav).buffer,
+        contentType: 'audio/wav',
+        generationId: response.headers.get('x-generation-id') || undefined,
+      };
+    }
     return {
-      audioBuffer: await response.arrayBuffer(),
+      audioBuffer,
       contentType: response.headers.get('content-type') || 'audio/mpeg',
       generationId: response.headers.get('x-generation-id') || undefined,
     };
