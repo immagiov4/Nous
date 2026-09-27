@@ -34,6 +34,7 @@ test('terminates cancelled work and rejects without delivering an obsolete resul
   const controller = new AbortController();
   const result = projectSelectionContent('lesson', controller.signal);
   controller.abort();
+  worker.onmessage?.({ data: 'obsolete projection' } as MessageEvent<string>);
   await expect(result).rejects.toMatchObject({ name: 'AbortError' });
   expect(worker.terminate).toHaveBeenCalledOnce();
 });

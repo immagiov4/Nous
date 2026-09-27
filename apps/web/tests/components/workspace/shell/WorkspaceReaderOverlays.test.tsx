@@ -76,7 +76,7 @@ const buildProps = (
 });
 
 describe('WorkspaceReaderOverlays', () => {
-  test('completes preparation through the real menu for initial and replacement selections', async () => {
+  test('connects reader preparation to menu actions for initial and replacement selections', async () => {
     vi.useFakeTimers();
     const frames: FrameRequestCallback[] = [];
     const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
