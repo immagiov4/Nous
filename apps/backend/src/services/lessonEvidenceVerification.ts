@@ -8,7 +8,7 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import type { LessonEvidencePacket } from './lessonEvidence.js';
+import { buildLessonEvidencePromptPassages, type LessonEvidencePacket } from './lessonEvidence.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
 
@@ -85,7 +85,7 @@ export const verifyLessonEvidence = async (
     });
   const referencedImages = new Set(draft.imageRefs.map(reference => reference.assetId));
   const evidence = [
-    ...packet.passages,
+    ...buildLessonEvidencePromptPassages(packet),
     ...input.imageCandidates
       .filter(candidate => referencedImages.has(candidate.id))
       .map(candidate => ({

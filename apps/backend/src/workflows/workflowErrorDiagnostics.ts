@@ -181,11 +181,12 @@ const createDiagnostic = (
     storedMessage: value.message,
     trustedMessage,
   });
-  const originalMessage = persisted
-    ? value.originalMessage
-    : APICallError.isInstance(value)
-      ? undefined
-      : value.message;
+  let originalMessage: unknown;
+  if (persisted) {
+    originalMessage = value.originalMessage;
+  } else if (!APICallError.isInstance(value)) {
+    originalMessage = value.message;
+  }
   const status = readStatus(value);
   const cause =
     depth < MAX_ERROR_CAUSE_DEPTH && value.cause !== undefined
