@@ -6,10 +6,10 @@ export interface VoiceOption {
   language: string;
 }
 
-export const DEFAULT_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
-export const DEFAULT_TTS_VOICE = 'Ara';
+export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
+export const DEFAULT_TTS_VOICE = 'Zephyr';
 
-const DEFAULT_TTS_VOICE_IDS: VoiceProfileId[] = ['Ara', 'Eve', 'Rex', 'Sal', 'Leo'];
+const DEFAULT_TTS_VOICE_IDS: VoiceProfileId[] = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'];
 
 const DEFAULT_TTS_VOICE_SET = new Set(DEFAULT_TTS_VOICE_IDS);
 

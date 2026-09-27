@@ -1,45 +1,45 @@
 {
   "profiles": [
     {
-      "id": "Ara",
-      "name": "Ara",
+      "id": "Zephyr",
+      "name": "Zephyr",
       "language": "it-IT",
       "mode": "openrouter_voice",
-      "voiceDesignPrompt": "Ara",
+      "voiceDesignPrompt": "Zephyr",
       "modelSettings": { "temperature": 0.7, "speed": 1.0 }
     },
     {
-      "id": "Eve",
-      "name": "Eve",
+      "id": "Puck",
+      "name": "Puck",
       "language": "it-IT",
       "mode": "openrouter_voice",
-      "voiceDesignPrompt": "Eve",
+      "voiceDesignPrompt": "Puck",
       "modelSettings": { "temperature": 0.7, "speed": 1.0 }
     },
     {
-      "id": "Rex",
-      "name": "Rex",
+      "id": "Charon",
+      "name": "Charon",
       "language": "it-IT",
       "mode": "openrouter_voice",
-      "voiceDesignPrompt": "Rex",
+      "voiceDesignPrompt": "Charon",
       "modelSettings": { "temperature": 0.7, "speed": 1.0 }
     },
     {
-      "id": "Sal",
-      "name": "Sal",
+      "id": "Kore",
+      "name": "Kore",
       "language": "it-IT",
       "mode": "openrouter_voice",
-      "voiceDesignPrompt": "Sal",
+      "voiceDesignPrompt": "Kore",
       "modelSettings": { "temperature": 0.7, "speed": 1.0 }
     },
     {
-      "id": "Leo",
-      "name": "Leo",
+      "id": "Fenrir",
+      "name": "Fenrir",
       "language": "it-IT",
       "mode": "openrouter_voice",
-      "voiceDesignPrompt": "Leo",
+      "voiceDesignPrompt": "Fenrir",
       "modelSettings": { "temperature": 0.7, "speed": 1.0 }
     }
   ],
-  "defaultProfile": "Ara"
+  "defaultProfile": "Zephyr"
 }

@@ -1,6 +1,7 @@
 // Wraps the backend TTS client and model defaults.
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MIMEType } from 'node:util';
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { loadOptionalJsonFile } from '../config/jsonFile.js';
 import {
@@ -47,22 +48,42 @@ class OpenRouterTtsError extends Error {
   }
 }
 
-const DEFAULT_TTS_VOICE_IDS = ['Ara', 'Eve', 'Rex', 'Sal', 'Leo'] as const;
+const DEFAULT_TTS_VOICE_IDS = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'] as const;
+const GROK_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
+const GROK_TTS_VOICES = new Set(['ara', 'eve', 'rex', 'sal', 'leo']);
+
+// Normalize voices crossing the rollout boundary; preserve provider-specific custom voices.
+const normalizeModelVoice = (model: string, voice: string): string => {
+  const lowerVoice = voice.toLowerCase();
+  if (
+    model === CONFIG_DEFAULT_TTS_MODEL &&
+    (GROK_TTS_VOICES.has(lowerVoice) || lowerVoice === 'coral')
+  ) {
+    return CONFIG_DEFAULT_TTS_VOICE;
+  }
+  if (
+    model === GROK_TTS_MODEL &&
+    (DEFAULT_TTS_VOICE_IDS.some(id => id.toLowerCase() === lowerVoice) || lowerVoice === 'coral')
+  ) {
+    return 'Ara';
+  }
+  return voice;
+};
 
 const VOICE_PROFILE_MODES = new Set(['openrouter_voice', 'voice_design']);
 
 const DEFAULT_TTS_MODEL_SUMMARY: TtsModelSummary = {
   contextLength: 0,
-  id: DEFAULT_TTS_MODEL,
-  name: 'xAI: Grok Voice TTS 1.0',
+  id: CONFIG_DEFAULT_TTS_MODEL,
+  name: 'Google: Gemini 3.8 Flash TTS',
   pricing: {
-    completion: '0',
-    prompt: '0.000015',
+    completion: '0.000009',
+    prompt: '0.0000005',
   },
   supportedParameters: ['response_format'],
   supportsVoiceCloning: false,
   voiceHelpLabel: 'Voci OpenRouter',
-  voiceHelpUrl: 'https://openrouter.ai/x-ai/grok-voice-tts-1.0/api',
+  voiceHelpUrl: 'https://openrouter.ai/google/gemini-3.8-flash-tts/api',
 };
 
 const formatVoiceName = (voiceId: string): string =>
@@ -179,6 +200,7 @@ class TTSClient {
   }
 
   private async requestSpeech(attempt: OpenRouterSpeechAttempt): Promise<GeneratedSpeechAudio> {
+    const geminiTts = attempt.model === CONFIG_DEFAULT_TTS_MODEL;
     const response = await fetch(`${OPENROUTER_API_BASE_URL}/audio/speech`, {
       method: 'POST',
       headers: getOpenRouterJsonHeaders(),
@@ -186,7 +208,7 @@ class TTSClient {
         model: attempt.model,
         input: attempt.text,
         voice: attempt.voice,
-        response_format: TTS_RESPONSE_FORMAT,
+        response_format: geminiTts ? 'pcm' : TTS_RESPONSE_FORMAT,
         speed: attempt.speed,
       }),
     });
@@ -206,8 +228,50 @@ class TTSClient {
       );
     }
 
+    const audioBuffer = await response.arrayBuffer();
+    if (geminiTts) {
+      const format = new MIMEType(
+        response.headers.get('content-type') || 'application/octet-stream'
+      );
+      const rate = format.params.get('rate') || '';
+      const channelCount = format.params.get('channels') || '';
+      const sampleRate = Number(rate);
+      const channels = Number(channelCount);
+      const bytesPerSample = 2;
+      const blockAlign = channels * bytesPerSample;
+      if (
+        format.essence !== 'audio/pcm' ||
+        !/^\d+$/.test(rate) ||
+        !/^\d+$/.test(channelCount) ||
+        sampleRate <= 0 ||
+        channels <= 0 ||
+        audioBuffer.byteLength === 0 ||
+        audioBuffer.byteLength % blockAlign !== 0
+      ) {
+        throw new Error('Invalid Gemini TTS PCM response.');
+      }
+      const wav = Buffer.alloc(44 + audioBuffer.byteLength);
+      wav.write('RIFF', 0);
+      wav.writeUInt32LE(wav.length - 8, 4);
+      wav.write('WAVEfmt ', 8);
+      wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20);
+      wav.writeUInt16LE(channels, 22);
+      wav.writeUInt32LE(sampleRate, 24);
+      wav.writeUInt32LE(sampleRate * blockAlign, 28);
+      wav.writeUInt16LE(blockAlign, 32);
+      wav.writeUInt16LE(16, 34);
+      wav.write('data', 36);
+      wav.writeUInt32LE(audioBuffer.byteLength, 40);
+      Buffer.from(audioBuffer).copy(wav, 44);
+      return {
+        audioBuffer: Uint8Array.from(wav).buffer,
+        contentType: 'audio/wav',
+        generationId: response.headers.get('x-generation-id') || undefined,
+      };
+    }
     return {
-      audioBuffer: await response.arrayBuffer(),
+      audioBuffer,
       contentType: response.headers.get('content-type') || 'audio/mpeg',
       generationId: response.headers.get('x-generation-id') || undefined,
     };
@@ -219,8 +283,8 @@ class TTSClient {
       selectedProfile?.voiceDesignPrompt ?? request.voice,
       this.getDefaultProfile().voiceDesignPrompt || DEFAULT_TTS_VOICE
     );
-    const normalizedVoice = normalizeOptionalText(voice, DEFAULT_TTS_VOICE);
     const model = normalizeOptionalText(request.model, DEFAULT_TTS_MODEL);
+    const normalizedVoice = normalizeModelVoice(model, voice);
 
     console.log(
       `[TTSClient] Generating OpenRouter speech for ${request.text.length} chars with model: ${model}, voice: ${normalizedVoice}`
