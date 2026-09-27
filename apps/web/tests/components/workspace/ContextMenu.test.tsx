@@ -68,6 +68,31 @@ const annotationArtifact: LearningArtifactRenderPayload = {
 };
 
 describe('ContextMenu', () => {
+  test.each([
+    'desktop-floating',
+    'mobile-sheet',
+  ] as const)('keeps %s editing available while context-dependent actions wait', async placement => {
+    const user = userEvent.setup();
+    const props = { ...buildProps(), placement };
+    const { rerender } = render(<ContextMenu {...props} isPreparingContext />);
+    const input = screen.getByPlaceholderText('Chiedi a Nous o aggiungi istruzioni');
+    expect(input).toBeEnabled();
+    await user.type(input, 'Spiega');
+    expect(screen.getByRole('button', { name: 'Invia domanda' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Evidenzia selezione' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /^Nota$/ }));
+    const note = screen.getByPlaceholderText(
+      'Scrivi la nota che vuoi lasciare su questo passaggio...'
+    );
+    note.scrollIntoView = vi.fn();
+    await user.type(note, 'Appunto');
+    expect(screen.getByRole('button', { name: 'Salva nota' })).toBeDisabled();
+    rerender(<ContextMenu {...props} isPreparingContext={false} />);
+    expect(input).toHaveValue('Spiega');
+    expect(note).toHaveValue('Appunto');
+    await user.click(screen.getByRole('button', { name: 'Salva nota' }));
+    expect(props.onSaveNote).toHaveBeenCalledWith('Appunto', []);
+  });
   beforeEach(() => {
     vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
       callback(0);

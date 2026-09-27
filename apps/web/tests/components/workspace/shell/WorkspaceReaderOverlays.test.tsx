@@ -9,6 +9,13 @@ import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderOverlaysModel } from '../../../../components/workspace/shell/types.ts';
 import { useReaderContext } from '../../../../hooks/reader/useReaderContext.ts';
 
+vi.mock('../../../../utils/context/selectionProjection.ts', () => ({
+  projectSelectionContent: async (content: string) => {
+    const { buildVisibleProjection } = await import('../../../../utils/markdown/textProjection.ts');
+    return buildVisibleProjection(content).text;
+  },
+}));
+
 vi.mock('../../../../components/workspace/shell/ContextAnswerPanel.tsx', () => ({
   default: () => <div data-testid="context-answer-panel" />,
 }));
@@ -69,7 +76,7 @@ const buildProps = (
 });
 
 describe('WorkspaceReaderOverlays', () => {
-  test('completes preparation through the real menu for initial and replacement selections', () => {
+  test('completes preparation through the real menu for initial and replacement selections', async () => {
     vi.useFakeTimers();
     const frames: FrameRequestCallback[] = [];
     const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
@@ -130,7 +137,7 @@ describe('WorkspaceReaderOverlays', () => {
         fireEvent.click(screen.getByRole('button', { name: `Select ${text}` }));
         const button = screen.getByRole('button', { name: 'Evidenzia selezione' });
         expect(button).toBeDisabled();
-        act(() => {
+        await act(async () => {
           while (frames.length) frames.shift()?.(0);
           vi.runOnlyPendingTimers();
         });

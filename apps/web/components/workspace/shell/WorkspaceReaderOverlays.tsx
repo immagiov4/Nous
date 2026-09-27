@@ -113,9 +113,9 @@ function WorkspaceReaderOverlays({
           onDeleteAnnotation={onDeleteAnnotation}
           onDetachArtifactFromAnnotation={onDetachArtifactFromAnnotation}
           onHighlight={onHighlight}
-          isLoading={
-            isContextLoading ||
-            (contextMenu.type === 'selection' && Boolean(contextMenu.prepareContext))
+          isLoading={isContextLoading}
+          isPreparingContext={
+            contextMenu.type === 'selection' && Boolean(contextMenu.prepareContext)
           }
           lessonCreationBlockReason={lessonCreationBlockReason}
           onSaveNote={onSaveNote}

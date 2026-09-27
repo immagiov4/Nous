@@ -34,6 +34,8 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'Impossibile preparare la selezione. Chiudi il menu e seleziona di nuovo il testo.':
+    'Could not prepare the selection. Close the menu and select the text again.',
   ...COURSE_PLANNING_MESSAGES,
   'Non lo conosco': 'I am unfamiliar with it',
   'Ne ho sentito parlare': 'I have heard of it',

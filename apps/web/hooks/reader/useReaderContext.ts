@@ -161,6 +161,7 @@ export const useReaderContext = ({
       !contextMenu.visible ||
       contextMenu.type !== 'selection' ||
       !contextMenu.prepareContext ||
+      contextMenu.contextPreparationFailed ||
       enteredContextMenu !== contextMenu ||
       contextAnswer ||
       contextMenuOwnerSectionId !== activeSectionId
@@ -169,20 +170,30 @@ export const useReaderContext = ({
     }
 
     const prepareContext = contextMenu.prepareContext;
-    const commitPreparedContext = () => {
+    const preparation = new AbortController();
+    const commitPreparedContext = async () => {
       if (contextMenuStateRef.current !== contextMenu) return;
-      const preparedMenu = { ...contextMenu, ...prepareContext(), prepareContext: undefined };
-      contextMenuStateRef.current = preparedMenu;
-      setContextMenu(preparedMenu);
+      try {
+        const context = await prepareContext(preparation.signal);
+        if (preparation.signal.aborted || contextMenuStateRef.current !== contextMenu) return;
+        const preparedMenu = { ...contextMenu, ...context, prepareContext: undefined };
+        contextMenuStateRef.current = preparedMenu;
+        setContextMenu(preparedMenu);
+      } catch (error) {
+        if (preparation.signal.aborted || contextMenuStateRef.current !== contextMenu) return;
+        console.error('[Nous] Selection context preparation failed', error);
+        setContextMenu({ ...contextMenu, contextPreparationFailed: true });
+      }
     };
     let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
-    // Let the completed entrance paint before synchronous projection work.
+    // Let the completed entrance paint before starting background preparation.
     let frame = globalThis.requestAnimationFrame(() => {
       frame = globalThis.requestAnimationFrame(() => {
         timeout = globalThis.setTimeout(commitPreparedContext);
       });
     });
     return () => {
+      preparation.abort();
       globalThis.cancelAnimationFrame(frame);
       globalThis.clearTimeout(timeout);
     };
