@@ -261,8 +261,8 @@ describe('/api/admin', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.config).toMatchObject({
-      ttsModel: 'x-ai/grok-voice-tts-1.0',
-      ttsVoice: 'Ara',
+      ttsModel: 'google/gemini-3.8-flash-tts',
+      ttsVoice: 'Zephyr',
     });
   });
 

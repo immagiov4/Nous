@@ -59,23 +59,23 @@ describe('useTtsPlayer', () => {
     });
     openRouterMocks.generateSpeech.mockResolvedValue({
       audioBuffer: new ArrayBuffer(480),
-      contentType: 'audio/mpeg',
+      contentType: 'audio/wav',
     });
     openRouterMocks.getTTSModels.mockResolvedValue({
-      defaultModel: 'x-ai/grok-voice-tts-1.0',
+      defaultModel: 'google/gemini-3.8-flash-tts',
       models: [
         {
           contextLength: 4096,
-          id: 'x-ai/grok-voice-tts-1.0',
-          name: 'OpenAI: GPT-4o Mini TTS',
-          pricing: { completion: '0', prompt: '0.0000006' },
+          id: 'google/gemini-3.8-flash-tts',
+          name: 'Google: Gemini 3.8 Flash TTS',
+          pricing: { completion: '0.000009', prompt: '0.0000005' },
           supportedParameters: ['response_format'],
           supportsVoiceCloning: false,
         },
       ],
     });
     openRouterMocks.getTTSVoices.mockResolvedValue([
-      { id: 'Ara', label: 'Ara', language: 'it-IT' },
+      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
     ]);
 
     vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
@@ -136,7 +136,7 @@ describe('useTtsPlayer', () => {
     await waitFor(() => expect(result.current.ttsConnected).toBe(true));
 
     expect(result.current.availableVoices).toEqual([
-      { id: 'Ara', label: 'Ara', language: 'it-IT' },
+      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
     ]);
     expect(result.current.availableModels).toHaveLength(1);
   });
@@ -191,10 +191,14 @@ describe('useTtsPlayer', () => {
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledWith(
       expect.any(String),
-      'Ara',
-      'x-ai/grok-voice-tts-1.0'
+      'Zephyr',
+      'google/gemini-3.8-flash-tts'
     );
     expect(result.current.audioState.currentChunkIndex).toBe(0);
+
+    const audioBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0] as Blob;
+    expect(audioBlob.type).toBe('audio/wav');
+    expect(audioBlob.size).toBe(480);
 
     act(() => {
       result.current.handleSpeedChange(1.25);
@@ -244,7 +248,7 @@ describe('useTtsPlayer', () => {
 
     await waitFor(() => expect(result.current.ttsConnected).toBe(false));
     expect(result.current.availableVoices).toEqual([
-      { id: 'Ara', label: 'Ara', language: 'it-IT' },
+      { id: 'Zephyr', label: 'Zephyr', language: 'it-IT' },
     ]);
   });
 

@@ -27,6 +27,18 @@ The scope of this module includes content preprocessing (whitespace collapse, li
 
 The TTS system centers around the `useTtsPlayer` hook, which manages the lifecycle of audio generation and playback. It utilizes a chunk-based approach to handle long lesson content, ensuring low latency and smooth transitions between audio segments.
 
+### Model, voices, and audio format
+
+The default model is `google/gemini-3.8-flash-tts` through OpenRouter's `/audio/speech` endpoint. The reader offers Zephyr, Puck, Charon, Kore, and Fenrir, with Zephyr as its default. Saved reader preferences outside that catalog reset to Zephyr. The backend selects the model from the global configuration and resolves the requested voice before contacting OpenRouter.
+
+During the Grok-to-Gemini transition, the speech service converts legacy Grok voices and `coral` to Zephyr for Gemini. For a persisted Grok model, it converts the reader's Gemini voices and `coral` to Ara. Other provider-specific voice values pass through. This normalization covers both reader requests and the configured administrative voice.
+
+Gemini requests use `response_format: pcm`. The service reads the PCM media type and its `rate` and `channels` parameters independently, then wraps the 16-bit samples in a WAV header. The API returns `audio/wav`, which the reader preserves when creating its audio blob. Other configured models request MP3 and retain the provider's content type and bytes. Gemini catalog metadata always carries the Gemini model ID, including when an environment variable selects another default model.
+
+Fresh databases receive Gemini and Zephyr from the global configuration seed. The seed uses `ON CONFLICT DO NOTHING`, so existing saved model choices remain authoritative. For production deployment, back up persistent state, deploy the compatible backend, then update the saved model and voice to Gemini and Zephyr together and align `TTS_VOICE`. Verify that the deployed TTS route returns a playable WAV response.
+
+Sources: [speech service](../../../apps/backend/src/services/ttsClient.ts), [TTS route](../../../apps/backend/src/routes/tts.ts), [global configuration seed](../../../supabase/migrations/20260814203920_restore_global_model_config_seed.sql), [reader voices](../../../apps/web/services/audio/voiceProfile.ts).
+
 ### Content Preprocessing for Speech
 Before text is sent to the TTS provider, it undergoes rigorous cleaning to remove visual-only elements and formatting artifacts. This is handled primarily by `prepareMarkdownForSpeech` in `apps/web/utils/reader/readingText.ts`.
 
