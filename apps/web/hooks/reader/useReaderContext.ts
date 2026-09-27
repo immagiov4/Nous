@@ -104,6 +104,7 @@ export const useReaderContext = ({
   sectionContent,
 }: UseReaderContextArgs) => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(createClosedContextMenuState);
+  const [enteredContextMenu, setEnteredContextMenu] = useState<ContextMenuState | null>(null);
   const [contextAnswer, setContextAnswer] = useState<ContextAnswerState | null>(null);
   const [contextMenuOwnerSectionId, setContextMenuOwnerSectionId] = useState<string | null>(null);
   const [contextAnswerSize, setContextAnswerSize] = useState<ContextAnswerSize>(
@@ -145,11 +146,22 @@ export const useReaderContext = ({
     contextMenuStateRef.current = visibleContextMenu;
   }, [visibleContextMenu]);
 
+  const handleContextMenuEntranceComplete = useCallback(() => {
+    if (
+      visibleContextMenu.visible &&
+      visibleContextMenu.type === 'selection' &&
+      visibleContextMenu.prepareContext
+    ) {
+      setEnteredContextMenu(visibleContextMenu);
+    }
+  }, [visibleContextMenu]);
+
   useEffect(() => {
     if (
       !contextMenu.visible ||
       contextMenu.type !== 'selection' ||
       !contextMenu.prepareContext ||
+      enteredContextMenu !== contextMenu ||
       contextAnswer ||
       contextMenuOwnerSectionId !== activeSectionId
     ) {
@@ -164,7 +176,7 @@ export const useReaderContext = ({
       setContextMenu(preparedMenu);
     };
     let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
-    // A task after the animation frame lets the shell paint before projection work.
+    // Let the completed entrance paint before synchronous projection work.
     let frame = globalThis.requestAnimationFrame(() => {
       frame = globalThis.requestAnimationFrame(() => {
         timeout = globalThis.setTimeout(commitPreparedContext);
@@ -174,7 +186,7 @@ export const useReaderContext = ({
       globalThis.cancelAnimationFrame(frame);
       globalThis.clearTimeout(timeout);
     };
-  }, [activeSectionId, contextAnswer, contextMenu, contextMenuOwnerSectionId]);
+  }, [activeSectionId, contextAnswer, contextMenu, contextMenuOwnerSectionId, enteredContextMenu]);
 
   // Mirror of sectionContent so that handleContentClick can read the latest
   // value without listing it as a useCallback dependency. sectionContent
@@ -266,6 +278,7 @@ export const useReaderContext = ({
 
   const closeContextMenu = useCallback(() => {
     clearSelectionMenuTimeout();
+    setEnteredContextMenu(null);
     setContextMenuOwnerSectionId(null);
     contextMenuStateRef.current = createClosedContextMenuState();
     setContextMenu(currentMenu => {
@@ -931,6 +944,7 @@ export const useReaderContext = ({
       handleContentContextMenu,
       handleContentPointerDownCapture,
       handleContextAnswerResizeStart,
+      handleContextMenuEntranceComplete,
       openContextAnswer,
       openContextMenuFromSelection,
       retainContextAnswerForLesson,
@@ -946,6 +960,7 @@ export const useReaderContext = ({
       handleContentClick,
       handleContentPointerDownCapture,
       handleContextAnswerResizeStart,
+      handleContextMenuEntranceComplete,
       openContextAnswer,
       openContextMenuFromSelection,
       retainContextAnswerForLesson,

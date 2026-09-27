@@ -2,18 +2,15 @@
 
 import '@testing-library/jest-dom/vitest';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createRef } from 'react';
+import { createRef, useRef } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderOverlaysModel } from '../../../../components/workspace/shell/types.ts';
+import { useReaderContext } from '../../../../hooks/reader/useReaderContext.ts';
 
 vi.mock('../../../../components/workspace/shell/ContextAnswerPanel.tsx', () => ({
   default: () => <div data-testid="context-answer-panel" />,
-}));
-
-vi.mock('../../../../components/workspace/ContextMenu.tsx', () => ({
-  default: () => <div data-testid="context-menu" />,
 }));
 
 const { default: WorkspaceReaderOverlays } = await import(
@@ -72,6 +69,89 @@ const buildProps = (
 });
 
 describe('WorkspaceReaderOverlays', () => {
+  test('completes preparation through the real menu for initial and replacement selections', () => {
+    vi.useFakeTimers();
+    const frames: FrameRequestCallback[] = [];
+    const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const highlight = vi.fn();
+    const content = 'Alpha beta gamma delta';
+    function Reader() {
+      const contentRef = useRef<HTMLDivElement>(null);
+      const reader = useReaderContext({
+        activeSectionId: 'lesson',
+        contentRef,
+        isMobileViewport: false,
+        sectionContent: content,
+      });
+      const select = (start: number, end: number) => {
+        const text = contentRef.current?.firstChild;
+        if (!text) throw new Error('Missing lesson text');
+        const range = document.createRange();
+        range.setStart(text, start);
+        range.setEnd(text, end);
+        range.getBoundingClientRect = () => new DOMRect(32, 64, 48, 18);
+        const selection = window.getSelection();
+        if (!selection) throw new Error('Missing browser selection');
+        selection.removeAllRanges();
+        selection.addRange(range);
+        reader.openContextMenuFromSelection(selection, 'desktop-floating');
+      };
+      return (
+        <>
+          <div ref={contentRef}>{content}</div>
+          <button type="button" onClick={() => select(6, 10)}>
+            Select beta
+          </button>
+          <button type="button" onClick={() => select(11, 16)}>
+            Select gamma
+          </button>
+          <WorkspaceReaderOverlays
+            {...buildProps({
+              contextAnswer: null,
+              contextMenu: reader.contextMenu,
+              contextMenuMotionProgressOverride: 1,
+              contextMenuRef: reader.contextMenuRef,
+              onContextMenuEntranceComplete: reader.handleContextMenuEntranceComplete,
+              onHighlight: () => highlight(reader.contextMenu),
+            })}
+          />
+        </>
+      );
+    }
+    const view = render(<Reader />);
+    try {
+      for (const [text, start] of [
+        ['beta', 6],
+        ['gamma', 11],
+      ] as const) {
+        fireEvent.click(screen.getByRole('button', { name: `Select ${text}` }));
+        const button = screen.getByRole('button', { name: 'Evidenzia selezione' });
+        expect(button).toBeDisabled();
+        act(() => {
+          while (frames.length) frames.shift()?.(0);
+          vi.runOnlyPendingTimers();
+        });
+        expect(button).toBeEnabled();
+        fireEvent.click(button);
+        expect(highlight).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            selectedText: text,
+            selectedTextStart: start,
+            prepareContext: undefined,
+          })
+        );
+      }
+    } finally {
+      view.unmount();
+      window.getSelection()?.removeAllRanges();
+      frameSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   test('closes the mobile follow-up when its dimmed backdrop is tapped', async () => {
     const user = userEvent.setup();
     const onCloseContextAnswer = vi.fn();

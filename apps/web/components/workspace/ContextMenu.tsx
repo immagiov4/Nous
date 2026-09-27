@@ -71,6 +71,7 @@ interface ContextMenuProps {
   readonly onDeleteAnnotation: () => void;
   readonly onDetachArtifactFromAnnotation?: (artifactId: string) => void;
   readonly onHighlight: () => void;
+  readonly onEntranceComplete?: () => void;
   readonly onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
   readonly placement: ContextMenuPlacement;
   readonly selectionRect?: SelectionRect;
@@ -140,6 +141,7 @@ const ContextMenu = ({
   onDeleteAnnotation,
   onDetachArtifactFromAnnotation,
   onHighlight,
+  onEntranceComplete,
   onSaveNote,
   placement,
   selectionRect,
@@ -147,6 +149,7 @@ const ContextMenu = ({
   type,
 }: ContextMenuProps) => {
   const [input, setInput] = useState('');
+  const [hasEntered, setHasEntered] = useState(false);
   const [noteInput, setNoteInput] = useState(annotationNote);
   const [localAnnotationArtifactRefs, setLocalAnnotationArtifactRefs] =
     useState(annotationArtifactRefs);
@@ -1297,6 +1300,12 @@ const ContextMenu = ({
   );
 
   const shouldAnimate = useShouldAnimate();
+  useEffect(() => {
+    // A mounted menu can receive a new selection after its entrance has finished.
+    if (hasEntered || !shouldAnimate || motionProgressOverride !== undefined) {
+      onEntranceComplete?.();
+    }
+  }, [hasEntered, motionProgressOverride, onEntranceComplete, shouldAnimate]);
   const deterministicMotionStyle =
     motionProgressOverride === undefined
       ? null
@@ -1315,6 +1324,7 @@ const ContextMenu = ({
     <>
       <motion.div
         ref={containerRef}
+        onAnimationComplete={() => setHasEntered(true)}
         className={`fixed z-50 ${
           isMobileSheet
             ? 'left-1/2 overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700'

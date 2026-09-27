@@ -6,7 +6,7 @@ import { expect, test, vi } from 'vitest';
 import { useReaderContext } from '../../../hooks/reader/useReaderContext.ts';
 import * as textProjection from '../../../utils/markdown/textProjection.ts';
 
-test('commits the selection menu before preparing context and cancels obsolete work', () => {
+test('waits for menu entrance before preparing context and cancels obsolete work', () => {
   vi.useFakeTimers();
   const frames: FrameRequestCallback[] = [];
   const runFrame = () => {
@@ -50,6 +50,12 @@ test('commits the selection menu before preparing context and cancels obsolete w
     });
     expect(result.current.contextMenu.visible).toBe(true);
     expect(projectionSpy).not.toHaveBeenCalled();
+    act(() => {
+      while (frames.length) frames.shift()?.(0);
+      vi.runOnlyPendingTimers();
+    });
+    expect(projectionSpy).not.toHaveBeenCalled();
+    act(() => result.current.handleContextMenuEntranceComplete());
     container.scrollTop = 240;
     act(() => {
       result.current.openContextMenuFromSelection(
@@ -89,6 +95,7 @@ test('commits the selection menu before preparing context and cancels obsolete w
       result.current.closeContextAnswer();
     });
     expect(result.current.contextMenu.visible).toBe(true);
+    act(() => result.current.handleContextMenuEntranceComplete());
     runFrame();
     runFrame();
     act(() => {
@@ -107,6 +114,7 @@ test('commits the selection menu before preparing context and cancels obsolete w
     act(() => {
       result.current.openContextMenuFromSelection(selection, 'desktop-floating');
     });
+    act(() => result.current.handleContextMenuEntranceComplete());
     runFrame();
     runFrame();
     rerender({ sectionId: 'section-2' });

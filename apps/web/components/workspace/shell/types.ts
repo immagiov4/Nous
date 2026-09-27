@@ -280,6 +280,7 @@ export interface WorkspaceReaderOverlaysModel {
   onAttachArtifactToAnnotation: (artifactRef: SectionAnnotationArtifactRef) => void;
   onCloseContextAnswer: () => void;
   onCloseContextMenu: () => void;
+  onContextMenuEntranceComplete?: () => void;
   onCreateLesson: (instructions: string) => void;
   onDeleteAnnotation: () => void;
   onDetachArtifactFromAnnotation: (artifactId: string) => void;
