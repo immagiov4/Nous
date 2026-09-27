@@ -34,6 +34,7 @@ function WorkspaceReaderOverlays({
   onAttachArtifactToAnnotation,
   onCloseContextAnswer,
   onCloseContextMenu,
+  onContextMenuEntranceComplete,
   onCreateLesson,
   onDeleteAnnotation,
   onDetachArtifactFromAnnotation,
@@ -105,6 +106,7 @@ function WorkspaceReaderOverlays({
           motionProgressOverride={contextMenuMotionProgressOverride}
           notePreviewScrollTopOverride={contextMenuNotePreviewScrollTopOverride}
           onClose={onCloseContextMenu}
+          onEntranceComplete={onContextMenuEntranceComplete}
           onAttachArtifactToAnnotation={onAttachArtifactToAnnotation}
           onAsk={onAskContextQuestion}
           onCreateLesson={onCreateLesson}
