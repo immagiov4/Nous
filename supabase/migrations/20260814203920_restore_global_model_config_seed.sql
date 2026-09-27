@@ -11,7 +11,7 @@ values (
   'openai/gpt-5.6-luna',
   'google/gemini-3.1-flash-lite',
   'google/gemini-3.1-flash-lite',
-  'x-ai/grok-voice-tts-1.0',
-  'Ara'
+  'google/gemini-3.8-flash-tts',
+  'Zephyr'
 )
 on conflict (id) do nothing;

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
@@ -549,6 +550,28 @@ describeLocalSupabase('Supabase local integration', () => {
       where bucket_id = 'project-sources' and name in ${sql(deletedObjectPaths)}
     `;
     expect(remainingStorageRows).toEqual([]);
+  });
+
+  test('seeds Gemini for fresh databases while preserving an existing Grok configuration', async () => {
+    const seed = readFileSync(
+      new URL(
+        '../../../../supabase/migrations/20260814203920_restore_global_model_config_seed.sql',
+        import.meta.url
+      ),
+      'utf8'
+    ).replaceAll('public.model_config', 'pg_temp.model_config');
+    await sql.begin(async transaction => {
+      await transaction`create temporary table model_config (like public.model_config including defaults including constraints including indexes) on commit drop`;
+      await transaction.unsafe(seed);
+      expect(await transaction`select tts_model, tts_voice from pg_temp.model_config`).toEqual([
+        { tts_model: 'google/gemini-3.8-flash-tts', tts_voice: 'Zephyr' },
+      ]);
+      await transaction`update pg_temp.model_config set tts_model = 'x-ai/grok-voice-tts-1.0', tts_voice = 'coral'`;
+      await transaction.unsafe(seed);
+      expect(await transaction`select tts_model, tts_voice from pg_temp.model_config`).toEqual([
+        { tts_model: 'x-ai/grok-voice-tts-1.0', tts_voice: 'coral' },
+      ]);
+    });
   });
 
   test('reads the model config persisted in Supabase', async () => {

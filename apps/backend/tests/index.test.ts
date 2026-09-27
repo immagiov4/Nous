@@ -198,6 +198,7 @@ describe('request lifecycle observability', () => {
           correlationId: expect.any(String),
           diagnostic: {
             message: internalMessage,
+            originalMessage: internalMessage,
             type: 'Error',
           },
           stack: expect.any(String),

@@ -1,6 +1,7 @@
 // Wraps the backend TTS client and model defaults.
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MIMEType } from 'node:util';
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { loadOptionalJsonFile } from '../config/jsonFile.js';
 import {
@@ -48,12 +49,32 @@ class OpenRouterTtsError extends Error {
 }
 
 const DEFAULT_TTS_VOICE_IDS = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'] as const;
+const GROK_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
+const GROK_TTS_VOICES = new Set(['ara', 'eve', 'rex', 'sal', 'leo']);
+
+// Normalize voices crossing the rollout boundary; preserve provider-specific custom voices.
+const normalizeModelVoice = (model: string, voice: string): string => {
+  const lowerVoice = voice.toLowerCase();
+  if (
+    model === CONFIG_DEFAULT_TTS_MODEL &&
+    (GROK_TTS_VOICES.has(lowerVoice) || lowerVoice === 'coral')
+  ) {
+    return CONFIG_DEFAULT_TTS_VOICE;
+  }
+  if (
+    model === GROK_TTS_MODEL &&
+    (DEFAULT_TTS_VOICE_IDS.some(id => id.toLowerCase() === lowerVoice) || lowerVoice === 'coral')
+  ) {
+    return 'Ara';
+  }
+  return voice;
+};
 
 const VOICE_PROFILE_MODES = new Set(['openrouter_voice', 'voice_design']);
 
 const DEFAULT_TTS_MODEL_SUMMARY: TtsModelSummary = {
   contextLength: 0,
-  id: DEFAULT_TTS_MODEL,
+  id: CONFIG_DEFAULT_TTS_MODEL,
   name: 'Google: Gemini 3.8 Flash TTS',
   pricing: {
     completion: '0.000009',
@@ -179,7 +200,7 @@ class TTSClient {
   }
 
   private async requestSpeech(attempt: OpenRouterSpeechAttempt): Promise<GeneratedSpeechAudio> {
-    const geminiTts = attempt.model === 'google/gemini-3.8-flash-tts';
+    const geminiTts = attempt.model === CONFIG_DEFAULT_TTS_MODEL;
     const response = await fetch(`${OPENROUTER_API_BASE_URL}/audio/speech`, {
       method: 'POST',
       headers: getOpenRouterJsonHeaders(),
@@ -209,14 +230,26 @@ class TTSClient {
 
     const audioBuffer = await response.arrayBuffer();
     if (geminiTts) {
-      const format = /^audio\/pcm;rate=(\d+);channels=(\d+)$/i.exec(
-        response.headers.get('content-type') || ''
+      const format = new MIMEType(
+        response.headers.get('content-type') || 'application/octet-stream'
       );
-      if (!format || audioBuffer.byteLength % 2 !== 0) {
+      const rate = format.params.get('rate') || '';
+      const channelCount = format.params.get('channels') || '';
+      const sampleRate = Number(rate);
+      const channels = Number(channelCount);
+      const bytesPerSample = 2;
+      const blockAlign = channels * bytesPerSample;
+      if (
+        format.essence !== 'audio/pcm' ||
+        !/^\d+$/.test(rate) ||
+        !/^\d+$/.test(channelCount) ||
+        sampleRate <= 0 ||
+        channels <= 0 ||
+        audioBuffer.byteLength === 0 ||
+        audioBuffer.byteLength % blockAlign !== 0
+      ) {
         throw new Error('Invalid Gemini TTS PCM response.');
       }
-      const sampleRate = Number(format[1]);
-      const channels = Number(format[2]);
       const wav = Buffer.alloc(44 + audioBuffer.byteLength);
       wav.write('RIFF', 0);
       wav.writeUInt32LE(wav.length - 8, 4);
@@ -225,8 +258,8 @@ class TTSClient {
       wav.writeUInt16LE(1, 20);
       wav.writeUInt16LE(channels, 22);
       wav.writeUInt32LE(sampleRate, 24);
-      wav.writeUInt32LE(sampleRate * channels * 2, 28);
-      wav.writeUInt16LE(channels * 2, 32);
+      wav.writeUInt32LE(sampleRate * blockAlign, 28);
+      wav.writeUInt16LE(blockAlign, 32);
       wav.writeUInt16LE(16, 34);
       wav.write('data', 36);
       wav.writeUInt32LE(audioBuffer.byteLength, 40);
@@ -250,8 +283,8 @@ class TTSClient {
       selectedProfile?.voiceDesignPrompt ?? request.voice,
       this.getDefaultProfile().voiceDesignPrompt || DEFAULT_TTS_VOICE
     );
-    const normalizedVoice = normalizeOptionalText(voice, DEFAULT_TTS_VOICE);
     const model = normalizeOptionalText(request.model, DEFAULT_TTS_MODEL);
+    const normalizedVoice = normalizeModelVoice(model, voice);
 
     console.log(
       `[TTSClient] Generating OpenRouter speech for ${request.text.length} chars with model: ${model}, voice: ${normalizedVoice}`
