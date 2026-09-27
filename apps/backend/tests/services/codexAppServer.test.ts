@@ -88,6 +88,15 @@ const sendInterruptedTurnCompletion = (
 };
 
 describe('Codex app-server protocol client', () => {
+  beforeEach(() => {
+    process.env.CODEX_APP_SERVER_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.CODEX_APP_SERVER_ENABLED;
+  });
+
   test('keeps the parser exception behind an invalid JSON protocol error', async () => {
     const process = new FakeCodexProcess(() => undefined);
     const client = new CodexJsonRpcClient(process);
@@ -128,15 +137,6 @@ describe('Codex app-server protocol client', () => {
       client.close();
     }
   });
-  beforeEach(() => {
-    process.env.CODEX_APP_SERVER_ENABLED = 'true';
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    delete process.env.CODEX_APP_SERVER_ENABLED;
-  });
-
   test('normalizes unsupported zero-effort values to the lowest Codex effort', () => {
     expect(normalizeCodexReasoningEffort('none')).toBe('low');
     expect(normalizeCodexReasoningEffort('minimal')).toBe('low');
