@@ -297,6 +297,8 @@ export const resolveContextMenuSelection = ({
   const containerRect = container.getBoundingClientRect?.();
   const anchorX = fallbackAnchorX ?? selectionRect.left + selectionRect.width / 2;
   const anchorY = fallbackAnchorY ?? selectionRect.top + selectionRect.height;
+  const synchronousProjection =
+    !deferContext && content ? buildVisibleProjection(content).text : '';
 
   return {
     type: 'selection',
@@ -322,11 +324,6 @@ export const resolveContextMenuSelection = ({
             endOffset: range.endOffset,
           },
         }
-      : getSelectionContext(
-          selectionContainer,
-          contextRange,
-          content ? buildVisibleProjection(content).text : '',
-          selectedText
-        )),
+      : getSelectionContext(selectionContainer, contextRange, synchronousProjection, selectedText)),
   };
 };
