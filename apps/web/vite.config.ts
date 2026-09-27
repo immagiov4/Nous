@@ -1,6 +1,12 @@
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
+
+// The package's browser entry uses document; its default entity table also works in workers.
+const markdownEntityDecoderPath = createRequire(
+  createRequire(import.meta.url).resolve('micromark-util-decode-string')
+).resolve('decode-named-character-reference');
 
 const DEFAULT_BACKEND_HOST = '127.0.0.1';
 const DEFAULT_BACKEND_PORT = 3301;
@@ -47,6 +53,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       dedupe: ['react', 'react-dom'],
       alias: {
+        'decode-named-character-reference': markdownEntityDecoderPath,
         '@': path.resolve(__dirname, '.'),
         '@shared': path.resolve(repoRoot, 'packages/shared-types'),
         react: path.resolve(rootNodeModules, 'react'),

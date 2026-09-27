@@ -153,9 +153,32 @@ export const verifyLessonEvidence = async (
   validateFactualReview(response, evidence, draft);
 };
 
+const validateAssessmentEvidence = (
+  assessment: z.infer<typeof FactualReviewSchema>['blocks'][number]['assessments'][number],
+  evidence: readonly z.infer<typeof EvidenceReferenceSchema>[],
+  location: string
+) => {
+  if (assessment.status === 'supported' && !assessment.evidence.length)
+    throw invalidFactualReview(`${location}: missing_supported_evidence`);
+  for (const [referenceIndex, reference] of assessment.evidence.entries()) {
+    const referenceLocation = `${location}[${referenceIndex}]`;
+    if (reference.firstUnit > reference.lastUnit)
+      throw invalidFactualReview(`${referenceLocation}: reversed_range`);
+    if (
+      !evidence.some(
+        passage =>
+          passage.materialId === reference.materialId &&
+          passage.firstUnit <= reference.firstUnit &&
+          passage.lastUnit >= reference.lastUnit
+      )
+    )
+      throw invalidFactualReview(`${referenceLocation}: outside_retained_evidence`);
+  }
+};
+
 const validateFactualReview = (
   response: unknown,
-  evidence: readonly { materialId: string; firstUnit: number; lastUnit: number }[],
+  evidence: readonly z.infer<typeof EvidenceReferenceSchema>[],
   draft: LessonContentDraft
 ) => {
   const parsed = FactualReviewSchema.safeParse(response);
@@ -177,22 +200,7 @@ const validateFactualReview = (
       throw invalidFactualReview(`blocks[${block.blockIndex}]: missing_no_claims_reason`);
     for (const [assessmentIndex, assessment] of block.assessments.entries()) {
       const location = `blocks[${block.blockIndex}].assessments[${assessmentIndex}].evidence`;
-      if (assessment.status === 'supported' && !assessment.evidence.length)
-        throw invalidFactualReview(`${location}: missing_supported_evidence`);
-      for (const [referenceIndex, reference] of assessment.evidence.entries()) {
-        const referenceLocation = `${location}[${referenceIndex}]`;
-        if (reference.firstUnit > reference.lastUnit)
-          throw invalidFactualReview(`${referenceLocation}: reversed_range`);
-        if (
-          !evidence.some(
-            passage =>
-              passage.materialId === reference.materialId &&
-              passage.firstUnit <= reference.firstUnit &&
-              passage.lastUnit >= reference.lastUnit
-          )
-        )
-          throw invalidFactualReview(`${referenceLocation}: outside_retained_evidence`);
-      }
+      validateAssessmentEvidence(assessment, evidence, location);
     }
   }
   const failures = blocks.flatMap(block =>

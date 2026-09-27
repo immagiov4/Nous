@@ -749,9 +749,11 @@ export interface SelectionContextMenuState extends BaseContextMenuState {
   contextAfter?: string;
   selectedTextStart?: number;
   selectionBoundary?: Pick<Range, 'startContainer' | 'startOffset' | 'endContainer' | 'endOffset'>;
-  prepareContext?: () => Pick<
-    SelectionContextMenuState,
-    'contextBefore' | 'contextAfter' | 'selectedTextStart'
+  contextPreparationFailed?: boolean;
+  prepareContext?: (
+    signal: AbortSignal
+  ) => Promise<
+    Pick<SelectionContextMenuState, 'contextBefore' | 'contextAfter' | 'selectedTextStart'>
   >;
 }
 

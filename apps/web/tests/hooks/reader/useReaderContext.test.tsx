@@ -4,9 +4,17 @@ import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { useReaderContext } from '../../../hooks/reader/useReaderContext.ts';
+import * as selectionProjection from '../../../utils/context/selectionProjection.ts';
 import * as textProjection from '../../../utils/markdown/textProjection.ts';
 
-test('waits for menu entrance before preparing context and cancels obsolete work', () => {
+vi.mock('../../../utils/context/selectionProjection.ts', () => ({
+  projectSelectionContent: async (content: string) => {
+    const { buildVisibleProjection } = await import('../../../utils/markdown/textProjection.ts');
+    return buildVisibleProjection(content).text;
+  },
+}));
+
+test('waits for menu entrance before preparing context and cancels obsolete work', async () => {
   vi.useFakeTimers();
   const frames: FrameRequestCallback[] = [];
   const runFrame = () => {
@@ -72,7 +80,7 @@ test('waits for menu entrance before preparing context and cancels obsolete work
     runFrame();
     expect(projectionSpy).not.toHaveBeenCalled();
     runFrame();
-    act(() => {
+    await act(async () => {
       vi.runOnlyPendingTimers();
     });
     expect(projectionSpy).toHaveBeenCalledOnce();
@@ -98,7 +106,7 @@ test('waits for menu entrance before preparing context and cancels obsolete work
     act(() => result.current.handleContextMenuEntranceComplete());
     runFrame();
     runFrame();
-    act(() => {
+    await act(async () => {
       vi.runOnlyPendingTimers();
     });
     expect(
@@ -118,7 +126,7 @@ test('waits for menu entrance before preparing context and cancels obsolete work
     runFrame();
     runFrame();
     rerender({ sectionId: 'section-2' });
-    act(() => {
+    await act(async () => {
       vi.runOnlyPendingTimers();
     });
     expect(result.current.contextMenu.visible).toBe(false);
@@ -130,6 +138,97 @@ test('waits for menu entrance before preparing context and cancels obsolete work
     container.remove();
     projectionSpy.mockRestore();
     frameSpy.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+test.each([
+  'close',
+  'replace',
+  'lesson',
+  'failure',
+] as const)('handles pending selection projection on %s', async outcome => {
+  vi.useFakeTimers();
+  const frames: FrameRequestCallback[] = [];
+  const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.push(callback);
+    return frames.length;
+  });
+  let complete!: (content: string) => void;
+  let fail!: (error: Error) => void;
+  let signal!: AbortSignal;
+  const projectionSpy = vi
+    .spyOn(selectionProjection, 'projectSelectionContent')
+    .mockImplementation((_content, cancellation) => {
+      signal = cancellation;
+      return new Promise((resolve, reject) => {
+        complete = resolve;
+        fail = reject;
+      });
+    });
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const container = document.createElement('div');
+  const content = 'Alpha beta gamma';
+  const textNode = document.createTextNode(content);
+  container.append(textNode);
+  document.body.append(container);
+  const range = document.createRange();
+  range.setStart(textNode, 6);
+  range.setEnd(textNode, 10);
+  range.getBoundingClientRect = () => new DOMRect(32, 64, 48, 18);
+  const selection = {
+    rangeCount: 1,
+    getRangeAt: () => range,
+    toString: () => range.toString(),
+  } as unknown as Selection;
+  const { result, rerender, unmount } = renderHook(
+    ({ sectionId }) =>
+      useReaderContext({
+        activeSectionId: sectionId,
+        contentRef: { current: container },
+        isMobileViewport: false,
+        sectionContent: content,
+      }),
+    { initialProps: { sectionId: 'one' } }
+  );
+  try {
+    act(() => result.current.openContextMenuFromSelection(selection, 'desktop-floating'));
+    act(() => result.current.handleContextMenuEntranceComplete());
+    act(() => {
+      while (frames.length) frames.shift()?.(0);
+      vi.runOnlyPendingTimers();
+    });
+    expect(projectionSpy).toHaveBeenCalledOnce();
+    if (outcome === 'close') act(() => result.current.closeContextMenu());
+    if (outcome === 'lesson') rerender({ sectionId: 'two' });
+    if (outcome === 'replace')
+      act(() => {
+        range.setStart(textNode, 11);
+        range.setEnd(textNode, 16);
+        result.current.openContextMenuFromSelection(selection, 'desktop-floating');
+      });
+    if (outcome === 'failure') {
+      await act(async () => fail(new Error('worker failed')));
+      expect(result.current.contextMenu).toMatchObject({ contextPreparationFailed: true });
+      expect(errorSpy).toHaveBeenCalledOnce();
+      act(() => result.current.handleContextMenuEntranceComplete());
+      act(() => {
+        while (frames.length) frames.shift()?.(0);
+        vi.runOnlyPendingTimers();
+      });
+      expect(projectionSpy).toHaveBeenCalledOnce();
+    } else {
+      expect(signal.aborted).toBe(true);
+      await act(async () => complete('Alpha beta gamma'));
+      expect(result.current.contextMenu).not.toHaveProperty('selectedTextStart');
+      expect(result.current.contextMenu.visible).toBe(outcome === 'replace');
+    }
+  } finally {
+    unmount();
+    container.remove();
+    projectionSpy.mockRestore();
+    frameSpy.mockRestore();
+    errorSpy.mockRestore();
     vi.useRealTimers();
   }
 });

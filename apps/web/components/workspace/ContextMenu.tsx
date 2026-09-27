@@ -61,6 +61,8 @@ interface ContextMenuProps {
   readonly horizontalBounds?: HorizontalViewportBounds;
   readonly isDarkMode?: boolean;
   readonly isLoading: boolean;
+  readonly isPreparingContext?: boolean;
+  readonly contextPreparationFailed?: boolean;
   readonly lessonCreationBlockReason: LessonCreationBlockReason | null;
   readonly motionProgressOverride?: number;
   readonly notePreviewScrollTopOverride?: number;
@@ -131,6 +133,8 @@ const ContextMenu = ({
   horizontalBounds,
   isDarkMode = false,
   isLoading,
+  isPreparingContext = false,
+  contextPreparationFailed = false,
   lessonCreationBlockReason,
   motionProgressOverride,
   notePreviewScrollTopOverride,
@@ -148,6 +152,7 @@ const ContextMenu = ({
   selectedText,
   type,
 }: ContextMenuProps) => {
+  const areContextActionsDisabled = isLoading || isPreparingContext;
   const [input, setInput] = useState('');
   const [hasEntered, setHasEntered] = useState(false);
   const [noteInput, setNoteInput] = useState(annotationNote);
@@ -262,7 +267,7 @@ const ContextMenu = ({
   };
 
   const submitAsk = () => {
-    if (isLoading || !trimmedInput) {
+    if (areContextActionsDisabled || !trimmedInput) {
       return;
     }
 
@@ -288,7 +293,7 @@ const ContextMenu = ({
   const handleAskClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (isLoading || askInteractionLockRef.current) {
+    if (areContextActionsDisabled || askInteractionLockRef.current) {
       return;
     }
     askInteractionLockRef.current = true;
@@ -301,7 +306,7 @@ const ContextMenu = ({
   const handleAskPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (isLoading || askInteractionLockRef.current) {
+    if (areContextActionsDisabled || askInteractionLockRef.current) {
       return;
     }
     askInteractionLockRef.current = true;
@@ -314,7 +319,7 @@ const ContextMenu = ({
   const handleAskTouchStart = (event: TouchEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (isLoading || askInteractionLockRef.current) {
+    if (areContextActionsDisabled || askInteractionLockRef.current) {
       return;
     }
     askInteractionLockRef.current = true;
@@ -327,7 +332,7 @@ const ContextMenu = ({
   const handleHighlightClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (isLoading || highlightInteractionLockRef.current) {
+    if (areContextActionsDisabled || highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
@@ -344,7 +349,7 @@ const ContextMenu = ({
   const handleHighlightPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (isLoading || highlightInteractionLockRef.current) {
+    if (areContextActionsDisabled || highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
@@ -361,7 +366,7 @@ const ContextMenu = ({
   const handleHighlightTouchStart = (event: TouchEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (isLoading || highlightInteractionLockRef.current) {
+    if (areContextActionsDisabled || highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
@@ -412,6 +417,7 @@ const ContextMenu = ({
   const handleCreate = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
+    if (areContextActionsDisabled) return;
     setIsLessonConfirmOpen(false);
     onCreateLesson(displayedInput);
   };
@@ -426,6 +432,7 @@ const ContextMenu = ({
   const handleSaveNote = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
+    if (areContextActionsDisabled) return;
 
     if (!isAnnotationMode && !trimmedNote && localAnnotationArtifactRefs.length === 0) {
       return;
@@ -961,7 +968,7 @@ const ContextMenu = ({
                 type="button"
                 onClick={handleSaveNote}
                 disabled={
-                  isLoading ||
+                  areContextActionsDisabled ||
                   (!isAnnotationMode && !trimmedNote && localAnnotationArtifactRefs.length === 0)
                 }
                 className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
@@ -1035,7 +1042,7 @@ const ContextMenu = ({
           <button
             type="button"
             aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
-            disabled={isLoading}
+            disabled={areContextActionsDisabled}
             onClick={handleHighlightClick}
             className={highlightButtonClassName}
             title={t(
@@ -1080,7 +1087,7 @@ const ContextMenu = ({
               type="submit"
               data-context-menu-target="submit"
               aria-label={t('Invia domanda')}
-              disabled={isLoading}
+              disabled={areContextActionsDisabled}
               className={askButtonClassName}
               title={t('Invia domanda')}
             >
@@ -1151,7 +1158,7 @@ const ContextMenu = ({
               <button
                 type="button"
                 onClick={handleCreate}
-                disabled={isLoading || lessonCreationBlockedLabel !== null}
+                disabled={areContextActionsDisabled || lessonCreationBlockedLabel !== null}
                 className="rounded-full bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-500 dark:hover:bg-orange-600"
               >
                 {lessonCreationBlockedLabel ?? t('Procedi')}
@@ -1196,7 +1203,7 @@ const ContextMenu = ({
             <button
               type="button"
               aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
-              disabled={isLoading}
+              disabled={areContextActionsDisabled}
               onClick={handleHighlightClick}
               onPointerDown={handleHighlightPointerDown}
               onTouchStart={handleHighlightTouchStart}
@@ -1217,7 +1224,7 @@ const ContextMenu = ({
             type="button"
             data-context-menu-target="submit"
             aria-label={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
-            disabled={!trimmedInput || isLoading}
+            disabled={!trimmedInput || areContextActionsDisabled}
             onClick={handleAskClick}
             onPointerDown={handleAskPointerDown}
             onTouchStart={handleAskTouchStart}
@@ -1288,7 +1295,7 @@ const ContextMenu = ({
             <button
               type="button"
               onClick={handleCreate}
-              disabled={isLoading || lessonCreationBlockedLabel !== null}
+              disabled={areContextActionsDisabled || lessonCreationBlockedLabel !== null}
               className="rounded-full bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-500 dark:hover:bg-orange-600"
             >
               {lessonCreationBlockedLabel ?? t('Procedi')}
@@ -1371,6 +1378,11 @@ const ContextMenu = ({
         onPointerDown={handleContainerPointerDown}
       >
         {isMobileSheet ? renderSelectionMobile() : renderSelectionDesktop()}
+        {contextPreparationFailed ? (
+          <p role="alert" className="mt-2 text-sm text-stone-700 dark:text-stone-200">
+            {t('Impossibile preparare la selezione. Chiudi il menu e seleziona di nuovo il testo.')}
+          </p>
+        ) : null}
       </motion.div>
       {renderMoreActionsPortal()}
     </>

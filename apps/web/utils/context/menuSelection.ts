@@ -13,6 +13,7 @@ import {
 } from '../markdown/codeRanges.ts';
 import { buildVisibleProjection } from '../markdown/textProjection.ts';
 import { READER_NON_SPEECH_SELECTOR } from '../reader/readingText.ts';
+import { projectSelectionContent } from './selectionProjection.ts';
 
 interface ResolveContextMenuSelectionArgs {
   content?: string;
@@ -111,7 +112,7 @@ const isWithinNonSpeechSurface = (node: Node): boolean => {
 const getSelectionContext = (
   container: HTMLElement,
   range: Range,
-  content: string | undefined,
+  projectedContent: string,
   selectedText: string
 ): Pick<ResolvedSelectionPayload, 'contextBefore' | 'contextAfter' | 'selectedTextStart'> => {
   const beforeRange = range.cloneRange();
@@ -126,7 +127,6 @@ const getSelectionContext = (
   const precedingOccurrenceCount = selectedText
     ? textBeforeSelection.split(selectedText).length - 1
     : 0;
-  const projectedContent = content ? buildVisibleProjection(content).text : '';
   let selectedTextStart: number | undefined;
   let searchStart = 0;
   for (let occurrence = 0; occurrence <= precedingOccurrenceCount; occurrence += 1) {
@@ -289,11 +289,16 @@ export const resolveContextMenuSelection = ({
   const selectionRect = getSelectionRect(range);
   // The native selection can move while the menu is opening.
   const contextRange = deferContext ? range.cloneRange() : range;
-  const prepareContext = () =>
-    getSelectionContext(selectionContainer, contextRange, content, selectedText);
+  const prepareContext = async (signal: AbortSignal) => {
+    const projectedContent = content ? await projectSelectionContent(content, signal) : '';
+    signal.throwIfAborted();
+    return getSelectionContext(selectionContainer, contextRange, projectedContent, selectedText);
+  };
   const containerRect = container.getBoundingClientRect?.();
   const anchorX = fallbackAnchorX ?? selectionRect.left + selectionRect.width / 2;
   const anchorY = fallbackAnchorY ?? selectionRect.top + selectionRect.height;
+  const synchronousProjection =
+    !deferContext && content ? buildVisibleProjection(content).text : '';
 
   return {
     type: 'selection',
@@ -319,6 +324,6 @@ export const resolveContextMenuSelection = ({
             endOffset: range.endOffset,
           },
         }
-      : prepareContext()),
+      : getSelectionContext(selectionContainer, contextRange, synchronousProjection, selectedText)),
   };
 };
