@@ -5,7 +5,10 @@ import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
   buildLessonEvidenceMaterials,
+  formatLessonEvidence,
   resolveLessonEvidence,
+  restoreLessonEvidence,
+  serializeLessonEvidence,
 } from '../../src/services/lessonEvidence.js';
 import { selectLessonEvidence } from '../../src/services/lessonEvidenceModel.js';
 import { verifyLessonEvidence } from '../../src/services/lessonEvidenceVerification.js';
@@ -14,8 +17,10 @@ import {
   generateResearchSummary,
   reviewLessonContentDraftStrict,
 } from '../../src/services/lessonGenerationModel.js';
+import { buildLessonGenerationPrompt } from '../../src/services/lessonGenerationPrompt.js';
 import { buildResearchDossier } from '../../src/services/lessonGenerationResearch.js';
 import type { LessonGenerationInput } from '../../src/services/lessonGenerationTypes.js';
+import { encodeLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
 import { createLessonNormalizationStage } from '../../src/workflows/lessonGenerationNormalizationStage.js';
 import { createLessonPersistenceStage } from '../../src/workflows/lessonGenerationPersistence.js';
@@ -261,6 +266,77 @@ const mockModels = () => {
 };
 
 describe('role-specific lesson evidence through the production Luna model path', () => {
+  test('keeps a many-line draft below the reported provider limit with all text and provenance', async () => {
+    // The incident retained 6,921 short units; this is a provider limit, not a context policy.
+    const providerCharacterLimit = 1_048_576;
+    const source = {
+      sourceId: 'primary-document',
+      title: 'Appunti di sistemi distribuiti.pdf',
+      chunkIds: ['primary-document:chunk-1'],
+      pageStart: 1,
+      pageEnd: 40,
+    };
+    const text = Array.from(
+      { length: 6_921 },
+      (_, index) => `Riga ${index}: conservare la condizione.\n`
+    ).join('');
+    const input = {
+      sourceContext: encodeLessonPrimarySources([{ source, text }]),
+      researchContext: '',
+      sources: [],
+      imageCandidates: [],
+      instructionPacks: [],
+      description: 'Spiegare le condizioni.',
+      language: 'Italiano',
+      sectionTitle: 'Sistemi distribuiti',
+      previousLessonTitles: [],
+      refreshResearch: false,
+      config: generationInput().config,
+      signal: new AbortController().signal,
+    };
+    const selected = await selectLessonEvidence(input);
+    const packet = restoreLessonEvidence(input, serializeLessonEvidence(input, selected));
+    const before = structuredClone(packet);
+    const formatted = formatLessonEvidence(packet);
+    const prompt = buildLessonGenerationPrompt({ ...input, evidencePacket: packet });
+    expect(JSON.stringify(packet.passages).length).toBeGreaterThan(providerCharacterLimit);
+    expect(prompt.length).toBeLessThan(providerCharacterLimit);
+    expect(prompt).toContain(formatted);
+    const [passage] = JSON.parse(formatted);
+    expect(passage.units.map((unit: { text: string }) => unit.text).join('')).toBe(text);
+    expect(passage.primarySources).toEqual([{ source, firstUnit: 0, lastUnit: 6_920 }]);
+    expect(passage.units).toEqual(
+      packet.passages[0]?.units.map(({ source: _source, ...unit }) => unit)
+    );
+    const draft = {
+      contentBlocks: [{ type: 'markdown' as const, markdown: 'Conservare la condizione.' }],
+      generatedVisuals: [],
+      imageRefs: [],
+    };
+    runCodexAppServerTurn.mockResolvedValueOnce(
+      JSON.stringify({
+        blocks: [
+          {
+            blockIndex: 0,
+            noFactualClaimsReason: '',
+            assessments: [
+              {
+                claim: draft.contentBlocks[0].markdown,
+                status: 'supported',
+                explanation: 'The source states the condition.',
+                evidence: [{ materialId: 'primary', firstUnit: 0, lastUnit: 6_920 }],
+              },
+            ],
+          },
+        ],
+      })
+    );
+    await verifyLessonEvidence({ ...input, evidencePacket: packet }, draft);
+    const factualPrompt = runCodexAppServerTurn.mock.lastCall?.[0].input[0].text;
+    expect(factualPrompt.length).toBeLessThan(providerCharacterLimit);
+    expect(JSON.parse(factualPrompt).evidence).toEqual(JSON.parse(formatted));
+    expect(packet).toEqual(before);
+  });
   test('grounds referenced image captions in stored context and rejects unused image references', async () => {
     const input = generationInput();
     input.researchContext = JSON.stringify(evidenceResearch);
