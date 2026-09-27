@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   buildLessonEvidenceMaterials,
+  formatLessonEvidence,
   resolveLessonEvidence,
 } from '../../src/services/lessonEvidence.js';
 import { getLessonReferenceAvailability } from '../../src/services/lessonGenerationPrompt.js';
@@ -173,6 +174,37 @@ describe('lesson evidence references', () => {
         },
       ])
     );
+    expect(
+      JSON.parse(formatLessonEvidence(packet)).map(
+        (passage: { primarySources: unknown }) => passage.primarySources
+      )
+    ).toEqual(
+      parts.map((part, index) => [
+        { source: part.source, firstUnit: index * 2 + 1, lastUnit: index * 2 + 1 },
+      ])
+    );
+
+    const adjacent = resolveLessonEvidence(original, {
+      materials: [
+        {
+          materialId: 'primary',
+          reason: 'Both documents are relevant.',
+          overlaps: [],
+          passages: [{ firstUnit: 0, lastUnit: 3, claims: ['Both definitions.'] }],
+        },
+      ],
+    });
+    const [formatted] = JSON.parse(formatLessonEvidence(adjacent));
+    expect(formatted.primarySources).toEqual(
+      parts.map((part, index) => ({
+        source: part.source,
+        firstUnit: index * 2,
+        lastUnit: index * 2 + 1,
+      }))
+    );
+    expect(formatted.units.map((unit: { text: string }) => unit.text).join('')).toBe(
+      parts.map(part => part.text).join('')
+    );
   });
   test('keeps canonical text, overlapping timestamps, qualifier and source identity without mutating originals', () => {
     const original = structuredClone(sources);
@@ -184,6 +216,10 @@ describe('lesson evidence references', () => {
       units: sources[0].youtubeTranscript?.segments.slice(1, 3),
     });
     expect(sources).toEqual(original);
+    expect(JSON.parse(formatLessonEvidence(packet))[0]).toEqual({
+      ...packet.passages[0],
+      primarySources: [],
+    });
     expect(packet.selection.materials[2]?.passages).toEqual([]);
   });
 

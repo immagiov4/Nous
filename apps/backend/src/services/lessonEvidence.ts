@@ -237,8 +237,34 @@ export const resolveLessonEvidence = (
   };
 };
 
+/** Share primary provenance across consecutive units while preserving citation indices and text. */
+export const buildLessonEvidencePromptPassages = (packet: LessonEvidencePacket) =>
+  packet.passages.map(({ units, ...passage }) => {
+    const primarySources: Array<{
+      source: LessonPrimarySourceIdentity;
+      firstUnit: number;
+      lastUnit: number;
+    }> = [];
+    const promptUnits = units.map(({ source, ...unit }, index) => {
+      if (source) {
+        const unitIndex = passage.firstUnit + index;
+        const previous = primarySources.at(-1);
+        if (
+          previous?.lastUnit === unitIndex - 1 &&
+          canonicalJson(previous.source) === canonicalJson(source)
+        ) {
+          previous.lastUnit = unitIndex;
+        } else {
+          primarySources.push({ source, firstUnit: unitIndex, lastUnit: unitIndex });
+        }
+      }
+      return unit;
+    });
+    return { ...passage, primarySources, units: promptUnits };
+  });
+
 export const formatLessonEvidence = (packet: LessonEvidencePacket): string =>
-  JSON.stringify(packet.passages);
+  JSON.stringify(buildLessonEvidencePromptPassages(packet));
 
 const StoredSelectionSchema = z.object({
   version: z.literal('lesson-evidence-v1'),
