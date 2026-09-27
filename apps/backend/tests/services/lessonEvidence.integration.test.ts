@@ -32,6 +32,7 @@ import {
   LessonReviewedStateSchema,
   LessonSourcesStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import { toWorkflowErrorDiagnostic } from '../../src/workflows/workflowErrorDiagnostics.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 import {
   evidenceLesson,
@@ -420,6 +421,27 @@ describe('role-specific lesson evidence through the production Luna model path',
     expect(request.reasoningEffort).toBe('medium');
     expect(JSON.parse(request.input[0].text).retryFeedback).toBe(failure.feedback);
   });
+  test('persists a safe factual-review rejection path without model content', async () => {
+    const input = generationInput();
+    input.researchContext = JSON.stringify(evidenceResearch);
+    input.evidencePacket = resolveLessonEvidence(
+      buildLessonEvidenceMaterials(input),
+      evidenceSelection
+    );
+    const report = structuredClone(factualReport(true));
+    report.blocks[0].assessments[0].claim = 'private lesson content';
+    report.blocks[0].assessments[0].evidence[0].materialId = 'private-source-id';
+    runCodexAppServerTurn.mockResolvedValueOnce(JSON.stringify(report));
+    const failure = await verifyLessonEvidence(input, evidenceLesson).catch(error => error);
+    expect(toWorkflowErrorDiagnostic(failure)).toMatchObject({
+      code: 'lesson_factual_review_invalid',
+      originalMessage: expect.stringContaining(
+        'blocks[0].assessments[0].evidence[0]: outside_retained_evidence'
+      ),
+    });
+    expect(failure.message).not.toContain('private lesson content');
+    expect(failure.message).not.toContain('private-source-id');
+  });
 
   test('retains every bounded source unit without calling a selector model', async () => {
     const input = generationInput();
@@ -527,6 +549,7 @@ describe('role-specific lesson evidence through the production Luna model path',
     runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));
     await expect(verifyLessonEvidence(input, evidenceLesson)).rejects.toMatchObject({
       code: 'lesson_factual_review_invalid',
+      message: expect.stringContaining('blocks[0].assessments[0].evidence[0]: reversed_range'),
     });
     citation.lastUnit = citation.firstUnit;
     runCodexAppServerTurn.mockResolvedValue(JSON.stringify(report));

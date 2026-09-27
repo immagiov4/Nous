@@ -1,11 +1,11 @@
 import { generateText, jsonSchema, Output } from 'ai';
 import * as z from 'zod';
-
 import {
   resolveAiProviderForSlot,
   resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
+import { firstSanitizedZodIssue, formatValidationPath } from '../utils/zodDiagnostics.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
 import { buildLessonEvidencePromptPassages, type LessonEvidencePacket } from './lessonEvidence.js';
@@ -159,34 +159,40 @@ const validateFactualReview = (
   draft: LessonContentDraft
 ) => {
   const parsed = FactualReviewSchema.safeParse(response);
-  if (!parsed.success) throw invalidFactualReview();
+  if (!parsed.success) {
+    const issue = firstSanitizedZodIssue(parsed.error);
+    throw invalidFactualReview(
+      `schema_invalid at ${formatValidationPath(issue.path)} (${issue.code})`
+    );
+  }
   const blocks = parsed.data.blocks;
-  if (
-    blocks.length !== draft.contentBlocks.length ||
-    new Set(blocks.map(block => block.blockIndex)).size !== blocks.length
-  )
-    throw invalidFactualReview();
+  if (blocks.length !== draft.contentBlocks.length)
+    throw invalidFactualReview('block_count_mismatch');
+  if (new Set(blocks.map(block => block.blockIndex)).size !== blocks.length)
+    throw invalidFactualReview('duplicate_block_index');
   for (const block of blocks) {
-    if (
-      !draft.contentBlocks[block.blockIndex] ||
-      (!block.assessments.length && !block.noFactualClaimsReason.trim())
-    )
-      throw invalidFactualReview();
-    for (const assessment of block.assessments) {
-      if (
-        (assessment.status === 'supported' && !assessment.evidence.length) ||
-        assessment.evidence.some(
-          reference =>
-            !evidence.some(
-              passage =>
-                passage.materialId === reference.materialId &&
-                reference.firstUnit <= reference.lastUnit &&
-                passage.firstUnit <= reference.firstUnit &&
-                passage.lastUnit >= reference.lastUnit
-            )
+    if (!draft.contentBlocks[block.blockIndex])
+      throw invalidFactualReview(`blocks[${block.blockIndex}]: unknown_block_index`);
+    if (!block.assessments.length && !block.noFactualClaimsReason.trim())
+      throw invalidFactualReview(`blocks[${block.blockIndex}]: missing_no_claims_reason`);
+    for (const [assessmentIndex, assessment] of block.assessments.entries()) {
+      const location = `blocks[${block.blockIndex}].assessments[${assessmentIndex}].evidence`;
+      if (assessment.status === 'supported' && !assessment.evidence.length)
+        throw invalidFactualReview(`${location}: missing_supported_evidence`);
+      for (const [referenceIndex, reference] of assessment.evidence.entries()) {
+        const referenceLocation = `${location}[${referenceIndex}]`;
+        if (reference.firstUnit > reference.lastUnit)
+          throw invalidFactualReview(`${referenceLocation}: reversed_range`);
+        if (
+          !evidence.some(
+            passage =>
+              passage.materialId === reference.materialId &&
+              passage.firstUnit <= reference.firstUnit &&
+              passage.lastUnit >= reference.lastUnit
+          )
         )
-      )
-        throw invalidFactualReview();
+          throw invalidFactualReview(`${referenceLocation}: outside_retained_evidence`);
+      }
     }
   }
   const failures = blocks.flatMap(block =>
@@ -202,10 +208,10 @@ const validateFactualReview = (
     });
 };
 
-const invalidFactualReview = () =>
+const invalidFactualReview = (detail: string) =>
   retryLessonGenerationCorrection({
     code: 'lesson_factual_review_invalid',
     feedback:
       'Return a factual assessment for every lesson block exactly once. Cite only existing retained material ranges. Every supported claim needs evidence; blocks with no claims need an explicit reason.',
-    message: 'The factual verification returned incomplete evidence references.',
+    message: `The factual verification returned incomplete evidence references. ${detail}`,
   });
