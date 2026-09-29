@@ -31,7 +31,7 @@ export default memo(function SectionAnnotationProjectionFeedback({
     );
     const signature = unresolved
       .map(annotation => annotation.id)
-      .sort()
+      .sort((left, right) => left.localeCompare(right))
       .join('\n');
     if (signature && signature !== previousSignatureRef.current) {
       console.warn('[Nous][AnnotationProjection]', { unresolvedCount: unresolved.length });

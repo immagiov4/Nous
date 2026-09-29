@@ -319,16 +319,19 @@ const skipMarkdownToken = (state: VisibleProjectionState): boolean => {
   return true;
 };
 
-const advanceVisibleProjection = (state: VisibleProjectionState): void => {
+const projectTableSyntaxRange = (state: VisibleProjectionState): boolean => {
   const tableSyntax = state.tableSyntaxRangesByStart.get(state.index);
-  if (tableSyntax) {
-    if (tableSyntax.replacement) {
-      pushVisibleCharacter(state, tableSyntax.replacement, tableSyntax.start, tableSyntax.start);
-    }
-    state.index = tableSyntax.end;
-    state.atLineStart = false;
-    return;
+  if (!tableSyntax) return false;
+  if (tableSyntax.replacement) {
+    pushVisibleCharacter(state, tableSyntax.replacement, tableSyntax.start, tableSyntax.start);
   }
+  state.index = tableSyntax.end;
+  state.atLineStart = false;
+  return true;
+};
+
+const advanceVisibleProjection = (state: VisibleProjectionState): void => {
+  if (projectTableSyntaxRange(state)) return;
   if (skipHiddenProjectionRange(state)) return;
   if (skipBlockMarker(state)) return;
   if (projectEscapedFenceOpener(state)) return;
