@@ -1,5 +1,6 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
 import { parseMarkdownAnalysis, projectKatexAnnotationSource } from '../markdown/codeRanges.ts';
+import { getRawHtmlTagRanges } from '../markdown/html.ts';
 import { buildVisibleProjection } from '../markdown/textProjection.ts';
 import {
   buildSectionAnnotationContextText,
@@ -328,10 +329,31 @@ export const resolveSectionAnnotationHighlightEntries = (
   const projection = buildDomTextProjection(root);
   // Resolve saved source selectors before translating table syntax to DOM whitespace.
   // The persisted selector format remains shared with the non-native mark renderer.
-  const analysis = content === undefined ? undefined : parseMarkdownAnalysis(content);
+  const analysis =
+    content === undefined || !root.querySelector('table')
+      ? undefined
+      : parseMarkdownAnalysis(content);
   const renderedSelectors = new Map<string, SectionAnnotationTextSelector | null>();
   if (content !== undefined && analysis && analysis.tableSyntaxRanges.length > 0) {
-    const visibleProjection = buildVisibleProjection(content, analysis, analysis.tableSyntaxRanges);
+    // DOM comparison omits tag-like text except inside code and math.
+    const protectedRanges = [...analysis.codeRanges, ...analysis.mathRanges];
+    const comparisonAnalysis = {
+      ...analysis,
+      htmlSyntaxRanges: [
+        ...analysis.htmlSyntaxRanges,
+        ...getRawHtmlTagRanges(content).filter(
+          tag =>
+            !protectedRanges.some(
+              protectedRange => tag.start < protectedRange.end && tag.end > protectedRange.start
+            )
+        ),
+      ],
+    };
+    const visibleProjection = buildVisibleProjection(
+      content,
+      comparisonAnalysis,
+      analysis.tableSyntaxRanges
+    );
     for (const { annotation, segments } of resolveSectionAnnotationSegmentEntries(
       content,
       selectionAnnotations,

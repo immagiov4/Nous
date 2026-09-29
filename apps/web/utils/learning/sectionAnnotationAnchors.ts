@@ -94,7 +94,7 @@ const getProjectionRange = (
 export const createSectionAnnotationSelector = (
   content: string,
   segments: MarkdownRange[],
-  projection: VisibleProjection = buildVisibleProjection(content)
+  projection?: VisibleProjection
 ): SectionAnnotationTextSelector | null => {
   const sortedSegments = sortRanges(segments);
   const firstSegment = sortedSegments[0];
@@ -104,7 +104,8 @@ export const createSectionAnnotationSelector = (
   }
 
   const sourceRange = { start: firstSegment.start, end: lastSegment.end };
-  const projectionRange = getProjectionRange(projection, sourceRange);
+  const visibleProjection = projection ?? buildVisibleProjection(content);
+  const projectionRange = getProjectionRange(visibleProjection, sourceRange);
   if (!projectionRange) {
     return null;
   }
@@ -113,14 +114,17 @@ export const createSectionAnnotationSelector = (
     end: sourceRange.end,
     exact: normalizeWhitespace(projectionRange.text),
     prefix: normalizeWhitespace(
-      projection.text.slice(
+      visibleProjection.text.slice(
         Math.max(0, projectionRange.start - SELECTOR_CONTEXT_LENGTH),
         projectionRange.start
       )
     ),
     start: sourceRange.start,
     suffix: normalizeWhitespace(
-      projection.text.slice(projectionRange.end, projectionRange.end + SELECTOR_CONTEXT_LENGTH)
+      visibleProjection.text.slice(
+        projectionRange.end,
+        projectionRange.end + SELECTOR_CONTEXT_LENGTH
+      )
     ),
   };
 };

@@ -326,6 +326,7 @@ const advanceVisibleProjection = (state: VisibleProjectionState): void => {
       pushVisibleCharacter(state, tableSyntax.replacement, tableSyntax.start, tableSyntax.start);
     }
     state.index = tableSyntax.end;
+    state.atLineStart = false;
     return;
   }
   if (skipHiddenProjectionRange(state)) return;

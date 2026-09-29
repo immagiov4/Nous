@@ -43,6 +43,55 @@ afterEach(() => {
 
 describe('MarkdownRenderer', () => {
   test.each([
+    '<div>\n| Label | Detail |\n| --- | --- |\n| Cell | Context |\n</div>',
+    '<div>\n| Label | Detail |\n| --- | --- |\n| Cell | Context `<mark>` |\n</div>',
+  ])('projects a table exposed by escaping disallowed raw HTML: %s', content => {
+    class TestHighlight extends Set<AbstractRange> {}
+    const highlights = new Map<string, TestHighlight>();
+    vi.stubGlobal('CSS', { highlights });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [],
+    });
+    const annotations =
+      applySectionAnnotation({ content, selectedText: 'Cell' })?.annotations || [];
+    expect(annotations).toHaveLength(1);
+    const { container, unmount } = render(
+      <MarkdownRenderer content={content} sectionAnnotations={annotations} />
+    );
+    expect(container.querySelector('table')).not.toBeNull();
+    expect(
+      Array.from(highlights.get('nous-annotations') || []).map(range => range.toString())
+    ).toEqual(['Cell']);
+    unmount();
+  });
+  test.each([
+    '# Heading',
+    '- Item',
+    '> Quote',
+    '1. Item',
+  ])('preserves a literal block-like prefix inside a table cell: %s', selectedText => {
+    class TestHighlight extends Set<AbstractRange> {}
+    const highlights = new Map<string, TestHighlight>();
+    vi.stubGlobal('CSS', { highlights });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [],
+    });
+    const content = `| Label | Detail |\n| --- | --- |\n| ${selectedText} | Value |`;
+    const annotations = applySectionAnnotation({ content, selectedText })?.annotations || [];
+    expect(annotations).toHaveLength(1);
+    const { unmount } = render(
+      <MarkdownRenderer content={content} sectionAnnotations={annotations} />
+    );
+    expect(
+      Array.from(highlights.get('nous-annotations') || []).map(range => range.toString())
+    ).toEqual([selectedText]);
+    unmount();
+  });
+  test.each([
     true,
     false,
   ])('reports unresolved saved annotations once per change (native=%s)', native => {
@@ -66,7 +115,7 @@ describe('MarkdownRenderer', () => {
         />
         <SectionAnnotationProjectionFeedback
           content="Changed text"
-          annotations={includeAnnotations ? annotations : []}
+          annotations={includeAnnotations ? [...annotations] : []}
         />
       </div>
     );
@@ -175,24 +224,36 @@ describe('MarkdownRenderer', () => {
     }
     expect(annotations.map(annotation => annotation.id)).toEqual(['header', 'cell-0', 'cell-1']);
     const persisted = JSON.stringify(annotations);
-    const { container, unmount } = render(
+    const { unmount } = render(
       <MarkdownRenderer content={content} sectionAnnotations={annotations} />
     );
     const cells = () =>
-      Array.from(highlights.get('nous-annotations') || []).map(
-        range => (range.startContainer.parentElement?.closest('td, th') as HTMLElement)?.textContent
-      );
-    expect(cells()).toEqual(['Name', 'Same', 'Same']);
+      Array.from(highlights.get('nous-annotations') || []).map(range => {
+        const cell = range.startContainer.parentElement?.closest('td, th');
+        return [cell?.textContent, cell?.nextElementSibling?.textContent];
+      });
+    expect(cells()).toEqual([
+      ['Name', 'Detail'],
+      ['Same', 'First'],
+      ['Same', 'Second'],
+    ]);
     expect(highlights.get('nous-annotation-notes')?.size).toBe(1);
     unmount();
     const reloaded = JSON.parse(persisted);
     const next = render(<MarkdownRenderer content={content} sectionAnnotations={reloaded} />);
-    expect(cells()).toEqual(['Name', 'Same', 'Same']);
+    expect(cells()).toEqual([
+      ['Name', 'Detail'],
+      ['Same', 'First'],
+      ['Same', 'Second'],
+    ]);
     expect(JSON.stringify(reloaded)).toBe(persisted);
     const removed = removeSectionAnnotation({ annotations: reloaded, annotationId: 'cell-0' });
     next.rerender(<MarkdownRenderer content={content} sectionAnnotations={removed.annotations} />);
-    expect(cells()).toEqual(['Name', 'Same']);
-    expect(container.querySelector('mark')).toBeNull();
+    expect(cells()).toEqual([
+      ['Name', 'Detail'],
+      ['Same', 'Second'],
+    ]);
+    expect(next.container.querySelector('mark')).toBeNull();
     next.unmount();
     expect(highlights.get('nous-annotations')?.size).toBe(0);
   });

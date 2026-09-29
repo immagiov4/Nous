@@ -871,14 +871,12 @@ const collectHtmlRanges = (
   if (escapeDisallowedRawHtml(source) !== source) escapedHtmlContentRanges.push(range);
 };
 
-const collectPrimaryNodeRanges = (
+const collectTableSyntaxRanges = (
   node: MarkdownAstNode,
   range: MarkdownRange,
-  context: MarkdownCollectionContext,
-  escapedHtmlContentRanges: MarkdownRange[]
+  context: MarkdownCollectionContext
 ): void => {
   const { analysis, content, sourceOffsets } = context;
-  collectCodeAndMathRanges(node, range, context, 'append');
   analysis.tableSyntaxRanges.push(...getTableRowSyntaxRanges(node, range, sourceOffsets));
   if (node.type === 'tableRow') {
     visitMarkdownTree(node, child => {
@@ -892,6 +890,17 @@ const collectPrimaryNodeRanges = (
       }
     });
   }
+};
+
+const collectPrimaryNodeRanges = (
+  node: MarkdownAstNode,
+  range: MarkdownRange,
+  context: MarkdownCollectionContext,
+  escapedHtmlContentRanges: MarkdownRange[]
+): void => {
+  const { analysis, content, sourceOffsets } = context;
+  collectCodeAndMathRanges(node, range, context, 'append');
+  collectTableSyntaxRanges(node, range, context);
   analysis.structuralRanges.push(
     ...getStructuralRangesForNode(content, node, range, sourceOffsets)
   );
@@ -917,6 +926,7 @@ const collectEscapedHtmlNodeRanges = (
   if (!isRangeInsideAny(range, escapedHtmlContentRanges)) return;
 
   const { analysis, content, sourceOffsets } = context;
+  collectTableSyntaxRanges(node, range, context);
   if (node.type === 'html' && isRendererHiddenHtmlSyntax(content.slice(range.start, range.end))) {
     analysis.htmlSyntaxRanges.push(range);
   }
