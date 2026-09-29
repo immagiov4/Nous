@@ -115,6 +115,13 @@ Content is split into distinct `LessonContentBlock` types:
 Sources: [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:680-750](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L680-L750), [apps/web/components/workspace/shell/types.ts:194-220](../../../apps/web/components/workspace/shell/types.ts#L194-L220)
 
 ### Interaction Handling Logic
+
+Markdown table annotations retain the existing source selectors. Native highlight resolution first resolves those selectors against the source, then projects parser-recognized table cell boundaries into DOM whitespace. This preserves separate cells with repeated text and renders existing saved annotations without rewriting them. GFM pipe escapes inside table code are consumed only in this rendering projection; ordinary prose, code, and selection anchoring keep their existing contracts.
+
+After every lesson block has registered its native ranges or rendered its fallback marks, `SectionAnnotationProjectionFeedback` checks visibility across the lesson root. If a saved selection annotation has no visible range or mark, it shows one localized alert while retaining the saved annotation and note. Diagnostics report only the unresolved count, once when the unresolved annotation set changes. They include neither selected text nor note content.
+
+Sources: [sectionAnnotationHighlights.ts](../../../apps/web/utils/learning/sectionAnnotationHighlights.ts), [codeRanges.ts](../../../apps/web/utils/markdown/codeRanges.ts), [MarkdownRenderer.tsx](../../../apps/web/components/shared/MarkdownRenderer.tsx).
+
 Interaction is centralized through the `useWorkspaceReaderActions` hook, which manages the relationship between text selection, annotations, and AI-driven deep research.
 
 `useReaderContext` captures the selected text and its DOM boundaries before opening the selection menu. `ContextMenu` signals when its entrance animation has finished; the hook lets the final frame paint and prepares the complete Markdown projection in a dedicated web worker. The worker uses the same projection and normalization rules as annotations, with the entity decoder's DOM-independent entry selected by Vite. Closing or replacing the menu, opening an answer, or changing the active lesson aborts and terminates pending work; obsolete results cannot update the menu. Reduced-motion settings, deterministic previews and already-entered menus retain the same preparation contract.

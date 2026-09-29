@@ -4,6 +4,9 @@ export const SUPPORTED_APP_LOCALES = ['en', 'it'] as const;
 
 export type AppLocale = (typeof SUPPORTED_APP_LOCALES)[number];
 
+export const ANNOTATION_PROJECTION_ERROR_MESSAGE =
+  'Alcune evidenziazioni salvate non sono visibili in questo testo. Le note sono conservate.';
+
 export const SURFACE_ERROR_MESSAGES = {
   chat: 'La chat non è disponibile. Ricarica la pagina.',
   reader: 'La lezione non è disponibile. Ricarica la pagina.',
@@ -34,6 +37,8 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  [ANNOTATION_PROJECTION_ERROR_MESSAGE]:
+    'Some saved highlights are not visible in this text. Your notes are preserved.',
   'Impossibile preparare la selezione. Chiudi il menu e seleziona di nuovo il testo.':
     'Could not prepare the selection. Close the menu and select the text again.',
   ...COURSE_PLANNING_MESSAGES,
