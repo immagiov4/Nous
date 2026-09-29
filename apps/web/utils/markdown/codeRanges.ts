@@ -327,6 +327,11 @@ export interface MarkdownAnalysis {
   referenceLinkLabelRanges: MarkdownRange[];
   rendererNormalizedIndentRanges: MarkdownRange[];
   structuralRanges: MarkdownRange[];
+  tableSyntaxRanges: MarkdownProjectionRange[];
+}
+
+export interface MarkdownProjectionRange extends MarkdownRange {
+  replacement: string;
 }
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkBreaks);
@@ -735,6 +740,28 @@ const getStructuralRangesForNode = (
   return [];
 };
 
+const getTableRowSyntaxRanges = (
+  node: MarkdownAstNode,
+  rowRange: MarkdownRange,
+  sourceOffsets: number[]
+): MarkdownProjectionRange[] => {
+  if (node.type !== 'tableRow') return [];
+  const ranges: MarkdownProjectionRange[] = [];
+  let cursor = rowRange.start;
+  for (const cell of node.children || []) {
+    const firstChild = cell.children?.[0];
+    const lastChild = cell.children?.at(-1);
+    if (!firstChild || !lastChild) continue;
+    const start = getNodeRange(firstChild, sourceOffsets)?.start;
+    const end = getNodeRange(lastChild, sourceOffsets)?.end;
+    if (start === undefined || end === undefined) continue;
+    if (cursor < start) ranges.push({ start: cursor, end: start, replacement: ' ' });
+    cursor = end;
+  }
+  if (cursor < rowRange.end) ranges.push({ start: cursor, end: rowRange.end, replacement: ' ' });
+  return ranges;
+};
+
 const isRendererHiddenHtmlSyntax = (source: string): boolean =>
   source.startsWith('<!--') || source.startsWith('<!') || source.startsWith('<?');
 
@@ -852,6 +879,19 @@ const collectPrimaryNodeRanges = (
 ): void => {
   const { analysis, content, sourceOffsets } = context;
   collectCodeAndMathRanges(node, range, context, 'append');
+  analysis.tableSyntaxRanges.push(...getTableRowSyntaxRanges(node, range, sourceOffsets));
+  if (node.type === 'tableRow') {
+    visitMarkdownTree(node, child => {
+      if (child.type !== 'inlineCode') return;
+      const codeRange = getNodeRange(child, sourceOffsets);
+      if (!codeRange) return;
+      // GFM consumes pipe escapes inside table code, unlike ordinary inline code.
+      for (const match of content.slice(codeRange.start, codeRange.end).matchAll(/\\\|/gu)) {
+        const start = codeRange.start + match.index;
+        analysis.tableSyntaxRanges.push({ start, end: start + 1, replacement: '' });
+      }
+    });
+  }
   analysis.structuralRanges.push(
     ...getStructuralRangesForNode(content, node, range, sourceOffsets)
   );
@@ -907,6 +947,7 @@ export const parseMarkdownAnalysis = (content: string): MarkdownAnalysis => {
       fencedCodeRanges
     ),
     structuralRanges: [],
+    tableSyntaxRanges: [],
   };
   const indentationProjection = projectAccidentalPlainTextIndentation(content, fencedCodeRanges);
   const fenceProjection = projectUnclosedMarkdownFenceOpeners(indentationProjection.content);

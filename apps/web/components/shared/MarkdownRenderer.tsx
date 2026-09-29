@@ -49,6 +49,7 @@ import {
   findSectionAnnotationHighlightHit,
   registerSectionAnnotationHighlights,
   resolveSectionAnnotationHighlightEntries,
+  SECTION_ANNOTATION_MARK_SELECTOR,
   type SectionAnnotationHighlightEntry,
   setSectionAnnotationHighlightHit,
   supportsSectionAnnotationHighlights,
@@ -86,8 +87,6 @@ const EMPTY_NOTE_ANNOTATION_IDS = new Set<string>();
 const ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX = 3;
 const ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE = 'data-nous-annotation-inline-highlight';
 const ANNOTATION_NATIVE_BACKED_ATTRIBUTE = 'data-nous-annotation-native-backed';
-const ANNOTATION_PERSISTED_MARK_SELECTOR =
-  'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
 const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
@@ -471,13 +470,14 @@ const MarkdownRenderer = ({
     const entries = resolveSectionAnnotationHighlightEntries(
       article,
       sectionAnnotations,
-      sectionAnnotationBoundaryContext
+      sectionAnnotationBoundaryContext,
+      content
     );
     annotationHighlightEntriesRef.current = entries;
     const unregisterHighlights = registerSectionAnnotationHighlights(entries);
     const resolvedAnnotationIds = new Set(entries.map(entry => entry.annotationId));
     const nativeBackedAnnotationMarks = Array.from(
-      article.querySelectorAll<HTMLElement>(ANNOTATION_PERSISTED_MARK_SELECTOR)
+      article.querySelectorAll<HTMLElement>(SECTION_ANNOTATION_MARK_SELECTOR)
     )
       .filter(mark => {
         const annotationId = mark.dataset.nousAnnotationId ?? mark.dataset.luminaAnnotationId;
@@ -611,6 +611,7 @@ const MarkdownRenderer = ({
         data-nous-annotation-highlight-layer
         className="pointer-events-none absolute inset-0 z-10 mix-blend-multiply dark:mix-blend-screen"
       />
+
       {contentParts.map(part =>
         part.type === 'markdown' ? (
           <MarkdownPart key={part.key} content={part.content} components={markdownComponents} />

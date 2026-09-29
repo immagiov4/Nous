@@ -93,7 +93,8 @@ const getProjectionRange = (
 
 export const createSectionAnnotationSelector = (
   content: string,
-  segments: MarkdownRange[]
+  segments: MarkdownRange[],
+  projection: VisibleProjection = buildVisibleProjection(content)
 ): SectionAnnotationTextSelector | null => {
   const sortedSegments = sortRanges(segments);
   const firstSegment = sortedSegments[0];
@@ -103,7 +104,6 @@ export const createSectionAnnotationSelector = (
   }
 
   const sourceRange = { start: firstSegment.start, end: lastSegment.end };
-  const projection = buildVisibleProjection(content);
   const projectionRange = getProjectionRange(projection, sourceRange);
   if (!projectionRange) {
     return null;

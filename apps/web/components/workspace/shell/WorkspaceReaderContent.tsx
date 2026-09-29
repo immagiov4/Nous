@@ -69,6 +69,7 @@ import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import SectionAnnotationProjectionFeedback from '../../shared/SectionAnnotationProjectionFeedback.tsx';
 import SurfaceErrorBoundary from '../../shared/SurfaceErrorBoundary.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
 import LessonDocumentSources from './LessonDocumentSources.tsx';
@@ -1376,6 +1377,10 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                           })}
                         </div>
                       ))}
+                  <SectionAnnotationProjectionFeedback
+                    annotations={sectionAnnotations}
+                    content={hasTypedContent ? typedContentBlocks : renderedSectionContent || ''}
+                  />
                 </div>
 
                 {visibleArtifactPayloads.length > 0 || lessonNotes.length > 0 ? (

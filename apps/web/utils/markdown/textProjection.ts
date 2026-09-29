@@ -8,6 +8,7 @@ import {
   getMarkdownReferenceLinkLabelRanges,
   isMarkdownPlaceholderLiteralInsideCode,
   type MarkdownAnalysis,
+  type MarkdownProjectionRange,
   type MarkdownRange,
   parseMarkdownAnalysis,
   projectMarkdownMathRange,
@@ -117,6 +118,7 @@ interface VisibleProjectionState {
   rawHtmlTagRanges: MarkdownRange[];
   sourceEnds: number[];
   sourceIndexes: number[];
+  tableSyntaxRangesByStart: Map<number, MarkdownProjectionRange>;
 }
 
 const pushVisibleCharacter = (
@@ -318,6 +320,14 @@ const skipMarkdownToken = (state: VisibleProjectionState): boolean => {
 };
 
 const advanceVisibleProjection = (state: VisibleProjectionState): void => {
+  const tableSyntax = state.tableSyntaxRangesByStart.get(state.index);
+  if (tableSyntax) {
+    if (tableSyntax.replacement) {
+      pushVisibleCharacter(state, tableSyntax.replacement, tableSyntax.start, tableSyntax.start);
+    }
+    state.index = tableSyntax.end;
+    return;
+  }
   if (skipHiddenProjectionRange(state)) return;
   if (skipBlockMarker(state)) return;
   if (projectEscapedFenceOpener(state)) return;
@@ -339,7 +349,8 @@ const advanceVisibleProjection = (state: VisibleProjectionState): void => {
 
 export const buildVisibleProjection = (
   content: string,
-  analysis: MarkdownAnalysis = parseMarkdownAnalysis(content)
+  analysis: MarkdownAnalysis = parseMarkdownAnalysis(content),
+  tableSyntaxRanges: readonly MarkdownProjectionRange[] = []
 ): VisibleProjection => {
   const state: VisibleProjectionState = {
     activeCodeDelimiter: null,
@@ -367,6 +378,7 @@ export const buildVisibleProjection = (
     rawHtmlTagRanges: getRawHtmlTagRanges(content),
     sourceEnds: [],
     sourceIndexes: [],
+    tableSyntaxRangesByStart: new Map(tableSyntaxRanges.map(range => [range.start, range])),
   };
 
   while (state.index < content.length) {

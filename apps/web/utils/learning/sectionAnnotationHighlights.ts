@@ -1,14 +1,19 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
-import { projectKatexAnnotationSource } from '../markdown/codeRanges.ts';
+import { parseMarkdownAnalysis, projectKatexAnnotationSource } from '../markdown/codeRanges.ts';
+import { buildVisibleProjection } from '../markdown/textProjection.ts';
 import {
   buildSectionAnnotationContextText,
+  createSectionAnnotationSelector,
   hasSectionAnnotationSelectorContext,
   isSelectionAnnotation,
   matchesSectionAnnotationSelectorContext,
+  resolveSectionAnnotationSegmentEntries,
   type SectionAnnotationBoundaryContext,
 } from './sectionAnnotationAnchors.ts';
 
 const ANNOTATION_HIGHLIGHT_NAME = 'nous-annotations';
+export const SECTION_ANNOTATION_MARK_SELECTOR =
+  'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
 const NOTE_HIGHLIGHT_NAME = 'nous-annotation-notes';
 const PROJECTION_IGNORED_SELECTOR = 'script, style, [data-nous-speech="ignore"]';
 const HIGHLIGHT_IGNORED_SELECTOR = 'pre, .katex, [data-nous-speech="ignore"]';
@@ -49,6 +54,20 @@ export interface SectionAnnotationHighlightTarget {
 
 const highlightHitsByEvent = new WeakMap<Event, SectionAnnotationHighlightHit>();
 const activeHighlightEntries = new Set<SectionAnnotationHighlightEntry>();
+
+/** Returns visible annotation IDs across all Markdown blocks in one lesson. */
+export const getRenderedSectionAnnotationIds = (root: HTMLElement): Set<string> => {
+  const ids = new Set<string>();
+  for (const entry of activeHighlightEntries) {
+    if (entry.ranges.some(range => root.contains(range.startContainer)))
+      ids.add(entry.annotationId);
+  }
+  for (const mark of root.querySelectorAll<HTMLElement>(SECTION_ANNOTATION_MARK_SELECTOR)) {
+    const id = mark.dataset.nousAnnotationId ?? mark.dataset.luminaAnnotationId;
+    if (id) ids.add(id);
+  }
+  return ids;
+};
 
 export const supportsSectionAnnotationHighlights = (): boolean =>
   typeof CSS !== 'undefined' &&
@@ -298,7 +317,8 @@ const createHighlightRangeGroups = (
 export const resolveSectionAnnotationHighlightEntries = (
   root: HTMLElement,
   annotations?: SectionAnnotation[],
-  boundaryContext?: SectionAnnotationBoundaryContext
+  boundaryContext?: SectionAnnotationBoundaryContext,
+  content?: string
 ): SectionAnnotationHighlightEntry[] => {
   const selectionAnnotations = (annotations || []).filter(isSelectionAnnotation);
   if (selectionAnnotations.length === 0) {
@@ -306,12 +326,29 @@ export const resolveSectionAnnotationHighlightEntries = (
   }
 
   const projection = buildDomTextProjection(root);
-  return selectionAnnotations.flatMap(annotation => {
-    const projectionRange = findSelectorRange(
-      projection,
-      annotation.anchor.selector,
+  // Resolve saved source selectors before translating table syntax to DOM whitespace.
+  // The persisted selector format remains shared with the non-native mark renderer.
+  const analysis = content === undefined ? undefined : parseMarkdownAnalysis(content);
+  const renderedSelectors = new Map<string, SectionAnnotationTextSelector | null>();
+  if (content !== undefined && analysis && analysis.tableSyntaxRanges.length > 0) {
+    const visibleProjection = buildVisibleProjection(content, analysis, analysis.tableSyntaxRanges);
+    for (const { annotation, segments } of resolveSectionAnnotationSegmentEntries(
+      content,
+      selectionAnnotations,
       boundaryContext
-    );
+    )) {
+      renderedSelectors.set(
+        annotation.id,
+        createSectionAnnotationSelector(content, segments, visibleProjection)
+      );
+    }
+  }
+  return selectionAnnotations.flatMap(annotation => {
+    const selector = renderedSelectors.has(annotation.id)
+      ? renderedSelectors.get(annotation.id)
+      : annotation.anchor.selector;
+    if (!selector) return [];
+    const projectionRange = findSelectorRange(projection, selector, boundaryContext);
     if (!projectionRange) {
       return [];
     }

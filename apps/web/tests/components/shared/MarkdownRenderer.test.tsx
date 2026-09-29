@@ -3,11 +3,17 @@ import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import MarkdownRenderer from '../../../components/shared/MarkdownRenderer.tsx';
+import SectionAnnotationProjectionFeedback from '../../../components/shared/SectionAnnotationProjectionFeedback.tsx';
 import { resolveProjectDocumentImage } from '../../../services/projects/projectDocumentImageResolver.ts';
+import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import {
   getSectionAnnotationHighlightHit,
   resolveSectionAnnotationHighlightEntries,
 } from '../../../utils/learning/sectionAnnotationHighlights.ts';
+import {
+  applySectionAnnotation,
+  removeSectionAnnotation,
+} from '../../../utils/learning/sectionAnnotations.ts';
 
 vi.mock('../../../services/projects/projectDocumentImageResolver.ts', async importOriginal => ({
   ...(await importOriginal()),
@@ -36,6 +42,160 @@ afterEach(() => {
 });
 
 describe('MarkdownRenderer', () => {
+  test.each([
+    true,
+    false,
+  ])('reports unresolved saved annotations once per change (native=%s)', native => {
+    class TestHighlight extends Set<AbstractRange> {}
+    if (native) {
+      vi.stubGlobal('CSS', { highlights: new Map() });
+      vi.stubGlobal('Highlight', TestHighlight);
+    } else {
+      vi.stubGlobal('CSS', {});
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const original = 'Original text';
+    const annotations =
+      applySectionAnnotation({ content: original, selectedText: original, note: 'Retained note' })
+        ?.annotations || [];
+    const surface = (includeAnnotations: boolean) => (
+      <div>
+        <MarkdownRenderer
+          content="Changed text"
+          sectionAnnotations={includeAnnotations ? annotations : []}
+        />
+        <SectionAnnotationProjectionFeedback
+          content="Changed text"
+          annotations={includeAnnotations ? annotations : []}
+        />
+      </div>
+    );
+    const { rerender, unmount } = render(surface(true));
+    expect(screen.getByRole('alert')).toBeVisible();
+    expect(warn).toHaveBeenCalledExactlyOnceWith('[Nous][AnnotationProjection]', {
+      unresolvedCount: 1,
+    });
+    rerender(surface(true));
+    expect(warn).toHaveBeenCalledTimes(1);
+    rerender(surface(false));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(annotations[0].note).toBe('Retained note');
+    unmount();
+    warn.mockRestore();
+  });
+
+  test.each([
+    true,
+    false,
+  ])('checks annotation visibility across all lesson blocks (native=%s)', native => {
+    class TestHighlight extends Set<AbstractRange> {}
+    vi.stubGlobal('CSS', native ? { highlights: new Map() } : {});
+    if (native) vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [],
+    });
+    const content = 'First passage';
+    const annotations =
+      applySectionAnnotation({ content, selectedText: content })?.annotations || [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { unmount } = render(
+      <div>
+        <MarkdownRenderer
+          content={native ? content : materializeSectionAnnotationMarks(content, annotations)}
+          sectionAnnotations={annotations}
+        />
+        <MarkdownRenderer content="Second passage" sectionAnnotations={annotations} />
+        <SectionAnnotationProjectionFeedback content={content} annotations={annotations} />
+      </div>
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+    unmount();
+    warn.mockRestore();
+  });
+
+  test.each([
+    '| Label | Value |\n| --- | --- |\n| **word** | `a\\|b` |',
+    'Label|Value\n---|---\n**word**|`a\\|b`',
+  ])('preserves rendered inline formatting and literal pipes in table cells: %s', content => {
+    class TestHighlight extends Set<AbstractRange> {}
+    const highlights = new Map<string, TestHighlight>();
+    vi.stubGlobal('CSS', { highlights });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [],
+    });
+    const annotations =
+      applySectionAnnotation({ content, selectedText: 'word' })?.annotations || [];
+    const { container, unmount } = render(
+      <MarkdownRenderer content={content} sectionAnnotations={annotations} />
+    );
+    expect(container.querySelector('code')?.textContent).toBe('a|b');
+    expect(
+      Array.from(highlights.get('nous-annotations') || []).map(range => range.toString())
+    ).toEqual(['word']);
+    expect(screen.queryByRole('alert')).toBeNull();
+    unmount();
+    vi.stubGlobal('CSS', {});
+    const fallback = render(
+      <MarkdownRenderer
+        content={materializeSectionAnnotationMarks(content, annotations)}
+        sectionAnnotations={annotations}
+      />
+    );
+    expect(fallback.container.querySelector('td mark')?.textContent).toBe('word');
+    expect(screen.queryByRole('alert')).toBeNull();
+    fallback.unmount();
+  });
+  test('paints header and repeated table cells through creation, reload, note and removal', () => {
+    class TestHighlight extends Set<AbstractRange> {}
+    const highlights = new Map<string, TestHighlight>();
+    vi.stubGlobal('CSS', { highlights });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ bottom: 28, height: 18, left: 10, right: 80, top: 10, width: 70 }],
+    });
+    const content = '| Name | Detail |\n| --- | --- |\n| Same | First |\n| Same | Second |';
+    let annotations =
+      applySectionAnnotation({ content, selectedText: 'Name', createId: () => 'header' })
+        ?.annotations || [];
+    for (const [index, detail] of ['First', 'Second'].entries()) {
+      annotations =
+        applySectionAnnotation({
+          content,
+          annotations,
+          selectedText: 'Same',
+          contextAfter: `| ${detail} |`,
+          note: index === 1 ? 'Saved note' : '',
+          createId: () => `cell-${index}`,
+        })?.annotations || [];
+    }
+    expect(annotations.map(annotation => annotation.id)).toEqual(['header', 'cell-0', 'cell-1']);
+    const persisted = JSON.stringify(annotations);
+    const { container, unmount } = render(
+      <MarkdownRenderer content={content} sectionAnnotations={annotations} />
+    );
+    const cells = () =>
+      Array.from(highlights.get('nous-annotations') || []).map(
+        range => (range.startContainer.parentElement?.closest('td, th') as HTMLElement)?.textContent
+      );
+    expect(cells()).toEqual(['Name', 'Same', 'Same']);
+    expect(highlights.get('nous-annotation-notes')?.size).toBe(1);
+    unmount();
+    const reloaded = JSON.parse(persisted);
+    const next = render(<MarkdownRenderer content={content} sectionAnnotations={reloaded} />);
+    expect(cells()).toEqual(['Name', 'Same', 'Same']);
+    expect(JSON.stringify(reloaded)).toBe(persisted);
+    const removed = removeSectionAnnotation({ annotations: reloaded, annotationId: 'cell-0' });
+    next.rerender(<MarkdownRenderer content={content} sectionAnnotations={removed.annotations} />);
+    expect(cells()).toEqual(['Name', 'Same']);
+    expect(container.querySelector('mark')).toBeNull();
+    next.unmount();
+    expect(highlights.get('nous-annotations')?.size).toBe(0);
+  });
   test('paints anchored annotations without inserting marks when CSS highlights are available', () => {
     class TestHighlight extends Set<AbstractRange> {}
 
