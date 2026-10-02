@@ -7,7 +7,6 @@ export const WORKSPACE_WORKFLOW_IDS = [
   'generateExercise',
   'evaluateExercise',
   'loadSection',
-  'contextQuestion',
   'createLesson',
   'completeSection',
 ] as const;
@@ -131,7 +130,6 @@ export const selectBlockingProgress = (
 };
 
 export const selectIsContextBusy = (workflowState: WorkspaceWorkflowState): boolean =>
-  workflowState.contextQuestion.status === 'pending' ||
   workflowState.createLesson.status === 'pending';
 
 import type { GenerationProgressSnapshot } from '../openrouter/generationProgress.ts';

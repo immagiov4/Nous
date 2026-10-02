@@ -322,23 +322,6 @@ export const mergeCourseSourceDescriptors = (
   return normalizeCourseSourceOrder([...merged, ...[...replacementsByName.values()].flat()]);
 };
 
-export const attachStoredPrimarySource = (
-  source: ProjectSource,
-  storedFile: FileData
-): ProjectSource => {
-  const descriptors = getCourseSourceDescriptors(source);
-  const primarySourceId = source.file.sourceId;
-  const primary =
-    descriptors.find(descriptor => descriptor.id === primarySourceId) || descriptors[0];
-  const hydratedFile = primary ? { ...storedFile, sourceId: primary.id } : storedFile;
-  const sources = primary
-    ? descriptors.map(descriptor =>
-        descriptor.id === primary.id ? { ...descriptor, file: hydratedFile } : descriptor
-      )
-    : source.sources;
-  return { ...source, file: hydratedFile, sources };
-};
-
 export const attachStoredSources = (
   source: ProjectSource,
   storedFiles: readonly FileData[]

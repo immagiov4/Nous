@@ -35,6 +35,7 @@ import type {
   UserProfile,
   WorkspaceDomainState,
 } from '../../../types.ts';
+import type { AssessmentSessionState } from './assessmentSession.ts';
 
 type OpenRouterServiceModule = typeof import('../../../services/openrouter/index.ts');
 
@@ -236,6 +237,7 @@ export interface WorkspaceControllerStateAdapter {
 }
 
 export interface CreateWorkspaceControllerArgs {
+  assessmentSession: AssessmentSessionState;
   domain: WorkspaceDomainControllerAdapter;
   openRouter?: OpenRouterServiceModule;
   projectLibrary: WorkspaceProjectLibraryAdapter;
@@ -266,6 +268,7 @@ export interface OpenProjectOptions {
 }
 
 export interface WorkspaceControllerContext {
+  assessmentSession: AssessmentSessionState;
   domain: WorkspaceDomainControllerAdapter;
   openRouter: OpenRouterServiceModule;
   persistHydratedSnapshot: (snapshot: ProjectSnapshot, revision?: number) => void;
@@ -279,12 +282,6 @@ export interface WorkspaceControllerContext {
 export interface WorkspaceControllerCommands {
   cancelAssessment: () => Promise<void>;
   cancelProjectOpen: () => void;
-  askContextQuestion: (args: {
-    contextAfter?: string;
-    contextBefore?: string;
-    question: string;
-    selectedText: string;
-  }) => Promise<{ answer?: string; errorMessage?: string }>;
   advanceActiveSection: () => Promise<AdvanceSectionOutcome>;
   completeActiveSection: () => Promise<CompleteSectionOutcome>;
   createLessonFromSelection: (args: {

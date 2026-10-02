@@ -2,7 +2,11 @@ import { buildLessonInstructionPackBlock } from '@shared/lessonInstructionPacks'
 import { buildUserGenerationNotesBlock } from '@shared/lessonWritingContract';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
-import { findProjectLessonSection } from '../projects/projectLesson.js';
+import {
+  findProjectLessonSection,
+  findResearchLesson,
+  readPreviousLessonTitles,
+} from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import {
   type LessonEvidencePacket,
@@ -19,10 +23,8 @@ import type { LessonCoverageDecision } from '../services/lessonGenerationCoverag
 import {
   buildLessonGenerationInput,
   buildLessonPedagogicalContext,
-  readPreviousLessonTitles,
 } from '../services/lessonGenerationPreparation.js';
 import {
-  findResearchLesson,
   generateLessonResearchSummary,
   normalizeResearchedWebSources,
   type ResearchYouTube,
