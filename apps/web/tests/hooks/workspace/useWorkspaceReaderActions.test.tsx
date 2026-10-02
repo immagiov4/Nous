@@ -18,7 +18,6 @@ afterEach(() => {
 const buildHookArgs = (overrides: Partial<HookArgs> = {}): HookArgs => ({
   activeSectionId: null,
   advanceActiveSection: vi.fn(async () => 'noop' as const),
-  askContextQuestion: vi.fn(async () => ({})),
   closeContextMenu: vi.fn(),
   completeActiveSection: vi.fn(async () => 'noop' as const),
   contextMenu: {} as HookArgs['contextMenu'],

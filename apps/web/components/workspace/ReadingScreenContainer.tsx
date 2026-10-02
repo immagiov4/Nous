@@ -203,7 +203,6 @@ export const ReadingScreenContainer = ({
   const {
     activeSection,
     activeSectionId,
-    askContextQuestion,
     completeActiveSection,
     currentProjectId,
     createLessonFromSelection,
@@ -314,7 +313,6 @@ export const ReadingScreenContainer = ({
   const readerActions = useWorkspaceReaderActions({
     activeSectionId,
     advanceActiveSection: controller.advanceActiveSection,
-    askContextQuestion,
     closeContextMenu,
     completeActiveSection,
     contextMenu,
