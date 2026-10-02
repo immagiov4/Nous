@@ -1,20 +1,13 @@
 import { APICallError } from 'ai';
 import { expect, test, vi } from 'vitest';
 
-const { createConfiguredTextModelMock, generateTextMock, openRouterModelSupportsImagesMock } =
-  vi.hoisted(() => ({
-    createConfiguredTextModelMock: vi.fn(() => ({ model: 'model', providerOptions: {} })),
-    generateTextMock: vi.fn(),
-    openRouterModelSupportsImagesMock: vi.fn(),
-  }));
-
-vi.mock('ai', async importOriginal => ({
-  ...(await importOriginal<typeof import('ai')>()),
-  generateText: generateTextMock,
+const { generateStructuredOutputMock, openRouterModelSupportsImagesMock } = vi.hoisted(() => ({
+  generateStructuredOutputMock: vi.fn(),
+  openRouterModelSupportsImagesMock: vi.fn(),
 }));
 
-vi.mock('../../src/services/aiSdkTextModel.js', () => ({
-  createConfiguredTextModelFromResolution: createConfiguredTextModelMock,
+vi.mock('../../src/services/structuredGeneration.js', () => ({
+  generateStructuredOutput: generateStructuredOutputMock,
 }));
 
 vi.mock('../../src/services/openRouterModelCapabilities.js', () => ({
@@ -56,7 +49,7 @@ test.each([
   ['classDiagram\nclass Animal {\n+String name\n}\nAnimal <|-- Duck', true],
   ['erDiagram\nCUSTOMER ||--o{ ORDER : places', true],
 ] as const)('validates generated and revised Mermaid syntax: %s', async (code, valid) => {
-  generateTextMock.mockReset().mockResolvedValue({ output: { code, imageRequests: [] } });
+  generateStructuredOutputMock.mockReset().mockResolvedValue({ code, imageRequests: [] });
   const input = {
     ...reviewInput,
     plan: { ...visualPlan, visualType: 'mermaid_class' as const },
@@ -175,9 +168,9 @@ test('the backend image provider returns raster bytes for the workflow staging b
 });
 
 test('visual review retries without the preview when OpenRouter has no image-capable endpoint', async () => {
-  generateTextMock.mockClear();
+  generateStructuredOutputMock.mockClear();
   openRouterModelSupportsImagesMock.mockResolvedValueOnce(true);
-  generateTextMock
+  generateStructuredOutputMock
     .mockRejectedValueOnce(
       new APICallError({
         data: {
@@ -195,22 +188,20 @@ test('visual review retries without the preview when OpenRouter has no image-cap
       })
     )
     .mockResolvedValueOnce({
-      output: {
-        code: '<svg viewBox="0 0 680 200"><text x="100" y="100">Corretto</text></svg>',
-        imageRequests: [],
-      },
+      code: '<svg viewBox="0 0 680 200"><text x="100" y="100">Corretto</text></svg>',
+      imageRequests: [],
     });
 
   const revised = await reviseLessonVisualArtifact(reviewInput);
 
   expect(revised?.code).toContain('Corretto');
-  expect(generateTextMock).toHaveBeenCalledTimes(2);
-  expect(generateTextMock.mock.calls[0]?.[0]).toHaveProperty('messages');
-  expect(generateTextMock.mock.calls[1]?.[0]).toHaveProperty('prompt');
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  expect(generateStructuredOutputMock.mock.calls[0]?.[0].image).toBeDefined();
+  expect(generateStructuredOutputMock.mock.calls[1]?.[0].image).toBeUndefined();
 });
 
 test('visual review preserves unrelated provider failures', async () => {
-  generateTextMock.mockClear();
+  generateStructuredOutputMock.mockClear();
   openRouterModelSupportsImagesMock.mockResolvedValueOnce(true);
   const providerError = new APICallError({
     data: { error: { code: 404, message: 'Unknown model' } },
@@ -220,18 +211,16 @@ test('visual review preserves unrelated provider failures', async () => {
     statusCode: 404,
     url: 'https://openrouter.ai/api/v1/chat/completions',
   });
-  generateTextMock.mockRejectedValueOnce(providerError);
+  generateStructuredOutputMock.mockRejectedValueOnce(providerError);
 
   await expect(reviseLessonVisualArtifact(reviewInput)).rejects.toBe(providerError);
-  expect(generateTextMock).toHaveBeenCalledOnce();
+  expect(generateStructuredOutputMock).toHaveBeenCalledOnce();
 });
 
 test('visual review omits the preview before calling a text-only OpenRouter model', async () => {
-  generateTextMock.mockClear().mockResolvedValueOnce({
-    output: {
-      code: '<svg viewBox="0 0 680 200"><text x="100" y="100">Corretto</text></svg>',
-      imageRequests: [],
-    },
+  generateStructuredOutputMock.mockClear().mockResolvedValueOnce({
+    code: '<svg viewBox="0 0 680 200"><text x="100" y="100">Corretto</text></svg>',
+    imageRequests: [],
   });
   openRouterModelSupportsImagesMock.mockResolvedValueOnce(false);
 
@@ -240,7 +229,6 @@ test('visual review omits the preview before calling a text-only OpenRouter mode
   });
 
   expect(openRouterModelSupportsImagesMock).toHaveBeenCalledWith('text-only-artifact');
-  expect(generateTextMock).toHaveBeenCalledOnce();
-  expect(generateTextMock.mock.calls[0]?.[0]).toHaveProperty('prompt');
-  expect(generateTextMock.mock.calls[0]?.[0]).not.toHaveProperty('messages');
+  expect(generateStructuredOutputMock).toHaveBeenCalledOnce();
+  expect(generateStructuredOutputMock.mock.calls[0]?.[0].image).toBeUndefined();
 });

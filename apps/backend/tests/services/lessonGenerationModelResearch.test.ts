@@ -3,24 +3,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateResearchSummary } from '../../src/services/lessonGenerationModel.js';
 
-const { createConfiguredTextModelFromResolution, generateText, runCodexAppServerTurn } = vi.hoisted(
-  () => ({
-    createConfiguredTextModelFromResolution: vi.fn(),
-    generateText: vi.fn(),
-    runCodexAppServerTurn: vi.fn(),
-  })
-);
+const { generateStructuredOutput } = vi.hoisted(() => ({ generateStructuredOutput: vi.fn() }));
 
-vi.mock('ai', async importOriginal => ({
-  ...(await importOriginal<typeof import('ai')>()),
-  generateText,
-}));
-
-vi.mock('../../src/services/aiSdkTextModel.js', () => ({
-  createConfiguredTextModelFromResolution,
-}));
-
-vi.mock('../../src/services/codexAppServer.js', () => ({ runCodexAppServerTurn }));
+vi.mock('../../src/services/structuredGeneration.js', () => ({ generateStructuredOutput }));
 
 const validResearchResponse = {
   avoidOversimplifying: [],
@@ -64,13 +49,7 @@ const generationInput = (aiProvider: 'codex' | 'openrouter' = 'codex') => ({
 
 describe('lesson research model response contract', () => {
   beforeEach(() => {
-    createConfiguredTextModelFromResolution.mockReset();
-    createConfiguredTextModelFromResolution.mockReturnValue({
-      model: 'model',
-      providerOptions: {},
-    });
-    generateText.mockReset();
-    runCodexAppServerTurn.mockReset();
+    generateStructuredOutput.mockReset();
   });
 
   test.each([
@@ -109,13 +88,13 @@ describe('lesson research model response contract', () => {
       response: { ...validResearchResponse, youtubeCandidateDecisions: undefined },
     },
   ])('rejects an unusable identifier at $expectedPath', async ({ expectedPath, response }) => {
-    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(response));
+    generateStructuredOutput.mockResolvedValue(response);
 
     await expect(generateResearchSummary(generationInput())).rejects.toMatchObject({
       code: 'lesson_research_output_invalid',
       feedback: expect.stringContaining(expectedPath),
     });
-    expect(runCodexAppServerTurn.mock.calls[0]?.[0].outputSchema).toMatchObject({
+    expect(generateStructuredOutput.mock.calls[0]?.[0].output.schema).toMatchObject({
       properties: {
         sources: {
           items: {
@@ -133,23 +112,28 @@ describe('lesson research model response contract', () => {
     });
   });
 
-  test('validates configured text-model output at the same boundary', async () => {
-    generateText.mockResolvedValue({
-      output: {
-        ...validResearchResponse,
-        sources: [{ ...validResearchResponse.sources[0], title: '   ' }],
-      },
-    });
+  test.each([
+    { aiProvider: 'codex' as const, slot: 'research' },
+    { aiProvider: 'openrouter' as const, slot: 'lesson' },
+  ])('fills declared gaps with web research on the $slot slot for $aiProvider', async ({
+    aiProvider,
+    slot,
+  }) => {
+    generateStructuredOutput.mockResolvedValue(validResearchResponse);
 
-    await expect(generateResearchSummary(generationInput('openrouter'))).rejects.toMatchObject({
-      code: 'lesson_research_output_invalid',
-      feedback: expect.stringContaining('sources[0].title'),
-    });
-    expect(createConfiguredTextModelFromResolution).toHaveBeenCalledOnce();
+    await generateResearchSummary({ ...generationInput(aiProvider), sourceContext: 'Materiale.' });
+
+    expect(generateStructuredOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Integrare il contesto disponibile.'),
+        slot,
+        webSearch: true,
+      })
+    );
   });
 
   test('returns a valid research response unchanged', async () => {
-    runCodexAppServerTurn.mockResolvedValue(JSON.stringify(validResearchResponse));
+    generateStructuredOutput.mockResolvedValue(validResearchResponse);
 
     await expect(generateResearchSummary(generationInput())).resolves.toEqual(
       validResearchResponse
