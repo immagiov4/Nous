@@ -131,6 +131,7 @@ export const prepareUploadedCourseSource = async (
 };
 
 export const createWorkspaceControllerContext = ({
+  assessmentSession,
   domain,
   openRouter = OpenRouterService,
   projectLibrary,
@@ -139,6 +140,7 @@ export const createWorkspaceControllerContext = ({
   state,
   stopAudio,
 }: CreateWorkspaceControllerArgs): WorkspaceControllerContext => ({
+  assessmentSession,
   domain,
   openRouter,
   persistHydratedSnapshot: (snapshot, revision) => {

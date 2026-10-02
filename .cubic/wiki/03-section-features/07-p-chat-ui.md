@@ -101,9 +101,11 @@ A repeated approval adopts a diagnostic that already started, provided the cours
 
 The development route `/dev/diagnostic` uses the real chat and question components with fixed synthetic stages. It is enabled only in development.
 
+Stop cancels the interview that is actually running, even after the screen re-renders. The pending start, its run identity, draft ownership and cancellation state live in `AssessmentSessionState`, created once per workspace mount and shared by every controller instance.
+
 Proposal events identify support for course preferences. Resumed historical interviews keep their original controls. The [diagnostic workflow](01-p-course-gen.md#diagnostic-evidence-before-generation) owns evidence storage and evaluation.
 
-Sources: [DiagnosticFlow.tsx](../../../apps/web/components/library/diagnostic/DiagnosticFlow.tsx), [SelfAssessmentControl.tsx](../../../apps/web/components/library/diagnostic/SelfAssessmentControl.tsx), [assessmentPlanning.ts](../../../apps/web/hooks/workspace/controller/assessmentPlanning.ts), [courseInterviewClient.ts](../../../apps/web/services/openrouter/courseInterviewClient.ts)
+Sources: [DiagnosticFlow.tsx](../../../apps/web/components/library/diagnostic/DiagnosticFlow.tsx), [SelfAssessmentControl.tsx](../../../apps/web/components/library/diagnostic/SelfAssessmentControl.tsx), [assessmentPlanning.ts](../../../apps/web/hooks/workspace/controller/assessmentPlanning.ts), [assessmentSession.ts](../../../apps/web/hooks/workspace/controller/assessmentSession.ts), [courseInterviewClient.ts](../../../apps/web/services/openrouter/courseInterviewClient.ts)
 
 ### HomeChatComposer
 The `HomeChatComposer` is a specialized input component designed for the library view. It supports two primary modes: `new-course` for onboarding/assessment and `library-query` for interacting with the existing library.
