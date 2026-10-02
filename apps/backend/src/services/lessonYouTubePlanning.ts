@@ -1,14 +1,7 @@
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
-import { generateText, jsonSchema, Output } from 'ai';
 
-import {
-  type GlobalModelConfig,
-  resolveAiProviderForSlot,
-  resolveCodexServiceTierForSlot,
-  resolveTextModelConfig,
-} from '../config/modelConfig.js';
-import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import { runCodexAppServerTurn } from './codexAppServer.js';
+import type { GlobalModelConfig } from '../config/modelConfig.js';
+import { generateStructuredOutput } from './structuredGeneration.js';
 
 const MAX_QUERY_CHARS = 80;
 const MIN_QUERY_TERMS = 2;
@@ -112,38 +105,14 @@ ${JSON.stringify({
 })}`;
 
   try {
-    let plan: LessonYouTubeSearchPlan;
-    if (resolveAiProviderForSlot(input.config, 'research') === 'codex') {
-      const modelConfig = resolveTextModelConfig(input.config, 'research');
-      const response = await runCodexAppServerTurn({
-        allowWebSearch: false,
-        developerInstructions: `${YOUTUBE_QUERY_SYSTEM_INSTRUCTION} Non usare strumenti e non accedere a file locali.`,
-        input: [{ text: prompt, type: 'text' }],
-        model: modelConfig.model,
-        outputSchema: YOUTUBE_SEARCH_PLAN_SCHEMA.schema,
-        reasoningEffort: modelConfig.reasoningEffort,
-        serviceTier: resolveCodexServiceTierForSlot(input.config, 'research'),
-        signal: input.signal,
-      });
-      plan = JSON.parse(response) as LessonYouTubeSearchPlan;
-    } else {
-      const configured = createConfiguredTextModel(input.config, 'research');
-      const { output } = await generateText({
-        abortSignal: input.signal,
-        maxRetries: 0,
-        model: configured.model,
-        output: Output.object({
-          name: YOUTUBE_SEARCH_PLAN_SCHEMA.name,
-          schema: jsonSchema<LessonYouTubeSearchPlan>(
-            YOUTUBE_SEARCH_PLAN_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
-          ),
-        }),
-        prompt,
-        providerOptions: configured.providerOptions,
-        system: YOUTUBE_QUERY_SYSTEM_INSTRUCTION,
-      });
-      plan = output;
-    }
+    const plan = await generateStructuredOutput<LessonYouTubeSearchPlan>({
+      config: input.config,
+      output: YOUTUBE_SEARCH_PLAN_SCHEMA,
+      prompt,
+      signal: input.signal,
+      slot: 'research',
+      system: YOUTUBE_QUERY_SYSTEM_INSTRUCTION,
+    });
     return {
       fallbackQuery: normalizeQuery(plan.fallbackQuery),
       focusConcept: plan.focusConcept.trim(),

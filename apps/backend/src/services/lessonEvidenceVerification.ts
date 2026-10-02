@@ -1,16 +1,9 @@
-import { generateText, jsonSchema, Output } from 'ai';
 import * as z from 'zod';
-import {
-  resolveAiProviderForSlot,
-  resolveCodexServiceTierForSlot,
-  resolveTextModelConfig,
-} from '../config/modelConfig.js';
 import { firstSanitizedZodIssue, formatValidationPath } from '../utils/zodDiagnostics.js';
-import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import { runCodexAppServerTurn } from './codexAppServer.js';
 import { buildLessonEvidencePromptPassages, type LessonEvidencePacket } from './lessonEvidence.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
+import { generateStructuredOutput } from './structuredGeneration.js';
 
 const EvidenceReferenceSchema = z.object({
   materialId: z.string().min(1),
@@ -116,40 +109,15 @@ export const verifyLessonEvidence = async (
     ...(input.retryFeedback?.trim() ? { retryFeedback: input.retryFeedback.trim() } : {}),
   });
   const { $schema: _dialect, ...schema } = FactualReviewSchema.toJSONSchema();
-  let response: unknown;
-  if (resolveAiProviderForSlot(input.config, 'lesson') === 'codex') {
-    const model = resolveTextModelConfig(input.config, 'lesson');
-    response = JSON.parse(
-      await runCodexAppServerTurn({
-        allowWebSearch: false,
-        developerInstructions: FACTUAL_REVIEW_INSTRUCTIONS,
-        input: [{ text: prompt, type: 'text' }],
-        model: model.model,
-        outputSchema: schema,
-        reasoningEffort: 'medium',
-        serviceTier: resolveCodexServiceTierForSlot(input.config, 'lesson'),
-        signal: input.signal,
-      })
-    );
-  } else {
-    const configured = createConfiguredTextModel(input.config, 'lesson', {
-      reasoningEffort: 'medium',
-    });
-    response = (
-      await generateText({
-        abortSignal: input.signal,
-        maxRetries: 0,
-        model: configured.model,
-        output: Output.object({
-          name: 'lesson_factual_verification',
-          schema: jsonSchema(schema as unknown as Parameters<typeof jsonSchema>[0]),
-        }),
-        prompt,
-        providerOptions: configured.providerOptions,
-        system: FACTUAL_REVIEW_INSTRUCTIONS,
-      })
-    ).output;
-  }
+  const response = await generateStructuredOutput<unknown>({
+    config: input.config,
+    output: { name: 'lesson_factual_verification', schema },
+    prompt,
+    reasoningEffort: 'medium',
+    signal: input.signal,
+    slot: 'lesson',
+    system: FACTUAL_REVIEW_INSTRUCTIONS,
+  });
   validateFactualReview(response, evidence, draft);
 };
 

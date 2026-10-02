@@ -7,8 +7,8 @@ import {
 } from '../../src/services/lessonGenerationCoverage.js';
 import { encodeLessonPrimarySources } from '../../src/services/lessonPrimarySourceContext.js';
 
-const { runCodexAppServerTurn } = vi.hoisted(() => ({ runCodexAppServerTurn: vi.fn() }));
-vi.mock('../../src/services/codexAppServer.js', () => ({ runCodexAppServerTurn }));
+const { generateStructuredOutput } = vi.hoisted(() => ({ generateStructuredOutput: vi.fn() }));
+vi.mock('../../src/services/structuredGeneration.js', () => ({ generateStructuredOutput }));
 
 test('coverage decisions preserve complete material and normalize factual gaps', () => {
   expect(normalizeLessonCoverageDecision({ missingTopics: [], sufficient: true }, 'Basi')).toEqual({
@@ -56,7 +56,7 @@ test('missing source evidence requests research without invoking a model', async
 });
 
 test('concise source evidence is assessed by the model', async () => {
-  runCodexAppServerTurn.mockResolvedValue(JSON.stringify({ missingTopics: [], sufficient: true }));
+  generateStructuredOutput.mockResolvedValue({ missingTopics: [], sufficient: true });
   const sourceContext = encodeLessonPrimarySources([
     {
       source: {
@@ -68,15 +68,19 @@ test('concise source evidence is assessed by the model', async () => {
     },
   ]);
   const decision = await selectLessonSourceCoverage({
-    config: {
-      ...getGlobalModelConfig(),
-      aiProviderOverrides: { research: 'codex' },
-    },
+    config: getGlobalModelConfig(),
     description: 'Explain the prerequisite.',
     signal: new AbortController().signal,
     sourceContext,
     title: 'Prerequisite',
   });
   expect(decision).toEqual({ missingTopics: [], needsResearch: false });
-  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput).toHaveBeenCalledWith(
+    expect.objectContaining({
+      output: expect.objectContaining({ name: 'lesson_source_coverage' }),
+      prompt: expect.stringContaining('Brief source text.'),
+      slot: 'research',
+    })
+  );
 });

@@ -1,14 +1,7 @@
 import { getMarkdownHeadings } from '@shared/lessonPdfImageSelection';
-import { generateText, jsonSchema, Output } from 'ai';
 
-import {
-  type GlobalModelConfig,
-  resolveAiProviderForSlot,
-  resolveCodexServiceTierForSlot,
-  resolveTextModelConfig,
-} from '../config/modelConfig.js';
-import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import { runCodexAppServerTurn } from './codexAppServer.js';
+import type { GlobalModelConfig } from '../config/modelConfig.js';
+import { generateStructuredOutput } from './structuredGeneration.js';
 
 export type LessonLearningAidKind = 'analogy' | 'definition' | 'formula';
 
@@ -183,37 +176,15 @@ export type RequestLessonLearningAidDrafts = (
 ) => Promise<LessonLearningAidDraft[]>;
 
 const requestLessonLearningAidDrafts: RequestLessonLearningAidDrafts = async (input, prompt) => {
-  if (resolveAiProviderForSlot(input.config, 'lesson') === 'codex') {
-    const modelConfig = resolveTextModelConfig(input.config, 'lesson');
-    const response = await runCodexAppServerTurn({
-      allowWebSearch: false,
-      developerInstructions: `${LEARNING_AIDS_SYSTEM_INSTRUCTION} Do not use tools or access local files.`,
-      input: [{ text: prompt, type: 'text' }],
-      model: modelConfig.model,
-      outputSchema: LEARNING_AIDS_RESPONSE_SCHEMA.schema,
-      reasoningEffort: modelConfig.reasoningEffort,
-      serviceTier: resolveCodexServiceTierForSlot(input.config, 'lesson'),
-      signal: input.signal,
-    });
-    return (JSON.parse(response) as { aids: LessonLearningAidDraft[] }).aids;
-  }
-
-  const configured = createConfiguredTextModel(input.config, 'lesson');
-  const { output } = await generateText({
-    abortSignal: input.signal,
-    maxRetries: 0,
-    model: configured.model,
-    output: Output.object({
-      name: LEARNING_AIDS_RESPONSE_SCHEMA.name,
-      schema: jsonSchema<{ aids: LessonLearningAidDraft[] }>(
-        LEARNING_AIDS_RESPONSE_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
-      ),
-    }),
+  const { aids } = await generateStructuredOutput<{ aids: LessonLearningAidDraft[] }>({
+    config: input.config,
+    output: LEARNING_AIDS_RESPONSE_SCHEMA,
     prompt,
-    providerOptions: configured.providerOptions,
+    signal: input.signal,
+    slot: 'lesson',
     system: LEARNING_AIDS_SYSTEM_INSTRUCTION,
   });
-  return output.aids;
+  return aids;
 };
 
 export const createLessonLearningAidGenerator =
