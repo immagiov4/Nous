@@ -22,7 +22,6 @@ import {
   LESSON_SOURCE_UNAVAILABLE_MESSAGE,
   LessonSourceUnavailableError,
 } from '../../../services/openrouter/lessonGenerationClient.ts';
-import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
 import {
   selectIsBlocking,
   type WorkspaceWorkflowId,
@@ -35,7 +34,6 @@ import {
   type LessonNode,
 } from '../../../types.ts';
 import { findPathNodeById, flattenLessons } from '../../../utils/learning/pathNodes.ts';
-import { loadProjectSourceFile } from './controllerContext.ts';
 import type {
   AdvanceSectionOutcome,
   CompleteSectionOutcome,
@@ -46,7 +44,6 @@ import type {
 } from './types.ts';
 
 const READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN: WorkspaceWorkflowId[] = [
-  'contextQuestion',
   'createLesson',
   'completeSection',
   'generateExercise',
@@ -756,58 +753,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     });
   }
 
-  async function askContextQuestion(args: {
-    contextAfter?: string;
-    contextBefore?: string;
-    question: string;
-    selectedText: string;
-  }): Promise<{ answer?: string; errorMessage?: string }> {
-    const canAnswerFromLesson = Boolean(
-      domain.activeSection?.content ||
-        domain.sectionContent ||
-        args.contextBefore ||
-        args.contextAfter
-    );
-    const requestId = state.beginWorkflow('contextQuestion', t('Analisi contesto...'));
-    const sourceFile = canAnswerFromLesson
-      ? getProjectSourceFile(domain.source)
-      : await loadProjectSourceFile(context, () =>
-          state.isWorkflowCurrent('contextQuestion', requestId)
-        );
-
-    if (!state.isWorkflowCurrent('contextQuestion', requestId)) {
-      return {};
-    }
-
-    if (!sourceFile && !canAnswerFromLesson) {
-      const errorMessage =
-        'Questo progetto non ha una fonte collegata e la lezione corrente non contiene abbastanza contesto per rispondere.';
-      state.failWorkflow('contextQuestion', requestId, errorMessage);
-      return {
-        errorMessage,
-      };
-    }
-
-    try {
-      const answer = await openRouter.askContextualQuestion({
-        file: sourceFile,
-        selection: args.selectedText,
-        question: args.question,
-        lessonTitle: domain.activeSection?.title,
-        lessonDescription: domain.activeSection?.description,
-        lessonContent: domain.activeSection?.content || domain.sectionContent,
-        contextBefore: args.contextBefore,
-        contextAfter: args.contextAfter,
-      });
-      state.succeedWorkflow('contextQuestion', requestId);
-      return { answer };
-    } catch (error) {
-      const errorMessage = getErrorMessage(error);
-      state.failWorkflow('contextQuestion', requestId, errorMessage);
-      return { errorMessage };
-    }
-  }
-
   async function createLessonFromSelection(
     args: SublessonFocus
   ): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
@@ -1178,7 +1123,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
   return {
     advanceActiveSection,
-    askContextQuestion,
     completeActiveSection,
     createLessonFromSelection,
     goToLibrary,

@@ -279,12 +279,6 @@ export interface WorkspaceControllerContext {
 export interface WorkspaceControllerCommands {
   cancelAssessment: () => Promise<void>;
   cancelProjectOpen: () => void;
-  askContextQuestion: (args: {
-    contextAfter?: string;
-    contextBefore?: string;
-    question: string;
-    selectedText: string;
-  }) => Promise<{ answer?: string; errorMessage?: string }>;
   advanceActiveSection: () => Promise<AdvanceSectionOutcome>;
   completeActiveSection: () => Promise<CompleteSectionOutcome>;
   createLessonFromSelection: (args: {

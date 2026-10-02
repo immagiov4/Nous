@@ -96,7 +96,6 @@ const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
   'generateExercise',
   'evaluateExercise',
   'loadSection',
-  'contextQuestion',
   'createLesson',
   'completeSection',
 ] as const;

@@ -39,12 +39,6 @@ import type { CreateLessonOutcome, OpenSectionOutcome } from './controller/types
 interface UseWorkspaceReaderActionsArgs {
   activeSectionId: string | null;
   advanceActiveSection: () => Promise<'journey-complete' | 'noop' | 'opened-next'>;
-  askContextQuestion: (args: {
-    contextAfter?: string;
-    contextBefore?: string;
-    question: string;
-    selectedText: string;
-  }) => Promise<{ answer?: string; errorMessage?: string }>;
   closeContextMenu: () => void;
   completeActiveSection: () => Promise<'journey-complete' | 'noop' | 'opened-next'>;
   contextMenu: ContextMenuState;
@@ -128,7 +122,6 @@ const mergeGeneratedVisuals = (
 export const useWorkspaceReaderActions = ({
   activeSectionId,
   advanceActiveSection,
-  askContextQuestion: _askContextQuestion,
   closeContextMenu,
   completeActiveSection,
   contextMenu,
