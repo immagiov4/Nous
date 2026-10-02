@@ -124,7 +124,11 @@ describe('lesson research model response contract', () => {
     await generateResearchSummary({ ...generationInput(aiProvider), sourceContext: 'Materiale.' });
 
     expect(generateStructuredOutput).toHaveBeenCalledWith(
-      expect.objectContaining({ slot, webSearch: true })
+      expect.objectContaining({
+        prompt: expect.stringContaining('Integrare il contesto disponibile.'),
+        slot,
+        webSearch: true,
+      })
     );
   });
 
