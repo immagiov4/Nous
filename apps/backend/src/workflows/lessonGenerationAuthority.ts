@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
-import { findProjectLessonSection } from '../projects/projectLesson.js';
+import {
+  findProjectLessonSection,
+  readLessonAuthoringContext,
+  readPreviousLessonTitles,
+} from '../projects/projectLesson.js';
 import type { LearningPlanNodeSnapshot, ProjectSnapshot } from '../projects/types.js';
-import { isRecord } from '../utils/validation.js';
 import { canonicalJson } from './schemaFingerprint.js';
 
 const GENERATED_LESSON_FIELDS = new Set([
@@ -32,34 +35,17 @@ const generatedSectionShape = (section: LearningPlanNodeSnapshot): Record<string
     )
   );
 
-const findNestedValueById = (values: unknown, id: string): unknown => {
-  if (!Array.isArray(values)) return null;
-  for (const value of values) {
-    if (!isRecord(value)) continue;
-    if (value.id === id) return value;
-    const nested = findNestedValueById(value.children, id);
-    if (nested) return nested;
-  }
-  return null;
-};
-
-const findResearchLesson = (project: ProjectSnapshot, sectionId: string): unknown =>
-  isRecord(project.researchCoursePlan) && Array.isArray(project.researchCoursePlan.lessons)
-    ? (project.researchCoursePlan.lessons.find(
-        candidate => isRecord(candidate) && candidate.id === sectionId
-      ) ?? null)
-    : null;
-
 export const buildLessonGenerationSourceFingerprint = (
   project: ProjectSnapshot,
   sectionId: string
 ): string => {
   const section = findProjectLessonSection(project, sectionId);
   if (!section) throw new Error('Lesson source authority target is missing.');
-  const parent =
-    typeof section.parentId === 'string'
-      ? findProjectLessonSection(project, section.parentId)
-      : null;
+  const { parent, researchLesson, syllabusItem } = readLessonAuthoringContext(
+    project,
+    sectionId,
+    section.parentId
+  );
   const authority = {
     documentIndex: project.documentIndex ?? null,
     existingDossier: project.researchDossiersBySectionId?.[sectionId] ?? null,
@@ -71,16 +57,12 @@ export const buildLessonGenerationSourceFingerprint = (
           title: parent.title ?? null,
         }
       : null,
-    previousLessonTitles: (project.learningPlan?.modules ?? []).flatMap(module =>
-      (module.children ?? []).flatMap(candidate =>
-        candidate.isCompleted && typeof candidate.title === 'string' ? [candidate.title] : []
-      )
-    ),
-    researchLesson: findResearchLesson(project, sectionId),
+    previousLessonTitles: readPreviousLessonTitles(project),
+    researchLesson,
     section: generationSectionShape(section),
     source: project.source ?? null,
     sourceKind: project.sourceKind ?? null,
-    syllabusItem: findNestedValueById(project.syllabus, sectionId),
+    syllabusItem,
     title: project.learningPlan?.title ?? project.title ?? null,
     userProfile: project.userProfile ?? null,
   };

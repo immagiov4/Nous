@@ -3,7 +3,6 @@ export {
   buildAssessmentDocumentContextFromTextSource,
   buildAssessmentDocumentPrompt,
 } from './assessment.ts';
-export { askContextualQuestion } from './contextChat.ts';
 export {
   generateDurableCourse,
   repairDurablePdfMapping,
