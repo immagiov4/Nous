@@ -3,18 +3,22 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateResearchSummary } from '../../src/services/lessonGenerationModel.js';
 
-const { createConfiguredTextModel, generateText, runCodexAppServerTurn } = vi.hoisted(() => ({
-  createConfiguredTextModel: vi.fn(),
-  generateText: vi.fn(),
-  runCodexAppServerTurn: vi.fn(),
-}));
+const { createConfiguredTextModelFromResolution, generateText, runCodexAppServerTurn } = vi.hoisted(
+  () => ({
+    createConfiguredTextModelFromResolution: vi.fn(),
+    generateText: vi.fn(),
+    runCodexAppServerTurn: vi.fn(),
+  })
+);
 
 vi.mock('ai', async importOriginal => ({
   ...(await importOriginal<typeof import('ai')>()),
   generateText,
 }));
 
-vi.mock('../../src/services/aiSdkTextModel.js', () => ({ createConfiguredTextModel }));
+vi.mock('../../src/services/aiSdkTextModel.js', () => ({
+  createConfiguredTextModelFromResolution,
+}));
 
 vi.mock('../../src/services/codexAppServer.js', () => ({ runCodexAppServerTurn }));
 
@@ -60,8 +64,11 @@ const generationInput = (aiProvider: 'codex' | 'openrouter' = 'codex') => ({
 
 describe('lesson research model response contract', () => {
   beforeEach(() => {
-    createConfiguredTextModel.mockReset();
-    createConfiguredTextModel.mockReturnValue({ model: 'model', providerOptions: {} });
+    createConfiguredTextModelFromResolution.mockReset();
+    createConfiguredTextModelFromResolution.mockReturnValue({
+      model: 'model',
+      providerOptions: {},
+    });
     generateText.mockReset();
     runCodexAppServerTurn.mockReset();
   });
@@ -138,7 +145,7 @@ describe('lesson research model response contract', () => {
       code: 'lesson_research_output_invalid',
       feedback: expect.stringContaining('sources[0].title'),
     });
-    expect(createConfiguredTextModel).toHaveBeenCalledOnce();
+    expect(createConfiguredTextModelFromResolution).toHaveBeenCalledOnce();
   });
 
   test('returns a valid research response unchanged', async () => {
