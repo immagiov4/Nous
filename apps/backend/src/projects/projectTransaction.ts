@@ -3,13 +3,8 @@ import type { TransactionSql } from 'postgres';
 import { reconcileProjectAssets } from './projectAssetReconciliation.js';
 import { buildProjectMeta } from './projectMeta.js';
 import { applyProjectPatch } from './projectPatch.js';
-import {
-  mergeProjectSnapshotRow,
-  splitProjectSnapshot,
-  stripProjectRevision,
-  toPostgresJson,
-} from './projectPersistence.js';
-import { ProjectRevisionConflictError } from './projectRevision.js';
+import { mergeProjectMetaRow, mergeProjectSnapshotRow } from './projectPersistence.js';
+import { writeProjectMetaRevision, writeProjectSnapshotRow } from './projectRevisionWrite.js';
 import type {
   ProjectPatch,
   ProjectSaveResult,
@@ -24,15 +19,6 @@ interface LockedProjectRow {
   meta: SavedProjectMeta;
   revision: number | string;
   snapshot: Omit<ProjectSnapshot, 'documentIndex'>;
-}
-
-interface ProjectMetaRow {
-  meta: SavedProjectMeta;
-  revision: number | string;
-}
-
-interface ProjectIdRow {
-  id: string;
 }
 
 export interface LockedProjectSnapshot {
@@ -129,40 +115,18 @@ export const patchProjectInTransaction = async (
       ? currentSnapshot.updatedAt
       : input.updatedAt;
   const snapshot = applyProjectPatch(currentSnapshot, patch, updatedAt);
-  const meta = buildProjectMeta(snapshot, { ...row.meta, revision: currentRevision });
-  const { documentIndex, snapshotWithoutDocumentIndex } = splitProjectSnapshot(snapshot);
-
-  const metaRows = await transaction<ProjectMetaRow[]>`
-    update public.projects
-    set meta = ${transaction.json(toPostgresJson(stripProjectRevision(meta)))},
-        updated_at = ${meta.updatedAt},
-        last_opened_at = ${meta.lastOpenedAt},
-        server_updated_at = now(),
-        revision = revision + 1
-    where user_id = ${input.userId}
-      and id = ${input.projectId}
-      and revision = ${currentRevision}
-    returning meta, revision
-  `;
-  const savedMeta = metaRows[0];
-  if (!savedMeta) {
-    throw new ProjectRevisionConflictError();
-  }
-
-  const snapshotRows = await transaction<ProjectIdRow[]>`
-    update public.project_snapshots
-    set snapshot = ${transaction.json(toPostgresJson(snapshotWithoutDocumentIndex))},
-        document_index = ${
-          documentIndex === null ? null : transaction.json(toPostgresJson(documentIndex))
-        },
-        updated_at = ${snapshot.updatedAt},
-        server_updated_at = now()
-    where user_id = ${input.userId} and id = ${input.projectId}
-    returning id
-  `;
-  if (!snapshotRows[0]) {
-    throw new ProjectTransactionTargetNotFoundError(input.projectId);
-  }
+  const savedMeta = await writeProjectMetaRevision(transaction, {
+    expectedRevision: currentRevision,
+    isNewProject: false,
+    meta: buildProjectMeta(snapshot, { ...row.meta, revision: currentRevision }),
+    projectId: input.projectId,
+    userId: input.userId,
+  });
+  await writeProjectSnapshotRow(transaction, {
+    projectId: input.projectId,
+    snapshot,
+    userId: input.userId,
+  });
   await reconcileProjectAssets(transaction, {
     previousSnapshot: currentSnapshot,
     projectId: input.projectId,
@@ -172,7 +136,7 @@ export const patchProjectInTransaction = async (
 
   return {
     projectChanged: true,
-    meta: { ...savedMeta.meta, revision: Number(savedMeta.revision) },
+    meta: mergeProjectMetaRow(savedMeta),
     snapshot,
   };
 };
