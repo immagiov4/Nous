@@ -76,4 +76,11 @@ test('concise source evidence is assessed by the model', async () => {
   });
   expect(decision).toEqual({ missingTopics: [], needsResearch: false });
   expect(generateStructuredOutput).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput).toHaveBeenCalledWith(
+    expect.objectContaining({
+      output: expect.objectContaining({ name: 'lesson_source_coverage' }),
+      prompt: expect.stringContaining('Brief source text.'),
+      slot: 'research',
+    })
+  );
 });

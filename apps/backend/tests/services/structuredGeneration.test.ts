@@ -26,12 +26,14 @@ const OUTPUT = {
   },
 };
 
+const signal = new AbortController().signal;
+
 const request = (provider: 'codex' | 'openrouter') => ({
   config: { ...getGlobalModelConfig(), aiProviderOverrides: { lesson: provider } },
   output: OUTPUT,
   prompt: 'Domanda',
   reasoningEffort: 'medium' as const,
-  signal: new AbortController().signal,
+  signal,
   slot: 'lesson' as const,
   system: 'Rispondi.',
 });
@@ -55,6 +57,7 @@ test('Codex turns are tool-free, schema-bound, and parsed as JSON', async () => 
       input: [{ text: 'Domanda', type: 'text' }],
       outputSchema: OUTPUT.schema,
       reasoningEffort: 'medium',
+      signal,
     })
   );
 });
@@ -77,10 +80,17 @@ test('AI SDK providers receive the system prompt unchanged', async () => {
   expect(createConfiguredTextModel).toHaveBeenCalledWith(expect.anything(), 'lesson', {
     reasoningEffort: 'medium',
   });
-  expect(generateText.mock.lastCall?.[0]).toMatchObject({
+  const call = generateText.mock.lastCall?.[0];
+  expect(call).toMatchObject({
+    abortSignal: signal,
     maxRetries: 0,
     prompt: 'Domanda',
     providerOptions: { p: {} },
     system: 'Rispondi.',
+  });
+  await expect(call.output.responseFormat).resolves.toMatchObject({
+    name: 'answer',
+    schema: OUTPUT.schema,
+    type: 'json',
   });
 });
