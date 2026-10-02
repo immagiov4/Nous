@@ -5,16 +5,8 @@ import {
 } from '@shared/lessonGenerationPolicy';
 import { SYSTEM_INSTRUCTION_TEACHER } from '@shared/lessonWritingContract';
 import { hasTextOutsidePdfImagePlaceholders } from '@shared/pdfImagePlaceholder';
-import { generateText, jsonSchema, Output } from 'ai';
-import {
-  type GlobalModelConfig,
-  resolveAiProviderForSlot,
-  resolveCodexServiceTierForSlot,
-  resolveTextModelConfig,
-} from '../config/modelConfig.js';
+import { type GlobalModelConfig, resolveAiProviderForSlot } from '../config/modelConfig.js';
 import { firstSanitizedZodIssue, formatValidationPath } from '../utils/zodDiagnostics.js';
-import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import { runCodexAppServerTurn } from './codexAppServer.js';
 import { verifyLessonEvidence } from './lessonEvidenceVerification.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import { buildLessonGenerationPrompt } from './lessonGenerationPrompt.js';
@@ -29,6 +21,7 @@ import type {
 import { verifyLessonContentDraft } from './lessonGenerationVerification.js';
 import { LessonResearchModelResponseSchema } from './lessonResearchContract.js';
 import { isResearchSourceSelected, type ResearchSourceRouting } from './researchSourceRouting.js';
+import { generateStructuredOutput } from './structuredGeneration.js';
 
 export type {
   GenerateResearch,
@@ -267,25 +260,25 @@ const RESEARCH_MODE_INSTRUCTIONS: Record<
 > = {
   'source-backed-gaps': {
     developer:
-      'Build a factual research dossier as structured JSON. Use web search only for the declared missing topics. Do not access local files.',
+      'Build a factual research dossier as structured JSON. Use web search only for the declared missing topics.',
     prompt:
       "Integra il materiale originale con ricerca web autorevole soltanto per gli argomenti mancanti dichiarati. Per ogni fonte web restituisci titolo leggibile, URL completo e una nota concisa sull'uso.",
   },
   'source-backed-refresh': {
     developer:
-      'Rebuild a factual research dossier as structured JSON. Treat the supplied source as primary, verify and complement it with current authoritative web sources, and do not access local files.',
+      'Rebuild a factual research dossier as structured JSON. Treat the supplied source as primary, verify and complement it with current authoritative web sources.',
     prompt:
       "Rigenera integralmente il dossier: mantieni il materiale originale come fonte primaria e aggiungi ricerca web autorevole che verifichi i fatti, chiarisca i passaggi difficili e integri sviluppi pertinenti. Per ogni fonte web restituisci titolo leggibile, URL completo e una nota concisa sull'uso.",
   },
   'source-free': {
     developer:
-      'Build a complete factual research dossier for the lesson title, description, and learning objective as structured JSON. Use authoritative web sources. Do not access local files.',
+      'Build a complete factual research dossier for the lesson title, description, and learning objective as structured JSON. Use authoritative web sources.',
     prompt:
       "Ricerca sul web fonti autorevoli per sviluppare integralmente il titolo, la descrizione e l'obiettivo didattico della lezione. Per ogni fonte web restituisci titolo leggibile, URL completo e una nota concisa sull'uso.",
   },
   'source-sufficient': {
     developer:
-      'Build a factual research dossier as structured JSON only from the supplied context. Do not use tools or access local files.',
+      'Build a factual research dossier as structured JSON only from the supplied context.',
     prompt:
       'Non effettuare ricerca web: struttura esclusivamente il materiale e le fonti gia forniti.',
   },
@@ -313,74 +306,27 @@ Per ogni fonte YouTube con transcript restituisci esattamente una youtubeCandida
 
 export const generateResearchSummary: GenerateResearch = async input => {
   const request = resolveLessonResearchRequest(input);
-  const resolved = resolveTextModelConfig(input.config, request.slot);
-  const prompt = buildResearchPrompt(input, request);
-  if (resolveAiProviderForSlot(input.config, request.slot) === 'codex') {
-    const response = await runCodexAppServerTurn({
-      allowWebSearch: request.webSearch,
-      developerInstructions: RESEARCH_MODE_INSTRUCTIONS[request.mode].developer,
-      input: [{ text: prompt, type: 'text' }],
-      model: resolved.model,
-      outputSchema: LESSON_RESEARCH_RESPONSE_SCHEMA.schema,
-      reasoningEffort: resolved.reasoningEffort,
-      serviceTier: resolveCodexServiceTierForSlot(input.config, request.slot),
-      signal: input.signal,
-    });
-    return parseLessonResearchResponse(JSON.parse(response));
-  }
-
-  const configured = createConfiguredTextModel(input.config, request.slot, {
+  const output = await generateStructuredOutput<unknown>({
+    config: input.config,
+    output: LESSON_RESEARCH_RESPONSE_SCHEMA,
+    prompt: buildResearchPrompt(input, request),
+    signal: input.signal,
+    slot: request.slot,
+    system: RESEARCH_MODE_INSTRUCTIONS[request.mode].developer,
     webSearch: request.webSearch,
-  });
-  const { output } = await generateText({
-    abortSignal: input.signal,
-    maxRetries: 0,
-    model: configured.model,
-    output: Output.object({
-      name: LESSON_RESEARCH_RESPONSE_SCHEMA.name,
-      schema: jsonSchema<LessonResearchSummary>(
-        LESSON_RESEARCH_RESPONSE_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
-      ),
-    }),
-    prompt,
-    providerOptions: configured.providerOptions,
-    ...(configured.tools ? { tools: configured.tools } : {}),
   });
   return parseLessonResearchResponse(output);
 };
 
-export const generateLessonContent: GenerateLessonContent = async input => {
-  const prompt = buildLessonGenerationPrompt(input);
-  if (resolveAiProviderForSlot(input.config, 'lesson') === 'codex') {
-    const response = await runCodexAppServerTurn({
-      allowWebSearch: false,
-      developerInstructions: `${SYSTEM_INSTRUCTION_TEACHER}\nGenerate the requested lesson as structured JSON from the supplied source and research context. Do not use tools or access local files.`,
-      input: [{ text: prompt, type: 'text' }],
-      model: input.config.codexLessonModel,
-      outputSchema: LESSON_JOB_RESPONSE_SCHEMA.schema,
-      reasoningEffort: input.config.lessonReasoningEffort,
-      serviceTier: resolveCodexServiceTierForSlot(input.config, 'lesson'),
-      signal: input.signal,
-    });
-    return JSON.parse(response) as LessonContentDraft;
-  }
-  const configured = createConfiguredTextModel(input.config, 'lesson');
-  const { output } = await generateText({
-    abortSignal: input.signal,
-    maxRetries: 0,
-    model: configured.model,
-    output: Output.object({
-      name: LESSON_JOB_RESPONSE_SCHEMA.name,
-      schema: jsonSchema<LessonContentDraft>(
-        LESSON_JOB_RESPONSE_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
-      ),
-    }),
-    prompt,
-    providerOptions: configured.providerOptions,
-    system: SYSTEM_INSTRUCTION_TEACHER,
+export const generateLessonContent: GenerateLessonContent = async input =>
+  generateStructuredOutput<LessonContentDraft>({
+    config: input.config,
+    output: LESSON_JOB_RESPONSE_SCHEMA,
+    prompt: buildLessonGenerationPrompt(input),
+    signal: input.signal,
+    slot: 'lesson',
+    system: `${SYSTEM_INSTRUCTION_TEACHER}\nGenerate the requested lesson as structured JSON from the supplied source and research context.`,
   });
-  return output;
-};
 
 const hasInvalidQuizPlacement = (draft: LessonContentDraft): boolean => {
   let hasExplanatoryMarkdown = false;

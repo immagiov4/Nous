@@ -62,6 +62,33 @@ test('Codex turns are tool-free, schema-bound, and parsed as JSON', async () => 
   );
 });
 
+test('web search lets Codex search while still forbidding local files', async () => {
+  runCodexAppServerTurn.mockResolvedValue('{"answer":"42"}');
+
+  await generateStructuredOutput({ ...request('codex'), webSearch: true });
+
+  expect(runCodexAppServerTurn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      allowWebSearch: true,
+      developerInstructions: 'Rispondi. Do not access local files.',
+    })
+  );
+});
+
+test('web search passes the provider search tools to AI SDK models', async () => {
+  const tools = { web_search: {} };
+  createConfiguredTextModel.mockReturnValue({ model: 'model', providerOptions: {}, tools });
+  generateText.mockResolvedValue({ output: { answer: '42' } });
+
+  await generateStructuredOutput({ ...request('openrouter'), webSearch: true });
+
+  expect(createConfiguredTextModel).toHaveBeenCalledWith(expect.anything(), 'lesson', {
+    reasoningEffort: 'medium',
+    webSearch: true,
+  });
+  expect(generateText.mock.lastCall?.[0].tools).toBe(tools);
+});
+
 test('malformed Codex output surfaces as a SyntaxError', async () => {
   runCodexAppServerTurn.mockResolvedValue('not json');
 
@@ -79,6 +106,7 @@ test('AI SDK providers receive the system prompt unchanged', async () => {
   expect(runCodexAppServerTurn).not.toHaveBeenCalled();
   expect(createConfiguredTextModel).toHaveBeenCalledWith(expect.anything(), 'lesson', {
     reasoningEffort: 'medium',
+    webSearch: false,
   });
   const call = generateText.mock.lastCall?.[0];
   expect(call).toMatchObject({
