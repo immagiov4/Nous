@@ -44,16 +44,7 @@ import {
   SYSTEM_INSTRUCTION_TEACHER,
   YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '@shared/lessonWritingContract';
-import { generateText, jsonSchema, Output } from 'ai';
 import * as z from 'zod';
-
-import {
-  resolveAiProviderForSlot,
-  resolveCodexServiceTierForSlot,
-  resolveTextModelConfig,
-} from '../config/modelConfig.js';
-import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import { runCodexAppServerTurn } from './codexAppServer.js';
 import {
   isLessonStructuredOutputError,
   retryLessonGenerationCorrection,
@@ -63,6 +54,7 @@ import {
   getLessonReferenceAvailability,
 } from './lessonGenerationPrompt.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
+import { generateStructuredOutput } from './structuredGeneration.js';
 
 interface LessonResponseSchemaContract {
   name: string;
@@ -490,39 +482,16 @@ export const verifyLessonContentDraft = async (input: {
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
   let verified: VerifiedLessonContentDraft;
   try {
-    if (resolveAiProviderForSlot(generationInput.config, 'lesson') === 'codex') {
-      const modelConfig = resolveTextModelConfig(generationInput.config, 'lesson');
-      const response = await runCodexAppServerTurn({
-        allowWebSearch: false,
-        developerInstructions: `${SYSTEM_INSTRUCTION_TEACHER}\nVerify and minimally correct the supplied lesson draft. Return every required checklist item. Do not use tools or access local files.`,
-        input: [{ text: prompt, type: 'text' }],
-        model: modelConfig.model,
-        outputSchema: schema.schema,
-        reasoningEffort: 'medium',
-        serviceTier: resolveCodexServiceTierForSlot(generationInput.config, 'lesson'),
-        signal: generationInput.signal,
-      });
-      verified = JSON.parse(response) as VerifiedLessonContentDraft;
-    } else {
-      const configured = createConfiguredTextModel(generationInput.config, 'lesson', {
-        reasoningEffort: 'medium',
-      });
-      const { output } = await generateText({
-        abortSignal: generationInput.signal,
-        maxRetries: 0,
-        model: configured.model,
-        output: Output.object({
-          name: schema.name,
-          schema: jsonSchema<VerifiedLessonContentDraft>(
-            schema.schema as unknown as Parameters<typeof jsonSchema>[0]
-          ),
-        }),
-        prompt,
-        providerOptions: configured.providerOptions,
-        system: SYSTEM_INSTRUCTION_TEACHER,
-      });
-      verified = output;
-    }
+    verified = await generateStructuredOutput<VerifiedLessonContentDraft>({
+      config: generationInput.config,
+      output: schema,
+      prompt,
+      reasoningEffort: 'medium',
+      signal: generationInput.signal,
+      slot: 'lesson',
+      system: `${SYSTEM_INSTRUCTION_TEACHER}
+Verify and minimally correct the supplied lesson draft. Return every required checklist item.`,
+    });
   } catch (error) {
     generationInput.signal.throwIfAborted();
     if (!isLessonStructuredOutputError(error)) throw error;
