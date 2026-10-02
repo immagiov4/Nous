@@ -7,8 +7,8 @@ import type {
 } from '../../src/services/lessonGenerationTypes.js';
 import { automationCourse, flawedAutomationLesson } from '../fixtures/lessonReviewQuality.js';
 
-const { runCodexAppServerTurn } = vi.hoisted(() => ({ runCodexAppServerTurn: vi.fn() }));
-vi.mock('../../src/services/codexAppServer.js', () => ({ runCodexAppServerTurn }));
+const { generateStructuredOutput } = vi.hoisted(() => ({ generateStructuredOutput: vi.fn() }));
+vi.mock('../../src/services/structuredGeneration.js', () => ({ generateStructuredOutput }));
 
 const generationInput: LessonGenerationInput = {
   config: { ...getGlobalModelConfig(), aiProvider: 'codex', aiProviderOverrides: {} },
@@ -78,10 +78,10 @@ const mockReview = (
   lessonIntegrity: unknown,
   reportOverride?: Record<string, unknown>
 ) => {
-  runCodexAppServerTurn.mockImplementation(async ({ outputSchema }) => {
+  generateStructuredOutput.mockImplementation(async ({ output }) => {
     const checkIds: string[] =
-      outputSchema.properties.verificationReport.items.properties.checkId.enum;
-    return JSON.stringify({
+      output.schema.properties.verificationReport.items.properties.checkId.enum;
+    return {
       ...draft,
       ...(lessonIntegrity === undefined ? {} : { lessonIntegrity }),
       verificationReport: checkIds.map(checkId => ({
@@ -91,14 +91,14 @@ const mockReview = (
         status: 'pass',
         ...(checkId === reportOverride?.checkId ? reportOverride : {}),
       })),
-    });
+    };
   });
 };
 
 const review = () => reviewLessonContentDraftStrict({ draft: original, generationInput });
 
 beforeEach(() => {
-  runCodexAppServerTurn.mockReset();
+  generateStructuredOutput.mockReset();
 });
 
 test.each([
@@ -116,7 +116,7 @@ test.each([
   await expect(reviewLessonContentDraftStrict({ draft, generationInput })).resolves.toEqual(
     original
   );
-  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput).toHaveBeenCalledOnce();
 });
 
 test('rejects Mermaid fences introduced by model review', async () => {
@@ -129,7 +129,7 @@ test('rejects Mermaid fences introduced by model review', async () => {
   await expect(review()).rejects.toMatchObject({
     code: 'lesson_embedded_mermaid_unsupported',
   });
-  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput).toHaveBeenCalledOnce();
 });
 
 describe('lesson review quality report contract', () => {
@@ -373,7 +373,7 @@ describe('lesson review preserves its subject and learning objectives', () => {
       },
     });
     await expect(review()).rejects.toMatchObject({ code: 'lesson_review_integrity_failed' });
-    expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+    expect(generateStructuredOutput).toHaveBeenCalledOnce();
   });
 
   test.each([
@@ -401,9 +401,9 @@ describe('lesson review preserves its subject and learning objectives', () => {
   test('returns the corrected lesson and removes both internal reports', async () => {
     mockReview(original, preserved);
     await expect(review()).resolves.toEqual(original);
-    expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
-    expect(runCodexAppServerTurn.mock.calls[0][0].reasoningEffort).toBe('medium');
-    const schema = runCodexAppServerTurn.mock.calls[0][0].outputSchema;
+    expect(generateStructuredOutput).toHaveBeenCalledOnce();
+    expect(generateStructuredOutput.mock.calls[0][0].reasoningEffort).toBe('medium');
+    const schema = generateStructuredOutput.mock.calls[0][0].output.schema;
     expect(schema.properties.lessonIntegrity).not.toHaveProperty('$schema');
     expect(schema.required).toEqual(
       expect.arrayContaining(['contentBlocks', 'verificationReport', 'lessonIntegrity'])
