@@ -106,8 +106,9 @@ export interface ProjectRevisionCommit {
 /**
  * Commits one project revision: the metadata row with its revision check, attached
  * rows, the snapshot row, and asset reconciliation against the replaced snapshot.
- * Every project snapshot write goes through here; callers own locking and building
- * the snapshot and its metadata.
+ * Every new project revision goes through here; callers own locking and building
+ * the snapshot and its metadata. Read-time legacy repairs that backfill derived
+ * fields without a new revision write the snapshot row directly.
  */
 export const commitProjectRevision = async (
   sql: ProjectWriteSql,
