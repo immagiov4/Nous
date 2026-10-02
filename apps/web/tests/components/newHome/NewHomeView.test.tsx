@@ -100,11 +100,14 @@ const mockPhoneViewport = (isPhoneViewport: boolean) => {
 
 describe('NewHomeView library interactions', () => {
   beforeEach(() => {
+    // A developer .env.local can enable Supabase auth, which mounts the account menu.
+    vi.stubEnv('VITE_AUTH_MODE', 'local-bypass');
     globalThis.history.replaceState({}, '', '/');
     globalThis.localStorage.clear();
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     globalThis.matchMedia = originalMatchMedia;
   });
 
