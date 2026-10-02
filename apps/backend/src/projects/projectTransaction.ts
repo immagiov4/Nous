@@ -1,15 +1,8 @@
 import type { TransactionSql } from 'postgres';
-
-import { reconcileProjectAssets } from './projectAssetReconciliation.js';
 import { buildProjectMeta } from './projectMeta.js';
 import { applyProjectPatch } from './projectPatch.js';
-import {
-  mergeProjectSnapshotRow,
-  splitProjectSnapshot,
-  stripProjectRevision,
-  toPostgresJson,
-} from './projectPersistence.js';
-import { ProjectRevisionConflictError } from './projectRevision.js';
+import { mergeProjectSnapshotRow } from './projectPersistence.js';
+import { commitProjectRevision } from './projectRevisionWrite.js';
 import type {
   ProjectPatch,
   ProjectSaveResult,
@@ -24,15 +17,6 @@ interface LockedProjectRow {
   meta: SavedProjectMeta;
   revision: number | string;
   snapshot: Omit<ProjectSnapshot, 'documentIndex'>;
-}
-
-interface ProjectMetaRow {
-  meta: SavedProjectMeta;
-  revision: number | string;
-}
-
-interface ProjectIdRow {
-  id: string;
 }
 
 export interface LockedProjectSnapshot {
@@ -101,6 +85,33 @@ const lockProjectInTransaction = async (
   };
 };
 
+export interface PlannedProjectRevision {
+  meta: SavedProjectMeta;
+  snapshot: ProjectSnapshot;
+}
+
+/**
+ * Computes the next project revision from a locked project, or null when the patch
+ * builder declines. Pure, so the Postgres transaction and test adapters share the
+ * same timestamp, patch and metadata rules.
+ */
+export const planProjectPatch = (
+  locked: LockedProjectSnapshot & { meta: SavedProjectMeta },
+  { buildPatch, updatedAt }: Pick<TransactionalProjectPatchInput, 'buildPatch' | 'updatedAt'>
+): PlannedProjectRevision | null => {
+  const patch = buildPatch({ revision: locked.revision, snapshot: locked.snapshot });
+  if (patch === null) return null;
+  const effectiveUpdatedAt =
+    Date.parse(locked.snapshot.updatedAt) > Date.parse(updatedAt)
+      ? locked.snapshot.updatedAt
+      : updatedAt;
+  const snapshot = applyProjectPatch(locked.snapshot, patch, effectiveUpdatedAt);
+  return {
+    meta: buildProjectMeta(snapshot, { ...locked.meta, revision: locked.revision }),
+    snapshot,
+  };
+};
+
 /**
  * Applies a project patch while the workflow checkpoint transaction owns the
  * project row lock. The callback performs only synchronous validation and
@@ -116,63 +127,25 @@ export const patchProjectInTransaction = async (
     transaction,
     input
   );
-  const patch = input.buildPatch({ revision: currentRevision, snapshot: currentSnapshot });
-  if (patch === null) {
+  const planned = planProjectPatch(
+    { meta: row.meta, revision: currentRevision, snapshot: currentSnapshot },
+    input
+  );
+  if (!planned) {
     return {
       projectChanged: false,
       meta: { ...row.meta, revision: currentRevision },
       snapshot: currentSnapshot,
     };
   }
-  const updatedAt =
-    Date.parse(currentSnapshot.updatedAt) > Date.parse(input.updatedAt)
-      ? currentSnapshot.updatedAt
-      : input.updatedAt;
-  const snapshot = applyProjectPatch(currentSnapshot, patch, updatedAt);
-  const meta = buildProjectMeta(snapshot, { ...row.meta, revision: currentRevision });
-  const { documentIndex, snapshotWithoutDocumentIndex } = splitProjectSnapshot(snapshot);
-
-  const metaRows = await transaction<ProjectMetaRow[]>`
-    update public.projects
-    set meta = ${transaction.json(toPostgresJson(stripProjectRevision(meta)))},
-        updated_at = ${meta.updatedAt},
-        last_opened_at = ${meta.lastOpenedAt},
-        server_updated_at = now(),
-        revision = revision + 1
-    where user_id = ${input.userId}
-      and id = ${input.projectId}
-      and revision = ${currentRevision}
-    returning meta, revision
-  `;
-  const savedMeta = metaRows[0];
-  if (!savedMeta) {
-    throw new ProjectRevisionConflictError();
-  }
-
-  const snapshotRows = await transaction<ProjectIdRow[]>`
-    update public.project_snapshots
-    set snapshot = ${transaction.json(toPostgresJson(snapshotWithoutDocumentIndex))},
-        document_index = ${
-          documentIndex === null ? null : transaction.json(toPostgresJson(documentIndex))
-        },
-        updated_at = ${snapshot.updatedAt},
-        server_updated_at = now()
-    where user_id = ${input.userId} and id = ${input.projectId}
-    returning id
-  `;
-  if (!snapshotRows[0]) {
-    throw new ProjectTransactionTargetNotFoundError(input.projectId);
-  }
-  await reconcileProjectAssets(transaction, {
-    previousSnapshot: currentSnapshot,
+  const meta = await commitProjectRevision(transaction, {
+    expectedRevision: currentRevision,
+    isNewProject: false,
+    meta: planned.meta,
     projectId: input.projectId,
-    snapshot,
+    readPreviousSnapshot: async () => currentSnapshot,
+    snapshot: planned.snapshot,
     userId: input.userId,
   });
-
-  return {
-    projectChanged: true,
-    meta: { ...savedMeta.meta, revision: Number(savedMeta.revision) },
-    snapshot,
-  };
+  return { projectChanged: true, meta, snapshot: planned.snapshot };
 };

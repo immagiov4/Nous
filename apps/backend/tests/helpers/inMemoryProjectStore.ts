@@ -41,6 +41,11 @@ import {
   readEmbeddedProjectSources,
 } from '../../src/projects/projectSource.js';
 import {
+  ProjectTransactionTargetNotFoundError,
+  type patchProjectInTransaction,
+  planProjectPatch,
+} from '../../src/projects/projectTransaction.js';
+import {
   indexSourceArchive,
   PROJECT_SOURCE_ARCHIVE_LIMITS,
 } from '../../src/projects/sourceArchive.js';
@@ -457,6 +462,50 @@ export class InMemoryProjectStore implements ProjectStore {
     projects.set(id, { incarnationId: existing.incarnationId, meta, snapshot });
     return clone(meta);
   }
+
+  /** Stores a snapshot as already-persisted state, as rows in Postgres would hold it. */
+  seedProject(userId: string, snapshot: ProjectSnapshot): SavedProjectMeta {
+    const meta = { ...buildProjectMeta(snapshot), revision: 1 };
+    this.getProjects(userId).set(snapshot.id, {
+      incarnationId: randomUUID(),
+      meta,
+      snapshot: clone(snapshot),
+    });
+    this.ensurePlacement(userId, snapshot.id);
+    return clone(meta);
+  }
+
+  /**
+   * In-memory adapter for the workflow commit seam (`patchProjectInTransaction`).
+   * The transaction argument is ignored; patch, timestamp and metadata rules come
+   * from the same planner the Postgres path uses.
+   */
+  readonly patchProjectInTransaction: typeof patchProjectInTransaction = async (
+    _transaction,
+    input
+  ) => {
+    const projects = this.getProjects(input.userId);
+    const existing = projects.get(input.projectId);
+    if (!existing) throw new ProjectTransactionTargetNotFoundError(input.projectId);
+    const planned = planProjectPatch(
+      { meta: existing.meta, revision: existing.meta.revision, snapshot: clone(existing.snapshot) },
+      input
+    );
+    if (!planned) {
+      return {
+        meta: clone(existing.meta),
+        projectChanged: false,
+        snapshot: clone(existing.snapshot),
+      };
+    }
+    const meta = { ...planned.meta, revision: existing.meta.revision + 1 };
+    projects.set(input.projectId, {
+      incarnationId: existing.incarnationId,
+      meta,
+      snapshot: planned.snapshot,
+    });
+    return { meta: clone(meta), projectChanged: true, snapshot: clone(planned.snapshot) };
+  };
 
   async setProjectFavorite(
     userId: string,

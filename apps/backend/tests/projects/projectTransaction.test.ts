@@ -103,7 +103,7 @@ describe('patchProjectInTransaction', () => {
     expect(buildPatch).toHaveBeenCalledTimes(1);
     expect(calls[0].statement).toContain('for update of project, project_snapshot nowait');
     expect(calls[1].statement).toContain('revision = revision + 1');
-    expect(calls[2].statement).toContain('update public.project_snapshots');
+    expect(calls[2].statement).toContain('insert into public.project_snapshots');
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ isFavorite: true }));
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({

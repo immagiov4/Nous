@@ -37,7 +37,6 @@ import {
   PostgresProjectAssetImporter,
   publishImportedProjectAssets,
 } from './projectAssetImport.js';
-import { reconcileProjectAssets } from './projectAssetReconciliation.js';
 import { projectImportConfig } from './projectImportConfig.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
 import { applyProjectPatch, isNavigationProjectPatch } from './projectPatch.js';
@@ -45,11 +44,10 @@ import {
   mergeProjectMetaRow,
   mergeProjectSnapshotRow,
   type StoredProjectSnapshotRow,
-  splitProjectSnapshot,
-  stripProjectRevision,
   toPostgresJson,
 } from './projectPersistence.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from './projectRevision.js';
+import { commitProjectRevision, writeProjectMetaRevision } from './projectRevisionWrite.js';
 import {
   attachProjectSource,
   attachProjectSources,
@@ -149,14 +147,6 @@ interface ProjectMetaRow {
 
 interface LibraryExportProjectMetaRow extends ProjectMetaRow {
   incarnation_id: string;
-}
-
-interface ProjectRevisionWriteInput {
-  existingMeta: SavedProjectMeta | null;
-  expectedRevision: number | undefined;
-  meta: SavedProjectMeta;
-  snapshot: ProjectSnapshot;
-  userId: string;
 }
 
 interface ProjectImportDiagnosticRow {
@@ -1021,67 +1011,6 @@ export class PostgresProjectStore implements ProjectStore {
     `;
   }
 
-  private async writeProjectRevision(
-    sql: ProjectTransactionSql,
-    { existingMeta, expectedRevision, meta, snapshot, userId }: ProjectRevisionWriteInput
-  ): Promise<ProjectMetaRow> {
-    const serializedMeta = sql.json(toPostgresJson(stripProjectRevision(meta)));
-    if (!existingMeta) {
-      if (expectedRevision !== undefined) throw new ProjectRevisionConflictError();
-      const rows = await sql<ProjectMetaRow[]>`
-        insert into public.projects
-          (user_id, id, meta, updated_at, last_opened_at, server_updated_at, revision)
-        values
-          (
-            ${userId},
-            ${snapshot.id},
-            ${serializedMeta},
-            ${meta.updatedAt},
-            ${meta.lastOpenedAt},
-            now(),
-            1
-          )
-        returning meta, revision
-      `;
-      return rows[0];
-    }
-
-    const rows =
-      expectedRevision === undefined
-        ? await sql<ProjectMetaRow[]>`
-          update public.projects
-          set meta = jsonb_set(
-                ${serializedMeta},
-                '{isFavorite}',
-                coalesce(meta -> 'isFavorite', 'false'::jsonb),
-                true
-              ),
-              updated_at = ${meta.updatedAt},
-              last_opened_at = ${meta.lastOpenedAt},
-              server_updated_at = now(),
-              revision = revision + 1
-          where user_id = ${userId} and id = ${snapshot.id}
-          returning meta, revision
-        `
-        : await sql<ProjectMetaRow[]>`
-          update public.projects
-          set meta = jsonb_set(
-                ${serializedMeta},
-                '{isFavorite}',
-                coalesce(meta -> 'isFavorite', 'false'::jsonb),
-                true
-              ),
-              updated_at = ${meta.updatedAt},
-              last_opened_at = ${meta.lastOpenedAt},
-              server_updated_at = now(),
-              revision = revision + 1
-          where user_id = ${userId} and id = ${snapshot.id} and revision = ${expectedRevision}
-          returning meta, revision
-        `;
-    if (!rows[0]) throw new ProjectRevisionConflictError();
-    return rows[0];
-  }
-
   async saveProject(
     userId: string,
     data: ProjectSnapshot,
@@ -1117,7 +1046,14 @@ export class PostgresProjectStore implements ProjectStore {
         touchedAt: existingMeta?.updatedAt || existingSnapshot.updatedAt,
       });
       return {
-        meta: await this.writeProjectMeta(userId, meta),
+        meta: mergeProjectMetaRow(
+          await writeProjectMetaRevision(this.sql, {
+            isNewProject: false,
+            meta,
+            projectId: meta.id,
+            userId,
+          })
+        ),
         snapshot: existingSnapshot,
       };
     }
@@ -1182,57 +1118,38 @@ export class PostgresProjectStore implements ProjectStore {
           !sourceWrite && snapshot.source != null
             ? await this.canonicalizeDetachedProjectSource(sql, userId, snapshot)
             : snapshot;
-        const meta = buildProjectMeta(snapshotToPersist, existingMeta);
-        const { documentIndex, snapshotWithoutDocumentIndex } =
-          splitProjectSnapshot(snapshotToPersist);
-        const revisionRow = await this.writeProjectRevision(sql, {
-          existingMeta,
+        let sourceObjectPaths: string[] = [];
+        const meta = await commitProjectRevision(sql, {
           expectedRevision,
-          meta,
+          isNewProject: !existingMeta,
+          meta: buildProjectMeta(snapshotToPersist, existingMeta),
+          projectId: snapshot.id,
+          readPreviousSnapshot: async () =>
+            previousSnapshot ?? (existingMeta ? lockPreviousSnapshot() : null),
           snapshot: snapshotToPersist,
           userId,
-        });
-        if (existingMeta && !previousSnapshot) {
-          previousSnapshot = await lockPreviousSnapshot();
-        }
-        const sourceObjectPaths = sourceWrite
-          ? await this.writePreparedProjectSource(sql, userId, snapshot.id, sourceWrite.prepared)
-          : [];
-        await publishImportedProjectAssets(sql as postgres.TransactionSql, {
-          assets: importedAssets,
-          projectId: snapshot.id,
-          userId,
-        });
-        if (importedCover) {
-          await this.writeImportedProjectCover(sql, userId, snapshot.id, importedCover);
-        }
-        await sql`
-        insert into public.project_snapshots
-          (user_id, id, snapshot, document_index, updated_at, server_updated_at)
-        values
-          (
-            ${userId},
-            ${snapshot.id},
-            ${sql.json(toPostgresJson(snapshotWithoutDocumentIndex))},
-            ${documentIndex === null ? null : sql.json(toPostgresJson(documentIndex))},
-            ${snapshot.updatedAt},
-            now()
-          )
-        on conflict (user_id, id) do update set
-          snapshot = excluded.snapshot,
-          document_index = excluded.document_index,
-          updated_at = excluded.updated_at,
-          server_updated_at = excluded.server_updated_at
-      `;
-        await reconcileProjectAssets(sql as postgres.TransactionSql, {
-          previousSnapshot,
-          projectId: snapshot.id,
-          snapshot: snapshotToPersist,
-          userId,
+          writeAttachments: async () => {
+            if (sourceWrite) {
+              sourceObjectPaths = await this.writePreparedProjectSource(
+                sql,
+                userId,
+                snapshot.id,
+                sourceWrite.prepared
+              );
+            }
+            await publishImportedProjectAssets(sql as postgres.TransactionSql, {
+              assets: importedAssets,
+              projectId: snapshot.id,
+              userId,
+            });
+            if (importedCover) {
+              await this.writeImportedProjectCover(sql, userId, snapshot.id, importedCover);
+            }
+          },
         });
         await this.ensurePlacementWithClient(sql, userId, snapshot.id);
         return {
-          meta: mergeProjectMetaRow(revisionRow),
+          meta,
           replacedObjectPaths: sourceObjectPaths,
           snapshot: snapshotToPersist,
         };
@@ -2837,31 +2754,6 @@ export class PostgresProjectStore implements ProjectStore {
       delete from public.project_import_diagnostics
       where created_at < now() - ${PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS} * interval '1 day'
     `;
-  }
-
-  private async writeProjectMeta(
-    userId: string,
-    meta: SavedProjectMeta
-  ): Promise<SavedProjectMeta> {
-    const rows = await this.sql<ProjectMetaRow[]>`
-      update public.projects
-      set meta = jsonb_set(
-            ${this.sql.json(toPostgresJson(stripProjectRevision(meta)))},
-            '{isFavorite}',
-            coalesce(meta -> 'isFavorite', 'false'::jsonb),
-            true
-          ),
-          updated_at = ${meta.updatedAt},
-          last_opened_at = ${meta.lastOpenedAt},
-          server_updated_at = now(),
-          revision = revision + 1
-      where user_id = ${userId} and id = ${meta.id}
-      returning meta, revision
-    `;
-    if (!rows[0]) {
-      throw new Error(`Progetto ${meta.id} non trovato per aggiornamento metadata.`);
-    }
-    return mergeProjectMetaRow(rows[0]);
   }
 
   private async readFolder(userId: string, folderId: string): Promise<LibraryFolder | null> {
