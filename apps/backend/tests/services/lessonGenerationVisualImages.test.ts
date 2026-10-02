@@ -1,11 +1,8 @@
 import { expect, test, vi } from 'vitest';
 
-const runCodexAppServerTurn = vi.fn();
+const generateStructuredOutput = vi.fn();
 
-vi.mock('../../src/services/codexAppServer.js', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../src/services/codexAppServer.js')>();
-  return { ...actual, runCodexAppServerTurn };
-});
+vi.mock('../../src/services/structuredGeneration.js', () => ({ generateStructuredOutput }));
 
 const { imageClient } = await import('../../src/services/imageClient.js');
 const { generateEmbeddedLessonVisualImage, generateLessonVisualArtifact, planLessonArtifactDraft } =
@@ -53,18 +50,16 @@ const input = {
 };
 
 test('HTML artifact image requests stay separate from the durable HTML payload', async () => {
-  runCodexAppServerTurn.mockReset().mockResolvedValue(
-    JSON.stringify({
-      code: '<style>.figure{width:100%}</style><div><img class="figure" src="{{GENERATED_IMAGE:tessuto}}" alt="Intreccio del tessuto"></div><script>const ready = true;</script>',
-      imageRequests: [
-        {
-          alt: 'Intreccio del tessuto',
-          id: 'tessuto',
-          prompt: 'Macro fotografia didattica di trama e ordito intrecciati',
-        },
-      ],
-    })
-  );
+  generateStructuredOutput.mockReset().mockResolvedValue({
+    code: '<style>.figure{width:100%}</style><div><img class="figure" src="{{GENERATED_IMAGE:tessuto}}" alt="Intreccio del tessuto"></div><script>const ready = true;</script>',
+    imageRequests: [
+      {
+        alt: 'Intreccio del tessuto',
+        id: 'tessuto',
+        prompt: 'Macro fotografia didattica di trama e ordito intrecciati',
+      },
+    ],
+  });
   const generateImage = vi.spyOn(imageClient, 'generateImage').mockResolvedValue({
     bytes: new TextEncoder().encode('immagine'),
     mediaType: 'image/png',
@@ -101,47 +96,43 @@ test('HTML artifact image requests stay separate from the durable HTML payload',
 });
 
 test('artifact generation leaves invalid-draft correction to the next durable attempt', async () => {
-  runCodexAppServerTurn
+  generateStructuredOutput
     .mockReset()
-    .mockResolvedValue(JSON.stringify({ code: '<div>Non valido</div>', imageRequests: [] }));
+    .mockResolvedValue({ code: '<div>Non valido</div>', imageRequests: [] });
 
   await expect(generateLessonVisualArtifact(input)).resolves.toBeNull();
-  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput).toHaveBeenCalledOnce();
 
-  runCodexAppServerTurn.mockReset().mockResolvedValue(
-    JSON.stringify({
-      code: '<style></style><div>Corretto</div><script>const ready = true;</script>',
-      imageRequests: [],
-    })
-  );
+  generateStructuredOutput.mockReset().mockResolvedValue({
+    code: '<style></style><div>Corretto</div><script>const ready = true;</script>',
+    imageRequests: [],
+  });
   await expect(
     generateLessonVisualArtifact({
       ...input,
       retryFeedback: 'Genera una sostituzione completa e valida.',
     })
   ).resolves.toMatchObject({ code: expect.stringContaining('Corretto') });
-  expect(runCodexAppServerTurn).toHaveBeenCalledOnce();
-  expect(runCodexAppServerTurn.mock.calls[0]?.[0].input).toEqual([
-    expect.objectContaining({
-      text: expect.stringContaining('Genera una sostituzione completa e valida.'),
-    }),
-  ]);
+  expect(generateStructuredOutput).toHaveBeenCalledOnce();
+  expect(generateStructuredOutput.mock.calls[0]?.[0].prompt).toEqual(
+    expect.stringContaining('Genera una sostituzione completa e valida.')
+  );
 });
 
 test('artifact generation treats malformed structured output as an invalid draft only', async () => {
-  runCodexAppServerTurn.mockReset().mockResolvedValue('{not-json');
+  generateStructuredOutput.mockReset().mockRejectedValue(new SyntaxError('Unexpected token'));
 
   await expect(generateLessonVisualArtifact(input)).resolves.toBeNull();
 
   const providerError = new Error('provider unavailable');
-  runCodexAppServerTurn.mockReset().mockRejectedValue(providerError);
+  generateStructuredOutput.mockReset().mockRejectedValue(providerError);
 
   await expect(generateLessonVisualArtifact(input)).rejects.toBe(providerError);
 });
 
 test('an HTML replacement may retain only its authorized project assets', async () => {
   const code = `<style></style><img src="{{PROJECT_ASSET:${EXISTING_ASSET_ID}}}"><script>const ready = true;</script>`;
-  runCodexAppServerTurn.mockReset().mockResolvedValue(JSON.stringify({ code, imageRequests: [] }));
+  generateStructuredOutput.mockReset().mockResolvedValue({ code, imageRequests: [] });
 
   await expect(
     generateLessonVisualArtifact({
@@ -161,24 +152,22 @@ test('an HTML replacement may retain only its authorized project assets', async 
 });
 
 test('the artifact planner preserves placement metadata and enforces depiction as raster', async () => {
-  runCodexAppServerTurn.mockReset().mockResolvedValue(
-    JSON.stringify({
-      alt_text: 'Trama e ordito intrecciati.',
-      anchor_heading: 'Intreccio',
-      complexity: 'simple',
-      concept: 'Incrocio tra trama e ordito',
-      coverage: 'complete_synthesis',
-      coverage_rationale: 'Mostra il rapporto spaziale.',
-      factual_requirements: ['I fili sono perpendicolari.'],
-      interaction_level: 'none',
-      pedagogical_goal: 'Riconoscere le due direzioni.',
-      reason: 'La disposizione è informativa.',
-      requires_depiction: true,
-      title: 'Trama e ordito',
-      visual_direction: 'Macro ordinata del tessuto.',
-      visual_type: 'structural_svg',
-    })
-  );
+  generateStructuredOutput.mockReset().mockResolvedValue({
+    alt_text: 'Trama e ordito intrecciati.',
+    anchor_heading: 'Intreccio',
+    complexity: 'simple',
+    concept: 'Incrocio tra trama e ordito',
+    coverage: 'complete_synthesis',
+    coverage_rationale: 'Mostra il rapporto spaziale.',
+    factual_requirements: ['I fili sono perpendicolari.'],
+    interaction_level: 'none',
+    pedagogical_goal: 'Riconoscere le due direzioni.',
+    reason: 'La disposizione è informativa.',
+    requires_depiction: true,
+    title: 'Trama e ordito',
+    visual_direction: 'Macro ordinata del tessuto.',
+    visual_type: 'structural_svg',
+  });
 
   await expect(
     planLessonArtifactDraft({
@@ -199,24 +188,22 @@ test('the artifact planner preserves placement metadata and enforces depiction a
 });
 
 test('the artifact planner honors the requested render kind and receives retry feedback', async () => {
-  runCodexAppServerTurn.mockReset().mockResolvedValue(
-    JSON.stringify({
-      alt_text: 'Schema dei fili.',
-      anchor_heading: 'Intreccio',
-      complexity: 'simple',
-      concept: 'Incrocio tra trama e ordito',
-      coverage: 'complete_synthesis',
-      coverage_rationale: 'Mostra il rapporto spaziale.',
-      factual_requirements: [],
-      interaction_level: 'none',
-      pedagogical_goal: 'Riconoscere le due direzioni.',
-      reason: 'La disposizione e informativa.',
-      requires_depiction: true,
-      title: 'Trama e ordito',
-      visual_direction: 'Schema essenziale.',
-      visual_type: 'illustrative_image',
-    })
-  );
+  generateStructuredOutput.mockReset().mockResolvedValue({
+    alt_text: 'Schema dei fili.',
+    anchor_heading: 'Intreccio',
+    complexity: 'simple',
+    concept: 'Incrocio tra trama e ordito',
+    coverage: 'complete_synthesis',
+    coverage_rationale: 'Mostra il rapporto spaziale.',
+    factual_requirements: [],
+    interaction_level: 'none',
+    pedagogical_goal: 'Riconoscere le due direzioni.',
+    reason: 'La disposizione e informativa.',
+    requires_depiction: true,
+    title: 'Trama e ordito',
+    visual_direction: 'Schema essenziale.',
+    visual_type: 'illustrative_image',
+  });
 
   await expect(
     planLessonArtifactDraft({
@@ -230,9 +217,8 @@ test('the artifact planner honors the requested render kind and receives retry f
       slotId: 'artifact-draft',
     })
   ).resolves.toMatchObject({ visualType: 'structural_svg' });
-  expect(runCodexAppServerTurn.mock.calls[0]?.[0].input).toEqual([
-    expect.objectContaining({
-      text: expect.stringContaining('Mantieni il formato SVG richiesto.'),
-    }),
-  ]);
+  expect(generateStructuredOutput.mock.calls[0]?.[0].prompt).toEqual(
+    expect.stringContaining('Mantieni il formato SVG richiesto.')
+  );
+  expect(generateStructuredOutput.mock.calls[0]?.[0].model).toBe(config.artifact);
 });
