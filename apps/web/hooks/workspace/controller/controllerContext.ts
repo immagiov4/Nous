@@ -1,7 +1,5 @@
 import * as OpenRouterService from '../../../services/openrouter/index.ts';
 import {
-  attachStoredPrimarySource,
-  attachStoredSources,
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
   sortSourceFiles,
@@ -9,7 +7,6 @@ import {
 import {
   detectSourceFileKind,
   encodeBytesBase64,
-  getProjectSourceFile,
   normalizeSourceFileMimeType,
 } from '../../../services/projects/projectSource.ts';
 import { resolveScreenStateForSnapshot } from '../../../services/workspace/controller/snapshotHydration.ts';
@@ -28,59 +25,6 @@ const createSleep = (ms: number) =>
 
 const scheduleHydrationWithMicrotask = (callback: () => void) => {
   queueMicrotask(callback);
-};
-
-export const loadProjectSourceFile = async (
-  context: Pick<WorkspaceControllerContext, 'domain' | 'projectLibrary' | 'state'>,
-  isCurrent: () => boolean = () => true
-): Promise<FileData | null> => {
-  if (!isCurrent()) {
-    return null;
-  }
-
-  const currentFile = context.domain.file?.data
-    ? context.domain.file
-    : getProjectSourceFile(context.domain.source);
-  if (currentFile) {
-    return currentFile;
-  }
-
-  const source = context.domain.source;
-  const projectId = context.projectLibrary.currentProjectId;
-  if (!source || source.kind === 'archive' || !projectId) {
-    return null;
-  }
-
-  if (source.sources?.length) {
-    const storedSources = await context.projectLibrary.loadStoredProjectSources(projectId);
-    if (!isCurrent()) {
-      return null;
-    }
-    if (storedSources.length !== source.sources.length) {
-      context.state.setProjectMissingSource(projectId, true);
-      return null;
-    }
-    const hydratedSource = attachStoredSources(
-      source,
-      storedSources.map(stored => stored.file)
-    );
-    context.state.setProjectMissingSource(projectId, false);
-    context.domain.setSource(hydratedSource);
-    return getProjectSourceFile(hydratedSource);
-  }
-
-  const loadedFile = await context.projectLibrary.loadStoredProjectSource(projectId);
-  if (!isCurrent()) {
-    return null;
-  }
-  if (!loadedFile) {
-    context.state.setProjectMissingSource(projectId, true);
-    return null;
-  }
-
-  context.state.setProjectMissingSource(projectId, false);
-  context.domain.setSource(attachStoredPrimarySource(source, loadedFile));
-  return loadedFile;
 };
 
 export const readSourceFileData = async (file: File): Promise<FileData> => {
@@ -187,6 +131,7 @@ export const prepareUploadedCourseSource = async (
 };
 
 export const createWorkspaceControllerContext = ({
+  assessmentSession,
   domain,
   openRouter = OpenRouterService,
   projectLibrary,
@@ -195,6 +140,7 @@ export const createWorkspaceControllerContext = ({
   state,
   stopAudio,
 }: CreateWorkspaceControllerArgs): WorkspaceControllerContext => ({
+  assessmentSession,
   domain,
   openRouter,
   persistHydratedSnapshot: (snapshot, revision) => {

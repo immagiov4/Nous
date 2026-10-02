@@ -1258,7 +1258,6 @@ const ENGLISH_UI_MESSAGES = {
     'I could not remove this highlight. Try again.',
   'Allineamento lezioni con il PDF...': 'Aligning lessons with the PDF...',
   'Analisi contenuti...': 'Analyzing content...',
-  'Analisi contesto...': 'Analyzing context...',
   'Apertura progetto...': 'Opening project...',
   'Apertura documento...': 'Opening document...',
   'Documento originale non disponibile.': 'Original document unavailable.',
