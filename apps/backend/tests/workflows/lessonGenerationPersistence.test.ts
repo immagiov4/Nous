@@ -1,6 +1,5 @@
 import type { TransactionSql } from 'postgres';
 import { describe, expect, test, vi } from 'vitest';
-
 import { findProjectLessonSection } from '../../src/projects/projectLesson.js';
 import { applyProjectPatch } from '../../src/projects/projectPatch.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
@@ -23,6 +22,7 @@ import {
   LessonVisualsStateSchema,
   SublessonReadyStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
+import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 
 const NOW = '2026-07-29T22:30:00.000Z';
 const PDF_ASSET_ID = 'a'.repeat(64);
@@ -364,10 +364,9 @@ describe('durable lesson generation persistence', () => {
     })(context(input));
     const transaction = {} as TransactionSql;
     const adoptNodeAssets = vi.fn(async () => []);
-    const patchProject = vi.fn(async (_transaction, request) => ({
-      meta: {} as never,
-      snapshot: applyProjectPatch(snapshot, request.buildPatch({ revision: 4, snapshot }), NOW),
-    }));
+    const store = new InMemoryProjectStore();
+    const savedMeta = store.seedProject('user-1', snapshot);
+    const patchProject = vi.fn(store.patchProjectInTransaction);
     const persistence = new PostgresLessonGenerationPersistence({
       assets: { adoptNodeAssets },
       patchProject,
@@ -382,6 +381,11 @@ describe('durable lesson generation persistence', () => {
     });
 
     expect(patchProject).toHaveBeenCalledOnce();
+    const committed = await store.loadProjectWithRevision('user-1', 'project-1');
+    expect(committed?.revision).toBe(savedMeta.revision + 1);
+    expect(
+      findProjectLessonSection(committed?.snapshot as ProjectSnapshot, 'lesson-1')
+    ).toMatchObject({ lastGenerationRunId: 'run-new' });
 
     expect(adoptNodeAssets).toHaveBeenNthCalledWith(1, transaction, {
       assetIds: [PDF_ASSET_ID],

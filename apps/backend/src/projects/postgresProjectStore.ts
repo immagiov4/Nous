@@ -37,7 +37,6 @@ import {
   PostgresProjectAssetImporter,
   publishImportedProjectAssets,
 } from './projectAssetImport.js';
-import { reconcileProjectAssets } from './projectAssetReconciliation.js';
 import { projectImportConfig } from './projectImportConfig.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
 import { applyProjectPatch, isNavigationProjectPatch } from './projectPatch.js';
@@ -49,7 +48,7 @@ import {
   toPostgresJson,
 } from './projectPersistence.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from './projectRevision.js';
-import { writeProjectMetaRevision, writeProjectSnapshotRow } from './projectRevisionWrite.js';
+import { commitProjectRevision } from './projectRevisionWrite.js';
 import {
   attachProjectSource,
   attachProjectSources,
@@ -1113,41 +1112,38 @@ export class PostgresProjectStore implements ProjectStore {
           !sourceWrite && snapshot.source != null
             ? await this.canonicalizeDetachedProjectSource(sql, userId, snapshot)
             : snapshot;
-        const revisionRow = await writeProjectMetaRevision(sql, {
+        let sourceObjectPaths: string[] = [];
+        const meta = await commitProjectRevision(sql, {
           expectedRevision,
           isNewProject: !existingMeta,
           meta: buildProjectMeta(snapshotToPersist, existingMeta),
           projectId: snapshot.id,
-          userId,
-        });
-        if (existingMeta && !previousSnapshot) {
-          previousSnapshot = await lockPreviousSnapshot();
-        }
-        const sourceObjectPaths = sourceWrite
-          ? await this.writePreparedProjectSource(sql, userId, snapshot.id, sourceWrite.prepared)
-          : [];
-        await publishImportedProjectAssets(sql as postgres.TransactionSql, {
-          assets: importedAssets,
-          projectId: snapshot.id,
-          userId,
-        });
-        if (importedCover) {
-          await this.writeImportedProjectCover(sql, userId, snapshot.id, importedCover);
-        }
-        await writeProjectSnapshotRow(sql, {
-          projectId: snapshot.id,
+          readPreviousSnapshot: async () =>
+            previousSnapshot ?? (existingMeta ? lockPreviousSnapshot() : null),
           snapshot: snapshotToPersist,
           userId,
-        });
-        await reconcileProjectAssets(sql as postgres.TransactionSql, {
-          previousSnapshot,
-          projectId: snapshot.id,
-          snapshot: snapshotToPersist,
-          userId,
+          writeAttachments: async () => {
+            if (sourceWrite) {
+              sourceObjectPaths = await this.writePreparedProjectSource(
+                sql,
+                userId,
+                snapshot.id,
+                sourceWrite.prepared
+              );
+            }
+            await publishImportedProjectAssets(sql as postgres.TransactionSql, {
+              assets: importedAssets,
+              projectId: snapshot.id,
+              userId,
+            });
+            if (importedCover) {
+              await this.writeImportedProjectCover(sql, userId, snapshot.id, importedCover);
+            }
+          },
         });
         await this.ensurePlacementWithClient(sql, userId, snapshot.id);
         return {
-          meta: mergeProjectMetaRow(revisionRow),
+          meta,
           replacedObjectPaths: sourceObjectPaths,
           snapshot: snapshotToPersist,
         };

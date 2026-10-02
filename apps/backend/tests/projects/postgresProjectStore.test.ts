@@ -3098,9 +3098,7 @@ describe('PostgresProjectStore', () => {
       store.saveProject('user-1', snapshot, { expectedRevision: 1 })
     ).rejects.toBeInstanceOf(ProjectRevisionConflictError);
 
-    expect(transactionStatements.some(statement => statement.includes('or revision ='))).toBe(
-      true
-    );
+    expect(transactionStatements.some(statement => statement.includes('or revision ='))).toBe(true);
     expect(transactionStatements.some(statement => statement.includes('project_snapshots'))).toBe(
       false
     );

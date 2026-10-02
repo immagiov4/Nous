@@ -1,6 +1,8 @@
 import type postgres from 'postgres';
 
+import { reconcileProjectAssets } from './projectAssetReconciliation.js';
 import {
+  mergeProjectMetaRow,
   type StoredProjectMetaRow,
   splitProjectSnapshot,
   stripProjectRevision,
@@ -11,7 +13,7 @@ import type { ProjectSnapshot, SavedProjectMeta } from './types.js';
 
 export type ProjectWriteSql = postgres.ReservedSql | postgres.TransactionSql;
 
-export interface ProjectMetaRevisionWrite {
+interface ProjectMetaRevisionWrite {
   /** Rejects the write unless the stored revision still matches. */
   readonly expectedRevision?: number;
   readonly isNewProject: boolean;
@@ -21,11 +23,10 @@ export interface ProjectMetaRevisionWrite {
 }
 
 /**
- * Writes the next revision of a project's metadata row. This is the only writer of
- * `public.projects` revisions; `isFavorite` keeps the stored value because favorites
- * change through their own narrow update while snapshot writes may carry stale meta.
+ * `isFavorite` keeps the stored value: favorites change through their own narrow
+ * update, while snapshot writes may carry meta read before the row lock.
  */
-export const writeProjectMetaRevision = async (
+const writeProjectMetaRevision = async (
   sql: ProjectWriteSql,
   { expectedRevision, isNewProject, meta, projectId, userId }: ProjectMetaRevisionWrite
 ): Promise<StoredProjectMetaRow> => {
@@ -63,8 +64,7 @@ export const writeProjectMetaRevision = async (
   return rows[0];
 };
 
-/** Writes the snapshot row that pairs with a metadata revision; the only writer of `public.project_snapshots`. */
-export const writeProjectSnapshotRow = async (
+const writeProjectSnapshotRow = async (
   sql: ProjectWriteSql,
   { projectId, snapshot, userId }: { projectId: string; snapshot: ProjectSnapshot; userId: string }
 ): Promise<void> => {
@@ -87,4 +87,42 @@ export const writeProjectSnapshotRow = async (
       updated_at = excluded.updated_at,
       server_updated_at = excluded.server_updated_at
   `;
+};
+
+export interface ProjectRevisionCommit {
+  /** Rejects the commit unless the stored revision still matches. */
+  readonly expectedRevision?: number;
+  readonly isNewProject: boolean;
+  readonly meta: SavedProjectMeta;
+  readonly projectId: string;
+  /** Resolves the snapshot being replaced once the metadata row is written; null for a new project. */
+  readonly readPreviousSnapshot: () => Promise<ProjectSnapshot | null>;
+  readonly snapshot: ProjectSnapshot;
+  readonly userId: string;
+  /** Writes rows that reference the project (sources, imported assets, covers) before the snapshot. */
+  readonly writeAttachments?: () => Promise<void>;
+}
+
+/**
+ * Commits one project revision: the metadata row with its revision check, attached
+ * rows, the snapshot row, and asset reconciliation against the replaced snapshot.
+ * Every project snapshot write goes through here; callers own locking and building
+ * the snapshot and its metadata.
+ */
+export const commitProjectRevision = async (
+  sql: ProjectWriteSql,
+  commit: ProjectRevisionCommit
+): Promise<SavedProjectMeta> => {
+  const { projectId, snapshot, userId } = commit;
+  const metaRow = await writeProjectMetaRevision(sql, commit);
+  const previousSnapshot = await commit.readPreviousSnapshot();
+  await commit.writeAttachments?.();
+  await writeProjectSnapshotRow(sql, { projectId, snapshot, userId });
+  await reconcileProjectAssets(sql as postgres.TransactionSql, {
+    previousSnapshot,
+    projectId,
+    snapshot,
+    userId,
+  });
+  return mergeProjectMetaRow(metaRow);
 };
