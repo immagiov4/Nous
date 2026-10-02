@@ -1,4 +1,3 @@
-import type { ProjectSnapshot } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
 import { retryLessonGenerationCorrection } from './lessonGenerationCorrection.js';
 import { mergeSources, type ResearchSource } from './lessonGenerationSources.js';
@@ -22,16 +21,6 @@ export type ResearchYouTube = (
   language: string,
   signal: AbortSignal
 ) => Promise<YouTubeResearchOutcome>;
-
-export const findResearchLesson = (
-  project: ProjectSnapshot,
-  sectionId: string
-): Record<string, unknown> | null =>
-  isRecord(project.researchCoursePlan) && Array.isArray(project.researchCoursePlan.lessons)
-    ? (project.researchCoursePlan.lessons.find(
-        candidate => isRecord(candidate) && candidate.id === sectionId
-      ) as Record<string, unknown> | undefined) || null
-    : null;
 
 export const generateLessonResearchSummary = async ({
   allowOptionalFailure = false,
