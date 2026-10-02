@@ -54,7 +54,7 @@ Sources: [apps/backend/src/routes/openRouterProxy.ts:50-65](../../../apps/backen
 
 ### Structured outputs
 
-Backend features that need one schema-bound model answer call `generateStructuredOutput` with a slot, a named JSON Schema, a system prompt and a prompt. It resolves the slot's provider and model. Codex runs a tool-free app-server turn whose JSON answer is parsed; OpenRouter and OpenAI use the AI SDK's object output. Callers validate the result. Malformed output surfaces as `SyntaxError` or `NoObjectGeneratedError`, which lesson correction retries recognize. An optional `webSearch` flag lets Codex search the web while still forbidding local files, and gives AI SDK models the provider's search tools. Lesson research, drafting, coverage, learning aids, YouTube query planning, factual evidence review and lesson verification use it.
+Backend features that need one schema-bound model answer call `generateStructuredOutput` with a slot, a named JSON Schema, a system prompt and a prompt. It resolves the slot's provider and model. Codex runs a tool-free app-server turn whose JSON answer is parsed; OpenRouter and OpenAI use the AI SDK's object output. The module does not validate the result against the schema; callers own any validation. Malformed output surfaces as `SyntaxError` or `NoObjectGeneratedError`, which lesson correction retries recognize. An optional `webSearch` flag lets Codex search the web while still forbidding local files, and gives AI SDK models the provider's search tools. Lesson research, drafting, coverage, learning aids, YouTube query planning, factual evidence review and lesson verification use it.
 
 Sources: [apps/backend/src/services/structuredGeneration.ts](../../../apps/backend/src/services/structuredGeneration.ts)
 
