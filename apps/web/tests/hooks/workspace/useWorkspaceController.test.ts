@@ -800,7 +800,6 @@ const createOpenRouterMock = (
   overrides: Partial<typeof import('../../../services/openrouter/index.ts')> = {}
 ) =>
   ({
-    askContextualQuestion: async () => 'Risposta',
     buildAssessmentDocumentContextFromSourceSet: (
       sources: Parameters<
         typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentContextFromSourceSet
@@ -8884,13 +8883,13 @@ test('goToLibrary returns the UX to library and stops active audio playback', as
 
   state.adapter.setScreenState(AppState.READING);
   const lessonRequestId = state.adapter.beginWorkflow('loadSection');
-  const questionRequestId = state.adapter.beginWorkflow('contextQuestion');
+  const createLessonRequestId = state.adapter.beginWorkflow('createLesson');
   await controller.goToLibrary();
 
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.deepEqual(stopAudioCalls, [true]);
   assert.equal(state.adapter.isWorkflowCurrent('loadSection', lessonRequestId), true);
-  assert.equal(state.adapter.isWorkflowCurrent('contextQuestion', questionRequestId), false);
+  assert.equal(state.adapter.isWorkflowCurrent('createLesson', createLessonRequestId), false);
 });
 
 test('local deletion clears the deleted project missing-source state', async () => {

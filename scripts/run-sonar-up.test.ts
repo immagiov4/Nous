@@ -41,9 +41,7 @@ describe('reconcileSonarStack', () => {
   test('waits for anonymous permission provisioning after startup', async () => {
     const runCommand = vi.fn().mockResolvedValue(0);
 
-    await expect(reconcileSonarStack({ PATH: 'test-path' }, undefined, runCommand)).resolves.toBe(
-      0
-    );
+    await expect(reconcileSonarStack({ PATH: 'test-path' }, '', runCommand)).resolves.toBe(0);
 
     expect(runCommand).toHaveBeenNthCalledWith(
       1,
@@ -60,9 +58,7 @@ describe('reconcileSonarStack', () => {
   test('does not wait when Compose startup fails', async () => {
     const runCommand = vi.fn().mockResolvedValue(1);
 
-    await expect(reconcileSonarStack({ PATH: 'test-path' }, undefined, runCommand)).resolves.toBe(
-      1
-    );
+    await expect(reconcileSonarStack({ PATH: 'test-path' }, '', runCommand)).resolves.toBe(1);
 
     expect(runCommand).toHaveBeenCalledTimes(1);
   });
@@ -70,8 +66,6 @@ describe('reconcileSonarStack', () => {
   test('propagates a failed anonymous permission provisioner exit code', async () => {
     const runCommand = vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1);
 
-    await expect(reconcileSonarStack({ PATH: 'test-path' }, undefined, runCommand)).resolves.toBe(
-      1
-    );
+    await expect(reconcileSonarStack({ PATH: 'test-path' }, '', runCommand)).resolves.toBe(1);
   });
 });
