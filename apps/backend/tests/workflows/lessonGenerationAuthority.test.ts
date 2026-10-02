@@ -105,4 +105,54 @@ describe('lesson generation source authority', () => {
       buildLessonGenerationSourceFingerprint(changed, 'child-1')
     );
   });
+
+  // Fingerprints are persisted with in-flight runs; a serialization change would
+  // make every running generation look stale.
+  test('keeps persisted fingerprint values stable across plan shapes', () => {
+    const base = {
+      createdAt: 'x',
+      id: 'p',
+      lastOpenedAt: 'x',
+      sourceKind: 'document',
+      updatedAt: 'x',
+      userProfile: { goal: 'g', language: 'Italiano' },
+      version: '4.1',
+    } as unknown as ProjectSnapshot;
+    const modulePlan = {
+      ...base,
+      learningPlan: {
+        generationNotes: 'n',
+        modules: [
+          {
+            children: [
+              { content: 'x', id: 'l1', isCompleted: true, title: 'A' },
+              { description: 'd', id: 'l2', parentId: 'l1', title: 'B' },
+            ],
+            id: 'm',
+            title: 'M',
+          },
+        ],
+        title: 'C',
+      },
+      researchCoursePlan: { lessons: [{ goal: 'r', id: 'l2' }, 'junk'] },
+      syllabus: [{ children: [{ id: 'l2', title: 'syl' }], id: 's' }],
+    } as unknown as ProjectSnapshot;
+    const flatPlan = {
+      ...base,
+      learningPlan: {
+        sections: [
+          { content: 'pc', description: 'pd', id: 'p1', title: 'P' },
+          { id: 'c1', parentId: 'p1', title: 'C1' },
+        ],
+        title: 'C',
+      },
+    } as unknown as ProjectSnapshot;
+
+    expect(buildLessonGenerationSourceFingerprint(modulePlan, 'l2')).toBe(
+      '23e1c2a7d9231e380ba1db52646a824c584c104e62d06533662107c5fdfebe87'
+    );
+    expect(buildLessonGenerationSourceFingerprint(flatPlan, 'c1')).toBe(
+      '227191c9add6d638172c25309c3f4432eb12b08614f9a2cd3bd0e0cdf94c5a94'
+    );
+  });
 });
