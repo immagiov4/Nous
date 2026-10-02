@@ -3,14 +3,18 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateStructuredOutput } from '../../src/services/structuredGeneration.js';
 
-const { createConfiguredTextModel, generateText, runCodexAppServerTurn } = vi.hoisted(() => ({
-  createConfiguredTextModel: vi.fn(),
-  generateText: vi.fn(),
-  runCodexAppServerTurn: vi.fn(),
-}));
+const { createConfiguredTextModelFromResolution, generateText, runCodexAppServerTurn } = vi.hoisted(
+  () => ({
+    createConfiguredTextModelFromResolution: vi.fn(),
+    generateText: vi.fn(),
+    runCodexAppServerTurn: vi.fn(),
+  })
+);
 
 vi.mock('../../src/services/codexAppServer.js', () => ({ runCodexAppServerTurn }));
-vi.mock('../../src/services/aiSdkTextModel.js', () => ({ createConfiguredTextModel }));
+vi.mock('../../src/services/aiSdkTextModel.js', () => ({
+  createConfiguredTextModelFromResolution,
+}));
 vi.mock('ai', async importOriginal => ({
   ...(await importOriginal<typeof import('ai')>()),
   generateText,
@@ -39,7 +43,7 @@ const request = (provider: 'codex' | 'openrouter') => ({
 });
 
 beforeEach(() => {
-  createConfiguredTextModel.mockReset();
+  createConfiguredTextModelFromResolution.mockReset();
   generateText.mockReset();
   runCodexAppServerTurn.mockReset();
 });
@@ -77,15 +81,19 @@ test('web search lets Codex search while still forbidding local files', async ()
 
 test('web search passes the provider search tools to AI SDK models', async () => {
   const tools = { web_search: {} };
-  createConfiguredTextModel.mockReturnValue({ model: 'model', providerOptions: {}, tools });
+  createConfiguredTextModelFromResolution.mockReturnValue({
+    model: 'model',
+    providerOptions: {},
+    tools,
+  });
   generateText.mockResolvedValue({ output: { answer: '42' } });
 
   await generateStructuredOutput({ ...request('openrouter'), webSearch: true });
 
-  expect(createConfiguredTextModel).toHaveBeenCalledWith(expect.anything(), 'lesson', {
-    reasoningEffort: 'medium',
-    webSearch: true,
-  });
+  expect(createConfiguredTextModelFromResolution).toHaveBeenCalledWith(
+    expect.objectContaining({ provider: 'openrouter', reasoningEffort: 'medium' }),
+    { webSearch: true }
+  );
   expect(generateText.mock.lastCall?.[0].tools).toBe(tools);
 });
 
@@ -96,7 +104,10 @@ test('malformed Codex output surfaces as a SyntaxError', async () => {
 });
 
 test('AI SDK providers receive the system prompt unchanged', async () => {
-  createConfiguredTextModel.mockReturnValue({ model: 'model', providerOptions: { p: {} } });
+  createConfiguredTextModelFromResolution.mockReturnValue({
+    model: 'model',
+    providerOptions: { p: {} },
+  });
   generateText.mockResolvedValue({ output: { answer: '42' } });
 
   await expect(generateStructuredOutput(request('openrouter'))).resolves.toEqual({
@@ -104,10 +115,10 @@ test('AI SDK providers receive the system prompt unchanged', async () => {
   });
 
   expect(runCodexAppServerTurn).not.toHaveBeenCalled();
-  expect(createConfiguredTextModel).toHaveBeenCalledWith(expect.anything(), 'lesson', {
-    reasoningEffort: 'medium',
-    webSearch: false,
-  });
+  expect(createConfiguredTextModelFromResolution).toHaveBeenCalledWith(
+    expect.objectContaining({ provider: 'openrouter', reasoningEffort: 'medium' }),
+    { webSearch: false }
+  );
   const call = generateText.mock.lastCall?.[0];
   expect(call).toMatchObject({
     abortSignal: signal,
@@ -121,4 +132,49 @@ test('AI SDK providers receive the system prompt unchanged', async () => {
     schema: OUTPUT.schema,
     type: 'json',
   });
+});
+
+test('a resolved model bypasses slot configuration and keeps its service tier', async () => {
+  runCodexAppServerTurn.mockResolvedValue('{"answer":"42"}');
+
+  await generateStructuredOutput({
+    model: {
+      model: 'pinned-model',
+      provider: 'codex',
+      reasoningEffort: 'low',
+      serviceTier: 'fast',
+    },
+    output: OUTPUT,
+    prompt: 'Domanda',
+    signal,
+    system: 'Rispondi.',
+  });
+
+  expect(runCodexAppServerTurn).toHaveBeenCalledWith(
+    expect.objectContaining({ model: 'pinned-model', reasoningEffort: 'low', serviceTier: 'fast' })
+  );
+});
+
+test('an image precedes the prompt for both providers', async () => {
+  runCodexAppServerTurn.mockResolvedValue('{"answer":"42"}');
+  await generateStructuredOutput({ ...request('codex'), image: 'data:image/png;base64,AA' });
+  expect(runCodexAppServerTurn.mock.lastCall?.[0].input).toEqual([
+    { type: 'image', url: 'data:image/png;base64,AA' },
+    { text: 'Domanda', type: 'text' },
+  ]);
+
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
+  generateText.mockResolvedValue({ output: { answer: '42' } });
+  await generateStructuredOutput({ ...request('openrouter'), image: 'data:image/png;base64,AA' });
+  const call = generateText.mock.lastCall?.[0];
+  expect(call.prompt).toBeUndefined();
+  expect(call.messages).toEqual([
+    {
+      content: [
+        { image: 'data:image/png;base64,AA', type: 'image' },
+        { text: 'Domanda', type: 'text' },
+      ],
+      role: 'user',
+    },
+  ]);
 });

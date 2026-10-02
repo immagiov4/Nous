@@ -32,16 +32,15 @@ import {
   type ProjectVisual,
   validateProjectAssetHtmlReferences,
 } from '@shared/projectAsset';
-import { APICallError, generateText, jsonSchema, NoObjectGeneratedError, Output } from 'ai';
+import { APICallError, NoObjectGeneratedError } from 'ai';
 import * as z from 'zod';
 
 import { isRecord } from '../utils/validation.js';
-import { createConfiguredTextModelFromResolution } from './aiSdkTextModel.js';
-import { runCodexAppServerTurn } from './codexAppServer.js';
 import { imageClient } from './imageClient.js';
 import type { LessonVisualModelConfig } from './lessonVisualModelConfig.js';
 import { isParseableMermaid } from './mermaidValidation.js';
 import { openRouterModelSupportsImages } from './openRouterModelCapabilities.js';
+import { generateStructuredOutput } from './structuredGeneration.js';
 
 export type { LessonVisualType } from '@shared/lessonGenerationPolicy';
 
@@ -245,38 +244,13 @@ const requestArtifactDraftPlan = async (input: PlanLessonArtifactDraftInput): Pr
   const system = `${LESSON_VISUAL_PLANNER_SYSTEM_PROMPT}\n\n${ARTIFACT_DRAFT_PLAN_OUTPUT_INSTRUCTION}\n\n${NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`;
   const outputSchema = artifactDraftPlanJsonSchema();
 
-  if (modelConfig.provider === 'codex') {
-    const response = await runCodexAppServerTurn({
-      allowWebSearch: false,
-      developerInstructions: system,
-      input: [{ text: prompt, type: 'text' }],
-      model: modelConfig.model,
-      outputSchema,
-      reasoningEffort: modelConfig.reasoningEffort,
-      serviceTier: modelConfig.serviceTier,
-      signal: input.signal,
-    });
-    return JSON.parse(response);
-  }
-
-  const configured = createConfiguredTextModelFromResolution({
-    model: modelConfig.model,
-    provider: modelConfig.provider,
-    reasoningEffort: modelConfig.reasoningEffort,
-  });
-  const { output } = await generateText({
-    abortSignal: input.signal,
-    maxRetries: 0,
-    model: configured.model,
-    output: Output.object({
-      name: 'artifact_draft_plan',
-      schema: jsonSchema(outputSchema as Parameters<typeof jsonSchema>[0]),
-    }),
+  return generateStructuredOutput<unknown>({
+    model: modelConfig,
+    output: { name: 'artifact_draft_plan', schema: outputSchema },
     prompt,
-    providerOptions: configured.providerOptions,
+    signal: input.signal,
     system,
   });
-  return output;
 };
 
 const visualTypeForRequestedKind = (
@@ -450,61 +424,15 @@ const requestArtifactRender = async (
       ? INTERNAL_REASONING_EFFICIENCY_INSTRUCTION
       : INTERNAL_FAST_TASK_INSTRUCTION;
   const modelConfig = input.config[slot];
-  if (modelConfig.provider === 'codex') {
-    const response = await runCodexAppServerTurn({
-      allowWebSearch: false,
-      developerInstructions: `${systemInstruction}\nRender one safe pedagogical artifact from the supplied plan. Do not use tools or access local files.`,
-      input: correction?.preview
-        ? [
-            { type: 'image', url: correction.preview },
-            { text: prompt, type: 'text' },
-          ]
-        : [{ text: prompt, type: 'text' }],
-      model: modelConfig.model,
-      outputSchema: ARTIFACT_RENDER_RESPONSE_SCHEMA.schema,
-      reasoningEffort: modelConfig.reasoningEffort,
-      serviceTier: modelConfig.serviceTier,
+  const request = (image?: string) =>
+    generateStructuredOutput<{ code: string; imageRequests: HtmlImageRequest[] }>({
+      image,
+      model: modelConfig,
+      output: ARTIFACT_RENDER_RESPONSE_SCHEMA,
+      prompt,
       signal: input.signal,
-    });
-    const parsed = JSON.parse(response) as { code: string; imageRequests: HtmlImageRequest[] };
-    return {
-      code: parsed.code,
-      imageRequests: parsed.imageRequests,
-      kind: visualKindForPlan(input.plan),
-    };
-  }
-
-  const configured = createConfiguredTextModelFromResolution({
-    model: modelConfig.model,
-    provider: modelConfig.provider,
-    reasoningEffort: modelConfig.reasoningEffort,
-  });
-  const request = (preview?: string) =>
-    generateText({
-      abortSignal: input.signal,
-      maxRetries: 0,
-      model: configured.model,
-      output: Output.object({
-        name: ARTIFACT_RENDER_RESPONSE_SCHEMA.name,
-        schema: jsonSchema<{ code: string; imageRequests: HtmlImageRequest[] }>(
-          ARTIFACT_RENDER_RESPONSE_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
-        ),
-      }),
-      ...(preview
-        ? {
-            messages: [
-              {
-                content: [
-                  { image: preview, type: 'image' as const },
-                  { text: prompt, type: 'text' as const },
-                ],
-                role: 'user' as const,
-              },
-            ],
-          }
-        : { prompt }),
-      providerOptions: configured.providerOptions,
-      system: systemInstruction,
+      system: `${systemInstruction}
+Render one safe pedagogical artifact from the supplied plan.`,
     });
   const preview =
     correction?.preview &&
@@ -512,12 +440,12 @@ const requestArtifactRender = async (
       (await openRouterModelSupportsImages(modelConfig.model)))
       ? correction.preview
       : undefined;
-  let output: Awaited<ReturnType<typeof request>>['output'];
+  let output: Awaited<ReturnType<typeof request>>;
   try {
-    ({ output } = await request(preview));
+    output = await request(preview);
   } catch (error) {
     if (!preview || !isUnsupportedOpenRouterImageInput(error)) throw error;
-    ({ output } = await request());
+    output = await request();
   }
   return {
     code: output.code,
