@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { LessonWorkflowSnapshot } from '@shared/lessonWorkflowContract';
 import JSZip from 'jszip';
 import { afterEach, expect, test, vi } from 'vitest';
+import { createAssessmentSessionState } from '../../../hooks/workspace/controller/assessmentSession.ts';
 import type {
   WorkspaceControllerStateAdapter,
   WorkspaceGenerationKind,
@@ -989,8 +990,10 @@ const createControllerHarness = (args?: {
   projectLibrary.setLoadedSnapshot(args?.loadedSnapshot ?? null);
   const stopAudioCalls: boolean[] = [];
   const openRouter = createOpenRouterMock(args?.openRouter);
+  const assessmentSession = createAssessmentSessionState();
   const recreateController = () =>
     createWorkspaceController({
+      assessmentSession,
       domain,
       openRouter,
       projectLibrary: projectLibrary.adapter,
@@ -3162,6 +3165,56 @@ test('cancelAssessment aborts interview startup and cancels its recovered durabl
   const startPromise = controller.startHomeChat({ input: 'Voglio imparare sistemi operativi' });
   await interviewStartPending;
   const cancellation = controller.cancelAssessment();
+  await Promise.resolve();
+  assert.equal(observedStartSignal?.aborted, true);
+  await cancellation;
+
+  assert.equal(observedPollingSignal?.aborted, true);
+  expect(cancelCourseInterview).toHaveBeenCalledWith({
+    projectId: expect.any(String),
+    runId: 'interview-run',
+  });
+  assert.equal((await startPromise).outcome, 'abandoned');
+});
+
+test('cancelAssessment from a re-rendered controller aborts the interview started before the render', async () => {
+  let markInterviewStartPending: () => void = () => {};
+  const interviewStartPending = new Promise<void>(resolve => {
+    markInterviewStartPending = resolve;
+  });
+  let observedPollingSignal: AbortSignal | undefined;
+  let observedStartSignal: AbortSignal | undefined;
+  const cancelCourseInterview = vi.fn(async () => {});
+  const { controller, recreateController } = createControllerHarness({
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: (_input, options) => {
+        const pollingSignal = options?.signal;
+        const startSignal = options?.startSignal;
+        if (!pollingSignal || !startSignal) {
+          throw new Error('Expected polling and startup abort signals.');
+        }
+        observedPollingSignal = pollingSignal;
+        observedStartSignal = startSignal;
+        markInterviewStartPending();
+        return new Promise((_resolve, reject) => {
+          startSignal.addEventListener('abort', () => options?.onRunStarted?.('interview-run'), {
+            once: true,
+          });
+          pollingSignal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+      },
+    },
+  });
+
+  const startPromise = controller.startHomeChat({ input: 'Voglio imparare sistemi operativi' });
+  await interviewStartPending;
+  const cancellation = recreateController().cancelAssessment();
   await Promise.resolve();
   assert.equal(observedStartSignal?.aborted, true);
   await cancellation;

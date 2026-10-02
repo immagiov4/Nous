@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import {
   selectBlockingMessage,
   selectIsBlocking,
   selectIsContextBusy,
 } from '../../services/workspace/workflow.ts';
+import { createAssessmentSessionState } from './controller/assessmentSession.ts';
 import { createWorkspaceController as createWorkspaceControllerImpl } from './controller/createWorkspaceController.ts';
 import { useWorkspaceControllerState } from './controller/state.ts';
 import type { UseWorkspaceControllerArgs } from './controller/types.ts';
@@ -21,7 +23,9 @@ export const useWorkspaceController = ({
   stopAudio,
 }: UseWorkspaceControllerArgs) => {
   const controllerState = useWorkspaceControllerState();
+  const [assessmentSession] = useState(createAssessmentSessionState);
   const commands = createWorkspaceControllerImpl({
+    assessmentSession,
     domain,
     openRouter,
     projectLibrary,

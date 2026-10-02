@@ -35,27 +35,22 @@ import {
   AppState,
   type FileData,
   type HomeChatToolPreferences,
-  type LessonNode,
   type ProjectSource,
   type ProjectSourceWarning,
   type UserProfile,
 } from '../../../types.ts';
+import type {
+  AssessmentWorkspaceOwnership,
+  HomeChatStartResult,
+  PendingAssessmentInterviewRun,
+} from './assessmentSession.ts';
 import {
   getProjectSourceWarnings,
   prepareUploadedCourseSource,
   readSourceFileData,
 } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
-import type {
-  AssessmentSourceInput,
-  OpenSectionOptions,
-  OpenSectionOutcome,
-  WorkspaceControllerContext,
-} from './types.ts';
-
-interface AssessmentPlanningDependencies {
-  openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
-}
+import type { AssessmentSourceInput, WorkspaceControllerContext } from './types.ts';
 
 type CourseInterviewOutcome = 'abandoned' | 'assessment-complete' | 'continued';
 
@@ -64,19 +59,6 @@ interface HomeChatStartArgs {
   selectedFile?: File | null;
   selectedFiles?: File[];
   toolPreferences?: HomeChatToolPreferences;
-}
-
-interface HomeChatStartResult {
-  errorMessage?: string;
-  outcome:
-    | 'abandoned'
-    | 'assessment-complete'
-    | 'continued'
-    | 'failed'
-    | 'imported'
-    | 'noop'
-    | 'planned';
-  sourceWarnings?: ProjectSourceWarning[];
 }
 
 interface HomeChatStartState {
@@ -117,33 +99,6 @@ interface StartOrResumeInterviewInput {
   sourceContext?: string;
 }
 
-interface PendingAssessmentInterviewRun {
-  readonly pollingAbortController?: AbortController;
-  readonly projectId: string;
-  readonly runId: Promise<string | null>;
-  readonly startRequestAbortController?: AbortController;
-}
-
-interface PendingWorkspaceOpen {
-  readonly outcome: Promise<boolean>;
-  readonly projectId: string;
-  readonly resolve: (opened: boolean) => void;
-}
-
-interface AssessmentWorkspaceOwnership {
-  readonly adoptedProjectIds: Set<string>;
-  draftCleanupPromise: Promise<void> | null;
-  draftProjectId: string | null;
-  readonly pendingOpenProjects: Map<number, PendingWorkspaceOpen>;
-  readonly requestToken: symbol;
-  requiresCancellationRetry: boolean;
-}
-
-interface PendingCancelledDraftCleanup {
-  readonly ownership: AssessmentWorkspaceOwnership;
-  readonly projectId: string;
-}
-
 class LateCourseInterviewCancellationError extends Error {}
 
 const isTerminalCourseInterviewSnapshot = (snapshot: CourseInterviewSnapshot): boolean =>
@@ -169,24 +124,8 @@ const getCourseInterviewOutcome = (snapshot: CourseInterviewSnapshot): CourseInt
   return 'continued';
 };
 
-export const createAssessmentPlanningCommands = (
-  context: WorkspaceControllerContext,
-  _: AssessmentPlanningDependencies
-) => {
-  const { domain, openRouter, projectLibrary, state } = context;
-  let activeAssessmentCancellationPromise: Promise<void> | null = null;
-  let activeHomeChatStartPromise: Promise<HomeChatStartResult> | null = null;
-  let latestCourseConfirmationToken: symbol | null = null;
-  let activeHomeChatWorkspaceOwnership: AssessmentWorkspaceOwnership | null = null;
-  const openProjectAttempts = new Map<number, PendingWorkspaceOpen>();
-  const workspaceOwnershipByOpenProjectRequestId = new Map<
-    number,
-    Set<AssessmentWorkspaceOwnership>
-  >();
-  const assessmentRunCancellationPromises = new Map<string, Promise<void>>();
-  let pendingCancelledDraftCleanup: PendingCancelledDraftCleanup | null = null;
-  let pendingAssessmentInterviewRun: PendingAssessmentInterviewRun | null = null;
-  let latestHomeChatRequestToken: symbol | null = null;
+export const createAssessmentPlanningCommands = (context: WorkspaceControllerContext) => {
+  const { assessmentSession: session, domain, openRouter, projectLibrary, state } = context;
 
   const createAssessmentWorkspaceOwnership = (
     requestToken: symbol
@@ -200,13 +139,13 @@ export const createAssessmentPlanningCommands = (
       requiresCancellationRetry: false,
     };
     const openProjectRequestId = state.getWorkflowState().openProject.requestId;
-    const pendingOpenProject = openProjectAttempts.get(openProjectRequestId);
+    const pendingOpenProject = session.openProjectAttempts.get(openProjectRequestId);
     if (pendingOpenProject) {
       ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
       const owners =
-        workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
+        session.workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
       owners.add(ownership);
-      workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
+      session.workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
     }
     return ownership;
   };
@@ -271,7 +210,7 @@ export const createAssessmentPlanningCommands = (
   };
 
   const resetInterviewClientState = (): void => {
-    latestCourseConfirmationToken = null;
+    session.latestCourseConfirmationToken = null;
     domain.resetDomain();
     state.resetSessionState();
     projectLibrary.setCurrentProjectId(null);
@@ -359,7 +298,7 @@ export const createAssessmentPlanningCommands = (
   const cancelLateCourseInterview = async (snapshot: CourseInterviewSnapshot): Promise<void> => {
     if (isTerminalCourseInterviewSnapshot(snapshot)) return;
     try {
-      const claimedCancellation = assessmentRunCancellationPromises.get(snapshot.runId);
+      const claimedCancellation = session.assessmentRunCancellationPromises.get(snapshot.runId);
       await (claimedCancellation ??
         openRouter
           .cancelCourseInterview({
@@ -391,7 +330,7 @@ export const createAssessmentPlanningCommands = (
       runId,
       startRequestAbortController,
     };
-    pendingAssessmentInterviewRun = pendingRun;
+    session.pendingAssessmentInterviewRun = pendingRun;
     const reportRunStarted = (startedId: string) => {
       if (hasResolvedRunId) return;
       startedRunId = startedId;
@@ -408,8 +347,9 @@ export const createAssessmentPlanningCommands = (
       });
     } finally {
       if (!hasResolvedRunId) resolveRunId(null);
-      if (startedRunId) assessmentRunCancellationPromises.delete(startedRunId);
-      if (pendingAssessmentInterviewRun === pendingRun) pendingAssessmentInterviewRun = null;
+      if (startedRunId) session.assessmentRunCancellationPromises.delete(startedRunId);
+      if (session.pendingAssessmentInterviewRun === pendingRun)
+        session.pendingAssessmentInterviewRun = null;
     }
   };
 
@@ -619,7 +559,7 @@ export const createAssessmentPlanningCommands = (
     try {
       await cleanupPromise;
     } catch (error) {
-      pendingCancelledDraftCleanup = { ownership, projectId };
+      session.pendingCancelledDraftCleanup = { ownership, projectId };
       throw error;
     } finally {
       if (ownership.draftCleanupPromise === cleanupPromise) {
@@ -629,7 +569,7 @@ export const createAssessmentPlanningCommands = (
   };
 
   const retryPendingCancelledDraftCleanup = async (): Promise<void> => {
-    const cancelledDraftCleanup = pendingCancelledDraftCleanup;
+    const cancelledDraftCleanup = session.pendingCancelledDraftCleanup;
     if (!cancelledDraftCleanup) return;
     await waitForPendingWorkspaceOpen(cancelledDraftCleanup.ownership);
     await deleteTrackedDraft({
@@ -637,8 +577,8 @@ export const createAssessmentPlanningCommands = (
       projectId: cancelledDraftCleanup.projectId,
       refreshLibrary: true,
     });
-    if (pendingCancelledDraftCleanup === cancelledDraftCleanup) {
-      pendingCancelledDraftCleanup = null;
+    if (session.pendingCancelledDraftCleanup === cancelledDraftCleanup) {
+      session.pendingCancelledDraftCleanup = null;
     }
   };
 
@@ -651,7 +591,7 @@ export const createAssessmentPlanningCommands = (
       const cancellationPromise = openRouter
         .cancelCourseInterview({ projectId, runId: pendingRunId })
         .then(() => undefined);
-      assessmentRunCancellationPromises.set(pendingRunId, cancellationPromise);
+      session.assessmentRunCancellationPromises.set(pendingRunId, cancellationPromise);
       await cancellationPromise;
       pendingRun?.pollingAbortController?.abort();
       return;
@@ -684,13 +624,13 @@ export const createAssessmentPlanningCommands = (
   };
 
   async function runAssessmentCancellation(): Promise<void> {
-    latestCourseConfirmationToken = null;
-    const homeChatWorkspaceOwnership = activeHomeChatWorkspaceOwnership;
-    const homeChatStartPromise = activeHomeChatStartPromise;
+    session.latestCourseConfirmationToken = null;
+    const homeChatWorkspaceOwnership = session.activeHomeChatWorkspaceOwnership;
+    const homeChatStartPromise = session.activeHomeChatStartPromise;
     const isCancellingActiveHomeChat = Boolean(
       homeChatWorkspaceOwnership &&
-        (latestHomeChatRequestToken === homeChatWorkspaceOwnership.requestToken ||
-          pendingCancelledDraftCleanup?.ownership === homeChatWorkspaceOwnership ||
+        (session.latestHomeChatRequestToken === homeChatWorkspaceOwnership.requestToken ||
+          session.pendingCancelledDraftCleanup?.ownership === homeChatWorkspaceOwnership ||
           homeChatWorkspaceOwnership.requiresCancellationRetry)
     );
     const hasHomeChatWorkspaceBeenAdopted = () => {
@@ -701,12 +641,12 @@ export const createAssessmentPlanningCommands = (
           homeChatWorkspaceOwnership?.adoptedProjectIds.has(currentProjectId)
       );
     };
-    latestHomeChatRequestToken = null;
+    session.latestHomeChatRequestToken = null;
     const cancellationRequestId = state.beginWorkflow('assessment', t('Caricamento...'));
     try {
       await retryPendingCancelledDraftCleanup();
       const currentProjectId = projectLibrary.getCurrentProjectId();
-      const pendingRun = pendingAssessmentInterviewRun;
+      const pendingRun = session.pendingAssessmentInterviewRun;
       pendingRun?.startRequestAbortController?.abort();
       const cancellationRetryProjectId = homeChatWorkspaceOwnership?.requiresCancellationRetry
         ? homeChatWorkspaceOwnership.draftProjectId
@@ -745,30 +685,31 @@ export const createAssessmentPlanningCommands = (
       throw new Error(t('Operazione non riuscita. Riprova.'), { cause: error });
     } finally {
       if (
-        activeHomeChatWorkspaceOwnership === homeChatWorkspaceOwnership &&
-        activeHomeChatStartPromise !== homeChatStartPromise &&
+        session.activeHomeChatWorkspaceOwnership === homeChatWorkspaceOwnership &&
+        session.activeHomeChatStartPromise !== homeChatStartPromise &&
         !homeChatWorkspaceOwnership?.requiresCancellationRetry &&
-        pendingCancelledDraftCleanup?.ownership !== homeChatWorkspaceOwnership
+        session.pendingCancelledDraftCleanup?.ownership !== homeChatWorkspaceOwnership
       ) {
-        activeHomeChatWorkspaceOwnership = null;
+        session.activeHomeChatWorkspaceOwnership = null;
       }
     }
   }
 
   function cancelAssessment(): Promise<void> {
-    if (activeAssessmentCancellationPromise !== null) return activeAssessmentCancellationPromise;
+    if (session.activeAssessmentCancellationPromise !== null)
+      return session.activeAssessmentCancellationPromise;
 
     const cancellationPromise = runAssessmentCancellation();
-    activeAssessmentCancellationPromise = cancellationPromise;
+    session.activeAssessmentCancellationPromise = cancellationPromise;
     void cancellationPromise.then(
       () => {
-        if (activeAssessmentCancellationPromise === cancellationPromise) {
-          activeAssessmentCancellationPromise = null;
+        if (session.activeAssessmentCancellationPromise === cancellationPromise) {
+          session.activeAssessmentCancellationPromise = null;
         }
       },
       () => {
-        if (activeAssessmentCancellationPromise === cancellationPromise) {
-          activeAssessmentCancellationPromise = null;
+        if (session.activeAssessmentCancellationPromise === cancellationPromise) {
+          session.activeAssessmentCancellationPromise = null;
         }
       }
     );
@@ -813,7 +754,7 @@ export const createAssessmentPlanningCommands = (
 
     const currentProjectIdAfterCleanup = projectLibrary.getCurrentProjectId();
     const stillOwnsWorkspace =
-      latestHomeChatRequestToken === requestToken &&
+      session.latestHomeChatRequestToken === requestToken &&
       !hasBeenAdoptedByOpenProject &&
       (currentProjectIdAfterCleanup === null || currentProjectIdAfterCleanup === draftProjectId);
     if (stillOwnsWorkspace) resetInterviewClientState();
@@ -1102,9 +1043,9 @@ export const createAssessmentPlanningCommands = (
       t(selectedFiles.length > 0 ? 'Preparazione sorgente...' : 'Avvio conversazione...')
     );
     const requestToken = Symbol('home-chat-request');
-    latestHomeChatRequestToken = requestToken;
+    session.latestHomeChatRequestToken = requestToken;
     const workspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
-    activeHomeChatWorkspaceOwnership = workspaceOwnership;
+    session.activeHomeChatWorkspaceOwnership = workspaceOwnership;
     const startState: HomeChatStartState = { draftProjectId: null, sourceWarnings: [] };
     const isRequestCurrent = () => state.isWorkflowCurrent('assessment', requestId);
     const abandonCancelledStart = () =>
@@ -1159,7 +1100,7 @@ export const createAssessmentPlanningCommands = (
   }
 
   function startHomeChat(args: HomeChatStartArgs): Promise<HomeChatStartResult> {
-    const startPromise = activeHomeChatWorkspaceOwnership?.requiresCancellationRetry
+    const startPromise = session.activeHomeChatWorkspaceOwnership?.requiresCancellationRetry
       ? cancelAssessment().then(
           () => runHomeChatStart(args),
           error => ({
@@ -1168,27 +1109,29 @@ export const createAssessmentPlanningCommands = (
           })
         )
       : runHomeChatStart(args);
-    activeHomeChatStartPromise = startPromise;
+    session.activeHomeChatStartPromise = startPromise;
     void startPromise.then(
       () => {
-        if (activeHomeChatStartPromise === startPromise) {
-          activeHomeChatStartPromise = null;
+        if (session.activeHomeChatStartPromise === startPromise) {
+          session.activeHomeChatStartPromise = null;
           if (
-            !activeHomeChatWorkspaceOwnership?.requiresCancellationRetry &&
-            pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership
+            !session.activeHomeChatWorkspaceOwnership?.requiresCancellationRetry &&
+            session.pendingCancelledDraftCleanup?.ownership !==
+              session.activeHomeChatWorkspaceOwnership
           ) {
-            activeHomeChatWorkspaceOwnership = null;
+            session.activeHomeChatWorkspaceOwnership = null;
           }
         }
       },
       () => {
-        if (activeHomeChatStartPromise === startPromise) {
-          activeHomeChatStartPromise = null;
+        if (session.activeHomeChatStartPromise === startPromise) {
+          session.activeHomeChatStartPromise = null;
           if (
-            !activeHomeChatWorkspaceOwnership?.requiresCancellationRetry &&
-            pendingCancelledDraftCleanup?.ownership !== activeHomeChatWorkspaceOwnership
+            !session.activeHomeChatWorkspaceOwnership?.requiresCancellationRetry &&
+            session.pendingCancelledDraftCleanup?.ownership !==
+              session.activeHomeChatWorkspaceOwnership
           ) {
-            activeHomeChatWorkspaceOwnership = null;
+            session.activeHomeChatWorkspaceOwnership = null;
           }
         }
       }
@@ -1209,20 +1152,21 @@ export const createAssessmentPlanningCommands = (
       projectId,
       resolve: resolveOutcome,
     };
-    openProjectAttempts.set(openProjectRequestId, pendingOpenProject);
-    const owners = workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
-    const activeOwnership = activeHomeChatWorkspaceOwnership;
+    session.openProjectAttempts.set(openProjectRequestId, pendingOpenProject);
+    const owners =
+      session.workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId) ?? new Set();
+    const activeOwnership = session.activeHomeChatWorkspaceOwnership;
     if (activeOwnership) {
       activeOwnership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
       owners.add(activeOwnership);
     }
-    const pendingCleanup = pendingCancelledDraftCleanup;
+    const pendingCleanup = session.pendingCancelledDraftCleanup;
     if (pendingCleanup?.projectId === projectId) {
       pendingCleanup.ownership.pendingOpenProjects.set(openProjectRequestId, pendingOpenProject);
       owners.add(pendingCleanup.ownership);
     }
     if (owners.size === 0) return;
-    workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
+    session.workspaceOwnershipByOpenProjectRequestId.set(openProjectRequestId, owners);
     await Promise.all(
       [...owners]
         .map(ownership => ownership.draftCleanupPromise)
@@ -1235,17 +1179,17 @@ export const createAssessmentPlanningCommands = (
     openProjectRequestId: number,
     opened: boolean
   ): void {
-    const pendingOpenProject = openProjectAttempts.get(openProjectRequestId);
+    const pendingOpenProject = session.openProjectAttempts.get(openProjectRequestId);
     if (pendingOpenProject?.projectId !== projectId) return;
-    const owners = workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId);
+    const owners = session.workspaceOwnershipByOpenProjectRequestId.get(openProjectRequestId);
     if (owners) {
       for (const ownership of owners) {
         if (opened) ownership.adoptedProjectIds.add(projectId);
         ownership.pendingOpenProjects.delete(openProjectRequestId);
       }
-      workspaceOwnershipByOpenProjectRequestId.delete(openProjectRequestId);
+      session.workspaceOwnershipByOpenProjectRequestId.delete(openProjectRequestId);
     }
-    openProjectAttempts.delete(openProjectRequestId);
+    session.openProjectAttempts.delete(openProjectRequestId);
     pendingOpenProject.resolve(opened);
   }
 
@@ -1265,8 +1209,8 @@ export const createAssessmentPlanningCommands = (
 
     const requestId = state.beginWorkflow('assessment', t('Valutazione risposta...'));
     const requestToken = Symbol('home-chat-follow-up');
-    latestHomeChatRequestToken = requestToken;
-    activeHomeChatWorkspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
+    session.latestHomeChatRequestToken = requestToken;
+    session.activeHomeChatWorkspaceOwnership = createAssessmentWorkspaceOwnership(requestToken);
 
     let resolveRunId: (runId: string | null) => void = () => {};
     let hasResolvedRunId = false;
@@ -1280,7 +1224,7 @@ export const createAssessmentPlanningCommands = (
       runId,
       startRequestAbortController: requestAbortController,
     };
-    pendingAssessmentInterviewRun = pendingRun;
+    session.pendingAssessmentInterviewRun = pendingRun;
     const reportRunStarted = (runId: string) => {
       if (hasResolvedRunId) return;
       startedRunId = runId;
@@ -1336,15 +1280,17 @@ export const createAssessmentPlanningCommands = (
       return { outcome: 'failed', errorMessage };
     } finally {
       if (!hasResolvedRunId) resolveRunId(null);
-      if (startedRunId) assessmentRunCancellationPromises.delete(startedRunId);
-      if (pendingAssessmentInterviewRun === pendingRun) pendingAssessmentInterviewRun = null;
+      if (startedRunId) session.assessmentRunCancellationPromises.delete(startedRunId);
+      if (session.pendingAssessmentInterviewRun === pendingRun)
+        session.pendingAssessmentInterviewRun = null;
       if (
-        activeAssessmentCancellationPromise === null &&
-        activeHomeChatWorkspaceOwnership?.requestToken === requestToken
+        session.activeAssessmentCancellationPromise === null &&
+        session.activeHomeChatWorkspaceOwnership?.requestToken === requestToken
       ) {
-        activeHomeChatWorkspaceOwnership = null;
+        session.activeHomeChatWorkspaceOwnership = null;
       }
-      if (latestHomeChatRequestToken === requestToken) latestHomeChatRequestToken = null;
+      if (session.latestHomeChatRequestToken === requestToken)
+        session.latestHomeChatRequestToken = null;
     }
   }
 
@@ -1381,11 +1327,11 @@ export const createAssessmentPlanningCommands = (
     outcome: 'failed' | 'planned' | 'diagnostic';
   }> {
     const confirmationToken = Symbol('course-confirmation');
-    latestCourseConfirmationToken = confirmationToken;
+    session.latestCourseConfirmationToken = confirmationToken;
     const projectId = projectLibrary.getCurrentProjectId();
     const workflows = state.getWorkflowState();
     const isConfirmationCurrent = () =>
-      latestCourseConfirmationToken === confirmationToken &&
+      session.latestCourseConfirmationToken === confirmationToken &&
       projectLibrary.getCurrentProjectId() === projectId &&
       (['assessment', 'generatePlan', 'openProject'] as const).every(workflowId =>
         state.isWorkflowCurrent(workflowId, workflows[workflowId].requestId)
@@ -1422,7 +1368,8 @@ export const createAssessmentPlanningCommands = (
       const errorMessage = getErrorMessage(error);
       return { outcome: 'failed', errorMessage };
     } finally {
-      if (latestCourseConfirmationToken === confirmationToken) latestCourseConfirmationToken = null;
+      if (session.latestCourseConfirmationToken === confirmationToken)
+        session.latestCourseConfirmationToken = null;
     }
   }
 

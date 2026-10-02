@@ -9,9 +9,7 @@ export const createWorkspaceController = (
 ): WorkspaceControllerCommands => {
   const context = createWorkspaceControllerContext(args);
   const { resumeRetainedSublesson, ...sectionCommands } = createSectionCommands(context);
-  const assessmentCommands = createAssessmentPlanningCommands(context, {
-    openSection: sectionCommands.openSection,
-  });
+  const assessmentCommands = createAssessmentPlanningCommands(context);
   const projectLifecycleCommands = createProjectLifecycleCommands(context, {
     beginHomeChatWorkspaceOpen: assessmentCommands.beginHomeChatWorkspaceOpen,
     openSection: sectionCommands.openSection,
