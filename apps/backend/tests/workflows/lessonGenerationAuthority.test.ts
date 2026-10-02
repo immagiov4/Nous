@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { ProjectSnapshot } from '../../src/projects/types.js';
+import { buildLessonPedagogicalContext } from '../../src/services/lessonGenerationPreparation.js';
 import {
   buildLessonGenerationSourceFingerprint,
   buildLessonGenerationTargetFingerprint,
@@ -72,6 +73,36 @@ describe('lesson generation source authority', () => {
     );
     expect(buildLessonGenerationTargetFingerprint(changed, 'lesson-1')).not.toBe(
       buildLessonGenerationTargetFingerprint(initial, 'lesson-1')
+    );
+  });
+
+  test('prompt context and fingerprint read the same parent lesson', () => {
+    const withParentDescription = (description: string): ProjectSnapshot => ({
+      ...project(),
+      learningPlan: {
+        sections: [
+          { description, id: 'parent-1', title: 'Lezione madre' },
+          { id: 'child-1', parentId: 'parent-1', title: 'Approfondimento' },
+        ],
+        title: 'Corso',
+      },
+    });
+    const initial = withParentDescription('Descrizione iniziale');
+    const changed = withParentDescription('Descrizione aggiornata');
+    const child = (snapshot: ProjectSnapshot) => {
+      const section = snapshot.learningPlan?.sections?.[1];
+      if (!section) throw new Error('Missing test sublesson.');
+      return section;
+    };
+
+    expect(buildLessonPedagogicalContext(initial, child(initial))).toContain(
+      'Descrizione iniziale'
+    );
+    expect(buildLessonPedagogicalContext(changed, child(changed))).toContain(
+      'Descrizione aggiornata'
+    );
+    expect(buildLessonGenerationSourceFingerprint(initial, 'child-1')).not.toBe(
+      buildLessonGenerationSourceFingerprint(changed, 'child-1')
     );
   });
 });

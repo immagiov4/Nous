@@ -3,9 +3,8 @@ import { buildCoursePlanningInstructions } from '@shared/coursePlanningInstructi
 import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
+import { readLessonAuthoringContext, readPreviousLessonTitles } from '../projects/projectLesson.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
-import { isRecord } from '../utils/validation.js';
-import { findResearchLesson } from './lessonGenerationResearch.js';
 import {
   buildArchiveSourceContext,
   buildMappedSourceContext,
@@ -19,40 +18,15 @@ import {
 } from './lessonGenerationSources.js';
 import type { LessonGenerationInput } from './lessonGenerationTypes.js';
 
-const findNestedRecordById = (values: unknown, id: string): Record<string, unknown> | null => {
-  if (!Array.isArray(values)) return null;
-  for (const value of values) {
-    if (!isRecord(value)) continue;
-    if (value.id === id) return value;
-    const child = findNestedRecordById(value.children, id);
-    if (child) return child;
-  }
-  return null;
-};
-
-export const findLessonSection = (
-  project: ProjectSnapshot,
-  sectionId: string
-): Record<string, unknown> | null => {
-  const modules = project.learningPlan?.modules;
-  if (!Array.isArray(modules)) return null;
-  for (const module of modules) {
-    const section = module.children?.find(
-      child => child.id === sectionId && child.kind !== 'exercise'
-    );
-    if (section && isRecord(section)) return section;
-  }
-  return null;
-};
-
 export const buildLessonPedagogicalContext = (
   project: ProjectSnapshot,
   section: Record<string, unknown>
 ): string => {
-  const parent =
-    typeof section.parentId === 'string' ? findLessonSection(project, section.parentId) : null;
-  const syllabusItem = findNestedRecordById(project.syllabus, String(section.id));
-  const researchLesson = findResearchLesson(project, String(section.id));
+  const { parent, researchLesson, syllabusItem } = readLessonAuthoringContext(
+    project,
+    String(section.id),
+    section.parentId
+  );
   const coursePreferences = CoursePlanningPreferencesSchema.parse(project.userProfile ?? {});
   return [
     buildCoursePlanningInstructions(
@@ -76,13 +50,6 @@ export const buildLessonPedagogicalContext = (
     .filter(Boolean)
     .join('\n\n');
 };
-
-export const readPreviousLessonTitles = (project: ProjectSnapshot): string[] =>
-  (project.learningPlan?.modules ?? []).flatMap(module =>
-    (module.children ?? []).flatMap(candidate =>
-      candidate.isCompleted && typeof candidate.title === 'string' ? [candidate.title] : []
-    )
-  );
 
 export const resolveLessonSourceMaterials = async ({
   project,
