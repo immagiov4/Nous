@@ -44,11 +44,10 @@ import {
   mergeProjectMetaRow,
   mergeProjectSnapshotRow,
   type StoredProjectSnapshotRow,
-  stripProjectRevision,
   toPostgresJson,
 } from './projectPersistence.js';
 import { ProjectNotFoundError, ProjectRevisionConflictError } from './projectRevision.js';
-import { commitProjectRevision } from './projectRevisionWrite.js';
+import { commitProjectRevision, writeProjectMetaRevision } from './projectRevisionWrite.js';
 import {
   attachProjectSource,
   attachProjectSources,
@@ -1047,7 +1046,14 @@ export class PostgresProjectStore implements ProjectStore {
         touchedAt: existingMeta?.updatedAt || existingSnapshot.updatedAt,
       });
       return {
-        meta: await this.writeProjectMeta(userId, meta),
+        meta: mergeProjectMetaRow(
+          await writeProjectMetaRevision(this.sql, {
+            isNewProject: false,
+            meta,
+            projectId: meta.id,
+            userId,
+          })
+        ),
         snapshot: existingSnapshot,
       };
     }
@@ -2748,31 +2754,6 @@ export class PostgresProjectStore implements ProjectStore {
       delete from public.project_import_diagnostics
       where created_at < now() - ${PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS} * interval '1 day'
     `;
-  }
-
-  private async writeProjectMeta(
-    userId: string,
-    meta: SavedProjectMeta
-  ): Promise<SavedProjectMeta> {
-    const rows = await this.sql<ProjectMetaRow[]>`
-      update public.projects
-      set meta = jsonb_set(
-            ${this.sql.json(toPostgresJson(stripProjectRevision(meta)))},
-            '{isFavorite}',
-            coalesce(meta -> 'isFavorite', 'false'::jsonb),
-            true
-          ),
-          updated_at = ${meta.updatedAt},
-          last_opened_at = ${meta.lastOpenedAt},
-          server_updated_at = now(),
-          revision = revision + 1
-      where user_id = ${userId} and id = ${meta.id}
-      returning meta, revision
-    `;
-    if (!rows[0]) {
-      throw new Error(`Progetto ${meta.id} non trovato per aggiornamento metadata.`);
-    }
-    return mergeProjectMetaRow(rows[0]);
   }
 
   private async readFolder(userId: string, folderId: string): Promise<LibraryFolder | null> {

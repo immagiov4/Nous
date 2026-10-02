@@ -11,9 +11,9 @@ import {
 import { ProjectRevisionConflictError } from './projectRevision.js';
 import type { ProjectSnapshot, SavedProjectMeta } from './types.js';
 
-export type ProjectWriteSql = postgres.ReservedSql | postgres.TransactionSql;
+export type ProjectWriteSql = postgres.Sql | postgres.ReservedSql | postgres.TransactionSql;
 
-interface ProjectMetaRevisionWrite {
+export interface ProjectMetaRevisionWrite {
   /** Rejects the write unless the stored revision still matches. */
   readonly expectedRevision?: number;
   readonly isNewProject: boolean;
@@ -23,10 +23,11 @@ interface ProjectMetaRevisionWrite {
 }
 
 /**
- * `isFavorite` keeps the stored value: favorites change through their own narrow
- * update, while snapshot writes may carry meta read before the row lock.
+ * Writes the next metadata revision. `isFavorite` keeps the stored value: favorites
+ * change through their own narrow update, while snapshot writes may carry meta read
+ * before the row lock.
  */
-const writeProjectMetaRevision = async (
+export const writeProjectMetaRevision = async (
   sql: ProjectWriteSql,
   { expectedRevision, isNewProject, meta, projectId, userId }: ProjectMetaRevisionWrite
 ): Promise<StoredProjectMetaRow> => {
@@ -106,9 +107,10 @@ export interface ProjectRevisionCommit {
 /**
  * Commits one project revision: the metadata row with its revision check, attached
  * rows, the snapshot row, and asset reconciliation against the replaced snapshot.
- * Every new project revision goes through here; callers own locking and building
- * the snapshot and its metadata. Read-time legacy repairs that backfill derived
- * fields without a new revision write the snapshot row directly.
+ * Every revision that replaces the snapshot goes through here; callers own locking
+ * and building the snapshot and its metadata. Narrow revision bumps that keep the
+ * snapshot (favorite, cover) and read-time legacy repairs that backfill derived
+ * fields without a new revision write their rows directly.
  */
 export const commitProjectRevision = async (
   sql: ProjectWriteSql,
