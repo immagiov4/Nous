@@ -5,24 +5,15 @@ import { subscribeToProjectRevisions } from '../../src/projects/projectEvents.js
 import type { ProjectSnapshot, ProjectStore, SavedProjectMeta } from '../../src/projects/types.js';
 
 const {
-  createConfiguredTextModelMock,
   generateImageMock,
-  generateTextMock,
+  generateStructuredOutputMock,
   getProjectStoreMock,
   getResolvedModelConfigMock,
-  runCodexAppServerTurnMock,
 } = vi.hoisted(() => ({
-  createConfiguredTextModelMock: vi.fn(),
   generateImageMock: vi.fn(),
-  generateTextMock: vi.fn(),
+  generateStructuredOutputMock: vi.fn(),
   getProjectStoreMock: vi.fn(),
   getResolvedModelConfigMock: vi.fn(),
-  runCodexAppServerTurnMock: vi.fn(),
-}));
-
-vi.mock('ai', async importOriginal => ({
-  ...(await importOriginal<typeof import('ai')>()),
-  generateText: generateTextMock,
 }));
 
 vi.mock('../../src/projects/projectStore.js', () => ({
@@ -34,12 +25,8 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
   getResolvedModelConfigForProvider: getResolvedModelConfigMock,
 }));
 
-vi.mock('../../src/services/aiSdkTextModel.js', () => ({
-  createConfiguredTextModel: createConfiguredTextModelMock,
-}));
-
-vi.mock('../../src/services/codexAppServer.js', () => ({
-  runCodexAppServerTurn: runCodexAppServerTurnMock,
+vi.mock('../../src/services/structuredGeneration.js', () => ({
+  generateStructuredOutput: generateStructuredOutputMock,
 }));
 
 vi.mock('../../src/services/imageClient.js', () => ({
@@ -129,16 +116,10 @@ const waitForTerminalJob = async (userId: string) => {
 describe('course cover regeneration jobs', () => {
   beforeEach(() => {
     generateImageMock.mockReset();
-    generateTextMock.mockReset();
+    generateStructuredOutputMock.mockReset();
     getProjectStoreMock.mockReset();
     getResolvedModelConfigMock.mockReset();
-    runCodexAppServerTurnMock.mockReset();
-    createConfiguredTextModelMock.mockReset();
-    createConfiguredTextModelMock.mockReturnValue({
-      model: { modelId: 'assessment' },
-      providerOptions: {},
-    });
-    generateTextMock.mockResolvedValue({ output: direction });
+    generateStructuredOutputMock.mockResolvedValue(direction);
     generateImageMock.mockResolvedValue(imageResult);
     getResolvedModelConfigMock.mockResolvedValue(MODEL_CONFIG);
   });
@@ -257,7 +238,7 @@ describe('course cover regeneration jobs', () => {
   test('does not generate or save when provider planning rejects or returns invalid output', async () => {
     const rejectedStore = buildStore([project('planner-reject')]);
     getProjectStoreMock.mockReturnValue(rejectedStore);
-    generateTextMock.mockRejectedValueOnce(new Error('planner unavailable'));
+    generateStructuredOutputMock.mockRejectedValueOnce(new Error('planner unavailable'));
     startOrResumeCourseCoverRegeneration('planner-reject-user');
     const rejectedJob = await waitForTerminalJob('planner-reject-user');
 
@@ -267,7 +248,7 @@ describe('course cover regeneration jobs', () => {
 
     const invalidStore = buildStore([project('planner-invalid')]);
     getProjectStoreMock.mockReturnValue(invalidStore);
-    generateTextMock.mockResolvedValueOnce({ output: { subject: 'Incomplete' } });
+    generateStructuredOutputMock.mockResolvedValueOnce({ subject: 'Incomplete' });
     startOrResumeCourseCoverRegeneration('planner-invalid-user');
     const invalidJob = await waitForTerminalJob('planner-invalid-user');
 
@@ -310,9 +291,8 @@ describe('course cover regeneration jobs', () => {
     startOrResumeCourseCoverRegeneration('openai-user', 'openai');
     await waitForTerminalJob('openai-user');
 
-    expect(createConfiguredTextModelMock).toHaveBeenCalledWith(openAiConfig, 'artifact');
-    expect(generateTextMock).toHaveBeenCalledWith(
-      expect.objectContaining({ abortSignal: expect.any(AbortSignal) })
+    expect(generateStructuredOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({ config: openAiConfig, slot: 'artifact' })
     );
     expect(generateImageMock).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'openai/image', provider: 'openai' })
@@ -331,27 +311,27 @@ describe('course cover regeneration jobs', () => {
       aiProvider: 'openai',
       aiProviderOverrides,
     });
-    runCodexAppServerTurnMock.mockResolvedValue(JSON.stringify(direction));
-
     startOrResumeCourseCoverRegeneration('mixed-provider-user', 'openai', aiProviderOverrides);
     await waitForTerminalJob('mixed-provider-user');
 
     expect(getResolvedModelConfigMock).toHaveBeenCalledWith('openai', aiProviderOverrides);
-    expect(runCodexAppServerTurnMock).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'codex/image' })
+    expect(generateStructuredOutputMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ aiProviderOverrides }),
+        slot: 'artifact',
+      })
     );
     expect(generateImageMock).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'openrouter/image', provider: 'openrouter' })
     );
   });
 
-  test('uses the Codex artifact planner and retries immediately after setup failure', async () => {
+  test('plans the artifact on the artifact slot and retries immediately after setup failure', async () => {
     const store = buildStore([project('codex')]);
     getProjectStoreMock.mockReturnValue(store);
     getResolvedModelConfigMock
       .mockRejectedValueOnce(new Error('temporary configuration failure'))
       .mockResolvedValueOnce({ ...MODEL_CONFIG, aiProvider: 'codex' });
-    runCodexAppServerTurnMock.mockResolvedValue(JSON.stringify(direction));
 
     const failedStart = startOrResumeCourseCoverRegeneration('retry-user', 'codex');
     const failedJob = await waitForTerminalJob('retry-user');
@@ -361,10 +341,12 @@ describe('course cover regeneration jobs', () => {
     expect(retryStart.id).not.toBe(failedStart.id);
     const completedJob = await waitForTerminalJob('retry-user');
     expect(completedJob.status).toBe('completed');
-    expect(runCodexAppServerTurnMock).toHaveBeenCalledWith(
+    expect(generateStructuredOutputMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'codex/image',
-        outputSchema: expect.objectContaining({ type: 'object' }),
+        output: expect.objectContaining({
+          schema: expect.objectContaining({ type: 'object' }),
+        }),
+        slot: 'artifact',
       })
     );
     expect(generateImageMock).toHaveBeenCalledWith(

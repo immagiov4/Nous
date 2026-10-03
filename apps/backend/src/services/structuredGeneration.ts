@@ -38,7 +38,7 @@ export type StructuredGenerationRequest = StructuredModelTarget & {
   readonly prompt: string;
   /** Overrides the slot's configured reasoning effort. */
   readonly reasoningEffort?: ReasoningEffort;
-  readonly signal: AbortSignal;
+  readonly signal?: AbortSignal;
   readonly system: string;
   /** Lets the model search the web; local tools and files stay forbidden. */
   readonly webSearch?: boolean;
