@@ -178,3 +178,14 @@ test('an image precedes the prompt for both providers', async () => {
     },
   ]);
 });
+
+test('AI SDK transport retries are off unless the caller asks for them', async () => {
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
+  generateText.mockResolvedValue({ output: { answer: '42' } });
+
+  await generateStructuredOutput(request('openrouter'));
+  expect(generateText.mock.lastCall?.[0].maxRetries).toBe(0);
+
+  await generateStructuredOutput({ ...request('openrouter'), maxRetries: 2 });
+  expect(generateText.mock.lastCall?.[0].maxRetries).toBe(2);
+});

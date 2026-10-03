@@ -154,6 +154,9 @@ const readVisualDirection = (value: unknown): string | null => {
   });
 };
 
+// Cover planning has always relied on the AI SDK's default transport retries.
+const COURSE_COVER_PLANNER_MAX_RETRIES = 2;
+
 const planCourseCoverVisualDirection = async (
   config: GlobalModelConfig,
   project: SavedProjectMeta
@@ -162,6 +165,7 @@ const planCourseCoverVisualDirection = async (
   const direction = readVisualDirection(
     await generateStructuredOutput<unknown>({
       config,
+      maxRetries: COURSE_COVER_PLANNER_MAX_RETRIES,
       output: {
         name: 'course_cover_visual_direction',
         schema: COURSE_COVER_DIRECTION_JSON_SCHEMA as unknown as Record<string, unknown>,

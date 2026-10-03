@@ -34,6 +34,8 @@ export type StructuredModelTarget =
 export type StructuredGenerationRequest = StructuredModelTarget & {
   /** Data URL of one image shown to the model before the prompt. */
   readonly image?: string;
+  /** AI SDK transport retries; 0 by default because callers own correction retries. */
+  readonly maxRetries?: number;
   readonly output: StructuredOutputSchema;
   readonly prompt: string;
   /** Overrides the slot's configured reasoning effort. */
@@ -75,7 +77,7 @@ const resolveTarget = (request: StructuredGenerationRequest): ResolvedStructured
 export const generateStructuredOutput = async <T>(
   request: StructuredGenerationRequest
 ): Promise<T> => {
-  const { image, output, prompt, signal, system, webSearch = false } = request;
+  const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
   const target = resolveTarget(request);
   if (target.provider === 'codex') {
     const response = await runCodexAppServerTurn({
@@ -100,7 +102,7 @@ export const generateStructuredOutput = async <T>(
   );
   const result = await generateText({
     abortSignal: signal,
-    maxRetries: 0,
+    maxRetries,
     model: configured.model,
     output: Output.object({
       name: output.name,

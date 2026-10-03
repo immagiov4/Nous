@@ -292,7 +292,7 @@ describe('course cover regeneration jobs', () => {
     await waitForTerminalJob('openai-user');
 
     expect(generateStructuredOutputMock).toHaveBeenCalledWith(
-      expect.objectContaining({ config: openAiConfig, slot: 'artifact' })
+      expect.objectContaining({ config: openAiConfig, maxRetries: 2, slot: 'artifact' })
     );
     expect(generateImageMock).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'openai/image', provider: 'openai' })
@@ -343,6 +343,7 @@ describe('course cover regeneration jobs', () => {
     expect(completedJob.status).toBe('completed');
     expect(generateStructuredOutputMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        config: expect.objectContaining({ aiProvider: 'codex' }),
         output: expect.objectContaining({
           schema: expect.objectContaining({ type: 'object' }),
         }),
