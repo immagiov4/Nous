@@ -87,3 +87,29 @@ test('the latest response is the assistant reply after the last user message', (
 
   expect(latestResponseParts(messages)).toEqual([toolPart('new', 'input-available')]);
 });
+
+test('sends queued behind one response start one at a time', async () => {
+  const { result } = renderHook(() => useChatResponseControl());
+  const control = result.current;
+  const order: string[] = [];
+  const finishers: Array<() => void> = [];
+  const queuedSend = (name: string) =>
+    control.send(() => {
+      order.push(name);
+      return new Promise<void>(resolve => finishers.push(resolve));
+    });
+
+  const sends = [queuedSend('first'), queuedSend('second'), queuedSend('third')];
+  await Promise.resolve();
+  expect(order).toEqual(['first']);
+
+  finishers[0]?.();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(order).toEqual(['first', 'second']);
+
+  finishers[1]?.();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(order).toEqual(['first', 'second', 'third']);
+  finishers[2]?.();
+  await Promise.all(sends);
+});

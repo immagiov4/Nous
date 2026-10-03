@@ -18,7 +18,7 @@ export interface ChatResponseControl {
   /** Starts a new response; tool calls from earlier responses become stale. */
   readonly begin: () => void;
   readonly guardToolCall: (toolCall: { toolCallId: string; toolName: string }) => ChatToolCallGuard;
-  /** Waits for the previous `send` to settle, begins a new response and runs `start`. */
+  /** Waits for every earlier `send` to settle, begins a new response and runs `start`. */
   readonly send: (start: () => Promise<void>) => Promise<void>;
   /**
    * Stops automatic continuation and returns the tool calls to cancel: every tracked call
@@ -80,20 +80,22 @@ const createChatResponseControl = (): ChatResponseControl & {
   return {
     canContinue: () => canContinue,
     begin,
-    send: async start => {
-      if (pendingSettlement !== undefined) await pendingSettlement;
-      begin();
-      const response = start();
+    send: start => {
+      // Chain on the latest queued send, so each response starts after every earlier one.
+      const previous = pendingSettlement;
+      const response = (async () => {
+        if (previous !== undefined) await previous;
+        begin();
+        await start();
+      })();
       const settlement = response.then(
         () => undefined,
         () => undefined
       );
       pendingSettlement = settlement;
-      try {
-        await response;
-      } finally {
+      return response.finally(() => {
         if (pendingSettlement === settlement) pendingSettlement = undefined;
-      }
+      });
     },
     guardToolCall: ({ toolCallId, toolName }) => {
       const callGeneration = generation;
