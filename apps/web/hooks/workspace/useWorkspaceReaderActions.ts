@@ -673,20 +673,19 @@ export const useWorkspaceReaderActions = ({
       });
 
       if (!persisted) {
-        (lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection)(
-          lessonId,
-          currentLesson => ({
-            ...currentLesson,
-            annotations:
-              currentLesson.annotations === result.annotations
-                ? section.annotations
-                : currentLesson.annotations,
-            generatedVisuals:
-              currentLesson.generatedVisuals === nextGeneratedVisuals
-                ? section.generatedVisuals
-                : currentLesson.generatedVisuals,
-          })
-        );
+        (lessonId === activeSectionIdRef.current
+          ? updateSectionPreservingReaderScroll
+          : updateSection)(lessonId, currentLesson => ({
+          ...currentLesson,
+          annotations:
+            currentLesson.annotations === result.annotations
+              ? section.annotations
+              : currentLesson.annotations,
+          generatedVisuals:
+            currentLesson.generatedVisuals === nextGeneratedVisuals
+              ? section.generatedVisuals
+              : currentLesson.generatedVisuals,
+        }));
         return {
           saved: false,
           merged: result.merged,
@@ -804,20 +803,19 @@ export const useWorkspaceReaderActions = ({
       });
 
       if (!persisted) {
-        (lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection)(
-          lessonId,
-          currentLesson => ({
-            ...currentLesson,
-            annotations:
-              currentLesson.annotations === result.annotations
-                ? section.annotations
-                : currentLesson.annotations,
-            generatedVisuals:
-              currentLesson.generatedVisuals === nextGeneratedVisuals
-                ? section.generatedVisuals
-                : currentLesson.generatedVisuals,
-          })
-        );
+        (lessonId === activeSectionIdRef.current
+          ? updateSectionPreservingReaderScroll
+          : updateSection)(lessonId, currentLesson => ({
+          ...currentLesson,
+          annotations:
+            currentLesson.annotations === result.annotations
+              ? section.annotations
+              : currentLesson.annotations,
+          generatedVisuals:
+            currentLesson.generatedVisuals === nextGeneratedVisuals
+              ? section.generatedVisuals
+              : currentLesson.generatedVisuals,
+        }));
         return {
           saved: false,
           merged: false,
