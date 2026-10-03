@@ -29,6 +29,11 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  cancelledToolOutput,
+  useChatResponseControl,
+  useLatestValue,
+} from '../../../hooks/chat/useChatResponseControl.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
@@ -436,17 +441,6 @@ interface ContextChatTools {
 }
 
 type ContextChatMessage = UIMessage<unknown, Record<string, never>, ContextChatTools>;
-type ContextChatToolPart = Extract<ContextChatMessage['parts'][number], { toolCallId: string }>;
-
-const isPendingContextToolPart = (
-  part: ContextChatMessage['parts'][number]
-): part is ContextChatToolPart =>
-  'toolCallId' in part && (part.state === 'input-streaming' || part.state === 'input-available');
-
-const getContextToolPartName = (part: ContextChatToolPart): string =>
-  'toolName' in part && typeof part.toolName === 'string'
-    ? part.toolName
-    : part.type.slice('tool-'.length);
 
 interface ContextRequestState {
   attachedAnnotationNote?: string;
@@ -466,11 +460,6 @@ interface ContextRequestState {
   sourceName?: string;
   sourceReferences?: ContextSourceReference[];
   toolPreferences: ContextChatToolPreferences;
-}
-
-interface ContextResponseState {
-  canContinue: boolean;
-  generation: number;
 }
 
 const serializeContextSourceReferences = (
@@ -496,16 +485,6 @@ const buildLegacySourceName = (
   }
   const names = references.map(reference => sanitizeContextSourceDisplayName(reference.name));
   return names.length === 1 ? names[0] : `${names.length} fonti originali: ${names.join(' | ')}`;
-};
-
-const createContextRequestStateStore = (initialState: ContextRequestState) => {
-  let currentState = initialState;
-  return {
-    read: () => currentState,
-    write: (nextState: ContextRequestState) => {
-      currentState = nextState;
-    },
-  };
 };
 
 const buildContextDraftLesson = (
@@ -658,11 +637,7 @@ function ContextAnswerPanelSession({
     new Set()
   );
   const hasSubmittedInitialQuestionRef = useRef(false);
-  const activeResponseStateRef = useRef<ContextResponseState>({
-    canContinue: true,
-    generation: 0,
-  });
-  const activeContextToolCallsRef = useRef(new Map<string, string>());
+  const responseControl = useChatResponseControl();
   const contextStopButtonRef = useRef<HTMLButtonElement>(null);
   const focusStopAfterSubmitRef = useRef(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
@@ -673,17 +648,6 @@ function ContextAnswerPanelSession({
     selectedText: contextAnswer.selectedText,
     selectedTextStart: contextAnswer.selectedTextStart,
   });
-
-  useEffect(() => {
-    const responseState = activeResponseStateRef.current;
-    const activeToolCalls = activeContextToolCallsRef.current;
-    responseState.canContinue = true;
-    return () => {
-      responseState.canContinue = false;
-      responseState.generation += 1;
-      activeToolCalls.clear();
-    };
-  }, []);
 
   // Tracks when each requestAddToNotes part entered input-available without
   // valid input, so we can show fallback buttons after GRACE and auto-reject
@@ -781,13 +745,7 @@ function ContextAnswerPanelSession({
       toolPreferences,
     ]
   );
-  const [contextRequestStateStore] = useState(() =>
-    createContextRequestStateStore(currentContextRequestState)
-  );
-
-  useEffect(() => {
-    contextRequestStateStore.write(currentContextRequestState);
-  }, [contextRequestStateStore, currentContextRequestState]);
+  const readContextRequestState = useLatestValue(currentContextRequestState);
 
   const transport = useMemo(
     () =>
@@ -796,7 +754,7 @@ function ContextAnswerPanelSession({
         fetch: fetchWithSupabaseAuth,
         // `useChat` keeps the initial transport instance, so request data comes from its stable store.
         prepareSendMessagesRequest: ({ headers, id, messages }) => {
-          const currentRequestState = contextRequestStateStore.read();
+          const currentRequestState = readContextRequestState();
 
           return {
             headers,
@@ -823,7 +781,7 @@ function ContextAnswerPanelSession({
           };
         },
       }),
-    [contextRequestStateStore]
+    [readContextRequestState]
   );
 
   const artifactPayloadsById = useMemo(() => {
@@ -846,16 +804,14 @@ function ContextAnswerPanelSession({
     transport,
     experimental_throttle: 96,
     sendAutomaticallyWhen: ({ messages }) =>
-      activeResponseStateRef.current.canContinue && shouldContinueContextResponse(messages),
+      responseControl.canContinue() && shouldContinueContextResponse(messages),
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
         return;
       }
-      const responseGeneration = activeResponseStateRef.current.generation;
-      const shouldContinueToolCall = () => {
-        const responseState = activeResponseStateRef.current;
-        return responseState.canContinue && responseState.generation === responseGeneration;
-      };
+      const toolCallGuard = responseControl.guardToolCall(toolCall);
+      const shouldContinueToolCall = toolCallGuard.isCurrent;
+      const awaitTrackedToolCall = toolCallGuard.track;
       if (!shouldContinueToolCall()) {
         void addToolOutput({
           tool: toolCall.toolName,
@@ -865,17 +821,9 @@ function ContextAnswerPanelSession({
         });
         return;
       }
-      const awaitTrackedToolCall = async <Result,>(request: () => Promise<Result>) => {
-        activeContextToolCallsRef.current.set(toolCall.toolCallId, toolCall.toolName);
-        try {
-          return await request();
-        } finally {
-          activeContextToolCallsRef.current.delete(toolCall.toolCallId);
-        }
-      };
       if (toolCall.toolName === 'requestAddToNotes') {
         const noteInput = isRequestAddToNotesInput(toolCall.input) ? toolCall.input : null;
-        const currentState = contextRequestStateStore.read();
+        const currentState = readContextRequestState();
         const primaryCandidate = noteInput
           ? buildConversationNoteSaveCandidates({
               anchor: selectionAnchorRef.current,
@@ -936,7 +884,7 @@ function ContextAnswerPanelSession({
       if (toolCall.toolName === 'generateCurrentLessonArtifact') {
         const artifactInput = readGenerateCurrentLessonArtifactInput(toolCall.input);
         const projectId = contextAnswer.projectId;
-        const currentState = contextRequestStateStore.read();
+        const currentState = readContextRequestState();
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
         const sourceArtifactId = artifactInput?.sourceArtifactId;
         const sourceArtifact = sourceArtifactId
@@ -1169,7 +1117,7 @@ function ContextAnswerPanelSession({
       return;
     }
 
-    const currentState = contextRequestStateStore.read();
+    const currentState = readContextRequestState();
     const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
     const mode: 'new' | 'update' = hasExistingNote ? 'update' : 'new';
     const runMutation = mode === 'update' ? onUpdateConversationNote : onSaveConversationNote;
@@ -1350,7 +1298,7 @@ function ContextAnswerPanelSession({
       artifactId,
       contextAnswer
     )?.artifact;
-    const currentState = contextRequestStateStore.read();
+    const currentState = readContextRequestState();
     const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
     if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson)
       return false;
@@ -1397,7 +1345,7 @@ function ContextAnswerPanelSession({
   const handleReplaceArtifact = async ({ artifactId }: ChatArtifactReplaceRequest) => {
     const replacement = resolveContextArtifact(artifactPayloadsById, artifactId, contextAnswer);
     const visual = generatedVisualsByArtifactId[artifactId];
-    const originLesson = buildContextDraftLesson(contextAnswer, contextRequestStateStore.read());
+    const originLesson = buildContextDraftLesson(contextAnswer, readContextRequestState());
     if (!replacement || !visual || !originLesson || !contextAnswer.projectId) {
       return { error: t("Non ho trovato l'artefatto da sostituire."), succeeded: false };
     }
@@ -1630,8 +1578,7 @@ function ContextAnswerPanelSession({
       document.activeElement instanceof HTMLElement &&
       document.activeElement.dataset.chatComposerTarget === CONTEXT_ANSWER_SUBMIT_TARGET;
 
-    activeResponseStateRef.current.canContinue = true;
-    activeResponseStateRef.current.generation += 1;
+    responseControl.begin();
     setHasRequestedResponseStop(false);
     setInput('');
     setIsToolMenuOpen(false);
@@ -1640,26 +1587,14 @@ function ContextAnswerPanelSession({
 
   const handleStopResponse = () => {
     if (!isLoading || isStoppingResponse) return;
-    activeResponseStateRef.current.canContinue = false;
     setHasRequestedResponseStop(true);
     setIsToolMenuOpen(false);
     setGeneratingArtifactToolCallIds(new Set());
+    const cancelledToolCalls = responseControl.halt({
+      parts: messages.flatMap(message => message.parts),
+    });
     stop();
-    const pendingToolCalls = new Map(activeContextToolCallsRef.current);
-    for (const part of messages
-      .flatMap(message => message.parts)
-      .filter(isPendingContextToolPart)) {
-      pendingToolCalls.set(part.toolCallId, getContextToolPartName(part));
-    }
-    activeContextToolCallsRef.current.clear();
-    for (const [toolCallId, tool] of pendingToolCalls) {
-      void addToolOutput({
-        tool,
-        toolCallId,
-        state: 'output-error',
-        errorText: t('Annullato'),
-      });
-    }
+    for (const call of cancelledToolCalls) void addToolOutput(cancelledToolOutput(call));
   };
 
   const handleSpeechTranscription = (transcription: string) => {
