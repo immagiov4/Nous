@@ -7,7 +7,6 @@ import {
   type CourseCoverVisualDirection,
   formatCourseCoverVisualDirection,
 } from '@shared/courseCoverPrompt';
-import { generateText, jsonSchema, Output } from 'ai';
 
 import {
   type AiProvider,
@@ -15,19 +14,17 @@ import {
   getResolvedModelConfigForProvider,
   type ModelProviderOverrides,
   resolveAiProviderForSlot,
-  resolveTextModelConfig,
 } from '../config/modelConfig.js';
 import { publishProjectRevision } from '../projects/projectEvents.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectCoverFile, ProjectStore, SavedProjectMeta } from '../projects/types.js';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
-import { createConfiguredTextModel } from './aiSdkTextModel.js';
-import { runCodexAppServerTurn } from './codexAppServer.js';
+import { CODEX_TURN_TIMEOUT_MS } from './codexAppServer.js';
 import { imageClient } from './imageClient.js';
+import { generateStructuredOutput } from './structuredGeneration.js';
 
 const MAX_CONCURRENT_COURSE_COVER_REGENERATIONS = 6;
-const COURSE_COVER_PLANNER_TIMEOUT_MS = 90_000;
 const COMPLETED_JOB_COOLDOWN_MS = 15 * 60 * 1_000;
 const COURSE_COVER_REGENERATION_FAILURE_MESSAGE = 'Course cover regeneration failed.';
 const COURSE_COVER_REGENERATION_SKIPPED_MESSAGE = 'Course changed before its cover could be saved.';
@@ -158,54 +155,29 @@ const readVisualDirection = (value: unknown): string | null => {
   });
 };
 
-const planWithCodex = async (
-  config: GlobalModelConfig,
-  title: string,
-  context: string
-): Promise<string | null> => {
-  const { model, reasoningEffort } = resolveTextModelConfig(config, 'artifact');
-  const response = await runCodexAppServerTurn({
-    developerInstructions: COURSE_COVER_DIRECTION_SYSTEM_PROMPT,
-    input: [{ type: 'text', text: buildCourseCoverDirectionUserPrompt(title, context) }],
-    model,
-    outputSchema: COURSE_COVER_DIRECTION_JSON_SCHEMA,
-    reasoningEffort,
-  });
-  return readVisualDirection(JSON.parse(response));
-};
-
-const planWithAiSdk = async (
-  config: GlobalModelConfig,
-  title: string,
-  context: string
-): Promise<string | null> => {
-  const configuredModel = createConfiguredTextModel(config, 'artifact');
-  const { output } = await generateText({
-    abortSignal: AbortSignal.timeout(COURSE_COVER_PLANNER_TIMEOUT_MS),
-    maxOutputTokens: 420,
-    model: configuredModel.model,
-    output: Output.object({
-      name: 'course_cover_visual_direction',
-      schema: jsonSchema<CourseCoverVisualDirection>(
-        COURSE_COVER_DIRECTION_JSON_SCHEMA as unknown as Parameters<typeof jsonSchema>[0]
-      ),
-    }),
-    prompt: buildCourseCoverDirectionUserPrompt(title, context),
-    providerOptions: configuredModel.providerOptions,
-    system: COURSE_COVER_DIRECTION_SYSTEM_PROMPT,
-  });
-  return readVisualDirection(output);
-};
+// Cover planning has always relied on the AI SDK's default transport retries.
+const COURSE_COVER_PLANNER_MAX_RETRIES = 2;
 
 const planCourseCoverVisualDirection = async (
   config: GlobalModelConfig,
   project: SavedProjectMeta
 ): Promise<string> => {
   const context = `Source: ${project.coverLabel}. Source kind: ${project.sourceKind}.`;
-  const direction =
-    resolveAiProviderForSlot(config, 'artifact') === 'codex'
-      ? await planWithCodex(config, project.title, context)
-      : await planWithAiSdk(config, project.title, context);
+  const direction = readVisualDirection(
+    await generateStructuredOutput<unknown>({
+      config,
+      maxRetries: COURSE_COVER_PLANNER_MAX_RETRIES,
+      // Cover jobs have no request signal; bound every provider by the Codex turn limit.
+      signal: AbortSignal.timeout(CODEX_TURN_TIMEOUT_MS),
+      output: {
+        name: 'course_cover_visual_direction',
+        schema: COURSE_COVER_DIRECTION_JSON_SCHEMA as unknown as Record<string, unknown>,
+      },
+      prompt: buildCourseCoverDirectionUserPrompt(project.title, context),
+      slot: 'artifact',
+      system: COURSE_COVER_DIRECTION_SYSTEM_PROMPT,
+    })
+  );
   if (!direction) throw new Error('Course cover visual direction is invalid.');
   return direction;
 };

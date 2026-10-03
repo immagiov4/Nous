@@ -8,7 +8,7 @@ import { recordWorkflowAiUsage, type WorkflowAiUsage } from '../workflows/workfl
 import { toWorkflowErrorDiagnostic } from '../workflows/workflowErrorDiagnostics.js';
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
-const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
+export const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
 const CODEX_BASE_INSTRUCTIONS =
   'You are the Nous Reader text engine. Use only capabilities explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, or browser. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
 const CODEX_OFFLINE_INSTRUCTION = 'Do not access the network.';
