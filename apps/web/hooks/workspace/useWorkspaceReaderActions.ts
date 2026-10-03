@@ -148,49 +148,57 @@ export const useWorkspaceReaderActions = ({
     activeSectionIdRef.current = activeSectionId;
   }, [activeSectionId]);
 
-  const updateSectionPreservingReaderScroll = useCallback(
-    (sectionId: string, updater: (section: LessonNode) => LessonNode) => {
-      const scrollContainer = scrollContainerRef.current;
-      const scrollTop = contextMenuScrollTopRef.current ?? scrollContainer?.scrollTop;
-      updateSection(sectionId, updater);
-      if (!scrollContainer || scrollTop === undefined) {
-        return;
-      }
-
+  // Re-renders after an annotation change can move the reader; restore the offset the
+  // user saw when the context menu opened.
+  const captureReaderScroll = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    const scrollTop = contextMenuScrollTopRef.current ?? scrollContainer?.scrollTop;
+    return (onlyWhileActiveSectionId?: string) => {
+      if (!scrollContainer || scrollTop === undefined) return;
       globalThis.requestAnimationFrame(() => {
-        if (scrollContainerRef.current === scrollContainer) {
+        if (
+          scrollContainerRef.current === scrollContainer &&
+          (onlyWhileActiveSectionId === undefined ||
+            activeSectionIdRef.current === onlyWhileActiveSectionId)
+        ) {
           scrollContainer.scrollTop = scrollTop;
         }
       });
+    };
+  }, [contextMenuScrollTopRef, scrollContainerRef]);
+  const updateSectionPreservingReaderScroll = useCallback(
+    (sectionId: string, updater: (section: LessonNode) => LessonNode) => {
+      const restoreScroll = captureReaderScroll();
+      updateSection(sectionId, updater);
+      restoreScroll();
     },
-    [contextMenuScrollTopRef, scrollContainerRef, updateSection]
+    [captureReaderScroll, updateSection]
   );
-  const persistSectionAnnotationsPreservingReaderScroll = useCallback(
+  /**
+   * Applies an annotation change to a section and persists it. The active section keeps
+   * the reader's scroll position across both steps.
+   */
+  const commitSectionAnnotations = useCallback(
     (
       sectionId: string,
-      annotations: unknown,
-      generatedVisuals?: StoredLessonVisual[]
+      change: Pick<LessonNode, 'annotations' | 'generatedVisuals'>
     ): Promise<boolean> => {
-      const scrollContainer = scrollContainerRef.current;
-      const scrollTop = contextMenuScrollTopRef.current ?? scrollContainer?.scrollTop;
-      return patchSectionAnnotations(sectionId, annotations, undefined, generatedVisuals).finally(
-        () => {
-          if (!scrollContainer || scrollTop === undefined) {
-            return;
-          }
-
-          globalThis.requestAnimationFrame(() => {
-            if (
-              activeSectionIdRef.current === sectionId &&
-              scrollContainerRef.current === scrollContainer
-            ) {
-              scrollContainer.scrollTop = scrollTop;
-            }
-          });
-        }
-      );
+      const persist = () =>
+        patchSectionAnnotations(sectionId, change.annotations, undefined, change.generatedVisuals);
+      if (sectionId !== activeSectionIdRef.current) {
+        updateSection(sectionId, section => ({ ...section, ...change }));
+        return persist();
+      }
+      updateSectionPreservingReaderScroll(sectionId, section => ({ ...section, ...change }));
+      const restoreScroll = captureReaderScroll();
+      return persist().finally(() => restoreScroll(sectionId));
     },
-    [contextMenuScrollTopRef, patchSectionAnnotations, scrollContainerRef]
+    [
+      captureReaderScroll,
+      patchSectionAnnotations,
+      updateSection,
+      updateSectionPreservingReaderScroll,
+    ]
   );
   const getSectionById = useCallback(
     (sectionId: string | undefined) => {
@@ -413,11 +421,7 @@ export const useWorkspaceReaderActions = ({
       return;
     }
 
-    updateSectionPreservingReaderScroll(activeSectionId, section => ({
-      ...section,
-      annotations: result.annotations,
-    }));
-    void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+    void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
     closeContextMenu();
     clearNativeSelection();
   }, [
@@ -426,9 +430,8 @@ export const useWorkspaceReaderActions = ({
     contextMenu,
     getCurrentSection,
     notify,
-    persistSectionAnnotationsPreservingReaderScroll,
+    commitSectionAnnotations,
     sectionContent,
-    updateSectionPreservingReaderScroll,
   ]);
 
   const handleSaveNote = useCallback(
@@ -463,11 +466,7 @@ export const useWorkspaceReaderActions = ({
           return;
         }
 
-        updateSectionPreservingReaderScroll(activeSectionId, section => ({
-          ...section,
-          annotations: result.annotations,
-        }));
-        void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+        void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
         closeContextMenu();
         clearNativeSelection();
         return;
@@ -488,11 +487,7 @@ export const useWorkspaceReaderActions = ({
         return;
       }
 
-      updateSectionPreservingReaderScroll(activeSectionId, section => ({
-        ...section,
-        annotations: result.annotations,
-      }));
-      void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+      void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
       closeContextMenu();
     },
     [
@@ -501,9 +496,8 @@ export const useWorkspaceReaderActions = ({
       contextMenu,
       getCurrentSection,
       notify,
-      persistSectionAnnotationsPreservingReaderScroll,
+      commitSectionAnnotations,
       sectionContent,
-      updateSectionPreservingReaderScroll,
     ]
   );
 
@@ -527,11 +521,7 @@ export const useWorkspaceReaderActions = ({
       return;
     }
 
-    updateSectionPreservingReaderScroll(activeSectionId, section => ({
-      ...section,
-      annotations: result.annotations,
-    }));
-    void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+    void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
     closeContextMenu();
   }, [
     activeSectionId,
@@ -539,8 +529,7 @@ export const useWorkspaceReaderActions = ({
     contextMenu,
     getCurrentSection,
     notify,
-    persistSectionAnnotationsPreservingReaderScroll,
-    updateSectionPreservingReaderScroll,
+    commitSectionAnnotations,
   ]);
 
   const handleAttachArtifactToAnnotation = useCallback(
@@ -565,20 +554,9 @@ export const useWorkspaceReaderActions = ({
         return;
       }
 
-      updateSectionPreservingReaderScroll(activeSectionId, section => ({
-        ...section,
-        annotations: result.annotations,
-      }));
-      void persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+      void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
     },
-    [
-      activeSectionId,
-      contextMenu,
-      getCurrentSection,
-      notify,
-      persistSectionAnnotationsPreservingReaderScroll,
-      updateSectionPreservingReaderScroll,
-    ]
+    [activeSectionId, contextMenu, getCurrentSection, notify, commitSectionAnnotations]
   );
 
   const handleDetachArtifactFromAnnotation = useCallback(
@@ -605,20 +583,9 @@ export const useWorkspaceReaderActions = ({
         return;
       }
 
-      updateSectionPreservingReaderScroll(activeSectionId, section => ({
-        ...section,
-        annotations: result.annotations,
-      }));
-      persistSectionAnnotationsPreservingReaderScroll(activeSectionId, result.annotations);
+      void commitSectionAnnotations(activeSectionId, { annotations: result.annotations });
     },
-    [
-      activeSectionId,
-      contextMenu,
-      getCurrentSection,
-      notify,
-      persistSectionAnnotationsPreservingReaderScroll,
-      updateSectionPreservingReaderScroll,
-    ]
+    [activeSectionId, contextMenu, getCurrentSection, notify, commitSectionAnnotations]
   );
 
   const handleSaveConversationNote = useCallback(
@@ -700,33 +667,26 @@ export const useWorkspaceReaderActions = ({
         generatedVisuals
       );
 
-      const updateMutationSection =
-        lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection;
-      updateMutationSection(lessonId, currentLesson => ({
-        ...currentLesson,
+      const persisted = await commitSectionAnnotations(lessonId, {
         annotations: result.annotations,
         generatedVisuals: nextGeneratedVisuals,
-      }));
-      const persisted = await (lessonId === activeSectionId
-        ? persistSectionAnnotationsPreservingReaderScroll(
-            lessonId,
-            result.annotations,
-            nextGeneratedVisuals
-          )
-        : patchSectionAnnotations(lessonId, result.annotations, undefined, nextGeneratedVisuals));
+      });
 
       if (!persisted) {
-        updateMutationSection(lessonId, currentLesson => ({
-          ...currentLesson,
-          annotations:
-            currentLesson.annotations === result.annotations
-              ? section.annotations
-              : currentLesson.annotations,
-          generatedVisuals:
-            currentLesson.generatedVisuals === nextGeneratedVisuals
-              ? section.generatedVisuals
-              : currentLesson.generatedVisuals,
-        }));
+        (lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection)(
+          lessonId,
+          currentLesson => ({
+            ...currentLesson,
+            annotations:
+              currentLesson.annotations === result.annotations
+                ? section.annotations
+                : currentLesson.annotations,
+            generatedVisuals:
+              currentLesson.generatedVisuals === nextGeneratedVisuals
+                ? section.generatedVisuals
+                : currentLesson.generatedVisuals,
+          })
+        );
         return {
           saved: false,
           merged: result.merged,
@@ -743,8 +703,7 @@ export const useWorkspaceReaderActions = ({
     },
     [
       activeSectionId,
-      patchSectionAnnotations,
-      persistSectionAnnotationsPreservingReaderScroll,
+      commitSectionAnnotations,
       resolveMutationSection,
       sectionContent,
       updateSection,
@@ -839,33 +798,26 @@ export const useWorkspaceReaderActions = ({
         generatedVisuals
       );
 
-      const updateMutationSection =
-        lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection;
-      updateMutationSection(lessonId, currentLesson => ({
-        ...currentLesson,
+      const persisted = await commitSectionAnnotations(lessonId, {
         annotations: result.annotations,
         generatedVisuals: nextGeneratedVisuals,
-      }));
-      const persisted = await (lessonId === activeSectionId
-        ? persistSectionAnnotationsPreservingReaderScroll(
-            lessonId,
-            result.annotations,
-            nextGeneratedVisuals
-          )
-        : patchSectionAnnotations(lessonId, result.annotations, undefined, nextGeneratedVisuals));
+      });
 
       if (!persisted) {
-        updateMutationSection(lessonId, currentLesson => ({
-          ...currentLesson,
-          annotations:
-            currentLesson.annotations === result.annotations
-              ? section.annotations
-              : currentLesson.annotations,
-          generatedVisuals:
-            currentLesson.generatedVisuals === nextGeneratedVisuals
-              ? section.generatedVisuals
-              : currentLesson.generatedVisuals,
-        }));
+        (lessonId === activeSectionId ? updateSectionPreservingReaderScroll : updateSection)(
+          lessonId,
+          currentLesson => ({
+            ...currentLesson,
+            annotations:
+              currentLesson.annotations === result.annotations
+                ? section.annotations
+                : currentLesson.annotations,
+            generatedVisuals:
+              currentLesson.generatedVisuals === nextGeneratedVisuals
+                ? section.generatedVisuals
+                : currentLesson.generatedVisuals,
+          })
+        );
         return {
           saved: false,
           merged: false,
@@ -882,8 +834,7 @@ export const useWorkspaceReaderActions = ({
     },
     [
       activeSectionId,
-      patchSectionAnnotations,
-      persistSectionAnnotationsPreservingReaderScroll,
+      commitSectionAnnotations,
       resolveMutationSection,
       sectionContent,
       updateSection,
