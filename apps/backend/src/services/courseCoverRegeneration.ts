@@ -20,6 +20,7 @@ import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectCoverFile, ProjectStore, SavedProjectMeta } from '../projects/types.js';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
+import { CODEX_TURN_TIMEOUT_MS } from './codexAppServer.js';
 import { imageClient } from './imageClient.js';
 import { generateStructuredOutput } from './structuredGeneration.js';
 
@@ -166,6 +167,8 @@ const planCourseCoverVisualDirection = async (
     await generateStructuredOutput<unknown>({
       config,
       maxRetries: COURSE_COVER_PLANNER_MAX_RETRIES,
+      // Cover jobs have no request signal; bound every provider by the Codex turn limit.
+      signal: AbortSignal.timeout(CODEX_TURN_TIMEOUT_MS),
       output: {
         name: 'course_cover_visual_direction',
         schema: COURSE_COVER_DIRECTION_JSON_SCHEMA as unknown as Record<string, unknown>,
