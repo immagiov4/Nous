@@ -8,13 +8,17 @@ import {
   resolveTextModelConfig,
   type TextModelSlot,
 } from '../config/modelConfig.js';
-import { sanitizeDiagnosticText } from '../utils/sanitizeDiagnosticText.js';
+import {
+  sanitizeDiagnosticPayload,
+  sanitizeDiagnosticText,
+} from '../utils/sanitizeDiagnosticText.js';
 import { isRecord } from '../utils/validation.js';
 import type { JsonValue } from './types.js';
 
 const MAX_ERROR_CAUSE_DEPTH = 3;
 const MAX_TECHNICAL_IDENTIFIER_LENGTH = 128;
-const MAX_ORIGINAL_ERROR_MESSAGE_LENGTH = 2_048;
+const MAX_ORIGINAL_ERROR_MESSAGE_LENGTH = 8_192;
+const MAX_PROVIDER_RESPONSE_LENGTH = 65_536;
 const DIAGNOSTIC_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
 const TECHNICAL_IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]*$/u;
 const MODEL_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u;
@@ -58,6 +62,7 @@ interface ProviderDiagnosticFields {
   readonly parameter?: string;
   readonly providerCode?: DiagnosticCode;
   readonly providerErrorType?: string;
+  readonly providerResponse?: string;
 }
 
 const readThrownProviderFields = (value: unknown): ProviderDiagnosticFields => {
@@ -70,11 +75,16 @@ const readThrownProviderFields = (value: unknown): ProviderDiagnosticFields => {
   const providerErrorType = readTechnicalIdentifier(
     metadata.error_type ?? providerError.error_type ?? providerError.type
   );
+  const providerResponse =
+    typeof value.responseBody === 'string'
+      ? sanitizeDiagnosticPayload(value.responseBody, MAX_PROVIDER_RESPONSE_LENGTH) || undefined
+      : undefined;
   return {
     ...(code === undefined ? {} : { code }),
     ...(parameter ? { parameter } : {}),
     ...(providerCode === undefined ? {} : { providerCode }),
     ...(providerErrorType ? { providerErrorType } : {}),
+    ...(providerResponse ? { providerResponse } : {}),
   };
 };
 
@@ -82,10 +92,15 @@ const readPersistedProviderFields = (value: Record<string, unknown>): ProviderDi
   const parameter = readTechnicalIdentifier(value.parameter);
   const providerCode = readDiagnosticCode(value.providerCode);
   const providerErrorType = readTechnicalIdentifier(value.providerErrorType);
+  const providerResponse =
+    typeof value.providerResponse === 'string'
+      ? sanitizeDiagnosticPayload(value.providerResponse, MAX_PROVIDER_RESPONSE_LENGTH) || undefined
+      : undefined;
   return {
     ...(parameter ? { parameter } : {}),
     ...(providerCode === undefined ? {} : { providerCode }),
     ...(providerErrorType ? { providerErrorType } : {}),
+    ...(providerResponse ? { providerResponse } : {}),
   };
 };
 
@@ -148,6 +163,9 @@ const createDiagnosticProjection = (input: {
   ...(input.providerFields.providerErrorType
     ? { providerErrorType: input.providerFields.providerErrorType }
     : {}),
+  ...(input.providerFields.providerResponse
+    ? { providerResponse: input.providerFields.providerResponse }
+    : {}),
   ...(input.status === undefined ? {} : { status: input.status }),
   type: input.type,
 });
@@ -184,7 +202,7 @@ const createDiagnostic = (
   let originalMessage: unknown;
   if (persisted) {
     originalMessage = value.originalMessage;
-  } else if (!APICallError.isInstance(value)) {
+  } else {
     originalMessage = value.message;
   }
   const status = readStatus(value);

@@ -49,7 +49,7 @@ describe('workflow error diagnostics', () => {
     expect(JSON.stringify(diagnostic)).not.toContain('responseBody');
   });
 
-  test('projects typed provider fields without retaining its free-text message or payloads', () => {
+  test('retains redacted provider error details without retaining request payloads', () => {
     const providerError = new APICallError({
       data: {
         error: {
@@ -62,9 +62,10 @@ describe('workflow error diagnostics', () => {
           param: 'reasoning',
         },
       },
-      message: 'PRIVATE_LESSON_MARKER api_key=private-key',
+      message: 'Provider rejected schema. api_key=private-key',
       requestBodyValues: { prompt: 'private lesson prompt' },
-      responseBody: 'private provider response',
+      responseBody:
+        '{"error":{"message":"upstream rejected request","api_key":"private-response-key","authorization":"Bearer private-response-token"}}',
       statusCode: 400,
       url: 'https://openrouter.ai/api/v1/chat/completions?token=private-token',
     });
@@ -75,9 +76,12 @@ describe('workflow error diagnostics', () => {
       cause: {
         code: 400,
         message: 'Provider error: invalid_request.',
+        originalMessage: 'Provider rejected schema. api_key=[REDACTED]',
         parameter: 'reasoning',
         providerCode: 'reasoning_required',
         providerErrorType: 'invalid_request',
+        providerResponse:
+          '{"error":{"message":"upstream rejected request","api_key":"[REDACTED]","authorization":"[REDACTED]"}}',
         status: 400,
         type: 'AI_APICallError',
       },
@@ -86,7 +90,9 @@ describe('workflow error diagnostics', () => {
     });
     const serialized = JSON.stringify(toWorkflowErrorDiagnostic(providerError));
     expect(serialized).not.toContain('private lesson prompt');
-    expect(serialized).not.toContain('private provider response');
+    expect(serialized).toContain('upstream rejected request');
+    expect(serialized).not.toContain('private-response-key');
+    expect(serialized).not.toContain('private-response-token');
     expect(serialized).not.toContain('private-token');
     expect(serialized).not.toContain('private-key');
     expect(serialized).not.toContain('PRIVATE_LESSON_MARKER');

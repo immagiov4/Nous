@@ -1,5 +1,7 @@
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
+const SENSITIVE_FIELD_NAME_PATTERN =
+  /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret)$/iu;
 
 export const sanitizeDiagnosticText = (value: string, maxLength: number): string =>
   value
@@ -25,6 +27,22 @@ export const sanitizeDiagnosticText = (value: string, maxLength: number): string
     .slice(0, maxLength)
     .trim();
 
+export const sanitizeDiagnosticPayload = (value: string, maxLength: number): string => {
+  if (/^\s*[[{]/u.test(value)) {
+    try {
+      return sanitizeDiagnosticText(
+        JSON.stringify(JSON.parse(value), (key, nestedValue) =>
+          SENSITIVE_FIELD_NAME_PATTERN.test(key) ? '[REDACTED]' : nestedValue
+        ),
+        maxLength
+      );
+    } catch {
+      return sanitizeDiagnosticText(value, maxLength);
+    }
+  }
+  return sanitizeDiagnosticText(value, maxLength);
+};
+
 export const readDiagnosticResponseText = async (response: Response): Promise<string> => {
   const reader = response.body?.getReader();
   if (!reader) return '';
@@ -41,18 +59,5 @@ export const readDiagnosticResponseText = async (response: Response): Promise<st
   } finally {
     await reader.cancel().catch(() => undefined);
   }
-  if (/^\s*[[{]/u.test(detail)) {
-    try {
-      detail = JSON.stringify(JSON.parse(detail), (key, value) =>
-        /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret)$/iu.test(
-          key
-        )
-          ? '[REDACTED]'
-          : value
-      );
-    } catch {
-      return '';
-    }
-  }
-  return sanitizeDiagnosticText(detail, 2048);
+  return sanitizeDiagnosticPayload(detail, 2048);
 };

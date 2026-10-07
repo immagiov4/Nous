@@ -521,7 +521,7 @@ describe('lesson generation workflow', () => {
     expect(request).toEqual(sublessonReadyState.request);
   });
 
-  test('maps an unexpected provider error to a stable stage failure without persisting its message', async () => {
+  test('maps an unexpected provider error to a stable stage failure with redacted provider details', async () => {
     const draftStep = findNode('draft-lesson') as StepDefinition<
       LessonResearchState,
       unknown,
@@ -565,7 +565,7 @@ describe('lesson generation workflow', () => {
           data: {
             error: {
               code: 400,
-              message: 'must-not-be-checkpointed',
+              message: 'provider rejected schema',
               metadata: {
                 error_type: 'invalid_request',
                 provider_code: 'reasoning_required',
@@ -573,9 +573,9 @@ describe('lesson generation workflow', () => {
               param: 'reasoning',
             },
           },
-          message: 'must-not-be-checkpointed',
-          requestBodyValues: { prompt: 'must-not-be-checkpointed' },
-          responseBody: 'response=must-not-be-checkpointed',
+          message: 'provider rejected schema api_key=provider-secret',
+          requestBodyValues: { prompt: 'private-request-marker' },
+          responseBody: 'upstream timeout authorization=Bearer provider-token',
           responseHeaders: { 'retry-after': '17' },
           statusCode: 400,
           url: 'https://openrouter.ai/api/v1/chat/completions',
@@ -607,9 +607,11 @@ describe('lesson generation workflow', () => {
           cause: {
             code: 400,
             message: 'Provider error: invalid_request.',
+            originalMessage: 'provider rejected schema api_key=[REDACTED]',
             parameter: 'reasoning',
             providerCode: 'reasoning_required',
             providerErrorType: 'invalid_request',
+            providerResponse: 'upstream timeout authorization=[REDACTED]',
             status: 400,
             type: 'AI_APICallError',
           },
@@ -624,7 +626,11 @@ describe('lesson generation workflow', () => {
       message: 'The lesson draft could not be generated.',
       retryAfterMs: 17_000,
     });
-    expect(JSON.stringify(failure)).not.toContain('must-not-be-checkpointed');
+    expect(JSON.stringify(failure)).toContain('provider rejected schema');
+    expect(JSON.stringify(failure)).toContain('upstream timeout');
+    expect(JSON.stringify(failure)).not.toContain('private-request-marker');
+    expect(JSON.stringify(failure)).not.toContain('provider-secret');
+    expect(JSON.stringify(failure)).not.toContain('provider-token');
   });
 
   test('fans out minimal visual inputs and returns failures beside the unchanged lesson state', () => {
