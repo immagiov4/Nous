@@ -444,6 +444,38 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
   });
 
+  test('reports the refresh failure after a fully successful import without rolling back', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
+    const projects = [buildSnapshot('course-one'), buildSnapshot('course-two')];
+    const file = new File(
+      [
+        await createLibraryArchiveBlob(projects, {
+          folders: [],
+          placements: projects.map((project, index) => ({
+            projectId: project.id,
+            folderId: null,
+            order: index,
+            updatedAt: timestamp,
+          })),
+        }),
+      ],
+      'library.nous-library.zip'
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    repositoryMocks.listProjects.mockRejectedValueOnce(new Error('refresh failed'));
+
+    await expect(result.current.importLibraryBackup(file)).rejects.toThrow('refresh failed');
+
+    expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(2);
+    expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
+  });
+
   test('keeps successful courses when a later server import fails and cleans only its target', async () => {
     const archive = await createLibraryArchiveBlob(
       [buildSnapshot('course-one'), buildSnapshot('course-two')],
