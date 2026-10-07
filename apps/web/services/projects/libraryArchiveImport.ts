@@ -269,9 +269,10 @@ export type LibraryArchiveImportOutcome =
 
 /**
  * Imports every course of a library archive, restores its folder organization and
- * refreshes the library as one transaction. A failed course or organization restore
- * rolls back what was imported; rejected courses surface as a partial-import error
- * after the refresh.
+ * refreshes the library. A rejected course keeps the courses already imported and
+ * surfaces as a partial-import error after the refresh. A failed organization restore
+ * rolls back the imported courses; only an incomplete rollback refreshes the library
+ * before throwing.
  */
 export const importLibraryArchive = async ({
   file,

@@ -471,6 +471,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.listProjects.mockRejectedValueOnce(new Error('refresh failed'));
 
     await expect(result.current.importLibraryBackup(file)).rejects.toThrow('refresh failed');
+    expect(result.current.projectSyncState).toEqual({ kind: 'import', phase: 'pending' });
 
     expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(2);
     expect(repositoryMocks.deleteProject).not.toHaveBeenCalled();
