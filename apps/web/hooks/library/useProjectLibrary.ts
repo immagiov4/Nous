@@ -1087,25 +1087,21 @@ export const useProjectLibrary = ({
 
   const importLibraryBackup = useCallback(
     async (file: File): Promise<number> => {
-      const failImport = (error: unknown): never => {
+      setProjectSyncState({ kind: 'import', phase: 'pending' });
+      let outcome: Awaited<ReturnType<typeof importLibraryArchive>>;
+      try {
+        outcome = await importLibraryArchive({
+          file,
+          refreshLibraryState,
+          repository: projectRepositoryRef.current,
+        });
+      } catch (error) {
         setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
         throw error;
-      };
-      setProjectSyncState({ kind: 'import', phase: 'pending' });
-      const { importedProjectCount, partialImportError } = await importLibraryArchive({
-        file,
-        refreshLibraryState,
-        repository: projectRepositoryRef.current,
-      }).catch(failImport);
-      try {
-        await refreshLibraryState();
-      } catch (refreshError) {
-        if (!partialImportError) throw refreshError;
-        console.warn('[Nous] Failed to refresh the library after a partial import.', refreshError);
       }
-      if (partialImportError) failImport(partialImportError);
+      if (outcome.kind === 'refresh-failed') throw outcome.error;
       setProjectSyncState({ kind: 'idle' });
-      return importedProjectCount;
+      return outcome.importedProjectCount;
     },
     [refreshLibraryState]
   );

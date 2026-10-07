@@ -259,10 +259,19 @@ const restoreLibraryOrganizationOrRollbackProjects = async ({
 };
 
 /**
- * Imports every course of a library archive and restores its folder organization as one
- * transaction: a failure rolls back the imported courses and refreshes the library.
- * Returns the imported course count and, when some courses were rejected, the partial
- * import error to report after the caller refreshes the library.
+ * Outcome of a library archive import whose courses and organization were committed.
+ * `refresh-failed` means the library could not be reloaded afterwards; callers report
+ * the error without treating the import itself as failed.
+ */
+export type LibraryArchiveImportOutcome =
+  | { readonly importedProjectCount: number; readonly kind: 'imported' }
+  | { readonly error: unknown; readonly kind: 'refresh-failed' };
+
+/**
+ * Imports every course of a library archive, restores its folder organization and
+ * refreshes the library as one transaction. A failed course or organization restore
+ * rolls back what was imported; rejected courses surface as a partial-import error
+ * after the refresh.
  */
 export const importLibraryArchive = async ({
   file,
@@ -272,10 +281,7 @@ export const importLibraryArchive = async ({
   file: File;
   refreshLibraryState: () => Promise<void>;
   repository: ProjectRepository;
-}): Promise<{
-  importedProjectCount: number;
-  partialImportError: LibraryArchivePartialImportError | null;
-}> => {
+}): Promise<LibraryArchiveImportOutcome> => {
   const archive = await readLibraryArchive(file);
   const { importedProjects, projectIdMap, rejectedProjects } = await importLibraryArchiveProjects({
     archive,
@@ -290,13 +296,18 @@ export const importLibraryArchive = async ({
     rejectedProjects,
     repository,
   });
-  return {
-    importedProjectCount: importedProjects.length,
-    partialImportError:
-      rejectedProjects.length > 0
-        ? new LibraryArchivePartialImportError(
-            buildLibraryArchiveImportResult({ importedProjects, rejectedProjects })
-          )
-        : null,
-  };
+  const partialImportError =
+    rejectedProjects.length > 0
+      ? new LibraryArchivePartialImportError(
+          buildLibraryArchiveImportResult({ importedProjects, rejectedProjects })
+        )
+      : null;
+  try {
+    await refreshLibraryState();
+  } catch (refreshError) {
+    if (!partialImportError) return { error: refreshError, kind: 'refresh-failed' };
+    console.warn('[Nous] Failed to refresh the library after a partial import.', refreshError);
+  }
+  if (partialImportError) throw partialImportError;
+  return { importedProjectCount: importedProjects.length, kind: 'imported' };
 };
