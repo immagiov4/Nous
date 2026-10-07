@@ -202,9 +202,8 @@ describe('lesson evidence references', () => {
         lastUnit: index * 2 + 1,
       }))
     );
-    expect(formatted.units.map((unit: { text: string }) => unit.text).join('')).toBe(
-      parts.map(part => part.text).join('')
-    );
+    expect(formatted.text).toBe(parts.map(part => part.text).join(''));
+    expect(formatted).not.toHaveProperty('units');
   });
   test('keeps canonical text, overlapping timestamps, qualifier and source identity without mutating originals', () => {
     const original = structuredClone(sources);
@@ -216,9 +215,17 @@ describe('lesson evidence references', () => {
       units: sources[0].youtubeTranscript?.segments.slice(1, 3),
     });
     expect(sources).toEqual(original);
+    const selectedPassage = packet.passages[0];
+    assert(selectedPassage);
+    const { units, ...passage } = selectedPassage;
     expect(JSON.parse(formatLessonEvidence(packet))[0]).toEqual({
-      ...packet.passages[0],
+      ...passage,
       primarySources: [],
+      segments: units.map(({ text, startSeconds, endSeconds }) => ({
+        endSeconds,
+        startSeconds,
+        text,
+      })),
     });
     expect(packet.selection.materials[2]?.passages).toEqual([]);
   });

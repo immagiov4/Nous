@@ -264,7 +264,20 @@ export const buildLessonEvidencePromptPassages = (packet: LessonEvidencePacket) 
   });
 
 export const formatLessonEvidence = (packet: LessonEvidencePacket): string =>
-  JSON.stringify(buildLessonEvidencePromptPassages(packet));
+  JSON.stringify(
+    buildLessonEvidencePromptPassages(packet).map(({ units, ...passage }) =>
+      units.some(unit => unit.startSeconds !== undefined || unit.endSeconds !== undefined)
+        ? {
+            ...passage,
+            segments: units.map(({ text, startSeconds, endSeconds }) => ({
+              ...(endSeconds === undefined ? {} : { endSeconds }),
+              ...(startSeconds === undefined ? {} : { startSeconds }),
+              text,
+            })),
+          }
+        : { ...passage, text: units.map(unit => unit.text).join('') }
+    )
+  );
 
 const StoredSelectionSchema = z.object({
   version: z.literal('lesson-evidence-v1'),

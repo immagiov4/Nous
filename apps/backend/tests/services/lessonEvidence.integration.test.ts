@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import {
   buildLessonEvidenceMaterials,
+  buildLessonEvidencePromptPassages,
   formatLessonEvidence,
   resolveLessonEvidence,
   restoreLessonEvidence,
@@ -304,11 +305,10 @@ describe('role-specific lesson evidence through the production Luna model path',
     expect(prompt.length).toBeLessThan(providerCharacterLimit);
     expect(prompt).toContain(formatted);
     const [passage] = JSON.parse(formatted);
-    expect(passage.units.map((unit: { text: string }) => unit.text).join('')).toBe(text);
+    expect(passage.text).toBe(text);
+    expect(passage).not.toHaveProperty('units');
     expect(passage.primarySources).toEqual([{ source, firstUnit: 0, lastUnit: 6_920 }]);
-    expect(passage.units).toEqual(
-      packet.passages[0]?.units.map(({ source: _source, ...unit }) => unit)
-    );
+    expect(packet.passages[0]?.units.map(unit => unit.text).join('')).toBe(passage.text);
     const draft = {
       contentBlocks: [{ type: 'markdown' as const, markdown: 'Conservare la condizione.' }],
       generatedVisuals: [],
@@ -335,7 +335,7 @@ describe('role-specific lesson evidence through the production Luna model path',
     await verifyLessonEvidence({ ...input, evidencePacket: packet }, draft);
     const factualPrompt = runCodexAppServerTurn.mock.lastCall?.[0].input[0].text;
     expect(factualPrompt.length).toBeLessThan(providerCharacterLimit);
-    expect(JSON.parse(factualPrompt).evidence).toEqual(JSON.parse(formatted));
+    expect(JSON.parse(factualPrompt).evidence).toEqual(buildLessonEvidencePromptPassages(packet));
     expect(packet).toEqual(before);
   });
   test('grounds referenced image captions in stored context and rejects unused image references', async () => {
