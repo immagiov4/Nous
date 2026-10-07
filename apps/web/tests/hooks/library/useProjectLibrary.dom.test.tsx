@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
+import { getSyncState, setSyncState } from '../../../services/projects/syncState.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import {
   AppState,
@@ -1276,6 +1277,219 @@ describe('useProjectLibrary', () => {
 
     expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
     expect(result.current.storageError).toBeNull();
+  });
+
+  const switchProjectDuringWrite = async ({
+    failWrite,
+    startWrite,
+    writeMock,
+  }: {
+    failWrite: boolean;
+    startWrite: (library: ReturnType<typeof useProjectLibrary>) => Promise<unknown>;
+    writeMock: typeof repositoryMocks.saveProject | typeof repositoryMocks.patchProject;
+  }) => {
+    vi.useFakeTimers();
+    // The sync indicator is module state shared across tests.
+    setSyncState('saved');
+    const firstMeta = {
+      ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4),
+      hasSourceFile: false,
+    };
+    const secondMeta = buildMeta('project-2', '2026-04-02T11:00:00.000Z', 7);
+    let settleWrite!: () => void;
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
+    writeMock.mockReturnValue(
+      new Promise((resolve, reject) => {
+        settleWrite = () =>
+          failWrite
+            ? reject(new Error('write failed'))
+            : resolve(
+                writeMock === repositoryMocks.saveProject
+                  ? { meta: { ...firstMeta, revision: 5 }, snapshot: buildSnapshot('project-1') }
+                  : { ...firstMeta, revision: 5 }
+              );
+      }) as never
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+    let writePromise!: Promise<unknown>;
+    act(() => {
+      writePromise = startWrite(result.current);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(writeMock).toHaveBeenCalledOnce();
+
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+      result.current.setProjectHydrated(true);
+    });
+    let syncStateAfterWrite!: ReturnType<typeof getSyncState>;
+    await act(async () => {
+      settleWrite();
+      await writePromise;
+      // Read before timers run: the indicator resets itself to "saved" after a delay.
+      syncStateAfterWrite = getSyncState();
+      vi.advanceTimersByTime(400);
+      await vi.runOnlyPendingTimersAsync();
+    });
+    return { result, syncStateAfterWrite };
+  };
+
+  test.each([
+    false,
+    true,
+  ])('a snapshot save for the previous project does not touch the newly selected one (fails: %s)', async failWrite => {
+    const { result, syncStateAfterWrite } = await switchProjectDuringWrite({
+      failWrite,
+      startWrite: library => library.persistSnapshot(buildSnapshot('project-1')),
+      writeMock: repositoryMocks.saveProject,
+    });
+
+    expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
+    expect(result.current.storageError).toBeNull();
+    expect(syncStateAfterWrite).not.toBe('error');
+  });
+
+  test('a failing save for a project not yet selected still reports its error', async () => {
+    repositoryMocks.saveProject.mockRejectedValueOnce(new Error('import save failed'));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.persistSnapshot(buildSnapshot('imported-project'));
+    });
+
+    expect(result.current.storageError).toBe('import save failed');
+  });
+
+  test.each([
+    false,
+    true,
+  ])('a lesson-content write for the previous project does not touch the newly selected one (fails: %s)', async failWrite => {
+    const { result } = await switchProjectDuringWrite({
+      failWrite,
+      startWrite: library => library.patchSectionLessonContent('lesson-1', { content: 'nuovo' }),
+      writeMock: repositoryMocks.patchProject,
+    });
+
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    expect(result.current.storageError).toBeNull();
+  });
+
+  test.each([
+    'snapshot',
+    'lesson-content',
+  ] as const)('a late %s write keeps the newly selected project baseline', async writeKind => {
+    vi.useFakeTimers();
+    const firstMeta = {
+      ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4),
+      hasSourceFile: false,
+    };
+    const secondMeta = {
+      ...buildMeta('project-2', '2026-04-02T11:00:00.000Z', 7),
+      hasSourceFile: false,
+    };
+    const firstPlan = buildTestLearningPlan([buildTestLesson({ id: 'lesson-a', content: '# A' })], {
+      title: 'A',
+      summary: 'A',
+    });
+    const secondPlan = buildTestLearningPlan(
+      [buildTestLesson({ id: 'lesson-b', content: '# B' })],
+      { title: 'B', summary: 'B' }
+    );
+    const firstSnapshot = buildSnapshot('project-1', {
+      sourceKind: 'learn-mode',
+      learningPlan: firstPlan,
+      activeSectionId: 'lesson-a',
+    });
+    const secondSnapshot = buildSnapshot('project-2', {
+      sourceKind: 'learn-mode',
+      learningPlan: secondPlan,
+      activeSectionId: 'lesson-b',
+    });
+    const domainFor = (learningPlan: typeof firstPlan, activeSectionId: string) => ({
+      ...createEmptyWorkspaceDomainState(),
+      appState: AppState.READING,
+      learningPlan,
+      activeSectionId,
+      source: null,
+    });
+    let resolveWrite!: () => void;
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
+    const savedMeta = { ...firstMeta, revision: 5 };
+    if (writeKind === 'snapshot') {
+      repositoryMocks.saveProject.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveWrite = () => resolve({ meta: savedMeta, snapshot: firstSnapshot });
+        })
+      );
+    } else {
+      repositoryMocks.patchProject.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveWrite = () => resolve(savedMeta);
+        })
+      );
+    }
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 8,
+      snapshot: secondSnapshot,
+    });
+    const setSource = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ domainState }) => useProjectLibrary({ domainState, hydrateSnapshot: vi.fn(), setSource }),
+      { initialProps: { domainState: domainFor(firstPlan, 'lesson-a') } }
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.completeProjectHydration({ revision: 4, snapshot: firstSnapshot });
+    });
+    let pendingSave!: Promise<unknown>;
+    act(() => {
+      pendingSave =
+        writeKind === 'snapshot'
+          ? result.current.persistSnapshot(firstSnapshot)
+          : result.current.patchSectionLessonContent('lesson-a', { content: '# A2' });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+      result.current.completeProjectHydration({ revision: 7, snapshot: secondSnapshot });
+      rerender({ domainState: domainFor(secondPlan, 'lesson-b') });
+    });
+    await act(async () => {
+      resolveWrite();
+      await pendingSave;
+    });
+
+    expect(setSource).not.toHaveBeenCalled();
+    await act(async () => {
+      await expect(
+        result.current.applyPersistedProjectRevision({ projectId: 'project-2', revision: 8 })
+      ).resolves.toBe(true);
+    });
   });
 
   test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
