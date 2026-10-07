@@ -552,10 +552,17 @@ describeLocalSupabase('Supabase local integration', () => {
     expect(remainingStorageRows).toEqual([]);
   });
 
-  test('seeds Gemini for fresh databases while preserving an existing Grok configuration', async () => {
+  test('seeds Gemini and migrates the retired Grok TTS configuration', async () => {
     const seed = readFileSync(
       new URL(
         '../../../../supabase/migrations/20260814203920_restore_global_model_config_seed.sql',
+        import.meta.url
+      ),
+      'utf8'
+    ).replaceAll('public.model_config', 'pg_temp.model_config');
+    const rollout = readFileSync(
+      new URL(
+        '../../../../supabase/migrations/20261008060000_migrate_grok_tts_to_gemini.sql',
         import.meta.url
       ),
       'utf8'
@@ -567,9 +574,14 @@ describeLocalSupabase('Supabase local integration', () => {
         { tts_model: 'google/gemini-3.8-flash-tts', tts_voice: 'Zephyr' },
       ]);
       await transaction`update pg_temp.model_config set tts_model = 'x-ai/grok-voice-tts-1.0', tts_voice = 'coral'`;
-      await transaction.unsafe(seed);
+      await transaction.unsafe(rollout);
       expect(await transaction`select tts_model, tts_voice from pg_temp.model_config`).toEqual([
-        { tts_model: 'x-ai/grok-voice-tts-1.0', tts_voice: 'coral' },
+        { tts_model: 'google/gemini-3.8-flash-tts', tts_voice: 'Zephyr' },
+      ]);
+      await transaction`update pg_temp.model_config set tts_model = 'other/custom-tts', tts_voice = 'Custom'`;
+      await transaction.unsafe(rollout);
+      expect(await transaction`select tts_model, tts_voice from pg_temp.model_config`).toEqual([
+        { tts_model: 'other/custom-tts', tts_voice: 'Custom' },
       ]);
     });
   });
