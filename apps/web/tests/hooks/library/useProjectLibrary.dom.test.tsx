@@ -1370,6 +1370,89 @@ describe('useProjectLibrary', () => {
     expect(result.current.storageError).toBeNull();
   });
 
+  test('a late snapshot save keeps the newly selected project baseline', async () => {
+    vi.useFakeTimers();
+    const firstMeta = {
+      ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4),
+      hasSourceFile: false,
+    };
+    const secondMeta = {
+      ...buildMeta('project-2', '2026-04-02T11:00:00.000Z', 7),
+      hasSourceFile: false,
+    };
+    const firstPlan = buildTestLearningPlan([buildTestLesson({ id: 'lesson-a', content: '# A' })], {
+      title: 'A',
+      summary: 'A',
+    });
+    const secondPlan = buildTestLearningPlan(
+      [buildTestLesson({ id: 'lesson-b', content: '# B' })],
+      { title: 'B', summary: 'B' }
+    );
+    const firstSnapshot = buildSnapshot('project-1', {
+      sourceKind: 'learn-mode',
+      learningPlan: firstPlan,
+      activeSectionId: 'lesson-a',
+    });
+    const secondSnapshot = buildSnapshot('project-2', {
+      sourceKind: 'learn-mode',
+      learningPlan: secondPlan,
+      activeSectionId: 'lesson-b',
+    });
+    const domainFor = (learningPlan: typeof firstPlan, activeSectionId: string) => ({
+      ...createEmptyWorkspaceDomainState(),
+      appState: AppState.READING,
+      learningPlan,
+      activeSectionId,
+      source: null,
+    });
+    let resolveWrite!: (saved: { meta: SavedProjectMeta; snapshot: ProjectSnapshot }) => void;
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
+    repositoryMocks.saveProject.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveWrite = resolve;
+      })
+    );
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 8,
+      snapshot: secondSnapshot,
+    });
+    const setSource = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ domainState }) => useProjectLibrary({ domainState, hydrateSnapshot: vi.fn(), setSource }),
+      { initialProps: { domainState: domainFor(firstPlan, 'lesson-a') } }
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.completeProjectHydration({ revision: 4, snapshot: firstSnapshot });
+    });
+    let pendingSave!: Promise<unknown>;
+    act(() => {
+      pendingSave = result.current.persistSnapshot(firstSnapshot);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+      result.current.completeProjectHydration({ revision: 7, snapshot: secondSnapshot });
+      rerender({ domainState: domainFor(secondPlan, 'lesson-b') });
+    });
+    await act(async () => {
+      resolveWrite({ meta: { ...firstMeta, revision: 5 }, snapshot: firstSnapshot });
+      await pendingSave;
+    });
+
+    expect(setSource).not.toHaveBeenCalled();
+    await act(async () => {
+      await expect(
+        result.current.applyPersistedProjectRevision({ projectId: 'project-2', revision: 8 })
+      ).resolves.toBe(true);
+    });
+  });
+
   test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     const newerSnapshot = buildSnapshot('project-1', {

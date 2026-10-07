@@ -646,16 +646,17 @@ export const useProjectLibrary = ({
           false
         );
         if (!meta) return null;
-        if (detachedSnapshot && domainStateRef.current.source === snapshot.source) {
+        const isSelectedProject = currentProjectIdRef.current === snapshot.id;
+        if (
+          isSelectedProject &&
+          detachedSnapshot &&
+          domainStateRef.current.source === snapshot.source
+        ) {
           lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot);
           setSourceRef.current(detachedSnapshot.source);
         }
         const writeState = getProjectWriteState(snapshot.id);
-        if (
-          currentProjectIdRef.current === snapshot.id &&
-          writeState.pendingCount === 0 &&
-          !writeState.batchFailed
-        ) {
+        if (isSelectedProject && writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
           lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot || snapshot);
         }
