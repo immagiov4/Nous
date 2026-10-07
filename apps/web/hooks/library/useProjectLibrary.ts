@@ -616,6 +616,23 @@ export const useProjectLibrary = ({
     [currentProjectId, currentProjectMeta, domainState]
   );
 
+  // Records a completed save of the selected project as its persisted baseline, adopting
+  // the server's detached source when the workspace still shows the saved source.
+  const adoptSavedSnapshotBaseline = useCallback(
+    (snapshot: ProjectSnapshot, detachedSnapshot: ProjectSnapshot | undefined) => {
+      if (detachedSnapshot && domainStateRef.current.source === snapshot.source) {
+        lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot);
+        setSourceRef.current(detachedSnapshot.source);
+      }
+      const writeState = getProjectWriteState(snapshot.id);
+      if (writeState.pendingCount === 0 && !writeState.batchFailed) {
+        setStorageError(null);
+        lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot || snapshot);
+      }
+    },
+    [getProjectWriteState]
+  );
+
   const persistSnapshot = useCallback(
     async (snapshot: ProjectSnapshot, options: PersistSnapshotOptions = {}) => {
       // Anti-data-loss guard: se è uno scrivimento di un progetto già esistente con
@@ -652,19 +669,8 @@ export const useProjectLibrary = ({
           false
         );
         if (!meta) return null;
-        const isSelectedProject = currentProjectIdRef.current === snapshot.id;
-        if (
-          isSelectedProject &&
-          detachedSnapshot &&
-          domainStateRef.current.source === snapshot.source
-        ) {
-          lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot);
-          setSourceRef.current(detachedSnapshot.source);
-        }
-        const writeState = getProjectWriteState(snapshot.id);
-        if (isSelectedProject && writeState.pendingCount === 0 && !writeState.batchFailed) {
-          setStorageError(null);
-          lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot || snapshot);
+        if (currentProjectIdRef.current === snapshot.id) {
+          adoptSavedSnapshotBaseline(snapshot, detachedSnapshot);
         }
         if (!matchingMeta) {
           void ensureProjectCover({
@@ -695,8 +701,8 @@ export const useProjectLibrary = ({
       }
     },
     [
+      adoptSavedSnapshotBaseline,
       getExpectedRevision,
-      getProjectWriteState,
       requestPersistentStorage,
       runTrackedProjectWrite,
       saveStoredProjectCover,
