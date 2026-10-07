@@ -651,7 +651,11 @@ export const useProjectLibrary = ({
           setSourceRef.current(detachedSnapshot.source);
         }
         const writeState = getProjectWriteState(snapshot.id);
-        if (writeState.pendingCount === 0 && !writeState.batchFailed) {
+        if (
+          currentProjectIdRef.current === snapshot.id &&
+          writeState.pendingCount === 0 &&
+          !writeState.batchFailed
+        ) {
           setStorageError(null);
           lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot || snapshot);
         }
@@ -671,10 +675,12 @@ export const useProjectLibrary = ({
           snapshot: detachedSnapshot || snapshot,
         } satisfies ProjectSaveResult;
       } catch (error) {
-        const message =
-          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
-        setStorageError(message);
-        markSyncError();
+        if (currentProjectIdRef.current === snapshot.id) {
+          const message =
+            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          setStorageError(message);
+          markSyncError();
+        }
         if (options.throwOnError) {
           throw error;
         }
@@ -870,6 +876,7 @@ export const useProjectLibrary = ({
       projectPatch: Partial<ProjectSnapshot> = {}
     ): Promise<boolean> => {
       if (!currentProjectId) return true;
+      const selectedProjectId = currentProjectId;
 
       const patch: ProjectPatch = {
         ...(projectPatch as ProjectPatch),
@@ -879,23 +886,29 @@ export const useProjectLibrary = ({
 
       const persistedSignature = buildAutosaveSignature(domainStateRef.current);
       try {
-        const meta = await runTrackedProjectWrite(currentProjectId, () =>
-          projectRepositoryRef.current.patchProject(currentProjectId, patch, {
-            expectedRevision: getExpectedRevision(currentProjectId),
+        const meta = await runTrackedProjectWrite(selectedProjectId, () =>
+          projectRepositoryRef.current.patchProject(selectedProjectId, patch, {
+            expectedRevision: getExpectedRevision(selectedProjectId),
           })
         );
         if (!meta) return false;
-        const writeState = getProjectWriteState(currentProjectId);
-        if (writeState.pendingCount === 0 && !writeState.batchFailed) {
+        const writeState = getProjectWriteState(selectedProjectId);
+        if (
+          currentProjectIdRef.current === selectedProjectId &&
+          writeState.pendingCount === 0 &&
+          !writeState.batchFailed
+        ) {
           setStorageError(null);
           lastPersistedSignatureRef.current = persistedSignature;
         }
         void requestPersistentStorage();
         return true;
       } catch (error) {
-        const message =
-          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
-        setStorageError(message);
+        if (currentProjectIdRef.current === selectedProjectId) {
+          const message =
+            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          setStorageError(message);
+        }
         return false;
       }
     },

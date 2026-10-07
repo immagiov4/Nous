@@ -1278,6 +1278,98 @@ describe('useProjectLibrary', () => {
     expect(result.current.storageError).toBeNull();
   });
 
+  const switchProjectDuringWrite = async ({
+    failWrite,
+    startWrite,
+    writeMock,
+  }: {
+    failWrite: boolean;
+    startWrite: (library: ReturnType<typeof useProjectLibrary>) => Promise<unknown>;
+    writeMock: typeof repositoryMocks.saveProject | typeof repositoryMocks.patchProject;
+  }) => {
+    vi.useFakeTimers();
+    const firstMeta = {
+      ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4),
+      hasSourceFile: false,
+    };
+    const secondMeta = buildMeta('project-2', '2026-04-02T11:00:00.000Z', 7);
+    let settleWrite!: () => void;
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
+    writeMock.mockReturnValue(
+      new Promise((resolve, reject) => {
+        settleWrite = () =>
+          failWrite
+            ? reject(new Error('write failed'))
+            : resolve(
+                writeMock === repositoryMocks.saveProject
+                  ? { meta: { ...firstMeta, revision: 5 }, snapshot: buildSnapshot('project-1') }
+                  : { ...firstMeta, revision: 5 }
+              );
+      }) as never
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+    let writePromise!: Promise<unknown>;
+    act(() => {
+      writePromise = startWrite(result.current);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(writeMock).toHaveBeenCalledOnce();
+
+    act(() => {
+      result.current.setCurrentProjectId('project-2');
+      result.current.setProjectHydrated(true);
+    });
+    await act(async () => {
+      settleWrite();
+      await writePromise;
+      vi.advanceTimersByTime(400);
+      await vi.runOnlyPendingTimersAsync();
+    });
+    return result;
+  };
+
+  test.each([
+    false,
+    true,
+  ])('a snapshot save for the previous project does not touch the newly selected one (fails: %s)', async failWrite => {
+    const result = await switchProjectDuringWrite({
+      failWrite,
+      startWrite: library => library.persistSnapshot(buildSnapshot('project-1')),
+      writeMock: repositoryMocks.saveProject,
+    });
+
+    expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
+    expect(result.current.storageError).toBeNull();
+  });
+
+  test.each([
+    false,
+    true,
+  ])('a lesson-content write for the previous project does not touch the newly selected one (fails: %s)', async failWrite => {
+    const result = await switchProjectDuringWrite({
+      failWrite,
+      startWrite: library => library.patchSectionLessonContent('lesson-1', { content: 'nuovo' }),
+      writeMock: repositoryMocks.patchProject,
+    });
+
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    expect(result.current.storageError).toBeNull();
+  });
+
   test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     const newerSnapshot = buildSnapshot('project-1', {
