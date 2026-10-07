@@ -631,6 +631,12 @@ export const useProjectLibrary = ({
         return null;
       }
 
+      // A save that settles after the user selected another project must not touch that
+      // project. Saves for a project not yet selected (backup import) still report errors.
+      const selectedAtStart = currentProjectIdRef.current;
+      const isSupersededBySelection = () =>
+        currentProjectIdRef.current !== selectedAtStart &&
+        currentProjectIdRef.current !== snapshot.id;
       try {
         let detachedSnapshot: ProjectSnapshot | undefined;
         const meta = await runTrackedProjectWrite(
@@ -676,7 +682,7 @@ export const useProjectLibrary = ({
           snapshot: detachedSnapshot || snapshot,
         } satisfies ProjectSaveResult;
       } catch (error) {
-        if (currentProjectIdRef.current === snapshot.id) {
+        if (!isSupersededBySelection()) {
           const message =
             error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
           setStorageError(message);

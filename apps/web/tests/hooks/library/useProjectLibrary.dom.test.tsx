@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
+import { getSyncState, setSyncState } from '../../../services/projects/syncState.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import {
   AppState,
@@ -1288,6 +1289,8 @@ describe('useProjectLibrary', () => {
     writeMock: typeof repositoryMocks.saveProject | typeof repositoryMocks.patchProject;
   }) => {
     vi.useFakeTimers();
+    // The sync indicator is module state shared across tests.
+    setSyncState('saved');
     const firstMeta = {
       ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4),
       hasSourceFile: false,
@@ -1354,6 +1357,24 @@ describe('useProjectLibrary', () => {
 
     expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
     expect(result.current.storageError).toBeNull();
+    expect(getSyncState()).not.toBe('error');
+  });
+
+  test('a failing save for a project not yet selected still reports its error', async () => {
+    repositoryMocks.saveProject.mockRejectedValueOnce(new Error('import save failed'));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.persistSnapshot(buildSnapshot('imported-project'));
+    });
+
+    expect(result.current.storageError).toBe('import save failed');
   });
 
   test.each([
