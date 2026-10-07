@@ -1336,20 +1336,23 @@ describe('useProjectLibrary', () => {
       result.current.setCurrentProjectId('project-2');
       result.current.setProjectHydrated(true);
     });
+    let syncStateAfterWrite!: ReturnType<typeof getSyncState>;
     await act(async () => {
       settleWrite();
       await writePromise;
+      // Read before timers run: the indicator resets itself to "saved" after a delay.
+      syncStateAfterWrite = getSyncState();
       vi.advanceTimersByTime(400);
       await vi.runOnlyPendingTimersAsync();
     });
-    return result;
+    return { result, syncStateAfterWrite };
   };
 
   test.each([
     false,
     true,
   ])('a snapshot save for the previous project does not touch the newly selected one (fails: %s)', async failWrite => {
-    const result = await switchProjectDuringWrite({
+    const { result, syncStateAfterWrite } = await switchProjectDuringWrite({
       failWrite,
       startWrite: library => library.persistSnapshot(buildSnapshot('project-1')),
       writeMock: repositoryMocks.saveProject,
@@ -1357,7 +1360,7 @@ describe('useProjectLibrary', () => {
 
     expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
     expect(result.current.storageError).toBeNull();
-    expect(getSyncState()).not.toBe('error');
+    expect(syncStateAfterWrite).not.toBe('error');
   });
 
   test('a failing save for a project not yet selected still reports its error', async () => {
@@ -1381,7 +1384,7 @@ describe('useProjectLibrary', () => {
     false,
     true,
   ])('a lesson-content write for the previous project does not touch the newly selected one (fails: %s)', async failWrite => {
-    const result = await switchProjectDuringWrite({
+    const { result } = await switchProjectDuringWrite({
       failWrite,
       startWrite: library => library.patchSectionLessonContent('lesson-1', { content: 'nuovo' }),
       writeMock: repositoryMocks.patchProject,
