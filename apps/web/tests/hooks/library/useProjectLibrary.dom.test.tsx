@@ -1370,7 +1370,10 @@ describe('useProjectLibrary', () => {
     expect(result.current.storageError).toBeNull();
   });
 
-  test('a late snapshot save keeps the newly selected project baseline', async () => {
+  test.each([
+    'snapshot',
+    'lesson-content',
+  ] as const)('a late %s write keeps the newly selected project baseline', async writeKind => {
     vi.useFakeTimers();
     const firstMeta = {
       ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4),
@@ -1405,13 +1408,22 @@ describe('useProjectLibrary', () => {
       activeSectionId,
       source: null,
     });
-    let resolveWrite!: (saved: { meta: SavedProjectMeta; snapshot: ProjectSnapshot }) => void;
+    let resolveWrite!: () => void;
     repositoryMocks.listProjects.mockResolvedValue([firstMeta, secondMeta]);
-    repositoryMocks.saveProject.mockReturnValueOnce(
-      new Promise(resolve => {
-        resolveWrite = resolve;
-      })
-    );
+    const savedMeta = { ...firstMeta, revision: 5 };
+    if (writeKind === 'snapshot') {
+      repositoryMocks.saveProject.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveWrite = () => resolve({ meta: savedMeta, snapshot: firstSnapshot });
+        })
+      );
+    } else {
+      repositoryMocks.patchProject.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveWrite = () => resolve(savedMeta);
+        })
+      );
+    }
     repositoryMocks.loadProjectWithRevision.mockResolvedValue({
       revision: 8,
       snapshot: secondSnapshot,
@@ -1430,7 +1442,10 @@ describe('useProjectLibrary', () => {
     });
     let pendingSave!: Promise<unknown>;
     act(() => {
-      pendingSave = result.current.persistSnapshot(firstSnapshot);
+      pendingSave =
+        writeKind === 'snapshot'
+          ? result.current.persistSnapshot(firstSnapshot)
+          : result.current.patchSectionLessonContent('lesson-a', { content: '# A2' });
     });
     await act(async () => {
       await Promise.resolve();
@@ -1441,7 +1456,7 @@ describe('useProjectLibrary', () => {
       rerender({ domainState: domainFor(secondPlan, 'lesson-b') });
     });
     await act(async () => {
-      resolveWrite({ meta: { ...firstMeta, revision: 5 }, snapshot: firstSnapshot });
+      resolveWrite();
       await pendingSave;
     });
 
