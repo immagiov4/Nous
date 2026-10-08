@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
-import { generateResearchSummary } from '../../src/services/lessonGenerationModel.js';
+import {
+  generateResearchSummary,
+  LESSON_JOB_RESPONSE_SCHEMA,
+} from '../../src/services/lessonGenerationModel.js';
 
 const { generateStructuredOutput } = vi.hoisted(() => ({ generateStructuredOutput: vi.fn() }));
 
@@ -48,6 +51,14 @@ const generationInput = (aiProvider: 'codex' | 'openrouter' = 'codex') => ({
 });
 
 describe('lesson research model response contract', () => {
+  test('keeps the provider-facing lesson draft schema shallow', () => {
+    expect(JSON.stringify(LESSON_JOB_RESPONSE_SCHEMA.schema)).not.toContain('anyOf');
+    expect(LESSON_JOB_RESPONSE_SCHEMA.schema.properties.contentBlocks.items).toEqual({
+      additionalProperties: true,
+      type: 'object',
+    });
+  });
+
   beforeEach(() => {
     generateStructuredOutput.mockReset();
   });

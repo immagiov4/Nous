@@ -1064,6 +1064,28 @@ describe('lesson generation production stages', () => {
     );
   });
 
+  test('rejects an invalid draft before persisting workflow state', async () => {
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        generateContent: vi.fn(
+          async () =>
+            ({ contentBlocks: [{ type: 'unknown' }], generatedVisuals: [], imageRefs: [] }) as never
+        ),
+      })
+    );
+    const research = LessonResearchStateSchema.parse({
+      ...lessonSourcesState(),
+      discoveredYoutubeSources: [],
+      lessonSources: [],
+      research: { context: '', summary: null, youtube: null },
+      stage: 'research',
+    });
+
+    await expect(services.draftLesson(stageContext(research))).rejects.toMatchObject({
+      failure: { code: 'lesson_draft_output_invalid', kind: 'corrective' },
+    });
+  });
+
   test('persists model image references without requiring a placement anchor', async () => {
     const generatedDraft = {
       contentBlocks: [

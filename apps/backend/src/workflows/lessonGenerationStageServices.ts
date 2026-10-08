@@ -698,7 +698,12 @@ const draftLesson =
   ): LessonGenerationWorkflowServices['draftLesson'] =>
   async context => {
     const draft = await runCorrectableLessonOperation(
-      () => dependencies.generateContent(buildEvidenceGenerationInput(context)),
+      async () =>
+        LessonContentDraftSchema.parse(
+          toDurableLessonDraft(
+            await dependencies.generateContent(buildEvidenceGenerationInput(context))
+          )
+        ),
       {
         code: 'lesson_draft_output_invalid',
         feedback:

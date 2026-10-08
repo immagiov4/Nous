@@ -1,8 +1,4 @@
-import {
-  ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
-  LESSON_VISUAL_TYPES,
-  MAX_GENERATED_VISUALS_PER_LESSON,
-} from '@shared/lessonGenerationPolicy';
+import { MAX_GENERATED_VISUALS_PER_LESSON } from '@shared/lessonGenerationPolicy';
 import { SYSTEM_INSTRUCTION_TEACHER } from '@shared/lessonWritingContract';
 import { hasTextOutsidePdfImagePlaceholders } from '@shared/pdfImagePlaceholder';
 import { type GlobalModelConfig, resolveAiProviderForSlot } from '../config/modelConfig.js';
@@ -30,142 +26,24 @@ export type {
   LessonGenerationInput,
 } from './lessonGenerationTypes.js';
 
-const QUIZ_SCHEMA = {
-  additionalProperties: false,
-  properties: {
-    correctIndex: { maximum: 3, minimum: 0, type: 'integer' },
-    explanation: { pattern: String.raw`\S`, type: 'string' },
-    exerciseType: {
-      enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
-      type: 'string',
-    },
-    options: { items: { type: 'string' }, maxItems: 4, minItems: 4, type: 'array' },
-    question: { type: 'string' },
-  },
-  required: ['exerciseType', 'question', 'options', 'correctIndex', 'explanation'],
-  type: 'object',
-} as const;
-
-const LESSON_JOB_RESPONSE_SCHEMA = {
+export const LESSON_JOB_RESPONSE_SCHEMA = {
   name: 'durable_lesson_generation',
   strict: true,
   schema: {
     additionalProperties: false,
     properties: {
       contentBlocks: {
-        items: {
-          anyOf: [
-            {
-              additionalProperties: false,
-              properties: {
-                markdown: { type: 'string' },
-                type: { const: 'markdown', type: 'string' },
-              },
-              required: ['type', 'markdown'],
-              type: 'object',
-            },
-            {
-              additionalProperties: false,
-              properties: {
-                quiz: QUIZ_SCHEMA,
-                type: { const: 'inline-quiz', type: 'string' },
-              },
-              required: ['type', 'quiz'],
-              type: 'object',
-            },
-            {
-              additionalProperties: false,
-              properties: {
-                clips: {
-                  items: {
-                    additionalProperties: false,
-                    properties: {
-                      endSeconds: { minimum: 0, type: 'number' },
-                      sourceIndex: { minimum: 0, type: 'integer' },
-                      startSeconds: { minimum: 0, type: 'number' },
-                      title: { type: 'string' },
-                    },
-                    required: ['sourceIndex', 'startSeconds', 'endSeconds', 'title'],
-                    type: 'object',
-                  },
-                  minItems: 1,
-                  type: 'array',
-                },
-                type: { const: 'youtube-clips', type: 'string' },
-              },
-              required: ['type', 'clips'],
-              type: 'object',
-            },
-            {
-              additionalProperties: false,
-              properties: {
-                slotId: { type: 'string' },
-                type: { const: 'generated-visual', type: 'string' },
-              },
-              required: ['type', 'slotId'],
-              type: 'object',
-            },
-          ],
-        },
+        items: { additionalProperties: true, type: 'object' },
         minItems: 2,
         type: 'array',
       },
       generatedVisuals: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            altText: { type: 'string' },
-            anchorHeading: { type: 'string' },
-            complexity: { enum: ['simple', 'moderate', 'complex'], type: 'string' },
-            concept: { type: 'string' },
-            coverage: {
-              enum: ['all_elements', 'single_complex', 'complete_synthesis', 'none'],
-              type: 'string',
-            },
-            coverageRationale: { type: 'string' },
-            factualRequirements: { items: { type: 'string' }, type: 'array' },
-            interactionLevel: { enum: ['none', 'low', 'high'], type: 'string' },
-            pedagogicalGoal: { type: 'string' },
-            reason: { type: 'string' },
-            requiresDepiction: { type: 'boolean' },
-            slotId: { type: 'string' },
-            title: { type: 'string' },
-            visualDirection: { type: 'string' },
-            visualType: { enum: LESSON_VISUAL_TYPES, type: 'string' },
-          },
-          required: [
-            'slotId',
-            'title',
-            'altText',
-            'anchorHeading',
-            'complexity',
-            'concept',
-            'coverage',
-            'coverageRationale',
-            'factualRequirements',
-            'interactionLevel',
-            'pedagogicalGoal',
-            'reason',
-            'requiresDepiction',
-            'visualDirection',
-            'visualType',
-          ],
-          type: 'object',
-        },
+        items: { additionalProperties: true, type: 'object' },
         maxItems: MAX_GENERATED_VISUALS_PER_LESSON,
         type: 'array',
       },
       imageRefs: {
-        items: {
-          additionalProperties: false,
-          properties: {
-            alt: { type: 'string' },
-            assetId: { type: 'string' },
-            caption: { type: 'string' },
-          },
-          required: ['assetId', 'alt', 'caption'],
-          type: 'object',
-        },
+        items: { additionalProperties: true, type: 'object' },
         type: 'array',
       },
     },
