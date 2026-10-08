@@ -100,30 +100,55 @@ export const generateStructuredOutput = async <T>(
     { model: target.model, provider: target.provider, reasoningEffort: target.reasoningEffort },
     { webSearch }
   );
-  const result = await generateText({
-    abortSignal: signal,
-    maxRetries,
-    model: configured.model,
-    output: Output.object({
-      name: output.name,
-      schema: jsonSchema<T>(output.schema as Parameters<typeof jsonSchema>[0]),
-    }),
-    ...(image
-      ? {
-          messages: [
-            {
-              content: [
-                { image, type: 'image' as const },
-                { text: prompt, type: 'text' as const },
-              ],
-              role: 'user' as const,
-            },
-          ],
-        }
-      : { prompt }),
-    providerOptions: configured.providerOptions,
-    system,
-    ...(configured.tools ? { tools: configured.tools } : {}),
-  });
-  return result.output;
+  const generate = async <Result>(schema: StructuredOutputSchema, generationPrompt: string) =>
+    generateText({
+      abortSignal: signal,
+      maxRetries,
+      model: configured.model,
+      output: Output.object({
+        name: schema.name,
+        schema: jsonSchema<Result>(schema.schema as Parameters<typeof jsonSchema>[0]),
+      }),
+      ...(image
+        ? {
+            messages: [
+              {
+                content: [
+                  { image, type: 'image' as const },
+                  { text: generationPrompt, type: 'text' as const },
+                ],
+                role: 'user' as const,
+              },
+            ],
+          }
+        : { prompt: generationPrompt }),
+      providerOptions: configured.providerOptions,
+      system,
+      ...(configured.tools ? { tools: configured.tools } : {}),
+    });
+
+  try {
+    return (await generate<T>(output, prompt)).output;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !/schema is too complex|invalid schema for response_format|additionalProperties.*required/iu.test(
+        message
+      )
+    ) {
+      throw error;
+    }
+    const envelope = {
+      name: `${output.name}_json_envelope`,
+      schema: {
+        additionalProperties: false,
+        properties: { payload: { type: 'string' } },
+        required: ['payload'],
+        type: 'object',
+      },
+    } as const;
+    const fallbackPrompt = `${prompt}\n\nThe provider cannot compile the requested schema. Return the complete requested JSON object as a JSON-encoded string in payload. Do not omit, summarize, or alter fields.`;
+    const fallback = await generate<{ payload: string }>(envelope, fallbackPrompt);
+    return JSON.parse(fallback.output.payload) as T;
+  }
 };

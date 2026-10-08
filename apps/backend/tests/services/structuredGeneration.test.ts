@@ -134,6 +134,35 @@ test('AI SDK providers receive the system prompt unchanged', async () => {
   });
 });
 
+test('falls back to a JSON string envelope when a provider rejects schema compilation', async () => {
+  createConfiguredTextModelFromResolution.mockReturnValue({
+    model: 'model',
+    providerOptions: {},
+  });
+  generateText
+    .mockRejectedValueOnce(
+      new Error(
+        "[Azure] Invalid schema for response_format 'answer': 'additionalProperties' is required to be supplied and to be false."
+      )
+    )
+    .mockResolvedValueOnce({ output: { payload: '{"answer":"42"}' } });
+
+  await expect(generateStructuredOutput(request('openrouter'))).resolves.toEqual({
+    answer: '42',
+  });
+  expect(generateText).toHaveBeenCalledTimes(2);
+  const fallback = generateText.mock.calls[1][0];
+  expect(fallback.prompt).toContain('JSON-encoded string');
+  await expect(fallback.output.responseFormat).resolves.toMatchObject({
+    schema: {
+      additionalProperties: false,
+      properties: { payload: { type: 'string' } },
+      required: ['payload'],
+      type: 'object',
+    },
+  });
+});
+
 test('a resolved model bypasses slot configuration and keeps its service tier', async () => {
   runCodexAppServerTurn.mockResolvedValue('{"answer":"42"}');
 
