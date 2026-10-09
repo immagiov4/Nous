@@ -63,6 +63,19 @@ const input: LessonVisualWorkflowInput = {
   userId: 'user-1',
 };
 
+const checklistScene = {
+  body: '',
+  groups: [],
+  items: [
+    { detail: '', icon: 'arrows-cross', label: 'Trama' },
+    { detail: '', icon: 'arrows-vertical', label: 'Ordito' },
+  ],
+  note: '',
+  quote: '',
+  title: 'Intreccio',
+  type: 'checklist' as const,
+};
+
 const assetRef = (id: string, mediaType = 'image/png'): ProjectAssetRef => ({
   byteSize: 4,
   hash: id,
@@ -91,6 +104,7 @@ const makeServices = (
     bytes: new Uint8Array([1, 2, 3, 4]),
     mediaType: 'image/png' as const,
   })),
+  generateScene: vi.fn(async () => ({ kind: 'scene' as const, scene: checklistScene })),
   now: () => '2026-07-29T17:00:00.000Z',
   persistRetryResult: vi.fn(async () => undefined),
   reviseArtifact: vi.fn(async ({ visual }) => visual),
@@ -148,6 +162,51 @@ describe('lesson visual workflows', () => {
     expect(imageWorker).toMatchObject({
       externalEffect: 'provider-with-postprocessing',
       id: 'render-embedded-image',
+    });
+  });
+
+  test('routes abstract plans, including stored legacy SVG ones, to lesson scenes', () => {
+    const route = getRenderRoute();
+    expect(route.cases.scene).toMatchObject({ id: 'render-scene', kind: 'step' });
+    const routeFor = (visualType: string) =>
+      route.select({ ...input, plan: { ...input.plan, visualType } } as typeof input);
+    expect(routeFor('lesson_scene')).toBe('scene');
+    expect(routeFor('structural_svg')).toBe('scene');
+    expect(routeFor('mermaid_class')).toBe('scene');
+    expect(routeFor('interactive_html')).toBe('artifact');
+    expect(routeFor('illustrative_image')).toBe('raster');
+  });
+
+  test('stores a generated scene and turns contract problems into corrective feedback', async () => {
+    const scene = getRenderRoute().cases.scene;
+    if (scene?.kind !== 'step') throw new TypeError('Expected the scene step.');
+    const generateScene = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'invalid', problems: ['The quote must be copied exactly.'] })
+      .mockResolvedValueOnce({ kind: 'scene', scene: checklistScene });
+    const services = makeServices({ generateScene });
+    const run = (retryFeedback: string) =>
+      scene.run({
+        attemptNumber: 1,
+        config,
+        execution: execution('scene'),
+        idempotencyKey: 'scene-key',
+        input: { ...input, plan: { ...input.plan, visualType: 'lesson_scene' } },
+        retryFeedback,
+        services,
+        signal: new AbortController().signal,
+      });
+
+    const failure = await run('').catch(error => error);
+    expect(failure).toMatchObject({
+      failure: {
+        feedback: expect.stringContaining('The quote must be copied exactly.'),
+        kind: 'corrective',
+      },
+    });
+    await expect(run(failure.failure.feedback)).resolves.toMatchObject({
+      assetOwners: [],
+      visual: { render: { kind: 'scene', scene: checklistScene } },
     });
   });
 

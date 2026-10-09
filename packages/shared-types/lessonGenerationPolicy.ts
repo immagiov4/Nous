@@ -92,7 +92,8 @@ export const ORIGINAL_IMAGE_USAGE_RULES = [
   'The nearby paragraph must say what to observe in the image and why it is useful. Use technical assetIds only inside PDF_IMAGE placeholders, never in the surrounding prose.',
 ] as const;
 
-export const LESSON_VISUAL_TYPES = [
+/** Visual types of the pre-scene contract, frozen for historical durable workflow definitions. */
+export const LEGACY_LESSON_VISUAL_TYPES = [
   'chart_html',
   'flowchart_svg',
   'illustrative_image',
@@ -100,6 +101,19 @@ export const LESSON_VISUAL_TYPES = [
   'mermaid_class',
   'mermaid_erd',
   'structural_svg',
+] as const;
+
+/** Every visual type a stored plan may carry, including legacy types of earlier lessons. */
+export const LESSON_VISUAL_TYPES = [...LEGACY_LESSON_VISUAL_TYPES, 'lesson_scene'] as const;
+
+/**
+ * Types new planning may choose. Abstract structures, quantities, and diagrams are lesson scenes;
+ * the legacy SVG, chart, and Mermaid types survive only in stored plans and are rendered as scenes.
+ */
+export const PLANNABLE_LESSON_VISUAL_TYPES = [
+  'illustrative_image',
+  'interactive_html',
+  'lesson_scene',
 ] as const;
 
 export type LessonVisualType = (typeof LESSON_VISUAL_TYPES)[number];
@@ -111,7 +125,7 @@ export const INTERACTIVE_VISUAL_VALUE_RULE =
   'Treat interactive_html as an expensive format. Use it only when the user must explore, modify, or compare states and that interaction produces important understanding that text, video, or one or two static images cannot provide equally well. Do not use it for cosmetic demonstrations, trivial controls, or static examples disguised as interactive. If interaction is not essential, choose the simpler format.';
 
 export const VISUAL_FORMAT_SELECTION_RULE =
-  'Set requiresDepiction=true when the student must see the appearance of an object, state, scene, graphical result, or visual transformation, including steps that show how a subject changes. In that case use illustrative_image. A visual process is not a flowchart. SVG is allowed only with requiresDepiction=false for abstract relationships among short text labels, generic boxes, and arrows. Nodes cannot contain drawings, silhouettes, pixel art, objects, scenes, or examples of the result. If the visual must show programmable examples, including pixel art, simple shaders, generative patterns, or filter and effect comparisons, use interactive_html even when controls are unnecessary. The format may be a passive HTML and JavaScript demonstration. Use interactive_html with controls only when manipulation adds essential teaching value. For a passive programmable visual, set interactionLevel=none in the backend contract or interaction_level=none in the client contract.';
+  'Set requiresDepiction=true when the student must see the appearance of an object, state, scene, graphical result, or visual transformation, including steps that show how a subject changes. In that case use illustrative_image. A visual process is not a flowchart. lesson_scene is allowed only with requiresDepiction=false for abstract relationships, structures, and quantities expressed as short text labels, icons, charts, and diagrams. It cannot contain drawings, silhouettes, pixel art, objects, scenes, or examples of the result. If the visual must show programmable examples, including pixel art, simple shaders, generative patterns, or filter and effect comparisons, use interactive_html even when controls are unnecessary. The format may be a passive HTML and JavaScript demonstration. Use interactive_html with controls only when manipulation adds essential teaching value. For a passive programmable visual, set interactionLevel=none in the backend contract or interaction_level=none in the client contract.';
 
 export const NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT = `NOUS VISUAL CONTRACT:
 - Use a warm neutral base of ivory or paper, stone, and charcoal, with restrained surfaces, light borders, minimal shadows, and editorial typography.
@@ -126,6 +140,8 @@ export const enforceLessonVisualTypeContract = <
   plan: T
 ): T =>
   plan.requiresDepiction &&
-  (plan.visualType === 'flowchart_svg' || plan.visualType === 'structural_svg')
+  (plan.visualType === 'flowchart_svg' ||
+    plan.visualType === 'structural_svg' ||
+    plan.visualType === 'lesson_scene')
     ? { ...plan, visualType: 'illustrative_image' }
     : plan;

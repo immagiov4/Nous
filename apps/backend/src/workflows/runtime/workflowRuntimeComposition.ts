@@ -77,10 +77,12 @@ import {
   createLessonGenerationWorkflow,
   createPreviousEvidenceLessonGenerationWorkflow,
   createPreviousLessonGenerationWorkflow,
+  createPreviousPreSceneLessonGenerationWorkflow,
   createPreviousQuizExplanationLessonGenerationWorkflow,
   createPreviousResearchContractLessonGenerationWorkflow,
   createPreviousRoutingLessonGenerationWorkflow,
 } from '../lessonGenerationWorkflow.js';
+import { LegacyLessonVisualContractSchemas } from '../lessonGenerationWorkflowSchemas.js';
 import {
   createLessonVisualRetryStarter,
   type LessonVisualRetryStarter,
@@ -204,16 +206,23 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   const registry = createWorkflowRegistry();
   const models = getGlobalModelConfig();
   const visual = resolveLessonVisualModelConfig(models);
-  const retryWorkflow = createLessonVisualWorkflows({
+  const visualExecutionDefaults = {
     maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
     timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
     visual,
-  }).retry;
-  const artifactDraftWorkflow = createArtifactDraftWorkflow({
-    maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
-    timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
-    visual,
-  });
+  };
+  const retryWorkflow = createLessonVisualWorkflows(visualExecutionDefaults).retry;
+  // Definitions deployed before lesson scenes keep the legacy visual contract.
+  const preSceneRetryWorkflow = createLessonVisualWorkflows(
+    visualExecutionDefaults,
+    undefined,
+    LegacyLessonVisualContractSchemas
+  ).retry;
+  const artifactDraftWorkflow = createArtifactDraftWorkflow(visualExecutionDefaults);
+  const preSceneArtifactDraftWorkflow = createArtifactDraftWorkflow(
+    visualExecutionDefaults,
+    LegacyLessonVisualContractSchemas
+  );
   const courseWorkflow = createCourseGenerationWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
     models,
@@ -272,6 +281,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     visual,
   });
+  const previousPreSceneLessonWorkflow = createPreviousPreSceneLessonGenerationWorkflow(
+    lessonWorkflow.executionDefaults
+  );
   const previousRoutingLessonWorkflow = createPreviousRoutingLessonGenerationWorkflow(
     lessonWorkflow.executionDefaults
   );
@@ -327,17 +339,19 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: artifactDraftWorkflow,
     previous: [
-      preProviderPostprocessingPrevious(artifactDraftWorkflow),
-      preExternalEffectPrevious(artifactDraftWorkflow),
-      preCompatibilityIdAndExternalEffectPrevious(artifactDraftWorkflow),
+      preSceneArtifactDraftWorkflow,
+      preProviderPostprocessingPrevious(preSceneArtifactDraftWorkflow),
+      preExternalEffectPrevious(preSceneArtifactDraftWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(preSceneArtifactDraftWorkflow),
     ],
   });
   registry.register({
     current: retryWorkflow,
     previous: [
-      preProviderPostprocessingPrevious(retryWorkflow),
-      preExternalEffectPrevious(retryWorkflow),
-      preCompatibilityIdAndExternalEffectPrevious(retryWorkflow),
+      preSceneRetryWorkflow,
+      preProviderPostprocessingPrevious(preSceneRetryWorkflow),
+      preExternalEffectPrevious(preSceneRetryWorkflow),
+      preCompatibilityIdAndExternalEffectPrevious(preSceneRetryWorkflow),
     ],
   });
   registry.register({
@@ -367,6 +381,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: lessonWorkflow,
     previous: [
+      previousPreSceneLessonWorkflow,
       previousRoutingLessonWorkflow,
       previousQuizExplanationLessonWorkflow,
       previousEvidenceLessonWorkflow,

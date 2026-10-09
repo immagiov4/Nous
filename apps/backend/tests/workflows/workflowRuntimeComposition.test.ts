@@ -87,11 +87,15 @@ describe('workflow runtime production composition', () => {
   });
 
   test('resumes visual workflows created before provider post-processing was isolated', () => {
-    const current = productionRegistry.current(ARTIFACT_DRAFT_WORKFLOW_ID);
-    expect(current).not.toBeNull();
-    if (!current) throw new Error('Artifact draft workflow is not registered.');
+    // Those runs predate lesson scenes, so they derive from the pre-scene definition.
+    const preScene = productionRegistry.resolve(
+      ARTIFACT_DRAFT_WORKFLOW_ID,
+      '392a9122392b550f78f3068082398ae39b6816ad9916fc07dd0c37e3f61d423c'
+    );
+    expect(preScene).not.toBeNull();
+    if (!preScene) throw new Error('The pre-scene artifact draft workflow is not registered.');
 
-    const precedingHash = hashPreProviderPostprocessingWorkflowManifest(current.manifest);
+    const precedingHash = hashPreProviderPostprocessingWorkflowManifest(preScene.manifest);
 
     expect(productionRegistry.resolve(ARTIFACT_DRAFT_WORKFLOW_ID, precedingHash)).not.toBeNull();
   });

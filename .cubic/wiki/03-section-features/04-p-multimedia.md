@@ -78,12 +78,10 @@ The system supports multiple visual formats, each selected based on the pedagogi
 | Visual Type | Description |
 | :--- | :--- |
 | `illustrative_image` | Raster illustration for physical reality, textures, or anatomy. |
-| `flowchart_svg` | Abstract relations between process steps or trees. |
-| `structural_svg` | Architectural schemas or layers within a system. |
-| `interactive_html` | HTML/JS labs for hands-on exploration. |
-| `chart_html` | Quantitative data, distributions, and trends. |
-| `mermaid_erd` | Entity-Relationship diagrams. |
-| `mermaid_class` | Class hierarchies and OOP structures. |
+| `lesson_scene` | Abstract structures, relations, quantities, and diagrams drawn from the scene catalog. |
+| `interactive_html` | HTML/JS labs for hands-on exploration; charts that need interaction belong here. |
+
+New planning chooses only these three types (`PLANNABLE_LESSON_VISUAL_TYPES`). Stored plans may still carry the legacy `flowchart_svg`, `structural_svg`, `chart_html`, `mermaid_erd`, and `mermaid_class` types; retrying them renders a lesson scene. Visuals already stored as `svg` or `mermaid` remain readable and are never produced again.
 
 Sources: `[packages/shared-types/lessonVisualContracts.ts:145-163](../../../packages/shared-types/lessonVisualContracts.ts#L145-L163)`, `[apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:133-149](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L133-L149)`
 
@@ -95,6 +93,19 @@ The generation is governed by strict planning rules defined in `LESSON_VISUAL_PL
 *  **Anchoring**: Visuals must be anchored to specific headings (`anchorHeading`) within the markdown.
 
 Sources: [packages/shared-types/lessonVisualContracts.ts:153-164](../../../packages/shared-types/lessonVisualContracts.ts#L153-L164)
+
+### Lesson Scenes
+
+A lesson scene is a validated JSON description of one visual, built from a fixed catalog of 35 forms (definitions, checklists, comparisons, steps, timelines, hierarchies, quantities, flowcharts, message sequences, journeys, and others). The model chooses the form and fills content; the reader components own geometry and style, so stored scenes follow later design changes without regeneration.
+
+1. **Contract.** `packages/shared-types/lessonScene.ts` owns the catalog, the scene type, and `findLessonSceneProblems`. With the lesson text, validation requires exact quotations, quantities stated in the lesson, the group count each form needs, and connected, grounded diagrams; without it, it checks the stored shape. Persisted visuals use the `scene` kind of `ProjectVisual`.
+2. **Generation.** The `render-scene` step of the lesson visual workflow calls `generateLessonScene` with the `scene` model slot. Contract problems become corrective retry feedback. Each item and group entry carries three English icon search phrases.
+3. **Icons.** `lessonSceneIcons.ts` embeds the name, category, and tags of every Tabler outline icon with the configured embedding model and caches the index per model and Tabler version (`LESSON_SCENE_ICON_INDEX_DIR`, a Docker volume). Each entry runs four queries (its three phrases plus its text) and keeps the 12 nearest icons for each. The `sceneIcon` slot then chooses among those candidates, seeing their category and tags, may not reuse an icon for different meanings (up to three attempts), and depicts negation as negation.
+4. **Rendering.** `LessonSceneVisual` renders scenes inline in the reader, not in the sandboxed frame. Charts use Observable Plot and d3, flowcharts and sequences use Mermaid built from the validated graph, and icons load lazily from the Tabler outline path data.
+5. **Models.** The `scene` and `sceneIcon` slots and `embeddingModel` are configurable in the admin panel. They follow the global provider and always run fast on Codex; durable workflow config omits them, so the scene services read the live configuration.
+6. **Durable compatibility.** Visual-bearing schemas are built per visual contract. Historical lesson, retry, and artifact-draft definitions keep the legacy contract and their exact hashes; `lessonSceneCompatibility.test.ts` pins the pre-scene definitions.
+
+Sources: [packages/shared-types/lessonScene.ts](../../../packages/shared-types/lessonScene.ts), [apps/backend/src/services/lessonScenes](../../../apps/backend/src/services/lessonScenes), [apps/web/components/shared/lessonScene](../../../apps/web/components/shared/lessonScene), [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
 
 ## Visual Rendering and Sandboxing
 

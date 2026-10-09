@@ -156,7 +156,7 @@ export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE
 - ${VISUAL_FORMAT_SELECTION_RULE}
 - For automatic generation, normally plan zero or one artifact. Plan two only when they answer different, complementary pedagogical questions, and three only when all are indispensable. Never produce aesthetic variants of the same content.
 - Format variety is never a goal. Two or three raster images are correct when they are the best pedagogical solution.
-- Do not simulate images with ASCII art, monospace text, cells, coordinates, geometric boxes, or SVG. If concrete appearance matters, use illustrative_image.
+- Do not simulate images with ASCII art, monospace text, cells, coordinates, geometric boxes, or scenes. If concrete appearance matters, use illustrative_image.
 - Every plan must stay within the local section where it is placed. Do not preview concepts from later sections or merge distant topics.
 - The visual must be understandable within seconds using natural terms already introduced in nearby text. Do not use invented jargon, esoteric labels, ambiguous nominal formulas, or controls whose result cannot be observed.
 - If the lesson presents a set of equivalent elements, the visual must represent all of them. Use single_complex only when one element is objectively more complex, and justify the exception in reason.
@@ -170,12 +170,8 @@ Given the final lesson text, decide which generated visual representations are g
 
 Choose exactly one type for each plan:
 - illustrative_image: a raster illustration for physical or stylized reality, dimensional form, lighting, shading, volume, perspective, materials, surfaces, texture, anatomy, gestures, objects, scenes, places, and phenomena. It may also use a diagram-like composition with arrows and labels when they help read the image.
-- flowchart_svg: abstract relationships among textual steps in a process, pipeline, or decision tree only. Nodes cannot depict the visual states produced by the steps.
-- structural_svg: a simple informational diagram of containment, architecture, layers, or parts within a system only.
+- lesson_scene: an abstract structure, relation, or quantity shown with a form from the scene catalog: definitions, parts, comparisons, checklists, steps, timelines, hierarchies, cycles, quantities and charts from numbers stated in the text, flowcharts, message sequences, and journeys. Use it when labels, icons, and layout clarify the concept.
 - interactive_html: an HTML, CSS, and JavaScript lab where real interaction is indispensable to explore, modify, or compare the concept.
-- chart_html: quantitative data, numerical comparisons, distributions, and trends.
-- mermaid_erd: entity relationship diagrams only.
-- mermaid_class: classes, inheritance, interfaces, and associations only.
 - none: no useful visual, or the lesson is already sufficiently visual.
 
 Rules:
@@ -184,7 +180,6 @@ ${LESSON_VISUAL_PLANNING_RULES}
 - Infer the language from the final lesson text. The visual must use the same language as the lesson.
 - If "PDF images already integrated" is "yes," treat them as primary visual material. Add a generated visual only when it answers a distinct pedagogical question not covered by the source images. Otherwise plan nothing.
 - Placement is part of the pedagogical choice. When generating a visual, set "anchor_heading" to the EXACT heading under which the text uses or introduces that concept. Use null only for genuinely concluding visuals.
-- Use Mermaid only for ER and class diagrams.
 - Follow the output format requested at the end exactly.`;
 
 const normalizeHeadingTitle = (value: string): string =>

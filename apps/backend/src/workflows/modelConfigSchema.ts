@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import type { GlobalModelConfig } from '../config/modelConfig.js';
+import type { DurableGlobalModelConfig, GlobalModelConfig } from '../config/modelConfig.js';
 
 const AiProviderSchema = z.enum(['codex', 'openai', 'openrouter']);
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high']);
@@ -15,7 +15,7 @@ const TextModelSlotSchema = z.enum([
 ]);
 const ModelProviderSlotSchema = z.enum([...TextModelSlotSchema.options, 'image']);
 
-export const GlobalModelConfigSchema = z.object({
+const DurableGlobalModelConfigSchema = z.object({
   aiProvider: AiProviderSchema,
   aiProviderOverrides: z.partialRecord(ModelProviderSlotSchema, AiProviderSchema).optional(),
   artifactInteractiveModel: z.string(),
@@ -58,4 +58,12 @@ export const GlobalModelConfigSchema = z.object({
   ttsModel: z.string(),
   ttsVoice: z.string(),
   updatedAt: z.string(),
-}) satisfies z.ZodType<GlobalModelConfig>;
+}) satisfies z.ZodType<DurableGlobalModelConfig>;
+
+/**
+ * Durable workflow config validates the model settings without the scene fields, which the scene
+ * services always read from the live global config. Keeping them out of this schema leaves the
+ * hashes of historical workflow definitions unchanged; no consumer of durable config reads them.
+ */
+export const GlobalModelConfigSchema =
+  DurableGlobalModelConfigSchema as unknown as z.ZodType<GlobalModelConfig>;

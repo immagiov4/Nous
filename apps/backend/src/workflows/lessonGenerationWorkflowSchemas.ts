@@ -1,5 +1,12 @@
-import { LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
+import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
+import {
+  LESSON_SCENE_EDGE_KINDS,
+  LESSON_SCENE_NODE_KINDS,
+  LESSON_SCENE_RELATION_KINDS,
+  LESSON_SCENE_TYPES,
+  LESSON_SCENE_VERDICTS,
+} from '@shared/lessonScene';
 import type { ProjectAssetRef, ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
@@ -198,75 +205,12 @@ const GeneratedVisualSlotSchema = z.object({
   type: z.literal('generated-visual'),
 });
 
-const LessonVisualPlanSchema = z.object({
-  altText: z.string(),
-  anchorHeading: z.string(),
-  complexity: z.enum(['complex', 'moderate', 'simple']),
-  concept: LessonIdentifierSchema,
-  coverage: z.enum(['all_elements', 'complete_synthesis', 'none', 'single_complex']),
-  coverageRationale: z.string(),
-  factualRequirements: z.array(z.string()),
-  interactionLevel: z.enum(['high', 'low', 'none']),
-  pedagogicalGoal: z.string(),
-  reason: z.string(),
-  requiresDepiction: z.boolean(),
-  slotId: LessonIdentifierSchema,
-  title: z.string(),
-  visualDirection: z.string(),
-  visualType: z.enum(LESSON_VISUAL_TYPES),
-});
-
-export const LessonVisualRetryPlanSchema = LessonVisualPlanSchema.extend({
-  altText: z.string().optional(),
-  anchorHeading: z.string().optional(),
-  title: z.string().optional(),
-});
-
 const LessonDraftBlockSchema = z.union([
   MarkdownBlockSchema,
   InlineQuizBlockSchema,
   YouTubeClipsBlockSchema,
   GeneratedVisualSlotSchema,
 ]);
-
-export const LessonContentDraftSchema = z.object({
-  contentBlocks: z.array(LessonDraftBlockSchema),
-  generatedVisuals: z.array(LessonVisualPlanSchema),
-  imageRefs: z.array(LessonDraftImageReferenceSchema),
-});
-
-export const PreviousLessonContentDraftSchema = z.object({
-  ...LessonContentDraftSchema.shape,
-  contentBlocks: z.array(
-    z.union([
-      MarkdownBlockSchema,
-      PreviousInlineQuizBlockSchema,
-      YouTubeClipsBlockSchema,
-      GeneratedVisualSlotSchema,
-    ])
-  ),
-});
-
-export const ProjectVisualSchema = z.union([
-  z.object({ asset: ProjectAssetRefSchema, kind: z.literal('image') }),
-  z.object({
-    code: LessonIdentifierSchema,
-    embeddedAssets: z.array(ProjectAssetRefSchema),
-    kind: z.literal('html'),
-  }),
-  z.object({ code: LessonIdentifierSchema, kind: z.literal('svg') }),
-  z.object({ code: LessonIdentifierSchema, kind: z.literal('mermaid') }),
-]);
-
-export const ProjectLessonVisualSchema: z.ZodType<ProjectLessonVisual> = z.object({
-  altText: LessonIdentifierSchema.optional(),
-  anchorHeading: LessonIdentifierSchema.optional(),
-  createdAt: TimestampSchema,
-  id: LessonIdentifierSchema,
-  render: ProjectVisualSchema,
-  slotId: LessonIdentifierSchema,
-  title: LessonIdentifierSchema.optional(),
-});
 
 export const LessonLearningAidSchema = z.object({
   anchorHeading: LessonIdentifierSchema.optional(),
@@ -282,48 +226,216 @@ const GeneratedVisualResultBlockSchema = z.object({
   visualId: LessonIdentifierSchema,
 });
 
-const GeneratedVisualRetryBlockSchema = z.object({
-  retryPlan: LessonVisualRetryPlanSchema,
-  slotId: LessonIdentifierSchema,
-  type: z.literal('generated-visual'),
+const LessonSceneIconSlotSchema = z.string();
+
+// Structural only: durable schemas admit no custom checks. The scene generation step validates the
+// full contract with findLessonSceneProblems before a scene enters workflow state.
+const LessonSceneSchema = z.object({
+  body: z.string(),
+  criteria: z.array(z.string()).optional(),
+  diagram: z
+    .object({
+      edges: z.array(
+        z.object({
+          evidence: z.string(),
+          from: z.string(),
+          kind: z.enum(LESSON_SCENE_EDGE_KINDS),
+          label: z.string(),
+          to: z.string(),
+        })
+      ),
+      nodes: z.array(
+        z.object({ id: z.string(), kind: z.enum(LESSON_SCENE_NODE_KINDS), label: z.string() })
+      ),
+    })
+    .optional(),
+  groups: z.array(
+    z.object({
+      icons: z.array(LessonSceneIconSlotSchema),
+      items: z.array(z.string()),
+      label: z.string(),
+      verdict: z.enum(LESSON_SCENE_VERDICTS).optional(),
+    })
+  ),
+  items: z.array(
+    z.object({
+      detail: z.string(),
+      icon: LessonSceneIconSlotSchema,
+      label: z.string(),
+      value: z.number().optional(),
+    })
+  ),
+  note: z.string(),
+  quote: z.string(),
+  relation: z
+    .object({
+      evidence: z.string(),
+      kind: z.enum(LESSON_SCENE_RELATION_KINDS),
+      label: z.string(),
+    })
+    .optional(),
+  title: z.string(),
+  type: z.enum(LESSON_SCENE_TYPES),
 });
 
-export const LessonResultBlockSchema = z.union([
-  MarkdownBlockSchema,
-  InlineQuizBlockSchema,
-  YouTubeClipsBlockSchema,
-  GeneratedVisualResultBlockSchema,
-  GeneratedVisualRetryBlockSchema,
-]);
+/**
+ * Builds every durable schema that carries a visual plan or a stored visual. Historical workflow
+ * definitions use the legacy contract (pre-scene types and kinds) so their definition hashes stay
+ * identical; current definitions accept lesson scenes.
+ */
+const createLessonVisualContractSchemas = ({
+  includeScene,
+  visualTypes,
+}: {
+  includeScene: boolean;
+  visualTypes: readonly [string, ...string[]];
+}) => {
+  const LessonVisualPlanSchema = z.object({
+    altText: z.string(),
+    anchorHeading: z.string(),
+    complexity: z.enum(['complex', 'moderate', 'simple']),
+    concept: LessonIdentifierSchema,
+    coverage: z.enum(['all_elements', 'complete_synthesis', 'none', 'single_complex']),
+    coverageRationale: z.string(),
+    factualRequirements: z.array(z.string()),
+    interactionLevel: z.enum(['high', 'low', 'none']),
+    pedagogicalGoal: z.string(),
+    reason: z.string(),
+    requiresDepiction: z.boolean(),
+    slotId: LessonIdentifierSchema,
+    title: z.string(),
+    visualDirection: z.string(),
+    visualType: z.enum(visualTypes as typeof LESSON_VISUAL_TYPES),
+  });
 
-export const PreviousLessonResultBlockSchema = z.union([
-  MarkdownBlockSchema,
-  PreviousInlineQuizBlockSchema,
-  YouTubeClipsBlockSchema,
-  GeneratedVisualResultBlockSchema,
-  GeneratedVisualRetryBlockSchema,
-]);
+  const LessonVisualRetryPlanSchema = LessonVisualPlanSchema.extend({
+    altText: z.string().optional(),
+    anchorHeading: z.string().optional(),
+    title: z.string().optional(),
+  });
 
-const LessonVisualPlanningPlanSchema = z.object({
-  anchorExcerpt: z.string().nullable().optional(),
-  anchorHeading: z.string().nullable(),
-  concept: LessonIdentifierSchema,
-  pedagogicalGoal: z.string(),
-  reason: z.string(),
-  visualType: z.enum(LESSON_VISUAL_TYPES),
+  const LessonContentDraftSchema = z.object({
+    contentBlocks: z.array(LessonDraftBlockSchema),
+    generatedVisuals: z.array(LessonVisualPlanSchema),
+    imageRefs: z.array(LessonDraftImageReferenceSchema),
+  });
+
+  const PreviousLessonContentDraftSchema = z.object({
+    ...LessonContentDraftSchema.shape,
+    contentBlocks: z.array(
+      z.union([
+        MarkdownBlockSchema,
+        PreviousInlineQuizBlockSchema,
+        YouTubeClipsBlockSchema,
+        GeneratedVisualSlotSchema,
+      ])
+    ),
+  });
+
+  const legacyProjectVisualMembers = [
+    z.object({ asset: ProjectAssetRefSchema, kind: z.literal('image') }),
+    z.object({
+      code: LessonIdentifierSchema,
+      embeddedAssets: z.array(ProjectAssetRefSchema),
+      kind: z.literal('html'),
+    }),
+    z.object({ code: LessonIdentifierSchema, kind: z.literal('svg') }),
+    z.object({ code: LessonIdentifierSchema, kind: z.literal('mermaid') }),
+  ] as const;
+  const sceneProjectVisualMember = z.object({ kind: z.literal('scene'), scene: LessonSceneSchema });
+  const ProjectVisualSchema = includeScene
+    ? z.union([...legacyProjectVisualMembers, sceneProjectVisualMember])
+    : (z.union(legacyProjectVisualMembers) as unknown as z.ZodUnion<
+        [...typeof legacyProjectVisualMembers, typeof sceneProjectVisualMember]
+      >);
+
+  const ProjectLessonVisualSchema: z.ZodType<ProjectLessonVisual> = z.object({
+    altText: LessonIdentifierSchema.optional(),
+    anchorHeading: LessonIdentifierSchema.optional(),
+    createdAt: TimestampSchema,
+    id: LessonIdentifierSchema,
+    render: ProjectVisualSchema,
+    slotId: LessonIdentifierSchema,
+    title: LessonIdentifierSchema.optional(),
+  });
+
+  const GeneratedVisualRetryBlockSchema = z.object({
+    retryPlan: LessonVisualRetryPlanSchema,
+    slotId: LessonIdentifierSchema,
+    type: z.literal('generated-visual'),
+  });
+
+  const LessonResultBlockSchema = z.union([
+    MarkdownBlockSchema,
+    InlineQuizBlockSchema,
+    YouTubeClipsBlockSchema,
+    GeneratedVisualResultBlockSchema,
+    GeneratedVisualRetryBlockSchema,
+  ]);
+
+  const PreviousLessonResultBlockSchema = z.union([
+    MarkdownBlockSchema,
+    PreviousInlineQuizBlockSchema,
+    YouTubeClipsBlockSchema,
+    GeneratedVisualResultBlockSchema,
+    GeneratedVisualRetryBlockSchema,
+  ]);
+
+  const LessonVisualPlanningPlanSchema = z.object({
+    anchorExcerpt: z.string().nullable().optional(),
+    anchorHeading: z.string().nullable(),
+    concept: LessonIdentifierSchema,
+    pedagogicalGoal: z.string(),
+    reason: z.string(),
+    visualType: z.enum(visualTypes as typeof LESSON_VISUAL_TYPES),
+  });
+
+  const LessonVisualPlanningPassSchema = z.object({
+    outcome: z.enum(['failed', 'none', 'visuals']),
+    plans: z.array(LessonVisualPlanningPlanSchema),
+    rationale: z.string(),
+  });
+
+  const LessonVisualPlanningDecisionSchema = z.object({
+    initial: LessonVisualPlanningPassSchema,
+    reviewed: LessonVisualPlanningPassSchema,
+    reviewedAt: TimestampSchema,
+  });
+
+  return {
+    LessonContentDraftSchema,
+    LessonResultBlockSchema,
+    LessonVisualPlanningDecisionSchema,
+    LessonVisualRetryPlanSchema,
+    PreviousLessonContentDraftSchema,
+    PreviousLessonResultBlockSchema,
+    ProjectLessonVisualSchema,
+    ProjectVisualSchema,
+  };
+};
+
+export type LessonVisualContractSchemas = ReturnType<typeof createLessonVisualContractSchemas>;
+
+export const LegacyLessonVisualContractSchemas = createLessonVisualContractSchemas({
+  includeScene: false,
+  visualTypes: LEGACY_LESSON_VISUAL_TYPES,
 });
 
-const LessonVisualPlanningPassSchema = z.object({
-  outcome: z.enum(['failed', 'none', 'visuals']),
-  plans: z.array(LessonVisualPlanningPlanSchema),
-  rationale: z.string(),
+export const CurrentLessonVisualContractSchemas = createLessonVisualContractSchemas({
+  includeScene: true,
+  visualTypes: LESSON_VISUAL_TYPES,
 });
 
-export const LessonVisualPlanningDecisionSchema = z.object({
-  initial: LessonVisualPlanningPassSchema,
-  reviewed: LessonVisualPlanningPassSchema,
-  reviewedAt: TimestampSchema,
-});
+export const {
+  LessonContentDraftSchema,
+  LessonResultBlockSchema,
+  LessonVisualPlanningDecisionSchema,
+  LessonVisualRetryPlanSchema,
+  PreviousLessonContentDraftSchema,
+  PreviousLessonResultBlockSchema,
+  ProjectLessonVisualSchema,
+  ProjectVisualSchema,
+} = CurrentLessonVisualContractSchemas;
 
 export const LessonDocumentAssetsSchema = z.object({
   imageCount: z.number().int().nonnegative(),

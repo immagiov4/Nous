@@ -46,6 +46,7 @@ services:
       DECODO_SCRAPING_API_KEY: ${DECODO_SCRAPING_API_KEY:-}
       GITHUB_FEEDBACK_REPOSITORY: ${GITHUB_FEEDBACK_REPOSITORY:-}
       GITHUB_FEEDBACK_TOKEN: ${GITHUB_FEEDBACK_TOKEN:-}
+      LESSON_SCENE_ICON_INDEX_DIR: /var/lib/nous/icon-index
       LIBRARY_EXPORT_ROOT: /var/lib/nous/library-exports
       LIBRARY_EXPORT_EXECUTIONS_GLOBAL: ${LIBRARY_EXPORT_EXECUTIONS_GLOBAL:-}
       LIBRARY_EXPORT_RETENTION_MS: ${LIBRARY_EXPORT_RETENTION_MS:-}
@@ -109,6 +110,7 @@ services:
     cpus: ${NOUS_BACKEND_CPU_LIMIT:-2}
     read_only: true
     volumes:
+      - icon-index:/var/lib/nous/icon-index
       - library-exports:/var/lib/nous/library-exports
     tmpfs:
       - /tmp:size=${NOUS_BACKEND_TMPFS_SIZE:-1g}
@@ -224,4 +226,5 @@ services:
       - "host.docker.internal:host-gateway"
 
 volumes:
+  icon-index:
   library-exports:

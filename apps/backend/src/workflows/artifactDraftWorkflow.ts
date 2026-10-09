@@ -13,12 +13,14 @@ import {
 
 import { WorkflowExecutionDefaultsSchema } from './config.js';
 import { routeBy, sequence, step, workflow } from './definition.js';
-import { ProjectLessonVisualSchema } from './lessonGenerationWorkflowSchemas.js';
+import {
+  CurrentLessonVisualContractSchemas,
+  type LessonVisualContractSchemas,
+} from './lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from './lessonVisualContext.js';
 import {
+  createLessonVisualWorkflowSchemas,
   createLessonVisualWorkflows,
-  LessonVisualWorkflowInputSchema,
-  LessonVisualWorkflowResultSchema,
   type LessonVisualWorkflowServices,
 } from './lessonVisualWorkflow.js';
 import { retryCorrective, runWorkflowStage } from './retryPolicy.js';
@@ -27,23 +29,6 @@ import type { WorkflowExecutionDefaults } from './types.js';
 export { ARTIFACT_DRAFT_SLOT_ID };
 
 export const ARTIFACT_DRAFT_WORKFLOW_ID = 'lesson-artifact-draft';
-
-export const ArtifactDraftWorkflowInputSchema = z.object({
-  generationNotes: z.string().optional(),
-  lessonMarkdown: z.string().min(1),
-  projectId: z.string().min(1),
-  requestText: z.string().min(1),
-  requestedVisualKind: z.enum(['html', 'image', 'mermaid', 'svg']).optional(),
-  sectionDescription: z.string(),
-  sectionId: z.string().min(1),
-  sectionTitle: z.string().min(1),
-  sourceVisual: ProjectLessonVisualSchema.optional(),
-  userId: z.string().min(1),
-});
-
-export const ArtifactDraftWorkflowResultSchema = z.object({
-  visual: ProjectLessonVisualSchema.nullable(),
-});
 
 const ArtifactDraftWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
   visual: LessonVisualModelConfigSchema,
@@ -71,19 +56,61 @@ const NoArtifactDraftSchema = z.object({
   userId: z.string().min(1),
 });
 
-const RenderArtifactDraftSchema = LessonVisualWorkflowInputSchema.extend({
-  kind: z.literal('render'),
-});
+// Stored visuals and plans follow the visual contract, so historical definitions keep the legacy one.
+const createArtifactDraftWorkflowSchemas = (visualContract: LessonVisualContractSchemas) => {
+  const { ProjectLessonVisualSchema } = visualContract;
+  const { LessonVisualWorkflowInputSchema, LessonVisualWorkflowResultSchema } =
+    createLessonVisualWorkflowSchemas(visualContract);
+  const ArtifactDraftWorkflowInputSchema = z.object({
+    generationNotes: z.string().optional(),
+    lessonMarkdown: z.string().min(1),
+    projectId: z.string().min(1),
+    requestText: z.string().min(1),
+    requestedVisualKind: z
+      .enum(
+        visualContract === CurrentLessonVisualContractSchemas
+          ? ['html', 'image', 'mermaid', 'scene', 'svg']
+          : ['html', 'image', 'mermaid', 'svg']
+      )
+      .optional(),
+    sectionDescription: z.string(),
+    sectionId: z.string().min(1),
+    sectionTitle: z.string().min(1),
+    sourceVisual: ProjectLessonVisualSchema.optional(),
+    userId: z.string().min(1),
+  });
 
-const ArtifactDraftPlanStateSchema = z.discriminatedUnion('kind', [
-  NoArtifactDraftSchema,
-  RenderArtifactDraftSchema,
-]);
+  const ArtifactDraftWorkflowResultSchema = z.object({
+    visual: ProjectLessonVisualSchema.nullable(),
+  });
 
-const ArtifactDraftRenderStateSchema = z.union([
-  NoArtifactDraftSchema,
-  LessonVisualWorkflowResultSchema,
-]);
+  const RenderArtifactDraftSchema = LessonVisualWorkflowInputSchema.extend({
+    kind: z.literal('render'),
+  });
+
+  const ArtifactDraftPlanStateSchema = z.discriminatedUnion('kind', [
+    NoArtifactDraftSchema,
+    RenderArtifactDraftSchema,
+  ]);
+
+  const ArtifactDraftRenderStateSchema = z.union([
+    NoArtifactDraftSchema,
+    LessonVisualWorkflowResultSchema,
+  ]);
+
+  return {
+    ArtifactDraftPlanStateSchema,
+    ArtifactDraftRenderStateSchema,
+    ArtifactDraftWorkflowInputSchema,
+    ArtifactDraftWorkflowResultSchema,
+  };
+};
+
+export const {
+  ArtifactDraftPlanStateSchema,
+  ArtifactDraftWorkflowInputSchema,
+  ArtifactDraftWorkflowResultSchema,
+} = createArtifactDraftWorkflowSchemas(CurrentLessonVisualContractSchemas);
 
 type ArtifactDraftPlanState = z.infer<typeof ArtifactDraftPlanStateSchema>;
 
@@ -151,7 +178,7 @@ const planWithModel = async (
 const renderState = (
   input: ArtifactDraftWorkflowInput,
   plan: LessonVisualRetryPlan
-): z.infer<typeof RenderArtifactDraftSchema> => ({
+): Extract<ArtifactDraftPlanState, { kind: 'render' }> => ({
   contextFingerprint: buildLessonVisualContextFingerprint(input),
   ...(input.sourceVisual?.render.kind === 'html'
     ? { existingEmbeddedAssets: [...input.sourceVisual.render.embeddedAssets] }
@@ -166,11 +193,22 @@ const renderState = (
   userId: input.userId,
 });
 
-export const createArtifactDraftWorkflow = (executionDefaults: ArtifactDraftWorkflowConfig) => {
+export const createArtifactDraftWorkflow = (
+  executionDefaults: ArtifactDraftWorkflowConfig,
+  visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas
+) => {
+  const {
+    ArtifactDraftPlanStateSchema,
+    ArtifactDraftRenderStateSchema,
+    ArtifactDraftWorkflowInputSchema,
+    ArtifactDraftWorkflowResultSchema,
+  } = createArtifactDraftWorkflowSchemas(visualContract);
+  const { LessonVisualWorkflowInputSchema, LessonVisualWorkflowResultSchema } =
+    createLessonVisualWorkflowSchemas(visualContract);
   const visualWorkflow = createLessonVisualWorkflows<
     ArtifactDraftWorkflowConfig,
     ArtifactDraftWorkflowServices
-  >(executionDefaults, ArtifactDraftWorkflowConfigSchema).render;
+  >(executionDefaults, ArtifactDraftWorkflowConfigSchema, visualContract).render;
 
   const planArtifactDraft = step<
     typeof ArtifactDraftWorkflowInputSchema,

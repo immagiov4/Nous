@@ -4,6 +4,7 @@ import {
   LEARNING_ARTIFACT_ID_SEPARATOR,
   type LearningArtifactKind,
 } from './learningArtifact';
+import { isLessonScene } from './lessonScene';
 import {
   buildProjectAssetPlaceholder,
   isProjectAssetId,
@@ -62,6 +63,10 @@ const collectRenderRefs = (visual: unknown): ProjectAssetRef[] => {
       throw new InvalidProjectBackupAssetError();
     }
     return refs;
+  }
+  if (visual.render.kind === 'scene') {
+    if (!isLessonScene(visual.render.scene)) throw new InvalidProjectBackupAssetError();
+    return [];
   }
   if (visual.render.kind === 'mermaid' || visual.render.kind === 'svg') return [];
   throw new InvalidProjectBackupAssetError();
@@ -147,7 +152,7 @@ const remapVisual = (visual: Record<string, unknown>, idMap: ReadonlyMap<string,
     collectRenderRefs(visual);
     return;
   }
-  if (visual.render.kind !== 'mermaid' && visual.render.kind !== 'svg') {
+  if (!['mermaid', 'scene', 'svg'].includes(visual.render.kind as string)) {
     throw new InvalidProjectBackupAssetError();
   }
 };

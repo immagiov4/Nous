@@ -8,10 +8,11 @@ import {
   hasUnsafeHtmlElementDereferences,
 } from '@shared/htmlElementReferences';
 import {
-  LESSON_VISUAL_TYPES,
+  enforceLessonVisualTypeContract,
   type LessonVisualType,
   MAX_VISUAL_LESSON_CHARS,
   NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
+  PLANNABLE_LESSON_VISUAL_TYPES,
 } from '@shared/lessonGenerationPolicy';
 import {
   buildEmbeddedArtifactImagePrompt,
@@ -193,12 +194,12 @@ const ArtifactDraftPlanResponseSchema = z.object({
   requires_depiction: z.boolean(),
   title: z.string(),
   visual_direction: z.string(),
-  visual_type: z.enum([...LESSON_VISUAL_TYPES, 'none']),
+  visual_type: z.enum([...PLANNABLE_LESSON_VISUAL_TYPES, 'none']),
 });
 
 const ARTIFACT_DRAFT_PLAN_OUTPUT_INSTRUCTION = `Respond ONLY with JSON:
 {
-  "visual_type": "illustrative_image | flowchart_svg | structural_svg | interactive_html | chart_html | mermaid_erd | mermaid_class | none",
+  "visual_type": "illustrative_image | lesson_scene | interactive_html | none",
   "requires_depiction": true | false,
   "concept": "one sentence about the visual subject",
   "pedagogical_goal": "build_intuition | show_process | show_structure | enable_exploration | show_data",
@@ -253,31 +254,19 @@ const requestArtifactDraftPlan = async (input: PlanLessonArtifactDraftInput): Pr
   });
 };
 
+// Legacy SVG and Mermaid requests are fulfilled as lesson scenes; HTML requests stay interactive.
 const visualTypeForRequestedKind = (
   requestedKind: ProjectVisual['kind'] | undefined,
   proposedType: LessonVisualType,
   requiresDepiction: boolean
 ): LessonVisualType => {
   if (requestedKind === 'image') return 'illustrative_image';
-  if (requestedKind === 'html') {
-    return proposedType === 'interactive_html' || proposedType === 'chart_html'
-      ? proposedType
-      : 'interactive_html';
+  if (requestedKind === 'html') return 'interactive_html';
+  if (requestedKind === 'scene' || requestedKind === 'svg' || requestedKind === 'mermaid') {
+    return 'lesson_scene';
   }
-  if (requestedKind === 'svg') {
-    return proposedType === 'flowchart_svg' || proposedType === 'structural_svg'
-      ? proposedType
-      : 'structural_svg';
-  }
-  if (requestedKind === 'mermaid') {
-    return proposedType === 'mermaid_erd' || proposedType === 'mermaid_class'
-      ? proposedType
-      : 'mermaid_class';
-  }
-  return requiresDepiction &&
-    (proposedType === 'flowchart_svg' || proposedType === 'structural_svg')
-    ? 'illustrative_image'
-    : proposedType;
+  return enforceLessonVisualTypeContract({ requiresDepiction, visualType: proposedType })
+    .visualType;
 };
 
 export const planLessonArtifactDraft = async (

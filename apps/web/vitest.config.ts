@@ -8,6 +8,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, '.'),
       '@shared': path.resolve(__dirname, '../../packages/shared-types'),
+      '@tabler-icon-nodes': path.resolve(
+        __dirname,
+        '../../node_modules/@tabler/icons/tabler-nodes-outline.json'
+      ),
     },
   },
   test: {

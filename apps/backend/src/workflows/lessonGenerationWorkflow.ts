@@ -53,6 +53,7 @@ import {
   type LessonYouTubeStateSchema,
   PreviousEvidenceLessonGenerationDurableSchemaSet,
   PreviousLessonGenerationDurableSchemaSet,
+  PreviousPreSceneLessonGenerationDurableSchemaSet,
   PreviousQuizExplanationLessonGenerationDurableSchemaSet,
   PreviousResearchContractLessonGenerationDurableSchemaSet,
   PreviousRoutingLessonGenerationDurableSchemaSet,
@@ -249,7 +250,8 @@ const createLessonGenerationWorkflowDefinition = <
 ) => {
   const visualWorkflow = createLessonVisualWorkflows<Config, Services>(
     executionDefaults,
-    configSchema
+    configSchema,
+    durableSchemas.visualContract
   ).render;
 
   const useExistingLessonTarget = step<
@@ -632,7 +634,7 @@ const createLessonGenerationWorkflowDefinition = <
         stage =>
           context.services.researchLesson({
             ...stage,
-            selectEvidence: durableSchemas === CurrentLessonGenerationDurableSchemaSet,
+            selectEvidence: durableSchemas.evidence,
           })
       ),
   });
@@ -687,10 +689,7 @@ const createLessonGenerationWorkflowDefinition = <
     Config,
     Services
   >({
-    externalEffect:
-      durableSchemas === CurrentLessonGenerationDurableSchemaSet
-        ? 'provider-with-postprocessing'
-        : 'provider',
+    externalEffect: durableSchemas.evidence ? 'provider-with-postprocessing' : 'provider',
     id: 'review-lesson',
     inputSchema: durableSchemas.LessonDraftStateSchema,
     outputSchema: durableSchemas.LessonReviewedStateSchema,
@@ -835,15 +834,10 @@ const createLessonGenerationWorkflowDefinition = <
       unwrapGenerationContext,
       assessSourceCoverage,
       stageDocumentSources,
-      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet ||
-      durableSchemas === PreviousEvidenceLessonGenerationDurableSchemaSet
-        ? ([planSourceResearch] as const)
-        : []),
+      ...(durableSchemas.routing ? ([planSourceResearch] as const) : []),
       routeYouTubeResearch,
       researchLesson,
-      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet
-        ? ([selectLessonEvidence] as const)
-        : []),
+      ...(durableSchemas.evidence ? ([selectLessonEvidence] as const) : []),
       draftLesson,
       reviewLesson,
       generateLearningAids,
@@ -908,6 +902,16 @@ export const createPreviousLessonGenerationWorkflow = <
     executionDefaults,
     configSchema,
     PreviousLessonGenerationDurableSchemaSet
+  );
+
+export const createPreviousPreSceneLessonGenerationWorkflow = (
+  executionDefaults: LessonGenerationWorkflowConfig,
+  configSchema: z.ZodType<LessonGenerationWorkflowConfig> = LessonGenerationWorkflowConfigSchema
+) =>
+  createLessonGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    PreviousPreSceneLessonGenerationDurableSchemaSet
   );
 
 export const createPreviousResearchContractLessonGenerationWorkflow = <

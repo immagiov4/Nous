@@ -4,6 +4,7 @@ import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { createCourseGenerationStarter } from '../../src/workflows/courseGenerationStart.js';
 import { createCourseGenerationWorkflow } from '../../src/workflows/courseGenerationWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
+import { GlobalModelConfigSchema } from '../../src/workflows/modelConfigSchema.js';
 
 const models = getGlobalModelConfig();
 const config = {
@@ -39,7 +40,7 @@ describe('course generation workflow start', () => {
     expect(resolveModels).toHaveBeenCalledWith('codex', undefined);
     expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: expect.objectContaining({ models }),
+        config: expect.objectContaining({ models: GlobalModelConfigSchema.parse(models) }),
         dedupeKey: '["course-generation","project-1"]',
         input: {
           assessmentHistory: [{ role: 'user', text: 'Voglio capire i sistemi distribuiti.' }],

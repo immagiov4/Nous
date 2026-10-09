@@ -1,7 +1,7 @@
 import {
   ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
-  LESSON_VISUAL_TYPES,
   MAX_GENERATED_VISUALS_PER_LESSON,
+  PLANNABLE_LESSON_VISUAL_TYPES,
 } from '@shared/lessonGenerationPolicy';
 import { SYSTEM_INSTRUCTION_TEACHER } from '@shared/lessonWritingContract';
 import { hasTextOutsidePdfImagePlaceholders } from '@shared/pdfImagePlaceholder';
@@ -131,7 +131,7 @@ const LESSON_JOB_RESPONSE_SCHEMA = {
             slotId: { type: 'string' },
             title: { type: 'string' },
             visualDirection: { type: 'string' },
-            visualType: { enum: LESSON_VISUAL_TYPES, type: 'string' },
+            visualType: { enum: PLANNABLE_LESSON_VISUAL_TYPES, type: 'string' },
           },
           required: [
             'slotId',

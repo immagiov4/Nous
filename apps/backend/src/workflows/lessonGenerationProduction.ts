@@ -18,6 +18,7 @@ import {
   planLessonArtifactDraft,
   reviseLessonVisualArtifact,
 } from '../services/lessonGenerationVisuals.js';
+import { generateLessonScene } from '../services/lessonScenes/lessonSceneGeneration.js';
 import { planLessonYouTubeSearch } from '../services/lessonYouTubePlanning.js';
 import { captionPdfImage } from '../services/pdfImageCaption.js';
 import { extractPdfImages } from '../services/pdfImageExtractor.js';
@@ -86,6 +87,7 @@ export const createProductionLessonGenerationServices = (
     generateArtifact: generateLessonVisualArtifact,
     generateEmbeddedImage: generateEmbeddedLessonVisualImage,
     generateRaster: generateLessonVisualRaster,
+    generateScene: generateLessonScene,
     normalizeLesson: createLessonNormalizationStage({ now: timestampIso }),
     now: timestampIso,
     planArtifactDraft: planLessonArtifactDraft,

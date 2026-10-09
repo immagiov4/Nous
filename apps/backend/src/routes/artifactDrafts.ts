@@ -16,7 +16,7 @@ const startBodySchema = z
     lessonMarkdown: z.string().trim().min(1),
     projectId: z.string().trim().min(1),
     requestText: z.string().trim().min(1),
-    requestedVisualKind: z.enum(['html', 'image', 'mermaid', 'svg']).optional(),
+    requestedVisualKind: z.enum(['html', 'image', 'mermaid', 'scene', 'svg']).optional(),
     requestKey: z.string().trim().min(1),
     sectionDescription: z.string(),
     sectionId: z.string().trim().min(1),

@@ -166,7 +166,7 @@ test('the artifact planner preserves placement metadata and enforces depiction a
     requires_depiction: true,
     title: 'Trama e ordito',
     visual_direction: 'Macro ordinata del tessuto.',
-    visual_type: 'structural_svg',
+    visual_type: 'lesson_scene',
   });
 
   await expect(
@@ -216,7 +216,7 @@ test('the artifact planner honors the requested render kind and receives retry f
       signal: input.signal,
       slotId: 'artifact-draft',
     })
-  ).resolves.toMatchObject({ visualType: 'structural_svg' });
+  ).resolves.toMatchObject({ visualType: 'lesson_scene' });
   expect(generateStructuredOutput.mock.calls[0]?.[0].prompt).toEqual(
     expect.stringContaining('Mantieni il formato SVG richiesto.')
   );
