@@ -72,9 +72,17 @@ describe('lesson scene contract', () => {
       type: 'number',
     });
     expect(findLessonSceneProblems(number, LESSON)).toEqual([]);
+    expect(
+      findLessonSceneProblems({ ...number, items: [{ ...number.items[0], value: 999 }] }, LESSON)
+    ).toEqual(['Quantitative values must appear in the lesson: casi nel 2024.']);
     expect(findLessonSceneProblems(number, 'Testo senza quantità.')).toEqual([
-      'A quantitative form needs quantities that appear in the lesson.',
+      'Quantitative values must appear in the lesson: casi nel 2024.',
     ]);
+    const decimal = scene({
+      items: [{ detail: '', icon: '', label: 'quota', value: 1234.5 }],
+      type: 'number',
+    });
+    expect(findLessonSceneProblems(decimal, 'La quota è 1.234,5 euro.')).toEqual([]);
     const interval = scene({
       items: [
         { detail: '', icon: '', label: 'minimo', value: 5 },
@@ -83,7 +91,7 @@ describe('lesson scene contract', () => {
       ],
       type: 'interval',
     });
-    expect(findLessonSceneProblems(interval, LESSON)).toEqual([
+    expect(findLessonSceneProblems(interval)).toEqual([
       'An interval needs exactly a minimum, an estimate, and a maximum, in order.',
     ]);
   });

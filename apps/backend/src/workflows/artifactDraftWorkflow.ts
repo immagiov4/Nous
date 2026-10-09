@@ -16,6 +16,7 @@ import { routeBy, sequence, step, workflow } from './definition.js';
 import {
   CurrentLessonVisualContractSchemas,
   type LessonVisualContractSchemas,
+  toLegacyLessonVisualTypes,
 } from './lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from './lessonVisualContext.js';
 import {
@@ -225,14 +226,21 @@ export const createArtifactDraftWorkflow = (
         input.requestedVisualKind === 'image'
           ? explicitRasterPlan(input)
           : await planWithModel(input, config, services, signal, retryFeedback);
-      return plan
-        ? renderState(input, plan)
-        : {
-            kind: 'none',
-            projectId: input.projectId,
-            sectionId: input.sectionId,
-            userId: input.userId,
-          };
+      if (!plan) {
+        return {
+          kind: 'none',
+          projectId: input.projectId,
+          sectionId: input.sectionId,
+          userId: input.userId,
+        } as const;
+      }
+      // Pre-scene definitions keep their legacy plan contract (see toLegacyLessonVisualTypes).
+      return renderState(
+        input,
+        visualContract === CurrentLessonVisualContractSchemas
+          ? plan
+          : toLegacyLessonVisualTypes(plan)
+      );
     },
   });
 

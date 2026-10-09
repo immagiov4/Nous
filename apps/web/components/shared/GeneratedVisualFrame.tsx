@@ -536,6 +536,7 @@ const GeneratedVisualFrame = ({
     return (
       <LessonSceneVisual
         className={`${className}${displayMode === 'thumbnail' ? ' lesson-scene-thumbnail' : ''}`}
+        isDarkMode={isDarkMode}
         scene={resolvedVisual.scene}
       />
     );

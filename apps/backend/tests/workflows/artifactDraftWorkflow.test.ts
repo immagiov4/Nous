@@ -9,6 +9,7 @@ import {
   type ArtifactDraftWorkflowServices,
   createArtifactDraftWorkflow,
 } from '../../src/workflows/artifactDraftWorkflow.js';
+import { LegacyLessonVisualContractSchemas } from '../../src/workflows/lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from '../../src/workflows/lessonVisualContext.js';
 import type { LessonVisualWorkflowResult } from '../../src/workflows/lessonVisualWorkflow.js';
 
@@ -153,6 +154,34 @@ describe('artifact draft workflow', () => {
     });
     expect(services.planArtifactDraft).not.toHaveBeenCalled();
     expect(route.select(planned)).toBe('render');
+  });
+
+  test('keeps resumed pre-scene drafts on their legacy plan contract', async () => {
+    const root = createArtifactDraftWorkflow(config, LegacyLessonVisualContractSchemas).root;
+    if (root.kind !== 'sequence' || root.nodes[0]?.kind !== 'step') {
+      throw new TypeError('Expected the artifact draft planning step.');
+    }
+    const plan = root.nodes[0];
+    const defaultPlan = await makeServices().planArtifactDraft({} as never);
+    const services = makeServices({
+      planArtifactDraft: vi.fn(async () =>
+        defaultPlan ? { ...defaultPlan, visualType: 'lesson_scene' as const } : null
+      ),
+    });
+
+    const planned = await plan.run({
+      attemptNumber: 1,
+      config,
+      execution: { nodeInstanceId: 'root/plan-artifact-draft', runId: RUN_ID },
+      idempotencyKey: 'plan-key',
+      input: { ...input, requestedVisualKind: 'svg' },
+      retryFeedback: '',
+      services,
+      signal: new AbortController().signal,
+    });
+
+    expect(planned).toMatchObject({ kind: 'render', plan: { visualType: 'structural_svg' } });
+    expect(plan.outputSchema.safeParse(planned).success).toBe(true);
   });
 
   test('forwards durable corrective feedback to the planner retry', async () => {

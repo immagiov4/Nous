@@ -229,7 +229,14 @@ const drawDonut = async (
 };
 
 /** Quantitative scene drawn with Observable Plot or d3; values stay readable in the caption. */
-export const SceneChart = ({ scene }: { readonly scene: LessonScene }) => {
+/** `isDarkMode` only triggers a redraw: chart colors are read from the theme tokens at draw time. */
+export const SceneChart = ({
+  isDarkMode,
+  scene,
+}: {
+  readonly isDarkMode: boolean;
+  readonly scene: LessonScene;
+}) => {
   const hostRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const host = hostRef.current;
@@ -259,7 +266,7 @@ export const SceneChart = ({ scene }: { readonly scene: LessonScene }) => {
       disposed = true;
       observer.disconnect();
     };
-  }, [scene]);
+  }, [isDarkMode, scene]);
   return (
     <figure className="data-chart">
       <div ref={hostRef} aria-label={scene.title} role="img" />

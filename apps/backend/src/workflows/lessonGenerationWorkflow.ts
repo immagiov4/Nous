@@ -62,6 +62,10 @@ import {
   type SublessonReadyState,
   SublessonReadyStateSchema,
 } from './lessonGenerationWorkflowContract.js';
+import {
+  LegacyLessonVisualContractSchemas,
+  toLegacyLessonVisualTypes,
+} from './lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from './lessonVisualContext.js';
 import {
   createLessonVisualWorkflows,
@@ -184,7 +188,7 @@ interface StageFailure<Input> {
   readonly modelSlot?: TextModelSlot | ((input: Input, config: GlobalModelConfig) => TextModelSlot);
 }
 
-const runStage = async <Input, Output, Services extends LessonGenerationWorkflowServices>(
+const runLessonStage = async <Input, Output, Services extends LessonGenerationWorkflowServices>(
   context: StepExecutionContext<Input, LessonGenerationWorkflowConfig, Services>,
   failure: StageFailure<Input>,
   operation: (stage: LessonGenerationStageContext<Input>) => Promise<Output>
@@ -253,6 +257,11 @@ const createLessonGenerationWorkflowDefinition = <
     configSchema,
     durableSchemas.visualContract
   ).render;
+  const runStage: typeof runLessonStage =
+    durableSchemas.visualContract === LegacyLessonVisualContractSchemas
+      ? async (context, failure, operation) =>
+          toLegacyLessonVisualTypes(await runLessonStage(context, failure, operation))
+      : runLessonStage;
 
   const useExistingLessonTarget = step<
     typeof LessonGenerationWorkflowInputSchema,

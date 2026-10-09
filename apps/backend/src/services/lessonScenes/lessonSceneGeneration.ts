@@ -13,7 +13,7 @@ import {
   type LessonSceneType,
 } from '@shared/lessonScene';
 
-import { getResolvedGlobalModelConfig } from '../../config/modelConfig.js';
+import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
 import type { RenderResolvedLessonVisualInput } from '../lessonGenerationVisuals.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import {
@@ -285,7 +285,9 @@ const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string
 export const generateLessonScene = async (
   input: RenderResolvedLessonVisualInput
 ): Promise<LessonSceneOutcome> => {
-  const config = await getResolvedGlobalModelConfig();
+  // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
+  // visuals (the learner's provider), while scene models come from the live configuration.
+  const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
   const draft = await generateStructuredOutput<SceneDraft>({
     config,
     output: { name: 'lesson_scene', schema: SCENE_OUTPUT_SCHEMA },

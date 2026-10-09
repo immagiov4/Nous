@@ -64,7 +64,14 @@ const configureMermaid = async (host: HTMLElement) => {
 };
 
 /** Mermaid-rendered flowchart, sequence, or journey; the connection list stays available as text. */
-export const SceneDiagram = ({ scene }: { readonly scene: LessonScene }) => {
+/** `isDarkMode` only triggers a re-render: Mermaid reads the theme tokens when it draws. */
+export const SceneDiagram = ({
+  isDarkMode,
+  scene,
+}: {
+  readonly isDarkMode: boolean;
+  readonly scene: LessonScene;
+}) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<'failed' | 'loading' | 'ready'>('loading');
   useEffect(() => {
@@ -111,7 +118,7 @@ export const SceneDiagram = ({ scene }: { readonly scene: LessonScene }) => {
       disposed = true;
       observer.disconnect();
     };
-  }, [scene]);
+  }, [isDarkMode, scene]);
 
   const diagram = scene.diagram;
   const labelOf = (id: string) => diagram?.nodes.find(node => node.id === id)?.label ?? id;

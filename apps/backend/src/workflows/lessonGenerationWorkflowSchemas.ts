@@ -421,6 +421,23 @@ export const LegacyLessonVisualContractSchemas = createLessonVisualContractSchem
   visualTypes: LEGACY_LESSON_VISUAL_TYPES,
 });
 
+/**
+ * Historical definitions reject `lesson_scene`, which shared planning services now produce. Runs
+ * resumed on those definitions map it to the pre-scene abstract type and keep their old pipeline.
+ */
+export const toLegacyLessonVisualTypes = <T>(value: T): T => {
+  if (Array.isArray(value)) return value.map(toLegacyLessonVisualTypes) as T;
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      key === 'visualType' && entry === 'lesson_scene'
+        ? 'structural_svg'
+        : toLegacyLessonVisualTypes(entry),
+    ])
+  ) as T;
+};
+
 export const CurrentLessonVisualContractSchemas = createLessonVisualContractSchemas({
   includeScene: true,
   visualTypes: LESSON_VISUAL_TYPES,

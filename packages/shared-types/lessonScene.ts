@@ -345,13 +345,41 @@ const findRelationProblems = (relation: unknown, source: string | undefined): st
     : ['A relation other than versus needs an exact quotation from the lesson.'];
 };
 
+// Numbers written in the lesson: digits with optional thousands separators and a decimal part,
+// in either the Italian (1.234,5) or the English (1,234.5) convention.
+const SOURCE_NUMBER_PATTERN = /\d+(?:[.,\s]\d{3})*(?:[.,]\d+)?/gu;
+
+const readSourceNumbers = (source: string): Set<number> => {
+  const numbers = new Set<number>();
+  for (const [token] of source.matchAll(SOURCE_NUMBER_PATTERN)) {
+    const digits = token.replaceAll(/\s/gu, '');
+    const lastSeparator = Math.max(digits.lastIndexOf('.'), digits.lastIndexOf(','));
+    const decimals = lastSeparator < 0 ? '' : digits.slice(lastSeparator + 1);
+    // A final group of exactly three digits is ambiguous, so both readings are accepted.
+    const integerPart = lastSeparator < 0 ? digits : digits.slice(0, lastSeparator);
+    numbers.add(Number(digits.replaceAll(/[.,]/gu, '')));
+    if (lastSeparator >= 0) {
+      numbers.add(Number(`${integerPart.replaceAll(/[.,]/gu, '')}.${decimals}`));
+    }
+  }
+  return numbers;
+};
+
 const findNumericProblems = (
   scene: Record<string, unknown>,
   source: string | undefined
 ): string[] => {
   const items = scene.items as LessonSceneItem[];
-  if (source !== undefined && !/\d/u.test(source)) {
-    return ['A quantitative form needs quantities that appear in the lesson.'];
+  if (source !== undefined) {
+    const sourceNumbers = readSourceNumbers(source);
+    const ungrounded = items.filter(
+      item => typeof item.value === 'number' && !sourceNumbers.has(item.value)
+    );
+    if (ungrounded.length) {
+      return [
+        `Quantitative values must appear in the lesson: ${ungrounded.map(item => item.label).join(', ')}.`,
+      ];
+    }
   }
   if (
     !items.every(

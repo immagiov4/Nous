@@ -155,9 +155,10 @@ const NestedLayers = ({ items }: { items: readonly LessonSceneItem[] }) =>
     null
   );
 
-const SceneContent = ({ scene }: { scene: LessonScene }) => {
+const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: LessonScene }) => {
   const { items } = scene;
-  if (LESSON_SCENE_DIAGRAM_TYPES.has(scene.type)) return <SceneDiagram scene={scene} />;
+  if (LESSON_SCENE_DIAGRAM_TYPES.has(scene.type))
+    return <SceneDiagram isDarkMode={isDarkMode} scene={scene} />;
   if (scene.type === 'number') {
     return (
       <div className="big-number">
@@ -166,7 +167,8 @@ const SceneContent = ({ scene }: { scene: LessonScene }) => {
       </div>
     );
   }
-  if (LESSON_SCENE_NUMERIC_TYPES.has(scene.type)) return <SceneChart scene={scene} />;
+  if (LESSON_SCENE_NUMERIC_TYPES.has(scene.type))
+    return <SceneChart isDarkMode={isDarkMode} scene={scene} />;
   switch (scene.type) {
     case 'definition':
       return (
@@ -358,9 +360,11 @@ const SceneContent = ({ scene }: { scene: LessonScene }) => {
 
 export const LessonSceneVisual = ({
   className = '',
+  isDarkMode = false,
   scene,
 }: {
   readonly className?: string;
+  readonly isDarkMode?: boolean;
   readonly scene: LessonScene;
 }) => (
   <figure className={`lesson-scene ${className}`} data-nous-speech="ignore">
@@ -373,7 +377,7 @@ export const LessonSceneVisual = ({
           ) : null}
         </header>
         <div className="visual-content">
-          <SceneContent scene={scene} />
+          <SceneContent isDarkMode={isDarkMode} scene={scene} />
         </div>
         {scene.quote && scene.type !== 'quote' && scene.type !== 'decision' ? (
           <aside aria-label={t('Domanda')} className="scene-note scenario-question">
