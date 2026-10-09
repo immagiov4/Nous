@@ -315,7 +315,7 @@ const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: Lesso
       return (
         <blockquote>
           <span aria-hidden="true">“</span>
-          {scene.quote || scene.body}
+          {scene.quote}
         </blockquote>
       );
     case 'roles':

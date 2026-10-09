@@ -10,17 +10,13 @@ import {
   LESSON_SCENE_TYPES,
   LESSON_SCENE_VERDICTS,
   type LessonScene,
-  type LessonSceneType,
 } from '@shared/lessonScene';
+import * as z from 'zod';
 
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
 import type { RenderResolvedLessonVisualInput } from '../lessonGenerationVisuals.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
-import {
-  chooseLessonSceneIcons,
-  type SceneIconEntry,
-  type SceneIconQueries,
-} from './lessonSceneIconChoice.js';
+import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 
 /**
  * Generates a lesson scene: the model reads the lesson, decides what the reader must understand,
@@ -33,147 +29,69 @@ export type LessonSceneOutcome =
   | { readonly kind: 'scene'; readonly scene: LessonScene }
   | { readonly kind: 'invalid'; readonly problems: readonly string[] };
 
-const ICON_QUERY_SCHEMA = {
-  additionalProperties: false,
-  properties: {
-    action: { type: 'string' },
-    concept: { type: 'string' },
-    object: { type: 'string' },
-  },
-  required: ['object', 'action', 'concept'],
-  type: 'object',
-} as const;
+const SceneIconQueriesSchema = z.strictObject({
+  object: z.string(),
+  action: z.string(),
+  concept: z.string(),
+});
 
-const DIAGRAM_SCHEMA = {
-  additionalProperties: false,
-  properties: {
-    edges: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          evidence: { type: 'string' },
-          from: { type: 'string' },
-          kind: { enum: LESSON_SCENE_EDGE_KINDS, type: 'string' },
-          label: { type: 'string' },
-          to: { type: 'string' },
-        },
-        required: ['from', 'to', 'label', 'kind', 'evidence'],
-        type: 'object',
-      },
-      type: 'array',
-    },
-    nodes: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          id: { type: 'string' },
-          kind: { enum: LESSON_SCENE_NODE_KINDS, type: 'string' },
-          label: { type: 'string' },
-        },
-        required: ['id', 'label', 'kind'],
-        type: 'object',
-      },
-      type: 'array',
-    },
-  },
-  required: ['nodes', 'edges'],
-  type: 'object',
-} as const;
+const SceneDiagramSchema = z.strictObject({
+  nodes: z.array(
+    z.strictObject({ id: z.string(), label: z.string(), kind: z.enum(LESSON_SCENE_NODE_KINDS) })
+  ),
+  edges: z.array(
+    z.strictObject({
+      from: z.string(),
+      to: z.string(),
+      label: z.string(),
+      kind: z.enum(LESSON_SCENE_EDGE_KINDS),
+      evidence: z.string(),
+    })
+  ),
+});
 
-const RELATION_SCHEMA = {
-  additionalProperties: false,
-  properties: {
-    evidence: { type: 'string' },
-    kind: { enum: LESSON_SCENE_RELATION_KINDS, type: 'string' },
-    label: { type: 'string' },
-  },
-  required: ['kind', 'label', 'evidence'],
-  type: 'object',
-} as const;
+// Key order is the generation order: the model states its intent and evidence before the form.
+const SceneDraftSchema = z.strictObject({
+  intent: z.string(),
+  evidence: z.string(),
+  type: z.enum(LESSON_SCENE_TYPES),
+  title: z.string(),
+  body: z.string(),
+  items: z.array(
+    z.strictObject({
+      label: z.string(),
+      detail: z.string(),
+      value: z.number().nullable(),
+      iconQueries: SceneIconQueriesSchema,
+    })
+  ),
+  groups: z.array(
+    z.strictObject({
+      label: z.string(),
+      items: z.array(z.string()),
+      iconQueries: z.array(SceneIconQueriesSchema),
+      verdict: z.enum([...LESSON_SCENE_VERDICTS, 'none']),
+    })
+  ),
+  criteria: z.array(z.string()),
+  quote: z.string(),
+  note: z.string(),
+  relation: z
+    .strictObject({
+      kind: z.enum(LESSON_SCENE_RELATION_KINDS),
+      label: z.string(),
+      evidence: z.string(),
+    })
+    .nullable(),
+  diagram: SceneDiagramSchema.nullable(),
+});
 
-const SCENE_OUTPUT_SCHEMA = {
-  additionalProperties: false,
-  properties: {
-    body: { type: 'string' },
-    criteria: { items: { type: 'string' }, type: 'array' },
-    diagram: { anyOf: [DIAGRAM_SCHEMA, { type: 'null' }] },
-    evidence: { type: 'string' },
-    groups: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          iconQueries: { items: ICON_QUERY_SCHEMA, type: 'array' },
-          items: { items: { type: 'string' }, type: 'array' },
-          label: { type: 'string' },
-          verdict: { enum: [...LESSON_SCENE_VERDICTS, 'none'], type: 'string' },
-        },
-        required: ['label', 'items', 'iconQueries', 'verdict'],
-        type: 'object',
-      },
-      type: 'array',
-    },
-    intent: { type: 'string' },
-    items: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          detail: { type: 'string' },
-          iconQueries: ICON_QUERY_SCHEMA,
-          label: { type: 'string' },
-          value: { anyOf: [{ type: 'number' }, { type: 'null' }] },
-        },
-        required: ['label', 'detail', 'value', 'iconQueries'],
-        type: 'object',
-      },
-      type: 'array',
-    },
-    note: { type: 'string' },
-    quote: { type: 'string' },
-    relation: { anyOf: [RELATION_SCHEMA, { type: 'null' }] },
-    title: { type: 'string' },
-    type: { enum: LESSON_SCENE_TYPES, type: 'string' },
-  },
-  required: [
-    'intent',
-    'evidence',
-    'type',
-    'title',
-    'body',
-    'items',
-    'groups',
-    'criteria',
-    'quote',
-    'note',
-    'relation',
-    'diagram',
-  ],
-  type: 'object',
-} as const;
+type SceneDraft = z.infer<typeof SceneDraftSchema>;
 
-interface SceneDraft {
-  readonly body: string;
-  readonly criteria: string[];
-  readonly diagram: LessonScene['diagram'] | null;
-  readonly evidence: string;
-  readonly groups: {
-    iconQueries: SceneIconQueries[];
-    items: string[];
-    label: string;
-    verdict: 'avoid' | 'none' | 'prefer';
-  }[];
-  readonly intent: string;
-  readonly items: {
-    detail: string;
-    iconQueries: SceneIconQueries;
-    label: string;
-    value: number | null;
-  }[];
-  readonly note: string;
-  readonly quote: string;
-  readonly relation: LessonScene['relation'] | null;
-  readonly title: string;
-  readonly type: LessonSceneType;
-}
+const { $schema: _dialect, ...SCENE_OUTPUT_SCHEMA } = z.toJSONSchema(SceneDraftSchema) as Record<
+  string,
+  unknown
+>;
 
 const catalogText = (): string =>
   LESSON_SCENE_TYPES.map(type => `- ${type}: ${LESSON_SCENE_CATALOG[type]}`).join('\n');
@@ -201,7 +119,7 @@ Use 2 to 4 elements when needed; never fill space. A label identifies a concept;
 
 FORMS
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, grid); only steps the lesson explicitly orders become steps or a sequence. Never chain parallel items as consecutive steps.
-- definition: the defining sentence in body and attributes in items; a condition common to all attributes goes in body once. checklist: concrete questions in labels. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. quote: only the exact question, body "". steps: strictly ordered actions, not alternatives.
+- definition: the defining sentence in body and attributes in items; a condition common to all attributes goes in body once. checklist: concrete questions in labels. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. quote: only the exact quotation or question, in quote, with body "". steps: strictly ordered actions, not alternatives.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other forms need at least two items, except quote, number, flowchart, sequence, and journey.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. number has one item. HTTP codes, versions, and identifiers are not quantities.
@@ -288,7 +206,7 @@ export const generateLessonScene = async (
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
-  const draft = await generateStructuredOutput<SceneDraft>({
+  const response = await generateStructuredOutput<unknown>({
     config,
     output: { name: 'lesson_scene', schema: SCENE_OUTPUT_SCHEMA },
     prompt: buildScenePrompt(input),
@@ -296,6 +214,12 @@ export const generateLessonScene = async (
     slot: 'scene',
     system: `${SCENE_SYSTEM_PROMPT}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   });
+  // Schema-fallback and Codex responses are plain JSON, so the shape is checked before conversion.
+  const parsed = SceneDraftSchema.safeParse(response);
+  if (!parsed.success) {
+    return { kind: 'invalid', problems: ['The answer must follow the requested JSON structure.'] };
+  }
+  const draft = parsed.data;
   const scene = toScene(draft);
   const problems = findDraftProblems(draft, scene, input.lessonMarkdown);
   if (problems.length) return { kind: 'invalid', problems };

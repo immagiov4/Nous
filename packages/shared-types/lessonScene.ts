@@ -346,8 +346,11 @@ const findRelationProblems = (relation: unknown, source: string | undefined): st
 };
 
 // Numbers written in the lesson: digit runs joined by dots, commas, or a space before a
-// three-digit group, in either the Italian (1.234,5) or the English (1,234.5) convention.
-const SOURCE_NUMBER_PATTERN = /\d+(?:[.,]\d+|\s\d{3}(?!\d))*/gu;
+// three-digit group, in either the Italian (1.234,5) or the English (1,234.5) convention. A minus
+// sign counts only when it does not follow a word or a number, so ranges such as 10-12 stay
+// positive.
+const SOURCE_NUMBER_PATTERN = /(?:(?<![\p{L}\p{N}])[-−])?\d+(?:[.,]\d+|\s\d{3}(?!\d))*/gu;
+const MINUS_SIGN_PATTERN = /^[-−]/u;
 
 const THOUSANDS_GROUP_LENGTH = 3;
 
@@ -380,7 +383,12 @@ const readNumberToken = (token: string): number[] => {
 };
 
 const readSourceNumbers = (source: string): Set<number> =>
-  new Set([...source.matchAll(SOURCE_NUMBER_PATTERN)].flatMap(([token]) => readNumberToken(token)));
+  new Set(
+    [...source.matchAll(SOURCE_NUMBER_PATTERN)].flatMap(([token]) => {
+      const sign = MINUS_SIGN_PATTERN.test(token) ? -1 : 1;
+      return readNumberToken(token.replace(MINUS_SIGN_PATTERN, '')).map(value => sign * value);
+    })
+  );
 
 const findNumericProblems = (
   scene: Record<string, unknown>,
@@ -429,6 +437,9 @@ const findShapeProblems = (scene: Record<string, unknown>, type: LessonSceneType
   if (!ITEMLESS_TYPES.has(type) && items.length < 2) {
     return [`The ${type} form requires at least two items.`];
   }
+  if (type === 'quote' && !(scene.quote as string).trim()) {
+    return ['The quote form requires a quotation from the lesson.'];
+  }
   const criteria = scene.criteria as string[] | undefined;
   if (type === 'matrix' && (criteria?.length ?? 0) < 2) {
     return ['The matrix form requires at least two criteria.'];
@@ -453,13 +464,17 @@ export const findLessonSceneProblems = (value: unknown, source?: string): string
   ];
   if (structural.length) return structural;
   const type = value.type;
-  if (LESSON_SCENE_DIAGRAM_TYPES.has(type)) return findDiagramProblems(value.diagram, type, source);
+  const quoteProblems =
+    source !== undefined && value.quote && !source.includes(value.quote as string)
+      ? ['The quote must be copied exactly from the lesson.']
+      : [];
+  if (LESSON_SCENE_DIAGRAM_TYPES.has(type)) {
+    return [...findDiagramProblems(value.diagram, type, source), ...quoteProblems];
+  }
   return [
     ...findShapeProblems(value, type),
     ...(LESSON_SCENE_NUMERIC_TYPES.has(type) ? findNumericProblems(value, source) : []),
-    ...(source !== undefined && value.quote && !source.includes(value.quote as string)
-      ? ['The quote must be copied exactly from the lesson.']
-      : []),
+    ...quoteProblems,
     ...findRelationProblems(value.relation, source),
   ];
 };

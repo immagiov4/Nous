@@ -153,3 +153,22 @@ test('keeps one icon repeated for the same meaning', async () => {
   expect(chosen.items.map(item => item.icon)).toEqual(['file-text', 'file-text']);
   expect(generateStructuredOutputMock).toHaveBeenCalledOnce();
 });
+
+test('treats a malformed chooser answer as missing choices and retries', async () => {
+  generateStructuredOutputMock.mockResolvedValueOnce({ choices: 'school' }).mockResolvedValueOnce({
+    choices: [
+      { concept: 'competenza', icon: 'school', slot: 'items.0' },
+      { concept: 'prove', icon: 'file-text', slot: 'items.1' },
+    ],
+  });
+
+  const chosen = await chooseLessonSceneIcons({
+    config: getGlobalModelConfig(),
+    entries,
+    scene,
+    signal: new AbortController().signal,
+  });
+
+  expect(chosen.items.map(item => item.icon)).toEqual(['school', 'file-text']);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});

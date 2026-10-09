@@ -1,5 +1,6 @@
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import type { LessonScene, LessonSceneIconSlot } from '@shared/lessonScene';
+import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
@@ -38,32 +39,16 @@ interface CandidateEntry extends SceneIconEntry {
   readonly id: string;
 }
 
-interface IconChoice {
-  readonly concept: string;
-  readonly icon: string;
-  readonly slot: string;
-}
+const IconChoicesSchema = z.strictObject({
+  choices: z.array(z.strictObject({ slot: z.string(), concept: z.string(), icon: z.string() })),
+});
 
-const ICON_CHOICE_SCHEMA = {
-  additionalProperties: false,
-  properties: {
-    choices: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          concept: { type: 'string' },
-          icon: { type: 'string' },
-          slot: { type: 'string' },
-        },
-        required: ['slot', 'concept', 'icon'],
-        type: 'object',
-      },
-      type: 'array',
-    },
-  },
-  required: ['choices'],
-  type: 'object',
-} as const;
+type IconChoice = z.infer<typeof IconChoicesSchema>['choices'][number];
+
+const { $schema: _dialect, ...ICON_CHOICE_SCHEMA } = z.toJSONSchema(IconChoicesSchema) as Record<
+  string,
+  unknown
+>;
 
 const ICON_POLICY = `Choose one icon for each scene entry, ONLY among that entry's candidates. The text in square brackets gives each candidate's category and tags: it states what the icon actually depicts. Discard candidates whose real meaning does not match the entry, even when the name looks close.
 - Identify the subject and the action of each entry and prefer what a reader recognises visually with the least ambiguity. A relevant concrete object is often clearer than an abstract verb; a recognisable action beats an abstract concept. Never match an isolated word while ignoring the sentence.
@@ -102,14 +87,14 @@ const retrieveCandidates = async (
   });
 };
 
-const requestChoices = (input: {
+const requestChoices = async (input: {
   config: GlobalModelConfig;
   entries: readonly CandidateEntry[];
   feedback: string;
   scene: LessonScene;
   signal: AbortSignal;
-}): Promise<{ choices: IconChoice[] }> =>
-  generateStructuredOutput<{ choices: IconChoice[] }>({
+}): Promise<IconChoice[]> => {
+  const response = await generateStructuredOutput<unknown>({
     config: input.config,
     output: { name: 'lesson_scene_icons', schema: ICON_CHOICE_SCHEMA },
     prompt: `Scene: ${JSON.stringify({ body: input.scene.body, title: input.scene.title, type: input.scene.type })}
@@ -124,6 +109,9 @@ Entries and candidates: ${JSON.stringify(
     slot: 'sceneIcon',
     system: `${ICON_POLICY}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   });
+  // A malformed answer chooses nothing, so every entry is reported as missing on the next attempt.
+  return IconChoicesSchema.safeParse(response).data?.choices ?? [];
+};
 
 const normalizedConcept = (choice: IconChoice): string => choice.concept.trim().toLowerCase();
 
@@ -189,7 +177,7 @@ export const chooseLessonSceneIcons = async (input: {
   let feedback = '';
   let accepted = new Map<string, IconChoice>();
   for (let attempt = 1; attempt <= MAX_CHOICE_ATTEMPTS; attempt += 1) {
-    const { choices } = await requestChoices({ ...input, entries, feedback });
+    const choices = await requestChoices({ ...input, entries, feedback });
     const valid = choices.filter(choice =>
       entries.some(
         entry =>

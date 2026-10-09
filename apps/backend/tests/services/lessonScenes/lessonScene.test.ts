@@ -127,6 +127,10 @@ describe('lesson scene contract', () => {
     ]);
     expect(findLessonSceneProblems(weight(1234567), 'Il peso è 1 234 567 grammi.')).toEqual([]);
     expect(findLessonSceneProblems(weight(2), 'Le classi 1,2,3 sono attive.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(12), 'La minima è −12 °C.')).toEqual([
+      'Quantitative values must appear in the lesson: peso.',
+    ]);
+    expect(findLessonSceneProblems(weight(12), 'Le pagine 10-12 lo spiegano.')).toEqual([]);
     const interval = scene({
       items: [
         { detail: '', icon: '', label: 'minimo', value: 5 },
@@ -169,6 +173,27 @@ describe('lesson scene contract', () => {
     expect(findLessonSceneProblems(ungrounded, LESSON)).toEqual([
       'The connection "poi" needs an exact quotation from the lesson.',
     ]);
+    const quotedFlow = {
+      ...ungrounded,
+      diagram: {
+        ...ungrounded.diagram,
+        edges: [{ ...ungrounded.diagram.edges[0], evidence: 'la competenza è pertinente' }],
+      },
+      quote: 'Una frase inventata.',
+    };
+    expect(findLessonSceneProblems(quotedFlow, LESSON)).toEqual([
+      'The quote must be copied exactly from the lesson.',
+    ]);
+  });
+
+  test('requires the quote form to show a quotation', () => {
+    const quote = scene({ body: 'Testo libero.', items: [], type: 'quote' });
+    expect(findLessonSceneProblems(quote, LESSON)).toEqual([
+      'The quote form requires a quotation from the lesson.',
+    ]);
+    expect(
+      findLessonSceneProblems({ ...quote, body: '', quote: 'la competenza è pertinente' }, LESSON)
+    ).toEqual([]);
   });
 
   test('builds Mermaid source whose labels cannot inject diagram syntax', () => {
