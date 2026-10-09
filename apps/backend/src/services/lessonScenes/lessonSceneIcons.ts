@@ -98,11 +98,8 @@ export const embedTexts = async (
     if (!response.ok || !Array.isArray(payload.data)) {
       throw new Error(`Icon embedding request failed with status ${response.status}.`);
     }
-    vectors.push(
-      ...payload.data
-        .sort((first, second) => first.index - second.index)
-        .map(item => normalize(item.embedding))
-    );
+    const ordered = [...payload.data].sort((first, second) => first.index - second.index);
+    vectors.push(...ordered.map(item => normalize(item.embedding)));
   }
   return vectors;
 };
@@ -151,7 +148,7 @@ const readCachedIndex = async (
   icons: readonly TablerIcon[]
 ): Promise<IconIndex | null> => {
   const bytes = await readFile(await cacheFile(model)).catch(() => null);
-  const header = bytes ? parseCacheHeader(bytes) : null;
+  const header = bytes && parseCacheHeader(bytes);
   if (
     !bytes ||
     !header ||

@@ -58,7 +58,7 @@ export const SceneIcon = ({
   return (
     <svg
       aria-hidden="true"
-      className={`meaning-icon${className ? ` ${className}` : ''}`}
+      className={className ? `meaning-icon ${className}` : 'meaning-icon'}
       focusable="false"
       strokeLinecap="round"
       strokeLinejoin="round"

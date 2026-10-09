@@ -230,9 +230,13 @@ const isConnectedGraph = (
 ): boolean => {
   const reached = new Set(nodes.slice(0, 1).map(node => node.id));
   const pending = [...reached];
+  const neighborOf = (edge: LessonSceneDiagramEdge, id: string): string | undefined => {
+    if (edge.from === id) return edge.to;
+    return edge.to === id ? edge.from : undefined;
+  };
   for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
     for (const edge of edges) {
-      const neighbor = edge.from === id ? edge.to : edge.to === id ? edge.from : undefined;
+      const neighbor = neighborOf(edge, id);
       if (neighbor !== undefined && !reached.has(neighbor)) {
         reached.add(neighbor);
         pending.push(neighbor);
@@ -241,6 +245,25 @@ const isConnectedGraph = (
   }
   return reached.size === nodes.length;
 };
+
+const isDiagramNode = (node: unknown): node is LessonSceneDiagramNode =>
+  isRecord(node) &&
+  typeof node.id === 'string' &&
+  isText(node.label, LESSON_SCENE_LIMITS.diagramLabel) &&
+  node.label.trim() !== '' &&
+  (LESSON_SCENE_NODE_KINDS as readonly unknown[]).includes(node.kind);
+
+const isDiagramEdge = (
+  edge: unknown,
+  nodeIds: ReadonlySet<string>
+): edge is LessonSceneDiagramEdge =>
+  isRecord(edge) &&
+  typeof edge.from === 'string' &&
+  typeof edge.to === 'string' &&
+  nodeIds.has(edge.from) &&
+  nodeIds.has(edge.to) &&
+  isText(edge.label, LESSON_SCENE_LIMITS.diagramLabel) &&
+  (LESSON_SCENE_EDGE_KINDS as readonly unknown[]).includes(edge.kind);
 
 const findDiagramProblems = (
   diagram: unknown,
@@ -260,29 +283,14 @@ const findDiagramProblems = (
   }
   const ids = new Set<string>();
   for (const node of nodes) {
-    if (
-      !isRecord(node) ||
-      typeof node.id !== 'string' ||
-      ids.has(node.id) ||
-      !isText(node.label, LESSON_SCENE_LIMITS.diagramLabel) ||
-      !node.label.trim() ||
-      !(LESSON_SCENE_NODE_KINDS as readonly unknown[]).includes(node.kind)
-    ) {
+    if (!isDiagramNode(node) || ids.has(node.id)) {
       problems.push('Every diagram node needs a unique id, a short label, and a valid kind.');
       return problems;
     }
     ids.add(node.id);
   }
   for (const edge of edges) {
-    if (
-      !isRecord(edge) ||
-      typeof edge.from !== 'string' ||
-      typeof edge.to !== 'string' ||
-      !ids.has(edge.from) ||
-      !ids.has(edge.to) ||
-      !isText(edge.label, LESSON_SCENE_LIMITS.diagramLabel) ||
-      !(LESSON_SCENE_EDGE_KINDS as readonly unknown[]).includes(edge.kind)
-    ) {
+    if (!isDiagramEdge(edge, ids)) {
       problems.push('Every diagram connection must join existing nodes with a valid kind.');
       return problems;
     }
@@ -574,7 +582,9 @@ export type LessonSceneIconSlot =
 const mermaidLabel = (text: string): string =>
   text
     .replace(/[\r\n]+/gu, ' ')
-    .replace(/[&"<>#%;`[\]{}]/gu, character => `#${character.charCodeAt(0)};`);
+    .replace(/[&"<>#%;`[\]{}]/gu, character => `#${character.codePointAt(0)};`);
+
+const quotedEdgeLabel = (text: string): string => `|"${mermaidLabel(text)}"|`;
 
 /** Builds Mermaid source for a validated diagram scene. */
 export const buildLessonSceneDiagramSource = (
@@ -604,12 +614,14 @@ export const buildLessonSceneDiagramSource = (
   } as const;
   return [
     `flowchart ${direction}`,
-    ...diagram.nodes.map(
-      node => `${id(node.id)}${shapes[node.kind](`"${mermaidLabel(node.label)}"`)}`
-    ),
-    ...diagram.edges.map(
-      edge =>
-        `${id(edge.from)} ${edge.kind === 'event' ? '-.->' : '-->'}${edge.label ? `|"${mermaidLabel(edge.label)}"|` : ''} ${id(edge.to)}`
-    ),
+    ...diagram.nodes.map(node => {
+      const shape = shapes[node.kind](`"${mermaidLabel(node.label)}"`);
+      return `${id(node.id)}${shape}`;
+    }),
+    ...diagram.edges.map(edge => {
+      const arrow = edge.kind === 'event' ? '-.->' : '-->';
+      const label = edge.label ? quotedEdgeLabel(edge.label) : '';
+      return `${id(edge.from)} ${arrow}${label} ${id(edge.to)}`;
+    }),
   ].join('\n');
 };
