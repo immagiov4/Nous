@@ -13,7 +13,7 @@ export const LESSON_NAMED_SOURCE_ATTRIBUTION_RULE =
   'When explicitly attributing an idea to a source, use the source or author name when it is available in the references. Avoid opaque phrases such as "the document states," "the source says," or "the text reads." If no reliable name is available, present the content directly without inventing an attribution.';
 
 const LESSON_CLEAR_LEXICON_RULE =
-  'Use familiar, precise words and established terms, keeping one name for each concept and making actors and references clear. Connect related facts, reasons, and consequences naturally instead of fragmenting an explanation into isolated assertions. Put sentence boundaries where the thought changes or the syntax needs relief.';
+  'Use familiar, precise words and established terms, keeping one name for each concept and making actors and references clear. Prefer the plain word over an inflated synonym or abstract metaphor, and use is or has when they express the meaning. Prefer active voice when it clarifies who acts, retaining passive constructions when their emphasis serves the explanation. Connect related facts, reasons, and consequences naturally instead of fragmenting an explanation into isolated assertions. Put sentence boundaries where the thought changes or the syntax needs relief.';
 
 const LESSON_TECHNICAL_TERM_CLARITY_RULE =
   'When a technical term is necessary, immediately connect it to its practical or conceptual meaning in understandable words.';
@@ -30,6 +30,18 @@ const LESSON_CONTENT_PRESERVING_SIMPLIFICATION_RULE =
 const LESSON_DISCURSIVE_REGISTER_RULE =
   'Build connected educational prose: each paragraph develops a concrete idea through its explanation, example, or consequence. Respect the reader’s knowledge as established by the supplied context. Remove reminders of obvious distinctions, imagined extreme interpretations, defensive exclusions, inflated significance, stock contrasts, and filler that add no meaning. Keep a qualification beside its claim when it changes the reader’s understanding or a decision. Preserve substantive negation, technical limits, exceptions, attribution, and supported uncertainty; do not remove them mechanically. Let the subject determine the number and shape of sections rather than forcing groups of three.';
 
+const LESSON_REASONING_AND_PUNCTUATION_RULE =
+  'Use conjunctions and connectives to express the actual relationship between evidence, mechanism, example, and consequence. Do not replace that relationship with a chain of short sentences, commas, or semicolons. Avoid repeated semicolons, dramatic colons, and decorative interruptions as a substitute for developing the thought. Choose punctuation for meaning and the lesson language, not a quota or a fixed rhythm; retain a semicolon or colon when its grammatical role helps reading. Check the transition on both sides of each full stop. Keep procedural steps and lookup facts separate when that serves their task.';
+
+const LESSON_SUPPORTED_MEANING_RULE =
+  'Preserve supported meaning, attribution, names, quantities, dates, actors, substantive exceptions, and the distinction between observed facts and plans. Explain what each relevant source contributes instead of name-dropping or using vague attributions. Replace puffery, unsupported promotion, intensifiers, vague benefits, formulaic challenges, excessive hedging, false ranges, and generic conclusions with the supported mechanism, fact, condition, or consequence. Do not invent evidence, experiences, or certainty to make the prose sound human.';
+
+const LESSON_READER_PRESENTATION_RULE =
+  'Use emphasis, lists, tables, and captions only when they help the reader understand the subject. Avoid boldface overuse, decorative emojis, and inline labels that repeat the sentence they introduce. Follow the lesson language and established typography, preserving exact quotations, code, identifiers, and syntax. Write each Markdown prose paragraph on one physical line with blank lines between paragraphs; preserve structural line breaks in lists, tables, code, and other syntax.';
+
+const LESSON_WHOLE_TEXT_REVIEW_RULE =
+  'Read the complete lesson in context before finalizing it, including headings, captions, quiz questions, options, feedback, notes, and closing material. Check reader relevance, reasoning and rhythm, useful qualifications, factual fidelity, and voice throughout. For each explanatory paragraph, identify its point and the role and connection of its sentences; repair confirmed cohesion defects with the smallest connected rewrite that preserves the facts. Remove a sentence when the supplied context establishes that the reader already knows it and it adds no useful explanation, condition, or decision. Fix every occurrence of a confirmed recurring defect, then reread the affected passages with their surrounding reasoning. Preserve adequate passages and distinguish actual defects from optional stylistic preferences; do not ban words or punctuation mechanically.';
+
 export const LESSON_LEARNER_TEXT_INTEGRITY_RULE =
   'Every learner-visible word must belong to the explanation or exercise. Keep schema names, type annotations, placeholders, and review notes in their designated structured fields. Preserve technical identifiers when the lesson actually teaches them; remove unrelated fragments from prose, question endings, options, and feedback.';
 
@@ -40,6 +52,10 @@ export const LESSON_LANGUAGE_CLARITY_RULES = [
   LESSON_FOREIGNISM_RULE,
   LESSON_CONTENT_PRESERVING_SIMPLIFICATION_RULE,
   LESSON_DISCURSIVE_REGISTER_RULE,
+  LESSON_REASONING_AND_PUNCTUATION_RULE,
+  LESSON_SUPPORTED_MEANING_RULE,
+  LESSON_READER_PRESENTATION_RULE,
+  LESSON_WHOLE_TEXT_REVIEW_RULE,
   LESSON_LEARNER_TEXT_INTEGRITY_RULE,
 ] as const;
 
@@ -101,7 +117,7 @@ const LESSON_POSITIVE_DEFINITION_RULE =
 export const LESSON_FIRST_EXPOSURE_RULE = `${LESSON_POSITIVE_DEFINITION_RULE} Apply this order from the first heading, opening sentence, label, or metaphor that introduces the concept. A heading may name it plainly; the opening explanation establishes its meaning before discussing its limits or alternatives.`;
 
 export const LESSON_HEADING_STRUCTURE_RULE =
-  'Choose clear headings for the reader’s task, naming the concrete subject or relationship, and use only necessary sections. Avoid paired slogans or repeated counts used for rhythm when a direct heading communicates the subject better; retain counts when the quantity itself helps understanding. Do not repeat the lesson title as a heading, create filler or near-duplicate headings, or impose English headings or rigid templates when the lesson language offers natural titles.';
+  'Choose clear headings for the reader’s task, naming the concrete subject or relationship, and use only necessary sections. Follow the established heading style, using sentence case when no style is supplied. Avoid paired slogans or repeated counts used for rhythm when a direct heading communicates the subject better; retain counts when the quantity itself helps understanding. Do not repeat the lesson title as a heading, create filler or near-duplicate headings, or impose English headings or rigid templates when the lesson language offers natural titles.';
 
 export const LESSON_PRIMARY_SOURCE_INTEGRATION_RULE =
   'When primary source material exists, integrate its distinctive content relevant to the title, description, and specific objective into the lesson, including arguments, definitions, examples, cases, comparisons, or technical passages. Do not replace it with a generic explanation that could be derived from the research dossier alone.';

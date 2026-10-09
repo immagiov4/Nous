@@ -114,6 +114,14 @@ test('writer and reviewer preserve useful qualifications without defensive paddi
     expect(prompt).toContain('imagined extreme interpretations');
     expect(prompt).toContain('Preserve substantive negation');
     expect(prompt).toContain('paired slogans');
+    expect(prompt).toContain('conjunctions and connectives');
+    expect(prompt).toContain('semicolons');
+    expect(prompt).toContain('both sides of each full stop');
+    expect(prompt).toContain('Read the complete lesson');
+    expect(prompt).toContain('names, quantities, dates');
+    expect(prompt).toContain('decorative emojis');
+    expect(prompt).toContain('unsupported promotion');
+    expect(prompt).toContain('false ranges');
   }
 });
 
