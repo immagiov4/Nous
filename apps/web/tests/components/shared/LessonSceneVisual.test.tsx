@@ -40,6 +40,32 @@ const comparison: LessonScene = {
 };
 
 describe('lesson scene visual', () => {
+  test.each([
+    { note: '', quote: '', visible: null },
+    { note: ' ', quote: '\n', visible: null },
+    { note: '', quote: 'Quali ragioni sostengono questa scelta?', visible: 'Domanda' },
+    { note: comparison.note, quote: '', visible: 'Nota' },
+    { note: comparison.note, quote: 'Quali ragioni sostengono questa scelta?', visible: null },
+  ])('renders at most one closing text: $visible', ({ note, quote, visible }) => {
+    const { container } = render(<LessonSceneVisual scene={{ ...comparison, note, quote }} />);
+
+    expect(screen.getByText('Competenza verificabile')).toBeInTheDocument();
+    expect(container.querySelectorAll('.scene-note')).toHaveLength(visible ? 1 : 0);
+    if (visible) expect(screen.getByLabelText(visible)).toBeInTheDocument();
+  });
+
+  test.each([
+    'quote',
+    'decision',
+  ] as const)('keeps the primary quotation or question in a %s scene', type => {
+    const quote = 'Quali ragioni sostengono questa scelta?';
+    const { container } = render(<LessonSceneVisual scene={{ ...comparison, quote, type }} />);
+
+    expect(screen.getByText(quote)).toBeInTheDocument();
+    expect(container.querySelectorAll('.scene-note')).toHaveLength(1);
+    expect(screen.getByLabelText('Nota')).toBeInTheDocument();
+  });
+
   test('renders grouped entries with their relation and Tabler icons', async () => {
     const { container } = render(<LessonSceneVisual scene={comparison} />);
 

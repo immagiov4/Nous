@@ -151,6 +151,8 @@ The image must be self-contained, accurate, and immediately readable. Do not add
 FACTUAL LESSON CONTEXT
 ${input.lessonMarkdown.slice(0, 3_000)}`;
 
+export const LESSON_SCENE_CLOSING_TEXT_RULE = `A lesson scene needs no closing text by default. Add a note only when a necessary limit would otherwise be missed, or a question only when it is essential to the reader's task. Never add both, repeat information already visible, or append generic reminders. Leave both fields empty when the scene is sufficient. In quote and decision forms, quote is the main content rather than a closing question.`;
+
 export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE}
 - ${INTERACTIVE_VISUAL_VALUE_RULE}
 - ${VISUAL_FORMAT_SELECTION_RULE}
@@ -161,6 +163,7 @@ export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE
 - The visual must be understandable within seconds using natural terms already introduced in nearby text. Do not use invented jargon, esoteric labels, ambiguous nominal formulas, or controls whose result cannot be observed.
 - If the lesson presents a set of equivalent elements, the visual must represent all of them. Use single_complex only when one element is objectively more complex, and justify the exception in reason.
 - Do not add narration, takeaways, recaps, or concluding boxes inside the visual. Visible text must help read entities, states, relationships, or controls.
+- ${LESSON_SCENE_CLOSING_TEXT_RULE}
 - Scale the layout to the number of elements. With many elements, use compact grids or columns, minimize graphical entities, and shorten labels instead of compressing the content.
 - Return from zero to ${MAX_GENERATED_VISUALS_PER_LESSON} plans.`;
 

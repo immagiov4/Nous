@@ -2,6 +2,7 @@ import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import {
   findLessonSceneProblems,
+  hasConflictingLessonSceneClosingText,
   LESSON_SCENE_CATALOG,
   LESSON_SCENE_DIAGRAM_TYPES,
   LESSON_SCENE_EDGE_KINDS,
@@ -11,6 +12,7 @@ import {
   LESSON_SCENE_VERDICTS,
   type LessonScene,
 } from '@shared/lessonScene';
+import { LESSON_SCENE_CLOSING_TEXT_RULE } from '@shared/lessonVisualContracts';
 import * as z from 'zod';
 
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
@@ -109,11 +111,14 @@ FIELDS
 - body: one short sentence only when it adds necessary information, otherwise "".
 - items: {label (at most 6 words), detail (at most 15 words, or ""), value (a number only for quantitative forms, else null), time (line only: the point's position in time as a number written in the lesson, such as a year; else null), iconQueries}.
 - groups: {label, items (each a self-contained phrase), iconQueries (one per item, same order), verdict ("prefer", "avoid", or "none")}.
-- quote: an EXACT quotation from the lesson, or "".
-- note: one substantial limit in at most 18 words, or "".
+- quote: an EXACT quotation from the lesson; in quote and decision forms it is the main content, otherwise only an essential closing question; default "".
+- note: one necessary limit in at most 18 words; default "".
 - criteria: row labels for matrix, otherwise [].
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. Never write SVG, coordinates, CSS, or Mermaid code.
+
+CLOSING TEXT
+${LESSON_SCENE_CLOSING_TEXT_RULE}
 
 ICON SEARCH PHRASES
 For every item and every group entry write iconQueries with three short English phrases (2 to 5 words) for a generic icon library: object names a common everyday object that symbolises the entry (prefer widely used symbols such as graduation cap, building, star, magnifying glass over specific professions or scenes); action names the action involved; concept names the abstract idea in plain words. When the entry negates or excludes something, describe the negation or absence. Diagram forms have no items and no groups.
@@ -132,7 +137,7 @@ FORMS
 CATALOG
 ${catalogText()}
 
-Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Is every note necessary?`;
+Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Can the closing text be omitted without losing necessary meaning? If yes, leave it empty.`;
 
 const MALFORMED_ANSWER_PROBLEM = 'The answer must follow the requested JSON structure.';
 
@@ -203,6 +208,9 @@ const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string
   ...(draft.groups.every(group => group.iconQueries.length === group.items.length)
     ? []
     : ['Every group needs one iconQueries entry per item.']),
+  ...(hasConflictingLessonSceneClosingText(scene)
+    ? ['Use either an essential closing question or a necessary note, or leave both empty.']
+    : []),
   ...findLessonSceneProblems(scene, source),
 ];
 

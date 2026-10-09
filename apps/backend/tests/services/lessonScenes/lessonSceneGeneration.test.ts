@@ -16,6 +16,58 @@ import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSc
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
 
+test.each([
+  { kind: 'scene', note: '', quote: '' },
+  { kind: 'scene', note: '', quote: 'la competenza è pertinente' },
+  { kind: 'scene', note: 'La pertinenza dipende dalla richiesta.', quote: '' },
+  {
+    kind: 'invalid',
+    note: 'La pertinenza dipende dalla richiesta.',
+    quote: 'la competenza è pertinente',
+  },
+])('validates closing text before choosing icons: $kind', async ({ kind, note, quote }) => {
+  chooseIconsMock.mockClear();
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    body: '',
+    criteria: [],
+    diagram: null,
+    evidence: 'la competenza è pertinente',
+    groups: [],
+    intent: 'Riconoscere i controlli da fare.',
+    items: [
+      { detail: '', iconQueries: queries, label: 'Pertinenza', time: null, value: null },
+      { detail: '', iconQueries: queries, label: 'Riscontri', time: null, value: null },
+    ],
+    note,
+    quote,
+    relation: null,
+    title: 'Valutare una fonte',
+    type: 'checklist',
+  });
+
+  const outcome = await generateLessonScene({
+    config: { artifact: { model: 'gpt-6-luna', provider: 'codex', reasoningEffort: 'low' } },
+    lessonMarkdown: 'Una fonte è credibile quando la competenza è pertinente.',
+    plan: { concept: 'Controlli', factualRequirements: [], visualType: 'lesson_scene' },
+    sectionDescription: '',
+    sectionTitle: 'Fonti',
+    signal: new AbortController().signal,
+  } as never);
+
+  expect(outcome.kind).toBe(kind);
+  expect(chooseIconsMock).toHaveBeenCalledTimes(kind === 'scene' ? 1 : 0);
+  if (kind === 'invalid') {
+    expect(outcome).toEqual({
+      kind: 'invalid',
+      problems: [
+        'Use either an essential closing question or a necessary note, or leave both empty.',
+      ],
+    });
+  } else {
+    expect(outcome).toMatchObject({ scene: { note, quote } });
+  }
+});
+
 test('generates scenes on the provider resolved for the run, with grounded content', async () => {
   generateStructuredOutputMock.mockResolvedValueOnce({
     body: '',

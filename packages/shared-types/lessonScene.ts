@@ -207,6 +207,12 @@ export interface LessonScene {
   readonly type: LessonSceneType;
 }
 
+/** Quote and decision forms use quote as their main content, rather than a closing question. */
+export const hasConflictingLessonSceneClosingText = (scene: LessonScene): boolean =>
+  scene.type !== 'quote' &&
+  scene.type !== 'decision' &&
+  Boolean(scene.quote.trim() && scene.note.trim());
+
 const ICON_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

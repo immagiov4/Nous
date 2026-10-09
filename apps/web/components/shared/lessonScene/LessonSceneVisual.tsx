@@ -1,4 +1,5 @@
 import {
+  hasConflictingLessonSceneClosingText,
   LESSON_SCENE_DIAGRAM_TYPES,
   LESSON_SCENE_NUMERIC_TYPES,
   LESSON_SCENE_RELATION_SYMBOLS,
@@ -381,13 +382,17 @@ export const LessonSceneVisual = ({
         <div className="visual-content">
           <SceneContent isDarkMode={isDarkMode} scene={scene} />
         </div>
-        {scene.quote && scene.type !== 'quote' && scene.type !== 'decision' ? (
+        {/* Conflicting closing text is omitted while the main scene remains visible. */}
+        {scene.quote.trim() &&
+        scene.type !== 'quote' &&
+        scene.type !== 'decision' &&
+        !hasConflictingLessonSceneClosingText(scene) ? (
           <aside aria-label={t('Domanda')} className="scene-note scenario-question">
             <SceneIcon name="help-circle" />
             <p>{scene.quote}</p>
           </aside>
         ) : null}
-        {scene.note ? (
+        {scene.note.trim() && !hasConflictingLessonSceneClosingText(scene) ? (
           <aside aria-label={t('Nota')} className="scene-note">
             <SceneIcon name="info-circle" />
             <p>{scene.note}</p>

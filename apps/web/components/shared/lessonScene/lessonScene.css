@@ -793,20 +793,23 @@
   border-width: var(--connector-width);
 }
 .lesson-scene .network {
+  --network-gap: 44px;
+  --network-gutter: 22px;
+  --network-item-gap: 20px;
+  --network-branch-y: 12px;
   display: grid;
   grid-template-columns: 1fr 1.2fr;
   align-items: center;
-  gap: 44px;
+  gap: var(--network-gap);
 }
 .lesson-scene .hub:after {
   content: "";
   position: absolute;
   left: 100%;
   top: 50%;
-  border-top: 1px solid var(--diagram-rule);
+  border: 0;
+  border-top: var(--connector-width) solid var(--connector-color);
   width: 22px;
-  border-color: var(--connector-color);
-  border-width: var(--connector-width);
 }
 .lesson-scene .satellites > .concept {
   position: relative;
@@ -1265,46 +1268,57 @@
 }
 .lesson-scene .satellites {
   display: grid;
-  padding-left: 22px;
+  padding-left: var(--network-gutter);
   border: 0;
-  gap: 20px;
+  gap: var(--network-item-gap);
 }
 .lesson-scene .satellites > .concept:before {
   content: "";
   position: absolute;
-  left: -22px;
+  left: calc(-1 * var(--network-gutter));
   right: auto;
-  top: 12px;
-  width: 22px;
+  top: var(--network-branch-y);
+  width: var(--network-gutter);
   border-top: var(--connector-width) solid var(--connector-color);
 }
 .lesson-scene .satellites > .concept:not(:last-child):after {
+  --network-stem-start: var(--network-branch-y);
   content: "";
   position: absolute;
-  left: -22px;
-  top: 12px;
-  height: calc(100% + 20px);
+  left: calc(-1 * var(--network-gutter));
+  top: var(--network-stem-start);
+  height: calc(
+    100% +
+    var(--network-item-gap) +
+    var(--network-branch-y) -
+    var(--network-stem-start)
+  );
   border-left: var(--connector-width) solid var(--connector-color);
 }
 .lesson-scene .satellites > .concept:first-child:before {
-  height: 10px;
+  height: var(--connector-radius);
   border-left: var(--connector-width) solid var(--connector-color);
   border-top-left-radius: var(--connector-radius);
 }
 .lesson-scene .satellites > .concept:first-child:after {
-  top: 22px;
-  height: calc(100% + 10px);
+  --network-stem-start: calc(var(--network-branch-y) + var(--connector-radius));
 }
 .lesson-scene .satellites > .concept:last-child:before {
-  top: 2px;
-  height: 12px;
+  top: calc(var(--network-branch-y) - var(--connector-radius));
+  height: var(--network-branch-y);
   border-top: 0;
   border-bottom: var(--connector-width) solid var(--connector-color);
   border-left: var(--connector-width) solid var(--connector-color);
   border-bottom-left-radius: var(--connector-radius);
 }
 .lesson-scene .satellites > .concept:nth-last-child(2):after {
-  height: calc(100% + 10px);
+  height: calc(
+    100% +
+    var(--network-item-gap) +
+    var(--network-branch-y) -
+    var(--connector-radius) -
+    var(--network-stem-start)
+  );
 }
 .lesson-scene .cycle {
   display: grid;
@@ -1417,18 +1431,18 @@
     width: 190px;
   }
   .lesson-scene .network {
-    gap: 28px;
+    --network-gap: 28px;
   }
   .lesson-scene .hub:after {
     width: 0;
-    left: 0;
+    left: var(--network-gutter);
     top: 100%;
-    height: 28px;
+    height: calc(var(--network-gap) + var(--network-branch-y));
     border-left: var(--connector-width) solid var(--connector-color);
     border-top: 0;
   }
   .lesson-scene .satellites {
-    margin-left: 0;
+    margin-left: var(--network-gutter);
   }
   .lesson-scene .definition {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -1444,11 +1458,19 @@
   }
 }
 .lesson-scene .network .hub:after {
-  width: 44px;
+  width: var(--network-gap);
 }
 @container (max-width: 460px) {
   .lesson-scene .network .hub:after {
     width: 0;
+  }
+  .lesson-scene .network .satellites > .concept:first-child:before {
+    height: 0;
+    border-left: 0;
+    border-top-left-radius: 0;
+  }
+  .lesson-scene .network .satellites > .concept:first-child:after {
+    --network-stem-start: var(--network-branch-y);
   }
 }
 .lesson-scene .hierarchy {
