@@ -91,6 +91,16 @@ describe('lesson scene contract', () => {
       'Quantitative values must appear in the lesson: dose.',
     ]);
     expect(findLessonSceneProblems(dose, 'Gli iscritti sono 1.025, non 25.')).toEqual([]);
+    const weight = (value: number) =>
+      scene({ items: [{ detail: '', icon: '', label: 'peso', value }], type: 'number' });
+    expect(findLessonSceneProblems(weight(1234.567), 'Il peso è 1.234,567 grammi.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(1234567), 'Il peso è 1.234,567 grammi.')).toEqual([
+      'Quantitative values must appear in the lesson: peso.',
+    ]);
+    expect(findLessonSceneProblems(weight(1234567), 'Il peso è 1.234.567 grammi.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(1234.567), 'Il peso è 1.234.567 grammi.')).toEqual([
+      'Quantitative values must appear in the lesson: peso.',
+    ]);
     expect(
       findLessonSceneProblems(
         { ...dose, items: [{ ...dose.items[0], value: 1025 }] },

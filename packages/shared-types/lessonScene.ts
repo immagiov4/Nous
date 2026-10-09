@@ -349,23 +349,27 @@ const findRelationProblems = (relation: unknown, source: string | undefined): st
 // in either the Italian (1.234,5) or the English (1,234.5) convention.
 const SOURCE_NUMBER_PATTERN = /\d+(?:[.,\s]\d{3})*(?:[.,]\d+)?/gu;
 
-const readSourceNumbers = (source: string): Set<number> => {
-  const numbers = new Set<number>();
-  for (const [token] of source.matchAll(SOURCE_NUMBER_PATTERN)) {
-    const digits = token.replaceAll(/\s/gu, '');
-    const lastSeparator = Math.max(digits.lastIndexOf('.'), digits.lastIndexOf(','));
-    if (lastSeparator < 0) {
-      numbers.add(Number(digits));
-      continue;
-    }
-    const decimals = digits.slice(lastSeparator + 1);
-    const integerPart = digits.slice(0, lastSeparator).replaceAll(/[.,]/gu, '');
-    numbers.add(Number(`${integerPart}.${decimals}`));
-    // Only a final group of exactly three digits can be a thousands group (1.234 or 1,234).
-    if (decimals.length === 3) numbers.add(Number(`${integerPart}${decimals}`));
-  }
-  return numbers;
+/**
+ * Readings of one written number. Mixed separators (1.234,5) and a repeated separator (1.234.567)
+ * are unambiguous; only a single separator before exactly three digits (1.234) can be either a
+ * thousands group or a decimal point, so both readings are kept.
+ */
+const readNumberToken = (token: string): number[] => {
+  const digits = token.replaceAll(/\s/gu, '');
+  const separators = [...digits].filter(character => character === '.' || character === ',');
+  if (separators.length === 0) return [Number(digits)];
+  const lastSeparator = Math.max(digits.lastIndexOf('.'), digits.lastIndexOf(','));
+  const integerPart = digits.slice(0, lastSeparator).replaceAll(/[.,]/gu, '');
+  const lastGroup = digits.slice(lastSeparator + 1);
+  const asInteger = Number(`${integerPart}${lastGroup}`);
+  const asDecimal = Number(`${integerPart}.${lastGroup}`);
+  if (new Set(separators).size > 1) return [asDecimal];
+  if (separators.length > 1) return [asInteger];
+  return lastGroup.length === 3 ? [asInteger, asDecimal] : [asDecimal];
 };
+
+const readSourceNumbers = (source: string): Set<number> =>
+  new Set([...source.matchAll(SOURCE_NUMBER_PATTERN)].flatMap(([token]) => readNumberToken(token)));
 
 const findNumericProblems = (
   scene: Record<string, unknown>,
