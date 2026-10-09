@@ -146,6 +146,28 @@ describe('lesson scene contract', () => {
     expect(findLessonSceneProblems(weight(10200), 'Righe:\n10\n200')).toEqual([
       'Quantitative values must appear in the lesson: peso.',
     ]);
+    const line = (times: (number | undefined)[]) =>
+      scene({
+        items: times.map((time, index) => ({
+          detail: '',
+          icon: '',
+          label: String(time),
+          ...(time === undefined ? {} : { time }),
+          value: 12,
+        })),
+        type: 'line',
+      });
+    const timeline = 'Nel 2020 i casi erano 12; nel 2021 ancora 12; nel 2030 sempre 12.';
+    expect(findLessonSceneProblems(line([2020, 2021, 2030]), timeline)).toEqual([]);
+    expect(findLessonSceneProblems(line([2021, 2020]), timeline)).toEqual([
+      'A line needs a time for every point, in increasing order.',
+    ]);
+    expect(findLessonSceneProblems(line([2020, undefined]), timeline)).toEqual([
+      'A line needs a time for every point, in increasing order.',
+    ]);
+    expect(findLessonSceneProblems(line([2020, 2025]), timeline)).toEqual([
+      'Times must appear in the lesson: 2025.',
+    ]);
     const interval = scene({
       items: [
         { detail: '', icon: '', label: 'minimo', value: 5 },

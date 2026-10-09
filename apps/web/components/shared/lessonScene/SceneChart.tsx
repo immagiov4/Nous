@@ -8,6 +8,7 @@ const LAYOUT = {
   height: 240,
   intervalHeight: 190,
   labelOffset: 16,
+  lineInset: 24,
   lineWidth: 2.5,
   marginBottom: 40,
   marginLeft: 42,
@@ -44,7 +45,11 @@ const readTheme = (host: HTMLElement): ChartTheme => {
 type Plot = typeof import('@observablehq/plot');
 
 const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: ChartTheme) => {
-  const items = scene.items.map(item => ({ label: item.label, value: item.value ?? 0 }));
+  const items = scene.items.map(item => ({
+    label: item.label,
+    time: item.time ?? 0,
+    value: item.value ?? 0,
+  }));
   const common = {
     ariaLabel: scene.title,
     height: LAYOUT.height,
@@ -69,19 +74,25 @@ const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: Chart
         plot.lineY(items, {
           stroke: theme.accent,
           strokeWidth: LAYOUT.lineWidth,
-          x: 'label',
+          x: 'time',
           y: 'value',
         }),
-        plot.dot(items, { fill: theme.accent, r: LAYOUT.pointRadius, x: 'label', y: 'value' }),
+        plot.dot(items, { fill: theme.accent, r: LAYOUT.pointRadius, x: 'time', y: 'value' }),
         plot.text(items, {
           dy: -LAYOUT.labelOffset,
           text: 'value',
-          x: 'label',
+          x: 'time',
           y: 'value',
           ...text,
         }),
       ],
-      x: { domain: items.map(item => item.label), label: null, padding: 0.25 },
+      // A continuous time axis keeps real gaps; each tick shows the lesson's name for that time.
+      x: {
+        inset: LAYOUT.lineInset,
+        label: null,
+        tickFormat: (time: number) => items.find(item => item.time === time)?.label ?? '',
+        ticks: items.map(item => item.time),
+      },
       y: { grid: true, label: null, nice: true, ticks: 4, zero: true },
     };
   }

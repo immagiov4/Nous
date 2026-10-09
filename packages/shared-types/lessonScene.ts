@@ -72,7 +72,7 @@ export const LESSON_SCENE_CATALOG: Readonly<Record<LessonSceneType, string>> = {
   journey: 'Tappe successive vissute da una persona, senza punteggi inventati.',
   layers: 'Livelli di analisi distinti e annidati.',
   limits: 'Cosa mostra un caso e cosa non permette di concludere.',
-  line: 'SOLO valori numerici associati a tempi espliciti nel testo.',
+  line: 'SOLO valori numerici associati a tempi espliciti nel testo, alla loro distanza reale.',
   matrix: 'Due alternative, almeno due criteri esplicitamente confrontabili.',
   network: 'Più fattori che contribuiscono a uno stesso concetto.',
   number: 'SOLO una quantità esplicita nel testo con unità; mai statistiche inventate.',
@@ -157,6 +157,8 @@ export interface LessonSceneItem {
   readonly detail: string;
   readonly icon: string;
   readonly label: string;
+  /** A line point's position on the time axis as written in the lesson, such as a year. */
+  readonly time?: number;
   readonly value?: number;
 }
 
@@ -319,7 +321,8 @@ const findItemProblems = (items: unknown): string[] => {
       isText(item.label) &&
       item.label.trim() !== '' &&
       isText(item.detail) &&
-      isIconSlot(item.icon)
+      isIconSlot(item.icon) &&
+      (item.time === undefined || (typeof item.time === 'number' && Number.isFinite(item.time)))
   );
   return valid ? [] : ['Every item needs a label, a detail, and an icon identifier.'];
 };
@@ -428,6 +431,28 @@ const readSourceToken = (token: string): number[] => {
 const readSourceNumbers = (source: string): Set<number> =>
   new Set([...source.matchAll(SOURCE_NUMBER_PATTERN)].flatMap(([token]) => readSourceToken(token)));
 
+/**
+ * A line places its points at their real distance in time, so every point needs a time stated in
+ * the lesson, in increasing order.
+ */
+const findLineTimeProblems = (
+  items: readonly LessonSceneItem[],
+  source: string | undefined
+): string[] => {
+  const times = items.map(item => item.time);
+  const increasing = times.every(
+    (time, index) =>
+      time !== undefined && (index === 0 || time > (times[index - 1] ?? Number.POSITIVE_INFINITY))
+  );
+  if (!increasing) return ['A line needs a time for every point, in increasing order.'];
+  if (source === undefined) return [];
+  const sourceNumbers = readSourceNumbers(source);
+  const ungrounded = items.filter(item => !sourceNumbers.has(item.time as number));
+  return ungrounded.length
+    ? [`Times must appear in the lesson: ${ungrounded.map(item => item.label).join(', ')}.`]
+    : [];
+};
+
 const findNumericProblems = (
   scene: Record<string, unknown>,
   source: string | undefined
@@ -450,6 +475,10 @@ const findNumericProblems = (
     )
   ) {
     return ['Every quantitative item needs a finite, non-negative value.'];
+  }
+  if (scene.type === 'line') {
+    const lineProblems = findLineTimeProblems(items, source);
+    if (lineProblems.length) return lineProblems;
   }
   if (scene.type === 'number' && items.length !== 1)
     return ['A number shows exactly one quantity.'];

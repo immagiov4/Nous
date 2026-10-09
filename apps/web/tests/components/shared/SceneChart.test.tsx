@@ -63,3 +63,23 @@ test('redraws a chart at the same width when the theme changes', async () => {
   rerender(<SceneChart isDarkMode scene={bars} />);
   await waitFor(() => expect(plotMock).toHaveBeenCalledTimes(2));
 });
+
+test('places line points at their real distance in time', async () => {
+  const line: LessonScene = {
+    ...bars,
+    items: [
+      { detail: '', icon: '', label: '2020', time: 2020, value: 10 },
+      { detail: '', icon: '', label: '2021', time: 2021, value: 12 },
+      { detail: '', icon: '', label: '2030', time: 2030, value: 40 },
+    ],
+    type: 'line',
+  };
+  render(<SceneChart isDarkMode={false} scene={line} />);
+
+  await waitFor(() => expect(plotMock).toHaveBeenCalled());
+  const options = (plotMock.mock.calls[0] as unknown[])[0] as {
+    x: { tickFormat: (time: number) => string; ticks: number[] };
+  };
+  expect(options.x.ticks).toEqual([2020, 2021, 2030]);
+  expect(options.x.tickFormat(2030)).toBe('2030');
+});

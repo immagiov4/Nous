@@ -25,8 +25,8 @@ test('generates scenes on the provider resolved for the run, with grounded conte
     groups: [],
     intent: 'Riconoscere i controlli da fare.',
     items: [
-      { detail: '', iconQueries: queries, label: 'Pertinenza', value: null },
-      { detail: '', iconQueries: queries, label: 'Riscontri', value: null },
+      { detail: '', iconQueries: queries, label: 'Pertinenza', time: null, value: null },
+      { detail: '', iconQueries: queries, label: 'Riscontri', time: null, value: null },
     ],
     note: '',
     quote: '',
@@ -61,8 +61,8 @@ test('reports ungrounded evidence as contract problems instead of a scene', asyn
     groups: [],
     intent: 'Riconoscere i controlli da fare.',
     items: [
-      { detail: '', iconQueries: queries, label: 'Pertinenza', value: null },
-      { detail: '', iconQueries: queries, label: 'Riscontri', value: null },
+      { detail: '', iconQueries: queries, label: 'Pertinenza', time: null, value: null },
+      { detail: '', iconQueries: queries, label: 'Riscontri', time: null, value: null },
     ],
     note: '',
     quote: '',

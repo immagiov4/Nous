@@ -62,6 +62,7 @@ const SceneDraftSchema = z.strictObject({
       label: z.string(),
       detail: z.string(),
       value: z.number().nullable(),
+      time: z.number().nullable(),
       iconQueries: SceneIconQueriesSchema,
     })
   ),
@@ -103,7 +104,7 @@ FIELDS
 - evidence: an EXACT quotation from the lesson that supports the scene's message.
 - title: at most 7 words; it states the topic or the criterion.
 - body: one short sentence only when it adds necessary information, otherwise "".
-- items: {label (at most 6 words), detail (at most 15 words, or ""), value (a number only for quantitative forms, else null), iconQueries}.
+- items: {label (at most 6 words), detail (at most 15 words, or ""), value (a number only for quantitative forms, else null), time (line only: the point's position in time as a number written in the lesson, such as a year; else null), iconQueries}.
 - groups: {label, items (each a self-contained phrase), iconQueries (one per item, same order), verdict ("prefer", "avoid", or "none")}.
 - quote: an EXACT quotation from the lesson, or "".
 - note: one substantial limit in at most 18 words, or "".
@@ -122,7 +123,7 @@ FORMS
 - definition: the defining sentence in body and attributes in items; a condition common to all attributes goes in body once. checklist: concrete questions in labels. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. quote: only the exact quotation or question, in quote, with body "". steps: strictly ordered actions, not alternatives.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other forms need at least two items, except quote, number, flowchart, sequence, and journey; those three diagram forms keep all content in diagram, with items and groups [].
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
-- Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. number has one item. HTTP codes, versions, and identifiers are not quantities.
+- Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
 
 CATALOG
@@ -165,6 +166,7 @@ const toScene = (draft: SceneDraft): LessonScene => ({
     detail: item.detail,
     icon: '',
     label: item.label,
+    ...(item.time === null ? {} : { time: item.time }),
     ...(item.value === null ? {} : { value: item.value }),
   })),
   note: draft.note,

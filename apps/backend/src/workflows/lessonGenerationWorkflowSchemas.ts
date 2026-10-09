@@ -262,6 +262,7 @@ const LessonSceneSchema = z.object({
       detail: z.string(),
       icon: LessonSceneIconSlotSchema,
       label: z.string(),
+      time: z.number().optional(),
       value: z.number().optional(),
     })
   ),
