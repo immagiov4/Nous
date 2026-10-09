@@ -13,7 +13,7 @@ export const LESSON_NAMED_SOURCE_ATTRIBUTION_RULE =
   'When explicitly attributing an idea to a source, use the source or author name when it is available in the references. Avoid opaque phrases such as "the document states," "the source says," or "the text reads." If no reliable name is available, present the content directly without inventing an attribution.';
 
 const LESSON_CLEAR_LEXICON_RULE =
-  'Use plain, precise words and direct statements. Give each sentence one main thought, vary sentence length naturally, and use the same name for the same concept throughout the lesson.';
+  'Use familiar, precise words and established terms, keeping one name for each concept and making actors and references clear. Connect related facts, reasons, and consequences naturally instead of fragmenting an explanation into isolated assertions. Put sentence boundaries where the thought changes or the syntax needs relief.';
 
 const LESSON_TECHNICAL_TERM_CLARITY_RULE =
   'When a technical term is necessary, immediately connect it to its practical or conceptual meaning in understandable words.';
@@ -28,7 +28,7 @@ const LESSON_CONTENT_PRESERVING_SIMPLIFICATION_RULE =
   'Simplify the explanation, not the content. Stay precise without sounding academic for its own sake.';
 
 const LESSON_DISCURSIVE_REGISTER_RULE =
-  'Build connected educational prose: each paragraph develops a concrete idea through its explanation, example, or consequence. Let the subject determine the number and shape of sections; remove forced groups of three, inflated significance, stock contrasts, and filler that add no meaning.';
+  'Build connected educational prose: each paragraph develops a concrete idea through its explanation, example, or consequence. Respect the reader’s knowledge as established by the supplied context. Remove reminders of obvious distinctions, imagined extreme interpretations, defensive exclusions, inflated significance, stock contrasts, and filler that add no meaning. Keep a qualification beside its claim when it changes the reader’s understanding or a decision. Preserve substantive negation, technical limits, exceptions, attribution, and supported uncertainty; do not remove them mechanically. Let the subject determine the number and shape of sections rather than forcing groups of three.';
 
 export const LESSON_LEARNER_TEXT_INTEGRITY_RULE =
   'Every learner-visible word must belong to the explanation or exercise. Keep schema names, type annotations, placeholders, and review notes in their designated structured fields. Preserve technical identifiers when the lesson actually teaches them; remove unrelated fragments from prose, question endings, options, and feedback.';
@@ -101,7 +101,7 @@ const LESSON_POSITIVE_DEFINITION_RULE =
 export const LESSON_FIRST_EXPOSURE_RULE = `${LESSON_POSITIVE_DEFINITION_RULE} Apply this order from the first heading, opening sentence, label, or metaphor that introduces the concept. A heading may name it plainly; the opening explanation establishes its meaning before discussing its limits or alternatives.`;
 
 export const LESSON_HEADING_STRUCTURE_RULE =
-  'Organize the text with clear headings and use only the sections that are necessary. Do not repeat the lesson title as a heading, create filler or near-duplicate headings, or impose English headings or rigid templates when the lesson language offers natural titles.';
+  'Choose clear headings for the reader’s task, naming the concrete subject or relationship, and use only necessary sections. Avoid paired slogans or repeated counts used for rhythm when a direct heading communicates the subject better; retain counts when the quantity itself helps understanding. Do not repeat the lesson title as a heading, create filler or near-duplicate headings, or impose English headings or rigid templates when the lesson language offers natural titles.';
 
 export const LESSON_PRIMARY_SOURCE_INTEGRATION_RULE =
   'When primary source material exists, integrate its distinctive content relevant to the title, description, and specific objective into the lesson, including arguments, definitions, examples, cases, comparisons, or technical passages. Do not replace it with a generic explanation that could be derived from the research dossier alone.';

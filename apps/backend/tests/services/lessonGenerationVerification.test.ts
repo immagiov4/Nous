@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { reviewLessonContentDraftStrict } from '../../src/services/lessonGenerationModel.js';
+import { buildLessonGenerationPrompt } from '../../src/services/lessonGenerationPrompt.js';
 import type {
   LessonContentDraft,
   LessonGenerationInput,
@@ -99,6 +100,21 @@ const review = () => reviewLessonContentDraftStrict({ draft: original, generatio
 
 beforeEach(() => {
   generateStructuredOutput.mockReset();
+});
+
+test('writer and reviewer preserve useful qualifications without defensive padding', async () => {
+  mockReview(original, preserved);
+  await review();
+  const prompts = [
+    buildLessonGenerationPrompt(generationInput),
+    generateStructuredOutput.mock.calls[0][0].prompt,
+  ];
+  for (const prompt of prompts) {
+    expect(prompt).toContain('Respect the reader');
+    expect(prompt).toContain('imagined extreme interpretations');
+    expect(prompt).toContain('Preserve substantive negation');
+    expect(prompt).toContain('paired slogans');
+  }
 });
 
 test.each([
