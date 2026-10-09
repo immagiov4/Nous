@@ -83,6 +83,20 @@ describe('lesson scene contract', () => {
       type: 'number',
     });
     expect(findLessonSceneProblems(decimal, 'La quota è 1.234,5 euro.')).toEqual([]);
+    const dose = scene({
+      items: [{ detail: '', icon: '', label: 'dose', value: 25 }],
+      type: 'number',
+    });
+    expect(findLessonSceneProblems(dose, 'La dose è 2,5 mg.')).toEqual([
+      'Quantitative values must appear in the lesson: dose.',
+    ]);
+    expect(findLessonSceneProblems(dose, 'Gli iscritti sono 1.025, non 25.')).toEqual([]);
+    expect(
+      findLessonSceneProblems(
+        { ...dose, items: [{ ...dose.items[0], value: 1025 }] },
+        'Gli iscritti sono 1.025.'
+      )
+    ).toEqual([]);
     const interval = scene({
       items: [
         { detail: '', icon: '', label: 'minimo', value: 5 },

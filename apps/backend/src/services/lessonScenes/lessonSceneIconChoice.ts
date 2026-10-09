@@ -142,6 +142,27 @@ const reusedIcons = (choices: readonly IconChoice[]): string[] => [
   ),
 ];
 
+/**
+ * Enforces distinct icons for distinct entries after the last attempt: an icon already given to
+ * an earlier entry falls back to the neutral glyph, like a missing choice.
+ */
+const withoutReusedIcons = (
+  accepted: ReadonlyMap<string, IconChoice>,
+  entries: readonly CandidateEntry[]
+): Map<string, string> => {
+  const conceptByIcon = new Map<string, string>();
+  const distinct = new Map<string, string>();
+  for (const entry of entries) {
+    const choice = accepted.get(entry.id);
+    if (!choice) continue;
+    const owner = conceptByIcon.get(choice.icon);
+    if (owner !== undefined && owner !== normalizedConcept(choice)) continue;
+    conceptByIcon.set(choice.icon, normalizedConcept(choice));
+    distinct.set(entry.id, choice.icon);
+  }
+  return distinct;
+};
+
 const applyIcons = (scene: LessonScene, icons: ReadonlyMap<string, string>): LessonScene => ({
   ...scene,
   groups: scene.groups.map((group, groupIndex) => ({
@@ -166,7 +187,7 @@ export const chooseLessonSceneIcons = async (input: {
   if (input.entries.length === 0) return input.scene;
   const entries = await retrieveCandidates(input.config, input.entries, input.signal);
   let feedback = '';
-  let accepted = new Map<string, string>();
+  let accepted = new Map<string, IconChoice>();
   for (let attempt = 1; attempt <= MAX_CHOICE_ATTEMPTS; attempt += 1) {
     const { choices } = await requestChoices({ ...input, entries, feedback });
     const valid = choices.filter(choice =>
@@ -175,7 +196,7 @@ export const chooseLessonSceneIcons = async (input: {
           entry.id === choice.slot && entry.candidates.some(icon => icon.name === choice.icon)
       )
     );
-    accepted = new Map(valid.map(choice => [choice.slot, choice.icon]));
+    accepted = new Map(valid.map(choice => [choice.slot, choice]));
     const missing = entries.filter(entry => !accepted.has(entry.id));
     const reused = reusedIcons(valid);
     if (missing.length === 0 && reused.length === 0) break;
@@ -188,5 +209,5 @@ export const chooseLessonSceneIcons = async (input: {
         : '',
     ].join('');
   }
-  return applyIcons(input.scene, accepted);
+  return applyIcons(input.scene, withoutReusedIcons(accepted, entries));
 };

@@ -116,3 +116,40 @@ test('falls back to a neutral icon when the chooser never returns a valid candid
   expect(chosen.items.map(item => item.icon)).toEqual(['point', 'search']);
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
 });
+
+test('drops a reused icon for a different meaning after the last attempt', async () => {
+  generateStructuredOutputMock.mockResolvedValue({
+    choices: [
+      { concept: 'competenza', icon: 'school', slot: 'items.0' },
+      { concept: 'prove', icon: 'school', slot: 'items.1' },
+    ],
+  });
+
+  const chosen = await chooseLessonSceneIcons({
+    config: getGlobalModelConfig(),
+    entries,
+    scene,
+    signal: new AbortController().signal,
+  });
+
+  expect(chosen.items.map(item => item.icon)).toEqual(['school', 'point']);
+});
+
+test('keeps one icon repeated for the same meaning', async () => {
+  generateStructuredOutputMock.mockResolvedValue({
+    choices: [
+      { concept: 'Fonte scritta', icon: 'file-text', slot: 'items.0' },
+      { concept: 'fonte scritta', icon: 'file-text', slot: 'items.1' },
+    ],
+  });
+
+  const chosen = await chooseLessonSceneIcons({
+    config: getGlobalModelConfig(),
+    entries,
+    scene,
+    signal: new AbortController().signal,
+  });
+
+  expect(chosen.items.map(item => item.icon)).toEqual(['file-text', 'file-text']);
+  expect(generateStructuredOutputMock).toHaveBeenCalledOnce();
+});

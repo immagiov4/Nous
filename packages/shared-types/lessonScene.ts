@@ -354,13 +354,15 @@ const readSourceNumbers = (source: string): Set<number> => {
   for (const [token] of source.matchAll(SOURCE_NUMBER_PATTERN)) {
     const digits = token.replaceAll(/\s/gu, '');
     const lastSeparator = Math.max(digits.lastIndexOf('.'), digits.lastIndexOf(','));
-    const decimals = lastSeparator < 0 ? '' : digits.slice(lastSeparator + 1);
-    // A final group of exactly three digits is ambiguous, so both readings are accepted.
-    const integerPart = lastSeparator < 0 ? digits : digits.slice(0, lastSeparator);
-    numbers.add(Number(digits.replaceAll(/[.,]/gu, '')));
-    if (lastSeparator >= 0) {
-      numbers.add(Number(`${integerPart.replaceAll(/[.,]/gu, '')}.${decimals}`));
+    if (lastSeparator < 0) {
+      numbers.add(Number(digits));
+      continue;
     }
+    const decimals = digits.slice(lastSeparator + 1);
+    const integerPart = digits.slice(0, lastSeparator).replaceAll(/[.,]/gu, '');
+    numbers.add(Number(`${integerPart}.${decimals}`));
+    // Only a final group of exactly three digits can be a thousands group (1.234 or 1,234).
+    if (decimals.length === 3) numbers.add(Number(`${integerPart}${decimals}`));
   }
   return numbers;
 };
