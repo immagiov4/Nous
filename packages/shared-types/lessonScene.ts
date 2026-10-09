@@ -345,19 +345,30 @@ const findRelationProblems = (relation: unknown, source: string | undefined): st
     : ['A relation other than versus needs an exact quotation from the lesson.'];
 };
 
-// Numbers written in the lesson: digits with optional thousands separators and a decimal part,
-// in either the Italian (1.234,5) or the English (1,234.5) convention.
-const SOURCE_NUMBER_PATTERN = /\d+(?:[.,\s]\d{3})*(?:[.,]\d+)?/gu;
+// Numbers written in the lesson: digit runs joined by dots, commas, or a space before a
+// three-digit group, in either the Italian (1.234,5) or the English (1,234.5) convention.
+const SOURCE_NUMBER_PATTERN = /\d+(?:[.,]\d+|\s\d{3}(?!\d))*/gu;
+
+const THOUSANDS_GROUP_LENGTH = 3;
 
 /**
  * Readings of one written number. Mixed separators (1.234,5) and a repeated separator (1.234.567)
  * are unambiguous; only a single separator before exactly three digits (1.234) can be either a
- * thousands group or a decimal point, so both readings are kept.
+ * thousands group or a decimal point, so both readings are kept. A repeated separator whose
+ * groups are not thousands groups (1,2,3) is a list of separate numbers.
  */
 const readNumberToken = (token: string): number[] => {
   const digits = token.replaceAll(/\s/gu, '');
   const separators = [...digits].filter(character => character === '.' || character === ',');
   if (separators.length === 0) return [Number(digits)];
+  const groups = digits.split(/[.,]/u);
+  if (
+    new Set(separators).size === 1 &&
+    separators.length > 1 &&
+    groups.slice(1).some(group => group.length !== THOUSANDS_GROUP_LENGTH)
+  ) {
+    return groups.map(Number);
+  }
   const lastSeparator = Math.max(digits.lastIndexOf('.'), digits.lastIndexOf(','));
   const integerPart = digits.slice(0, lastSeparator).replaceAll(/[.,]/gu, '');
   const lastGroup = digits.slice(lastSeparator + 1);
@@ -365,7 +376,7 @@ const readNumberToken = (token: string): number[] => {
   const asDecimal = Number(`${integerPart}.${lastGroup}`);
   if (new Set(separators).size > 1) return [asDecimal];
   if (separators.length > 1) return [asInteger];
-  return lastGroup.length === 3 ? [asInteger, asDecimal] : [asDecimal];
+  return lastGroup.length === THOUSANDS_GROUP_LENGTH ? [asInteger, asDecimal] : [asDecimal];
 };
 
 const readSourceNumbers = (source: string): Set<number> =>
@@ -417,6 +428,10 @@ const findShapeProblems = (scene: Record<string, unknown>, type: LessonSceneType
   }
   if (!ITEMLESS_TYPES.has(type) && items.length < 2) {
     return [`The ${type} form requires at least two items.`];
+  }
+  const criteria = scene.criteria as string[] | undefined;
+  if (type === 'matrix' && (criteria?.length ?? 0) < 2) {
+    return ['The matrix form requires at least two criteria.'];
   }
   return [];
 };

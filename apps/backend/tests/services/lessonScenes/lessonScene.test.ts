@@ -64,6 +64,20 @@ describe('lesson scene contract', () => {
         scene({ groups: [{ ...group('Gruppo', ['Uno', 'Due']), icons: ['point'] }] })
       )
     ).toEqual(['Every group needs a label, its entries, and exactly one icon slot per entry.']);
+    const matrix = (criteria?: string[]) =>
+      scene({
+        ...(criteria ? { criteria } : {}),
+        groups: [group('Fonte A', ['Sì', 'No']), group('Fonte B', ['No', 'Sì'])],
+        items: [],
+        type: 'matrix',
+      });
+    expect(findLessonSceneProblems(matrix(['Pertinenza', 'Riscontri']))).toEqual([]);
+    expect(findLessonSceneProblems(matrix())).toEqual([
+      'The matrix form requires at least two criteria.',
+    ]);
+    expect(findLessonSceneProblems(matrix(['Pertinenza']))).toEqual([
+      'Matrix criteria must label every row of both groups.',
+    ]);
   });
 
   test('accepts only quantities stated in the lesson for quantitative forms', () => {
@@ -107,6 +121,12 @@ describe('lesson scene contract', () => {
         'Gli iscritti sono 1.025.'
       )
     ).toEqual([]);
+    expect(findLessonSceneProblems(weight(0.0255), 'La quota è 0,0255.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(0.025), 'La quota è 0,0255.')).toEqual([
+      'Quantitative values must appear in the lesson: peso.',
+    ]);
+    expect(findLessonSceneProblems(weight(1234567), 'Il peso è 1 234 567 grammi.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(2), 'Le classi 1,2,3 sono attive.')).toEqual([]);
     const interval = scene({
       items: [
         { detail: '', icon: '', label: 'minimo', value: 5 },
