@@ -53,7 +53,8 @@ export const SceneIcon = ({
   readonly name: string;
 }) => {
   const nodes = useContext(IconNodesContext);
-  const shapes = nodes?.[name] ?? nodes?.[FALLBACK_ICON] ?? [];
+  // Stored names come from imported data, so only the catalog's own entries are looked up.
+  const shapes = (nodes && Object.hasOwn(nodes, name) ? nodes[name] : nodes?.[FALLBACK_ICON]) ?? [];
   return (
     <svg
       aria-hidden="true"

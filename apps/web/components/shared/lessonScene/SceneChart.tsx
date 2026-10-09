@@ -1,4 +1,4 @@
-import type { LessonScene } from '@shared/lessonScene';
+import { LESSON_SCENE_LIMITS, type LessonScene } from '@shared/lessonScene';
 import { useEffect, useRef } from 'react';
 
 /** Chart geometry inherited from the prototype; colors come from the scene tokens. */
@@ -33,7 +33,10 @@ const readTheme = (host: HTMLElement): ChartTheme => {
     font: css.fontFamily,
     ink: token('--ink'),
     muted: token('--muted'),
-    palette: [0, 1, 2].map(index => token(`--chart-${index}`)),
+    // One --chart-N token per item a scene may hold, so every slice keeps a distinct color.
+    palette: Array.from({ length: LESSON_SCENE_LIMITS.items }, (_, index) =>
+      token(`--chart-${index}`)
+    ),
     surface: token('--surface'),
   };
 };

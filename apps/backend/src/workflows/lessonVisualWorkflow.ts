@@ -98,11 +98,12 @@ export const createLessonVisualWorkflowSchemas = (visualContract: LessonVisualCo
 
 export const LESSON_VISUAL_RETRY_WORKFLOW_ID = 'retry-lesson-visual';
 
-export const {
+const {
   LessonVisualRetryWorkflowResultSchema,
   LessonVisualWorkflowInputSchema,
   LessonVisualWorkflowResultSchema,
 } = createLessonVisualWorkflowSchemas(CurrentLessonVisualContractSchemas);
+export { LessonVisualWorkflowInputSchema };
 
 const LessonVisualWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
   visual: LessonVisualModelConfigSchema,

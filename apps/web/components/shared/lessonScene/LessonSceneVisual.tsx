@@ -52,7 +52,8 @@ const GroupSection = ({ group }: { group: LessonSceneGroup }) => (
     </h3>
     <ul>
       {group.items.map((entry, index) => (
-        <li key={entry}>
+        // biome-ignore lint/suspicious/noArrayIndexKey: entries are model text and may repeat; the list is static
+        <li key={`${index}-${entry}`}>
           <SceneIcon name={group.icons[index] ?? ''} />
           <span>{entry}</span>
         </li>

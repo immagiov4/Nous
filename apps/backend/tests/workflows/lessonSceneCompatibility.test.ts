@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest';
+import * as z from 'zod';
 
+import {
+  LegacyLessonVisualContractSchemas,
+  toLegacyLessonVisualTypes,
+} from '../../src/workflows/lessonGenerationWorkflowSchemas.js';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 
 // Current definitions deployed immediately before lesson scenes (issue #242).
@@ -25,5 +30,29 @@ describe('lesson scene deployment compatibility', () => {
       workflowId,
     });
     expect(registry.resolve(workflowId, definitionHash)).not.toBeNull();
+  });
+
+  test('pre-scene runs read completed sections that already contain scene visuals', () => {
+    const visual = (id: string, render: unknown) => ({
+      createdAt: '2026-10-09T00:00:00.000Z',
+      id,
+      render,
+      slotId: `slot-${id}`,
+    });
+    const legacy = toLegacyLessonVisualTypes({
+      generatedVisuals: [
+        visual('svg', { code: '<svg></svg>', kind: 'svg' }),
+        visual('scene', { kind: 'scene', scene: { type: 'checklist' } }),
+      ],
+      plan: { visualType: 'lesson_scene' },
+    });
+
+    expect(legacy.plan.visualType).toBe('structural_svg');
+    expect(legacy.generatedVisuals.map(entry => entry.id)).toEqual(['svg']);
+    expect(
+      z
+        .array(LegacyLessonVisualContractSchemas.ProjectLessonVisualSchema)
+        .safeParse(legacy.generatedVisuals).success
+    ).toBe(true);
   });
 });

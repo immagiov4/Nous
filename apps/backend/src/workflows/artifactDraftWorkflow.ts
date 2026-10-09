@@ -107,11 +107,12 @@ const createArtifactDraftWorkflowSchemas = (visualContract: LessonVisualContract
   };
 };
 
-export const {
+const {
   ArtifactDraftPlanStateSchema,
   ArtifactDraftWorkflowInputSchema,
   ArtifactDraftWorkflowResultSchema,
 } = createArtifactDraftWorkflowSchemas(CurrentLessonVisualContractSchemas);
+export { ArtifactDraftWorkflowInputSchema, ArtifactDraftWorkflowResultSchema };
 
 type ArtifactDraftPlanState = z.infer<typeof ArtifactDraftPlanStateSchema>;
 

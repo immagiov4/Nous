@@ -53,6 +53,11 @@ describe('lesson scene contract', () => {
   });
 
   test('enforces the shape each form needs', () => {
+    expect(
+      findLessonSceneProblems(
+        scene({ items: [{ detail: '', icon: '', label: ' ', value: 12 }], type: 'number' })
+      )
+    ).toEqual(['Every item needs a label, a detail, and an icon identifier.']);
     expect(findLessonSceneProblems(scene({ items: [], type: 'comparison' }))).toEqual([
       'The comparison form requires exactly two non-empty groups.',
     ]);
@@ -136,6 +141,11 @@ describe('lesson scene contract', () => {
       'Quantitative values must appear in the lesson: peso.',
     ]);
     expect(findLessonSceneProblems(weight(12), 'Le pagine 10-12 lo spiegano.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(120), 'Nel 2024 120 studenti.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(1500000), 'Circa 1.5e6 cellule.')).toEqual([]);
+    expect(findLessonSceneProblems(weight(10200), 'Righe:\n10\n200')).toEqual([
+      'Quantitative values must appear in the lesson: peso.',
+    ]);
     const interval = scene({
       items: [
         { detail: '', icon: '', label: 'minimo', value: 5 },
@@ -189,6 +199,45 @@ describe('lesson scene contract', () => {
     expect(findLessonSceneProblems(quotedFlow, LESSON)).toEqual([
       'The quote must be copied exactly from the lesson.',
     ]);
+    const grounded = 'la competenza è pertinente';
+    const disconnected = scene({
+      diagram: {
+        edges: [
+          { evidence: grounded, from: 'a', kind: 'call', label: 'poi', to: 'b' },
+          { evidence: grounded, from: 'c', kind: 'call', label: 'poi', to: 'd' },
+        ],
+        nodes: ['a', 'b', 'c', 'd'].map(id => ({ id, kind: 'step' as const, label: id })),
+      },
+      items: [],
+      type: 'flowchart',
+    });
+    expect(findLessonSceneProblems(disconnected, LESSON)).toEqual([
+      'Every diagram node must be connected.',
+    ]);
+    const connected = {
+      ...disconnected,
+      diagram: {
+        ...disconnected.diagram,
+        edges: [
+          ...(disconnected.diagram?.edges ?? []),
+          { evidence: grounded, from: 'b', kind: 'call' as const, label: 'poi', to: 'c' },
+        ],
+        nodes: disconnected.diagram?.nodes ?? [],
+      },
+    };
+    expect(findLessonSceneProblems(connected, LESSON)).toEqual([]);
+    expect(findLessonSceneProblems({ ...connected, items: scene({}).items })).toEqual([
+      'A diagram form keeps its content in diagram: items and groups must be empty.',
+    ]);
+    // Stored scenes are checked without the lesson text but still need their quotations.
+    const unquoted = {
+      ...connected,
+      diagram: {
+        ...connected.diagram,
+        edges: connected.diagram.edges.map(edge => ({ ...edge, evidence: '' })),
+      },
+    };
+    expect(isLessonScene(unquoted)).toBe(false);
   });
 
   test('requires the quote form to show a quotation', () => {

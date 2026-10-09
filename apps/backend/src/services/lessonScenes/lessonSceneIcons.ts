@@ -48,7 +48,7 @@ const ICON_INDEX_DIRECTORY =
 let tablerIconsPromise: Promise<TablerIcon[]> | undefined;
 
 /** Outline Tabler icons sorted by name, so index rows are stable across runs. */
-export const loadTablerIcons = (): Promise<TablerIcon[]> => {
+const loadTablerIcons = (): Promise<TablerIcon[]> => {
   tablerIconsPromise ??= readTablerPackageFile('icons.json').then(text =>
     Object.values(JSON.parse(text) as Record<string, TablerIconMetadata>)
       .filter(icon => icon.styles?.outline)
@@ -114,28 +114,52 @@ const readTablerVersion = (): Promise<string> => {
 const cacheFile = async (model: string): Promise<string> =>
   path.join(
     ICON_INDEX_DIRECTORY,
-    `tabler-${await readTablerVersion()}-${model.replaceAll(/[^a-z0-9.-]/giu, '_')}.bin`
+    `tabler-${await readTablerVersion()}-${encodeURIComponent(model)}.bin`
   );
 
+const CACHE_HEADER_LENGTH_BYTES = 4;
+
+const parseCacheHeader = (bytes: Buffer): { dimensions: number; names: string[] } | null => {
+  if (bytes.length < CACHE_HEADER_LENGTH_BYTES) return null;
+  const headerLength = bytes.readUInt32LE(0);
+  try {
+    const header: unknown = JSON.parse(
+      bytes
+        .subarray(CACHE_HEADER_LENGTH_BYTES, CACHE_HEADER_LENGTH_BYTES + headerLength)
+        .toString('utf8')
+    );
+    const { dimensions, names } = header as { dimensions?: unknown; names?: unknown };
+    return Number.isInteger(dimensions) &&
+      (dimensions as number) > 0 &&
+      Array.isArray(names) &&
+      names.every(name => typeof name === 'string')
+      ? { dimensions: dimensions as number, names }
+      : null;
+  } catch {
+    return null;
+  }
+};
+
 // Cache layout: a 4-byte JSON header length, the JSON header {names, dimensions}, then float32 rows.
+// A file that does not match this layout or the installed catalog is a cache miss and is rebuilt.
 const readCachedIndex = async (
   model: string,
   icons: readonly TablerIcon[]
 ): Promise<IconIndex | null> => {
   const bytes = await readFile(await cacheFile(model)).catch(() => null);
-  if (!bytes) return null;
-  const headerLength = bytes.readUInt32LE(0);
-  const header = JSON.parse(bytes.subarray(4, 4 + headerLength).toString('utf8')) as {
-    dimensions: number;
-    names: string[];
-  };
+  const header = bytes ? parseCacheHeader(bytes) : null;
   if (
+    !bytes ||
+    !header ||
     header.names.length !== icons.length ||
     header.names.some((name, index) => name !== icons[index]?.name)
   ) {
     return null;
   }
-  const data = bytes.subarray(4 + headerLength);
+  const data = bytes.subarray(CACHE_HEADER_LENGTH_BYTES + bytes.readUInt32LE(0));
+  if (data.byteLength !== icons.length * header.dimensions * Float32Array.BYTES_PER_ELEMENT) {
+    return null;
+  }
   const floats = new Float32Array(
     data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
   );
@@ -152,7 +176,7 @@ const writeCachedIndex = async (model: string, index: IconIndex): Promise<void> 
   const header = Buffer.from(
     JSON.stringify({ dimensions, names: index.icons.map(icon => icon.name) })
   );
-  const headerLength = Buffer.alloc(4);
+  const headerLength = Buffer.alloc(CACHE_HEADER_LENGTH_BYTES);
   headerLength.writeUInt32LE(header.length, 0);
   const rows = Buffer.concat(
     index.vectors.map(vector => Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength))

@@ -50,9 +50,7 @@ describe('lesson scene visual', () => {
       'La fiducia resta aperta alla verifica.'
     );
     await waitFor(() =>
-      expect(
-        container.querySelector('li svg.meaning-icon path, li svg.meaning-icon circle')
-      ).not.toBeNull()
+      expect(container.querySelector('li svg.meaning-icon path[d="M22 9l-10 -4"]')).not.toBeNull()
     );
   });
 

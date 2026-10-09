@@ -215,9 +215,30 @@ const isIconSlot = (value: unknown): boolean =>
   value === '' || (typeof value === 'string' && ICON_NAME_PATTERN.test(value));
 const isSceneType = (value: unknown): value is LessonSceneType =>
   typeof value === 'string' && (LESSON_SCENE_TYPES as readonly string[]).includes(value);
+// Evidence is required even without the lesson text, so stored scenes keep their quotations.
 const includesEvidence = (source: string | undefined, evidence: unknown): boolean =>
-  source === undefined ||
-  (typeof evidence === 'string' && evidence.trim() !== '' && source.includes(evidence));
+  typeof evidence === 'string' &&
+  evidence.trim() !== '' &&
+  (source === undefined || source.includes(evidence));
+
+/** Whether every node is reachable from the first one, ignoring connection direction. */
+const isConnectedGraph = (
+  nodes: readonly LessonSceneDiagramNode[],
+  edges: readonly LessonSceneDiagramEdge[]
+): boolean => {
+  const reached = new Set(nodes.slice(0, 1).map(node => node.id));
+  const pending = [...reached];
+  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
+    for (const edge of edges) {
+      const neighbor = edge.from === id ? edge.to : edge.to === id ? edge.from : undefined;
+      if (neighbor !== undefined && !reached.has(neighbor)) {
+        reached.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+  }
+  return reached.size === nodes.length;
+};
 
 const findDiagramProblems = (
   diagram: unknown,
@@ -250,7 +271,6 @@ const findDiagramProblems = (
     }
     ids.add(node.id);
   }
-  const connected = new Set<string>();
   for (const edge of edges) {
     if (
       !isRecord(edge) ||
@@ -267,12 +287,12 @@ const findDiagramProblems = (
     if (!includesEvidence(source, edge.evidence)) {
       problems.push(`The connection "${edge.label}" needs an exact quotation from the lesson.`);
     }
-    connected.add(edge.from);
-    connected.add(edge.to);
   }
-  if (connected.size !== ids.size) problems.push('Every diagram node must be connected.');
   const typedEdges = edges as LessonSceneDiagramEdge[];
   const typedNodes = nodes as LessonSceneDiagramNode[];
+  if (!isConnectedGraph(typedNodes, typedEdges)) {
+    problems.push('Every diagram node must be connected.');
+  }
   for (const node of typedNodes.filter(candidate => candidate.kind === 'decision')) {
     if (typedEdges.some(edge => edge.from === node.id && !edge.label.trim())) {
       problems.push('Branches leaving a decision need condition labels.');
@@ -294,7 +314,12 @@ const findItemProblems = (items: unknown): string[] => {
     return [`items must be an array of at most ${LESSON_SCENE_LIMITS.items} entries.`];
   }
   const valid = items.every(
-    item => isRecord(item) && isText(item.label) && isText(item.detail) && isIconSlot(item.icon)
+    item =>
+      isRecord(item) &&
+      isText(item.label) &&
+      item.label.trim() !== '' &&
+      isText(item.detail) &&
+      isIconSlot(item.icon)
   );
   return valid ? [] : ['Every item needs a label, a detail, and an icon identifier.'];
 };
@@ -345,12 +370,15 @@ const findRelationProblems = (relation: unknown, source: string | undefined): st
     : ['A relation other than versus needs an exact quotation from the lesson.'];
 };
 
-// Numbers written in the lesson: digit runs joined by dots, commas, or a space before a
-// three-digit group, in either the Italian (1.234,5) or the English (1,234.5) convention. A minus
-// sign counts only when it does not follow a word or a number, so ranges such as 10-12 stay
-// positive.
-const SOURCE_NUMBER_PATTERN = /(?:(?<![\p{L}\p{N}])[-−])?\d+(?:[.,]\d+|\s\d{3}(?!\d))*/gu;
+// Numbers written in the lesson: digit runs joined by dots, commas, or an inline space before a
+// three-digit group, in either the Italian (1.234,5) or the English (1,234.5) convention, with an
+// optional exponent (1.5e6). A minus sign counts only when it does not follow a word or a number,
+// so ranges such as 10-12 stay positive.
+const SOURCE_NUMBER_PATTERN =
+  /(?:(?<![\p{L}\p{N}])[-−])?\d+(?:[.,]\d+|[ \u00A0\u202F]\d{3}(?!\d))*(?:[eE][-+]?\d+)?/gu;
 const MINUS_SIGN_PATTERN = /^[-−]/u;
+const INLINE_SPACE_PATTERN = /[ \u00A0\u202F]/u;
+const EXPONENT_PATTERN = /[eE]([-+]?\d+)$/u;
 
 const THOUSANDS_GROUP_LENGTH = 3;
 
@@ -360,8 +388,7 @@ const THOUSANDS_GROUP_LENGTH = 3;
  * thousands group or a decimal point, so both readings are kept. A repeated separator whose
  * groups are not thousands groups (1,2,3) is a list of separate numbers.
  */
-const readNumberToken = (token: string): number[] => {
-  const digits = token.replaceAll(/\s/gu, '');
+const readNumberToken = (digits: string): number[] => {
   const separators = [...digits].filter(character => character === '.' || character === ',');
   if (separators.length === 0) return [Number(digits)];
   const groups = digits.split(/[.,]/u);
@@ -382,13 +409,24 @@ const readNumberToken = (token: string): number[] => {
   return lastGroup.length === THOUSANDS_GROUP_LENGTH ? [asInteger, asDecimal] : [asDecimal];
 };
 
+/**
+ * Readings of one matched token. A space before three digits either groups thousands (1 234) or
+ * separates two numbers (2024 120), so both the joined and the separate readings are kept.
+ */
+const readSourceToken = (token: string): number[] => {
+  const sign = MINUS_SIGN_PATTERN.test(token) ? -1 : 1;
+  const unsigned = token.replace(MINUS_SIGN_PATTERN, '');
+  const exponent = EXPONENT_PATTERN.exec(unsigned)?.[1];
+  const parts = unsigned.replace(EXPONENT_PATTERN, '').split(INLINE_SPACE_PATTERN);
+  const readings = [
+    ...readNumberToken(parts.join('')),
+    ...(parts.length > 1 ? parts.flatMap(readNumberToken) : []),
+  ];
+  return readings.map(value => sign * (exponent ? Number(`${value}e${exponent}`) : value));
+};
+
 const readSourceNumbers = (source: string): Set<number> =>
-  new Set(
-    [...source.matchAll(SOURCE_NUMBER_PATTERN)].flatMap(([token]) => {
-      const sign = MINUS_SIGN_PATTERN.test(token) ? -1 : 1;
-      return readNumberToken(token.replace(MINUS_SIGN_PATTERN, '')).map(value => sign * value);
-    })
-  );
+  new Set([...source.matchAll(SOURCE_NUMBER_PATTERN)].flatMap(([token]) => readSourceToken(token)));
 
 const findNumericProblems = (
   scene: Record<string, unknown>,
@@ -472,7 +510,16 @@ export const findLessonSceneProblems = (value: unknown, source?: string): string
       ? ['The quote must be copied exactly from the lesson.']
       : [];
   if (LESSON_SCENE_DIAGRAM_TYPES.has(type)) {
-    return [...findDiagramProblems(value.diagram, type, source), ...quoteProblems];
+    // The renderer draws only the diagram, so items or groups would be silently dropped.
+    const unusedContent =
+      (value.items as unknown[]).length || (value.groups as unknown[]).length
+        ? ['A diagram form keeps its content in diagram: items and groups must be empty.']
+        : [];
+    return [
+      ...findDiagramProblems(value.diagram, type, source),
+      ...unusedContent,
+      ...quoteProblems,
+    ];
   }
   return [
     ...findShapeProblems(value, type),
@@ -489,13 +536,6 @@ export const isLessonScene = (value: unknown): value is LessonScene =>
 export type LessonSceneIconSlot =
   | { readonly item: number; readonly kind: 'item' }
   | { readonly entry: number; readonly group: number; readonly kind: 'group' };
-
-export const listLessonSceneIconSlots = (scene: LessonScene): LessonSceneIconSlot[] => [
-  ...scene.items.map((_, item) => ({ item, kind: 'item' as const })),
-  ...scene.groups.flatMap((group, groupIndex) =>
-    group.items.map((_, entry) => ({ entry, group: groupIndex, kind: 'group' as const }))
-  ),
-];
 
 // Only labels enter the Mermaid grammar; identifiers, shapes, and arrows are generated here.
 const mermaidLabel = (text: string): string =>

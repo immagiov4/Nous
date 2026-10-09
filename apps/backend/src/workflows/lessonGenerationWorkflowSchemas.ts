@@ -421,12 +421,22 @@ export const LegacyLessonVisualContractSchemas = createLessonVisualContractSchem
   visualTypes: LEGACY_LESSON_VISUAL_TYPES,
 });
 
+const isStoredSceneVisual = (value: unknown): boolean =>
+  typeof value === 'object' &&
+  value !== null &&
+  (value as { render?: { kind?: unknown } }).render?.kind === 'scene';
+
 /**
  * Historical definitions reject `lesson_scene`, which shared planning services now produce. Runs
  * resumed on those definitions map it to the pre-scene abstract type and keep their old pipeline.
+ * Stored scene visuals have no legacy form: a resumed run that reads a section already completed
+ * by a current run omits them from its result, as the completed-lesson readback already omits
+ * entries its schema cannot parse. The persisted section is unchanged.
  */
 export const toLegacyLessonVisualTypes = <T>(value: T): T => {
-  if (Array.isArray(value)) return value.map(toLegacyLessonVisualTypes) as T;
+  if (Array.isArray(value)) {
+    return value.filter(entry => !isStoredSceneVisual(entry)).map(toLegacyLessonVisualTypes) as T;
+  }
   if (typeof value !== 'object' || value === null) return value;
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [
@@ -447,9 +457,6 @@ export const {
   LessonContentDraftSchema,
   LessonResultBlockSchema,
   LessonVisualPlanningDecisionSchema,
-  LessonVisualRetryPlanSchema,
-  PreviousLessonContentDraftSchema,
-  PreviousLessonResultBlockSchema,
   ProjectLessonVisualSchema,
   ProjectVisualSchema,
 } = CurrentLessonVisualContractSchemas;

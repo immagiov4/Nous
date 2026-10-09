@@ -17,7 +17,7 @@ export type ModelProviderOverrides = Partial<Record<ModelProviderSlot, AiProvide
 export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
 export const DEFAULT_TTS_VOICE = 'Zephyr';
 export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-lite-image';
-export const DEFAULT_EMBEDDING_MODEL = 'google/gemini-embedding-2';
+const DEFAULT_EMBEDDING_MODEL = 'google/gemini-embedding-2';
 export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2';
 export const DEFAULT_OPENAI_RESEARCH_MODEL = 'gpt-5-search-api';
 

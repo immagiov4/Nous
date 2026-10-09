@@ -2,15 +2,14 @@ import { buildLessonSceneDiagramSource, type LessonScene } from '@shared/lessonS
 import { useEffect, useRef, useState } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { nextMermaidRenderId, runMermaidTask } from '../../../utils/visuals/mermaidRenderer.ts';
 
 // Below this width a flowchart runs top-down so labels keep their size instead of shrinking.
 const VERTICAL_LAYOUT_MAX_WIDTH = 560;
 
-let mermaidRenderQueue: Promise<unknown> = Promise.resolve();
-let mermaidRenderSerial = 0;
+type Mermaid = Parameters<Parameters<typeof runMermaidTask>[0]>[0];
 
-const configureMermaid = async (host: HTMLElement) => {
-  const mermaid = (await import('mermaid')).default;
+const configureMermaid = (mermaid: Mermaid, host: HTMLElement): void => {
   const css = getComputedStyle(host);
   const token = (name: string) => css.getPropertyValue(name).trim();
   mermaid.initialize({
@@ -60,7 +59,6 @@ const configureMermaid = async (host: HTMLElement) => {
       tertiaryColor: token('--paper'),
     },
   });
-  return mermaid;
 };
 
 /** Mermaid-rendered flowchart, sequence, or journey; the connection list stays available as text. */
@@ -86,14 +84,12 @@ export const SceneDiagram = ({
       const key = scene.type === 'sequence' ? 'sequence' : direction;
       if (key === renderedKey) return;
       renderedKey = key;
-      // Mermaid keeps global render state, so diagrams render one at a time.
-      mermaidRenderQueue = mermaidRenderQueue.then(async () => {
+      void runMermaidTask(async mermaid => {
         if (disposed || renderedKey !== key) return;
         try {
-          const mermaid = await configureMermaid(host);
-          mermaidRenderSerial += 1;
+          configureMermaid(mermaid, host);
           const { svg } = await mermaid.render(
-            `lesson-scene-diagram-${mermaidRenderSerial}`,
+            nextMermaidRenderId(),
             buildLessonSceneDiagramSource(scene, direction)
           );
           if (disposed || renderedKey !== key) return;
@@ -107,7 +103,10 @@ export const SceneDiagram = ({
           setStatus('ready');
         } catch (error) {
           console.error('Lesson scene diagram rendering failed.', error);
-          if (!disposed) setStatus('failed');
+          if (disposed) return;
+          // A previous scene's drawing must not stay visible beside this scene's text fallback.
+          host.replaceChildren();
+          setStatus('failed');
         }
       });
     };
