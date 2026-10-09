@@ -151,16 +151,19 @@ The image must be self-contained, accurate, and immediately readable. Do not add
 FACTUAL LESSON CONTEXT
 ${input.lessonMarkdown.slice(0, 3_000)}`;
 
+export const LESSON_SCENE_CLOSING_TEXT_RULE = `A lesson scene needs no closing text by default. Add a note only when a necessary limit would otherwise be missed, or a question only when it is essential to the reader's task. Never add both, repeat information already visible, or append generic reminders. Leave both fields empty when the scene is sufficient. In quote and decision forms, quote is the main content rather than a closing question.`;
+
 export const LESSON_VISUAL_PLANNING_RULES = `- ${GENERATED_VISUAL_RELEVANCE_RULE}
 - ${INTERACTIVE_VISUAL_VALUE_RULE}
 - ${VISUAL_FORMAT_SELECTION_RULE}
 - For automatic generation, normally plan zero or one artifact. Plan two only when they answer different, complementary pedagogical questions, and three only when all are indispensable. Never produce aesthetic variants of the same content.
 - Format variety is never a goal. Two or three raster images are correct when they are the best pedagogical solution.
-- Do not simulate images with ASCII art, monospace text, cells, coordinates, geometric boxes, or SVG. If concrete appearance matters, use illustrative_image.
+- Do not simulate images with ASCII art, monospace text, cells, coordinates, geometric boxes, or scenes. If concrete appearance matters, use illustrative_image.
 - Every plan must stay within the local section where it is placed. Do not preview concepts from later sections or merge distant topics.
 - The visual must be understandable within seconds using natural terms already introduced in nearby text. Do not use invented jargon, esoteric labels, ambiguous nominal formulas, or controls whose result cannot be observed.
 - If the lesson presents a set of equivalent elements, the visual must represent all of them. Use single_complex only when one element is objectively more complex, and justify the exception in reason.
 - Do not add narration, takeaways, recaps, or concluding boxes inside the visual. Visible text must help read entities, states, relationships, or controls.
+- ${LESSON_SCENE_CLOSING_TEXT_RULE}
 - Scale the layout to the number of elements. With many elements, use compact grids or columns, minimize graphical entities, and shorten labels instead of compressing the content.
 - Return from zero to ${MAX_GENERATED_VISUALS_PER_LESSON} plans.`;
 
@@ -170,12 +173,8 @@ Given the final lesson text, decide which generated visual representations are g
 
 Choose exactly one type for each plan:
 - illustrative_image: a raster illustration for physical or stylized reality, dimensional form, lighting, shading, volume, perspective, materials, surfaces, texture, anatomy, gestures, objects, scenes, places, and phenomena. It may also use a diagram-like composition with arrows and labels when they help read the image.
-- flowchart_svg: abstract relationships among textual steps in a process, pipeline, or decision tree only. Nodes cannot depict the visual states produced by the steps.
-- structural_svg: a simple informational diagram of containment, architecture, layers, or parts within a system only.
+- lesson_scene: an abstract structure, relation, or quantity shown with a form from the scene catalog: definitions, parts, comparisons, checklists, steps, timelines, hierarchies, cycles, quantities and charts from numbers stated in the text, flowcharts, message sequences, and journeys. Use it when labels, icons, and layout clarify the concept.
 - interactive_html: an HTML, CSS, and JavaScript lab where real interaction is indispensable to explore, modify, or compare the concept.
-- chart_html: quantitative data, numerical comparisons, distributions, and trends.
-- mermaid_erd: entity relationship diagrams only.
-- mermaid_class: classes, inheritance, interfaces, and associations only.
 - none: no useful visual, or the lesson is already sufficiently visual.
 
 Rules:
@@ -184,7 +183,6 @@ ${LESSON_VISUAL_PLANNING_RULES}
 - Infer the language from the final lesson text. The visual must use the same language as the lesson.
 - If "PDF images already integrated" is "yes," treat them as primary visual material. Add a generated visual only when it answers a distinct pedagogical question not covered by the source images. Otherwise plan nothing.
 - Placement is part of the pedagogical choice. When generating a visual, set "anchor_heading" to the EXACT heading under which the text uses or introduces that concept. Use null only for genuinely concluding visuals.
-- Use Mermaid only for ER and class diagrams.
 - Follow the output format requested at the end exactly.`;
 
 const normalizeHeadingTitle = (value: string): string =>

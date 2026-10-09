@@ -9,6 +9,7 @@ import {
   mapPreviousSublessonIdempotencyInput,
 } from '../../src/workflows/lessonGenerationStart.js';
 import { createLessonGenerationWorkflow } from '../../src/workflows/lessonGenerationWorkflow.js';
+import { GlobalModelConfigSchema } from '../../src/workflows/modelConfigSchema.js';
 
 const models = getGlobalModelConfig();
 const config = {
@@ -57,7 +58,7 @@ describe('lesson generation workflow start', () => {
     expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
-          models,
+          models: GlobalModelConfigSchema.parse(models),
           visual: resolveLessonVisualModelConfig(models),
         }),
         dedupeKey: lessonGenerationDedupeKey('project-1'),

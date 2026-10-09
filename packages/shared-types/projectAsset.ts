@@ -1,3 +1,5 @@
+import { isLessonScene, type LessonScene } from './lessonScene';
+
 export interface ProjectAssetRef {
   readonly byteSize: number;
   readonly hash: string;
@@ -105,6 +107,11 @@ export type ProjectVisual =
       readonly kind: 'html';
     }
   | {
+      readonly kind: 'scene';
+      readonly scene: LessonScene;
+    }
+  // Legacy kinds: still readable, never produced by new generation.
+  | {
       readonly code: string;
       readonly kind: 'svg';
     }
@@ -136,6 +143,7 @@ const isValidProjectVisual = (value: unknown): value is ProjectVisual => {
       validateProjectAssetHtmlReferences(value.code, value.embeddedAssets).valid
     );
   }
+  if (value.kind === 'scene') return isLessonScene(value.scene);
   return (value.kind === 'mermaid' || value.kind === 'svg') && isNonEmptyString(value.code);
 };
 

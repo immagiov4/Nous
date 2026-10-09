@@ -126,6 +126,13 @@ export const resolveProjectVisual = async ({
   if (visual.render.kind === 'html') {
     return resolveHtmlVisual(projectId, visual, signal);
   }
+  if (visual.render.kind === 'scene') {
+    return {
+      release: () => {},
+      trustedImageUrl: false,
+      visual: { ...toLegacyVisual(visual, 'scene', ''), scene: visual.render.scene },
+    };
+  }
   if (visual.render.kind !== 'image') {
     return {
       release: () => {},

@@ -135,6 +135,7 @@ const VISUAL_TYPES = new Set([
   'mermaid_class',
   'mermaid_erd',
   'structural_svg',
+  'lesson_scene',
 ]);
 const VISUAL_COMPLEXITIES = new Set(['simple', 'moderate', 'complex']);
 const VISUAL_COVERAGE = new Set(['all_elements', 'single_complex', 'complete_synthesis', 'none']);

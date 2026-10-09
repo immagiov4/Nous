@@ -1,6 +1,7 @@
 import type { CoursePlanningPreferences } from '@shared/coursePlanningControls';
 import type { LearningArtifactKind } from '@shared/learningArtifact';
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
+import type { LessonScene } from '@shared/lessonScene';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import type { ProjectDocumentImageAsset, ProjectLessonVisual } from '@shared/projectAsset';
 import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
@@ -357,13 +358,15 @@ export interface LessonLearningAid {
 
 export type GeneratedRasterMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
-export type LessonGeneratedVisualKind = 'svg' | 'html' | 'image' | 'mermaid';
+export type LessonGeneratedVisualKind = 'svg' | 'html' | 'image' | 'mermaid' | 'scene';
 
 export interface LessonGeneratedVisual {
   id: string;
   title: string;
   kind: LessonGeneratedVisualKind;
   code: string;
+  /** Present for scene visuals, which the reader renders from data instead of code. */
+  scene?: LessonScene;
   diagramType?: 'erDiagram' | 'classDiagram';
   altText?: string;
   mediaType?: GeneratedRasterMediaType;
@@ -495,7 +498,8 @@ export type LessonVisualPlanType =
   | 'interactive_html'
   | 'mermaid_class'
   | 'mermaid_erd'
-  | 'structural_svg';
+  | 'structural_svg'
+  | 'lesson_scene';
 
 export interface LessonVisualRetryPlan {
   altText?: string;

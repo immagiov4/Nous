@@ -11,6 +11,7 @@ import { buildGeneratedVisualLearningArtifactPayload } from '../../utils/learnin
 import {
   getStoredLessonVisualCode,
   getStoredLessonVisualKind,
+  getStoredLessonVisualScene,
   isProjectLessonVisual,
 } from '../../utils/visuals/storedLessonVisual.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
@@ -69,7 +70,11 @@ const describeSourceArtifact = (sourceArtifact: LearningArtifactRenderPayload): 
   const kind = getStoredLessonVisualKind(sourceArtifact.visual);
   const code = getStoredLessonVisualCode(sourceArtifact.visual);
   lines.push(`Tipo: ${kind}`);
-  if (kind === 'image' || !code || EMBEDDED_DATA_URL_PATTERN.test(code)) {
+  const scene = getStoredLessonVisualScene(sourceArtifact.visual);
+  if (scene) {
+    lines.push(`Scena attuale:
+${JSON.stringify(scene)}`);
+  } else if (kind === 'image' || !code || EMBEDDED_DATA_URL_PATTERN.test(code)) {
     lines.push(
       `Descrizione attuale: ${sourceArtifact.visual.altText || sourceArtifact.visual.title || sourceArtifact.summary.title}`
     );

@@ -5,7 +5,8 @@ import {
   CourseLessonSchema,
 } from './courseGenerationWorkflowContract.js';
 import {
-  LessonContentDraftSchema,
+  CurrentLessonVisualContractSchemas,
+  LegacyLessonVisualContractSchemas,
   LessonDocumentAssetsSchema,
   LessonGenerationInputDataSchema,
   LessonGenerationWarningSchema,
@@ -16,17 +17,13 @@ import {
   LessonQuizSchema,
   LessonResearchDossierSchema,
   LessonResearchSummarySchema,
-  LessonResultBlockSchema,
-  LessonVisualPlanningDecisionSchema,
+  type LessonVisualContractSchemas,
   LessonYouTubePlanningSchema,
   PreviousEvidenceLessonResearchDossierSchema,
-  PreviousLessonContentDraftSchema,
   PreviousLessonPdfImageMetadataSchema,
   PreviousLessonQuizSchema,
   PreviousLessonResearchDossierSchema,
   PreviousLessonResearchSummarySchema,
-  PreviousLessonResultBlockSchema,
-  ProjectLessonVisualSchema,
   ResearchSourceSchema,
   YouTubeResearchOutcomeSchema,
 } from './lessonGenerationWorkflowSchemas.js';
@@ -103,31 +100,32 @@ const StepFailureBaseShape = {
   code: LessonIdentifierSchema,
   message: LessonIdentifierSchema,
 };
-const LessonVisualFanOutResultSchema = z.discriminatedUnion('status', [
-  z.object({
-    assetOwners: z.array(LessonAssetOwnerSchema),
-    slotId: LessonIdentifierSchema,
-    status: z.literal('completed'),
-    visual: ProjectLessonVisualSchema,
-  }),
-  z.object({
-    failure: z.discriminatedUnion('kind', [
-      z.object({
-        ...StepFailureBaseShape,
-        feedback: LessonIdentifierSchema,
-        kind: z.literal('corrective'),
-      }),
-      z.object({
-        ...StepFailureBaseShape,
-        kind: z.literal('operational'),
-        retryAfterMs: z.number().int().nonnegative().optional(),
-      }),
-      z.object({ ...StepFailureBaseShape, kind: z.literal('permanent') }),
-    ]),
-    slotId: LessonIdentifierSchema,
-    status: z.literal('failed'),
-  }),
-]);
+const createLessonVisualFanOutResultSchema = (visualContract: LessonVisualContractSchemas) =>
+  z.discriminatedUnion('status', [
+    z.object({
+      assetOwners: z.array(LessonAssetOwnerSchema),
+      slotId: LessonIdentifierSchema,
+      status: z.literal('completed'),
+      visual: visualContract.ProjectLessonVisualSchema,
+    }),
+    z.object({
+      failure: z.discriminatedUnion('kind', [
+        z.object({
+          ...StepFailureBaseShape,
+          feedback: LessonIdentifierSchema,
+          kind: z.literal('corrective'),
+        }),
+        z.object({
+          ...StepFailureBaseShape,
+          kind: z.literal('operational'),
+          retryAfterMs: z.number().int().nonnegative().optional(),
+        }),
+        z.object({ ...StepFailureBaseShape, kind: z.literal('permanent') }),
+      ]),
+      slotId: LessonIdentifierSchema,
+      status: z.literal('failed'),
+    }),
+  ]);
 
 const createLessonGenerationDurableSchemaSet = ({
   evidence = false,
@@ -139,16 +137,22 @@ const createLessonGenerationDurableSchemaSet = ({
   lessonContentDraftSchema,
   lessonQuizSchema,
   lessonResultBlockSchema,
+  visualContract,
 }: {
   evidence?: boolean;
   routing?: boolean;
+  visualContract: LessonVisualContractSchemas;
   pdfImageMetadataSchema: typeof LessonPdfImageMetadataSchema;
   documentAssetsSchema: typeof LessonDocumentAssetsSchema;
   lessonResearchSummarySchema: typeof LessonResearchSummarySchema;
   lessonResearchDossierSchema: z.ZodType<z.infer<typeof LessonResearchDossierSchema>>;
-  lessonContentDraftSchema: z.ZodType<z.infer<typeof LessonContentDraftSchema>>;
+  lessonContentDraftSchema: z.ZodType<
+    z.infer<typeof CurrentLessonVisualContractSchemas.LessonContentDraftSchema>
+  >;
   lessonQuizSchema: z.ZodType<z.infer<typeof LessonQuizSchema>>;
-  lessonResultBlockSchema: z.ZodType<z.infer<typeof LessonResultBlockSchema>>;
+  lessonResultBlockSchema: z.ZodType<
+    z.infer<typeof CurrentLessonVisualContractSchemas.LessonResultBlockSchema>
+  >;
 }) => {
   const routingShape = { researchRouting: ResearchSourceRoutingSchema.optional() };
   const sourceSchema = routing
@@ -234,25 +238,25 @@ const createLessonGenerationDurableSchemaSet = ({
   const LessonVisualFanOutStateSchema = z.object({
     lesson: LessonAidsStateSchema,
     stage: z.literal('visual-results'),
-    visualResults: z.array(LessonVisualFanOutResultSchema),
+    visualResults: z.array(createLessonVisualFanOutResultSchema(visualContract)),
   });
   const LessonVisualsStateSchema = LessonAidsStateSchema.extend({
     content: LessonIdentifierSchema,
     contentBlocks: z.array(lessonResultBlockSchema),
     documentAssets: documentAssetsSchema.nullable(),
-    generatedVisuals: z.array(ProjectLessonVisualSchema),
+    generatedVisuals: z.array(visualContract.ProjectLessonVisualSchema),
     imageRefs: z.array(LessonPdfImageReferenceSchema),
     quiz: z.array(lessonQuizSchema),
     stage: z.literal('visuals'),
     visualAssetOwners: z.array(LessonAssetOwnerSchema),
-    visualPlanningDecision: LessonVisualPlanningDecisionSchema,
+    visualPlanningDecision: visualContract.LessonVisualPlanningDecisionSchema,
   });
   const LessonGenerationWorkflowResultSchema = z.object({
     alreadyCompleted: z.boolean().optional(),
     content: LessonIdentifierSchema,
     contentBlocks: z.array(lessonResultBlockSchema),
     documentAssets: documentAssetsSchema.nullable().optional(),
-    generatedVisuals: z.array(ProjectLessonVisualSchema),
+    generatedVisuals: z.array(visualContract.ProjectLessonVisualSchema),
     imageRefs: z.array(LessonPdfImageReferenceSchema),
     learningAids: z.array(LessonLearningAidSchema),
     projectId: LessonIdentifierSchema,
@@ -260,7 +264,7 @@ const createLessonGenerationDurableSchemaSet = ({
     quiz: z.array(lessonQuizSchema),
     researchDossier: lessonResearchDossierSchema.optional(),
     sectionId: LessonIdentifierSchema,
-    visualPlanningDecision: LessonVisualPlanningDecisionSchema.optional(),
+    visualPlanningDecision: visualContract.LessonVisualPlanningDecisionSchema.optional(),
     warnings: z.array(LessonGenerationWarningSchema),
   });
   const LessonGenerationPreparationOutcomeSchema = z.discriminatedUnion('kind', [
@@ -290,6 +294,7 @@ const createLessonGenerationDurableSchemaSet = ({
   });
 
   return {
+    evidence,
     LessonAidsStateSchema,
     LessonDraftStateSchema,
     LessonGenerationPreparationOutcomeSchema,
@@ -303,38 +308,52 @@ const createLessonGenerationDurableSchemaSet = ({
     LessonYouTubePlanStateSchema,
     LessonYouTubeSearchStateSchema,
     LessonYouTubeStateSchema,
+    routing,
+    visualContract,
   };
 };
 
-const currentLessonSchemas = {
+// Every historical definition predates lesson scenes and keeps the legacy visual contract.
+const legacyVisualLessonSchemas = {
   documentAssetsSchema: LessonDocumentAssetsSchema,
-  lessonContentDraftSchema: LessonContentDraftSchema,
+  lessonContentDraftSchema: LegacyLessonVisualContractSchemas.LessonContentDraftSchema,
   lessonQuizSchema: LessonQuizSchema,
   lessonResearchDossierSchema: PreviousEvidenceLessonResearchDossierSchema,
   lessonResearchSummarySchema: LessonResearchSummarySchema,
-  lessonResultBlockSchema: LessonResultBlockSchema,
+  lessonResultBlockSchema: LegacyLessonVisualContractSchemas.LessonResultBlockSchema,
   pdfImageMetadataSchema: LessonPdfImageMetadataSchema,
+  visualContract: LegacyLessonVisualContractSchemas,
 };
 
 export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
-  ...currentLessonSchemas,
+  ...legacyVisualLessonSchemas,
   evidence: true,
+  lessonContentDraftSchema: CurrentLessonVisualContractSchemas.LessonContentDraftSchema,
   lessonResearchDossierSchema: LessonResearchDossierSchema,
+  lessonResultBlockSchema: CurrentLessonVisualContractSchemas.LessonResultBlockSchema,
   routing: true,
+  visualContract: CurrentLessonVisualContractSchemas,
 });
+export const PreviousPreSceneLessonGenerationDurableSchemaSet =
+  createLessonGenerationDurableSchemaSet({
+    ...legacyVisualLessonSchemas,
+    evidence: true,
+    lessonResearchDossierSchema: LessonResearchDossierSchema,
+    routing: true,
+  });
 export const PreviousEvidenceLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet({
-    ...currentLessonSchemas,
+    ...legacyVisualLessonSchemas,
     routing: true,
   });
 export const PreviousRoutingLessonGenerationDurableSchemaSet =
-  createLessonGenerationDurableSchemaSet(currentLessonSchemas);
+  createLessonGenerationDurableSchemaSet(legacyVisualLessonSchemas);
 
 const previousQuizLessonSchemas = {
-  ...currentLessonSchemas,
-  lessonContentDraftSchema: PreviousLessonContentDraftSchema,
+  ...legacyVisualLessonSchemas,
+  lessonContentDraftSchema: LegacyLessonVisualContractSchemas.PreviousLessonContentDraftSchema,
   lessonQuizSchema: PreviousLessonQuizSchema,
-  lessonResultBlockSchema: PreviousLessonResultBlockSchema,
+  lessonResultBlockSchema: LegacyLessonVisualContractSchemas.PreviousLessonResultBlockSchema,
 };
 
 export const PreviousQuizExplanationLessonGenerationDurableSchemaSet =

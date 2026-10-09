@@ -10,6 +10,7 @@ import {
   GraduationCap,
   Image,
   KeyRound,
+  LayoutGrid,
   Link2,
   type LucideIcon,
   MessageSquareText,
@@ -21,6 +22,7 @@ import {
   Settings2,
   Shapes,
   ShieldCheck,
+  Sparkles,
   TrendingUp,
   UsersRound,
   Volume2,
@@ -154,7 +156,13 @@ type AdminTextModelKey =
   | 'openAiProgressModel'
   | 'openAiResearchModel'
   | 'progressModel'
-  | 'researchModel';
+  | 'researchModel'
+  | 'codexSceneModel'
+  | 'codexSceneIconModel'
+  | 'openAiSceneModel'
+  | 'openAiSceneIconModel'
+  | 'sceneModel'
+  | 'sceneIconModel';
 
 type AdminReasoningKey =
   | 'artifactReasoningEffort'
@@ -164,7 +172,9 @@ type AdminReasoningKey =
   | 'courseReasoningEffort'
   | 'lessonReasoningEffort'
   | 'progressReasoningEffort'
-  | 'researchReasoningEffort';
+  | 'researchReasoningEffort'
+  | 'sceneReasoningEffort'
+  | 'sceneIconReasoningEffort';
 type AdminTextModelSlot = Exclude<AdminModelProviderSlot, 'image'>;
 
 const TEXT_MODEL_LABELS = {
@@ -176,6 +186,8 @@ const TEXT_MODEL_LABELS = {
   lessons: () => t('Lezioni'),
   progress: () => t('Avanzamento'),
   research: () => t('Ricerca'),
+  scenes: () => t('Scene delle lezioni'),
+  sceneIcons: () => t('Icone delle scene'),
 } as const;
 
 const TEXT_MODEL_ROWS: ReadonlyArray<{
@@ -273,7 +285,32 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     reasoning: 'researchReasoningEffort',
     slot: 'research',
   },
+  {
+    icon: LayoutGrid,
+    labelKey: 'scenes',
+    models: {
+      openrouter: 'sceneModel',
+      openai: 'openAiSceneModel',
+      codex: 'codexSceneModel',
+    },
+    reasoning: 'sceneReasoningEffort',
+    slot: 'scene',
+  },
+  {
+    icon: Sparkles,
+    labelKey: 'sceneIcons',
+    models: {
+      openrouter: 'sceneIconModel',
+      openai: 'openAiSceneIconModel',
+      codex: 'codexSceneIconModel',
+    },
+    reasoning: 'sceneIconReasoningEffort',
+    slot: 'sceneIcon',
+  },
 ];
+
+// Scene slots follow the global provider and always run fast on Codex (see the backend model config).
+const SCENE_MODEL_SLOTS = new Set<AdminTextModelSlot>(['scene', 'sceneIcon']);
 
 const PROVIDER_SECTIONS: ReadonlyArray<{
   id: AdminAiProvider;
@@ -289,7 +326,7 @@ const PROVIDER_OVERRIDE_ROWS: ReadonlyArray<{
   label: () => string;
   slot: AdminModelProviderSlot;
 }> = [
-  ...TEXT_MODEL_ROWS.map(row => ({
+  ...TEXT_MODEL_ROWS.filter(row => !SCENE_MODEL_SLOTS.has(row.slot)).map(row => ({
     icon: row.icon,
     label: TEXT_MODEL_LABELS[row.labelKey],
     slot: row.slot,
@@ -621,7 +658,7 @@ export default function AdminPanel() {
             </select>
           </label>
         </div>
-        {provider === 'codex' ? (
+        {provider === 'codex' && !SCENE_MODEL_SLOTS.has(row.slot) ? (
           <label className="mt-2 flex items-center gap-2 text-sm text-stone-600 dark:text-zinc-300">
             <input
               type="checkbox"
@@ -650,7 +687,7 @@ export default function AdminPanel() {
   }: {
     icon: LucideIcon;
     label: string;
-    modelKey: 'imageModel' | 'openAiImageModel' | 'ttsModel' | 'ttsVoice';
+    modelKey: 'embeddingModel' | 'imageModel' | 'openAiImageModel' | 'ttsModel' | 'ttsVoice';
   }) => (
     <label className="block border-b border-stone-100 py-3 last:border-b-0 dark:border-zinc-800">
       <span className="mb-2 flex items-center gap-2 text-sm font-semibold text-stone-800 dark:text-zinc-200">
@@ -1185,6 +1222,11 @@ export default function AdminPanel() {
                             icon: Mic,
                             label: t('Voce'),
                             modelKey: 'ttsVoice',
+                          })}
+                          {renderSingleModelRow({
+                            icon: Sparkles,
+                            label: t('Embedding delle icone'),
+                            modelKey: 'embeddingModel',
                           })}
                         </>
                       ) : null}

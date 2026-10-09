@@ -16,6 +16,7 @@ import type {
   RenderResolvedLessonVisualInput,
   ReviseLessonVisualArtifactInput,
 } from '../services/lessonGenerationVisuals.js';
+import type { LessonSceneOutcome } from '../services/lessonScenes/lessonSceneGeneration.js';
 import {
   type LessonVisualModelConfig,
   LessonVisualModelConfigSchema,
@@ -35,9 +36,9 @@ import {
   workflow,
 } from './definition.js';
 import {
-  LessonVisualRetryPlanSchema,
+  CurrentLessonVisualContractSchemas,
+  type LessonVisualContractSchemas,
   ProjectAssetRefSchema,
-  ProjectLessonVisualSchema,
   type ProjectVisualSchema,
 } from './lessonGenerationWorkflowSchemas.js';
 import {
@@ -54,40 +55,55 @@ import type {
 
 type DurableProjectVisual = z.infer<typeof ProjectVisualSchema>;
 
-export const LessonVisualWorkflowInputSchema = z.object({
-  contextFingerprint: z.string().length(64),
-  existingEmbeddedAssets: z.array(ProjectAssetRefSchema).optional(),
-  lessonMarkdown: z.string().min(1),
-  plan: LessonVisualRetryPlanSchema,
-  projectId: z.string().min(1),
-  sectionDescription: z.string(),
-  sectionId: z.string().min(1),
-  sectionTitle: z.string().min(1),
-  userId: z.string().min(1),
-});
+export const createLessonVisualWorkflowSchemas = (visualContract: LessonVisualContractSchemas) => {
+  const LessonVisualWorkflowInputSchema = z.object({
+    contextFingerprint: z.string().length(64),
+    existingEmbeddedAssets: z.array(ProjectAssetRefSchema).optional(),
+    lessonMarkdown: z.string().min(1),
+    plan: visualContract.LessonVisualRetryPlanSchema,
+    projectId: z.string().min(1),
+    sectionDescription: z.string(),
+    sectionId: z.string().min(1),
+    sectionTitle: z.string().min(1),
+    userId: z.string().min(1),
+  });
 
-const LessonVisualAssetOwnerSchema = z.object({
-  assetIds: z.array(z.string().length(64)).min(1),
-  nodeInstanceId: z.string().min(1),
-});
+  const LessonVisualAssetOwnerSchema = z.object({
+    assetIds: z.array(z.string().length(64)).min(1),
+    nodeInstanceId: z.string().min(1),
+  });
+
+  const LessonVisualWorkflowResultSchema = z.object({
+    assetOwners: z.array(LessonVisualAssetOwnerSchema),
+    target: z.object({
+      contextFingerprint: z.string().length(64),
+      plan: visualContract.LessonVisualRetryPlanSchema,
+      projectId: z.string().min(1),
+      sectionId: z.string().min(1),
+      userId: z.string().min(1),
+    }),
+    visual: visualContract.ProjectLessonVisualSchema,
+  });
+
+  const LessonVisualRetryWorkflowResultSchema = LessonVisualWorkflowResultSchema.extend({
+    projectRevision: z.number().int().nonnegative(),
+  });
+  return {
+    LessonVisualAssetOwnerSchema,
+    LessonVisualRetryWorkflowResultSchema,
+    LessonVisualWorkflowInputSchema,
+    LessonVisualWorkflowResultSchema,
+  };
+};
 
 export const LESSON_VISUAL_RETRY_WORKFLOW_ID = 'retry-lesson-visual';
 
-export const LessonVisualWorkflowResultSchema = z.object({
-  assetOwners: z.array(LessonVisualAssetOwnerSchema),
-  target: z.object({
-    contextFingerprint: z.string().length(64),
-    plan: LessonVisualRetryPlanSchema,
-    projectId: z.string().min(1),
-    sectionId: z.string().min(1),
-    userId: z.string().min(1),
-  }),
-  visual: ProjectLessonVisualSchema,
-});
-
-const LessonVisualRetryWorkflowResultSchema = LessonVisualWorkflowResultSchema.extend({
-  projectRevision: z.number().int().nonnegative(),
-});
+const {
+  LessonVisualRetryWorkflowResultSchema,
+  LessonVisualWorkflowInputSchema,
+  LessonVisualWorkflowResultSchema,
+} = createLessonVisualWorkflowSchemas(CurrentLessonVisualContractSchemas);
+export { LessonVisualWorkflowInputSchema };
 
 const LessonVisualWorkflowConfigSchema = WorkflowExecutionDefaultsSchema.extend({
   visual: LessonVisualModelConfigSchema,
@@ -117,6 +133,7 @@ export interface LessonVisualWorkflowServices {
   readonly generateRaster: (
     input: RenderResolvedLessonVisualInput
   ) => Promise<GeneratedLessonVisualImage>;
+  readonly generateScene: (input: RenderResolvedLessonVisualInput) => Promise<LessonSceneOutcome>;
   readonly now: () => string;
   readonly persistRetryResult: (input: {
     execution: WorkflowStepExecutionIdentity;
@@ -146,19 +163,27 @@ const ArtifactDraftSchema = z.object({
   kind: z.enum(['html', 'mermaid', 'svg']),
 });
 
-const ArtifactReviewStateSchema = z.object({
-  createdAt: z.string().min(1),
-  draft: ArtifactDraftSchema,
-  input: LessonVisualWorkflowInputSchema,
-  reviewRound: z.number().int().nonnegative(),
-  visualId: z.string().min(1),
-});
-const ArtifactReviewDecisionSchema = repeatDecisionSchema(ArtifactReviewStateSchema);
+const createArtifactWorkflowSchemas = (
+  LessonVisualWorkflowInputSchema: ReturnType<
+    typeof createLessonVisualWorkflowSchemas
+  >['LessonVisualWorkflowInputSchema']
+) => {
+  const ArtifactReviewStateSchema = z.object({
+    createdAt: z.string().min(1),
+    draft: ArtifactDraftSchema,
+    input: LessonVisualWorkflowInputSchema,
+    reviewRound: z.number().int().nonnegative(),
+    visualId: z.string().min(1),
+  });
+  const ArtifactReviewDecisionSchema = repeatDecisionSchema(ArtifactReviewStateSchema);
 
-const EmbeddedImageInputSchema = z.object({
-  input: LessonVisualWorkflowInputSchema,
-  request: ArtifactImageRequestSchema,
-});
+  const EmbeddedImageInputSchema = z.object({
+    input: LessonVisualWorkflowInputSchema,
+    request: ArtifactImageRequestSchema,
+  });
+
+  return { ArtifactReviewDecisionSchema, ArtifactReviewStateSchema, EmbeddedImageInputSchema };
+};
 
 const EmbeddedImageOutputSchema = z.object({
   asset: ProjectAssetRefSchema,
@@ -266,13 +291,28 @@ const buildResult = (input: {
 
 const visualId = (runId: string, slotId: string): string => `lesson-visual:${runId}:${slotId}`;
 
+const selectVisualRoute = (visualType: string): 'artifact' | 'raster' | 'scene' => {
+  if (visualType === 'illustrative_image') return 'raster';
+  return visualType === 'interactive_html' ? 'artifact' : 'scene';
+};
+
 export const createLessonVisualWorkflows = <
   Config extends LessonVisualWorkflowConfig = LessonVisualWorkflowConfig,
   Services extends LessonVisualWorkflowServices = LessonVisualWorkflowServices,
 >(
   executionDefaults: Config,
-  configSchema: z.ZodType<Config> = LessonVisualWorkflowConfigSchema as z.ZodType<Config>
+  configSchema: z.ZodType<Config> = LessonVisualWorkflowConfigSchema as z.ZodType<Config>,
+  visualContract: LessonVisualContractSchemas = CurrentLessonVisualContractSchemas
 ) => {
+  const {
+    LessonVisualRetryWorkflowResultSchema,
+    LessonVisualWorkflowInputSchema,
+    LessonVisualWorkflowResultSchema,
+  } = createLessonVisualWorkflowSchemas(visualContract);
+  const { ArtifactReviewDecisionSchema, ArtifactReviewStateSchema, EmbeddedImageInputSchema } =
+    createArtifactWorkflowSchemas(LessonVisualWorkflowInputSchema);
+  const supportsScenes = visualContract === CurrentLessonVisualContractSchemas;
+
   const renderRaster = step<
     typeof LessonVisualWorkflowInputSchema,
     typeof LessonVisualWorkflowResultSchema,
@@ -477,6 +517,55 @@ export const createLessonVisualWorkflows = <
     nodes: [generateArtifact, reviewArtifactUntilDone, materializeArtifact] as const,
   });
 
+  const renderScene = step<
+    typeof LessonVisualWorkflowInputSchema,
+    typeof LessonVisualWorkflowResultSchema,
+    Config,
+    Services
+  >({
+    externalEffect: 'provider',
+    id: 'render-scene',
+    inputSchema: LessonVisualWorkflowInputSchema,
+    outputSchema: LessonVisualWorkflowResultSchema,
+    run: async ({ config, execution, input, retryFeedback, services, signal }) => {
+      const outcome = await services.generateScene(
+        visualServiceInput(config, input, signal, retryFeedback)
+      );
+      if (outcome.kind === 'invalid') {
+        throw retryCorrective({
+          code: 'lesson_visual_generation_incomplete',
+          feedback: `The previous scene did not follow the catalog contract:\n- ${outcome.problems.join('\n- ')}`,
+          message: 'The lesson visual could not be completed.',
+        });
+      }
+      return buildResult({
+        assetOwners: [],
+        createdAt: services.now(),
+        render: { kind: 'scene', scene: outcome.scene },
+        stepInput: input,
+        visualId: visualId(execution.runId, input.plan.slotId),
+      });
+    },
+  });
+
+  // Legacy definitions keep their two routes. Current ones render every abstract or quantitative
+  // visual, including stored legacy SVG, chart, and Mermaid plans, as a lesson scene.
+  const renderRoute = supportsScenes
+    ? routeBy({
+        cases: { artifact: renderArtifact, raster: renderRaster, scene: renderScene },
+        id: 'route-visual-format',
+        inputSchema: LessonVisualWorkflowInputSchema,
+        outputSchema: LessonVisualWorkflowResultSchema,
+        select: input => selectVisualRoute(input.plan.visualType),
+      })
+    : routeBy({
+        cases: { artifact: renderArtifact, raster: renderRaster },
+        id: 'route-visual-format',
+        inputSchema: LessonVisualWorkflowInputSchema,
+        outputSchema: LessonVisualWorkflowResultSchema,
+        select: input => (input.plan.visualType === 'illustrative_image' ? 'raster' : 'artifact'),
+      });
+
   const renderWorkflow = workflow({
     compatibilityId: 'render-lesson-visual-v1',
     configSchema,
@@ -484,13 +573,7 @@ export const createLessonVisualWorkflows = <
     id: 'render-lesson-visual',
     inputSchema: LessonVisualWorkflowInputSchema,
     outputSchema: LessonVisualWorkflowResultSchema,
-    root: routeBy({
-      cases: { artifact: renderArtifact, raster: renderRaster },
-      id: 'route-visual-format',
-      inputSchema: LessonVisualWorkflowInputSchema,
-      outputSchema: LessonVisualWorkflowResultSchema,
-      select: input => (input.plan.visualType === 'illustrative_image' ? 'raster' : 'artifact'),
-    }),
+    root: renderRoute,
   });
 
   const persistRetryResult = step<

@@ -14,6 +14,8 @@ export type AdminModelProviderSlot =
   | 'image'
   | 'lesson'
   | 'progress'
+  | 'scene'
+  | 'sceneIcon'
   | 'research';
 export type AdminModelProviderOverrides = Partial<Record<AdminModelProviderSlot, AdminAiProvider>>;
 
@@ -240,16 +242,21 @@ export interface AdminModelConfig {
     | 'course'
     | 'lesson'
     | 'progress'
+    | 'scene'
+    | 'sceneIcon'
     | 'research'
   >;
   codexLessonModel: string;
   codexProgressModel: string;
+  codexSceneModel: string;
+  codexSceneIconModel: string;
   codexResearchModel: string;
   contextModel: string;
   contextReasoningEffort: AdminReasoningEffort;
   courseModel: string;
   courseReasoningEffort: AdminReasoningEffort;
   imageModel: string;
+  embeddingModel: string;
   lessonModel: string;
   lessonReasoningEffort: AdminReasoningEffort;
   openAiAssessmentModel: string;
@@ -260,9 +267,15 @@ export interface AdminModelConfig {
   openAiImageModel: string;
   openAiLessonModel: string;
   openAiProgressModel: string;
+  openAiSceneModel: string;
+  openAiSceneIconModel: string;
   openAiResearchModel: string;
   progressModel: string;
+  sceneModel: string;
+  sceneIconModel: string;
   progressReasoningEffort: AdminReasoningEffort;
+  sceneReasoningEffort: AdminReasoningEffort;
+  sceneIconReasoningEffort: AdminReasoningEffort;
   researchModel: string;
   researchReasoningEffort: AdminReasoningEffort;
   ttsModel: string;
@@ -291,12 +304,15 @@ export type AdminModelConfigPatch = Partial<
     | 'codexFastModelSlots'
     | 'codexLessonModel'
     | 'codexProgressModel'
+    | 'codexSceneModel'
+    | 'codexSceneIconModel'
     | 'codexResearchModel'
     | 'contextModel'
     | 'contextReasoningEffort'
     | 'courseModel'
     | 'courseReasoningEffort'
     | 'imageModel'
+    | 'embeddingModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
     | 'openAiAssessmentModel'
@@ -307,9 +323,15 @@ export type AdminModelConfigPatch = Partial<
     | 'openAiImageModel'
     | 'openAiLessonModel'
     | 'openAiProgressModel'
+    | 'openAiSceneModel'
+    | 'openAiSceneIconModel'
     | 'openAiResearchModel'
     | 'progressModel'
+    | 'sceneModel'
+    | 'sceneIconModel'
     | 'progressReasoningEffort'
+    | 'sceneReasoningEffort'
+    | 'sceneIconReasoningEffort'
     | 'researchModel'
     | 'researchReasoningEffort'
     | 'ttsModel'
@@ -336,12 +358,15 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   codexFastModelSlots: ['artifact', 'artifactInteractive', 'course', 'lesson'],
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
+  codexSceneModel: 'gpt-6-luna',
+  codexSceneIconModel: 'gpt-6-luna',
   codexResearchModel: 'gpt-5.6-terra',
   contextModel: 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium',
   courseModel: 'openai/gpt-5.6-luna',
   courseReasoningEffort: 'medium',
   imageModel: 'google/gemini-3.1-flash-lite-image',
+  embeddingModel: 'google/gemini-embedding-2',
   lessonModel: 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high',
   openAiAssessmentModel: 'gpt-5.6-luna',
@@ -352,9 +377,15 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   openAiImageModel: 'gpt-image-2',
   openAiLessonModel: 'gpt-5.6-terra',
   openAiProgressModel: 'gpt-5.6-luna',
+  openAiSceneModel: 'gpt-6-luna',
+  openAiSceneIconModel: 'gpt-6-luna',
   openAiResearchModel: 'gpt-5-search-api',
   progressModel: 'google/gemini-3.1-flash-lite',
+  sceneModel: 'openai/gpt-6-luna',
+  sceneIconModel: 'openai/gpt-6-luna',
   progressReasoningEffort: 'low',
+  sceneReasoningEffort: 'low',
+  sceneIconReasoningEffort: 'none',
   researchModel: 'perplexity/sonar-pro-search',
   researchReasoningEffort: 'none',
   ttsModel: 'google/gemini-3.8-flash-tts',
@@ -479,6 +510,14 @@ const normalizeAdminModelConfig = (
     config?.codexProgressModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexProgressModel
   ),
+  codexSceneModel: readConfigValue(
+    config?.codexSceneModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexSceneModel
+  ),
+  codexSceneIconModel: readConfigValue(
+    config?.codexSceneIconModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexSceneIconModel
+  ),
   codexResearchModel: readConfigValue(
     config?.codexResearchModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexResearchModel
@@ -494,6 +533,10 @@ const normalizeAdminModelConfig = (
     DEFAULT_ADMIN_MODEL_CONFIG.courseReasoningEffort
   ),
   imageModel: readConfigValue(config?.imageModel, DEFAULT_ADMIN_MODEL_CONFIG.imageModel),
+  embeddingModel: readConfigValue(
+    config?.embeddingModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.embeddingModel
+  ),
   lessonModel: readConfigValue(config?.lessonModel, DEFAULT_ADMIN_MODEL_CONFIG.lessonModel),
   lessonReasoningEffort: readReasoningEffort(
     config?.lessonReasoningEffort,
@@ -531,14 +574,35 @@ const normalizeAdminModelConfig = (
     config?.openAiProgressModel,
     DEFAULT_ADMIN_MODEL_CONFIG.openAiProgressModel
   ),
+  openAiSceneModel: readConfigValue(
+    config?.openAiSceneModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiSceneModel
+  ),
+  openAiSceneIconModel: readConfigValue(
+    config?.openAiSceneIconModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiSceneIconModel
+  ),
   openAiResearchModel: readConfigValue(
     config?.openAiResearchModel,
     DEFAULT_ADMIN_MODEL_CONFIG.openAiResearchModel
   ),
   progressModel: readConfigValue(config?.progressModel, DEFAULT_ADMIN_MODEL_CONFIG.progressModel),
+  sceneModel: readConfigValue(config?.sceneModel, DEFAULT_ADMIN_MODEL_CONFIG.sceneModel),
+  sceneIconModel: readConfigValue(
+    config?.sceneIconModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.sceneIconModel
+  ),
   progressReasoningEffort: readReasoningEffort(
     config?.progressReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.progressReasoningEffort
+  ),
+  sceneReasoningEffort: readReasoningEffort(
+    config?.sceneReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.sceneReasoningEffort
+  ),
+  sceneIconReasoningEffort: readReasoningEffort(
+    config?.sceneIconReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.sceneIconReasoningEffort
   ),
   researchModel: readConfigValue(config?.researchModel, DEFAULT_ADMIN_MODEL_CONFIG.researchModel),
   researchReasoningEffort: readReasoningEffort(

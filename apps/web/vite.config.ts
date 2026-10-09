@@ -56,6 +56,11 @@ export default defineConfig(({ mode }) => {
         'decode-named-character-reference': markdownEntityDecoderPath,
         '@': path.resolve(__dirname, '.'),
         '@shared': path.resolve(repoRoot, 'packages/shared-types'),
+        // The package exports only SVG files; the outline path data is loaded lazily by scenes.
+        '@tabler-icon-nodes': path.resolve(
+          rootNodeModules,
+          '@tabler/icons/tabler-nodes-outline.json'
+        ),
         react: path.resolve(rootNodeModules, 'react'),
         'react-dom': path.resolve(rootNodeModules, 'react-dom'),
         'react/jsx-dev-runtime': path.resolve(rootNodeModules, 'react/jsx-dev-runtime.js'),

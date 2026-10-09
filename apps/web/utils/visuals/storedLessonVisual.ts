@@ -1,4 +1,5 @@
 import { ARTIFACT_DRAFT_SLOT_ID } from '@shared/artifactDraftWorkflowContract';
+import type { LessonScene } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import type {
   LessonGeneratedVisual,
@@ -29,7 +30,14 @@ export const getStoredLessonVisualKind = (visual: StoredLessonVisual): LessonGen
 
 export const getStoredLessonVisualCode = (visual: StoredLessonVisual): string | null => {
   if (!isProjectLessonVisual(visual)) return visual.code;
-  return visual.render.kind === 'image' ? null : visual.render.code;
+  return visual.render.kind === 'image' || visual.render.kind === 'scene'
+    ? null
+    : visual.render.code;
+};
+
+export const getStoredLessonVisualScene = (visual: StoredLessonVisual): LessonScene | null => {
+  if (!isProjectLessonVisual(visual)) return visual.scene ?? null;
+  return visual.render.kind === 'scene' ? visual.render.scene : null;
 };
 
 export const asLegacyLessonVisual = (visual: StoredLessonVisual): LessonGeneratedVisual | null =>

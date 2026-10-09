@@ -53,6 +53,7 @@ import {
   type LessonYouTubeStateSchema,
   PreviousEvidenceLessonGenerationDurableSchemaSet,
   PreviousLessonGenerationDurableSchemaSet,
+  PreviousPreSceneLessonGenerationDurableSchemaSet,
   PreviousQuizExplanationLessonGenerationDurableSchemaSet,
   PreviousResearchContractLessonGenerationDurableSchemaSet,
   PreviousRoutingLessonGenerationDurableSchemaSet,
@@ -61,6 +62,10 @@ import {
   type SublessonReadyState,
   SublessonReadyStateSchema,
 } from './lessonGenerationWorkflowContract.js';
+import {
+  LegacyLessonVisualContractSchemas,
+  toLegacyLessonVisualTypes,
+} from './lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from './lessonVisualContext.js';
 import {
   createLessonVisualWorkflows,
@@ -183,7 +188,7 @@ interface StageFailure<Input> {
   readonly modelSlot?: TextModelSlot | ((input: Input, config: GlobalModelConfig) => TextModelSlot);
 }
 
-const runStage = async <Input, Output, Services extends LessonGenerationWorkflowServices>(
+const runLessonStage = async <Input, Output, Services extends LessonGenerationWorkflowServices>(
   context: StepExecutionContext<Input, LessonGenerationWorkflowConfig, Services>,
   failure: StageFailure<Input>,
   operation: (stage: LessonGenerationStageContext<Input>) => Promise<Output>
@@ -249,8 +254,14 @@ const createLessonGenerationWorkflowDefinition = <
 ) => {
   const visualWorkflow = createLessonVisualWorkflows<Config, Services>(
     executionDefaults,
-    configSchema
+    configSchema,
+    durableSchemas.visualContract
   ).render;
+  const runStage: typeof runLessonStage =
+    durableSchemas.visualContract === LegacyLessonVisualContractSchemas
+      ? async (context, failure, operation) =>
+          toLegacyLessonVisualTypes(await runLessonStage(context, failure, operation))
+      : runLessonStage;
 
   const useExistingLessonTarget = step<
     typeof LessonGenerationWorkflowInputSchema,
@@ -632,7 +643,7 @@ const createLessonGenerationWorkflowDefinition = <
         stage =>
           context.services.researchLesson({
             ...stage,
-            selectEvidence: durableSchemas === CurrentLessonGenerationDurableSchemaSet,
+            selectEvidence: durableSchemas.evidence,
           })
       ),
   });
@@ -687,10 +698,7 @@ const createLessonGenerationWorkflowDefinition = <
     Config,
     Services
   >({
-    externalEffect:
-      durableSchemas === CurrentLessonGenerationDurableSchemaSet
-        ? 'provider-with-postprocessing'
-        : 'provider',
+    externalEffect: durableSchemas.evidence ? 'provider-with-postprocessing' : 'provider',
     id: 'review-lesson',
     inputSchema: durableSchemas.LessonDraftStateSchema,
     outputSchema: durableSchemas.LessonReviewedStateSchema,
@@ -835,15 +843,10 @@ const createLessonGenerationWorkflowDefinition = <
       unwrapGenerationContext,
       assessSourceCoverage,
       stageDocumentSources,
-      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet ||
-      durableSchemas === PreviousEvidenceLessonGenerationDurableSchemaSet
-        ? ([planSourceResearch] as const)
-        : []),
+      ...(durableSchemas.routing ? ([planSourceResearch] as const) : []),
       routeYouTubeResearch,
       researchLesson,
-      ...(durableSchemas === CurrentLessonGenerationDurableSchemaSet
-        ? ([selectLessonEvidence] as const)
-        : []),
+      ...(durableSchemas.evidence ? ([selectLessonEvidence] as const) : []),
       draftLesson,
       reviewLesson,
       generateLearningAids,
@@ -908,6 +911,16 @@ export const createPreviousLessonGenerationWorkflow = <
     executionDefaults,
     configSchema,
     PreviousLessonGenerationDurableSchemaSet
+  );
+
+export const createPreviousPreSceneLessonGenerationWorkflow = (
+  executionDefaults: LessonGenerationWorkflowConfig,
+  configSchema: z.ZodType<LessonGenerationWorkflowConfig> = LessonGenerationWorkflowConfigSchema
+) =>
+  createLessonGenerationWorkflowDefinition(
+    executionDefaults,
+    configSchema,
+    PreviousPreSceneLessonGenerationDurableSchemaSet
   );
 
 export const createPreviousResearchContractLessonGenerationWorkflow = <

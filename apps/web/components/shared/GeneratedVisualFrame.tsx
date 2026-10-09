@@ -14,6 +14,7 @@ import {
   hasUnsafeHtmlElementDereferences,
 } from '../../utils/visuals/htmlElementReferences.ts';
 import { renderMermaidDiagram } from '../../utils/visuals/mermaidRenderer.ts';
+import { LessonSceneVisual } from './lessonScene/LessonSceneVisual.tsx';
 
 interface GeneratedVisualFrameProps {
   readonly className?: string;
@@ -527,6 +528,17 @@ const GeneratedVisualFrame = ({
           </span>
         ) : null}
       </output>
+    );
+  }
+
+  const resolvedVisual = resolution.result.visual;
+  if (resolvedVisual.kind === 'scene' && resolvedVisual.scene) {
+    return (
+      <LessonSceneVisual
+        className={`${className}${displayMode === 'thumbnail' ? ' lesson-scene-thumbnail' : ''}`}
+        isDarkMode={isDarkMode}
+        scene={resolvedVisual.scene}
+      />
     );
   }
 

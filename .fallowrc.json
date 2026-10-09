@@ -5,6 +5,7 @@
     "src/main.{ts,tsx,js,jsx}",
     "apps/backend/src/services/pdfTextFallbackProcess.mjs"
   ],
+  "ignoreDependencies": ["@tabler/icons", "@tabler-icon-nodes"],
   "rules": {
     "unused-dependencies": "warn"
   }

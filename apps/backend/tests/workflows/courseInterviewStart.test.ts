@@ -4,6 +4,7 @@ import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { createCourseInterviewStarter } from '../../src/workflows/courseInterviewStart.js';
 import { createCourseInterviewWorkflow } from '../../src/workflows/courseInterviewWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
+import { GlobalModelConfigSchema } from '../../src/workflows/modelConfigSchema.js';
 
 describe('course interview start', () => {
   test.each([
@@ -120,7 +121,7 @@ describe('course interview start', () => {
 
     expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: expect.objectContaining({ models }),
+        config: expect.objectContaining({ models: GlobalModelConfigSchema.parse(models) }),
         input: {
           hasReliableSourceContext: true,
           initialMessage: 'Voglio un corso pratico.',

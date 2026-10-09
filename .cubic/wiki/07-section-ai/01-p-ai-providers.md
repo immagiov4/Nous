@@ -79,8 +79,9 @@ The system categorizes AI tasks into distinct slots, allowing granular control o
 *  **Course**: Handles high-level course planning and structuring.
 *  **Lesson**: Manages the detailed generation of lesson content.
 *  **Research**: Utilizes models with web-search capabilities for factual gathering.
+*  **Scene** and **Scene icon**: Compose lesson scenes and choose their icons. They follow the provider resolved for the run's visuals (no scene-specific provider override), use the Codex `fast` tier when Codex is selected, and are read from the live configuration because durable workflow config omits them. `embeddingModel` (OpenRouter) indexes the icon catalog.
 
-Sources: [apps/backend/src/routes/openRouterProxy.ts:80-92](../../../apps/backend/src/routes/openRouterProxy.ts#L80-L92)
+Sources: [apps/backend/src/routes/openRouterProxy.ts:80-92](../../../apps/backend/src/routes/openRouterProxy.ts#L80-L92), [apps/backend/src/config/modelConfig.ts:300-304](../../../apps/backend/src/config/modelConfig.ts#L300-L304), [apps/backend/src/services/structuredGeneration.ts:55-67](../../../apps/backend/src/services/structuredGeneration.ts#L55-L67)
 
 ## Proxy Logic & Request Transformation
 

@@ -4,6 +4,7 @@ import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { createCourseGenerationWorkflow } from '../../src/workflows/courseGenerationWorkflow.js';
 import { createProductionCourseInterviewServices } from '../../src/workflows/courseInterviewProduction.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
+import { GlobalModelConfigSchema } from '../../src/workflows/modelConfigSchema.js';
 
 const cleanupInput = {
   execution: { nodeInstanceId: 'cleanup', runId: 'interview-1' },
@@ -186,7 +187,7 @@ describe('production course interview services', () => {
     expect(result).toEqual({ runId: 'generation-1' });
     expect(dependencies.runStore.createRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: expect.objectContaining({ models }),
+        config: expect.objectContaining({ models: GlobalModelConfigSchema.parse(models) }),
         requestKey: 'generation-key',
         workflowId: 'course-generation',
       })
