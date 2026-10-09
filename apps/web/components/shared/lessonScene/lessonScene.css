@@ -194,9 +194,6 @@
   background: var(--paper);
   border-radius: 12px;
 }
-.lesson-scene .branches .concept {
-  flex: 1;
-}
 .lesson-scene .hub {
   background: var(--tint);
   display: grid;
@@ -755,19 +752,8 @@
   border: 0;
   background: var(--tint);
   font-size: 18px;
-  margin: 0 auto 30px;
-  max-width: 75%;
+  margin: 0 auto var(--diagram-gap);
   padding: 14px 20px;
-}
-.lesson-scene .root-node:after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  height: 30px;
-  border-left: 1px solid var(--diagram-rule);
-  border-color: var(--connector-color);
-  border-width: var(--connector-width);
 }
 .lesson-scene .branches {
   justify-content: space-around;
@@ -777,20 +763,17 @@
   border-color: var(--connector-color);
   border-width: var(--connector-width);
 }
-.lesson-scene .branches > .concept {
-  position: relative;
-  flex-direction: column;
-  padding: 0 8px;
+.lesson-scene .hierarchy .branches {
+  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  gap: var(--diagram-gap);
 }
-.lesson-scene .branches > .concept:before {
-  content: "";
-  position: absolute;
-  top: -24px;
-  left: 20px;
-  height: 16px;
-  border-left: 1px solid var(--diagram-rule);
-  border-color: var(--connector-color);
-  border-width: var(--connector-width);
+.lesson-scene .hierarchy .branches > .concept {
+  align-items: flex-start;
 }
 .lesson-scene .network {
   --network-gap: 44px;
@@ -1018,28 +1001,12 @@
   .lesson-scene .causal > .arrow {
     transform: rotate(90deg);
   }
-  .lesson-scene .branches {
+  .lesson-scene .groups.branches {
     flex-direction: column;
     border-top-style: none;
     border-left-style: solid;
     padding: 0 0 0 18px;
     margin-left: 16px;
-  }
-  .lesson-scene .branches > .concept {
-    flex-direction: row;
-  }
-  .lesson-scene .branches > .concept:before {
-    top: 12px;
-    left: -18px;
-    width: 18px;
-    height: 0;
-    border-top: 1px solid var(--diagram-rule);
-  }
-  .lesson-scene .root-node {
-    margin-left: 0;
-  }
-  .lesson-scene .root-node:after {
-    left: 16px;
   }
   .lesson-scene .network {
     grid-template-columns: 1fr;
@@ -1472,72 +1439,6 @@
   .lesson-scene .network .satellites > .concept:first-child:after {
     --network-stem-start: var(--network-branch-y);
   }
-}
-.lesson-scene .hierarchy {
-  --branch-gap: 16px;
-  --branch-drop: 24px;
-}
-.lesson-scene .hierarchy .branches {
-  display: flex;
-  flex-direction: row;
-  border: 0;
-  padding: var(--branch-drop) 0 0;
-  margin: 0;
-  gap: var(--branch-gap);
-}
-.lesson-scene .hierarchy .branches > .concept {
-  flex: 1;
-  align-items: center;
-  text-align: center;
-  flex-direction: column;
-  padding: 0;
-  position: relative;
-}
-.lesson-scene .hierarchy .branches > .concept:before {
-  content: "";
-  position: absolute;
-  top: calc(-1 * var(--branch-drop));
-  left: calc(-0.5 * var(--branch-gap));
-  right: calc(-0.5 * var(--branch-gap));
-  width: auto;
-  height: 16px;
-  border: 0;
-  border-top: var(--connector-width) solid var(--connector-color);
-}
-.lesson-scene .hierarchy .branches > .concept:after {
-  content: "";
-  position: absolute;
-  top: calc(-1 * var(--branch-drop));
-  left: 50%;
-  height: 16px;
-  border-left: var(--connector-width) solid var(--connector-color);
-}
-.lesson-scene .hierarchy .branches > .concept:first-child:before {
-  left: 50%;
-  border-left: var(--connector-width) solid var(--connector-color);
-  border-top-left-radius: var(--connector-radius);
-}
-.lesson-scene .hierarchy .branches > .concept:last-child:before {
-  right: 50%;
-  border-right: var(--connector-width) solid var(--connector-color);
-  border-top-right-radius: var(--connector-radius);
-}
-.lesson-scene .hierarchy .branches > .concept:first-child:after,
-.lesson-scene .hierarchy .branches > .concept:last-child:after {
-  display: none;
-}
-.lesson-scene .hierarchy .branches > .concept:only-child:before {
-  right: auto;
-  border-top: 0;
-  border-right: 0;
-  border-radius: 0;
-}
-.lesson-scene .hierarchy .root-node {
-  margin-left: auto;
-  margin-right: auto;
-}
-.lesson-scene .hierarchy .root-node:after {
-  left: 50%;
 }
 .lesson-scene .definition .concept {
   padding: 0;

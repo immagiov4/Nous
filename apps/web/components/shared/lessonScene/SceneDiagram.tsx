@@ -189,8 +189,9 @@ export const SceneDiagram = ({
       <details className="diagram-description">
         <summary>{t('Leggi i collegamenti')}</summary>
         <ol>
-          {diagram?.edges.map(edge => (
-            <li key={`${edge.from}-${edge.to}-${edge.label}`}>
+          {diagram?.edges.map((edge, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: repeated messages are valid; the list is static
+            <li key={`${index}-${edge.from}-${edge.to}-${edge.label}`}>
               {`${labelOf(edge.from)} → ${labelOf(edge.to)}`}
               {edge.label ? `: ${edge.label}` : null}
             </li>

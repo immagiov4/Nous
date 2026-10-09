@@ -1,5 +1,5 @@
 import { LESSON_SCENE_LIMITS, type LessonScene } from '@shared/lessonScene';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /** Chart geometry inherited from the prototype; colors come from the scene tokens. */
 const LAYOUT = {
@@ -252,24 +252,41 @@ export const SceneChart = ({
   readonly scene: LessonScene;
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     let drawnWidth = 0;
+    let drawing = false;
     let disposed = false;
+    host.replaceChildren();
     const draw = async () => {
       const width = Math.round(host.getBoundingClientRect().width);
-      if (!width || width === drawnWidth) return;
-      drawnWidth = width;
-      const theme = readTheme(host);
-      const chart =
-        scene.type === 'donut'
-          ? await drawDonut(scene, width, theme)
-          : (await import('@observablehq/plot')).plot(
-              plotOptions(await import('@observablehq/plot'), scene, width, theme) as never
-            );
-      if (disposed) return;
-      host.replaceChildren(chart);
+      if (!width || width === drawnWidth || drawing) return;
+      drawing = true;
+      try {
+        const theme = readTheme(host);
+        let chart: HTMLElement | SVGSVGElement;
+        if (scene.type === 'donut') {
+          chart = await drawDonut(scene, width, theme);
+        } else {
+          const plot = await import('@observablehq/plot');
+          chart = plot.plot(plotOptions(plot, scene, width, theme) as never);
+        }
+        if (disposed) return;
+        host.replaceChildren(chart);
+        drawnWidth = width;
+        setFailed(false);
+      } catch (error) {
+        if (disposed) return;
+        console.error('Lesson scene chart rendering failed.', error);
+        host.replaceChildren();
+        drawnWidth = 0;
+        setFailed(true);
+      } finally {
+        drawing = false;
+        if (!disposed && Math.round(host.getBoundingClientRect().width) !== width) void draw();
+      }
     };
     const observer = new ResizeObserver(() => {
       void draw();
@@ -285,9 +302,10 @@ export const SceneChart = ({
     <figure className="data-chart">
       {/* Each drawing labels its own SVG; the donut legend stays readable as a list. */}
       <div ref={hostRef} />
-      <figcaption className={scene.type === 'interval' ? 'interval-values' : 'sr-only'}>
-        {scene.items.map(item => (
-          <span key={item.label}>{`${item.label}: ${item.value ?? ''}`}</span>
+      <figcaption className={failed || scene.type === 'interval' ? 'interval-values' : 'sr-only'}>
+        {scene.items.map((item, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; the list is static
+          <span key={`${index}-${item.label}`}>{`${item.label}: ${item.value ?? ''}`}</span>
         ))}
       </figcaption>
     </figure>

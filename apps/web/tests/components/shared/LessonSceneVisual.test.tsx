@@ -41,6 +41,62 @@ const comparison: LessonScene = {
 
 describe('lesson scene visual', () => {
   test.each([
+    'checklist',
+    'steps',
+    'timeline',
+    'causal',
+    'source',
+    'roles',
+    'comparison',
+    'matrix',
+  ] as const)('keeps repeated model entries distinct in a %s scene', type => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const item = { detail: 'Dettaglio', icon: 'point', label: 'Voce' };
+    const group = { icons: ['point', 'point'], items: ['Voce', 'Voce'], label: 'Gruppo' };
+    const scene = {
+      ...comparison,
+      criteria: ['Criterio', 'Criterio'],
+      groups: [group, group],
+      items: [item, item, item],
+      note: '',
+      type,
+    };
+    const { container, rerender } = render(<LessonSceneVisual scene={scene} />);
+    expect(screen.getAllByText('Voce').length).toBeGreaterThan(1);
+    rerender(<LessonSceneVisual scene={{ ...scene, items: [item, item] }} />);
+    if (['checklist', 'steps', 'timeline'].includes(type)) {
+      expect(container.querySelectorAll('ol > li')).toHaveLength(2);
+    }
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  test('keeps repeated diagram messages distinct in the connection description', () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    );
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const edge = { from: 'a', to: 'b', label: 'Richiesta', kind: 'call' as const, evidence: '' };
+    const scene: LessonScene = {
+      ...comparison,
+      type: 'sequence',
+      items: [],
+      diagram: {
+        nodes: [
+          { id: 'a', label: 'Alice', kind: 'step' },
+          { id: 'b', label: 'Bob', kind: 'step' },
+        ],
+        edges: [edge, edge],
+      },
+    };
+    const { container } = render(<LessonSceneVisual scene={scene} />);
+    expect(container.querySelectorAll('.diagram-description li')).toHaveLength(2);
+    expect(errors).not.toHaveBeenCalled();
+  });
+  test.each([
     { note: '', quote: '', visible: null },
     { note: ' ', quote: '\n', visible: null },
     { note: '', quote: 'Quali ragioni sostengono questa scelta?', visible: 'Domanda' },

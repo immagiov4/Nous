@@ -81,7 +81,8 @@ const Groups = ({ kind = 'comparison', scene }: { kind?: string; scene: LessonSc
       data-relation={related ? relation.kind : undefined}
     >
       {scene.groups.map((group, index) => (
-        <Fragment key={group.label}>
+        // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; the list is static
+        <Fragment key={`${index}-${group.label}`}>
           {index === 1 && related ? (
             <div aria-label={relation.label} className="relation" role="img">
               <span className="relation-symbol">
@@ -99,7 +100,8 @@ const Groups = ({ kind = 'comparison', scene }: { kind?: string; scene: LessonSc
 const Sequence = ({ items, kind }: { items: readonly LessonSceneItem[]; kind: string }) => (
   <ol className={`sequence ${kind}`}>
     {items.map((item, index) => (
-      <li key={`${item.label}-${item.detail}`}>
+      // biome-ignore lint/suspicious/noArrayIndexKey: model entries may repeat; the list is static
+      <li key={`${index}-${item.label}`}>
         <span className="step-index">
           {kind === 'checklist' ? (
             <SceneIcon name={item.icon} />
@@ -124,8 +126,9 @@ const MatrixTable = ({ scene }: { scene: LessonScene }) => {
         <thead>
           <tr>
             {scene.criteria ? <th scope="col">{t('Criterio')}</th> : null}
-            {scene.groups.map(group => (
-              <th key={group.label} scope="col">
+            {scene.groups.map((group, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; the list is static
+              <th key={`${index}-${group.label}`} scope="col">
                 {group.label}
               </th>
             ))}
@@ -133,10 +136,12 @@ const MatrixTable = ({ scene }: { scene: LessonScene }) => {
         </thead>
         <tbody>
           {Array.from({ length: rowCount }, (_, row) => (
-            <tr key={scene.criteria?.[row] ?? row}>
+            // biome-ignore lint/suspicious/noArrayIndexKey: model criteria may repeat; the rows are static
+            <tr key={`${row}-${scene.criteria?.[row] ?? ''}`}>
               {scene.criteria ? <th scope="row">{scene.criteria[row]}</th> : null}
-              {scene.groups.map(group => (
-                <td key={group.label}>{group.items[row] ?? '—'}</td>
+              {scene.groups.map((group, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; the list is static
+                <td key={`${index}-${group.label}`}>{group.items[row] ?? '—'}</td>
               ))}
             </tr>
           ))}
@@ -201,7 +206,8 @@ const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: Lesso
       return (
         <div className="causal">
           {items.map((item, index) => (
-            <Fragment key={item.label}>
+            // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; the list is static
+            <Fragment key={`${index}-${item.label}`}>
               {index > 0 ? (
                 <span className="arrow">
                   <SceneIcon name="arrow-right" />
@@ -287,8 +293,9 @@ const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: Lesso
             <Concepts items={items.slice(0, 1)} />
           </div>
           <dl>
-            {items.slice(1).map(item => (
-              <div key={item.label}>
+            {items.slice(1).map((item, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; the list is static
+              <div key={`${index}-${item.label}`}>
                 <dt>
                   <SceneIcon name={item.icon} />
                   {item.label}
@@ -324,8 +331,9 @@ const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: Lesso
     case 'roles':
       return (
         <div className="roles">
-          {items.map(item => (
-            <section key={item.label}>
+          {items.map((item, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; the list is static
+            <section key={`${index}-${item.label}`}>
               <div aria-hidden="true" className="avatar">
                 <SceneIcon name={item.icon || 'user'} />
               </div>
