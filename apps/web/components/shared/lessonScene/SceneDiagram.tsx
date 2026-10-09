@@ -71,12 +71,16 @@ export const SceneDiagram = ({
   readonly scene: LessonScene;
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
+  const renderedSceneRef = useRef<LessonScene | null>(null);
   const [status, setStatus] = useState<'failed' | 'loading' | 'ready'>('loading');
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     let renderedKey = '';
     let disposed = false;
+    // A new scene must not show the previous scene's drawing while its own render is queued.
+    if (renderedSceneRef.current !== scene) host.replaceChildren();
+    renderedSceneRef.current = scene;
     const render = () => {
       const width = host.getBoundingClientRect().width;
       if (!width) return;
@@ -84,7 +88,7 @@ export const SceneDiagram = ({
       const key = scene.type === 'sequence' ? 'sequence' : direction;
       if (key === renderedKey) return;
       renderedKey = key;
-      void runMermaidTask(async mermaid => {
+      runMermaidTask(async mermaid => {
         if (disposed || renderedKey !== key) return;
         try {
           configureMermaid(mermaid, host);
@@ -108,6 +112,10 @@ export const SceneDiagram = ({
           host.replaceChildren();
           setStatus('failed');
         }
+      }).catch(error => {
+        // The Mermaid chunk itself failed to load, before the task could run.
+        console.error('Lesson scene diagram rendering failed.', error);
+        if (!disposed) setStatus('failed');
       });
     };
     const observer = new ResizeObserver(render);

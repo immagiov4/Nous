@@ -108,3 +108,23 @@ test('reports a malformed answer as a contract problem instead of throwing', asy
     problems: ['The answer must follow the requested JSON structure.'],
   });
 });
+
+test('reports an unparsable answer as a contract problem', async () => {
+  generateStructuredOutputMock.mockRejectedValueOnce(
+    new SyntaxError('Unexpected end of JSON input')
+  );
+
+  await expect(
+    generateLessonScene({
+      config: { artifact: { model: 'gpt-6-luna', provider: 'codex', reasoningEffort: 'low' } },
+      lessonMarkdown: 'Una fonte è credibile quando la competenza è pertinente.',
+      plan: { concept: 'Controlli', factualRequirements: [], visualType: 'lesson_scene' },
+      sectionDescription: '',
+      sectionTitle: 'Fonti',
+      signal: new AbortController().signal,
+    } as never)
+  ).resolves.toEqual({
+    kind: 'invalid',
+    problems: ['The answer must follow the requested JSON structure.'],
+  });
+});

@@ -81,7 +81,7 @@ The system supports multiple visual formats, each selected based on the pedagogi
 | `lesson_scene` | Abstract structures, relations, quantities, and diagrams drawn from the scene catalog. |
 | `interactive_html` | HTML/JS labs for hands-on exploration; charts that need interaction belong here. |
 
-New planning chooses only these three types (`PLANNABLE_LESSON_VISUAL_TYPES`). Stored plans may still carry the legacy `flowchart_svg`, `structural_svg`, `chart_html`, `mermaid_erd`, and `mermaid_class` types; current retries render them as lesson scenes, while retries resumed on pre-scene workflow definitions keep the legacy renderer. Visuals already stored as `svg` or `mermaid` remain readable and are never produced again.
+New planning chooses only these three types (`PLANNABLE_LESSON_VISUAL_TYPES`). Stored plans may still carry the legacy `flowchart_svg`, `structural_svg`, `chart_html`, `mermaid_erd`, and `mermaid_class` types; current retries render them as lesson scenes, while retries resumed on pre-scene workflow definitions keep the legacy renderer. Visuals already stored as `svg` or `mermaid` remain readable; current definitions never produce them again.
 
 Sources: [packages/shared-types/lessonGenerationPolicy.ts:96-117](../../../packages/shared-types/lessonGenerationPolicy.ts#L96-L117), [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts:419-454](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts#L419-L454)
 

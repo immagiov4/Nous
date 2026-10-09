@@ -336,7 +336,7 @@ const findGroupProblems = (groups: unknown, criteria: unknown): string[] => {
       !isRecord(group) ||
       !isText(group.label) ||
       !Array.isArray(group.items) ||
-      !group.items.every(item => isText(item)) ||
+      !group.items.every(item => isText(item) && item.trim() !== '') ||
       !Array.isArray(group.icons) ||
       group.icons.length !== group.items.length ||
       !group.icons.every(isIconSlot)
@@ -389,7 +389,8 @@ const THOUSANDS_GROUP_LENGTH = 3;
  * Readings of one written number. Mixed separators (1.234,5) and a repeated separator (1.234.567)
  * are unambiguous; only a single separator before exactly three digits (1.234) can be either a
  * thousands group or a decimal point, so both readings are kept. A repeated separator whose
- * groups are not thousands groups (1,2,3) is a list of separate numbers.
+ * groups are not thousands groups (1.2.3) is a version or identifier, not a quantity, so it gives
+ * no reading.
  */
 const readNumberToken = (digits: string): number[] => {
   const separators = [...digits].filter(character => character === '.' || character === ',');
@@ -400,7 +401,7 @@ const readNumberToken = (digits: string): number[] => {
     separators.length > 1 &&
     groups.slice(1).some(group => group.length !== THOUSANDS_GROUP_LENGTH)
   ) {
-    return groups.map(Number);
+    return [];
   }
   const lastSeparator = Math.max(digits.lastIndexOf('.'), digits.lastIndexOf(','));
   const integerPart = digits.slice(0, lastSeparator).replaceAll(/[.,]/gu, '');
@@ -506,6 +507,9 @@ const findShapeProblems = (scene: Record<string, unknown>, type: LessonSceneType
   }
   if (!ITEMLESS_TYPES.has(type) && items.length < 2) {
     return [`The ${type} form requires at least two items.`];
+  }
+  if (type === 'decision' && !(scene.quote as string).trim() && !(scene.body as string).trim()) {
+    return ['The decision form requires its question in quote or body.'];
   }
   if (type === 'quote' && !(scene.quote as string).trim()) {
     return ['The quote form requires a quotation from the lesson.'];

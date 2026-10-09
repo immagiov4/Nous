@@ -3,7 +3,8 @@ import type { LessonScene } from '@shared/lessonScene';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
-const { plotMock } = vi.hoisted(() => ({
+const { lineYMock, plotMock } = vi.hoisted(() => ({
+  lineYMock: vi.fn((..._args: unknown[]) => ({})),
   plotMock: vi.fn(() => document.createElement('svg')),
 }));
 
@@ -13,7 +14,7 @@ vi.mock('@observablehq/plot', () => {
     barX: mark,
     dot: mark,
     frame: mark,
-    lineY: mark,
+    lineY: lineYMock,
     plot: plotMock,
     rectY: mark,
     ruleX: mark,
@@ -81,5 +82,9 @@ test('places line points at their real distance in time', async () => {
     x: { tickFormat: (time: number) => string; ticks: number[] };
   };
   expect(options.x.ticks).toEqual([2020, 2021, 2030]);
+  expect(lineYMock).toHaveBeenCalledWith(
+    expect.arrayContaining([expect.objectContaining({ time: 2030 })]),
+    expect.objectContaining({ x: 'time' })
+  );
   expect(options.x.tickFormat(2030)).toBe('2030');
 });

@@ -40,7 +40,10 @@ interface CandidateEntry extends SceneIconEntry {
 }
 
 const IconChoicesSchema = z.strictObject({
-  choices: z.array(z.strictObject({ slot: z.string(), concept: z.string(), icon: z.string() })),
+  // A blank concept would make every entry share one meaning and bypass distinct icons.
+  choices: z.array(
+    z.strictObject({ slot: z.string(), concept: z.string().trim().min(1), icon: z.string() })
+  ),
 });
 
 type IconChoice = z.infer<typeof IconChoicesSchema>['choices'][number];
@@ -61,12 +64,23 @@ For each entry return {slot, concept, icon}: concept is the meaning in a few wor
 const slotId = (slot: LessonSceneIconSlot): string =>
   slot.kind === 'item' ? `items.${slot.item}` : `groups.${slot.group}.items.${slot.entry}`;
 
+const untilAborted = <T>(promise: Promise<T>, signal: AbortSignal): Promise<T> => {
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+};
+
 const retrieveCandidates = async (
   config: GlobalModelConfig,
   entries: readonly SceneIconEntry[],
   signal: AbortSignal
 ): Promise<CandidateEntry[]> => {
-  const index = await loadIconIndex(config.embeddingModel);
+  // The index build is shared across scenes, so a cancelled scene stops waiting without
+  // cancelling the build other scenes may need.
+  const index = await untilAborted(loadIconIndex(config.embeddingModel), signal);
   const queries = entries.flatMap(entry => [
     entry.queries.object,
     entry.queries.action,

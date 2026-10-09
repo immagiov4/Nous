@@ -40,6 +40,11 @@ describe('lesson scene deployment compatibility', () => {
       slotId: `slot-${id}`,
     });
     const legacy = toLegacyLessonVisualTypes({
+      contentBlocks: [
+        { slotId: 'slot-svg', type: 'generated-visual', visualId: 'svg' },
+        { slotId: 'slot-scene', type: 'generated-visual', visualId: 'scene' },
+        { content: 'Testo', type: 'markdown' },
+      ],
       generatedVisuals: [
         visual('svg', { code: '<svg></svg>', kind: 'svg' }),
         visual('scene', { kind: 'scene', scene: { type: 'checklist' } }),
@@ -49,6 +54,9 @@ describe('lesson scene deployment compatibility', () => {
 
     expect(legacy.plan.visualType).toBe('structural_svg');
     expect(legacy.generatedVisuals.map(entry => entry.id)).toEqual(['svg']);
+    expect(
+      legacy.contentBlocks.map(block => ('slotId' in block ? block.slotId : block.type))
+    ).toEqual(['slot-svg', 'markdown']);
     expect(
       z
         .array(LegacyLessonVisualContractSchemas.ProjectLessonVisualSchema)

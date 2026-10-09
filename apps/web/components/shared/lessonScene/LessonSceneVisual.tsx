@@ -26,8 +26,9 @@ const Concepts = ({
   badges?: boolean;
   items: readonly LessonSceneItem[];
 }) =>
-  items.map(item => (
-    <div key={`${item.label}-${item.detail}`} className="concept">
+  items.map((item, index) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: items are model text and may repeat; the list is static
+    <div key={`${index}-${item.label}`} className="concept">
       {badges ? (
         <span className="concept-badge">
           <SceneIcon name={item.icon} />

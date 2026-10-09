@@ -14,7 +14,10 @@ import {
 import * as z from 'zod';
 
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
-import type { RenderResolvedLessonVisualInput } from '../lessonGenerationVisuals.js';
+import {
+  isInvalidLessonVisualStructuredOutput,
+  type RenderResolvedLessonVisualInput,
+} from '../lessonGenerationVisuals.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 
@@ -131,6 +134,8 @@ ${catalogText()}
 
 Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Is every note necessary?`;
 
+const MALFORMED_ANSWER_PROBLEM = 'The answer must follow the requested JSON structure.';
+
 const buildScenePrompt = (input: RenderResolvedLessonVisualInput): string => {
   const correction = input.retryFeedback?.trim()
     ? `\nRequired correction from the previous attempt:\n${input.retryFeedback.trim()}\n`
@@ -208,6 +213,8 @@ export const generateLessonScene = async (
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
+  // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
+  // corrective feedback for the next attempt.
   const response = await generateStructuredOutput<unknown>({
     config,
     output: { name: 'lesson_scene', schema: SCENE_OUTPUT_SCHEMA },
@@ -215,11 +222,14 @@ export const generateLessonScene = async (
     signal: input.signal,
     slot: 'scene',
     system: `${SCENE_SYSTEM_PROMPT}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+  }).catch(error => {
+    input.signal.throwIfAborted();
+    if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
+    return null;
   });
-  // Schema-fallback and Codex responses are plain JSON, so the shape is checked before conversion.
   const parsed = SceneDraftSchema.safeParse(response);
   if (!parsed.success) {
-    return { kind: 'invalid', problems: ['The answer must follow the requested JSON structure.'] };
+    return { kind: 'invalid', problems: [MALFORMED_ANSWER_PROBLEM] };
   }
   const draft = parsed.data;
   const scene = toScene(draft);

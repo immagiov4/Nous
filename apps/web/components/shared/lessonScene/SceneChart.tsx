@@ -283,7 +283,8 @@ export const SceneChart = ({
   }, [isDarkMode, scene]);
   return (
     <figure className="data-chart">
-      <div ref={hostRef} aria-label={scene.title} role="img" />
+      {/* Each drawing labels its own SVG; the donut legend stays readable as a list. */}
+      <div ref={hostRef} />
       <figcaption className={scene.type === 'interval' ? 'interval-values' : 'sr-only'}>
         {scene.items.map(item => (
           <span key={item.label}>{`${item.label}: ${item.value ?? ''}`}</span>

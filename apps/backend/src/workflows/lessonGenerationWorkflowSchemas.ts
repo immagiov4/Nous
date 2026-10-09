@@ -427,20 +427,42 @@ const isStoredSceneVisual = (value: unknown): boolean =>
   value !== null &&
   (value as { render?: { kind?: unknown } }).render?.kind === 'scene';
 
+/** Drops stored scene visuals and the content blocks that place them. */
+const withoutStoredScenes = (value: Record<string, unknown>): Record<string, unknown> => {
+  const visuals = value.generatedVisuals;
+  if (!Array.isArray(visuals) || !visuals.some(isStoredSceneVisual)) return value;
+  const removedSlots = new Set(
+    visuals.filter(isStoredSceneVisual).map(visual => (visual as { slotId: unknown }).slotId)
+  );
+  const blocks = value.contentBlocks;
+  return {
+    ...value,
+    ...(Array.isArray(blocks)
+      ? {
+          contentBlocks: blocks.filter(
+            block =>
+              (block as { type?: unknown }).type !== 'generated-visual' ||
+              !removedSlots.has((block as { slotId?: unknown }).slotId)
+          ),
+        }
+      : {}),
+    generatedVisuals: visuals.filter(visual => !isStoredSceneVisual(visual)),
+  };
+};
+
 /**
  * Historical definitions reject `lesson_scene`, which shared planning services now produce. Runs
  * resumed on those definitions map it to the pre-scene abstract type and keep their old pipeline.
  * Stored scene visuals have no legacy form: a resumed run that reads a section already completed
- * by a current run omits them from its result, as the completed-lesson readback already omits
- * entries its schema cannot parse. The persisted section is unchanged.
+ * by a current run omits them, and the content blocks that place them, from its result, as the
+ * completed-lesson readback already omits entries its schema cannot parse. The persisted section
+ * is unchanged.
  */
 export const toLegacyLessonVisualTypes = <T>(value: T): T => {
-  if (Array.isArray(value)) {
-    return value.filter(entry => !isStoredSceneVisual(entry)).map(toLegacyLessonVisualTypes) as T;
-  }
+  if (Array.isArray(value)) return value.map(toLegacyLessonVisualTypes) as T;
   if (typeof value !== 'object' || value === null) return value;
   return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
+    Object.entries(withoutStoredScenes(value as Record<string, unknown>)).map(([key, entry]) => [
       key,
       key === 'visualType' && entry === 'lesson_scene'
         ? 'structural_svg'
