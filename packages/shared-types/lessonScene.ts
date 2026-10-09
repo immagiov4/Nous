@@ -271,6 +271,32 @@ const isDiagramEdge = (
   isText(edge.label, LESSON_SCENE_LIMITS.diagramLabel) &&
   (LESSON_SCENE_EDGE_KINDS as readonly unknown[]).includes(edge.kind);
 
+/** Topology constraints apply after nodes and connections have passed structural validation. */
+const findDiagramTopologyProblems = (
+  nodes: readonly LessonSceneDiagramNode[],
+  edges: readonly LessonSceneDiagramEdge[],
+  type: LessonSceneType
+): string[] => {
+  const problems: string[] = [];
+  if (!isConnectedGraph(nodes, edges)) {
+    problems.push('Every diagram node must be connected.');
+  }
+  for (const node of nodes.filter(candidate => candidate.kind === 'decision')) {
+    if (edges.some(edge => edge.from === node.id && !edge.label.trim())) {
+      problems.push('Branches leaving a decision need condition labels.');
+    }
+  }
+  const isOrderedPath =
+    edges.length === nodes.length - 1 &&
+    edges.every(
+      (edge, index) => edge.from === nodes[index]?.id && edge.to === nodes[index + 1]?.id
+    );
+  if (type === 'journey' && !isOrderedPath) {
+    problems.push('A journey must follow its nodes in order, without jumps or branches.');
+  }
+  return problems;
+};
+
 const findDiagramProblems = (
   diagram: unknown,
   type: LessonSceneType,
@@ -306,23 +332,7 @@ const findDiagramProblems = (
   }
   const typedEdges = edges as LessonSceneDiagramEdge[];
   const typedNodes = nodes as LessonSceneDiagramNode[];
-  if (!isConnectedGraph(typedNodes, typedEdges)) {
-    problems.push('Every diagram node must be connected.');
-  }
-  for (const node of typedNodes.filter(candidate => candidate.kind === 'decision')) {
-    if (typedEdges.some(edge => edge.from === node.id && !edge.label.trim())) {
-      problems.push('Branches leaving a decision need condition labels.');
-    }
-  }
-  const isOrderedPath =
-    typedEdges.length === typedNodes.length - 1 &&
-    typedEdges.every(
-      (edge, index) => edge.from === typedNodes[index]?.id && edge.to === typedNodes[index + 1]?.id
-    );
-  if (type === 'journey' && !isOrderedPath) {
-    problems.push('A journey must follow its nodes in order, without jumps or branches.');
-  }
-  return problems;
+  return [...problems, ...findDiagramTopologyProblems(typedNodes, typedEdges, type)];
 };
 
 const findItemProblems = (items: unknown): string[] => {

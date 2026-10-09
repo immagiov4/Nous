@@ -151,8 +151,7 @@ const readCachedIndex = async (
   const header = bytes && parseCacheHeader(bytes);
   if (
     !bytes ||
-    !header ||
-    header.names.length !== icons.length ||
+    header?.names.length !== icons.length ||
     header.names.some((name, index) => name !== icons[index]?.name)
   ) {
     return null;
