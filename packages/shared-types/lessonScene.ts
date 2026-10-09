@@ -431,8 +431,11 @@ const findNumericProblems = (
 const findShapeProblems = (scene: Record<string, unknown>, type: LessonSceneType): string[] => {
   const groups = scene.groups as LessonSceneGroup[];
   const items = scene.items as LessonSceneItem[];
-  if (TWO_GROUP_TYPES.has(type) && groups.length !== 2) {
-    return [`The ${type} form requires exactly two groups.`];
+  if (
+    TWO_GROUP_TYPES.has(type) &&
+    (groups.length !== 2 || groups.some(group => !group.items.length))
+  ) {
+    return [`The ${type} form requires exactly two non-empty groups.`];
   }
   if (!ITEMLESS_TYPES.has(type) && items.length < 2) {
     return [`The ${type} form requires at least two items.`];

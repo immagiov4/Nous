@@ -54,7 +54,7 @@ describe('lesson scene contract', () => {
 
   test('enforces the shape each form needs', () => {
     expect(findLessonSceneProblems(scene({ items: [], type: 'comparison' }))).toEqual([
-      'The comparison form requires exactly two groups.',
+      'The comparison form requires exactly two non-empty groups.',
     ]);
     expect(findLessonSceneProblems(scene({ items: scene({}).items.slice(0, 1) }))).toEqual([
       'The checklist form requires at least two items.',
@@ -64,6 +64,11 @@ describe('lesson scene contract', () => {
         scene({ groups: [{ ...group('Gruppo', ['Uno', 'Due']), icons: ['point'] }] })
       )
     ).toEqual(['Every group needs a label, its entries, and exactly one icon slot per entry.']);
+    expect(
+      findLessonSceneProblems(
+        scene({ groups: [group('Sì', ['Procedi']), group('No', [])], items: [], type: 'decision' })
+      )
+    ).toEqual(['The decision form requires exactly two non-empty groups.']);
     const matrix = (criteria?: string[]) =>
       scene({
         ...(criteria ? { criteria } : {}),
