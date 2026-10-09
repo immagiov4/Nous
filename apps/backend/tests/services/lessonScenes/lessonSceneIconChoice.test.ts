@@ -40,6 +40,7 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIcons.js', () => ({
 
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { chooseLessonSceneIcons } from '../../../src/services/lessonScenes/lessonSceneIconChoice.js';
+import { embedTexts } from '../../../src/services/lessonScenes/lessonSceneIcons.js';
 
 const scene: LessonScene = {
   body: '',
@@ -190,4 +191,44 @@ test('treats a malformed chooser answer as missing choices and retries', async (
 
   expect(chosen.items.map(item => item.icon)).toEqual(['school', 'file-text']);
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('keeps the attempt with the fewest problems when a later answer is malformed', async () => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      choices: [
+        { concept: 'competenza', icon: 'school', slot: 'items.0' },
+        { concept: 'prove', icon: 'school', slot: 'items.1' },
+      ],
+    })
+    .mockResolvedValueOnce({
+      choices: [{ concept: 'competenza', icon: 'rocket', slot: 'items.0' }],
+    })
+    .mockResolvedValueOnce({ choices: 'malformed' });
+
+  const chosen = await chooseLessonSceneIcons({
+    config: getGlobalModelConfig(),
+    entries,
+    scene,
+    signal: new AbortController().signal,
+  });
+
+  expect(chosen.items.map(item => item.icon)).toEqual(['school', 'point']);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
+});
+
+test('keeps a validated scene with neutral icons when icon retrieval fails', async () => {
+  vi.mocked(embedTexts).mockRejectedValueOnce(new Error('embedding provider unavailable'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+  const chosen = await chooseLessonSceneIcons({
+    config: getGlobalModelConfig(),
+    entries,
+    scene,
+    signal: new AbortController().signal,
+  });
+
+  expect(chosen.items.map(item => item.icon)).toEqual(['point', 'point']);
+  expect(generateStructuredOutputMock).not.toHaveBeenCalled();
+  warn.mockRestore();
 });

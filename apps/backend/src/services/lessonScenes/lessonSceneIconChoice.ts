@@ -165,17 +165,21 @@ const applyIcons = (scene: LessonScene, icons: ReadonlyMap<string, string>): Les
   })),
 });
 
-/** Chooses an icon for every item and group entry of a scene. */
-export const chooseLessonSceneIcons = async (input: {
-  config: GlobalModelConfig;
-  entries: readonly SceneIconEntry[];
-  scene: LessonScene;
-  signal: AbortSignal;
-}): Promise<LessonScene> => {
-  if (input.entries.length === 0) return input.scene;
+interface IconChoiceInput {
+  readonly config: GlobalModelConfig;
+  readonly entries: readonly SceneIconEntry[];
+  readonly scene: LessonScene;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Approved attempt policy (issue #242 review): each attempt scores its missing slots plus icons
+ * reused for different meanings; the lowest score wins, and a tie goes to the later attempt.
+ */
+const chooseIconsByAttempts = async (input: IconChoiceInput): Promise<Map<string, string>> => {
   const entries = await retrieveCandidates(input.config, input.entries, input.signal);
   let feedback = '';
-  let accepted = new Map<string, IconChoice>();
+  let best = { accepted: new Map<string, IconChoice>(), score: Number.POSITIVE_INFINITY };
   for (let attempt = 1; attempt <= MAX_CHOICE_ATTEMPTS; attempt += 1) {
     const choices = await requestChoices({ ...input, entries, feedback });
     const valid = choices.filter(choice =>
@@ -184,10 +188,12 @@ export const chooseLessonSceneIcons = async (input: {
           entry.id === choice.slot && entry.candidates.some(icon => icon.name === choice.icon)
       )
     );
-    accepted = new Map(valid.map(choice => [choice.slot, choice]));
+    const accepted = new Map(valid.map(choice => [choice.slot, choice]));
     const missing = entries.filter(entry => !accepted.has(entry.id));
     const reused = reusedIcons(valid);
-    if (missing.length === 0 && reused.length === 0) break;
+    const score = missing.length + reused.length;
+    if (score <= best.score) best = { accepted, score };
+    if (score === 0) break;
     feedback = [
       missing.length
         ? `\nThe previous answer missed or used icons outside the candidates for: ${missing.map(entry => entry.id).join(', ')}.`
@@ -197,5 +203,21 @@ export const chooseLessonSceneIcons = async (input: {
         : '',
     ].join('');
   }
-  return applyIcons(input.scene, withoutReusedIcons(accepted, entries));
+  return withoutReusedIcons(best.accepted, entries);
+};
+
+/**
+ * Chooses an icon for every item and group entry of a scene. Icons are decorative and the scene is
+ * already validated, so when retrieval or choice fails (approved fallback, issue #242 review) the
+ * scene keeps the neutral icon in every slot instead of being discarded.
+ */
+export const chooseLessonSceneIcons = async (input: IconChoiceInput): Promise<LessonScene> => {
+  if (input.entries.length === 0) return input.scene;
+  try {
+    return applyIcons(input.scene, await chooseIconsByAttempts(input));
+  } catch (error) {
+    if (input.signal.aborted) throw error;
+    console.warn('[lesson-scenes] Icon choice failed; using neutral icons.', error);
+    return applyIcons(input.scene, new Map());
+  }
 };

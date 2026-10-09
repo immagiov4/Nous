@@ -40,6 +40,8 @@ const TABLER_PACKAGE_DIRECTORY = path.resolve(
 const readTablerPackageFile = (name: string): Promise<string> =>
   readFile(path.join(TABLER_PACKAGE_DIRECTORY, name), 'utf8');
 const EMBEDDING_BATCH_SIZE = 100;
+// Approved per-batch limit (issue #242 review): a stalled request must not hold every later scene.
+const EMBEDDING_REQUEST_TIMEOUT_MS = 30_000;
 // Tags shown to the chooser per candidate; enough to reveal what an icon depicts.
 const DESCRIBED_TAG_COUNT = 6;
 const ICON_INDEX_DIRECTORY =
@@ -86,7 +88,9 @@ export const embedTexts = async (
       body: JSON.stringify({ input: texts.slice(start, start + EMBEDDING_BATCH_SIZE), model }),
       headers: getOpenRouterJsonHeaders(),
       method: 'POST',
-      signal,
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(EMBEDDING_REQUEST_TIMEOUT_MS)])
+        : AbortSignal.timeout(EMBEDDING_REQUEST_TIMEOUT_MS),
     });
     const payload = (await response.json()) as {
       data?: { embedding: number[]; index: number }[];
