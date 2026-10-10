@@ -3,6 +3,7 @@ import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
 import { Fragment, type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useResolvedProjectVisual } from '../../../hooks/useResolvedProjectVisual.ts';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
@@ -247,21 +248,45 @@ export default function LessonPlaybackStage({
   useLayoutEffect(() => {
     const slot = sceneFit.current;
     const card = sceneCard.current;
-    if (!slot || !card) throw new Error('Playback scene must be mounted');
-    // Fit the complete card, preserving the prototype's internal layout and proportions.
+    const stage = slot?.parentElement;
+    const captionSection = captions.current?.parentElement;
+    if (!slot || !card || !stage || !captionSection)
+      throw new Error('Playback stage must be mounted');
+    // Measure before scaling: transforms must not feed back into the natural dimensions.
     const fitScene = () => {
-      const scale = card.offsetHeight ? Math.min(1, slot.clientHeight / card.offsetHeight) : 1;
+      const layout = getComputedStyle(stage);
+      const verticalPadding =
+        (parseFloat(layout.paddingTop) || 0) + (parseFloat(layout.paddingBottom) || 0);
+      const captionHeight =
+        layout.flexDirection === 'column'
+          ? captionSection.offsetHeight + (parseFloat(layout.rowGap) || 0)
+          : 0;
+      const availableHeight = stage.clientHeight - verticalPadding - captionHeight;
+      if (!slot.clientWidth || availableHeight <= 0) return;
+      card.style.width = `${slot.clientWidth}px`;
+      const width = Math.max(card.offsetWidth, card.scrollWidth);
+      card.style.width = `${width}px`;
+      const height = Math.max(card.offsetHeight, card.scrollHeight);
+      if (!width || !height) return;
+      const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       slot.style.setProperty('--scene-scale', String(scale));
-      slot.style.setProperty(
-        '--scene-top',
-        `${Math.max(0, (slot.clientHeight - card.offsetHeight * scale) / 2)}px`
-      );
+      // The fitted card contributes its height so captions and scene are centered as a pair.
+      slot.style.height = `${height * scale}px`;
+      slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
     const observer = new ResizeObserver(fitScene);
     observer.observe(slot);
     observer.observe(card);
+    observer.observe(stage);
+    observer.observe(captionSection);
+    // A replacement or asynchronous diagram can change overflow without resizing the card.
+    const mutations = new MutationObserver(fitScene);
+    mutations.observe(card, { childList: true, characterData: true, subtree: true });
     fitScene();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      mutations.disconnect();
+    };
   }, []);
   useLayoutEffect(() => {
     latest.current = { time, speed, readTime, animate };
@@ -424,7 +449,7 @@ export default function LessonPlaybackStage({
           <section
             ref={sceneCard}
             className="scene-host"
-            aria-label="Visualizzazione della lezione"
+            aria-label={t('Visualizzazione della lezione')}
           >
             {visual?.kind === 'scene' ? (
               <PlaybackScene

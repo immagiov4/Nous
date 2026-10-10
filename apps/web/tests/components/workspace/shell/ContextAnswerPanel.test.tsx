@@ -2,14 +2,23 @@
 
 import '@testing-library/jest-dom/vitest';
 
+import { deriveLegacyLessonContent } from '@shared/lessonContent';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { createRef, type ReactNode, StrictMode, useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { ContextAnswerState } from '../../../../components/workspace/shell/types.ts';
-
+import type {
+  ContextAnswerState,
+  WorkspaceReaderOverlaysModel,
+} from '../../../../components/workspace/shell/types.ts';
 import type { LearningArtifactRenderPayload, ProjectSnapshot } from '../../../../types.ts';
+import {
+  buildConversationNoteSaveCandidates,
+  hasAnchorableConversationNoteCandidate,
+} from '../../../../utils/context/conversationNote.ts';
+import { playbackSentenceSelector } from '../../../../utils/reader/lessonPlayback.ts';
 import {
   buildTestLearningPlan,
   buildTestLesson,
@@ -303,72 +312,6 @@ describe('ContextAnswerPanel', () => {
       />
     );
     expect(sendMessageMock).toHaveBeenCalledExactlyOnceWith({ text: 'La domanda dettata' });
-  });
-
-  test('emits the full current answer only after streaming and tool continuation finish', () => {
-    const onAnswerComplete = vi.fn();
-    const messages: UIMessage[] = [
-      { id: 'old-user', role: 'user', parts: [{ type: 'text', text: 'Prima domanda' }] },
-      {
-        id: 'old-answer',
-        role: 'assistant',
-        parts: [{ type: 'text', text: 'Risposta precedente' }],
-      },
-      { id: 'spoken-user', role: 'user', parts: [{ type: 'text', text: 'Domanda attuale' }] },
-      { id: 'answer-start', role: 'assistant', parts: [{ type: 'text', text: 'Prima parte.' }] },
-      { id: 'answer-end', role: 'assistant', parts: [{ type: 'text', text: 'Seconda parte.' }] },
-    ];
-    const chat = {
-      addToolOutput: addToolOutputMock,
-      error: undefined,
-      messages,
-      sendMessage: sendMessageMock,
-      status: 'streaming',
-    };
-    useChatMock.mockReturnValue(chat);
-    const props = { ...buildProps({ id: 'spoken-answer' }), onAnswerComplete };
-    const view = render(<ContextAnswerPanel {...props} />);
-    expect(onAnswerComplete).not.toHaveBeenCalled();
-    useChatMock.mockReturnValue({ ...chat, status: 'ready' });
-    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
-    view.rerender(<ContextAnswerPanel {...props} />);
-    expect(onAnswerComplete).not.toHaveBeenCalled();
-    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(false);
-    useChatMock.mockReturnValue({ ...chat, status: 'ready', messages: [...messages] });
-    view.rerender(<ContextAnswerPanel {...props} />);
-    expect(onAnswerComplete).toHaveBeenCalledExactlyOnceWith('Prima parte.\n\nSeconda parte.');
-    view.rerender(
-      <ContextAnswerPanel {...props} onAnswerComplete={text => onAnswerComplete(text)} />
-    );
-    expect(onAnswerComplete).toHaveBeenCalledTimes(1);
-  });
-
-  test('answer failure displays the Italian message and never starts speech', () => {
-    const onAnswerComplete = vi.fn();
-    useChatMock.mockReturnValue({
-      addToolOutput: addToolOutputMock,
-      error: new Error('private backend error'),
-      messages: [
-        {
-          id: 'partial-answer',
-          role: 'assistant',
-          parts: [{ type: 'text', text: 'Risposta parziale' }],
-        },
-      ],
-      sendMessage: sendMessageMock,
-      status: 'error',
-    });
-    render(
-      <ContextAnswerPanel
-        {...buildProps({ id: 'failed-spoken-answer' })}
-        onAnswerComplete={onAnswerComplete}
-      />
-    );
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Non è stato possibile ottenere una risposta. Riprova tra poco.'
-    );
-    expect(screen.queryByText('private backend error')).toBeNull();
-    expect(onAnswerComplete).not.toHaveBeenCalled();
   });
 
   test('continues a docked desktop conversation from the external composer', async () => {
@@ -2332,6 +2275,133 @@ describe('ContextAnswerPanel', () => {
       tool: 'requestAddToNotes',
       toolCallId: 'tool-unanchorable-note',
       output: { approved: false, mode: 'none', saved: false },
+    });
+  });
+
+  test('shows that an approved note is being saved until the save settles', async () => {
+    const user = userEvent.setup();
+    const lessonContent = 'La memoria di lavoro è una scrivania piccola. Contiene poche cose.';
+    const input = {
+      noteDraft: 'Poche cose alla volta.',
+      rationale: 'Conserva il chiarimento.',
+      selectedTextDraft: 'La memoria di lavoro è una scrivania piccola.',
+    };
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-note',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'note',
+              state: 'input-available',
+              input,
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    let finishSave!: (result: { saved: boolean; merged: boolean; annotationId: string }) => void;
+    const save = vi.fn<WorkspaceReaderOverlaysModel['onSaveConversationNote']>(
+      () =>
+        new Promise(resolve => {
+          finishSave = resolve;
+        })
+    );
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          selectedText: input.selectedTextDraft,
+          selectedTextStart: 0,
+          lessonContent,
+          contextScope: 'selection',
+        })}
+        onSaveConversationNote={save}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(screen.getByText('Salvataggio…')).toBeInTheDocument();
+    await act(async () => finishSave({ saved: true, merged: false, annotationId: 'note' }));
+    expect(screen.queryByText('Salvataggio…')).not.toBeInTheDocument();
+  });
+
+  test('offers a player note with an unanchorable draft and saves its original passage after approval', async () => {
+    const user = userEvent.setup();
+    // First passage of the local lesson "La mente ha una scrivania piccola".
+    const source = [
+      {
+        type: 'markdown' as const,
+        markdown:
+          'Una consegna non incontra una mente astratta: incontra una persona con conoscenze, abitudini, energie, distrazioni e strategie diverse, dentro un ambiente concreto. Per questo la stessa persona può riuscire in un compito breve e ben strutturato e bloccarsi davanti a una richiesta lunga, ambigua o ricca di passaggi interdipendenti. La prestazione dipende dall’incontro tra caratteristiche della persona e caratteristiche del compito.',
+      },
+    ];
+    const lessonContent = deriveLegacyLessonContent(source);
+    const selector = playbackSentenceSelector(segmentLessonPlayback(source)[0], 0, 12, source);
+    if (!selector) throw new Error('Expected a source passage selector');
+    const anchor = {
+      selectedText: selector.exact,
+      selectedTextStart: selector.selectionStart,
+      contextBefore: selector.prefix,
+      contextAfter: selector.suffix,
+    };
+    const input = {
+      noteDraft: 'La struttura della consegna influisce sulle risorse disponibili.',
+      rationale: 'Conserva il chiarimento.',
+      selectedTextDraft: 'La memoria di lavoro è una scrivania piccola.',
+    };
+    const candidates = buildConversationNoteSaveCandidates({
+      anchor,
+      toolInput: { note: input.noteDraft, selectedText: input.selectedTextDraft },
+    });
+    expect(
+      candidates.map(candidate => hasAnchorableConversationNoteCandidate(lessonContent, candidate))
+    ).toEqual([false, true]);
+    const toolCallId = 'player-note';
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-player-note',
+          role: 'assistant',
+          parts: [{ type: 'tool-requestAddToNotes', toolCallId, state: 'input-available', input }],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const save = vi.fn<WorkspaceReaderOverlaysModel['onSaveConversationNote']>(
+      async (_target, candidate) => ({
+        saved: hasAnchorableConversationNoteCandidate(lessonContent, candidate),
+        merged: false,
+        annotationId: 'player-annotation',
+      })
+    );
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ ...anchor, lessonContent, contextScope: 'selection' })}
+        onSaveConversationNote={save}
+      />
+    );
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: { dynamic: false, input, toolCallId, toolName: 'requestAddToNotes' },
+      });
+    });
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1][1]).toMatchObject(candidates[1]);
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'requestAddToNotes',
+      toolCallId,
+      output: { approved: true, mode: 'new', saved: true, annotationId: 'player-annotation' },
     });
   });
 

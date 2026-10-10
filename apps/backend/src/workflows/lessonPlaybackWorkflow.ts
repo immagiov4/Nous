@@ -29,7 +29,7 @@ export const LessonPlaybackInputSchema = z.object({
   voice: z.string().min(1),
   model: z.string().min(1),
 });
-export const LessonPlaybackResultSchema = z.object({
+const LessonPlaybackResultSchema = z.object({
   target: LessonPlaybackInputSchema,
   block: LessonPlaybackBlockSchema,
   assetOwner: z.string().optional(),

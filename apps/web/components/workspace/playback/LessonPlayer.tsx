@@ -1,10 +1,9 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
-import { useSpokenAnswer } from '../../../hooks/reader/useSpokenAnswer.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { useSpeechInput } from '../../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -19,16 +18,36 @@ import type {
   WorkspaceReaderOverlaysModel,
   WorkspaceReaderTtsModel,
 } from '../shell/types.ts';
-import {
-  PlaybackPlayButton,
-  PlaybackTimeline,
-  PlaybackVoiceControl,
-} from '../UnifiedAudioPanel.tsx';
+import { PlaybackPlayButton, PlaybackTimeline, PlaybackVoiceSpeed } from '../UnifiedAudioPanel.tsx';
 import LessonPlaybackStage from './LessonPlaybackStage.tsx';
 
 const NOTE_SAVED_MS = 3_000;
 const SKIP_SECONDS = 5;
+// Height of the single-row floating composer (40px buttons, 6px padding, 1px border), so the
+// playback controls and the Space hint share its axis on desktop.
+const COMPOSER_BAR_HEIGHT = 'md:h-[3.375rem]';
 const noAction = () => {};
+
+interface SpokenFollowUpQuestion {
+  readonly id: string;
+  readonly text: string;
+}
+
+/** Hands a spoken question to the open conversation, so it continues there. */
+function SpokenFollowUp({
+  question,
+  send,
+  deliver,
+}: {
+  question: SpokenFollowUpQuestion;
+  send: (text: string) => void;
+  deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
+}) {
+  useEffect(() => {
+    deliver(question, send);
+  }, [deliver, question, send]);
+  return null;
+}
 
 function AnswerPanelTransition({
   children,
@@ -40,7 +59,7 @@ function AnswerPanelTransition({
   const isPresent = useIsPresent();
   return (
     <motion.div
-      className="absolute inset-x-0 bottom-full mb-2.5"
+      className="absolute inset-x-0 bottom-full mb-2.5 rounded-2xl"
       inert={!isPresent || undefined}
       aria-hidden={!isPresent || undefined}
       initial={{ height: shouldAnimate ? 0 : 'auto', opacity: shouldAnimate ? 0 : 1 }}
@@ -107,11 +126,13 @@ export default function LessonPlayer({
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
-  const answerAudio = useSpokenAnswer(tts.currentVoice, tts.playbackRate);
+  const [spokenFollowUp, setSpokenFollowUp] = useState<SpokenFollowUpQuestion | null>(null);
+  const deliveredFollowUps = useRef(new Set<string>());
   const speech = useSpeechInput({
     onTranscription: text => {
       const question = spokenQuestion.current;
-      if (question) setAnswer({ ...question, initialQuestion: text });
+      if (question?.initialQuestion) setSpokenFollowUp({ id: crypto.randomUUID(), text });
+      else if (question) setAnswer({ ...question, initialQuestion: text });
       else changeDraft(appendSpeechTranscription(draft, text));
     },
   });
@@ -148,7 +169,17 @@ export default function LessonPlayer({
       !block ||
       !original ||
       block.speech !== original.speech ||
-      JSON.stringify(block.spans) !== JSON.stringify(original.spans)
+      block.spans.length !== original.spans.length ||
+      block.spans.some((span, index) => {
+        const sourceSpan = original.spans[index];
+        return (
+          span.sourceBlockIndex !== sourceSpan.sourceBlockIndex ||
+          span.speech.start !== sourceSpan.speech.start ||
+          span.speech.end !== sourceSpan.speech.end ||
+          span.source.start !== sourceSpan.source.start ||
+          span.source.end !== sourceSpan.source.end
+        );
+      })
     )
       return null;
     return playbackSentenceSelector(block, playback.time, playback.duration, sourceBlocks);
@@ -212,7 +243,6 @@ export default function LessonPlayer({
   };
   const ask = (question: string) => {
     playback.pause();
-    answerAudio.stop();
     spokenQuestion.current = null;
     setAnswer(createQuestion(question));
   };
@@ -226,50 +256,76 @@ export default function LessonPlayer({
     anchor.current = null;
   };
   const listening = holdingSpace && !speech.speechInputError;
+  const spaceHintHidden = Boolean(answer) || listening || noteMode || Boolean(draft);
   const questionActive = Boolean(answer) || holdingSpace;
   const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
-  const renderComposer = (send = ask, disabled = false) => (
-    <ContextMenu
-      type="lesson"
-      placement="desktop-floating"
-      selectedText=""
-      isDarkMode={content.isDarkMode}
-      isLoading={
-        noteStatus === 'saving' || holdingSpace || pendingQuestion || (!noteMode && disabled)
-      }
-      lessonCreationBlockReason={null}
-      onAsk={send}
-      onClose={noAction}
-      onCreateLesson={noAction}
-      onDeleteAnnotation={noAction}
-      onHighlight={noAction}
-      onSaveNote={noAction}
-      playbackComposer={{
-        isMobileViewport: mobile,
-        speech: mobile
-          ? undefined
-          : {
-              ...speech,
-              startRecording: () => {
-                spokenQuestion.current = null;
-                return speech.startRecording();
+  // The effect that delivers a follow-up can run more than once (re-renders, Strict Mode), so
+  // each spoken question is sent exactly once by id.
+  const deliverSpokenFollowUp = useCallback(
+    (question: SpokenFollowUpQuestion, send: (text: string) => void) => {
+      if (deliveredFollowUps.current.has(question.id)) return;
+      deliveredFollowUps.current.add(question.id);
+      send(question.text);
+      setSpokenFollowUp(null);
+    },
+    []
+  );
+  const renderComposer = ({
+    send = ask,
+    disabled = false,
+    conversation = false,
+    stopResponse,
+  }: {
+    send?: (text: string) => void;
+    disabled?: boolean;
+    conversation?: boolean;
+    stopResponse?: () => void;
+  } = {}) => (
+    <>
+      {conversation && spokenFollowUp ? (
+        <SpokenFollowUp question={spokenFollowUp} send={send} deliver={deliverSpokenFollowUp} />
+      ) : null}
+      <ContextMenu
+        type="lesson"
+        placement="desktop-floating"
+        selectedText=""
+        isDarkMode={content.isDarkMode}
+        isLoading={
+          noteStatus === 'saving' || holdingSpace || pendingQuestion || (!noteMode && disabled)
+        }
+        lessonCreationBlockReason={null}
+        onAsk={send}
+        onClose={noAction}
+        onCreateLesson={noAction}
+        onDeleteAnnotation={noAction}
+        onHighlight={noAction}
+        onSaveNote={noAction}
+        playbackComposer={{
+          isMobileViewport: mobile,
+          speech: mobile
+            ? undefined
+            : {
+                ...speech,
+                startRecording: () => {
+                  spokenQuestion.current = null;
+                  return speech.startRecording();
+                },
               },
-            },
-        listening,
-        value: draft,
-        noteMode,
-        onChange: changeDraft,
-        onToggleNote: () => {
-          setNoteMode(!noteMode);
-          if (noteStatus === 'error') setNoteStatus('idle');
-        },
-        onSubmit: () => submit(send),
-      }}
-    />
+          listening,
+          value: draft,
+          noteMode,
+          onChange: changeDraft,
+          onToggleNote: () => {
+            setNoteMode(!noteMode);
+            if (noteStatus === 'error') setNoteStatus('idle');
+          },
+          onSubmit: () => submit(send),
+          onStopResponse: stopResponse,
+        }}
+      />
+    </>
   );
   const closeAnswer = () => {
-    answerAudio.stop();
-    answerAudio.clearError();
     speech.reset();
     spokenQuestion.current = null;
     spaceDown.current = false;
@@ -291,14 +347,12 @@ export default function LessonPlayer({
       event.preventDefault();
       if (event.repeat || spaceDown.current) return;
       playback.pause();
-      answerAudio.stop();
-      answerAudio.clearError();
       speech.reset();
       spaceDown.current = true;
       setHoldingSpace(true);
       setNoteMode(false);
-      spokenQuestion.current = createQuestion('', currentAnchor());
-      setAnswer(null);
+      // With a conversation open, the spoken question continues it instead of starting a new one.
+      spokenQuestion.current = answer ?? createQuestion('', currentAnchor());
       void speech.startRecording();
     };
     const keyup = (event: KeyboardEvent) => {
@@ -384,28 +438,33 @@ export default function LessonPlayer({
       ) : (
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
       )}
-      <div className="shrink-0 px-2 pb-2 md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
-        <div className="min-w-0 pb-2 md:pb-0">
-          {playback.loading ? (
-            <output className="mb-2 block text-xs text-stone-500 dark:text-stone-300">
-              {t('Preparo voce e visualizzazione…')}
-            </output>
-          ) : null}
-          {playback.failed ? (
-            <p role="alert" className="mb-2 text-sm text-red-700 dark:text-red-300">
-              {t('Impossibile preparare l’ascolto della lezione. Riprova.')}{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  if (!questionActive) void playback.play();
-                }}
-                disabled={questionActive}
-                className="underline"
-              >
-                {t('Riprova')}
-              </button>
-            </p>
-          ) : null}
+      <div className="shrink-0 px-2 pb-2 md:relative md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
+        <div
+          className={`min-w-0 pb-2 md:relative md:flex md:items-center md:pb-0 ${COMPOSER_BAR_HEIGHT}`}
+        >
+          {/* On desktop, status lines sit above the controls so the bottom row keeps one axis. */}
+          <div className="md:absolute md:bottom-full md:left-0 md:w-max md:max-w-[45vw]">
+            {playback.loading ? (
+              <output className="mb-2 block text-xs text-stone-500 dark:text-stone-300">
+                {t('Preparo voce e visualizzazione…')}
+              </output>
+            ) : null}
+            {playback.failed ? (
+              <p role="alert" className="mb-2 text-sm text-red-700 dark:text-red-300">
+                {t('Impossibile preparare l’ascolto della lezione. Riprova.')}{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!questionActive) void playback.play();
+                  }}
+                  disabled={questionActive}
+                  className="underline"
+                >
+                  {t('Riprova')}
+                </button>
+              </p>
+            ) : null}
+          </div>
           <div className="flex flex-col-reverse gap-2 md:flex-row md:items-center md:gap-3">
             <div className="flex items-center gap-2 md:gap-3">
               <button
@@ -440,7 +499,7 @@ export default function LessonPlayer({
                 </span>
               </button>
               <div className="ml-auto md:ml-0">
-                <PlaybackVoiceControl tts={tts} compact />
+                <PlaybackVoiceSpeed tts={tts} pill />
               </div>
             </div>
             <div
@@ -450,7 +509,7 @@ export default function LessonPlayer({
               <div className="overflow-hidden">
                 <PlaybackTimeline
                   time={playback.elapsed}
-                  duration={playback.duration ? playback.total : 0}
+                  duration={playback.total}
                   estimated={playback.estimated}
                   onSeek={playback.seek}
                 />
@@ -458,6 +517,15 @@ export default function LessonPlayer({
             </div>
           </div>
         </div>
+        {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
+        <p
+          aria-hidden={spaceHintHidden}
+          className={`pointer-events-none hidden min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
+        >
+          {t('Tieni premuto')}
+          <kbd className="font-sans">{t('Spazio')}</kbd>
+          {t('per fare una domanda a voce')}
+        </p>
         <div className="relative flex min-w-0 flex-col gap-2.5 md:w-[30rem] md:max-w-[45vw]">
           <AnimatePresence>
             {answer ? (
@@ -465,11 +533,6 @@ export default function LessonPlayer({
                 <ContextAnswerPanel
                   contextAnswer={answer}
                   pendingQuestion={pendingQuestion}
-                  onAnswerComplete={text => {
-                    if (spokenQuestion.current?.id !== answer.id) return;
-                    spokenQuestion.current = null;
-                    void answerAudio.speak(text);
-                  }}
                   contextAnswerPanelRef={panelRef}
                   contextAnswerSize={overlays.contextAnswerSize}
                   handleContextAnswerResizeStart={noAction}
@@ -477,7 +540,9 @@ export default function LessonPlayer({
                   isMobileViewport={mobile}
                   docked
                   composerPortal={composerPortal}
-                  renderComposer={renderComposer}
+                  renderComposer={(send, disabled, stopResponse) =>
+                    renderComposer({ send, disabled, conversation: true, stopResponse })
+                  }
                   libraryAssistantDataSource={overlays.libraryAssistantDataSource}
                   currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
                   onClose={closeAnswer}
@@ -493,11 +558,6 @@ export default function LessonPlayer({
               </AnswerPanelTransition>
             ) : null}
           </AnimatePresence>
-          {answerAudio.error ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-300">
-              {answerAudio.error}
-            </p>
-          ) : null}
           {noteStatus === 'saved' ? (
             <output className="inline-flex items-center gap-2 self-end rounded-full bg-white px-3 py-2 text-xs font-semibold text-amber-800 shadow-sm dark:bg-zinc-800 dark:text-amber-200">
               <Check className="h-3.5 w-3.5" />

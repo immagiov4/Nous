@@ -509,10 +509,14 @@ const buildContextDraftLesson = (
 
 interface ContextAnswerPanelProps {
   readonly pendingQuestion?: boolean;
-  readonly onAnswerComplete?: (text: string) => void;
   readonly docked?: boolean;
   readonly composerPortal?: HTMLElement | null;
-  readonly renderComposer?: (send: (text: string) => void, disabled: boolean) => ReactNode;
+  /** stopResponse is set while an answer is being generated. */
+  readonly renderComposer?: (
+    send: (text: string) => void,
+    disabled: boolean,
+    stopResponse?: () => void
+  ) => ReactNode;
   readonly artifactActionFeedbackOverride?: 'saved';
   readonly artifactPreviewIdOverride?: string | null;
   readonly artifactPortalContainer?: HTMLElement | null;
@@ -584,7 +588,6 @@ export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps
 
 function ContextAnswerPanelSession({
   pendingQuestion = false,
-  onAnswerComplete,
   docked = false,
   composerPortal,
   renderComposer,
@@ -837,22 +840,18 @@ function ContextAnswerPanelSession({
       if (toolCall.toolName === 'requestAddToNotes') {
         const noteInput = isRequestAddToNotesInput(toolCall.input) ? toolCall.input : null;
         const currentState = readContextRequestState();
-        const primaryCandidate = noteInput
+        const candidates = noteInput
           ? buildConversationNoteSaveCandidates({
               anchor: selectionAnchorRef.current,
               toolInput: {
                 note: noteInput.noteDraft,
                 selectedText: noteInput.selectedTextDraft,
               },
-            })[0]
-          : null;
+            })
+          : [];
 
-        const hasAnchorableProposal = Boolean(
-          primaryCandidate &&
-            hasAnchorableConversationNoteCandidate(
-              currentState.lessonContent || '',
-              primaryCandidate
-            )
+        const hasAnchorableProposal = candidates.some(candidate =>
+          hasAnchorableConversationNoteCandidate(currentState.lessonContent || '', candidate)
         );
 
         if (noteInput && !hasAnchorableProposal) {
@@ -1054,29 +1053,6 @@ function ContextAnswerPanelSession({
     },
   });
   const { addToolOutput, error, messages, sendMessage, status, stop } = contextChat;
-
-  const spokenResponse = useRef<string | null>(null);
-  useEffect(() => {
-    if (!onAnswerComplete || status !== 'ready' || error || hasRequestedResponseStop) return;
-    const last = messages.at(-1);
-    if (
-      !last ||
-      last.role !== 'assistant' ||
-      hasPendingResponsePart(last) ||
-      shouldContinueContextResponse(messages)
-    )
-      return;
-    const userIndex = messages.map(message => message.role).lastIndexOf('user');
-    const text = messages
-      .slice(userIndex + 1)
-      .filter(message => message.role === 'assistant')
-      .map(getUiMessageText)
-      .join('\n\n')
-      .trim();
-    if (!text || spokenResponse.current === last.id) return;
-    spokenResponse.current = last.id;
-    onAnswerComplete(text);
-  }, [error, hasRequestedResponseStop, messages, onAnswerComplete, status]);
 
   const retrievedArtifactIds = useMemo(() => getRetrievedArtifactIds(messages), [messages]);
   const replacementDraftPayloads = useMemo(
@@ -1742,7 +1718,12 @@ function ContextAnswerPanelSession({
           ) : null}
 
           {part.state === 'input-available' && inputValue ? (
-            isProcessing ? null : (
+            isProcessing ? (
+              <output className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
+                <LoaderCircle className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                {t('Salvataggio…')}
+              </output>
+            ) : (
               <div className="mt-3 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
@@ -2245,7 +2226,14 @@ function ContextAnswerPanelSession({
     <>
       {answerPanel}
       {isPresent && composerPortal && renderComposer && (docked || !isMobileViewport)
-        ? createPortal(renderComposer(handleSubmit, isComposerDisabled), composerPortal)
+        ? createPortal(
+            renderComposer(
+              handleSubmit,
+              isComposerDisabled,
+              isLoading ? handleStopResponse : undefined
+            ),
+            composerPortal
+          )
         : null}
     </>
   );

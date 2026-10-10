@@ -6,7 +6,34 @@ import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderTtsModel } from '../../../components/workspace/shell/types.ts';
 import UnifiedAudioPanel, {
   PlaybackPlayButton,
+  PlaybackTimeline,
 } from '../../../components/workspace/UnifiedAudioPanel.tsx';
+
+test.each([true, false])('formats the timeline total and seeks (estimated=%s)', estimated => {
+  const seek = vi.fn();
+  const { container } = render(
+    <PlaybackTimeline time={62} duration={708} estimated={estimated} onSeek={seek} />
+  );
+  expect(container.querySelector('span:last-child')?.textContent).toBe(
+    `${estimated ? '≈ ' : ''}11:48`
+  );
+  expect(container.querySelector('span:first-child')?.textContent).toBe('01:02');
+  const slider = screen.getByRole('slider', { name: 'Posizione audio' });
+  expect(slider).toHaveAttribute('max', '708');
+  fireEvent.change(slider, { target: { value: '120' } });
+  expect(seek).not.toHaveBeenCalled();
+  expect(container.querySelector('span:first-child')?.textContent).toBe('02:00');
+  fireEvent.pointerUp(slider);
+  expect(seek).toHaveBeenCalledExactlyOnceWith(120);
+});
+
+test('shows only the current position after the slider when the total is hidden', () => {
+  render(<PlaybackTimeline time={62} duration={708} elapsedOnly onSeek={vi.fn()} />);
+  expect(screen.getByText('01:02')).toBeInTheDocument();
+  expect(screen.queryByText('11:48')).not.toBeInTheDocument();
+});
+
+const openSpeedMenu = () => fireEvent.click(screen.getByRole('button', { name: 'Velocita' }));
 
 const buildTtsModel = (
   overrides: Partial<WorkspaceReaderTtsModel> & Record<string, unknown> = {}
@@ -92,27 +119,40 @@ describe('UnifiedAudioPanel', () => {
     expect(panel).toHaveClass('sm:absolute', 'sm:right-0', 'sm:left-auto', 'sm:translate-x-0');
   });
 
-  test('shows how many speech parts exist and lets the user choose one directly', async () => {
+  test('keeps transport, text picker, voice list, speed menu and position in one card', async () => {
     const user = userEvent.setup();
-    const onSelectChunk = vi.fn();
+    const onSkipChunk = vi.fn();
+    const onPlayPause = vi.fn();
 
     render(
       <UnifiedAudioPanel
         initialTab="voce"
-        isOpen
         isMusicPlaying={false}
+        isOpen
         musicUrl=""
-        musicVolume={60}
+        musicVolume={0.5}
         setIsMusicPlaying={() => {}}
         setMusicUrl={() => {}}
         setMusicVolume={() => {}}
-        tts={buildTtsModel({ currentChunkIndex: 1, onSelectChunk })}
+        tts={buildTtsModel({ currentChunkIndex: 1, onSkipChunk, onPlayPause })}
       />
     );
 
-    expect(screen.getByText('Parte 2 di 3')).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Parte da leggere' }), '2');
-    expect(onSelectChunk).toHaveBeenCalledWith(2);
+    expect(screen.queryByText('Parte 2 di 3')).not.toBeInTheDocument();
+    const playButton = screen.getByRole('button', { name: 'Riproduci' });
+    const voiceControl = screen.getByRole('group', { name: 'Audio' });
+    expect(voiceControl).toContainElement(playButton);
+    expect(voiceControl).toContainElement(screen.getByRole('combobox', { name: 'Voce' }));
+    expect(voiceControl).toContainElement(screen.getByRole('button', { name: 'Velocita' }));
+    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
+    expect(voiceControl).toContainElement(screen.getByRole('slider', { name: 'Posizione audio' }));
+    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
+    expect(voiceControl).toContainElement(screen.getByRole('button', { name: 'Scegli dal testo' }));
+    await user.click(screen.getByRole('button', { name: 'Parte precedente' }));
+    await user.click(playButton);
+    await user.click(screen.getByRole('button', { name: 'Parte successiva' }));
+    expect(onSkipChunk.mock.calls).toEqual([['prev'], ['next']]);
+    expect(onPlayPause).toHaveBeenCalledOnce();
   });
 
   test('starts direct selection from the lesson text', async () => {
@@ -187,7 +227,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  test('shows voice and playback speed in one full-width vertical control', () => {
+  test('lists voices directly and opens only the speed slider from the speed label', () => {
     const { container } = render(
       <UnifiedAudioPanel
         initialTab="voce"
@@ -201,15 +241,15 @@ describe('UnifiedAudioPanel', () => {
         tts={buildTtsModel()}
       />
     );
+    openSpeedMenu();
 
-    const voiceSpeedControl = screen.getByRole('group', { name: 'Voce · Velocita' });
+    const card = screen.getByRole('group', { name: 'Audio' });
     const voiceControl = screen.getByRole('combobox', { name: 'Voce' });
     const speedControl = screen.getByRole('slider', { name: 'Velocita' });
 
-    expect(voiceSpeedControl).toHaveClass('w-full');
-    expect(voiceSpeedControl).toHaveTextContent('Alloy');
-    expect(voiceSpeedControl).toHaveTextContent('•');
-    expect(voiceSpeedControl).toHaveTextContent('1x');
+    expect(card).toHaveTextContent('Alloy');
+    expect(screen.getByRole('button', { name: 'Velocita' })).toHaveTextContent('1x');
+    expect(screen.getAllByText('1x')).toHaveLength(1);
     expect(voiceControl).toHaveValue('alloy');
     expect(voiceControl).toHaveAttribute('title', 'Voce');
     expect(voiceControl).toHaveClass('absolute', 'inset-0');
@@ -220,7 +260,7 @@ describe('UnifiedAudioPanel', () => {
     expect(speedControl).toHaveValue('1');
     expect(speedControl).toHaveAttribute('aria-valuetext', '1x');
     expect(speedControl).toHaveAttribute('aria-orientation', 'horizontal');
-    expect(speedControl).toHaveClass('h-9', 'w-full', 'touch-pan-y');
+    expect(speedControl).toHaveClass('h-7', 'w-full', 'touch-pan-y');
     expect(container.querySelectorAll('[data-slider-marker]')).toHaveLength(5);
     expect(container.querySelector('[data-slider-fill]')).toBeInTheDocument();
   });
@@ -249,10 +289,11 @@ describe('UnifiedAudioPanel', () => {
         })}
       />
     );
-
     await user.selectOptions(screen.getByRole('combobox', { name: 'Voce' }), 'echo');
     expect(onVoiceChange).toHaveBeenCalledWith('echo');
     expect(onSpeedChange).not.toHaveBeenCalled();
+
+    openSpeedMenu();
 
     fireEvent.change(screen.getByRole('slider', { name: 'Velocita' }), {
       target: { value: '1.1' },
@@ -261,7 +302,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onVoiceChange).toHaveBeenCalledOnce();
   });
 
-  test('disables direct speed input while TTS is unavailable', async () => {
+  test('disables the voice list and speed menu while TTS is unavailable', async () => {
     const user = userEvent.setup();
     const onSpeedChange = vi.fn();
     render(
@@ -278,14 +319,13 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedControl = screen.getByRole('slider', { name: 'Velocita' });
+    const speedButton = screen.getByRole('button', { name: 'Velocita' });
     expect(screen.getByRole('combobox', { name: 'Voce' })).toBeDisabled();
-    expect(speedControl).toBeDisabled();
-    expect(speedControl).toHaveAttribute('tabindex', '-1');
+    expect(speedButton).toBeDisabled();
 
-    speedControl.focus();
-    await user.keyboard('{ArrowRight}');
+    await user.click(speedButton);
 
+    expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
     expect(onSpeedChange).not.toHaveBeenCalled();
   });
 
@@ -304,9 +344,10 @@ describe('UnifiedAudioPanel', () => {
         tts={buildTtsModel({ onSpeedChange, playbackRate: 2.4 })}
       />
     );
+    openSpeedMenu();
 
     expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveValue('2');
-    expect(screen.getByText('2x')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Velocita' })).toHaveTextContent('2x');
     expect(onSpeedChange).toHaveBeenCalledOnce();
     expect(onSpeedChange).toHaveBeenCalledWith(2);
   });
@@ -326,28 +367,29 @@ describe('UnifiedAudioPanel', () => {
       />
     );
     const { container, rerender } = render(renderPanelAtSpeed(0.8));
+    openSpeedMenu();
     const getFill = () => container.querySelector('[data-slider-fill]');
     const getMarker = (progress: number) =>
       container.querySelector(`[data-slider-marker="${progress}"]`);
 
-    expect(getFill()).toHaveStyle({ width: 'calc(0% + 20px)' });
-    expect(getMarker(0)).toHaveStyle({ left: 'calc(0% + 20px)' });
+    expect(getFill()).toHaveStyle({ width: 'calc(0% + 16px)' });
+    expect(getMarker(0)).toHaveStyle({ left: 'calc(0% + 16px)' });
 
     rerender(renderPanelAtSpeed(1.1));
-    expect(getFill()).toHaveStyle({ width: 'calc(25% + 10px)' });
-    expect(getMarker(0.25)).toHaveStyle({ left: 'calc(25% + 10px)' });
+    expect(getFill()).toHaveStyle({ width: 'calc(25% + 8px)' });
+    expect(getMarker(0.25)).toHaveStyle({ left: 'calc(25% + 8px)' });
 
     rerender(renderPanelAtSpeed(1.4));
     expect(getFill()).toHaveStyle({ width: 'calc(50% + 0px)' });
     expect(getMarker(0.5)).toHaveStyle({ left: 'calc(50% + 0px)' });
 
     rerender(renderPanelAtSpeed(1.7));
-    expect(getFill()).toHaveStyle({ width: 'calc(75% + -10px)' });
-    expect(getMarker(0.75)).toHaveStyle({ left: 'calc(75% + -10px)' });
+    expect(getFill()).toHaveStyle({ width: 'calc(75% + -8px)' });
+    expect(getMarker(0.75)).toHaveStyle({ left: 'calc(75% + -8px)' });
 
     rerender(renderPanelAtSpeed(2));
-    expect(getFill()).toHaveStyle({ width: 'calc(100% + -20px)' });
-    expect(getMarker(1)).toHaveStyle({ left: 'calc(100% + -20px)' });
+    expect(getFill()).toHaveStyle({ width: 'calc(100% + -16px)' });
+    expect(getMarker(1)).toHaveStyle({ left: 'calc(100% + -16px)' });
   });
 
   test('adjusts the direct playback-speed control with keyboard controls and respects its bounds', async () => {
@@ -366,6 +408,7 @@ describe('UnifiedAudioPanel', () => {
         tts={buildTtsModel({ onSpeedChange })}
       />
     );
+    openSpeedMenu();
 
     const speedControl = screen.getByRole('slider', { name: 'Velocita' });
     speedControl.focus();
@@ -389,6 +432,7 @@ describe('UnifiedAudioPanel', () => {
         tts={buildTtsModel({ onSpeedChange })}
       />
     );
+    openSpeedMenu();
 
     const speedControl = screen.getByRole('slider', { name: 'Velocita' });
     fireEvent.change(speedControl, { target: { value: '2' } });

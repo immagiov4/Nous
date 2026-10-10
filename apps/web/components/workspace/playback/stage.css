@@ -1853,6 +1853,8 @@
 }
 .lesson-player-stage .listening-stage {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   gap: 6%;
@@ -1886,8 +1888,8 @@
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   min-height: 300px;
   width: 100%;
-  max-height: calc(100dvh - 180px);
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 .lesson-player-stage .approved-image {
   display: block;
@@ -2142,7 +2144,7 @@
   max-width: 1500px;
   margin-inline: auto;
   padding-inline: 5%;
-  overflow: auto;
+  overflow: clip;
   font-family: "Inter", system-ui, sans-serif;
   font-synthesis: none;
 }
@@ -2197,32 +2199,34 @@
 }
 
 .lesson-player-stage .scene-fit {
-  display: contents;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: clip;
+}
+.lesson-player-stage .listening-stage > .scene-fit > .scene-host {
+  position: absolute;
+  top: 0;
+  left: var(--scene-left, 0px);
+  transform: scale(var(--scene-scale, 1));
+  transform-origin: top left;
+}
+.lesson-player-stage
+  .scene-host
+  :is(.table-wrap, .diagram-scroll, .lesson-code, pre, .katex-display, .overflow-x-auto) {
+  /* biome-ignore lint/complexity/noImportantStyles: override the Markdown code renderer's inline scrolling style; the complete card is scaled instead. */
+  overflow: visible !important;
 }
 @media (max-width: 650px) {
   .lesson-player-stage .listening-stage {
     min-height: 0;
   }
   .lesson-player-stage .captions {
-    min-height: 0;
     flex-shrink: 0;
   }
-  .lesson-player-stage .captions p {
-    --caption-height: 2lh;
-  }
   .lesson-player-stage .scene-fit {
-    display: block;
-    position: relative;
-    width: 100%;
-    flex: 1;
-    min-height: 0;
+    flex-shrink: 0;
     order: 0;
-  }
-  .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
-    position: absolute;
-    top: var(--scene-top, 0px);
-    overflow: visible;
-    transform: scale(var(--scene-scale, 1));
-    transform-origin: top center;
   }
 }
