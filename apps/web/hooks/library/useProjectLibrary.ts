@@ -620,14 +620,16 @@ export const useProjectLibrary = ({
   // the server's detached source when the workspace still shows the saved source.
   const adoptSavedSnapshotBaseline = useCallback(
     (snapshot: ProjectSnapshot, detachedSnapshot: ProjectSnapshot | undefined) => {
+      let savedBaseline = snapshot;
       if (detachedSnapshot && domainStateRef.current.source === snapshot.source) {
-        lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot);
+        savedBaseline = { ...snapshot, source: detachedSnapshot.source };
+        lastPersistedSignatureRef.current = buildAutosaveSignature(savedBaseline);
         setSourceRef.current(detachedSnapshot.source);
       }
       const writeState = getProjectWriteState(snapshot.id);
       if (writeState.pendingCount === 0 && !writeState.batchFailed) {
         setStorageError(null);
-        lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot || snapshot);
+        lastPersistedSignatureRef.current = buildAutosaveSignature(savedBaseline);
       }
     },
     [getProjectWriteState]

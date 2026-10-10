@@ -73,6 +73,8 @@ To optimize performance and reduce payload sizes, the system utilizes specialize
 2.  **Navigation Patch:** Specifically targets `activeSectionId` and `state`. It uses a `navigation` rebase mode to merge navigation changes even if the server revision has advanced due to background generation. Sources: [apps/web/hooks/library/useProjectLibrary.ts:738-780](../../../apps/web/hooks/library/useProjectLibrary.ts#L738-L780)
 3.  **Annotation Patch:** High-performance path for updates to specific lesson notes or highlights, avoiding the transmission of the entire learning plan. Sources: [apps/web/hooks/library/useProjectLibrary.ts:800-848](../../../apps/web/hooks/library/useProjectLibrary.ts#L800-L848)
 
+A completed full snapshot save records the submitted state as the autosave baseline, replacing its source with the returned detached source only when the live workspace still holds the submitted source. Other normalized response fields are not applied to the live workspace and do not enter this baseline. Edits made during the save remain dirty and trigger a subsequent autosave. A save that finishes after another project is selected cannot replace that project's source or baseline. Source: [useProjectLibrary.ts](../../../apps/web/hooks/library/useProjectLibrary.ts).
+
 ### Conflict Resolution
 Nous uses an `expectedRevision` pattern. If a client attempts to save with a revision number that does not match the server's current version, a `ProjectRevisionConflictError` (HTTP 409) is raised. This triggers the client to either rebase or reload the latest state to prevent overwriting concurrent changes.
 
@@ -101,6 +103,8 @@ flowchart TD
 Sources: [apps/backend/tests/helpers/inMemoryProjectStore.ts:515-540](../../../apps/backend/tests/helpers/inMemoryProjectStore.ts#L515-L540), [apps/web/hooks/library/useProjectLibrary.ts:1210-1230](../../../apps/web/hooks/library/useProjectLibrary.ts#L1210-L1230)
 
 ### Full Library Export
+
+The account dialog shows export progress as the completed course count out of the total course count. It does not show a separate byte count. Source: [AccountSettingsDialog.tsx](../../../apps/web/components/account/AccountSettingsDialog.tsx).
 
 The browser starts one backend-owned export run and polls its persisted progress instead of loading every project snapshot into a client-side ZIP. The status query reads scalar run fields and a checkpoint count without loading checkpoint paths or checksums. The backend processes one project at a time, writes each compatible project archive atomically to a durable workspace, and records its project incarnation UUID, revision, byte count, and SHA-256 checkpoint before streaming those files into the outer library archive. In Compose deployments the workspace is a named volume, so a restarted or recreated backend reuses a checkpoint only when its file and both project identity fields still match the run snapshot.
 

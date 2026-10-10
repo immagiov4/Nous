@@ -2,9 +2,11 @@
 import { PROJECT_PATCH_REBASE_MODE } from '@shared/projectContract';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import JSZip from 'jszip';
+import { useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
+import { normalizeStoredProject } from '../../../services/projects/projectSnapshot.ts';
 import { getSyncState, setSyncState } from '../../../services/projects/syncState.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import {
@@ -859,7 +861,7 @@ describe('useProjectLibrary', () => {
     ).rejects.toThrow('Il caricamento della sorgente ha superato il tempo disponibile.');
   });
 
-  test('applies the detached source without scheduling another full snapshot save', async () => {
+  test('applies the normalized detached source without scheduling another full snapshot save', async () => {
     const embeddedSource: ProjectSource = {
       file: {
         data: 'UEsDBAo=',
@@ -882,25 +884,35 @@ describe('useProjectLibrary', () => {
         objectPath: 'users/user/projects/archive/source-archive/archive-hash/original',
       },
     };
-    const initialState = {
+    const { summary, ...learningPlan } = buildTestLearningPlan([
+      buildTestLesson({ content: 'Synthetic lesson' }),
+    ]);
+    const initialState: WorkspaceDomainState = {
       ...createEmptyWorkspaceDomainState(),
+      learningPlan: {
+        summary,
+        ...learningPlan,
+      },
       source: embeddedSource,
     };
-    const setSource = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('archive-project', '2026-04-02T10:00:00.000Z'),
+    ]);
     repositoryMocks.saveProject.mockImplementation(async (snapshot: ProjectSnapshot) => ({
       meta: buildMeta(snapshot.id, snapshot.updatedAt),
-      snapshot: { ...snapshot, source: detachedSource },
+      snapshot: normalizeStoredProject({ ...snapshot, source: detachedSource }),
     }));
-    const { rerender, result } = renderHook(
-      ({ domainState }) =>
-        useProjectLibrary({
-          domainState,
-          hydrateSnapshot: vi.fn(),
-          setSource,
-        }),
-      { initialProps: { domainState: initialState } }
-    );
+    const { result } = renderHook(() => {
+      const [domainState, setDomainState] = useState(initialState);
+      const library = useProjectLibrary({
+        domainState,
+        hydrateSnapshot: vi.fn(),
+        setSource: source => setDomainState(current => ({ ...current, source })),
+      });
+      return { ...library, domainState };
+    });
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    vi.useFakeTimers();
     act(() => {
       result.current.setCurrentProjectId('archive-project');
       result.current.setProjectHydrated(true);
@@ -911,6 +923,7 @@ describe('useProjectLibrary', () => {
       savedSnapshot = (
         await result.current.persistSnapshot(
           buildSnapshot('archive-project', {
+            learningPlan: initialState.learningPlan,
             source: embeddedSource,
             sourceKind: 'codebase',
           })
@@ -919,19 +932,98 @@ describe('useProjectLibrary', () => {
     });
 
     expect(savedSnapshot?.source).toEqual(detachedSource);
-    expect(setSource).toHaveBeenCalledWith(detachedSource);
-    vi.useFakeTimers();
-    rerender({
-      domainState: {
-        ...initialState,
-        source: detachedSource,
-      },
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(500);
-      await vi.runOnlyPendingTimersAsync();
-    });
+    expect(result.current.domainState.source).toBe(savedSnapshot?.source);
+    expect(result.current.domainState.learningPlan).toBe(initialState.learningPlan);
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+    }
     expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    'learningPlan',
+    'source',
+  ] as const)('preserves and autosaves a %s edit made during a normalized snapshot save', async editedField => {
+    const { summary, ...learningPlan } = buildTestLearningPlan();
+    const initialState: WorkspaceDomainState = {
+      ...createEmptyWorkspaceDomainState(),
+      learningPlan: {
+        summary,
+        ...learningPlan,
+      },
+      source: {
+        kind: 'document',
+        file: { data: 'aGVsbG8=', mimeType: 'text/plain', name: 'notes.txt' },
+      },
+    };
+    const changedState: WorkspaceDomainState = {
+      ...initialState,
+      ...(editedField === 'learningPlan'
+        ? { learningPlan: buildTestLearningPlan([], { title: 'Edited during save' }) }
+        : {
+            source: {
+              kind: 'document' as const,
+              file: { data: 'bmV3', mimeType: 'text/plain', name: 'new-notes.txt' },
+            },
+          }),
+    };
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z'),
+    ]);
+    let finishSave!: () => void;
+    repositoryMocks.saveProject.mockImplementation(async (snapshot: ProjectSnapshot) => ({
+      meta: buildMeta(snapshot.id, snapshot.updatedAt),
+      snapshot: normalizeStoredProject(snapshot),
+    }));
+    repositoryMocks.saveProject.mockImplementationOnce(
+      (snapshot: ProjectSnapshot) =>
+        new Promise(resolve => {
+          finishSave = () =>
+            resolve({
+              meta: buildMeta(snapshot.id, snapshot.updatedAt),
+              snapshot: normalizeStoredProject(snapshot),
+            });
+        })
+    );
+    const { result } = renderHook(() => {
+      const [domainState, setDomainState] = useState(initialState);
+      const library = useProjectLibrary({
+        domainState,
+        hydrateSnapshot: vi.fn(),
+        setSource: source => setDomainState(current => ({ ...current, source })),
+      });
+      return { ...library, domainState, setDomainState };
+    });
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    vi.useFakeTimers();
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+    let pendingSave!: ReturnType<typeof result.current.saveCurrentProject>;
+    await act(async () => {
+      pendingSave = result.current.saveCurrentProject();
+      await Promise.resolve();
+    });
+    act(() => result.current.setDomainState(changedState));
+    await act(async () => {
+      finishSave();
+      await pendingSave;
+    });
+
+    expect(result.current.domainState[editedField]).toBe(changedState[editedField]);
+    expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+    }
+    expect(repositoryMocks.saveProject).toHaveBeenCalledTimes(2);
+    expect(repositoryMocks.saveProject.mock.calls[1]?.[0][editedField]).toEqual(
+      changedState[editedField]
+    );
   });
 
   test('autosaves only after the debounced persisted signature changes', async () => {
