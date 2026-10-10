@@ -52,9 +52,12 @@ const DEFAULT_TTS_VOICE_IDS = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'] as 
 const GROK_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
 const GROK_TTS_VOICES = new Set(['ara', 'eve', 'rex', 'sal', 'leo']);
 
-// Every Gemini TTS model shares the same voices and PCM output, whichever one is the default.
-const isGeminiTtsModel = (model: string): boolean =>
-  model.startsWith('google/gemini-') && model.endsWith('-tts');
+// Gemini TTS models verified to share the default voices and PCM output.
+const GEMINI_TTS_MODELS = new Set([
+  'google/gemini-3.8-flash-tts',
+  'google/gemini-3.8-flash-lite-tts',
+]);
+const isGeminiTtsModel = (model: string): boolean => GEMINI_TTS_MODELS.has(model);
 
 // Normalize voices crossing the rollout boundary; preserve provider-specific custom voices.
 const normalizeModelVoice = (model: string, voice: string): string => {
