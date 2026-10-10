@@ -1,13 +1,20 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-/** Parses with the bundled Mermaid in a disposable DOM process, isolated from server globals. */
-export const isParseableMermaid = (code: string, signal: AbortSignal): Promise<boolean> => {
+/** Parses in an isolated DOM process; classification callers may treat unknown types as non-diagrams. */
+export const isParseableMermaid = (
+  code: string,
+  signal: AbortSignal,
+  unknownDiagramIsInvalid = false
+): Promise<boolean> => {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = execFile(
       process.execPath,
-      [fileURLToPath(new URL('./mermaidValidationProcess.mjs', import.meta.url))],
+      [
+        fileURLToPath(new URL('./mermaidValidationProcess.mjs', import.meta.url)),
+        ...(unknownDiagramIsInvalid ? ['--allow-non-diagram'] : []),
+      ],
       { signal, windowsHide: true },
       (error, stdout) => {
         if (signal.aborted) {

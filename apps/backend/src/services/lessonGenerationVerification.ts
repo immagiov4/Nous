@@ -44,6 +44,8 @@ import {
   SYSTEM_INSTRUCTION_TEACHER,
   YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '@shared/lessonWritingContract';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import * as z from 'zod';
 import {
   isLessonStructuredOutputError,
@@ -54,6 +56,7 @@ import {
   getLessonReferenceAvailability,
 } from './lessonGenerationPrompt.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
+import { isParseableMermaid } from './mermaidValidation.js';
 import { generateStructuredOutput } from './structuredGeneration.js';
 
 interface LessonResponseSchemaContract {
@@ -177,38 +180,44 @@ const draftMarkdownContains = (draft: LessonContentDraft, markers: readonly stri
 const draftMarkdownMatches = (draft: LessonContentDraft, pattern: RegExp): boolean =>
   draft.contentBlocks.some(block => block.type === 'markdown' && pattern.test(block.markdown));
 
-const containsMermaidFence = (draft: LessonContentDraft): boolean =>
-  draft.contentBlocks.some(block => {
-    if (block.type !== 'markdown') return false;
-    let openFence: { marker: string; length: number; awaitingDeclaration: boolean } | undefined;
-    return block.markdown.split('\n').some(line => {
-      let trimmed = line.trimStart();
-      while (trimmed.startsWith('>')) trimmed = trimmed.slice(1).trimStart();
-      if (openFence) {
-        const { marker, length } = openFence;
-        if (
-          trimmed.trimEnd().length >= length &&
-          [...trimmed.trimEnd()].every(character => character === marker)
-        ) {
-          openFence = undefined;
-          return false;
-        }
-        if (!openFence.awaitingDeclaration || !trimmed.trim()) return false;
-        openFence.awaitingDeclaration = false;
-        return /^(?:sequenceDiagram|flowchart|graph|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline)\b/.test(
-          trimmed
-        );
-      }
-      const fence = trimmed[0];
-      if (fence !== '`' && fence !== '~') return false;
-      let fenceLength = 0;
-      while (trimmed[fenceLength] === fence) fenceLength += 1;
-      if (fenceLength < 3) return false;
-      const info = trimmed.slice(fenceLength).trim();
-      openFence = { marker: fence, length: fenceLength, awaitingDeclaration: !info };
-      return /^mermaid\b/i.test(info);
-    });
-  });
+const markdownParser = unified().use(remarkParse);
+type MarkdownRoot = ReturnType<typeof markdownParser.parse>;
+
+const containsMermaidCode = async (
+  node: MarkdownRoot | MarkdownRoot['children'][number],
+  markdown: string,
+  signal: AbortSignal
+): Promise<boolean> => {
+  if (node.type === 'code') {
+    const offset = node.position?.start.offset;
+    if (offset === undefined) throw new Error('Parsed Markdown code has no source position.');
+    // The parser owns container boundaries and indentation; only fenced nodes qualify.
+    if (!/^(?:`{3,}|~{3,})/.test(markdown.slice(offset))) return false;
+    if (node.lang) return /^mermaid\b/i.test(node.lang);
+    return node.value.length > 0 && (await isParseableMermaid(node.value, signal, true));
+  }
+  if ('children' in node) {
+    for (const child of node.children) {
+      if (await containsMermaidCode(child, markdown, signal)) return true;
+    }
+  }
+  return false;
+};
+
+const containsMermaidFence = async (
+  draft: LessonContentDraft,
+  signal: AbortSignal
+): Promise<boolean> => {
+  for (const block of draft.contentBlocks) {
+    if (
+      block.type === 'markdown' &&
+      (await containsMermaidCode(markdownParser.parse(block.markdown), block.markdown, signal))
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
 
 const buildVerificationSchema = (
   responseSchema: LessonResponseSchemaContract,
@@ -487,8 +496,8 @@ export const verifyLessonContentDraft = async (input: {
   responseSchema: LessonResponseSchemaContract;
 }): Promise<LessonContentDraft> => {
   const generationInput = input.generationInput;
-  const rejectEmbeddedMermaid = (draft: LessonContentDraft) => {
-    if (!containsMermaidFence(draft)) return;
+  const rejectEmbeddedMermaid = async (draft: LessonContentDraft) => {
+    if (!(await containsMermaidFence(draft, generationInput.signal))) return;
     throw retryLessonGenerationCorrection({
       code: 'lesson_embedded_mermaid_unsupported',
       feedback:
@@ -520,7 +529,7 @@ export const verifyLessonContentDraft = async (input: {
       message: 'The lesson verifier returned invalid structured output.',
     });
   }
-  rejectEmbeddedMermaid(verified);
+  await rejectEmbeddedMermaid(verified);
 
   const integrity = LessonIntegritySchema.safeParse(verified.lessonIntegrity);
   if (!integrity.success) {

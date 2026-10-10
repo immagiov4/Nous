@@ -22,3 +22,15 @@ test('cancels the isolated parser with its caller', async () => {
   controller.abort(reason);
   await expect(parsing).rejects.toBe(reason);
 });
+
+test.each([
+  'unknownDiagram',
+  'graph = buildGraph()',
+  'sequenceDiagram()',
+  'packet = {}',
+  'architecture = {}',
+  'gitGraph = {}',
+  'pie = {}',
+])('classifies non-diagram input without changing artifact validation: %s', async code => {
+  await expect(isParseableMermaid(code, new AbortController().signal, true)).resolves.toBe(false);
+});
