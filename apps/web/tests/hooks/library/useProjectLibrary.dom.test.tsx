@@ -1005,7 +1005,7 @@ describe('useProjectLibrary', () => {
     let pendingSave!: ReturnType<typeof result.current.saveCurrentProject>;
     await act(async () => {
       pendingSave = result.current.saveCurrentProject();
-      await Promise.resolve();
+      await vi.waitFor(() => expect(repositoryMocks.saveProject).toHaveBeenCalledOnce());
     });
     act(() => result.current.setDomainState(changedState));
     await act(async () => {
