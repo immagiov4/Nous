@@ -4,7 +4,7 @@ import {
   LEARNING_ARTIFACT_ID_SEPARATOR,
   type LearningArtifactKind,
 } from './learningArtifact';
-import { LessonPlaybackSchema } from './lessonPlaybackSchema';
+import { isValidLessonPlayback } from './lessonPlaybackSchema';
 import { isLessonScene } from './lessonScene';
 import {
   buildProjectAssetPlaceholder,
@@ -97,9 +97,8 @@ const collectStructuredPdfRefs = (project: Record<string, unknown>): ProjectAsse
 
 const playbackBlocks = (section: Record<string, unknown>) => {
   if (section.playback === undefined) return [];
-  const parsed = LessonPlaybackSchema.safeParse(section.playback);
-  if (!parsed.success) throw new InvalidProjectBackupAssetError();
-  return parsed.data.blocks;
+  if (!isValidLessonPlayback(section.playback)) throw new InvalidProjectBackupAssetError();
+  return section.playback.blocks;
 };
 
 export const collectProjectAssetReferences = (project: unknown): readonly ProjectAssetRef[] => {
@@ -319,7 +318,7 @@ export const remapProjectAssetReferences = <T>(
   for (const section of readProjectSections(remappedProject)) {
     if (section.playback !== undefined) {
       section.playback = {
-        ...LessonPlaybackSchema.parse(section.playback),
+        ...(section.playback as Record<string, unknown>),
         blocks: playbackBlocks(section).map(block => ({
           ...block,
           audio: block.audio.map(audio => ({ ...audio, asset: remapRef(audio.asset, idMap) })),

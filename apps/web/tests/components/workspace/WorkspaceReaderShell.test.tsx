@@ -145,6 +145,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
         sectionContent: '',
         ttsConnected: false,
         onPlayPause: vi.fn(),
+        onStop: vi.fn(),
         onSeek: vi.fn(),
         onSelectChunk: vi.fn(),
         onSetTextPickerActive: vi.fn(),
@@ -232,6 +233,7 @@ describe('WorkspaceReaderShell', () => {
     const props = buildProps();
     props.sidebar.activeSectionId = 'lesson';
     props.content.projectId = 'project';
+    props.content.sectionContent = 'Una frase.';
     render(<WorkspaceReaderShell {...props} />);
     fireEvent.click(screen.getByTestId(entry));
     expect(await screen.findByRole('dialog')).toHaveAttribute('data-autoplay', 'true');
@@ -344,4 +346,39 @@ describe('WorkspaceReaderShell', () => {
     expect(container.firstElementChild).toHaveAttribute('data-reader-display-mode', 'embedded');
     expect(container.firstElementChild).toHaveClass('overflow-visible');
   });
+});
+
+test.each([
+  'empty',
+  'exercise',
+  'loading',
+])('both entry points reject an unavailable %s lesson', kind => {
+  const props = buildProps();
+  props.sidebar.activeSectionId = 'lesson';
+  props.content.projectId = 'project';
+  props.content.sectionContent = kind === 'empty' ? '' : 'Una frase.';
+  if (kind === 'exercise')
+    props.content.activeExercise = { id: 'exercise' } as NonNullable<
+      typeof props.content.activeExercise
+    >;
+  if (kind === 'loading') props.content.isLoading = true;
+  render(<WorkspaceReaderShell {...props} />);
+  fireEvent.click(screen.getByTestId('workspace-header'));
+  fireEvent.click(screen.getByTestId('workspace-sidebar'));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(props.header.tts.onStop).not.toHaveBeenCalled();
+});
+
+test('opening playback cancels paused legacy generation with an explicit stop', async () => {
+  const props = buildProps();
+  props.sidebar.activeSectionId = 'lesson';
+  props.content.projectId = 'project';
+  props.content.sectionContent = 'Una frase.';
+  props.header.tts.isPlaying = false;
+  props.header.tts.isLoading = true;
+  render(<WorkspaceReaderShell {...props} />);
+  fireEvent.click(screen.getByTestId('workspace-header'));
+  await screen.findByRole('dialog');
+  expect(props.header.tts.onStop).toHaveBeenCalledOnce();
+  expect(props.header.tts.onPlayPause).not.toHaveBeenCalled();
 });

@@ -2,10 +2,9 @@
 import { type Request, type Response, Router } from 'express';
 
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
-import { DEFAULT_TTS_MODEL, ttsClient } from '../services/ttsClient.js';
+import { DEFAULT_TTS_MODEL, MAX_TTS_TEXT_CHARS, ttsClient } from '../services/ttsClient.js';
 
 const router = Router();
-const MAX_TTS_TEXT_CHARS = 10_000;
 const TTS_AUDIO_CACHE_MAX_AGE_SECONDS = 3_600;
 
 /**

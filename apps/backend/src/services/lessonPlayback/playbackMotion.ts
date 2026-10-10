@@ -3,6 +3,7 @@ import type { LessonScene, LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
+import { failPermanently } from '../../workflows/retryPolicy.js';
 import { isInvalidLessonVisualStructuredOutput } from '../lessonGenerationVisuals.js';
 import { generateStructuredOutput } from '../structuredGeneration.js';
 import { PLAYBACK_MOTION_SYSTEM_PROMPT } from './playbackMotionPrompt.js';
@@ -52,6 +53,7 @@ const validateEvent = (
   targets: ReadonlySet<string>,
   speech: string
 ): void => {
+  if (!event.quote.trim()) throw new Error('Motion requires a non-whitespace source anchor');
   if (event.targets.some(id => !targets.has(id))) throw new Error('Unknown motion target');
   const offset = speech.indexOf(event.quote);
   if (offset < 0 || speech.indexOf(event.quote, offset + 1) >= 0) {
@@ -100,9 +102,19 @@ export const validatePlaybackMotion = (
     throw new Error('Progressive appearance must cover each target once');
   }
   // The lab sorts by anchorTime before validation; the player will derive those times later.
-  return [...events].sort(
+  const ordered = [...events].sort(
     (left, right) => speech.indexOf(left.quote) - speech.indexOf(right.quote)
   );
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = ordered[index - 1];
+    if (
+      speech.indexOf(ordered[index].quote) <
+      speech.indexOf(previous.quote) + previous.quote.length
+    ) {
+      throw new Error('Motion source anchors must not overlap');
+    }
+  }
+  return ordered;
 };
 
 /** Plans one scene's motion, retrying only malformed or invalid model output. */
@@ -121,6 +133,8 @@ export const planPlaybackMotion = async ({
   const targets = motionTargets(scene);
   // The lab keeps sequence scenes and scenes without targetable elements static.
   if (scene.type === 'sequence' || targets.length === 0) return [];
+  // Focus needs a selection; a single element can still appear progressively in reveal forms.
+  if (targets.length === 1 && !REVEAL_SCENE_TYPES.has(scene.type)) return [];
   const request = JSON.stringify([
     { chunk: 0, type: scene.type, title: scene.title, text: speech, targets },
   ]);
@@ -133,7 +147,11 @@ export const planPlaybackMotion = async ({
       prompt: request + feedback,
       signal,
       slot: 'playbackPreparation',
-      system: PLAYBACK_MOTION_SYSTEM_PROMPT,
+      system:
+        PLAYBACK_MOTION_SYSTEM_PROMPT +
+        (targets.length === 1
+          ? '\nUn solo bersaglio: focus non ammesso; usa reveal oppure events:[].'
+          : ''),
     }).catch(error => {
       signal.throwIfAborted();
       if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
@@ -152,5 +170,8 @@ export const planPlaybackMotion = async ({
     }
     feedback = `\nRisposta precedente: ${JSON.stringify(response)}\nCorreggi la risposta completa: ${problem}. Le liste checklist/steps/hypothesis/timeline ammettono SOLO reveal di tutte le voci una per volta oppure events:[]; un bersaglio per reveal; focus condiviso ammesso per concetti nominati insieme; quote univoca esatta.`;
   }
-  throw new Error('Playback motion preparation failed validation after corrective attempts.');
+  throw failPermanently({
+    code: 'lesson_playback_motion_invalid',
+    message: 'Playback motion preparation failed validation after corrective attempts.',
+  });
 };

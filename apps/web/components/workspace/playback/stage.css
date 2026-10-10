@@ -2098,6 +2098,11 @@
   box-shadow: none;
   transform-box: fill-box;
 }
+.lesson-player-stage .lesson-scene svg .motion-target[data-playback-item] {
+  box-shadow: none;
+  stroke: rgb(169 79 52 / var(--motion-emphasis));
+  stroke-width: var(--motion-border);
+}
 .lesson-player-stage .lesson-scene g.motion-target rect,
 .lesson-player-stage .lesson-scene g.motion-target polygon,
 .lesson-player-stage .lesson-scene g.motion-target circle {

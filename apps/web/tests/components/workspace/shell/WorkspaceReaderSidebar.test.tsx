@@ -551,3 +551,24 @@ describe('WorkspaceReaderSidebar', () => {
     expect(screen.queryByRole('button', { name: /Pianifica esercizi/i })).toBeNull();
   });
 });
+
+test.each([
+  'reload',
+  'regeneration',
+  'course loading',
+])('cached content cannot start playback during %s', state => {
+  const props = buildProps({
+    onPlayLesson: vi.fn(),
+    isSectionLoading: state === 'reload',
+    generatingSectionId: state === 'regeneration' ? 'section-1' : null,
+    isLoading: state === 'course loading',
+  });
+  props.sidebarGroups[0].sections[0] = {
+    ...props.sidebarGroups[0].sections[0],
+    kind: 'lesson',
+    type: 'core',
+    content: 'Testo precedente.',
+  };
+  render(<WorkspaceReaderSidebar {...props} />);
+  expect(screen.queryByRole('button', { name: 'Riproduci la lezione corrente' })).toBeNull();
+});

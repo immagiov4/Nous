@@ -53,6 +53,7 @@ const buildTtsModel = (
     isPlaying: false,
     isTextPickerActive: false,
     onPlayPause: () => {},
+    onStop: vi.fn(),
     onSeek: () => {},
     onSelectChunk: () => {},
     onSetTextPickerActive: () => {},
@@ -260,7 +261,9 @@ describe('UnifiedAudioPanel', () => {
     expect(speedControl).toHaveValue('1');
     expect(speedControl).toHaveAttribute('aria-valuetext', '1x');
     expect(speedControl).toHaveAttribute('aria-orientation', 'horizontal');
-    expect(speedControl).toHaveClass('h-7', 'w-full', 'touch-pan-y');
+    expect(speedControl).toHaveClass('w-full', 'touch-pan-y');
+    expect(speedControl.parentElement?.style.getPropertyValue('--slider-thumb-size')).toBe('32px');
+    expect(speedControl.parentElement?.style.getPropertyValue('--slider-track-size')).toBe('28px');
     expect(container.querySelectorAll('[data-slider-marker]')).toHaveLength(5);
     expect(container.querySelector('[data-slider-fill]')).toBeInTheDocument();
   });
@@ -476,4 +479,38 @@ describe('UnifiedAudioPanel', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Riproduci musica ambiente/i })).toBeEnabled();
   });
+});
+
+test('the disabled playback label explains audio availability', () => {
+  render(<PlaybackPlayButton disabled loading={false} playing={false} onClick={vi.fn()} />);
+  expect(screen.getByRole('button', { name: 'TTS non disponibile' })).toBeDisabled();
+});
+
+test('the speed menu consumes Escape, restores its trigger and closes outside', () => {
+  const onParentKeyDown = vi.fn();
+  render(
+    <div role="dialog" onKeyDown={onParentKeyDown}>
+      <UnifiedAudioPanel
+        isOpen
+        initialTab="voce"
+        musicUrl=""
+        setMusicUrl={vi.fn()}
+        isMusicPlaying={false}
+        setIsMusicPlaying={vi.fn()}
+        musicVolume={60}
+        setMusicVolume={vi.fn()}
+        tts={buildTtsModel()}
+      />
+    </div>
+  );
+  const trigger = screen.getByRole('button', { name: 'Velocita' });
+  fireEvent.click(trigger);
+  const slider = screen.getByRole('slider', { name: 'Velocita' });
+  fireEvent.keyDown(slider, { key: 'Escape' });
+  expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  expect(trigger).toHaveFocus();
+  expect(onParentKeyDown).not.toHaveBeenCalled();
+  fireEvent.click(trigger);
+  fireEvent.pointerDown(document.body);
+  expect(trigger).toHaveAttribute('aria-expanded', 'false');
 });

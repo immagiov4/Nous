@@ -232,6 +232,7 @@ const PlaybackSpeedControl = ({
 
   return (
     <MarkedSlider
+      compact
       aria-label={t('Velocita')}
       aria-valuetext={playbackRateLabel}
       title={`${t('Velocita')}: ${playbackRateLabel}`}
@@ -822,7 +823,7 @@ export function PlaybackPlayButton({
           : getTtsPlayButtonClassName(state)
       }
       title={getTtsPlayButtonTitle(state)}
-      aria-label={t(loading ? 'In caricamento' : playing ? 'Pausa' : 'Riproduci')}
+      aria-label={getTtsPlayButtonTitle(state)}
     >
       {loading ? (
         <Loader2 className="h-6 w-6 animate-spin" />
@@ -954,6 +955,16 @@ const SPEED_MENU_VIEWPORT_MARGIN_PX = 8;
 
 function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean }) {
   const [open, setOpen] = useState(false);
+  const host = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !host.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    return () => document.removeEventListener('pointerdown', closeOutside);
+  }, [open]);
   // Menu offset from the button's left edge: centered on the button, kept inside the viewport.
   const [menuLeft, setMenuLeft] = useState(0);
   const toggle = (button: HTMLButtonElement) => {
@@ -966,8 +977,19 @@ function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean 
     setOpen(!open);
   };
   return (
-    <div className="relative shrink-0">
+    <div
+      ref={host}
+      className="relative shrink-0"
+      onKeyDown={event => {
+        if (event.key === 'Escape' && open) {
+          event.stopPropagation();
+          setOpen(false);
+          trigger.current?.focus();
+        }
+      }}
+    >
       <button
+        ref={trigger}
         type="button"
         aria-label={t('Velocita')}
         aria-expanded={open}

@@ -2,6 +2,7 @@ import request from 'supertest';
 import { describe, expect, test, vi } from 'vitest';
 
 import { createApp } from '../../src/index.js';
+import { ttsClient } from '../../src/services/ttsClient.js';
 import { createLessonPlaybackApi } from '../../src/workflows/lessonPlaybackApi.js';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { playbackProject, playbackSection, preparedPlayback } from '../helpers/lessonPlayback.js';
@@ -37,6 +38,7 @@ describe('lesson playback routes', () => {
     };
     const response = await request(app).get(url);
     expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
     expect(response.body.blocks.map(block => block.speech)).toEqual([
       'Prima frase.',
       'Seconda frase.',
@@ -52,7 +54,31 @@ describe('lesson playback routes', () => {
       .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'Kore' });
     expect(response.status).toBe(200);
     expect(response.body.block.audio[0].voice).toBe('Kore');
+    expect(response.body).toMatchObject({ voice: 'Kore', model: 'tts-model' });
     expect(createRun).not.toHaveBeenCalled();
+  });
+  test('returns the resolved voice and model when a stored profile is normalized', async () => {
+    const voiceResolver = vi.spyOn(ttsClient, 'resolveVoice').mockReturnValue('Ara');
+    try {
+      const { app, section, createRun } = setup(true);
+      const playback = preparedPlayback(section);
+      section.playback = {
+        ...playback,
+        blocks: playback.blocks.map(block => ({
+          ...block,
+          audio: [...block.audio, { ...block.audio[0], voice: 'Ara' }],
+        })),
+      };
+      const response = await request(app)
+        .post(`${url}/blocks/0/prepare`)
+        .send({ lessonKey: playback.lessonKey, voice: 'Kore' });
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ voice: 'Ara', model: 'tts-model' });
+      expect(voiceResolver).toHaveBeenCalledWith('tts-model', 'Kore');
+      expect(createRun).not.toHaveBeenCalled();
+    } finally {
+      voiceResolver.mockRestore();
+    }
   });
   test.each([
     false,
@@ -63,6 +89,7 @@ describe('lesson playback routes', () => {
       .post(`${url}/blocks/0/prepare`)
       .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'Zephyr' });
     expect(response.status).toBe(202);
+    expect(response.headers['cache-control']).toBe('private, no-store');
     expect(response.body).toEqual({ blockId: '0', voice: 'Zephyr', runId: expect.any(String) });
     expect(createRun).toHaveBeenCalledOnce();
   });
@@ -101,5 +128,28 @@ describe('lesson playback routes', () => {
         .status
     ).toBe(400);
     expect(createRun).not.toHaveBeenCalled();
+  });
+
+  test('rejects arbitrary voice values before loading projects or starting workflows', async () => {
+    const { app, section, createRun, projectReader } = setup();
+    const response = await request(app)
+      .post(`${url}/blocks/0/prepare`)
+      .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'unconfigured-voice' });
+    expect(response.status).toBe(400);
+    expect(projectReader.loadProjectWithRevision).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  test('deduplicates blocks and voices within one key, but starts a run for a changed lesson', async () => {
+    const { app, section, createRun } = setup();
+    const originalKey = preparedPlayback(section).lessonKey;
+    const prepare = (lessonKey: string, block = '0', voice = 'Kore') =>
+      request(app).post(`${url}/blocks/${block}/prepare`).send({ lessonKey, voice });
+    await prepare(originalKey);
+    await prepare(originalKey, '1', 'Zephyr');
+    expect(createRun.mock.calls[0][0].dedupeKey).toBe(createRun.mock.calls[1][0].dedupeKey);
+    section.lastGenerationRunId = 'generation-2';
+    await prepare(preparedPlayback(section).lessonKey);
+    expect(createRun.mock.calls[2][0].dedupeKey).not.toBe(createRun.mock.calls[0][0].dedupeKey);
   });
 });

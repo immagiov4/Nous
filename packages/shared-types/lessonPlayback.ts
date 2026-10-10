@@ -1,3 +1,7 @@
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
+
 import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
 import type { ProjectAssetRef } from './projectAsset';
 
@@ -93,22 +97,103 @@ interface MarkdownChunk extends PlaybackRange {
 }
 
 const HEADING_PREFIX = /^[ \t]*#{1,6}[ \t]+/u;
-const FENCE_PREFIX = /^ {0,3}(`{3,}|~{3,})/u;
 const IMAGE_CHUNK = /^!\[[^\]\r\n]*\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)$/u;
+const PDF_IMAGE = /\{\{PDF_IMAGE:[^|{}]+(?:\|alt=[^|{}]*)?(?:\|caption=[^{}]*)?\}\}/gu;
+const markdownParser = unified().use(remarkParse).use(remarkGfm);
 
-/** Split at blank lines and heading/fence boundaries without normalizing source offsets. */
-const markdownChunks = (markdown: string): MarkdownChunk[] => {
+interface MarkdownAnalysis {
+  readonly visuals: PlaybackRange[];
+  readonly inlineCode: PlaybackRange[];
+  readonly omissions: PlaybackRange[];
+  readonly inlineVisuals: PlaybackRange[];
+}
+
+interface MarkdownNode {
+  readonly type: string;
+  readonly position: {
+    readonly start: { readonly offset: number };
+    readonly end: { readonly offset: number };
+  };
+  readonly children?: readonly MarkdownNode[];
+}
+
+const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
+  const analysis: MarkdownAnalysis = {
+    visuals: [],
+    inlineCode: [],
+    omissions: [],
+    inlineVisuals: [],
+  };
+  const visit = (node: MarkdownNode): void => {
+    const start = node.position.start.offset;
+    const end = node.position.end.offset;
+    if (node.type === 'code' || node.type === 'table') {
+      analysis.visuals.push({ start, end });
+      return;
+    }
+    collectInlineRanges(node, markdown, analysis);
+    if (node.children) for (const child of node.children) visit(child);
+  };
+  visit(markdownParser.parse(markdown) as MarkdownNode);
+  analysis.omissions.sort((left, right) => left.start - right.start);
+  return analysis;
+};
+
+const collectInlineRanges = (
+  node: MarkdownNode,
+  markdown: string,
+  analysis: MarkdownAnalysis
+): void => {
+  const start = node.position.start.offset;
+  const end = node.position.end.offset;
+  if (node.type === 'image' || node.type === 'imageReference') {
+    analysis.inlineVisuals.push({ start, end });
+    analysis.omissions.push({ start, end });
+  } else if (node.type === 'inlineCode') {
+    const delimiter = /^`+/u.exec(markdown.slice(start, end));
+    if (!delimiter) throw new TypeError('Inline code must start with its parsed delimiter.');
+    const delimiterLength = delimiter[0].length;
+    analysis.inlineCode.push({ start, end });
+    analysis.omissions.push(
+      { start, end: start + delimiterLength },
+      { start: end - delimiterLength, end }
+    );
+  } else if (['emphasis', 'strong', 'delete', 'link', 'linkReference'].includes(node.type)) {
+    const first = node.children?.[0];
+    const last = node.children?.at(-1);
+    if (first && last) {
+      analysis.omissions.push(
+        { start, end: first.position.start.offset },
+        { start: last.position.end.offset, end }
+      );
+    } else {
+      analysis.omissions.push({ start, end });
+    }
+  } else if (node.type === 'text') {
+    const text = markdown.slice(start, end);
+    for (const match of text.matchAll(/\\[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/gu)) {
+      analysis.omissions.push({ start: start + match.index, end: start + match.index + 1 });
+    }
+    for (const match of text.matchAll(PDF_IMAGE)) {
+      const range = { start: start + match.index, end: start + match.index + match[0].length };
+      analysis.inlineVisuals.push(range);
+      analysis.omissions.push(range);
+    }
+  }
+};
+
+/** Keep source offsets while separating authored prose and container-relative visual blocks. */
+const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownChunk[] => {
   const chunks: MarkdownChunk[] = [];
   let start = 0;
   let end = 0;
-  let fence = '';
-  const flush = (fenced = false) => {
+  let structure = 'paragraph';
+  let visualIndex = 0;
+  let visualEnd = 0;
+  const flush = () => {
     if (end <= start) return;
     const text = markdown.slice(start, end);
-    const visual =
-      fenced ||
-      text.split(/\r\n|[\r\n]/u).every(line => line.trimStart().startsWith('|')) ||
-      IMAGE_CHUNK.test(text.trim());
+    const visual = IMAGE_CHUNK.test(text.trim()) || text.trim().replace(PDF_IMAGE, '') === '';
     chunks.push({ start, end, kind: visual ? 'visual' : 'speech' });
     start = end;
   };
@@ -118,26 +203,22 @@ const markdownChunks = (markdown: string): MarkdownChunk[] => {
     const text = line[0].replace(/[\r\n]+$/u, '');
     const lineStart = line.index;
     const lineEnd = lineStart + text.length;
-    const marker = FENCE_PREFIX.exec(text)?.[1];
-    if (fence) {
-      end = lineEnd;
-      if (marker?.[0] === fence[0] && marker.length >= fence.length && text.trim() === marker) {
-        flush(true);
-        fence = '';
-      }
-      continue;
-    }
-    if (marker) {
+    if (lineStart < visualEnd) continue;
+    const visual = analysis.visuals[visualIndex];
+    if (visual && visual.start >= lineStart && visual.start <= lineEnd) {
       flush();
-      start = lineStart;
-      end = lineEnd;
-      fence = marker;
+      chunks.push({ start: lineStart, end: visual.end, kind: 'visual' });
+      visualEnd = visual.end;
+      visualIndex += 1;
+      start = visualEnd;
+      end = visualEnd;
       continue;
     }
     if (!text.trim()) {
       flush();
       start = lineEnd;
       end = lineEnd;
+      structure = 'paragraph';
       continue;
     }
     if (HEADING_PREFIX.test(text)) {
@@ -145,18 +226,27 @@ const markdownChunks = (markdown: string): MarkdownChunk[] => {
       chunks.push({ start: lineStart, end: lineEnd, kind: 'heading' });
       start = lineEnd;
       end = lineEnd;
+      structure = 'paragraph';
       continue;
     }
+    const nextStructure = /^[ \t]*>/u.test(text)
+      ? 'quote'
+      : /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/u.test(text)
+        ? 'list'
+        : structure;
+    if (nextStructure !== structure) flush();
+    structure = nextStructure;
     if (end === start) start = lineStart;
     end = lineEnd;
   }
-  flush(Boolean(fence));
+  flush();
   return chunks;
 };
 
 interface SpokenText {
   speech: string;
   spans: PlaybackTextSpan[];
+  visuals: PlaybackVisual[];
   readonly sourceBlockIndex: number;
 }
 
@@ -180,53 +270,69 @@ const appendSource = (result: SpokenText, markdown: string, start: number, end: 
   }
 };
 
-// Inline code is consumed first so its literal punctuation is never treated as emphasis.
-const INLINE_MARKUP =
-  /(`+)([\s\S]*?)\1(?!`)|\[([^\]\r\n]+)\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)|(\*{1,3})(?=\S)([\s\S]*?\S)\4|(?<![\p{L}\p{N}_])(_{1,3})(?=\S)([\s\S]*?\S)\6(?![\p{L}\p{N}_])/gu;
-
-const appendInline = (result: SpokenText, markdown: string, range: PlaybackRange): void => {
-  const text = markdown.slice(range.start, range.end);
+/** Project inline syntax ranges while preserving every spoken character's authored offset. */
+const appendInline = (
+  result: SpokenText,
+  markdown: string,
+  range: PlaybackRange,
+  analysis: MarkdownAnalysis
+): void => {
   let cursor = range.start;
-  for (const match of text.matchAll(INLINE_MARKUP)) {
-    const start = range.start + match.index;
-    appendSource(result, markdown, cursor, start);
-    const delimiter = match[1] ?? match[4] ?? match[6] ?? '[';
-    const content = match[2] ?? match[3] ?? match[5] ?? match[7] ?? '';
-    const inner = {
-      start: start + delimiter.length,
-      end: start + delimiter.length + content.length,
-    };
-    if (match[1]) appendSource(result, markdown, inner.start, inner.end);
-    else appendInline(result, markdown, inner);
-    cursor = start + match[0].length;
+  for (const omitted of analysis.omissions) {
+    if (omitted.end <= cursor || omitted.start >= range.end) continue;
+    appendSource(result, markdown, cursor, Math.max(cursor, omitted.start));
+    cursor = Math.min(range.end, omitted.end);
   }
   appendSource(result, markdown, cursor, range.end);
+  for (const visual of analysis.inlineVisuals) {
+    if (visual.start >= range.start && visual.start < range.end) {
+      result.visuals.push({ kind: 'markdown', markdown: markdown.slice(visual.start, visual.end) });
+    }
+  }
 };
 
 const spokenText = (
   markdown: string,
   range: PlaybackRange,
-  sourceBlockIndex: number
+  sourceBlockIndex: number,
+  analysis: MarkdownAnalysis
 ): SpokenText => {
-  const result: SpokenText = { speech: '', spans: [], sourceBlockIndex };
+  const result: SpokenText = { speech: '', spans: [], visuals: [], sourceBlockIndex };
   const text = markdown.slice(range.start, range.end);
   for (const line of text.matchAll(/[^\r\n]*(?:\r\n|[\r\n]|$)/gu)) {
     if (!line[0]) continue;
-    const prefix =
-      /^(?:[ \t]*>[ \t]?)*[ \t]*(?:#{1,6}[ \t]+|(?:[-+*]|\d+[.)])[ \t]+)?/u.exec(line[0])?.[0] ??
-      '';
+    const lineStart = range.start + line.index;
+    const insideCode = analysis.inlineCode.some(
+      code => code.start < lineStart && code.end > lineStart
+    );
+    const prefix = insideCode
+      ? ''
+      : (/^(?:[ \t]*>[ \t]?)*[ \t]*(?:#{1,6}[ \t]+|(?:[-+*]|\d+[.)])[ \t]+)?/u.exec(line[0])?.[0] ??
+        '');
     const start = range.start + line.index + prefix.length;
-    appendInline(result, markdown, { start, end: range.start + line.index + line[0].length });
+    appendInline(
+      result,
+      markdown,
+      { start, end: range.start + line.index + line[0].length },
+      analysis
+    );
   }
   return result;
 };
 
 /** Join independently mapped passages, shifting only their speech offsets. */
-const joinSpokenText = (parts: readonly SpokenText[]): Pick<SpokenText, 'speech' | 'spans'> => {
-  const result: Pick<SpokenText, 'speech' | 'spans'> = { speech: '', spans: [] };
+const joinSpokenText = (
+  parts: readonly SpokenText[]
+): Pick<SpokenText, 'speech' | 'spans' | 'visuals'> => {
+  const result: Pick<SpokenText, 'speech' | 'spans' | 'visuals'> = {
+    speech: '',
+    spans: [],
+    visuals: [],
+  };
   for (const part of parts) {
     const offset = result.speech.length;
     result.speech += part.speech;
+    result.visuals.push(...part.visuals);
     result.spans.push(
       ...part.spans.map(span => ({
         ...span,
@@ -258,12 +364,13 @@ export const segmentLessonPlayback = (
     }
     if (content.type !== 'markdown') continue;
     const { markdown } = content;
-    for (const chunk of markdownChunks(markdown)) {
+    const analysis = analyzeMarkdown(markdown);
+    for (const chunk of markdownChunks(markdown, analysis)) {
       if (chunk.kind === 'visual') {
         attachVisual({ kind: 'markdown', markdown: markdown.slice(chunk.start, chunk.end) });
         continue;
       }
-      const text = spokenText(markdown, chunk, sourceBlockIndex);
+      const text = spokenText(markdown, chunk, sourceBlockIndex, analysis);
       if (chunk.kind === 'heading') {
         heading = text.speech;
         const newline = /^(?:\r\n|[\r\n])/u.exec(markdown.slice(chunk.end))?.[0];
@@ -280,14 +387,17 @@ export const segmentLessonPlayback = (
         pendingHeadings.push(text);
         continue;
       }
-      if (!text.speech) continue;
+      if (!text.speech) {
+        for (const visual of text.visuals) attachVisual(visual);
+        continue;
+      }
       const spoken = joinSpokenText([...pendingHeadings, text]);
       blocks.push({
         id: `${blocks.length}`,
         heading,
         speech: spoken.speech,
         spans: spoken.spans,
-        visuals: pendingVisuals,
+        visuals: [...pendingVisuals, ...spoken.visuals],
         audio: [],
       });
       pendingHeadings = [];

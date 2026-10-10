@@ -1,5 +1,7 @@
 import * as z from 'zod';
+import type { LessonPlayback } from './lessonPlayback';
 import {
+  isLessonScene,
   LESSON_SCENE_EDGE_KINDS,
   LESSON_SCENE_NODE_KINDS,
   LESSON_SCENE_RELATION_KINDS,
@@ -7,7 +9,7 @@ import {
   LESSON_SCENE_VERDICTS,
   STATIC_LESSON_SCENE_TYPES,
 } from './lessonScene';
-import type { ProjectAssetRef } from './projectAsset';
+import { isValidProjectAssetRef, type ProjectAssetRef } from './projectAsset';
 
 export const ProjectAssetRefSchema: z.ZodType<ProjectAssetRef> = z.object({
   byteSize: z.number().int().nonnegative(),
@@ -157,14 +159,33 @@ export const PreAnimatedLessonPlaybackBlockSchema = LessonPlaybackBlockSchema.ex
   ),
 });
 
-export const LessonPlaybackSchema = z.object({
+const LessonPlaybackSchema = z.object({
   version: z.literal(1),
   lessonKey: z.string().length(64),
   blocks: z.array(LessonPlaybackBlockSchema),
 });
 
+/** Validate imported project data without adding custom checks to durable workflow schemas. */
+export const isValidLessonPlayback = (value: unknown): value is LessonPlayback => {
+  const parsed = LessonPlaybackSchema.safeParse(value);
+  if (!parsed.success) return false;
+  return parsed.data.blocks.every(
+    block =>
+      block.spans.every(
+        span => span.speech.end >= span.speech.start && span.source.end >= span.source.start
+      ) &&
+      block.audio.every(audio => isValidProjectAssetRef(audio.asset)) &&
+      (!block.prepared?.scene || isLessonScene(block.prepared.scene)) &&
+      block.visuals.every(visual => visual.kind !== 'scene' || isLessonScene(visual.scene))
+  );
+};
+
 export const LessonPlaybackResponseSchema = LessonPlaybackSchema.omit({ version: true });
 export const PrepareLessonPlaybackResponseSchema = z.union([
-  z.object({ block: LessonPlaybackBlockSchema }),
+  z.object({
+    block: LessonPlaybackBlockSchema,
+    voice: z.string().min(1),
+    model: z.string().min(1),
+  }),
   z.object({ runId: z.string().min(1), blockId: z.string().min(1), voice: z.string().min(1) }),
 ]);

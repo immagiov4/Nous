@@ -131,7 +131,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             <button
               type="button"
               onClick={onPlayLesson}
-              disabled={!canRegenerate || isLoading}
+              disabled={!hasActiveSection || !onPlayLesson || isLoading}
               className={`disabled:cursor-not-allowed disabled:opacity-50 ${
                 isMobileViewport
                   ? 'inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'

@@ -35,7 +35,7 @@ const readTheme = (host: HTMLElement, prototype: boolean): ChartTheme => {
     ink: token('--ink'),
     muted: token('--muted'),
     // One --chart-N token per item a scene may hold, so every slice keeps a distinct color.
-    palette: Array.from({ length: prototype ? 3 : LESSON_SCENE_LIMITS.items }, (_, index) =>
+    palette: Array.from({ length: LESSON_SCENE_LIMITS.items }, (_, index) =>
       token(`--chart-${index}`)
     ),
     surface: prototype ? 'white' : token('--surface'),
@@ -44,13 +44,7 @@ const readTheme = (host: HTMLElement, prototype: boolean): ChartTheme => {
 
 type Plot = typeof import('@observablehq/plot');
 
-const plotOptions = (
-  plot: Plot,
-  scene: LessonScene,
-  width: number,
-  theme: ChartTheme,
-  prototype: boolean
-) => {
+const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: ChartTheme) => {
   const items = scene.items.map(item => ({
     label: item.label,
     time: item.time ?? 0,
@@ -73,7 +67,7 @@ const plotOptions = (
   };
   const text = { fill: theme.ink, fontSize: 14, fontWeight: 550 };
   if (scene.type === 'line') {
-    const x = prototype ? 'label' : 'time';
+    const x = 'time';
     return {
       ...common,
       marks: [
@@ -84,7 +78,13 @@ const plotOptions = (
           x,
           y: 'value',
         }),
-        plot.dot(items, { fill: theme.accent, r: LAYOUT.pointRadius, x, y: 'value' }),
+        plot.dot(items, {
+          className: 'playback-chart-items',
+          fill: theme.accent,
+          r: LAYOUT.pointRadius,
+          x,
+          y: 'value',
+        }),
         plot.text(items, {
           dy: -LAYOUT.labelOffset,
           text: 'value',
@@ -94,14 +94,12 @@ const plotOptions = (
         }),
       ],
       // A continuous time axis keeps real gaps; each tick shows the lesson's name for that time.
-      x: prototype
-        ? { domain: items.map(item => item.label), label: null, padding: 0.25 }
-        : {
-            inset: LAYOUT.lineInset,
-            label: null,
-            tickFormat: (time: number) => items.find(item => item.time === time)?.label ?? '',
-            ticks: items.map(item => item.time),
-          },
+      x: {
+        inset: LAYOUT.lineInset,
+        label: null,
+        tickFormat: (time: number) => items.find(item => item.time === time)?.label ?? '',
+        ticks: items.map(item => item.time),
+      },
       y: { grid: true, label: null, nice: true, ticks: 4, zero: true },
     };
   }
@@ -111,7 +109,13 @@ const plotOptions = (
       marginLeft: Math.min(120, width * 0.3),
       marginRight: 42,
       marks: [
-        plot.barX(items, { fill: theme.accent, rx: 4, x: 'value', y: 'label' }),
+        plot.barX(items, {
+          className: 'playback-chart-items',
+          fill: theme.accent,
+          rx: 4,
+          x: 'value',
+          y: 'label',
+        }),
         plot.ruleX([0]),
         plot.text(items, {
           dx: 8,
@@ -132,6 +136,7 @@ const plotOptions = (
       ...common,
       marks: [
         plot.rectY(bins, {
+          className: 'playback-chart-items',
           fill: theme.palette[2],
           inset: 0,
           stroke: theme.accent,
@@ -174,8 +179,15 @@ const plotOptions = (
         x2: 'high',
         y: 0,
       }),
-      plot.dot(points, { fill: theme.accent, r: LAYOUT.pointRadius, x: 'value', y: 'y' }),
+      plot.dot(points, {
+        className: 'playback-chart-items',
+        fill: theme.accent,
+        r: LAYOUT.pointRadius,
+        x: 'value',
+        y: 'y',
+      }),
       plot.dot([{ value: estimate, y: 0 }], {
+        className: 'playback-chart-estimate',
         fill: theme.surface,
         r: 6,
         stroke: theme.accent,
@@ -221,6 +233,7 @@ const drawDonut = async (
         .value(item => item.value)(items)
     )
     .join('path')
+    .attr('data-playback-item', (_, index) => index)
     .attr('d', datum => slice(datum as never))
     .attr('fill', (_, index) => theme.palette[index % theme.palette.length] ?? theme.accent)
     .attr('stroke', theme.surface)
@@ -236,6 +249,7 @@ const drawDonut = async (
   list.className = 'chart-values';
   items.forEach((item, index) => {
     const entry = document.createElement('li');
+    entry.dataset.playbackItem = String(index);
     const swatch = document.createElement('span');
     swatch.className = 'legend-swatch';
     swatch.style.background = theme.palette[index % theme.palette.length] ?? theme.accent;
@@ -282,7 +296,16 @@ export const SceneChart = ({
           chart = await drawDonut(scene, width, theme);
         } else {
           const plot = await import('@observablehq/plot');
-          chart = plot.plot(plotOptions(plot, scene, width, theme, prototype) as never);
+          chart = plot.plot(plotOptions(plot, scene, width, theme) as never);
+          chart
+            .querySelectorAll<SVGElement>('.playback-chart-items > *')
+            .forEach((element, index) => {
+              element.dataset.playbackItem = String(index);
+            });
+          // The visible estimate overlays the middle point of the interval.
+          chart.querySelectorAll<SVGElement>('.playback-chart-estimate > *').forEach(element => {
+            element.dataset.playbackItem = '1';
+          });
         }
         if (disposed) return;
         host.replaceChildren(chart);

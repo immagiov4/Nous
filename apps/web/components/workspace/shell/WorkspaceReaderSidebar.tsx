@@ -487,7 +487,13 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                           pendingSectionId,
                           section,
                         });
-                        const canPlay = isActive && hasGeneratedContent && Boolean(onPlayLesson);
+                        const canPlay =
+                          isActive &&
+                          section.kind === 'lesson' &&
+                          hasGeneratedContent &&
+                          !isLessonLoading &&
+                          !isLoading &&
+                          Boolean(onPlayLesson);
                         // Disabled only when a different section is being
                         // generated — otherwise all sections are clickable
                         // (to start generation or navigate).
@@ -530,7 +536,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                                   LESSON_ROW_BASE_PADDING_REM + depth * LESSON_ROW_NESTED_INDENT_REM
                                 }rem`,
                               }}
-                              className={`flex min-h-11 w-full items-center gap-3.5 rounded-lg py-1.5 ${canPlay ? 'pr-10' : 'pr-4'} text-left transition-colors sm:min-h-9 sm:gap-3 ${
+                              className={`flex min-h-11 w-full items-center gap-3.5 rounded-lg py-1.5 ${canPlay ? 'pr-12' : 'pr-4 sm:min-h-9'} text-left transition-colors sm:gap-3 ${
                                 isActive
                                   ? 'bg-gray-100 text-gray-900 dark:bg-zinc-700/70 dark:text-gray-100'
                                   : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-zinc-700/50 dark:hover:text-gray-200'
@@ -564,7 +570,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                                 type="button"
                                 onClick={onPlayLesson}
                                 aria-label={t('Riproduci la lezione corrente')}
-                                className="absolute right-2 rounded-full p-1.5 text-gray-500 hover:bg-gray-200 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 dark:text-zinc-300 dark:hover:bg-zinc-600"
                               >
                                 <Play className="h-3.5 w-3.5 fill-current" />
                               </button>

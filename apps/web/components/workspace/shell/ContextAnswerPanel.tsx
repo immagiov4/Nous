@@ -655,7 +655,7 @@ function ContextAnswerPanelSession({
   const hasSubmittedInitialQuestionRef = useRef(false);
   const responseControl = useChatResponseControl();
   const contextStopButtonRef = useRef<HTMLButtonElement>(null);
-  const focusStopAfterSubmitRef = useRef(false);
+  const [focusStopAfterSubmit, setFocusStopAfterSubmit] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectionAnchorRef = useRef<ConversationSelectionAnchor>({
@@ -1552,17 +1552,19 @@ function ContextAnswerPanelSession({
     toolPreferences.annotate || toolPreferences.generateArtifacts || toolPreferences.webSearch;
 
   useEffect(() => {
-    if (!isLoading || !focusStopAfterSubmitRef.current) return;
-    focusStopAfterSubmitRef.current = false;
+    if (!isLoading || !focusStopAfterSubmit) return;
     contextStopButtonRef.current?.focus();
-  }, [isLoading]);
+  }, [focusStopAfterSubmit, isLoading]);
 
   useEffect(() => {
     if (isLoading || !hasRequestedResponseStop) return;
-    document
-      .querySelector<HTMLElement>(`[data-chat-composer-target="${CONTEXT_ANSWER_INPUT_TARGET}"]`)
-      ?.focus();
-  }, [hasRequestedResponseStop, isLoading]);
+    const input =
+      composerPortal?.querySelector<HTMLElement>('[data-context-menu-target="input"]') ??
+      document.querySelector<HTMLElement>(
+        `[data-chat-composer-target="${CONTEXT_ANSWER_INPUT_TARGET}"]`
+      );
+    input?.focus();
+  }, [composerPortal, hasRequestedResponseStop, isLoading]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length triggers scroll on new arrival
   useLayoutEffect(() => {
@@ -1580,6 +1582,15 @@ function ContextAnswerPanelSession({
     if (!trimmedInput) {
       return;
     }
+
+    const focused = document.activeElement;
+    setFocusStopAfterSubmit(
+      !isMobileViewport &&
+        focused instanceof HTMLElement &&
+        (focused.dataset.chatComposerTarget === CONTEXT_ANSWER_SUBMIT_TARGET ||
+          (focused.dataset.contextMenuTarget === 'submit' &&
+            Boolean(composerPortal?.contains(focused))))
+    );
 
     if (isMobileViewport && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -2141,69 +2152,57 @@ function ContextAnswerPanelSession({
           {isLoading ? conversationTrailingControl : null}
         </div>
       ) : null}
-      <div
-        hidden={Boolean(renderComposer && (docked || !isMobileViewport))}
-        className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60"
-      >
-        <div
-          className="pointer-events-none absolute -top-12 left-0 right-0 z-10 h-12 bg-gradient-to-b from-transparent to-white transition-opacity duration-200 dark:to-zinc-800"
-          style={{ opacity: isChatNotAtBottom ? 1 : 0 }}
-        />
-        <ChatTextComposer
-          value={displayedInput}
-          onChange={setInput}
-          onSubmit={() => {
-            focusStopAfterSubmitRef.current =
-              !isMobileViewport &&
-              document.activeElement instanceof HTMLElement &&
-              document.activeElement.dataset.chatComposerTarget === CONTEXT_ANSWER_SUBMIT_TARGET;
+      {!(renderComposer && (docked || !isMobileViewport)) ? (
+        <div className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60">
+          <div
+            className="pointer-events-none absolute -top-12 left-0 right-0 z-10 h-12 bg-gradient-to-b from-transparent to-white transition-opacity duration-200 dark:to-zinc-800"
+            style={{ opacity: isChatNotAtBottom ? 1 : 0 }}
+          />
+          <ChatTextComposer
+            value={displayedInput}
+            onChange={setInput}
+            onSubmit={() => handleSubmit()}
+            placeholder={
+              isWaitingForNoteDecision
+                ? t('Accetta o rifiuta la nota proposta per continuare...')
+                : t('Chiedi un follow-up su questa risposta...')
+            }
+            disabled={isComposerDisabled}
+            inputDataTarget={CONTEXT_ANSWER_INPUT_TARGET}
+            isLoading={isLoading}
+            className="flex items-center gap-2"
+            trailingContent={conversationTrailingControl}
+            leadingContent={conversationTools}
+            inputShellClassName="min-w-0 flex-1 rounded-full border border-stone-200/80 bg-stone-50/80 px-3 py-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-500/80 dark:bg-stone-700/70 dark:focus-within:border-stone-400 dark:focus-within:bg-stone-700"
+            inputClassName="h-10 w-full min-w-0 border-0 bg-transparent px-2 text-sm text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-400"
+            submitButtonClassName={`${isLoading ? 'hidden' : 'flex'} h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500`}
+            submitDataTarget={CONTEXT_ANSWER_SUBMIT_TARGET}
+          />
 
-            handleSubmit();
-          }}
-          placeholder={
-            isWaitingForNoteDecision
-              ? t('Accetta o rifiuta la nota proposta per continuare...')
-              : t('Chiedi un follow-up su questa risposta...')
-          }
-          disabled={isComposerDisabled}
-          inputDataTarget={CONTEXT_ANSWER_INPUT_TARGET}
-          isLoading={isLoading}
-          className="flex items-center gap-2"
-          trailingContent={
-            renderComposer && (docked || !isMobileViewport) ? null : conversationTrailingControl
-          }
-          leadingContent={
-            renderComposer && (docked || !isMobileViewport) ? null : conversationTools
-          }
-          inputShellClassName="min-w-0 flex-1 rounded-full border border-stone-200/80 bg-stone-50/80 px-3 py-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-500/80 dark:bg-stone-700/70 dark:focus-within:border-stone-400 dark:focus-within:bg-stone-700"
-          inputClassName="h-10 w-full min-w-0 border-0 bg-transparent px-2 text-sm text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-400"
-          submitButtonClassName={`${isLoading ? 'hidden' : 'flex'} h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500`}
-          submitDataTarget={CONTEXT_ANSWER_SUBMIT_TARGET}
-        />
-
-        {hasActiveToolPreference ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {toolPreferences.annotate ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
-                <NotebookPen className="h-3.5 w-3.5" />
-                {t('Annota attivo')}
-              </span>
-            ) : null}
-            {toolPreferences.generateArtifacts ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
-                <Sparkles className="h-3.5 w-3.5" />
-                {t('Artefatti visuali attivi')}
-              </span>
-            ) : null}
-            {toolPreferences.webSearch ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
-                <Globe className="h-3.5 w-3.5" />
-                {t('Cerca sul web attivo')}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          {hasActiveToolPreference ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {toolPreferences.annotate ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
+                  <NotebookPen className="h-3.5 w-3.5" />
+                  {t('Annota attivo')}
+                </span>
+              ) : null}
+              {toolPreferences.generateArtifacts ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {t('Artefatti visuali attivi')}
+                </span>
+              ) : null}
+              {toolPreferences.webSearch ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
+                  <Globe className="h-3.5 w-3.5" />
+                  {t('Cerca sul web attivo')}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {!isMobileViewport && !docked ? (
         <button

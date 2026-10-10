@@ -7,6 +7,7 @@ import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 import {
   assertWorkflowPollResponse,
+  isTransientWorkflowPollError,
   pollWorkflow,
   readWorkflowPollJson,
 } from './workflowClientTransport.ts';
@@ -88,8 +89,18 @@ export const waitForLessonPlayback = async (
     if (run.id !== runId || run.projectId !== projectId) throw new Error(PLAYBACK_ERROR);
     return run;
   };
+  const initialState = await readState().catch(error => {
+    if (signal.aborted || !isTransientWorkflowPollError(error)) throw error;
+    return {
+      id: runId,
+      projectId,
+      workflowId: 'prepare-lesson-playback-block' as const,
+      status: 'running',
+      cleanupStatus: 'not-required',
+    };
+  });
   const run = await pollWorkflow({
-    initialState: await readState(),
+    initialState,
     readState,
     signal,
     isTerminal: state =>

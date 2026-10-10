@@ -4,6 +4,7 @@ import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ComponentProps, StrictMode } from 'react';
+import { createPortal } from 'react-dom';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import LessonPlayer from '../../../components/workspace/playback/LessonPlayer.tsx';
 import type {
@@ -16,6 +17,8 @@ import { requestSpeechTranscription } from '../../../services/openrouter/sttClie
 
 const sendInConversation = vi.hoisted(() => vi.fn());
 const generatingResponse = vi.hoisted(() => ({ stop: null as null | (() => void) }));
+const answerPreview = vi.hoisted(() => ({ open: false }));
+const answerPanelProps = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../hooks/reader/useLessonPlayback.ts', () => ({ useLessonPlayback: vi.fn() }));
 vi.mock('../../../components/workspace/playback/LessonPlaybackStage.tsx', () => ({
@@ -25,22 +28,31 @@ vi.mock('../../../services/openrouter/sttClient.ts', () => ({
   requestSpeechTranscription: vi.fn(),
 }));
 vi.mock('../../../components/workspace/shell/ContextAnswerPanel.tsx', () => ({
-  default: ({
-    onClose,
-    contextAnswer,
-    pendingQuestion,
-    renderComposer,
-  }: ComponentProps<
-    typeof import('../../../components/workspace/shell/ContextAnswerPanel.tsx').default
-  >) => (
-    <div>
-      <p>{pendingQuestion ? 'Trascrizione domanda' : contextAnswer.initialQuestion}</p>
-      <button type="button" onClick={onClose}>
-        Chiudi risposta
-      </button>
-      {renderComposer?.(sendInConversation, false, generatingResponse.stop ?? undefined)}
-    </div>
-  ),
+  default: (
+    props: ComponentProps<
+      typeof import('../../../components/workspace/shell/ContextAnswerPanel.tsx').default
+    >
+  ) => {
+    answerPanelProps(props);
+    const { onClose, contextAnswer, pendingQuestion, renderComposer } = props;
+    return (
+      <div>
+        <p>{pendingQuestion ? 'Trascrizione domanda' : contextAnswer.initialQuestion}</p>
+        <button type="button" onClick={onClose}>
+          Chiudi risposta
+        </button>
+        {renderComposer?.(sendInConversation, false, generatingResponse.stop ?? undefined)}
+        {answerPreview.open
+          ? createPortal(
+              <div role="dialog" aria-label="Anteprima">
+                Figura ingrandita
+              </div>,
+              document.body
+            )
+          : null}
+      </div>
+    );
+  },
 }));
 
 class Recorder {
@@ -67,7 +79,7 @@ const getUserMedia = vi.fn();
 const stopTrack = vi.fn();
 const space = { key: ' ', code: 'Space' };
 const recordQuestion = async () => {
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   await waitFor(() => expect(Recorder.instances.at(-1)?.state).toBe('recording'));
   fireEvent.keyUp(window, space);
   await screen.findByText('Perché funziona?');
@@ -124,6 +136,8 @@ beforeEach(() => {
   setAccountLocale('it');
   sendInConversation.mockReset();
   generatingResponse.stop = null;
+  answerPreview.open = false;
+  answerPanelProps.mockClear();
   Recorder.instances = [];
   getUserMedia.mockReset().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
   stopTrack.mockReset();
@@ -162,7 +176,7 @@ test.each([
   playback = { ...playback, loading: false, playing: true };
   rerender(<LessonPlayer {...props} autoPlay={autoPlay} />);
   expect(playback.play).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole('button', { name: 'Pausa' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: /Pausa|TTS non disponibile/ })).toBeEnabled();
 });
 
 test('anchors the note when writing begins, then exits note mode after persistence', async () => {
@@ -207,7 +221,7 @@ test('saves a note after API parsing reorders the source span properties', async
 
 test('retains note text and the original sentence after a failed save and retries', async () => {
   save.mockResolvedValueOnce({ saved: false, merged: false, error: 'private backend detail' });
-  render(<LessonPlayer {...props} />);
+  const { rerender } = render(<LessonPlayer {...props} />);
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Una nota.' } });
   fireEvent.click(screen.getByRole('button', { name: 'Salva nota' }));
@@ -215,9 +229,13 @@ test('retains note text and the original sentence after a failed save and retrie
   expect(screen.getByRole('textbox')).toHaveValue('Una nota.');
   expect(screen.getByRole('textbox').tagName).toBe('TEXTAREA');
   expect(screen.queryByText('private backend detail')).toBeNull();
+  expect(save.mock.calls[0][1].selectedText).toBe('La prima frase.');
+  playback = { ...playback, time: 10, elapsed: 10 };
+  rerender(<LessonPlayer {...props} />);
   fireEvent.click(screen.getByRole('button', { name: 'Riprova' }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect(save.mock.calls[1]).toEqual(save.mock.calls[0]);
+  expect(save.mock.calls[1][1].selectedText).toBe('La prima frase.');
   await waitFor(() => expect(screen.getByRole('textbox').tagName).toBe('INPUT'));
 });
 
@@ -226,7 +244,7 @@ test('sending a question pauses playback and prevents resuming until the answer 
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Perché?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Invia domanda' }));
   expect(playback.pause).toHaveBeenCalledTimes(1);
-  const play = screen.getByRole('button', { name: 'Pausa' });
+  const play = screen.getByRole('button', { name: /Pausa|TTS non disponibile/ });
   expect(play).toBeDisabled();
   fireEvent.click(play);
   expect(playback.play).toHaveBeenCalledTimes(1);
@@ -283,11 +301,11 @@ test('Space pauses immediately, ignores repeat and submits only on release', asy
     })
   );
   render(<LessonPlayer {...props} autoPlay={false} />);
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   expect(playback.pause).toHaveBeenCalledTimes(1);
   expect(getUserMedia).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole('button', { name: 'Pausa' })).toBeDisabled();
-  fireEvent.keyDown(window, { ...space, repeat: true });
+  expect(screen.getByRole('button', { name: /Pausa|TTS non disponibile/ })).toBeDisabled();
+  fireEvent.keyDown(screen.getByRole('dialog'), { ...space, repeat: true });
   expect(getUserMedia).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(Recorder.instances[0]?.state).toBe('recording'));
   expect(requestSpeechTranscription).not.toHaveBeenCalled();
@@ -296,10 +314,10 @@ test('Space pauses immediately, ignores repeat and submits only on release', asy
   expect(screen.getByText('Trascrizione domanda')).toBeInTheDocument();
   await act(async () => finishTranscription('La mia domanda'));
   expect(screen.getByText('La mia domanda')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Pausa' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Pausa|TTS non disponibile/ })).toBeDisabled();
   expect(playback.play).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Chiudi risposta' }));
-  expect(screen.getByRole('button', { name: 'Pausa' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: /Pausa|TTS non disponibile/ })).toBeEnabled();
 });
 
 test('a spoken question with a conversation open continues that conversation', async () => {
@@ -311,7 +329,7 @@ test('a spoken question with a conversation open continues that conversation', a
   );
   await recordQuestion();
   vi.mocked(requestSpeechTranscription).mockResolvedValueOnce('E poi?');
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   await waitFor(() => expect(Recorder.instances.at(-1)?.state).toBe('recording'));
   fireEvent.keyUp(window, space);
   await waitFor(() => expect(sendInConversation).toHaveBeenCalledWith('E poi?'));
@@ -329,7 +347,7 @@ test.each([
   if (failure === 'transcription')
     vi.mocked(requestSpeechTranscription).mockRejectedValue(new Error('private error'));
   render(<LessonPlayer {...props} autoPlay={false} />);
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   if (failure !== 'microphone') {
     await waitFor(() => expect(Recorder.instances[0]?.state).toBe('recording'));
     if (failure === 'recording') act(() => Recorder.instances[0].onerror?.());
@@ -355,7 +373,7 @@ test('release before microphone permission resolves never starts a late recordin
     })
   );
   render(<LessonPlayer {...props} autoPlay={false} />);
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   fireEvent.keyUp(window, space);
   await act(async () => allow({ getTracks: () => [{ stop: stopTrack }] }));
   expect(Recorder.instances).toHaveLength(0);
@@ -366,7 +384,7 @@ test('release before microphone permission resolves never starts a late recordin
 
 test('phone ignores Space', () => {
   render(<LessonPlayer {...props} content={{ ...content, isMobileViewport: true }} />);
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   fireEvent.keyUp(window, space);
   expect(getUserMedia).not.toHaveBeenCalled();
   expect(playback.pause).not.toHaveBeenCalled();
@@ -393,7 +411,7 @@ test('a new Space request ignores the previous pending transcription', async () 
     })
   );
   render(<LessonPlayer {...props} />);
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   await waitFor(() => expect(Recorder.instances[0]?.state).toBe('recording'));
   fireEvent.keyUp(window, space);
   await recordQuestion();
@@ -410,7 +428,7 @@ test('closing during transcription prevents the answer from reopening', async ()
     })
   );
   render(<LessonPlayer {...props} autoPlay={false} />);
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   await waitFor(() => expect(Recorder.instances[0]?.state).toBe('recording'));
   fireEvent.keyUp(window, space);
   fireEvent.click(screen.getByRole('button', { name: 'Chiudi risposta' }));
@@ -422,7 +440,7 @@ test('closing during transcription prevents the answer from reopening', async ()
 
 test('unmounting stops recording and releases the microphone', async () => {
   const view = render(<LessonPlayer {...props} />);
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   await waitFor(() => expect(Recorder.instances[0]?.state).toBe('recording'));
   view.unmount();
   expect(Recorder.instances[0].stop).toHaveBeenCalledTimes(1);
@@ -434,10 +452,113 @@ test('recording errors stay visible when a written draft is already in the bar',
   getUserMedia.mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
   render(<LessonPlayer {...props} autoPlay={false} />);
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Domanda da conservare' } });
-  fireEvent.keyDown(window, space);
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
   await screen.findByRole('alert');
   fireEvent.keyUp(window, space);
   expect(screen.getByRole('alert')).toHaveTextContent('Permesso microfono negato');
   expect(screen.getByRole('textbox')).toHaveValue('Domanda da conservare');
   expect(playback.play).not.toHaveBeenCalled();
+});
+
+test('entering note mode with a question draft anchors the current sentence', async () => {
+  const { rerender } = render(<LessonPlayer {...props} autoPlay={false} />);
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Da conservare' } });
+  playback = { ...playback, time: 10, elapsed: 10 };
+  rerender(<LessonPlayer {...props} autoPlay={false} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Salva nota' }));
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][1].selectedText).toBe('La seconda frase.');
+});
+
+test('an empty lesson does not start preparation', () => {
+  playback = { ...playback, blocks: [], playing: false };
+  render(
+    <LessonPlayer
+      {...props}
+      content={{
+        ...content,
+        sectionContent: '# Tema',
+        sectionContentBlocks: [{ type: 'markdown', markdown: '# Tema' }],
+      }}
+    />
+  );
+  expect(playback.play).not.toHaveBeenCalled();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+test.each([
+  'Torna alla lezione',
+  'Pausa',
+  'Indietro di 5 secondi',
+  'Velocita',
+  'Nota',
+])('Space retains native activation on %s', label => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const button = screen.getByRole('button', { name: label });
+  button.focus();
+  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
+  button.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(getUserMedia).not.toHaveBeenCalled();
+  expect(playback.pause).not.toHaveBeenCalled();
+});
+
+test('Space retains the voice selector keyboard behavior', () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const control = screen.getByRole('combobox', { name: 'Voce' });
+  const event = new KeyboardEvent('keydown', { ...space, bubbles: true, cancelable: true });
+  control.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(getUserMedia).not.toHaveBeenCalled();
+});
+
+test.each([
+  'space',
+  'microphone',
+])('entering mobile layout cancels desktop %s recording', async mode => {
+  const { rerender } = render(<LessonPlayer {...props} autoPlay={false} />);
+  if (mode === 'space') fireEvent.keyDown(screen.getByRole('dialog'), space);
+  else fireEvent.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+  await waitFor(() => expect(Recorder.instances[0]?.state).toBe('recording'));
+  rerender(
+    <LessonPlayer {...props} autoPlay={false} content={{ ...content, isMobileViewport: true }} />
+  );
+  expect(Recorder.instances[0].stop).toHaveBeenCalledOnce();
+  expect(stopTrack).toHaveBeenCalledOnce();
+  expect(requestSpeechTranscription).not.toHaveBeenCalled();
+  fireEvent.keyUp(window, space);
+  expect(screen.queryByRole('button', { name: 'Chiudi risposta' })).toBeNull();
+});
+
+test.each([
+  'initial',
+  'follow-up',
+])('a timed-out %s recording waits for Space release before delivery', async mode => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  if (mode === 'follow-up') await recordQuestion();
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
+  await waitFor(() => expect(Recorder.instances.at(-1)?.state).toBe('recording'));
+  // Simulate the recorder's existing duration cap firing before keyup.
+  act(() => Recorder.instances.at(-1)?.stop());
+  await waitFor(() =>
+    expect(requestSpeechTranscription).toHaveBeenCalledTimes(mode === 'follow-up' ? 2 : 1)
+  );
+  await act(async () => {});
+  expect(sendInConversation).not.toHaveBeenCalled();
+  if (mode === 'initial')
+    expect(screen.queryByRole('button', { name: 'Chiudi risposta' })).toBeNull();
+  fireEvent.keyUp(window, space);
+  if (mode === 'initial') await screen.findByText('Perché funziona?');
+  else await waitFor(() => expect(sendInConversation).toHaveBeenCalledOnce());
+});
+
+test('Escape in a portaled child dialog preserves the answer', async () => {
+  answerPreview.open = true;
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  await recordQuestion();
+  const preview = screen.getByRole('dialog', { name: 'Anteprima' });
+  fireEvent.keyDown(preview, { key: 'Escape' });
+  expect(screen.getByRole('button', { name: 'Chiudi risposta' })).toBeInTheDocument();
+  expect(props.onClose).not.toHaveBeenCalled();
 });

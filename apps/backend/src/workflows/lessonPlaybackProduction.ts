@@ -49,6 +49,7 @@ export const createProductionLessonPlaybackServices = (
       block,
       lesson: {
         title: typeof section.title === 'string' ? section.title : '',
+        description: typeof section.description === 'string' ? section.description : '',
         generatedVisuals: lessonPlaybackVisuals(section),
       },
       config: await getResolvedGlobalModelConfig(),

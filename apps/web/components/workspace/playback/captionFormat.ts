@@ -65,8 +65,21 @@ export function captionSource(
 }
 
 /** Laboratory formatting, retaining source positions for the API's quotation anchors. */
-export function captionFormat(original: string) {
-  const headings = Array.from(original.matchAll(/^#{1,6}\s+(.+)$/gm), match => match[1]);
+export function captionFormat(original: string, ranges?: readonly { source: PlaybackRange }[]) {
+  // Canonical spans exclude Markdown syntax; retain the authored offsets and styling.
+  const visibleText = (start: number, end: number) =>
+    ranges
+      ? ranges
+          .flatMap(({ source }) => {
+            const from = Math.max(start, source.start);
+            const to = Math.min(end, source.end);
+            return from < to ? [original.slice(from, to)] : [];
+          })
+          .join('')
+      : original.slice(start, end);
+  const headings = Array.from(original.matchAll(/^#{1,6}\s+(.+)$/gm), match =>
+    visibleText(match.index + match[0].length - match[1].length, match.index + match[0].length)
+  );
   const headingWords = headings.join(' ').trim().split(/\s+/).filter(Boolean).length;
   // Preserve source offsets while omitting headings from the body, as the laboratory does.
   const body = original.replace(/^#{1,6}\s+.+$/gm, match => ' '.repeat(match.length));
@@ -74,34 +87,39 @@ export function captionFormat(original: string) {
   let lineStart = body.length - body.trimStart().length;
   const words: CaptionWord[] = [];
   let bold = false;
-  let code = false;
+  let codeDelimiter = '';
   for (const line of lines) {
     const list = line.match(/^\s*([-*+]|\d+\.)\s+/);
     const text = list ? line.slice(list[0].length) : line;
     let partStart = lineStart + (list?.[0].length ?? 0);
     let first = true;
-    for (const part of text.split(/(\*\*|`)/)) {
-      if (part === '**') {
+    for (const part of text.split(/(\*\*|`+)/)) {
+      const delimiter = !ranges || !visibleText(partStart, partStart + part.length);
+      if (part === '**' && !codeDelimiter && delimiter) {
         bold = !bold;
         partStart += part.length;
         continue;
       }
-      if (part === '`') {
-        code = !code;
+      if (part.startsWith('`') && delimiter && (!codeDelimiter || part === codeDelimiter)) {
+        codeDelimiter = codeDelimiter ? '' : part;
         partStart += part.length;
         continue;
       }
       for (const match of part.matchAll(/\S+/g)) {
+        const start = partStart + match.index;
+        const end = start + match[0].length;
+        const text = visibleText(start, end);
+        if (!text) continue;
         words.push({
-          text: match[0],
+          text,
           bold,
-          code,
+          code: Boolean(codeDelimiter),
           list: !!list,
           breakBefore: first && !!list,
           marker: list ? (/\d/.test(list[1]) ? list[1] : '•') : '',
           source: {
-            start: partStart + match.index,
-            end: partStart + match.index + match[0].length,
+            start,
+            end,
           },
         });
         first = false;

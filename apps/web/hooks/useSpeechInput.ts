@@ -284,11 +284,11 @@ export function useSpeechInput({
     };
   }, [cancel]);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     cancel();
     setState('idle');
     setSpeechInputError(null);
-  };
+  }, [cancel]);
   const retryFailedTranscription = () => {
     const failed = failedTranscriptionRef.current;
     if (failed) void transcribeRecording(failed);
