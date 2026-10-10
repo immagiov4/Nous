@@ -1,7 +1,16 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
@@ -33,19 +42,26 @@ interface SpokenFollowUpQuestion {
   readonly text: string;
 }
 
-/** Hands a spoken question to the open conversation, so it continues there. */
-function SpokenFollowUp({
+/** Connects the conversation generation state and spoken questions to the player. */
+function ConversationBridge({
+  generating,
+  onGeneratingChange,
   question,
   send,
   deliver,
 }: {
-  question: SpokenFollowUpQuestion;
+  generating: boolean;
+  onGeneratingChange: (generating: boolean) => void;
+  question: SpokenFollowUpQuestion | null;
   send: (text: string) => void;
   deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
 }) {
+  useLayoutEffect(() => {
+    onGeneratingChange(generating);
+  }, [generating, onGeneratingChange]);
   useEffect(() => {
-    deliver(question, send);
-  }, [deliver, question, send]);
+    if (question && !generating) deliver(question, send);
+  }, [deliver, generating, question, send]);
   return null;
 }
 
@@ -81,6 +97,7 @@ export default function LessonPlayer({
   tts,
   onClose,
   autoPlay = true,
+  audioElementRef,
 }: {
   sectionId: string;
   projectId: string;
@@ -102,6 +119,7 @@ export default function LessonPlayer({
   >;
   onClose: () => void;
   autoPlay?: boolean;
+  audioElementRef?: RefObject<HTMLAudioElement>;
 }) {
   const sourceBlocks = useMemo(
     () =>
@@ -117,6 +135,7 @@ export default function LessonPlayer({
     voice: tts.currentVoice,
     speed: tts.playbackRate,
     initialBlocks,
+    audioElementRef,
   });
   const [noteMode, setNoteMode] = useState(false);
   const [draft, setDraft] = useState('');
@@ -125,6 +144,10 @@ export default function LessonPlayer({
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
+  const answerGenerating = useRef(false);
+  const syncAnswerGenerating = useCallback((generating: boolean) => {
+    answerGenerating.current = generating;
+  }, []);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
   const heldTranscription = useRef<string | null>(null);
   const [spokenFollowUp, setSpokenFollowUp] = useState<SpokenFollowUpQuestion | null>(null);
@@ -287,8 +310,14 @@ export default function LessonPlayer({
     stopResponse?: () => void;
   } = {}) => (
     <>
-      {conversation && spokenFollowUp ? (
-        <SpokenFollowUp question={spokenFollowUp} send={send} deliver={deliverSpokenFollowUp} />
+      {conversation ? (
+        <ConversationBridge
+          generating={Boolean(stopResponse)}
+          onGeneratingChange={syncAnswerGenerating}
+          question={spokenFollowUp}
+          send={send}
+          deliver={deliverSpokenFollowUp}
+        />
       ) : null}
       <ContextMenu
         type="lesson"
@@ -325,7 +354,9 @@ export default function LessonPlayer({
             setNoteMode(!noteMode);
             if (noteStatus === 'error') setNoteStatus('idle');
           },
-          onSubmit: () => submit(send),
+          onSubmit: () => {
+            if (!stopResponse || noteMode) submit(send);
+          },
           onStopResponse: stopResponse,
         }}
       />
@@ -337,6 +368,7 @@ export default function LessonPlayer({
     heldTranscription.current = null;
     spaceDown.current = false;
     setHoldingSpace(false);
+    answerGenerating.current = false;
     setAnswer(null);
   };
 
@@ -366,7 +398,7 @@ export default function LessonPlayer({
       )
         return;
       event.preventDefault();
-      if (event.repeat || spaceDown.current) return;
+      if (event.repeat || spaceDown.current || answerGenerating.current) return;
       playback.pause();
       speech.reset();
       heldTranscription.current = null;
@@ -382,6 +414,10 @@ export default function LessonPlayer({
       event.preventDefault();
       spaceDown.current = false;
       setHoldingSpace(false);
+      if (speech.cancelPendingRecording()) {
+        spokenQuestion.current = null;
+        return;
+      }
       if (!speech.speechInputError) {
         setAnswer(previous => previous ?? spokenQuestion.current);
         if (heldTranscription.current !== null) {
@@ -424,7 +460,11 @@ export default function LessonPlayer({
           )
             return;
           event.stopPropagation();
-          if (questionActive) closeAnswer();
+          if (draft) {
+            changeDraft('');
+            setNoteMode(false);
+            setNoteStatus('idle');
+          } else if (questionActive) closeAnswer();
           else onClose();
         }
         if (event.key === 'Tab') {

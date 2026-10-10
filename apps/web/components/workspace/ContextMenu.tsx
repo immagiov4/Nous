@@ -1173,7 +1173,7 @@ const ContextMenu = ({
               />
             </div>
           ) : null}
-          {playbackComposer?.onStopResponse && !trimmedInput ? (
+          {playbackComposer?.onStopResponse ? (
             <button
               type="button"
               onClick={playbackComposer.onStopResponse}
@@ -1183,7 +1183,9 @@ const ContextMenu = ({
             >
               <Square className="h-3.5 w-3.5 fill-current" />
             </button>
-          ) : trimmedInput || playbackComposer ? (
+          ) : null}
+          {(!playbackComposer?.onStopResponse || playbackComposer.noteMode) &&
+          (trimmedInput || playbackComposer) ? (
             <button
               type="submit"
               data-context-menu-target="submit"

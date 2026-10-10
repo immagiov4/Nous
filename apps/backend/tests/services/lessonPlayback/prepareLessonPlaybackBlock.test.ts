@@ -1,4 +1,3 @@
-import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import type {
   LessonPlaybackBlock,
   PlaybackMotionEvent,
@@ -13,7 +12,10 @@ const { audio, sceneGeneration, motion } = vi.hoisted(() => ({
   sceneGeneration: vi.fn(),
   motion: vi.fn(),
 }));
-vi.mock('../../../src/services/lessonPlayback/playbackAudio.js', () => ({
+vi.mock('../../../src/services/lessonPlayback/playbackAudio.js', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('../../../src/services/lessonPlayback/playbackAudio.js')
+  >()),
   preparePlaybackAudio: audio,
 }));
 vi.mock('../../../src/services/lessonScenes/lessonSceneGeneration.js', () => ({
@@ -26,6 +28,7 @@ vi.mock('../../../src/services/lessonPlayback/playbackMotion.js', () => ({
 
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackBlock } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
+import { MAX_TTS_TEXT_CHARS } from '../../../src/services/ttsClient.js';
 import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
 import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
@@ -282,15 +285,43 @@ test('exhausts exactly three scene attempts and propagates operational errors im
   expect(sceneGeneration).toHaveBeenCalledTimes(1);
 });
 
-test('rejects a block that would silently lose speech to the scene text cut', async () => {
+test.each([
+  'new',
+  'existing-scene',
+  'prepared',
+])('rejects oversized %s speech before any provider work', async state => {
+  const request = input();
+  const run = vi.fn();
+  await expect(
+    prepareLessonPlaybackBlock({
+      ...request,
+      providerEffect: { run },
+      block: {
+        ...request.block,
+        speech: 'a'.repeat(MAX_TTS_TEXT_CHARS + 1),
+        visuals: state === 'existing-scene' ? [{ kind: 'scene', scene }] : [],
+        ...(state === 'prepared' ? { prepared: { scene, motion: events } } : {}),
+      },
+    })
+  ).rejects.toMatchObject({
+    failure: { kind: 'permanent', code: 'lesson_playback_text_too_long' },
+  });
+  expect(run).not.toHaveBeenCalled();
+  expect(sceneGeneration).not.toHaveBeenCalled();
+  expect(motion).not.toHaveBeenCalled();
+  expect(audio).not.toHaveBeenCalled();
+});
+
+test('accepts speech at the existing TTS request limit', async () => {
   const request = input();
   await expect(
     prepareLessonPlaybackBlock({
       ...request,
-      block: { ...request.block, speech: 'a'.repeat(MAX_VISUAL_LESSON_CHARS + 1) },
+      block: { ...request.block, speech: 'a'.repeat(MAX_TTS_TEXT_CHARS) },
     })
-  ).rejects.toThrow(/text limit/);
-  expect(sceneGeneration).not.toHaveBeenCalled();
+  ).resolves.toMatchObject({ prepared: { scene }, audio: preparedAudio });
+  expect(sceneGeneration).toHaveBeenCalledOnce();
+  expect(audio).toHaveBeenCalledOnce();
 });
 
 test('shows several scenes of one block without motion', async () => {

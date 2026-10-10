@@ -86,6 +86,16 @@ const readProjectSections = (project: Record<string, unknown>): Record<string, u
   return [...moduleSections, ...directSections];
 };
 
+/** Prepared playback can be regenerated and does not belong in portable backups. */
+export const omitProjectPlayback = <T>(project: T): T => {
+  const portable = structuredClone(project);
+  if (!isRecord(portable)) throw new InvalidProjectBackupAssetError();
+  for (const section of readProjectSections(portable)) {
+    delete section.playback;
+  }
+  return portable;
+};
+
 const collectStructuredPdfRefs = (project: Record<string, unknown>): ProjectAssetRef[] => {
   if (!isRecord(project.documentAssets) || !Array.isArray(project.documentAssets.usedImages)) {
     return [];

@@ -289,6 +289,12 @@ export function useSpeechInput({
     setState('idle');
     setSpeechInputError(null);
   }, [cancel]);
+  // Capture can start before React commits the corresponding state update.
+  const cancelPendingRecording = useCallback(() => {
+    if (!starting.current) return false;
+    reset();
+    return true;
+  }, [reset]);
   const retryFailedTranscription = () => {
     const failed = failedTranscriptionRef.current;
     if (failed) void transcribeRecording(failed);
@@ -298,6 +304,7 @@ export function useSpeechInput({
     speechInputError,
     startRecording,
     stopRecording,
+    cancelPendingRecording,
     reset,
     retryFailedTranscription,
     dismissError: () => setSpeechInputError(null),

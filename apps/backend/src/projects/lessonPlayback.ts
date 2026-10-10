@@ -22,6 +22,8 @@ const lessonPlaybackContent = (
 
 /** Asset content, rather than its project-local ID, keeps imported playback reusable. */
 const visualContent = (visual: ProjectLessonVisual) => {
+  // Historical lessons preserve visuals whose kind and code have no render wrapper.
+  if (!Object.hasOwn(visual, 'render')) return visual;
   const render = visual.render;
   if (render.kind === 'image')
     return { ...visual, render: { ...render, asset: { ...render.asset, id: render.asset.hash } } };
