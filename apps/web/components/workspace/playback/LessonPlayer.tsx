@@ -40,7 +40,7 @@ function AnswerPanelTransition({
   const isPresent = useIsPresent();
   return (
     <motion.div
-      className="absolute inset-x-0 bottom-full mb-2.5"
+      className="absolute inset-x-0 bottom-full mb-2.5 rounded-2xl"
       inert={!isPresent || undefined}
       aria-hidden={!isPresent || undefined}
       initial={{ height: shouldAnimate ? 0 : 'auto', opacity: shouldAnimate ? 0 : 1 }}

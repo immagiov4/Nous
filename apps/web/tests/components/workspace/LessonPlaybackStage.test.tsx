@@ -37,7 +37,7 @@ beforeEach(() => {
   );
 });
 
-test('fits the complete scene into changing available height and releases the observer', () => {
+test('fits the complete scene into both available dimensions and releases the observer', () => {
   const sources = [{ type: 'markdown' as const, markdown: 'Una frase.' }];
   const { container, unmount } = render(
     <LessonPlaybackStage
@@ -51,6 +51,8 @@ test('fits the complete scene into changing available height and releases the ob
   const card = container.querySelector<HTMLElement>('.scene-host');
   if (!slot || !card) throw new Error('Scene must be mounted');
   Object.defineProperty(card, 'offsetHeight', { configurable: true, value: 600 });
+  Object.defineProperty(card, 'offsetWidth', { configurable: true, value: 700 });
+  Object.defineProperty(slot, 'clientWidth', { configurable: true, value: 700 });
   Object.defineProperty(slot, 'clientHeight', { configurable: true, value: 300 });
   act(() => resizeScene());
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.5');
@@ -59,6 +61,16 @@ test('fits the complete scene into changing available height and releases the ob
   act(() => resizeScene());
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('1');
   expect(slot.style.getPropertyValue('--scene-top')).toBe('100px');
+  // A wide table or code block must fit too, even when the card itself does not resize.
+  Object.defineProperty(card, 'scrollWidth', { configurable: true, value: 1400 });
+  act(() => resizeScene());
+  expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.5');
+  expect(slot.style.getPropertyValue('--scene-top')).toBe('250px');
+  expect(card.style.width).toBe('1400px');
+  Object.defineProperty(card, 'scrollHeight', { configurable: true, value: 2000 });
+  act(() => resizeScene());
+  expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.4');
+  expect(slot.style.getPropertyValue('--scene-left')).toBe('70px');
   unmount();
   expect(disconnectScene).toHaveBeenCalledTimes(1);
 });

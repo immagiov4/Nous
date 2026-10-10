@@ -1014,6 +1014,8 @@ const ENGLISH_UI_MESSAGES = {
   'Mostra Menu': 'Show menu',
   Percorso: 'Learning path',
   'Rigenera la lezione corrente': 'Regenerate the current lesson',
+  No: 'No',
+  'Sì, rigenera': 'Yes, regenerate',
   'Rigenerare questa lezione?': 'Regenerate this lesson?',
   Salvataggio: 'Saving',
   'Salvataggio in corso...': 'Saving...',
