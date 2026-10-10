@@ -121,6 +121,41 @@ test('rejects invented per-unit amounts even with exact evidence', async () => {
   expect(chooseIconsMock).not.toHaveBeenCalled();
 });
 
+test.each([
+  1, 2, 8, 9,
+])('advertises and enforces the guided-path boundary for %i steps', async count => {
+  const speech = 'The path follows these steps.';
+  const draft = {
+    ...quoteDraft(''),
+    ...guidedPathScene,
+    narration: undefined,
+    evidence: speech,
+    intent: 'Follow.',
+    steps: Array.from({ length: count }, (_, index) => ({
+      label: `Step ${index}`,
+      detail: `Detail ${index}`,
+    })),
+  };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  const result = await generateLessonScene(unplannedInput(speech));
+  const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
+  const valid = count >= 2 && count <= 8;
+  expect(schema.safeParse(draft).success).toBe(valid);
+  expect(result.kind).toBe(valid ? 'scene' : 'invalid');
+});
+
+test('generates proportional quantities beyond the replica display limit', async () => {
+  const scene = { ...proportionalScene, max: 1000000 };
+  const speech = '1 to 1000000 units, initially 2, each requiring 128 MB.';
+  const draft = { ...quoteDraft(''), ...scene, evidence: speech, intent: 'Count.' };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(unplannedInput(speech))).toEqual({ kind: 'scene', scene });
+  expect(
+    z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema).safeParse(draft)
+      .success
+  ).toBe(true);
+});
+
 test('generates a validated scene from speech without a visual plan', async () => {
   const speech = 'Quali fonti sostengono la tesi?';
   generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft(speech));

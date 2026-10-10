@@ -1,15 +1,18 @@
-import type {
-  AnimatedLessonScene,
-  GuidedPathLessonScene,
-  ProportionalLessonScene,
+import {
+  type AnimatedLessonScene,
+  GUIDED_PATH_STEPS_PER_ROW,
+  type GuidedPathLessonScene,
+  PROPORTIONAL_REPLICA_LIMIT,
+  type ProportionalLessonScene,
 } from '@shared/lessonScene';
 import {
   automaticDuration,
   automaticQuantity,
   proportionalResult,
 } from '@shared/lessonSceneAnimation';
-import { useEffect, useMemo, useRef } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { SceneIcon } from './SceneIcon.tsx';
 
 /** The lesson stage supplies its clock and complete caption cues; the reader plays gradually. */
@@ -30,6 +33,8 @@ function quantityRenderer(
   const output = element.querySelector('output');
   const formula = element.querySelector('.formula');
   const input = element.querySelector('[data-quantity-input]');
+  const summary = element.querySelector('[data-quantity-summary]');
+  const fill = element.querySelector<HTMLElement>('.quantity-fill');
   if (!output || !formula || !input) throw new Error('Quantity result must be mounted');
   let previous: number | undefined;
   return (frame: SceneAnimationFrame) => {
@@ -49,7 +54,9 @@ function quantityRenderer(
     previous = quantity;
     output.textContent = numbers.format(proportionalResult(scene, quantity));
     formula.textContent = `${numbers.format(quantity)} × ${numbers.format(scene.amountPerUnit)} ${scene.outputUnit}`;
-    input.textContent = `${scene.inputLabel}: ${numbers.format(quantity)} ${scene.unitLabel}`;
+    input.textContent = `${scene.inputLabel}: ${numbers.format(quantity)}`;
+    if (summary) summary.textContent = input.textContent;
+    if (fill) fill.style.transform = `scaleX(${quantity / scene.max})`;
     units.forEach(unit => {
       unit.classList.toggle('present', Number(unit.dataset.unit) <= quantity);
     });
@@ -117,7 +124,10 @@ export function AnimatedScene({
   const host = useRef<HTMLDivElement>(null);
   const locale = getAppLocale();
   const numbers = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const shouldAnimate = useShouldAnimate();
+  const staticPath = scene.type === 'guided-path' && !readFrame && !shouldAnimate;
   useEffect(() => {
+    if (staticPath) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const render =
@@ -173,7 +183,7 @@ export function AnimatedScene({
       observer.disconnect();
       document.removeEventListener('visibilitychange', updatePlayback);
     };
-  }, [scene, readFrame, numbers]);
+  }, [scene, readFrame, numbers, staticPath]);
 
   return (
     <div ref={host}>
@@ -181,22 +191,31 @@ export function AnimatedScene({
         <>
           <div className="quantity-layout">
             <div>
-              <div className="replica-grid" aria-hidden="true">
-                {Array.from({ length: scene.max }, (_, index) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: the unit number is its stable identity
-                  <div key={index + 1} className="replica" data-unit={index + 1}>
-                    <span className="server-symbol">
-                      <SceneIcon name="server" />
-                    </span>
-                    <strong>
-                      {numbers.format(scene.amountPerUnit)} {scene.outputUnit}
-                    </strong>
-                    <span>
-                      {scene.unitLabel} {numbers.format(index + 1)}
-                    </span>
+              {scene.max > PROPORTIONAL_REPLICA_LIMIT ? (
+                <div className="quantity-summary">
+                  <p data-quantity-summary />
+                  <div className="quantity-bar" aria-hidden="true">
+                    <div className="quantity-fill" />
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="replica-grid" aria-hidden="true">
+                  {Array.from({ length: scene.max }, (_, index) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: the unit number is its stable identity
+                    <div key={index + 1} className="replica" data-unit={index + 1}>
+                      <span className="server-symbol">
+                        <SceneIcon name="server" />
+                      </span>
+                      <strong>
+                        {numbers.format(scene.amountPerUnit)} {scene.outputUnit}
+                      </strong>
+                      <span>
+                        {scene.unitLabel} {numbers.format(index + 1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {/* biome-ignore lint/a11y/useSemanticElements: the prototype status groups the result, its unit and the calculation */}
             <div className="quantity-result" role="status">
@@ -213,12 +232,42 @@ export function AnimatedScene({
             <p>{scene.assumption}</p>
           </aside>
         </>
+      ) : staticPath ? (
+        <ol className="path-details">
+          {scene.steps.map((step, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: authored step order is fixed
+            <li key={`${index}:${step.label}`}>
+              <strong>{step.label}</strong>
+              <p>{step.detail}</p>
+            </li>
+          ))}
+        </ol>
       ) : (
         <>
-          <ol className="guided-stops">
+          <ol
+            className="guided-stops"
+            style={{ '--path-columns': GUIDED_PATH_STEPS_PER_ROW } as CSSProperties}
+          >
             {scene.steps.map((step, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: authored steps may repeat labels; their order is fixed
-              <li key={`${index}:${step.label}`}>
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: authored steps may repeat labels; their order is fixed
+                key={`${index}:${step.label}`}
+                data-row-turn={
+                  index === GUIDED_PATH_STEPS_PER_ROW - 1 && index < scene.steps.length - 1
+                    ? true
+                    : undefined
+                }
+                data-return-row={index >= GUIDED_PATH_STEPS_PER_ROW ? true : undefined}
+                style={
+                  {
+                    '--path-column':
+                      index < GUIDED_PATH_STEPS_PER_ROW
+                        ? index + 1
+                        : GUIDED_PATH_STEPS_PER_ROW - (index % GUIDED_PATH_STEPS_PER_ROW),
+                    '--path-row': Math.floor(index / GUIDED_PATH_STEPS_PER_ROW) + 1,
+                  } as CSSProperties
+                }
+              >
                 <div className="guided-stop" data-stop={index}>
                   <span className="stop-number">{index + 1}</span>
                   <strong>{step.label}</strong>

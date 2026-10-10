@@ -56,6 +56,11 @@ export const LESSON_SCENE_TYPES = [
 
 export type LessonSceneType = (typeof LESSON_SCENE_TYPES)[number];
 
+export const PROPORTIONAL_REPLICA_LIMIT = 12;
+export const GUIDED_PATH_MIN_STEPS = 2;
+export const GUIDED_PATH_MAX_STEPS = 8;
+export const GUIDED_PATH_STEPS_PER_ROW = 4;
+
 /** Selection rule for each form; the model reads it before choosing. */
 export const LESSON_SCENE_CATALOG: Readonly<Record<LessonSceneType, string>> = {
   balance: 'Due esigenze in tensione da considerare insieme.',
@@ -75,7 +80,7 @@ export const LESSON_SCENE_CATALOG: Readonly<Record<LessonSceneType, string>> = {
   distribution: 'SOLO osservazioni quantitative o frequenze esplicite nel testo.',
   donut: 'SOLO quantità esplicite che compongono un totale noto.',
   flowchart: 'Azioni, decisioni e diramazioni con condizioni esplicite.',
-  'guided-path': 'Un percorso esplicito da seguire gradualmente, una tappa alla volta.',
+  'guided-path': `Un percorso esplicito di ${GUIDED_PATH_MIN_STEPS}–${GUIDED_PATH_MAX_STEPS} tappe da seguire gradualmente.`,
   hierarchy: 'Un concetto superiore e sottoinsiemi espliciti.',
   hypothesis: 'Una domanda verificabile e modi di controllarla.',
   interval: 'SOLO una stima numerica e limiti dichiarati nel testo.',
@@ -669,7 +674,8 @@ const findAnimatedSceneProblems = (
       problems.push('Invalid quantity cues.');
   } else if (
     !Array.isArray(scene.steps) ||
-    scene.steps.length < 2 ||
+    scene.steps.length < GUIDED_PATH_MIN_STEPS ||
+    scene.steps.length > GUIDED_PATH_MAX_STEPS ||
     scene.steps.some(
       step =>
         !isRecord(step) ||

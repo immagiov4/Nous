@@ -1,9 +1,7 @@
-import type { LessonPlaybackBlock, PlaybackRange } from '@shared/lessonPlayback';
+import type { LessonPlaybackBlock, PlaybackRange, PlaybackVisual } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
-import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
 import { Fragment, type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
-import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { getStoredLessonVisualScene } from '../../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
@@ -23,9 +21,11 @@ import {
 } from './captionFormat.ts';
 import {
   type CaptionRun,
+  captionAnchorSpan,
   captionAnchorTimes,
   captionMotionEvents,
   motionStates,
+  sceneCaptionAnchors,
   sceneElements,
   type TimedMotionEvent,
 } from './stageMotion.ts';
@@ -60,25 +60,17 @@ function PlaybackScene({
   const host = useRef<HTMLDivElement>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene)) return undefined;
-    const cues = scene.type === 'guided-path' ? scene.steps : (scene.cues ?? []);
-    let synchronized = playbackMode(scene) === 'text';
-    if (synchronized) {
-      try {
-        cueTimes(block.speech, cues);
-      } catch {
-        synchronized = false;
-      }
-    }
+    const anchors = sceneCaptionAnchors(scene, block.speech);
     let previousClock: CaptionClock | null = null;
     let times: number[] | undefined;
     return () => {
       const current = clock.current;
       if (!current || !current.bodyDuration) return undefined;
-      if (synchronized && !current.width) return undefined;
+      if (anchors && !current.width) return undefined;
       if (current !== previousClock) {
-        times = synchronized
+        times = anchors
           ? captionAnchorTimes({
-              anchors: cues.map(cue => cue.anchor as string),
+              anchors,
               speech: block.speech,
               speechRanges: current.speechRanges,
               runs: current.runs,
@@ -90,7 +82,7 @@ function PlaybackScene({
         previousClock = current;
       }
       const { blockTime, revealTime } = current.read();
-      return synchronized
+      return anchors
         ? {
             elapsedMs: Math.max(0, revealTime * 1000),
             durationMs: current.bodyDuration * 1000,
@@ -185,30 +177,95 @@ function PlaybackScene({
   );
 }
 
-function PlaybackStoredVisual({
+function PlaybackVisualContent({
   visual,
   content,
+  active,
+  schedule,
   ...props
 }: {
-  visual: StoredLessonVisual;
+  visual: PlaybackVisual;
   content: WorkspaceReaderContentModel;
+  active: boolean;
+  schedule: boolean;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
   speed: number;
   animate: boolean;
   interval: { start: number; duration: number };
 }) {
-  const scene = getStoredLessonVisualScene(visual);
-  return scene ? (
-    <PlaybackScene {...props} scene={scene} isDarkMode={content.isDarkMode} />
-  ) : (
-    <GeneratedVisualFrame
-      className="lesson-player-generated"
-      title={visual.title ?? props.block.heading}
-      visual={visual}
-      projectId={content.projectId}
-      isDarkMode={content.isDarkMode}
-    />
+  const stored =
+    visual.kind === 'generated-visual'
+      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+      : undefined;
+  const scene =
+    visual.kind === 'scene'
+      ? visual.scene
+      : stored
+        ? getStoredLessonVisualScene(stored)
+        : undefined;
+  const anchors = useMemo(
+    () => (schedule ? sceneCaptionAnchors(scene, props.block.speech) : undefined),
+    [scene, props.block.speech, schedule]
+  );
+  const host = useRef<HTMLDivElement>(null);
+  const { clock, block } = props;
+  useEffect(() => {
+    if (!anchors) return;
+    const element = host.current;
+    if (!element) throw new Error('Scheduled visual must be mounted');
+    let previousClock: CaptionClock | null = null;
+    let span: ReturnType<typeof captionAnchorSpan> | undefined;
+    let frame = 0;
+    const tick = () => {
+      const current = clock.current;
+      if (current?.width && current.bodyDuration) {
+        if (current !== previousClock) {
+          span = captionAnchorSpan({
+            anchors,
+            speech: block.speech,
+            speechRanges: current.speechRanges,
+            runs: current.runs,
+            width: current.width,
+            feather: current.feather,
+            duration: current.bodyDuration,
+          });
+          previousClock = current;
+        }
+        if (!span) throw new Error('Scheduled visual span must exist');
+        const timeMs = Math.max(0, current.read().revealTime * 1000);
+        const hidden = timeMs < span.startMs || timeMs > span.endMs;
+        if (element.hidden !== hidden) element.hidden = hidden;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(frame);
+  }, [anchors, block.speech, clock]);
+  if (!anchors && !active) return null;
+  return (
+    <div ref={host} hidden={Boolean(anchors)}>
+      {scene ? <PlaybackScene {...props} scene={scene} isDarkMode={content.isDarkMode} /> : null}
+      {visual.kind === 'markdown' ? (
+        <MarkdownRenderer
+          content={visual.markdown}
+          isDarkMode={content.isDarkMode}
+          projectId={content.projectId}
+          lessonAssetsById={content.activeSectionAssetsById}
+          lessonImageRefsById={content.activeSectionImageRefsById}
+          generatedVisualsById={content.activeSectionGeneratedVisualsById}
+        />
+      ) : null}
+      {stored && !scene ? (
+        <GeneratedVisualFrame
+          className="lesson-player-generated"
+          title={stored.title ?? props.block.heading}
+          visual={stored}
+          projectId={content.projectId}
+          isDarkMode={content.isDarkMode}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -282,7 +339,13 @@ export default function LessonPlaybackStage({
     observer.observe(captionSection);
     // A replacement or asynchronous diagram can change overflow without resizing the card.
     const mutations = new MutationObserver(fitScene);
-    mutations.observe(card, { childList: true, characterData: true, subtree: true });
+    mutations.observe(card, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['hidden'],
+    });
     fitScene();
     return () => {
       observer.disconnect();
@@ -410,21 +473,11 @@ export default function LessonPlaybackStage({
     visuals.length - 1,
     duration > 0 ? Math.floor((time / duration) * visuals.length) : 0
   );
-  const visual = visuals[visualIndex];
-  const visualKey = `${block.id}:${visualIndex}`;
-  const stored =
-    visual?.kind === 'generated-visual'
-      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
-      : undefined;
   const sceneProps = {
     block,
     clock,
     speed,
     animate,
-    interval: {
-      start: visuals.length ? (duration * visualIndex) / visuals.length : 0,
-      duration: visuals.length ? duration / visuals.length : duration,
-    },
   };
   return (
     <div className="lesson-player-stage">
@@ -457,32 +510,21 @@ export default function LessonPlaybackStage({
             className="scene-host"
             aria-label={t('Visualizzazione della lezione')}
           >
-            {visual?.kind === 'scene' ? (
-              <PlaybackScene
-                key={visualKey}
+            {visuals.map((visual, index) => (
+              <PlaybackVisualContent
+                // biome-ignore lint/suspicious/noArrayIndexKey: visuals have a fixed order within a saved block
+                key={`${block.id}:${index}`}
                 {...sceneProps}
-                scene={visual.scene}
-                isDarkMode={content.isDarkMode}
-              />
-            ) : null}
-            {visual?.kind === 'markdown' ? (
-              <MarkdownRenderer
-                content={visual.markdown}
-                isDarkMode={content.isDarkMode}
-                projectId={content.projectId}
-                lessonAssetsById={content.activeSectionAssetsById}
-                lessonImageRefsById={content.activeSectionImageRefsById}
-                generatedVisualsById={content.activeSectionGeneratedVisualsById}
-              />
-            ) : null}
-            {stored ? (
-              <PlaybackStoredVisual
-                key={visualKey}
-                {...sceneProps}
-                visual={stored}
+                interval={{
+                  start: (duration * index) / visuals.length,
+                  duration: duration / visuals.length,
+                }}
+                visual={visual}
                 content={content}
+                active={index === visualIndex}
+                schedule={visuals.length > 1}
               />
-            ) : null}
+            ))}
           </section>
         </div>
       </section>

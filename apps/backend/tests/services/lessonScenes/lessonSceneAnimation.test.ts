@@ -55,6 +55,26 @@ test('requires at least two fully labelled path steps', () => {
   }
 });
 
+test.each([1, 2, 4, 5, 8, 9])('validates the approved guided-path boundary at %i steps', count => {
+  const scene = {
+    ...guidedPathScene,
+    steps: Array.from({ length: count }, (_, index) => ({
+      label: `Step ${index}`,
+      detail: `Detail ${index}`,
+    })),
+  };
+  expect(findLessonSceneProblems(scene).length === 0).toBe(count >= 2 && count <= 8);
+});
+
+test('accepts source-grounded proportional quantities beyond the replica display limit', () => {
+  expect(
+    findLessonSceneProblems(
+      { ...proportionalScene, max: 1000000 },
+      '1, 2, 1000000 units; 128 MB each.'
+    )
+  ).toEqual([]);
+});
+
 test('validates exact, unique, ordered quotations against the supplied lesson text', () => {
   const source = guidedPathScene.narration as string;
   expect(findLessonSceneProblems(guidedPathScene, source)).toEqual([]);

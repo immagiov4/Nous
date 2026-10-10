@@ -48,17 +48,25 @@ const flush = () =>
     });
   });
 
-function mount(scene: LessonScene, speech: string, duration = 9.6) {
+function mount(scene: LessonScene | LessonScene[], speech: string, duration = 9.6, stored = false) {
   let time = 0;
+  const scenes = Array.isArray(scene) ? scene : [scene];
   const sources = [{ type: 'markdown' as const, markdown: speech }];
   const block = {
     ...segmentLessonPlayback(sources)[0],
-    visuals: [{ kind: 'scene' as const, scene }],
-    prepared: { scene, motion: [] },
+    visuals: scenes.map((scene, index) =>
+      stored
+        ? { kind: 'generated-visual' as const, visualId: String(index) }
+        : { kind: 'scene' as const, scene }
+    ),
+    prepared: { scene: scenes[0], motion: [] },
   };
   const content = {
     isDarkMode: false,
     sectionContentBlocks: sources,
+    activeSectionGeneratedVisualsById: Object.fromEntries(
+      scenes.map((scene, index) => [String(index), { render: { kind: 'scene', scene } }])
+    ),
   } as WorkspaceReaderContentModel;
   const readTime = () => time;
   const props = { block, content, duration, readTime };
@@ -68,6 +76,10 @@ function mount(scene: LessonScene, speech: string, duration = 9.6) {
   paragraph.scrollTo = vi.fn();
   return {
     ...result,
+    tick: (next: number) => {
+      time = next;
+      flush();
+    },
     advance: (next: number, speed = 1) => {
       time = next;
       result.rerender(<LessonPlaybackStage {...props} time={time} speed={speed} />);
@@ -192,4 +204,77 @@ test('quantity stays initial before its first quoted group and after seeking bac
   expect(container.querySelectorAll('.present')).toHaveLength(4);
   advance(0);
   expect(container.querySelectorAll('.present')).toHaveLength(2);
+});
+
+const speech = 'Uno due tre quattro cinque sei sette otto.';
+const quotedPath = (title: string, anchors: string[]): LessonScene => ({
+  ...guidedPathScene,
+  title,
+  steps: anchors.map(anchor => ({ label: anchor, detail: `${title}: ${anchor}`, anchor })),
+});
+
+test.each([false, true])('scene visibility follows complete caption spans (stored: %s)', stored => {
+  const { container, tick, advance } = mount(
+    [quotedPath('Late', ['sei', 'otto.']), quotedPath('Early', ['Uno', 'due tre'])],
+    speech,
+    8,
+    stored
+  );
+  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
+  const visible = () => scenes.map(scene => !scene.hidden);
+  expect(visible()).toEqual([false, true]);
+  // The last quotation still covers "tre", past its first word "due".
+  tick(1.2);
+  expect(visible()).toEqual([false, true]);
+  tick(2);
+  expect(visible()).toEqual([false, false]);
+  // The first visual remains available after its former equal-time slot ends.
+  tick(4);
+  expect(visible()).toEqual([true, false]);
+  flush();
+  expect(visible()).toEqual([true, false]);
+  advance(3, 0.5);
+  expect(visible()).toEqual([false, false]);
+  advance(3, 2);
+  expect(visible()).toEqual([true, false]);
+  tick(8);
+  expect(visible()).toEqual([false, false]);
+  tick(0);
+  expect(visible()).toEqual([false, true]);
+});
+
+test('overlapping scene spans stay visible together and recompute after caption measurement', () => {
+  const { container, tick } = mount(
+    [quotedPath('Late', ['sei', 'otto.']), quotedPath('Middle', ['quattro', 'sette'])],
+    speech,
+    8
+  );
+  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
+  tick(4);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([true, true]);
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (
+    this: HTMLElement
+  ) {
+    return { width: this.textContent?.trim() === 'Uno' ? 1000 : 100 } as DOMRect;
+  });
+  act(() => window.dispatchEvent(new Event('resize')));
+  flush();
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, false]);
+});
+
+test('unanchored scenes retain their sequential slot and restart relative to that slot', () => {
+  const { container, advance } = mount(
+    [quotedPath('Early', ['Uno', 'due']), proportionalScene],
+    speech,
+    8
+  );
+  expect(container.querySelector('output')).toBeNull();
+  advance(4);
+  expect(container.querySelector('output')?.textContent).toBe('256');
+  advance(6);
+  expect(container.querySelector('output')?.textContent).toBe('512');
+  advance(8);
+  expect(container.querySelector('output')?.textContent).toBe('768');
+  advance(0);
+  expect(container.querySelector('output')).toBeNull();
 });

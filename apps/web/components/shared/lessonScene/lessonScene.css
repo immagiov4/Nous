@@ -1560,6 +1560,24 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 }
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-summary {
+  padding: var(--interaction-gap);
+  background: var(--paper);
+  border-radius: var(--radius);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-bar {
+  height: var(--interaction-gap);
+  margin-top: var(--interaction-gap);
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--line);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-fill {
+  height: 100%;
+  background: var(--blue);
+  transform-origin: left;
+  transition: transform var(--interaction-transition);
+}
 .lesson-scene.lesson-scene-animated .interaction-card .replica {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -1625,12 +1643,14 @@
   color: var(--muted);
 }
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops {
+  --path-gap: 20px;
+  --path-stroke: 2px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--path-columns), minmax(0, 1fr));
   list-style: none;
   padding: 0;
   margin: 36px 0 24px;
-  gap: 20px;
+  gap: var(--path-gap);
 }
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops li {
   position: relative;
@@ -1639,12 +1659,41 @@
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops li:not(:last-child):after {
   content: "";
   position: absolute;
-  width: 20px;
-  height: 2px;
+  width: var(--path-gap);
+  height: var(--path-stroke);
   background: var(--muted);
   top: 50%;
   left: 100%;
-  border-radius: 2px;
+  border-radius: var(--path-stroke);
+}
+@media (min-width: 601px) {
+  .lesson-scene.lesson-scene-animated .interaction-card .guided-stops li {
+    grid-column: var(--path-column);
+    grid-row: var(--path-row);
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .guided-stops li[data-row-turn]:after {
+    width: var(--path-stroke);
+    height: var(--path-gap);
+    top: 100%;
+    left: 50%;
+  }
+  .lesson-scene.lesson-scene-animated
+    .interaction-card
+    .guided-stops
+    li[data-return-row]:not(:last-child):after {
+    left: auto;
+    right: 100%;
+  }
+}
+.lesson-scene.lesson-scene-animated .interaction-card .path-details {
+  display: grid;
+  gap: var(--interaction-gap);
+  padding-left: var(--interaction-gap);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .path-details li {
+  padding: var(--interaction-gap);
+  border-radius: var(--radius);
+  background: var(--paper);
 }
 .lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop {
   display: flex;
@@ -1725,8 +1774,8 @@
     font-size: 44px;
   }
   .lesson-scene.lesson-scene-animated .interaction-card .guided-stops {
+    --path-gap: 14px;
     grid-template-columns: 1fr;
-    gap: 14px;
     margin-top: 24px;
   }
   .lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop {
@@ -1736,8 +1785,8 @@
     padding: 12px 18px;
   }
   .lesson-scene.lesson-scene-animated .interaction-card .guided-stops li:not(:last-child):after {
-    width: 2px;
-    height: 14px;
+    width: var(--path-stroke);
+    height: var(--path-gap);
     top: 100%;
     left: 33px;
   }

@@ -142,11 +142,11 @@ test.each([
   expect(container.querySelector('.formula')?.textContent).toBe(formula);
   const input = container.querySelector('[data-quantity-input]');
   expect(input?.closest('[aria-hidden=true]')).toBeNull();
-  expect(input?.textContent).toBe('Repliche del servizio: 2 replica');
+  expect(input?.textContent).toBe('Repliche del servizio: 2');
   act(() => intersect([{ isIntersecting: true }]));
   act(() => tick(0));
   act(() => tick(4800));
-  expect(input?.textContent).toBe('Repliche del servizio: 4 replica');
+  expect(input?.textContent).toBe('Repliche del servizio: 4');
 });
 
 test('reader respects reduced motion and document visibility', () => {
@@ -163,4 +163,53 @@ test('reader respects reduced motion and document visibility', () => {
   act(() => document.dispatchEvent(new Event('visibilitychange')));
   expect(cancelAnimationFrame).toHaveBeenCalled();
   Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+});
+
+test.each([12, 13, 1000000])('bounds rendered replicas for a maximum of %i', max => {
+  const { container } = render(<LessonSceneVisual scene={{ ...proportionalScene, max }} />);
+  expect(container.querySelectorAll('.replica')).toHaveLength(max <= 12 ? max : 0);
+  expect(container.querySelectorAll('.quantity-bar')).toHaveLength(max > 12 ? 1 : 0);
+  if (max > 12) {
+    const fill = container.querySelector<HTMLElement>('.quantity-fill');
+    expect(fill?.style.transform).toBe(`scaleX(${2 / max})`);
+    expect(container.querySelector('[data-quantity-summary]')?.textContent).toBe(
+      'Repliche del servizio: 2'
+    );
+    act(() => intersect([{ isIntersecting: true }]));
+    act(() => tick(0));
+    act(() => tick(9600));
+    expect(fill?.style.transform).toBe('scaleX(1)');
+    expect(container.querySelectorAll('.quantity-fill')).toHaveLength(1);
+  }
+});
+
+test('reduced motion exposes every authored path detail without starting a clock', () => {
+  vi.mocked(matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
+  const { container } = render(<LessonSceneVisual scene={guidedPathScene} />);
+  expect(
+    Array.from(container.querySelectorAll('.path-details li p'), node => node.textContent)
+  ).toEqual(guidedPathScene.steps.map(step => step.detail));
+  expect(container.querySelector('.guided-stops')).toBeNull();
+  expect(container.querySelector('.path-explanation')).toBeNull();
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
+});
+
+test.each([2, 4, 5, 8])('keeps %i steps in authored order and connects the return row', count => {
+  const scene = {
+    ...guidedPathScene,
+    steps: Array.from({ length: count }, (_, index) => ({
+      label: `Step ${index + 1}`,
+      detail: `Detail ${index + 1}`,
+    })),
+  };
+  const { container } = render(<LessonSceneVisual scene={scene} />);
+  const stops = Array.from(container.querySelectorAll<HTMLElement>('.guided-stops li'));
+  expect(stops.map(stop => stop.querySelector('strong')?.textContent)).toEqual(
+    scene.steps.map(step => step.label)
+  );
+  expect(stops.map(stop => stop.style.getPropertyValue('--path-column'))).toEqual(
+    ['1', '2', '3', '4', '4', '3', '2', '1'].slice(0, count)
+  );
+  expect(container.querySelectorAll('[data-row-turn]')).toHaveLength(count > 4 ? 1 : 0);
+  expect(container.querySelectorAll('[data-return-row]')).toHaveLength(Math.max(0, count - 4));
 });
