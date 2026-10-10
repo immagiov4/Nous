@@ -947,7 +947,9 @@ function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean 
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded-full px-2 py-1 text-sm font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400 dark:text-zinc-200 dark:hover:bg-zinc-700 dark:disabled:text-zinc-500"
       >
-        {getPlaybackRateLabel(tts.playbackRate)}
+        {/* Sized for the widest label ("1.05x") so the button, and the slider menu anchored to
+            it, never move while the speed changes. */}
+        <span className="w-[4.5ch] text-center">{getPlaybackRateLabel(tts.playbackRate)}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
       </button>
       <AnimatePresence>
