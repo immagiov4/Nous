@@ -187,7 +187,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  test('shows voice and playback speed in one full-width vertical control', () => {
+  test('shows voice and playback speed in one full-width row', () => {
     const { container } = render(
       <UnifiedAudioPanel
         initialTab="voce"
@@ -208,7 +208,6 @@ describe('UnifiedAudioPanel', () => {
 
     expect(voiceSpeedControl).toHaveClass('w-full');
     expect(voiceSpeedControl).toHaveTextContent('Alloy');
-    expect(voiceSpeedControl).toHaveTextContent('•');
     expect(voiceSpeedControl).toHaveTextContent('1x');
     expect(voiceControl).toHaveValue('alloy');
     expect(voiceControl).toHaveAttribute('title', 'Voce');

@@ -312,6 +312,21 @@ const UnifiedAudioPanel = ({
     }
   }, [activeTab, isOpen, isTextPickerActive, onSetTextPickerActive]);
 
+  // A pick in the text starts playback; the panel then gets out of the way. The document capture
+  // listener runs before the picker's own click handler, so the close is deferred until the pick is done.
+  useEffect(() => {
+    if (!isTextPickerActive) return;
+    const closeAfterPick = (event: MouseEvent) => {
+      if (containerRef.current?.contains(event.target as Node)) return;
+      globalThis.setTimeout(() => {
+        if (onToggle) onToggle(false);
+        else setIsOpenLocal(false);
+      }, 0);
+    };
+    document.addEventListener('click', closeAfterPick, true);
+    return () => document.removeEventListener('click', closeAfterPick, true);
+  }, [isTextPickerActive, onToggle]);
+
   const handleBackgroundPlayRequest = () => {
     setHasUserActivatedPlayerLocal(true);
     setPlayerErrorVideoId(null);
@@ -952,9 +967,9 @@ export function PlaybackVoiceControl({
   const playbackRateLabel = getPlaybackRateLabel(tts.playbackRate);
 
   const control = (
-    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
+    <fieldset className="flex min-w-0 w-full items-center gap-3 rounded-3xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
       <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
-      <div className="relative min-h-10">
+      <div className="relative min-h-10 shrink-0">
         <select
           aria-label={t('Voce')}
           title={t('Voce')}
@@ -976,20 +991,23 @@ export function PlaybackVoiceControl({
             ttsDisabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
           }`}
         >
-          <span className="flex min-w-0 flex-1 items-center gap-1">
+          <span className="flex min-w-0 items-center gap-1">
             <span className="truncate">{currentVoiceLabel}</span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
           </span>
-          <span className="text-gray-300 dark:text-zinc-600">•</span>
-          <span className="min-w-[5ch] shrink-0 text-right tabular-nums">{playbackRateLabel}</span>
         </div>
       </div>
 
-      <PlaybackSpeedControl
-        isDisabled={ttsDisabled}
-        onSpeedChange={tts.onSpeedChange}
-        playbackRate={tts.playbackRate}
-      />
+      <div className="min-w-0 flex-1">
+        <PlaybackSpeedControl
+          isDisabled={ttsDisabled}
+          onSpeedChange={tts.onSpeedChange}
+          playbackRate={tts.playbackRate}
+        />
+      </div>
+      <span className="shrink-0 text-sm font-medium tabular-nums text-gray-700 dark:text-zinc-200">
+        {playbackRateLabel}
+      </span>
     </fieldset>
   );
   if (!compact) return control;
