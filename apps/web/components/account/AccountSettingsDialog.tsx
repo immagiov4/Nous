@@ -434,13 +434,6 @@ export default function AccountSettingsDialog({
                       libraryExportProgress
                     )}
                   </button>
-                  {pendingAction === 'backup-export' && libraryExportProgress ? (
-                    <output className="w-full text-xs text-gray-500 dark:text-zinc-400">
-                      {t('{bytes} byte elaborati dal server.', {
-                        bytes: new Intl.NumberFormat().format(libraryExportProgress.bytesWritten),
-                      })}
-                    </output>
-                  ) : null}
                   <input
                     ref={backupInputRef}
                     type="file"
