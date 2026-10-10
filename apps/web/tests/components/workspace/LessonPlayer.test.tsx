@@ -179,6 +179,22 @@ test.each([
   expect(screen.getByRole('button', { name: /Pausa|TTS non disponibile/ })).toBeEnabled();
 });
 
+test.each([
+  false,
+  true,
+])('Escape clears a draft and exits note mode=%s before closing', noteMode => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  if (noteMode) fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Da ricordare.' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+  expect(screen.getByRole('textbox')).toHaveValue('');
+  expect(screen.getByRole('textbox').tagName).toBe('INPUT');
+  expect(screen.getByRole('dialog', { name: 'Riproduci lezione' })).toBeInTheDocument();
+  expect(props.onClose).not.toHaveBeenCalled();
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+  expect(props.onClose).toHaveBeenCalledOnce();
+});
+
 test('anchors the note when writing begins, then exits note mode after persistence', async () => {
   const { rerender } = render(<LessonPlayer {...props} />);
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));

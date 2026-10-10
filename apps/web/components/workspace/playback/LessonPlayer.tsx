@@ -1,7 +1,15 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
@@ -81,6 +89,7 @@ export default function LessonPlayer({
   tts,
   onClose,
   autoPlay = true,
+  audioElementRef,
 }: {
   sectionId: string;
   projectId: string;
@@ -102,6 +111,7 @@ export default function LessonPlayer({
   >;
   onClose: () => void;
   autoPlay?: boolean;
+  audioElementRef?: RefObject<HTMLAudioElement>;
 }) {
   const sourceBlocks = useMemo(
     () =>
@@ -117,6 +127,7 @@ export default function LessonPlayer({
     voice: tts.currentVoice,
     speed: tts.playbackRate,
     initialBlocks,
+    audioElementRef,
   });
   const [noteMode, setNoteMode] = useState(false);
   const [draft, setDraft] = useState('');
@@ -424,7 +435,11 @@ export default function LessonPlayer({
           )
             return;
           event.stopPropagation();
-          if (questionActive) closeAnswer();
+          if (draft) {
+            changeDraft('');
+            setNoteMode(false);
+            setNoteStatus('idle');
+          } else if (questionActive) closeAnswer();
           else onClose();
         }
         if (event.key === 'Tab') {

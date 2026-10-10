@@ -1,9 +1,10 @@
-import { lazy, memo, Suspense, useEffect, useLayoutEffect, useState } from 'react';
+import { lazy, memo, type RefObject, Suspense, useEffect, useLayoutEffect, useState } from 'react';
 import {
   READER_MOBILE_TOP_FADE_ALPHA_PROPERTY,
   READER_MOBILE_TOP_FADE_SCROLL_RANGE_PX,
   READER_SIDEBAR_WIDTH_PX,
 } from '../../constants/layout.ts';
+import { unlockLessonPlaybackAudio } from '../../hooks/reader/useLessonPlayback.ts';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
@@ -24,7 +25,11 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   sidebar,
 }: WorkspaceReaderShellProps) {
   useAppLocale();
-  const [player, setPlayer] = useState<{ sectionId: string; autoPlay: boolean } | null>(null);
+  const [player, setPlayer] = useState<{
+    sectionId: string;
+    autoPlay: boolean;
+    audioElementRef: RefObject<HTMLAudioElement>;
+  } | null>(null);
   const canPlayLesson =
     !content.activeExercise &&
     !content.isLoading &&
@@ -35,7 +40,13 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     header.tts.onStop();
     overlays.onCloseContextAnswer();
     overlays.onCloseContextMenu();
-    setPlayer({ sectionId: sidebar.activeSectionId, autoPlay });
+    const audioElement = new Audio();
+    if (autoPlay) unlockLessonPlaybackAudio(audioElement);
+    setPlayer({
+      sectionId: sidebar.activeSectionId,
+      autoPlay,
+      audioElementRef: { current: audioElement },
+    });
   };
   const { viewportHeight } = useMobileKeyboardOffset();
 
@@ -175,6 +186,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
             overlays={overlays}
             tts={header.tts}
             autoPlay={player.autoPlay}
+            audioElementRef={player.audioElementRef}
             onClose={() => setPlayer(null)}
           />
         </Suspense>

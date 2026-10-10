@@ -1,5 +1,5 @@
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getLessonPlayback,
   LessonPlaybackRequestError,
@@ -16,6 +16,24 @@ type PreparedPlayback = Extract<
   { block: unknown }
 >;
 
+// One silent PCM sample gives the gesture-time play a valid source before the MP3 is ready.
+const SILENT_AUDIO =
+  'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIAAAAAAA==';
+
+/** Unlocks this element inside the opening or play gesture, before asynchronous preparation. */
+export function unlockLessonPlaybackAudio(audio: HTMLAudioElement) {
+  if (!audio.src) audio.src = SILENT_AUDIO;
+  const muted = audio.muted;
+  audio.muted = true;
+  void audio.play().catch(error => {
+    // Pausing immediately can reject the priming play; the prepared MP3 owns playback errors.
+    if (error instanceof DOMException && error.name === 'AbortError') return;
+    console.error('Lesson playback audio unlock failed', error);
+  });
+  audio.pause();
+  audio.muted = muted;
+}
+
 /** Owns one audio element, cancellable playback attempts and a background preparation queue. */
 export function useLessonPlayback({
   projectId,
@@ -23,12 +41,14 @@ export function useLessonPlayback({
   voice,
   speed,
   initialBlocks,
+  audioElementRef,
 }: {
   projectId: string;
   sectionId: string;
   voice: string;
   speed: number;
   initialBlocks: LessonPlaybackBlock[];
+  audioElementRef?: RefObject<HTMLAudioElement>;
 }) {
   const [blocks, setBlocks] = useState<readonly LessonPlaybackBlock[]>(initialBlocks);
   const [index, setIndex] = useState(0);
@@ -61,8 +81,8 @@ export function useLessonPlayback({
   }, [voice, speed]);
 
   useEffect(() => {
-    const audio = new Audio();
-    audioRef.current = audio;
+    audioRef.current = audioElementRef?.current ?? new Audio();
+    const audio = getAudio();
     const sessionIntent = intent.current;
     audio.ontimeupdate = () => setTime(audio.currentTime);
     audio.ondurationchange = () => {
@@ -85,7 +105,7 @@ export function useLessonPlayback({
       audio.load();
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     };
-  }, []);
+  }, [audioElementRef, getAudio]);
 
   const beginPlaybackAttempt = useCallback(() => {
     preparationController.current?.abort();
@@ -284,6 +304,7 @@ export function useLessonPlayback({
     const audio = getAudio();
     intent.current.playing = true;
     if (!loadedVoice.current || loadedVoice.current !== latest.current.voice) {
+      unlockLessonPlaybackAudio(audio);
       await start(intent.current.index, audio.currentTime);
       return;
     }
