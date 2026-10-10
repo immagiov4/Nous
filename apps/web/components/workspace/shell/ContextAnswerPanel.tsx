@@ -509,9 +509,6 @@ const buildContextDraftLesson = (
 
 interface ContextAnswerPanelProps {
   readonly pendingQuestion?: boolean;
-  readonly onAnswerComplete?: (text: string) => void;
-  /** Receives the answer text so far while it streams, before onAnswerComplete. */
-  readonly onAnswerProgress?: (text: string) => void;
   readonly docked?: boolean;
   readonly composerPortal?: HTMLElement | null;
   /** stopResponse is set while an answer is being generated. */
@@ -559,17 +556,6 @@ interface ContextAnswerPanelProps {
   ) => Promise<ContextArtifactMutationResult>;
 }
 
-/** Text of the assistant messages that answer the latest user message. */
-const getLatestResponseText = (messages: readonly UIMessage[]) => {
-  const userIndex = messages.map(message => message.role).lastIndexOf('user');
-  return messages
-    .slice(userIndex + 1)
-    .filter(message => message.role === 'assistant')
-    .map(getUiMessageText)
-    .join('\n\n')
-    .trim();
-};
-
 const toolCardClassName =
   'rounded-[1.4rem] border border-stone-200/90 bg-[#fbf7ef] px-4 py-3 text-sm text-stone-700 shadow-[0_12px_28px_-22px_rgba(46,34,16,0.55)] dark:border-stone-400/95 dark:bg-stone-700/90 dark:text-stone-200';
 const autoSubmittedInitialQuestionIds = new Set<string>();
@@ -602,8 +588,6 @@ export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps
 
 function ContextAnswerPanelSession({
   pendingQuestion = false,
-  onAnswerComplete,
-  onAnswerProgress,
   docked = false,
   composerPortal,
   renderComposer,
@@ -1069,31 +1053,6 @@ function ContextAnswerPanelSession({
     },
   });
   const { addToolOutput, error, messages, sendMessage, status, stop } = contextChat;
-
-  const spokenResponse = useRef<string | null>(null);
-  const streamedResponse = useRef('');
-  useEffect(() => {
-    if (!onAnswerProgress || status !== 'streaming' || hasRequestedResponseStop) return;
-    const text = getLatestResponseText(messages);
-    if (!text || text === streamedResponse.current) return;
-    streamedResponse.current = text;
-    onAnswerProgress(text);
-  }, [hasRequestedResponseStop, messages, onAnswerProgress, status]);
-  useEffect(() => {
-    if (!onAnswerComplete || status !== 'ready' || error || hasRequestedResponseStop) return;
-    const last = messages.at(-1);
-    if (
-      !last ||
-      last.role !== 'assistant' ||
-      hasPendingResponsePart(last) ||
-      shouldContinueContextResponse(messages)
-    )
-      return;
-    const text = getLatestResponseText(messages);
-    if (!text || spokenResponse.current === last.id) return;
-    spokenResponse.current = last.id;
-    onAnswerComplete(text);
-  }, [error, hasRequestedResponseStop, messages, onAnswerComplete, status]);
 
   const retrievedArtifactIds = useMemo(() => getRetrievedArtifactIds(messages), [messages]);
   const replacementDraftPayloads = useMemo(

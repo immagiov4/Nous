@@ -43,8 +43,6 @@ const ENGLISH_UI_MESSAGES = {
   'per fare una domanda a voce': 'to ask a question out loud',
   'per inviare': 'to send',
   'Sto trascrivendo la domanda…': 'Transcribing your question…',
-  'Non è stato possibile leggere la risposta. Puoi leggerla nel pannello.':
-    'Could not read the answer aloud. You can read it in the panel.',
   'Torna alla lezione': 'Back to the lesson',
   Riproduci: 'Play',
   'Visualizzazione della lezione': 'Lesson visual',
@@ -782,7 +780,6 @@ const ENGLISH_UI_MESSAGES = {
   'Chiudi artefatto': 'Close artifact',
   'Conferma rigenerazione': 'Confirm regeneration',
   'Ferma e trascrivi': 'Stop and transcribe',
-  'Ferma la voce': 'Stop the voice',
   'Generazione artefatto in corso...': 'Generating artifact...',
   'Immagine generata': 'Generated image',
   'Immagine non disponibile': 'Image unavailable',

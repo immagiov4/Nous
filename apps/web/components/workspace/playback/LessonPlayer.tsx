@@ -4,7 +4,6 @@ import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
-import { useSpokenAnswer } from '../../../hooks/reader/useSpokenAnswer.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { useSpeechInput } from '../../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -129,7 +128,6 @@ export default function LessonPlayer({
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
   const [spokenFollowUp, setSpokenFollowUp] = useState<SpokenFollowUpQuestion | null>(null);
   const deliveredFollowUps = useRef(new Set<string>());
-  const answerAudio = useSpokenAnswer(tts.currentVoice, tts.playbackRate);
   const speech = useSpeechInput({
     onTranscription: text => {
       const question = spokenQuestion.current;
@@ -245,7 +243,6 @@ export default function LessonPlayer({
   };
   const ask = (question: string) => {
     playback.pause();
-    answerAudio.stop();
     spokenQuestion.current = null;
     setAnswer(createQuestion(question));
   };
@@ -254,8 +251,6 @@ export default function LessonPlayer({
       void saveNote();
       return;
     }
-    // A new question silences the voice still reading the previous answer.
-    answerAudio.stop();
     send(draft.trim());
     setDraft('');
     anchor.current = null;
@@ -325,18 +320,12 @@ export default function LessonPlayer({
             if (noteStatus === 'error') setNoteStatus('idle');
           },
           onSubmit: () => submit(send),
-          stopAction: stopResponse
-            ? { kind: 'response', onStop: stopResponse }
-            : answerAudio.speaking
-              ? { kind: 'voice', onStop: answerAudio.stop }
-              : undefined,
+          onStopResponse: stopResponse,
         }}
       />
     </>
   );
   const closeAnswer = () => {
-    answerAudio.stop();
-    answerAudio.clearError();
     speech.reset();
     spokenQuestion.current = null;
     spaceDown.current = false;
@@ -358,8 +347,6 @@ export default function LessonPlayer({
       event.preventDefault();
       if (event.repeat || spaceDown.current) return;
       playback.pause();
-      answerAudio.stop();
-      answerAudio.clearError();
       speech.reset();
       spaceDown.current = true;
       setHoldingSpace(true);
@@ -546,14 +533,6 @@ export default function LessonPlayer({
                 <ContextAnswerPanel
                   contextAnswer={answer}
                   pendingQuestion={pendingQuestion}
-                  onAnswerProgress={text => {
-                    if (spokenQuestion.current?.id === answer.id) answerAudio.follow(text, false);
-                  }}
-                  onAnswerComplete={text => {
-                    if (spokenQuestion.current?.id !== answer.id) return;
-                    spokenQuestion.current = null;
-                    answerAudio.follow(text, true);
-                  }}
                   contextAnswerPanelRef={panelRef}
                   contextAnswerSize={overlays.contextAnswerSize}
                   handleContextAnswerResizeStart={noAction}
@@ -579,11 +558,6 @@ export default function LessonPlayer({
               </AnswerPanelTransition>
             ) : null}
           </AnimatePresence>
-          {answerAudio.error ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-300">
-              {answerAudio.error}
-            </p>
-          ) : null}
           {noteStatus === 'saved' ? (
             <output className="inline-flex items-center gap-2 self-end rounded-full bg-white px-3 py-2 text-xs font-semibold text-amber-800 shadow-sm dark:bg-zinc-800 dark:text-amber-200">
               <Check className="h-3.5 w-3.5" />
