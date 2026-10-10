@@ -1718,7 +1718,12 @@ function ContextAnswerPanelSession({
           ) : null}
 
           {part.state === 'input-available' && inputValue ? (
-            isProcessing ? null : (
+            isProcessing ? (
+              <output className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
+                <LoaderCircle className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                {t('Salvataggio…')}
+              </output>
+            ) : (
               <div className="mt-3 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"

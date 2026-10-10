@@ -2278,6 +2278,58 @@ describe('ContextAnswerPanel', () => {
     });
   });
 
+  test('shows that an approved note is being saved until the save settles', async () => {
+    const user = userEvent.setup();
+    const lessonContent = 'La memoria di lavoro è una scrivania piccola. Contiene poche cose.';
+    const input = {
+      noteDraft: 'Poche cose alla volta.',
+      rationale: 'Conserva il chiarimento.',
+      selectedTextDraft: 'La memoria di lavoro è una scrivania piccola.',
+    };
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-note',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'note',
+              state: 'input-available',
+              input,
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    let finishSave!: (result: { saved: boolean; merged: boolean; annotationId: string }) => void;
+    const save = vi.fn<WorkspaceReaderOverlaysModel['onSaveConversationNote']>(
+      () =>
+        new Promise(resolve => {
+          finishSave = resolve;
+        })
+    );
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          selectedText: input.selectedTextDraft,
+          selectedTextStart: 0,
+          lessonContent,
+          contextScope: 'selection',
+        })}
+        onSaveConversationNote={save}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(screen.getByText('Salvataggio…')).toBeInTheDocument();
+    await act(async () => finishSave({ saved: true, merged: false, annotationId: 'note' }));
+    expect(screen.queryByText('Salvataggio…')).not.toBeInTheDocument();
+  });
+
   test('offers a player note with an unanchorable draft and saves its original passage after approval', async () => {
     const user = userEvent.setup();
     // First passage of the local lesson "La mente ha una scrivania piccola".
