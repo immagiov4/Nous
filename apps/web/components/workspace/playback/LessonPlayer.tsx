@@ -19,11 +19,7 @@ import type {
   WorkspaceReaderOverlaysModel,
   WorkspaceReaderTtsModel,
 } from '../shell/types.ts';
-import {
-  PlaybackPlayButton,
-  PlaybackTimeline,
-  PlaybackVoiceControl,
-} from '../UnifiedAudioPanel.tsx';
+import { PlaybackPlayButton, PlaybackTimeline, PlaybackVoiceSpeed } from '../UnifiedAudioPanel.tsx';
 import LessonPlaybackStage from './LessonPlaybackStage.tsx';
 
 const NOTE_SAVED_MS = 3_000;
@@ -421,17 +417,6 @@ export default function LessonPlayer({
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
       )}
       <div className="shrink-0 px-2 pb-2 md:relative md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
-        {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
-        <p
-          aria-hidden={spaceHintHidden}
-          className={`pointer-events-none absolute bottom-full left-1/2 mb-1 hidden -translate-x-1/2 items-center gap-1.5 whitespace-nowrap text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
-        >
-          {t('Tieni premuto')}
-          <kbd className="rounded-md border border-b-2 border-stone-200 bg-white px-1.5 py-0.5 font-sans text-[11px] font-semibold text-stone-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-stone-200">
-            {t('Spazio')}
-          </kbd>
-          {t('per fare una domanda a voce')}
-        </p>
         <div className="min-w-0 pb-2 md:pb-0">
           {playback.loading ? (
             <output className="mb-2 block text-xs text-stone-500 dark:text-stone-300">
@@ -486,8 +471,10 @@ export default function LessonPlayer({
                   5
                 </span>
               </button>
-              <div className="ml-auto md:ml-0">
-                <PlaybackVoiceControl tts={tts} compact />
+              {/* Fixed slot wide enough for the longest voice at 1.05x: the pill keeps its natural
+                  width, and speed changes never shift the timeline after it. */}
+              <div className="ml-auto flex justify-end md:ml-0 md:w-44 md:justify-start">
+                <PlaybackVoiceSpeed tts={tts} pill />
               </div>
             </div>
             <div
@@ -505,6 +492,15 @@ export default function LessonPlayer({
             </div>
           </div>
         </div>
+        {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
+        <p
+          aria-hidden={spaceHintHidden}
+          className={`pointer-events-none hidden min-w-0 flex-1 items-center justify-center gap-1 self-center whitespace-nowrap text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
+        >
+          {t('Tieni premuto')}
+          <kbd className="font-sans text-orange-700 dark:text-orange-300">{t('Spazio')}</kbd>
+          {t('per fare una domanda a voce')}
+        </p>
         <div className="relative flex min-w-0 flex-col gap-2.5 md:w-[30rem] md:max-w-[45vw]">
           <AnimatePresence>
             {answer ? (

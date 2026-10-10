@@ -88,7 +88,6 @@ const PLAYBACK_RATE_MIN = 0.8;
 const PLAYBACK_RATE_MAX = 2;
 const PLAYBACK_RATE_STEP = 0.05;
 const PLAYBACK_RATE_MARKER_COUNT = 5;
-const PLAYBACK_RATE_LABEL_WIDTH = 'w-[5ch]';
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -948,10 +947,7 @@ function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean 
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded-full px-2 py-1 text-sm font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400 dark:text-zinc-200 dark:hover:bg-zinc-700 dark:disabled:text-zinc-500"
       >
-        {/* Fixed width: the widest label is "1.05x", so speed changes never shift the layout. */}
-        <span className={`${PLAYBACK_RATE_LABEL_WIDTH} text-right`}>
-          {getPlaybackRateLabel(tts.playbackRate)}
-        </span>
+        {getPlaybackRateLabel(tts.playbackRate)}
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
       </button>
       <AnimatePresence>
@@ -1019,17 +1015,7 @@ function ReaderPlaybackCard({
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex items-center justify-between gap-2">
           {textPicker}
-          <div
-            className={`flex min-w-0 items-center text-sm font-medium ${
-              disabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
-            }`}
-          >
-            <VoicePicker tts={tts} disabled={disabled} withChevron={false} />
-            <span aria-hidden="true" className="text-gray-300 dark:text-zinc-600">
-              ·
-            </span>
-            <SpeedMenu tts={tts} disabled={disabled} />
-          </div>
+          <PlaybackVoiceSpeed tts={tts} disabled={disabled} />
         </div>
         <PlaybackTimeline
           time={tts.currentTime}
@@ -1042,73 +1028,32 @@ function ReaderPlaybackCard({
   );
 }
 
-export function PlaybackVoiceControl({
+/** Voice name that opens the voice list directly, then the speed label that opens its slider. */
+export function PlaybackVoiceSpeed({
   tts,
-  disabled: ttsDisabled = false,
-  compact = false,
+  disabled = false,
+  pill = false,
 }: {
   tts: VoiceSpeedModel;
   disabled?: boolean;
-  compact?: boolean;
+  /** Draws its own pill border, for use outside a card. */
+  pill?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const currentVoiceLabel = getCurrentVoiceLabel(tts);
-  const playbackRateLabel = getPlaybackRateLabel(tts.playbackRate);
-
-  const control = (
-    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
-      <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
-      <div
-        className={`flex min-h-10 items-center gap-2 px-1 text-sm font-medium ${
-          ttsDisabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
-        }`}
-      >
-        <VoicePicker tts={tts} disabled={ttsDisabled} />
-        <span className={`${PLAYBACK_RATE_LABEL_WIDTH} ml-auto shrink-0 text-right tabular-nums`}>
-          {playbackRateLabel}
-        </span>
-      </div>
-
-      <PlaybackSpeedControl
-        isDisabled={ttsDisabled}
-        onSpeedChange={tts.onSpeedChange}
-        playbackRate={tts.playbackRate}
-      />
-    </fieldset>
-  );
-  if (!compact) return control;
   return (
-    <div className="relative min-w-0">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        aria-label={`${t('Voce')} · ${t('Velocita')}`}
-        className="flex min-h-10 max-w-full items-center gap-1.5 rounded-3xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-      >
-        <span className="truncate">{currentVoiceLabel}</span>
-        <span className="text-gray-300 dark:text-zinc-600">·</span>
-        {/* Fixed width: the widest label is "1.05x", so speed changes never shift the layout. */}
-        <span className={`${PLAYBACK_RATE_LABEL_WIDTH} shrink-0 text-left tabular-nums`}>
-          {playbackRateLabel}
-        </span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-      </button>
-      <AnimatePresence>
-        {expanded ? (
-          // Anchored to one edge so the menu stays put when the speed label grows: the right
-          // edge on phones, where the pill sits on the right, the left edge from tablets up.
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-            className="absolute bottom-full right-0 z-50 mb-2 w-56 md:left-0 md:right-auto"
-          >
-            {control}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+    <div
+      className={`flex min-w-0 items-center text-sm font-medium ${
+        disabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
+      } ${
+        pill
+          ? 'min-h-10 rounded-3xl border border-gray-200 bg-white px-1 shadow-sm dark:border-zinc-700 dark:bg-zinc-800'
+          : ''
+      }`}
+    >
+      <VoicePicker tts={tts} disabled={disabled} withChevron={false} />
+      <span aria-hidden="true" className="text-gray-300 dark:text-zinc-600">
+        ·
+      </span>
+      <SpeedMenu tts={tts} disabled={disabled} />
     </div>
   );
 }
