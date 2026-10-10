@@ -623,6 +623,16 @@ const findAnimatedSceneProblems = (
   }
   if (scene.type === 'proportional') {
     const { min, max, initial, amountPerUnit } = scene;
+    if (source !== undefined) {
+      const sourceNumbers = readSourceNumbers(source);
+      if (
+        [min, max, initial, amountPerUnit].some(
+          value => typeof value === 'number' && !sourceNumbers.has(value)
+        )
+      ) {
+        problems.push('Quantity values must appear in the lesson.');
+      }
+    }
     if (
       ![min, max, initial].every(Number.isInteger) ||
       (min as number) < 1 ||
@@ -650,7 +660,9 @@ const findAnimatedSceneProblems = (
         scene.cues.some(
           cue =>
             !isRecord(cue) ||
-            typeof cue.value !== 'number' ||
+            !Number.isInteger(cue.value) ||
+            (cue.value as number) < (initial as number) ||
+            (cue.value as number) > (max as number) ||
             (cue.anchor !== undefined && typeof cue.anchor !== 'string')
         ))
     )

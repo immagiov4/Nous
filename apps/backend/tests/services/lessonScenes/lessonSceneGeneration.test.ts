@@ -72,7 +72,8 @@ test.each([
   proportionalScene,
   guidedPathScene,
 ])('generates $type through the advertised data schema', async scene => {
-  const speech = scene.narration ?? scene.body;
+  const speech =
+    scene.narration ?? `${scene.body} Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.`;
   const { items: _items, groups: _groups, ...data } = scene;
   const draft = {
     ...quoteDraft(''),
@@ -89,6 +90,35 @@ test.each([
   expect(schema.safeParse(draft).success).toBe(true);
   expect(schema.safeParse({ ...draft, formula: 'quantity * amountPerUnit' }).success).toBe(false);
   expect(chooseIconsMock.mock.calls[0][0].entries).toEqual([]);
+});
+
+test.each([
+  proportionalScene,
+  guidedPathScene,
+])('rejects disabled autoplay in generated $type scenes', async scene => {
+  const speech = scene.narration ?? 'Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.';
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    ...scene,
+    autoplay: false,
+    intent: 'Seguire.',
+    evidence: speech,
+  });
+  expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test('rejects invented per-unit amounts even with exact evidence', async () => {
+  const speech = 'Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.';
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    ...proportionalScene,
+    amountPerUnit: 256,
+    intent: 'Contare.',
+    evidence: speech,
+  });
+  expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
 });
 
 test('generates a validated scene from speech without a visual plan', async () => {

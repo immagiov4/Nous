@@ -225,6 +225,9 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 ];
 
 const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string): string[] => [
+  ...((scene.type === 'proportional' || scene.type === 'guided-path') && scene.autoplay !== true
+    ? ['Generated animated scenes must enable autoplay.']
+    : []),
   ...(draft.evidence.trim() && source.includes(draft.evidence)
     ? []
     : ['evidence must be an exact quotation from the lesson.']),

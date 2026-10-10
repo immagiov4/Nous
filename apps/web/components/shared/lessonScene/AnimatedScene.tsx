@@ -8,8 +8,8 @@ import {
   automaticQuantity,
   proportionalResult,
 } from '@shared/lessonSceneAnimation';
-import { useEffect, useRef } from 'react';
-import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { useEffect, useMemo, useRef } from 'react';
+import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { SceneIcon } from './SceneIcon.tsx';
 
 /** The lesson stage supplies its clock and complete caption cues; the reader plays gradually. */
@@ -21,11 +21,16 @@ export interface SceneAnimationFrame {
 
 export type ReadSceneAnimationFrame = () => SceneAnimationFrame | undefined;
 
-function quantityRenderer(element: HTMLElement, scene: ProportionalLessonScene) {
+function quantityRenderer(
+  element: HTMLElement,
+  scene: ProportionalLessonScene,
+  numbers: Intl.NumberFormat
+) {
   const units = Array.from(element.querySelectorAll<HTMLElement>('[data-unit]'));
   const output = element.querySelector('output');
   const formula = element.querySelector('.formula');
-  if (!output || !formula) throw new Error('Quantity result must be mounted');
+  const input = element.querySelector('[data-quantity-input]');
+  if (!output || !formula || !input) throw new Error('Quantity result must be mounted');
   let previous: number | undefined;
   return (frame: SceneAnimationFrame) => {
     const elapsed = Math.max(0, Math.min(frame.durationMs, frame.elapsedMs));
@@ -42,8 +47,9 @@ function quantityRenderer(element: HTMLElement, scene: ProportionalLessonScene) 
     } else quantity = automaticQuantity({ ...scene, durationMs: frame.durationMs }, elapsed);
     if (previous === quantity) return;
     previous = quantity;
-    output.textContent = proportionalResult(scene, quantity).toLocaleString('it-IT');
-    formula.textContent = `${quantity} × ${scene.amountPerUnit} ${scene.outputUnit}`;
+    output.textContent = numbers.format(proportionalResult(scene, quantity));
+    formula.textContent = `${numbers.format(quantity)} × ${numbers.format(scene.amountPerUnit)} ${scene.outputUnit}`;
+    input.textContent = `${scene.inputLabel}: ${numbers.format(quantity)} ${scene.unitLabel}`;
     units.forEach(unit => {
       unit.classList.toggle('present', Number(unit.dataset.unit) <= quantity);
     });
@@ -81,7 +87,6 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
     });
     if (complete) {
       position.textContent = t('Percorso completato');
-      explanation.textContent = t('La richiesta è arrivata all’archivio.');
     } else if (index < 0) {
       position.textContent = t('Segui il testo');
       explanation.textContent = scene.body;
@@ -90,7 +95,14 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
         step: index + 1,
         count: scene.steps.length,
       });
-      explanation.textContent = scene.steps[index].detail;
+    }
+    if (index >= 0) {
+      explanation.textContent = scene.steps
+        .filter((_, stepIndex) =>
+          frame.cueTimes ? frame.cueTimes[stepIndex] === frame.cueTimes[index] : stepIndex === index
+        )
+        .map(step => step.detail)
+        .join(' ');
     }
   };
 }
@@ -103,18 +115,21 @@ export function AnimatedScene({
   readonly readFrame?: ReadSceneAnimationFrame;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const locale = getAppLocale();
+  const numbers = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   useEffect(() => {
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const render =
       scene.type === 'proportional'
-        ? quantityRenderer(element, scene)
+        ? quantityRenderer(element, scene, numbers)
         : pathRenderer(element, scene);
     const durationMs = automaticDuration(scene);
     let elapsedMs = 0;
     let frameId = 0;
     let lastTime: number | null = null;
     let started = false;
+    let intersecting = false;
     const pause = () => {
       lastTime = null;
       cancelAnimationFrame(frameId);
@@ -137,31 +152,28 @@ export function AnimatedScene({
       frameId = requestAnimationFrame(tick);
       return pause;
     }
-    const observer = new IntersectionObserver(entries => {
-      if (!entries[0].isIntersecting) {
-        pause();
-        return;
-      }
-      if (scene.autoplay && !document.hidden && elapsedMs < durationMs) {
+    const updatePlayback = () => {
+      pause();
+      if (intersecting && scene.autoplay && !document.hidden && elapsedMs < durationMs) {
         if (!started && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
         started = true;
-        pause();
         frameId = requestAnimationFrame(tick);
       }
+    };
+    const observer = new IntersectionObserver(entries => {
+      intersecting = entries[0].isIntersecting;
+      updatePlayback();
     });
     const card = element.closest('.interaction-card');
     if (!card) throw new Error('Animated scene card must be mounted');
     observer.observe(card);
-    const onVisibility = () => {
-      if (document.hidden) pause();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('visibilitychange', updatePlayback);
     return () => {
       pause();
       observer.disconnect();
-      document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('visibilitychange', updatePlayback);
     };
-  }, [scene, readFrame]);
+  }, [scene, readFrame, numbers]);
 
   return (
     <div ref={host}>
@@ -177,10 +189,10 @@ export function AnimatedScene({
                       <SceneIcon name="server" />
                     </span>
                     <strong>
-                      {scene.amountPerUnit} {scene.outputUnit}
+                      {numbers.format(scene.amountPerUnit)} {scene.outputUnit}
                     </strong>
                     <span>
-                      {scene.unitLabel} {index + 1}
+                      {scene.unitLabel} {numbers.format(index + 1)}
                     </span>
                   </div>
                 ))}
@@ -188,6 +200,7 @@ export function AnimatedScene({
             </div>
             {/* biome-ignore lint/a11y/useSemanticElements: the prototype status groups the result, its unit and the calculation */}
             <div className="quantity-result" role="status">
+              <span className="sr-only" data-quantity-input />
               <span>{scene.outputLabel}</span>
               <strong>
                 <output /> <small>{scene.outputUnit}</small>

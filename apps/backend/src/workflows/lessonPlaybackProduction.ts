@@ -6,7 +6,10 @@ import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import { findProjectLessonSection } from '../projects/projectLesson.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectStore } from '../projects/types.js';
-import { prepareLessonPlaybackBlock } from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
+import {
+  prepareLessonPlaybackBlock,
+  validatePlaybackSceneTypes,
+} from '../services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { ttsClient } from '../services/ttsClient.js';
 import { isPlaybackBlockReady } from './lessonPlaybackApi.js';
 import { createLessonPlaybackPersistence } from './lessonPlaybackPersistence.js';
@@ -38,6 +41,12 @@ export const createProductionLessonPlaybackServices = (
       });
     }
     signal.throwIfAborted();
+    const lesson = {
+      title: typeof section.title === 'string' ? section.title : '',
+      description: typeof section.description === 'string' ? section.description : '',
+      generatedVisuals: lessonPlaybackVisuals(section),
+    };
+    validatePlaybackSceneTypes({ block, lesson, allowedSceneTypes });
     if (
       isPlaybackBlockReady(block, ttsClient.resolveVoice(input.model, input.voice), input.model)
     ) {
@@ -47,11 +56,7 @@ export const createProductionLessonPlaybackServices = (
     const prepared = await prepareLessonPlaybackBlock({
       allowedSceneTypes,
       block,
-      lesson: {
-        title: typeof section.title === 'string' ? section.title : '',
-        description: typeof section.description === 'string' ? section.description : '',
-        generatedVisuals: lessonPlaybackVisuals(section),
-      },
+      lesson,
       config: await getResolvedGlobalModelConfig(),
       voice: input.voice,
       ttsModel: input.model,

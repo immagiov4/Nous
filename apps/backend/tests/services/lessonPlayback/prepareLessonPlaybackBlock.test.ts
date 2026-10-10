@@ -3,7 +3,7 @@ import type {
   PlaybackMotionEvent,
   PlaybackVisual,
 } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { beforeEach, expect, test, vi } from 'vitest';
 
@@ -345,4 +345,40 @@ test('propagates cancellation before preparation', async () => {
   ).rejects.toThrow();
   expect(sceneGeneration).not.toHaveBeenCalled();
   expect(audio).not.toHaveBeenCalled();
+});
+
+test.each([
+  'inline',
+  'stored',
+  'prepared',
+  'multiple',
+])('rejects %s animated scenes in a resumed static contract before provider work', async location => {
+  const stored = { ...storedScene, render: { kind: 'scene' as const, scene: guidedPathScene } };
+  const request = input(
+    location === 'stored'
+      ? [{ kind: 'generated-visual', visualId: stored.id }]
+      : location === 'prepared'
+        ? []
+        : [
+            { kind: 'scene', scene: guidedPathScene },
+            ...(location === 'multiple' ? [{ kind: 'scene' as const, scene }] : []),
+          ],
+    [stored]
+  );
+  const run = vi.fn();
+  await expect(
+    prepareLessonPlaybackBlock({
+      ...request,
+      allowedSceneTypes: STATIC_LESSON_SCENE_TYPES,
+      providerEffect: { run },
+      block: {
+        ...request.block,
+        ...(location === 'prepared' ? { prepared: { scene: guidedPathScene, motion: [] } } : {}),
+      },
+    })
+  ).rejects.toMatchObject({ failure: { code: 'lesson_playback_scene_invalid' } });
+  expect(run).not.toHaveBeenCalled();
+  expect(audio).not.toHaveBeenCalled();
+  expect(sceneGeneration).not.toHaveBeenCalled();
+  expect(motion).not.toHaveBeenCalled();
 });

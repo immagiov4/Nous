@@ -24,6 +24,7 @@ export function playbackMode(scene: AnimatedLessonScene): 'text' | 'automatic' {
       !cue.anchor.trim() ||
       !Number.isInteger(cue.value) ||
       cue.value <= previous ||
+      cue.value < scene.initial ||
       cue.value > scene.max
     )
       return 'automatic';
@@ -54,13 +55,20 @@ export function cueTimes(text: string, cues: readonly { readonly anchor?: string
     throw new Error('Missing narration cues');
   }
   let previous = -1;
+  let previousAnchor: string | undefined;
   return cues.map(cue => {
     if (typeof cue.anchor !== 'string' || !cue.anchor.trim()) throw new Error('Missing anchor');
     const offset = text.indexOf(cue.anchor);
-    if (offset < 0 || text.indexOf(cue.anchor, offset + 1) !== -1 || offset < previous) {
+    if (
+      offset < 0 ||
+      text.indexOf(cue.anchor, offset + 1) !== -1 ||
+      offset < previous ||
+      (offset === previous && cue.anchor !== previousAnchor)
+    ) {
       throw new Error('Anchor must be unique and ordered');
     }
     previous = offset;
+    previousAnchor = cue.anchor;
     return (text.slice(0, offset).match(/\S+/g)?.length ?? 0) * interactionTiming.wordMs;
   });
 }

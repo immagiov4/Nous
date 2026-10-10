@@ -99,8 +99,8 @@ test('chooses word timing only for complete step or cumulative quantity assignme
   ];
   const scene = { ...proportionalScene, cues };
   expect(playbackMode(scene)).toBe('text');
-  expect(findLessonSceneProblems(scene, 'Due. Quattro. Sei.')).toEqual([]);
-  expect(findLessonSceneProblems(scene, 'Quattro. Due. Sei.')).toHaveLength(1);
+  expect(findLessonSceneProblems(scene, '1 2 6 128. Due. Quattro. Sei.')).toEqual([]);
+  expect(findLessonSceneProblems(scene, '1 2 6 128. Quattro. Due. Sei.')).toHaveLength(1);
   for (const incomplete of [
     cues.slice(0, 2),
     [{ ...cues[0], anchor: '' }, ...cues.slice(1)],
@@ -109,6 +109,66 @@ test('chooses word timing only for complete step or cumulative quantity assignme
   ]) {
     expect(playbackMode({ ...scene, cues: incomplete })).toBe('automatic');
   }
+});
+
+test.each([
+  0,
+  1,
+  1.5,
+  7,
+  Number.NaN,
+  Number.POSITIVE_INFINITY,
+])('rejects unsafe quantity cue %s and excludes it from word timing', value => {
+  const scene = {
+    ...proportionalScene,
+    min: 2,
+    cues: [
+      { anchor: 'First', value },
+      { anchor: 'Last', value: 6 },
+    ],
+  };
+  expect(findLessonSceneProblems(scene).length).toBeGreaterThan(0);
+  expect(playbackMode(scene)).toBe('automatic');
+});
+
+test('rejects a cue below the initial quantity even when inside the bounds', () => {
+  const scene = {
+    ...proportionalScene,
+    cues: [
+      { anchor: 'First', value: 1 },
+      { anchor: 'Last', value: 6 },
+    ],
+  };
+  expect(findLessonSceneProblems(scene).length).toBeGreaterThan(0);
+  expect(playbackMode(scene)).toBe('automatic');
+});
+
+test('grounds every proportional parameter in lesson numbers while preserving stored scenes', () => {
+  const source = 'Da 1 a 6 repliche, inizialmente 2, con 128 MB ciascuna.';
+  expect(findLessonSceneProblems(proportionalScene, source)).toEqual([]);
+  for (const lesson of ['2 6 128', '1 2 128', '1 6 128', '1 2 6']) {
+    expect(findLessonSceneProblems(proportionalScene, lesson)).toHaveLength(1);
+  }
+  expect(findLessonSceneProblems(proportionalScene)).toEqual([]);
+});
+
+test('only identical anchors may share a source offset', () => {
+  expect(() =>
+    cueTimes('Alpha beta gamma', [{ anchor: 'Alpha' }, { anchor: 'Alpha beta' }])
+  ).toThrow('Anchor must be unique and ordered');
+  expect(cueTimes('Alpha beta gamma', [{ anchor: 'Alpha' }, { anchor: 'Alpha' }])).toEqual([0, 0]);
+  expect(
+    findLessonSceneProblems(
+      {
+        ...guidedPathScene,
+        steps: [
+          { label: 'A', detail: 'First', anchor: 'Alpha' },
+          { label: 'B', detail: 'Next', anchor: 'Alpha beta' },
+        ],
+      },
+      'Alpha beta gamma'
+    )
+  ).toHaveLength(1);
 });
 
 test('derives quantities and path frames at prototype boundaries and backward seeks', () => {

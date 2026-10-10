@@ -107,6 +107,9 @@ test('complete anchors follow measured captions, including speed, groups and bac
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(1);
   advance(0.61);
   expect(container.querySelectorAll('[aria-current=step]')).toHaveLength(2);
+  expect(container.querySelector('.path-explanation p')?.textContent).toBe(
+    'Secondo passaggio. Lo stesso gruppo.'
+  );
   expect(container.querySelectorAll('.caption-word')[2].getAttribute('style')).toContain(
     'opacity: 1'
   );
@@ -116,9 +119,13 @@ test('complete anchors follow measured captions, including speed, groups and bac
   expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('Prima');
   advance(4);
   expect(container.querySelectorAll('.visited')).toHaveLength(3);
+  expect(container.querySelector('.path-explanation p')?.textContent).toBe(
+    'Secondo passaggio. Lo stesso gruppo.'
+  );
   advance(0);
   expect(container.querySelectorAll('.visited')).toHaveLength(0);
   expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('Prima');
+  expect(container.querySelector('.path-explanation p')?.textContent).toBe('Primo passaggio.');
 });
 
 test.each([
