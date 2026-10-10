@@ -64,13 +64,13 @@ Sources: [sidebar state](../../../apps/web/components/workspace/shell/WorkspaceR
 
 ### Regeneration Confirmation
 
-Regenerating the active lesson requires a shared modal confirmation. The header renders it inline on desktop and through a body portal on mobile, while preserving the same interaction contract: focus enters and remains inside the modal, an outside press or `Escape` dismisses it, and focus returns to the settings button. When a responsive layout change replaces the modal DOM node, focus containment is rebuilt against the new panel.
+Regenerating the active lesson requires inline confirmation in the reader settings panel, below custom instructions. The full-width action and confirmation share one grid row and crossfade without changing its dimensions; reduced-motion preferences disable the transition. Confirmation focuses **No**; **No** or `Escape` restores the action and its focus, while **Sì, rigenera** invokes the existing regeneration callback. Closing settings discards the pending confirmation. The same controls serve mobile and desktop layouts.
 
-Sources: [apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx:81-143](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx#L81-L143), [apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx:263-318](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx#L263-L318), [apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx:87-182](../../../apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx#L87-L182)
+Sources: [reader settings](../../../apps/web/components/workspace/shell/WorkspaceReaderSettingsPanel.tsx), [header](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx), [interaction tests](../../../apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx).
 
 ### Lesson playback
 
-The header's **Riproduci** action opens the full-screen `LessonPlayer`; playback starts when the learner presses play. The play button beside the current ready lesson in the sidebar opens the player and starts playback directly. **Rigenera** lives in the reader settings menu and retains its confirmation dialog, returning focus to the settings button on dismissal.
+The header's **Riproduci** action opens the full-screen `LessonPlayer`; playback starts when the learner presses play. The play button beside the current ready lesson in the sidebar opens the player and starts playback directly. **Rigenera** lives in the reader settings menu and asks for confirmation in the same row.
 
 `useLessonPlayback` owns the audio element and serializes preparation through the playback API. It prepares the current block, starts its audio, then prepares one following block. A pending workflow is polled until its committed result is available. A stale lesson key refreshes the playback data; an already loaded recording is paused and the position is reset before using the revised lesson. The timeline uses measured audio durations where available and the listening prototype's word-rate estimate for the remaining blocks.
 
