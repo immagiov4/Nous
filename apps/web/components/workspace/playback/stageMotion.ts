@@ -64,11 +64,11 @@ export function captionMotionEvents({
           );
     return { ...event, atMs, durationMs };
   });
-  return timed.map((event, index) => ({
+  return timed.map(event => ({
     ...event,
     durationMs: Math.min(
       event.durationMs,
-      (timed[index + 1]?.atMs ?? duration * 1000) - event.atMs
+      (timed.find(next => next.atMs > event.atMs)?.atMs ?? duration * 1000) - event.atMs
     ),
   }));
 }
@@ -112,19 +112,27 @@ export function motionStates(
 }
 
 export function sceneElements(host: HTMLElement, scene: LessonScene) {
-  const elements = new Map<string, HTMLElement | SVGElement>();
+  const elements = new Map<string, (HTMLElement | SVGElement)[]>();
+  const chartItems = host.querySelectorAll<HTMLElement | SVGElement>('[data-playback-item]');
+  if (chartItems.length) {
+    for (const element of chartItems) {
+      const id = `item:${element.dataset.playbackItem}`;
+      elements.set(id, [...(elements.get(id) ?? []), element]);
+    }
+    return elements;
+  }
   if (scene.type === 'matrix')
     host.querySelectorAll<HTMLElement>('tbody>tr').forEach((element, index) => {
-      elements.set(`row:${index}`, element);
+      elements.set(`row:${index}`, [element]);
     });
   else if (scene.diagram) {
     const nodes = Array.from(host.querySelectorAll<SVGElement>('g.node'));
     scene.diagram.nodes.forEach((node, index) => {
       const element = nodes.find(element => element.id.includes(`flowchart-n${index}-`));
-      if (element) elements.set(`node:${node.id}`, element);
+      if (element) elements.set(`node:${node.id}`, [element]);
     });
     host.querySelectorAll<SVGElement>('path.flowchart-link').forEach((element, index) => {
-      elements.set(`edge:${index}`, element);
+      elements.set(`edge:${index}`, [element]);
     });
   } else {
     const grouped = scene.groups.length > 0;
@@ -133,10 +141,10 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
         grouped ? '.groups>section' : (ITEM_SELECTORS[scene.type] ?? '.visual-content .concept')
       )
       .forEach((element, index) => {
-        elements.set(`${grouped ? 'group' : 'item'}:${index}`, element);
+        elements.set(`${grouped ? 'group' : 'item'}:${index}`, [element]);
       });
   }
   const relation = host.querySelector<HTMLElement>('.relation');
-  if (relation) elements.set('relation', relation);
+  if (relation) elements.set('relation', [relation]);
   return elements;
 }

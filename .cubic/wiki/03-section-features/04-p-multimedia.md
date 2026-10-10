@@ -56,7 +56,7 @@ Each lesson section can store `playback: LessonPlayback`. `lessonKey` hashes the
 | Request | Result |
 | --- | --- |
 | `GET /api/projects/:projectId/sections/:sectionId/playback` | `{ lessonKey, blocks }`, with current segmentation merged with saved preparation and audio for that key. Reading never starts generation. |
-| `POST /api/projects/:projectId/sections/:sectionId/playback/blocks/:blockId/prepare` with `{ lessonKey, voice }` | `200 { block }` when scene/motion preparation and audio for the resolved voice and configured TTS model are already saved; otherwise `202 { runId, blockId, voice }`. A stale key returns `409`; another user's project or a missing target returns `404`. |
+| `POST /api/projects/:projectId/sections/:sectionId/playback/blocks/:blockId/prepare` with `{ lessonKey, voice }` | `200 { block, voice, model }` when scene/motion preparation and audio for the resolved voice and configured TTS model are already saved; otherwise `202 { runId, blockId, voice }`. The ready response identifies the exact audio profile to play. A stale key returns `409`; another user's project or a missing target returns `404`. |
 
 Both routes use the authenticated owner's project. The existing workflow-run route reports progress, and the existing project-asset route downloads the MP3. `lessonPlaybackClient.ts` exposes the two requests to the player. Concurrent requests share one active run per project incarnation and lesson, including requests for different blocks or voices. The `202` response identifies the block and requested voice of that active run; after that run finishes, the player must read playback again and repeat its own request if necessary.
 

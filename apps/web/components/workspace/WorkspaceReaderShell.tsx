@@ -25,9 +25,14 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
 }: WorkspaceReaderShellProps) {
   useAppLocale();
   const [player, setPlayer] = useState<{ sectionId: string; autoPlay: boolean } | null>(null);
+  const canPlayLesson =
+    !content.activeExercise &&
+    !content.isLoading &&
+    !header.isLoading &&
+    Boolean(content.sectionContent.trim() || content.sectionContentBlocks?.length);
   const openPlayer = (autoPlay: boolean) => {
-    if (!sidebar.activeSectionId || !content.projectId) return;
-    if (header.tts.isPlaying || header.tts.isLoading) header.tts.onPlayPause();
+    if (!sidebar.activeSectionId || !content.projectId || !canPlayLesson) return;
+    header.tts.onStop();
     overlays.onCloseContextAnswer();
     overlays.onCloseContextMenu();
     setPlayer({ sectionId: sidebar.activeSectionId, autoPlay });
@@ -148,7 +153,10 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
         style={{ marginLeft: shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0 }}
       >
         <WorkspaceReaderBanners {...banners} />
-        <WorkspaceReaderHeader {...header} onPlayLesson={() => openPlayer(true)} />
+        <WorkspaceReaderHeader
+          {...header}
+          onPlayLesson={canPlayLesson ? () => openPlayer(true) : undefined}
+        />
         <div
           data-reader-content-layer="true"
           className="relative flex min-h-0 min-w-0 flex-1 flex-col"

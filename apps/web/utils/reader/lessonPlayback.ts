@@ -15,10 +15,16 @@ export const playbackWordIndex = (count: number, time: number, duration: number)
   duration > 0 ? Math.min(count - 1, Math.floor((Math.max(0, time) / duration) * count)) : 0;
 
 /** Same estimate as the listening prototype; measured recordings progressively replace it. */
-export function playbackTimeline(blocks: readonly LessonPlaybackBlock[], voice: string) {
+export function playbackTimeline(
+  blocks: readonly LessonPlaybackBlock[],
+  voice: string,
+  model?: string
+) {
   const fallbackWordsPerMinute = 240;
   const counts = blocks.map(block => playbackWords(block.speech).length);
-  const recordings = blocks.map(block => block.audio.find(audio => audio.voice === voice));
+  const recordings = blocks.map(block =>
+    block.audio.find(audio => audio.voice === voice && (!model || audio.model === model))
+  );
   const knownWords = recordings.reduce((sum, audio, index) => sum + (audio ? counts[index] : 0), 0);
   const knownSeconds = recordings.reduce((sum, audio) => sum + (audio?.durationSeconds ?? 0), 0);
   const secondsPerWord = knownWords ? knownSeconds / knownWords : 60 / fallbackWordsPerMinute;

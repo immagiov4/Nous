@@ -1,4 +1,5 @@
 import { LoaderCircle, Mic, Square, X } from 'lucide-react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { type SpeechInputController, useSpeechInput } from '../../hooks/useSpeechInput.ts';
@@ -99,6 +100,7 @@ function SpeechInputButtonView({
   variant = 'round',
   controller,
 }: SpeechInputButtonProps & { controller: SpeechInputController }) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
   const {
     state,
     speechInputError,
@@ -125,7 +127,7 @@ function SpeechInputButtonView({
   ) : null;
 
   return (
-    <div className="relative flex shrink-0 items-center">
+    <div ref={setHost} className="relative flex shrink-0 items-center">
       <button
         type="button"
         onClick={() => {
@@ -159,7 +161,7 @@ function SpeechInputButtonView({
       </span>
 
       {errorPresentation === 'viewport' && speechErrorAlert
-        ? createPortal(speechErrorAlert, document.body)
+        ? createPortal(speechErrorAlert, host?.closest('[aria-modal="true"]') ?? document.body)
         : speechErrorAlert}
     </div>
   );

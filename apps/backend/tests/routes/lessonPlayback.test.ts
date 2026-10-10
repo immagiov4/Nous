@@ -2,6 +2,7 @@ import request from 'supertest';
 import { describe, expect, test, vi } from 'vitest';
 
 import { createApp } from '../../src/index.js';
+import { ttsClient } from '../../src/services/ttsClient.js';
 import { createLessonPlaybackApi } from '../../src/workflows/lessonPlaybackApi.js';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { playbackProject, playbackSection, preparedPlayback } from '../helpers/lessonPlayback.js';
@@ -52,7 +53,31 @@ describe('lesson playback routes', () => {
       .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'Kore' });
     expect(response.status).toBe(200);
     expect(response.body.block.audio[0].voice).toBe('Kore');
+    expect(response.body).toMatchObject({ voice: 'Kore', model: 'tts-model' });
     expect(createRun).not.toHaveBeenCalled();
+  });
+  test('returns the resolved voice and model when a stored profile is normalized', async () => {
+    const voiceResolver = vi.spyOn(ttsClient, 'resolveVoice').mockReturnValue('Ara');
+    try {
+      const { app, section, createRun } = setup(true);
+      const playback = preparedPlayback(section);
+      section.playback = {
+        ...playback,
+        blocks: playback.blocks.map(block => ({
+          ...block,
+          audio: [...block.audio, { ...block.audio[0], voice: 'Ara' }],
+        })),
+      };
+      const response = await request(app)
+        .post(`${url}/blocks/0/prepare`)
+        .send({ lessonKey: playback.lessonKey, voice: 'Kore' });
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ voice: 'Ara', model: 'tts-model' });
+      expect(voiceResolver).toHaveBeenCalledWith('tts-model', 'Kore');
+      expect(createRun).not.toHaveBeenCalled();
+    } finally {
+      voiceResolver.mockRestore();
+    }
   });
   test.each([
     false,

@@ -126,14 +126,19 @@ export default function LessonPlayer({
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
+  const heldTranscription = useRef<string | null>(null);
   const [spokenFollowUp, setSpokenFollowUp] = useState<SpokenFollowUpQuestion | null>(null);
   const deliveredFollowUps = useRef(new Set<string>());
+  const receiveTranscription = (text: string) => {
+    const question = spokenQuestion.current;
+    if (question?.initialQuestion) setSpokenFollowUp({ id: crypto.randomUUID(), text });
+    else if (question) setAnswer({ ...question, initialQuestion: text });
+    else changeDraft(appendSpeechTranscription(draft, text));
+  };
   const speech = useSpeechInput({
     onTranscription: text => {
-      const question = spokenQuestion.current;
-      if (question?.initialQuestion) setSpokenFollowUp({ id: crypto.randomUUID(), text });
-      else if (question) setAnswer({ ...question, initialQuestion: text });
-      else changeDraft(appendSpeechTranscription(draft, text));
+      if (spaceDown.current) heldTranscription.current = text;
+      else receiveTranscription(text);
     },
   });
   const [composerPortal, setComposerPortal] = useState<HTMLDivElement | null>(null);
@@ -146,8 +151,8 @@ export default function LessonPlayer({
   const shouldAnimate = useShouldAnimate();
   const { play } = playback;
   useEffect(() => {
-    if (autoPlay) void play();
-  }, [autoPlay, play]);
+    if (autoPlay && initialBlocks.length) void play();
+  }, [autoPlay, initialBlocks.length, play]);
   useEffect(() => {
     mounted.current = true;
     const previous = document.activeElement as HTMLElement | null;
@@ -316,6 +321,7 @@ export default function LessonPlayer({
           noteMode,
           onChange: changeDraft,
           onToggleNote: () => {
+            if (!noteMode && draft) anchor.current = currentAnchor();
             setNoteMode(!noteMode);
             if (noteStatus === 'error') setNoteStatus('idle');
           },
@@ -328,19 +334,34 @@ export default function LessonPlayer({
   const closeAnswer = () => {
     speech.reset();
     spokenQuestion.current = null;
+    heldTranscription.current = null;
     spaceDown.current = false;
     setHoldingSpace(false);
     setAnswer(null);
   };
 
+  const { reset: resetSpeech } = speech;
+  useEffect(() => {
+    if (mobile) return;
+    // Leaving desktop mode releases the capture session and its pending question together.
+    return () => {
+      resetSpeech();
+      spokenQuestion.current = null;
+      heldTranscription.current = null;
+      spaceDown.current = false;
+      setHoldingSpace(false);
+      setAnswer(previous => (previous?.initialQuestion ? previous : null));
+    };
+  }, [mobile, resetSpeech]);
+
   useEffect(() => {
     if (mobile) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space') return;
+      if (event.code !== 'Space' || event.defaultPrevented) return;
       const target = event.target instanceof Element ? event.target : document.activeElement;
       if (
         target?.closest(
-          'input, textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+          'input, textarea, button, select, a[href], [role="button"], [role="slider"], [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
         )
       )
         return;
@@ -348,6 +369,7 @@ export default function LessonPlayer({
       if (event.repeat || spaceDown.current) return;
       playback.pause();
       speech.reset();
+      heldTranscription.current = null;
       spaceDown.current = true;
       setHoldingSpace(true);
       setNoteMode(false);
@@ -362,6 +384,10 @@ export default function LessonPlayer({
       setHoldingSpace(false);
       if (!speech.speechInputError) {
         setAnswer(previous => previous ?? spokenQuestion.current);
+        if (heldTranscription.current !== null) {
+          receiveTranscription(heldTranscription.current);
+          heldTranscription.current = null;
+        }
         speech.stopRecording();
       }
     };
@@ -392,6 +418,11 @@ export default function LessonPlayer({
       style={{ height: viewportHeight === null ? '100dvh' : viewportHeight }}
       onKeyDown={event => {
         if (event.key === 'Escape') {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[role="dialog"]') !== event.currentTarget
+          )
+            return;
           event.stopPropagation();
           if (questionActive) closeAnswer();
           else onClose();
@@ -471,12 +502,12 @@ export default function LessonPlayer({
                 type="button"
                 onClick={() => playback.seek(playback.elapsed - SKIP_SECONDS)}
                 disabled={playback.loading || !playback.duration}
-                aria-label={t('Indietro di 5 secondi')}
+                aria-label={t('Indietro di {seconds} secondi', { seconds: SKIP_SECONDS })}
                 className="relative rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
               >
                 <RotateCcw className="h-6 w-6" />
                 <span className="absolute inset-0 grid place-items-center pt-px text-[8px] font-bold">
-                  5
+                  {SKIP_SECONDS}
                 </span>
               </button>
               <PlaybackPlayButton
@@ -490,12 +521,12 @@ export default function LessonPlayer({
                 type="button"
                 onClick={() => playback.seek(playback.elapsed + SKIP_SECONDS)}
                 disabled={playback.loading || !playback.duration}
-                aria-label={t('Avanti di 5 secondi')}
+                aria-label={t('Avanti di {seconds} secondi', { seconds: SKIP_SECONDS })}
                 className="relative rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
               >
                 <RotateCw className="h-6 w-6" />
                 <span className="absolute inset-0 grid place-items-center pt-px text-[8px] font-bold">
-                  5
+                  {SKIP_SECONDS}
                 </span>
               </button>
               <div className="ml-auto md:ml-0">

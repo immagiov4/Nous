@@ -539,6 +539,58 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByRole('textbox')).toHaveFocus();
   });
 
+  test('hands focus between an external submit button, Stop, and the external input', async () => {
+    const user = userEvent.setup();
+    let chatStatus: 'ready' | 'streaming' = 'ready';
+    useChatMock.mockImplementation(() => ({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: chatStatus,
+      stop: stopMock,
+    }));
+    const portal = document.createElement('div');
+    document.body.append(portal);
+    const props = {
+      ...buildProps({ id: 'external-focus' }),
+      isMobileViewport: false,
+      docked: true,
+      composerPortal: portal,
+      renderComposer: (send: (text: string) => void) => (
+        <>
+          <input data-context-menu-target="input" aria-label="Domanda esterna" />
+          <button
+            type="button"
+            data-context-menu-target="submit"
+            onClick={() => send('Un esempio?')}
+          >
+            Invia dalla barra
+          </button>
+        </>
+      ),
+    };
+    const view = render(<ContextAnswerPanel {...props} />);
+    try {
+      const submit = screen.getByRole('button', { name: 'Invia dalla barra' });
+      submit.focus();
+      await user.keyboard('{Enter}');
+      chatStatus = 'streaming';
+      view.rerender(<ContextAnswerPanel {...props} />);
+      const stop = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+      expect(stop).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(stopMock).toHaveBeenCalledOnce();
+      chatStatus = 'ready';
+      view.rerender(<ContextAnswerPanel {...props} />);
+      expect(screen.getByRole('textbox', { name: 'Domanda esterna' })).toHaveFocus();
+      expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    } finally {
+      view.unmount();
+      portal.remove();
+    }
+  });
+
   test('does not revive a stopped artifact tool when a follow-up starts', async () => {
     const user = userEvent.setup();
     let resolveDraft: (draft: typeof generatedDraftArtifact) => void = () => {};

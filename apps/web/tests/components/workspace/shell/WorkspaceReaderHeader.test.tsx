@@ -55,6 +55,7 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
     sectionContent: '',
     ttsConnected: false,
     onPlayPause: vi.fn(),
+    onStop: vi.fn(),
     onSeek: vi.fn(),
     onSelectChunk: vi.fn(),
     onSetTextPickerActive: vi.fn(),

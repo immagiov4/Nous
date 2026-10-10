@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
-import { act, render } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import {
   CAPTION_TIMING,
@@ -18,9 +18,13 @@ import {
   motionStates,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
+import { resolveProjectVisual } from '../../../services/projects/projectVisualResolver.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 
 vi.mock('../../../utils/motion/useShouldAnimate.ts', () => ({ useShouldAnimate: vi.fn() }));
+vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
+  resolveProjectVisual: vi.fn(),
+}));
 
 let resizeScene: () => void;
 const disconnectScene = vi.fn();
@@ -256,7 +260,7 @@ test('keeps motion quotation anchors aligned after formatted punctuation and lin
   ];
   const block = segmentLessonPlayback(sources)[0];
   const source = captionSource(block, sources);
-  const formatted = captionFormat(source.markdown);
+  const formatted = captionFormat(source.markdown, source.ranges);
   const speechRanges = captionSpeechRanges(formatted.words, source.ranges);
   const options = {
     speech: block.speech,
@@ -308,4 +312,135 @@ test('recomputes smooth reveal, focus delay, holds and backward seeks from time'
   expect(focused.get('item:0')?.emphasis).toBeGreaterThan(0);
   expect(focused.get('item:1')).toEqual({ opacity: 1, emphasis: 0 });
   expect(motionStates(['item:0'], focus, 5400, false, 1300).get('item:0')?.emphasis).toBe(0);
+});
+
+test('captions display canonical inline text and every spoken heading', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        '# **Tema**\n## Dettaglio\n\n*ricorda* [questa guida](https://example.com) e _il punto_. `a*b`.',
+    },
+  ];
+  const block = segmentLessonPlayback(sources)[0];
+  const source = captionSource(block, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.headings).toEqual(['Tema', 'Dettaglio']);
+  expect(formatted.headingWords).toBe(2);
+  expect(formatted.words.map(word => word.text).join(' ')).toBe(
+    'ricorda questa guida e il punto. a*b .'
+  );
+  const ranges = captionSpeechRanges(formatted.words, source.ranges);
+  expect(ranges.every(range => Number.isFinite(range.start) && Number.isFinite(range.end))).toBe(
+    true
+  );
+  const { container } = render(
+    <LessonPlaybackStage
+      block={block}
+      content={
+        { ...{ isDarkMode: false }, sectionContentBlocks: sources } as WorkspaceReaderContentModel
+      }
+      duration={6}
+      time={0}
+    />
+  );
+  expect(Array.from(container.querySelectorAll('h2'), heading => heading.textContent)).toEqual([
+    'Tema',
+    'Dettaglio',
+  ]);
+  expect(container.querySelector('.caption-page')?.textContent).not.toContain(
+    'https://example.com'
+  );
+});
+
+test('simultaneous focus and reveal cues retain their duration', () => {
+  const events = captionMotionEvents({
+    events: [
+      { effect: 'focus', targets: ['item:0'], quote: 'Uno' },
+      { effect: 'focus', targets: ['item:1'], quote: 'Uno' },
+      { effect: 'reveal', targets: ['item:2'], quote: 'Uno' },
+      { effect: 'focus', targets: ['item:0'], quote: 'due' },
+    ],
+    speech: 'Uno due',
+    speechRanges: [
+      { start: 0, end: 3 },
+      { start: 4, end: 7 },
+    ],
+    runs: [0, 100].map(start => ({ span: document.createElement('span'), start, width: 100 })),
+    width: 200,
+    feather: 0,
+    duration: 4,
+  });
+  expect(events.slice(0, 3).every(event => event.durationMs > 0)).toBe(true);
+  const states = motionStates(['item:0', 'item:1', 'item:2'], events, 500, false, 0);
+  expect(states.get('item:0')?.emphasis).toBeGreaterThan(0);
+  expect(states.get('item:1')?.emphasis).toBeGreaterThan(0);
+  expect(states.get('item:2')?.opacity).toBeGreaterThan(0);
+});
+
+test('stored playback images have one asset resolver and release it on unmount', async () => {
+  const visual = {
+    id: 'image',
+    slotId: 'slot',
+    createdAt: '2026-10-10T00:00:00.000Z',
+    title: 'Figura',
+    render: {
+      kind: 'image' as const,
+      asset: { id: 'a'.repeat(64), hash: 'b'.repeat(64), byteSize: 1, mediaType: 'image/png' },
+    },
+  };
+  const release = vi.fn();
+  vi.mocked(resolveProjectVisual).mockResolvedValue({
+    release,
+    trustedImageUrl: true,
+    visual: {
+      id: 'image',
+      createdAt: visual.createdAt,
+      title: 'Figura',
+      kind: 'image',
+      code: 'blob:image',
+    },
+  });
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Una frase.' },
+    { type: 'generated-visual' as const, visualId: visual.id, slotId: visual.slotId },
+  ];
+  const { unmount } = render(
+    <LessonPlaybackStage
+      block={segmentLessonPlayback(sources)[0]}
+      content={{
+        ...({ isDarkMode: false } as WorkspaceReaderContentModel),
+        isDarkMode: false,
+        projectId: 'project',
+        sectionContentBlocks: sources,
+        activeSectionGeneratedVisualsById: { image: visual },
+      }}
+      duration={6}
+      time={0}
+    />
+  );
+  expect(await screen.findByRole('img', { name: 'Figura' })).toHaveAttribute('src', 'blob:image');
+  expect(resolveProjectVisual).toHaveBeenCalledOnce();
+  unmount();
+  expect(release).toHaveBeenCalledOnce();
+});
+
+test.each([
+  ['Il risultato di `2 ** 3` è otto.', ['Il', 'risultato', 'di', '2', '**', '3', 'è', 'otto.']],
+  ['Usa ``a ` b`` qui.', ['Usa', 'a', '`', 'b', 'qui.']],
+])('captions preserve spoken Markdown delimiters inside code: %s', (markdown, expected) => {
+  const sources = [{ type: 'markdown' as const, markdown: markdown as string }];
+  const block = segmentLessonPlayback(sources)[0];
+  const source = captionSource(block, sources);
+  const formatted = captionFormat(source.markdown, source.ranges);
+  expect(formatted.words.map(word => word.text)).toEqual(expected);
+  expect(formatted.words.every(word => !word.bold)).toBe(true);
+  expect(formatted.words.at(-1)?.code).toBe(false);
+  const literal = formatted.words.find(word => word.text === '**' || word.text === '`');
+  expect(literal?.code).toBe(true);
+  expect(
+    captionSpeechRanges(formatted.words, source.ranges).every(
+      range => Number.isFinite(range.start) && Number.isFinite(range.end)
+    )
+  ).toBe(true);
 });

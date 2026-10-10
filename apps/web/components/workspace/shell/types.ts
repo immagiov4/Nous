@@ -156,6 +156,7 @@ export interface WorkspaceReaderTtsModel {
   sectionContent: string;
   ttsConnected: boolean;
   onPlayPause: () => void;
+  onStop: () => void;
   onSeek: (time: number) => void;
   onSelectChunk: (chunkIndex: number) => void;
   onSetTextPickerActive: (isActive: boolean) => void;

@@ -79,7 +79,7 @@ test('deduplicates initial observer notifications while a drawing is pending', a
   await waitFor(() => expect(plotMock).toHaveBeenCalledTimes(1));
 });
 
-test('uses the prototype categorical line geometry only inside the player', async () => {
+test('keeps continuous time geometry inside the player', async () => {
   const scene = {
     ...bars,
     type: 'line' as const,
@@ -89,10 +89,10 @@ test('uses the prototype categorical line geometry only inside the player', asyn
   await waitFor(() => expect(container.querySelector('svg')).not.toBeNull());
   expect(lineYMock).toHaveBeenLastCalledWith(
     expect.anything(),
-    expect.objectContaining({ x: 'label' })
+    expect.objectContaining({ x: 'time' })
   );
   expect(plotMock).toHaveBeenLastCalledWith(
-    expect.objectContaining({ x: { domain: ['2023', '2024'], label: null, padding: 0.25 } })
+    expect.objectContaining({ x: expect.objectContaining({ ticks: [0, 10], label: null }) })
   );
   rerender(<SceneChart isDarkMode={false} scene={scene} />);
   await waitFor(() =>

@@ -11,6 +11,10 @@ import { downloadProjectAssetBytes } from '../../services/projects/projectAssetC
 import { playbackTimeline } from '../../utils/reader/lessonPlayback.ts';
 
 type Playback = Awaited<ReturnType<typeof getLessonPlayback>>;
+type PreparedPlayback = Extract<
+  Awaited<ReturnType<typeof prepareLessonPlayback>>,
+  { block: unknown }
+>;
 
 /** Owns one audio element and a serial preparation queue for the current lesson. */
 export function useLessonPlayback({
@@ -44,7 +48,10 @@ export function useLessonPlayback({
   const lifetime = useRef<AbortController | null>(null);
   const intent = useRef({ playing: false, index: 0, epoch: 0 });
   const objectUrl = useRef<string | null>(null);
-  const ready = useRef(new Map<string, LessonPlaybackBlock>());
+  const ready = useRef(new Map<string, PreparedPlayback>());
+  const [resolvedVoices, setResolvedVoices] = useState(
+    () => new Map<string, { voice: string; model: string }>()
+  );
   const started = useRef(false);
   const previousVoice = useRef(voice);
   const loadedVoice = useRef<string | null>(null);
@@ -113,13 +120,13 @@ export function useLessonPlayback({
             signal
           );
         };
-        let result: Awaited<ReturnType<typeof prepareLessonPlayback>>;
-        try {
-          result = await request();
-        } catch (error) {
-          if (!(error instanceof LessonPlaybackRequestError) || error.status !== 409) throw error;
-          playback = await getLessonPlayback(target, signal);
-          if (loadedVoice.current || blockIndex > 0) {
+        const requestCurrent = async () => {
+          try {
+            return await request();
+          } catch (error) {
+            if (!(error instanceof LessonPlaybackRequestError) || error.status !== 409) throw error;
+            playback = await getLessonPlayback(target, signal);
+            if (!loadedVoice.current && blockIndex === 0) return request();
             // A regenerated lesson cannot share the old recording's captions or note anchors.
             intent.current.epoch++;
             intent.current.index = 0;
@@ -137,12 +144,14 @@ export function useLessonPlayback({
             setLoading(false);
             return null;
           }
-          result = await request();
-        }
+        };
+        let result = await requestCurrent();
+        if (!result) return null;
         while ('runId' in result) {
           await waitForLessonPlayback(result.runId, projectId, signal);
           playback = await getLessonPlayback(target, signal);
-          result = await request();
+          result = await requestCurrent();
+          if (!result) return null;
         }
         signal.throwIfAborted();
         const preparedBlock = result.block;
@@ -153,10 +162,16 @@ export function useLessonPlayback({
           ...base,
           blocks: base.blocks.map(block => (block.id === preparedBlock.id ? preparedBlock : block)),
         };
-        ready.current.set(cacheKey(), preparedBlock);
+        ready.current.set(cacheKey(), result);
+        const profile = { voice: result.voice, model: result.model };
+        setResolvedVoices(current => {
+          const resolved = current.get(requestedVoice);
+          if (resolved?.voice === profile.voice && resolved.model === profile.model) return current;
+          return new Map(current).set(requestedVoice, profile);
+        });
         playbackRef.current = playback;
         setBlocks(playback.blocks);
-        return playback.blocks[blockIndex];
+        return result;
       });
       if (background) {
         // A failed preparation releases the queue; the learner can retry the same block.
@@ -169,13 +184,15 @@ export function useLessonPlayback({
 
   const pause = useCallback(() => {
     const audio = getAudio();
+    intent.current.epoch++;
     intent.current.playing = false;
     audio.pause();
     setPlaying(false);
+    setLoading(false);
   }, [getAudio]);
 
   const start = useCallback(
-    async (blockIndex: number, offset = 0) => {
+    async (blockIndex: number, offset = 0, relative = false) => {
       const audio = getAudio();
       started.current = true;
       const epoch = ++intent.current.epoch;
@@ -189,9 +206,12 @@ export function useLessonPlayback({
       audio.pause();
       loadedVoice.current = null;
       try {
-        const block = await prepare({ blockIndex, requestedVoice, epoch, background: false });
-        if (!block || epoch !== intent.current.epoch) return;
-        const recording = block.audio.find(candidate => candidate.voice === requestedVoice);
+        const prepared = await prepare({ blockIndex, requestedVoice, epoch, background: false });
+        if (!prepared || epoch !== intent.current.epoch) return;
+        const block = prepared.block;
+        const recording = block.audio.find(
+          candidate => candidate.voice === prepared.voice && candidate.model === prepared.model
+        );
         if (!recording) throw new Error('Prepared playback audio missing');
         const bytes = await downloadProjectAssetBytes(
           projectId,
@@ -204,7 +224,11 @@ export function useLessonPlayback({
           new Blob([Uint8Array.from(bytes)], { type: recording.asset.mediaType })
         );
         audio.src = objectUrl.current;
-        audio.currentTime = Math.min(offset, recording.durationSeconds);
+        audio.currentTime = Math.min(
+          relative ? offset * recording.durationSeconds : offset,
+          recording.durationSeconds
+        );
+        setTime(audio.currentTime);
         audio.playbackRate = latest.current.speed;
         setDuration(recording.durationSeconds);
         loadedVoice.current = requestedVoice;
@@ -243,6 +267,7 @@ export function useLessonPlayback({
 
   const play = useCallback(async () => {
     const audio = getAudio();
+    const epoch = intent.current.epoch;
     intent.current.playing = true;
     if (!loadedVoice.current || loadedVoice.current !== latest.current.voice) {
       await start(intent.current.index, audio.currentTime);
@@ -250,6 +275,7 @@ export function useLessonPlayback({
     }
     try {
       await audio.play();
+      if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
       if (!intent.current.playing) {
         audio.pause();
         return;
@@ -264,12 +290,13 @@ export function useLessonPlayback({
           epoch: intent.current.epoch,
           background: true,
         }).catch(error => {
-          if (lifetime.current?.signal.aborted) return;
+          if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
           console.error('Lesson playback preparation failed', error);
           setFailed(true);
         });
       }
     } catch (error) {
+      if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
       console.error('Lesson playback start failed', error);
       pause();
       setFailed(true);
@@ -286,6 +313,9 @@ export function useLessonPlayback({
         loadedVoice.current = null;
         intent.current.index = 0;
         audio.currentTime = 0;
+        setIndex(0);
+        setTime(0);
+        setDuration(0);
       }
     };
     return () => {
@@ -300,10 +330,16 @@ export function useLessonPlayback({
   useEffect(() => {
     if (previousVoice.current === voice) return;
     previousVoice.current = voice;
-    if (started.current) void start(intent.current.index, getAudio().currentTime);
-  }, [getAudio, start, voice]);
+    if (started.current) {
+      const progress = duration > 0 ? getAudio().currentTime / duration : 0;
+      void start(intent.current.index, progress, true);
+    }
+  }, [duration, getAudio, start, voice]);
 
-  const timeline = useMemo(() => playbackTimeline(blocks, voice), [blocks, voice]);
+  const timeline = useMemo(() => {
+    const resolved = resolvedVoices.get(voice);
+    return playbackTimeline(blocks, resolved?.voice ?? voice, resolved?.model);
+  }, [blocks, resolvedVoices, voice]);
   const readTime = useCallback(() => getAudio().currentTime, [getAudio]);
   const elapsed = timeline.slice(0, index).reduce((sum, block) => sum + block.duration, 0) + time;
   const total = timeline.reduce((sum, block) => sum + block.duration, 0);
@@ -316,7 +352,7 @@ export function useLessonPlayback({
       offset -= timeline[next].duration;
       next++;
     }
-    if (next !== index) {
+    if (next !== index || !loadedVoice.current) {
       void start(next, offset);
       return;
     }

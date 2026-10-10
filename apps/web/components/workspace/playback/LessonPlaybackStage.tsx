@@ -1,10 +1,10 @@
 import type { LessonPlaybackBlock, PlaybackRange } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { Fragment, type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { useResolvedProjectVisual } from '../../../hooks/useResolvedProjectVisual.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
+import { getStoredLessonVisualScene } from '../../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
@@ -89,13 +89,15 @@ function PlaybackScene({
         !animate,
         CAPTION_TIMING.highlightDelaySeconds * 1000 * speed
       );
-      for (const [id, target] of elements) {
+      for (const [id, targets] of elements) {
         const state = states.get(id);
         if (!state) throw new Error('Motion target state must exist');
-        target.dataset.motionId = id;
-        target.classList.add('motion-target');
-        target.style.opacity = String(state.opacity);
-        target.style.setProperty('--motion-emphasis', String(state.emphasis));
+        for (const target of targets) {
+          target.dataset.motionId = id;
+          target.classList.add('motion-target');
+          target.style.opacity = String(state.opacity);
+          target.style.setProperty('--motion-emphasis', String(state.emphasis));
+        }
       }
     };
     // Mermaid mounts its targets asynchronously. Rediscover only when the scene DOM changes.
@@ -114,7 +116,7 @@ function PlaybackScene({
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
-      for (const target of elements.values()) {
+      for (const target of Array.from(elements.values()).flat()) {
         target.classList.remove('motion-target');
         target.style.removeProperty('opacity');
         target.style.removeProperty('--motion-emphasis');
@@ -141,8 +143,7 @@ function PlaybackStoredVisual({
   speed: number;
   animate: boolean;
 }) {
-  const resolved = useResolvedProjectVisual(visual, content.projectId);
-  const scene = resolved.result?.visual.scene;
+  const scene = getStoredLessonVisualScene(visual);
   return scene ? (
     <PlaybackScene {...props} scene={scene} isDarkMode={content.isDarkMode} />
   ) : (
@@ -180,7 +181,7 @@ export default function LessonPlaybackStage({
   );
   const formatted = useMemo(() => {
     const source = captionSource(block, sources);
-    const captions = captionFormat(source.markdown);
+    const captions = captionFormat(source.markdown, source.ranges);
     return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
   }, [block, sources]);
   const captions = useRef<HTMLParagraphElement>(null);
@@ -360,8 +361,13 @@ export default function LessonPlaybackStage({
   return (
     <div className="lesson-player-stage">
       <section className="listening-stage">
-        <section className="captions" aria-label="Sottotitoli">
-          <h2>{formatted.headings.at(-1) || block.heading}</h2>
+        <section className="captions" aria-label={t('Sottotitoli')}>
+          {(formatted.headings.length ? formatted.headings : [block.heading]).map(
+            (heading, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: authored headings may repeat
+              <h2 key={`${index}:${heading}`}>{heading}</h2>
+            )
+          )}
           <p ref={captions} key={block.id} className="caption-page">
             {formatted.words.map((word, index) => {
               const Tag = word.code ? 'code' : word.bold ? 'strong' : 'span';
