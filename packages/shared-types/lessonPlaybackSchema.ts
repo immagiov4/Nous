@@ -129,7 +129,9 @@ export const isValidLessonPlayback = (value: unknown): value is LessonPlayback =
       block.spans.every(
         span => span.speech.end >= span.speech.start && span.source.end >= span.source.start
       ) &&
-      block.audio.every(audio => isValidProjectAssetRef(audio.asset)) &&
+      block.audio.every(
+        audio => isValidProjectAssetRef(audio.asset) && audio.asset.mediaType === 'audio/mpeg'
+      ) &&
       (!block.prepared?.scene || isLessonScene(block.prepared.scene)) &&
       block.visuals.every(visual => visual.kind !== 'scene' || isLessonScene(visual.scene))
   );

@@ -60,6 +60,16 @@ const encodeSpeechWav = (audioBuffer: ArrayBuffer) => {
   };
 };
 
+/** Reject oversized speech before either audio or visual provider work can begin. */
+export const validatePlaybackText = (text: string): void => {
+  if (text.length > MAX_TTS_TEXT_CHARS) {
+    throw failPermanently({
+      code: 'lesson_playback_text_too_long',
+      message: 'Playback text exceeds the speech request limit.',
+    });
+  }
+};
+
 /** Prepares one utterance with the configured TTS model; MP3 responses retain their bytes. */
 export const preparePlaybackAudio = async ({
   text,
@@ -73,13 +83,7 @@ export const preparePlaybackAudio = async ({
   readonly signal: AbortSignal;
 }): Promise<PreparedPlaybackAudio> => {
   signal.throwIfAborted();
-  // Retrying cannot shorten the text, so an oversized block fails without provider work.
-  if (text.length > MAX_TTS_TEXT_CHARS) {
-    throw failPermanently({
-      code: 'lesson_playback_text_too_long',
-      message: 'Playback text exceeds the speech request limit.',
-    });
-  }
+  validatePlaybackText(text);
   const model = requestedModel ?? (await getResolvedGlobalModelConfig()).ttsModel;
   signal.throwIfAborted();
   const audio = await ttsClient.generateSpeech({ model, signal, text, voice });

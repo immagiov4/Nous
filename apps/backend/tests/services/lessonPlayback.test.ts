@@ -64,6 +64,55 @@ describe('lesson playback segmentation', () => {
     for (const block of blocks) expectExactSpans(block, markdown);
   });
 
+  test.each([
+    { heading: 'Titolo', source: 'Titolo\n===' },
+    { heading: 'Titolo', source: 'Titolo\r\n---' },
+    { heading: 'Prima riga\nseconda riga', source: 'Prima riga\nseconda riga\n===' },
+    { heading: 'Titolo', source: '## Titolo ##' },
+  ])('reads parsed heading text without its markers: $source', ({ heading, source }) => {
+    const markdown = `${source}\n\nProsa.\n\nAncora.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.heading)).toEqual([heading, heading]);
+    expect(blocks.map(block => block.speech)).toEqual([`${heading}\nProsa.`, 'Ancora.']);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test.each([
+    String.raw`$\frac{a}{b}$`,
+    String.raw`\(x + y\)`,
+    '$$\nE = mc^2\n$$',
+    String.raw`\[E = mc^2\]`,
+  ])('keeps delimited math visual-only with exact source spans: %s', formula => {
+    const markdown = `Prima ${formula} dopo.\n\n ${formula} \n\nPoi.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Prima  dopo.', 'Poi.']);
+    expect(blocks[0]?.visuals).toEqual([
+      { kind: 'markdown', markdown: formula },
+      { kind: 'markdown', markdown: formula },
+    ]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('retains literal math in code and escaped dollar text', () => {
+    const markdown = 'Prima `$x$` e `\\(x\\)`, poi \\$ prezzo.\n\n```tex\n$x$\n```';
+    const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(block?.speech).toBe('Prima $x$ e \\(x\\), poi $ prezzo.');
+    expect(block?.visuals).toEqual([{ kind: 'markdown', markdown: '```tex\n$x$\n```' }]);
+    expectExactSpans(block as LessonPlaybackBlock, markdown);
+  });
+
+  test('preserves authored order when math, images and PDF placeholders share a block', () => {
+    const image = '![Figura](image.png)';
+    const pdf = '{{PDF_IMAGE:asset|alt=Immagine}}';
+    const markdown = `Prima $x$ poi ${image} infine $y$ e ${pdf}.`;
+    const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(block?.speech).toBe('Prima  poi  infine  e .');
+    expect(block?.visuals).toEqual(
+      ['$x$', image, '$y$', pdf].map(markdown => ({ kind: 'markdown', markdown }))
+    );
+    expectExactSpans(block as LessonPlaybackBlock, markdown);
+  });
+
   test('keeps each list and blockquote chunk together', () => {
     const markdown =
       '- Uno.\n* Due!\n+ Tre?\n\n1. Primo;\n2) secondo.\n\n> Una voce:\n> > «Ascolta».\n\nProsa.';

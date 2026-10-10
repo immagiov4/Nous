@@ -13,7 +13,11 @@ import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
-import { type PreparedPlaybackAudio, preparePlaybackAudio } from './playbackAudio.js';
+import {
+  type PreparedPlaybackAudio,
+  preparePlaybackAudio,
+  validatePlaybackText,
+} from './playbackAudio.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
 
 interface PrepareLessonPlaybackBlockInput {
@@ -85,6 +89,7 @@ export const prepareLessonPlaybackBlock = async (
 ): Promise<PreparedLessonPlaybackBlock> => {
   const { signal } = input;
   signal.throwIfAborted();
+  validatePlaybackText(input.block.speech);
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
   // before a failure propagates, so a retry never overlaps paid work still in flight.
   const [visuals, audio] = await Promise.allSettled([prepareVisuals(input), prepareAudio(input)]);
