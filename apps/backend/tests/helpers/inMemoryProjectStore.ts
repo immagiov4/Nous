@@ -488,7 +488,12 @@ export class InMemoryProjectStore implements ProjectStore {
     const existing = projects.get(input.projectId);
     if (!existing) throw new ProjectTransactionTargetNotFoundError(input.projectId);
     const planned = planProjectPatch(
-      { meta: existing.meta, revision: existing.meta.revision, snapshot: clone(existing.snapshot) },
+      {
+        incarnationId: existing.incarnationId,
+        meta: existing.meta,
+        revision: existing.meta.revision,
+        snapshot: clone(existing.snapshot),
+      },
       input
     );
     if (!planned) {

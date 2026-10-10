@@ -1,3 +1,5 @@
+import type { LessonPlayback } from '@shared/lessonPlayback';
+
 // Project storage types shared across backend persistence modules.
 export type {
   LibraryFolder,
@@ -25,6 +27,7 @@ import type { ProjectSnapshotFormatVersion } from '@shared/projectSnapshotWire';
 import type { SourceArchivePdfWarningReason } from '@shared/sourceArchiveWarnings';
 
 export interface LearningPlanNodeSnapshot {
+  playback?: LessonPlayback;
   id?: string;
   kind?: string;
   isCompleted?: boolean;

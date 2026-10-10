@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "3.0.84",
+    "@breezystack/lamejs": "1.2.7",
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons": "3.49.0",

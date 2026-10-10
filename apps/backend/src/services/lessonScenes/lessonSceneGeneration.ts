@@ -34,6 +34,10 @@ export type LessonSceneOutcome =
   | { readonly kind: 'scene'; readonly scene: LessonScene }
   | { readonly kind: 'invalid'; readonly problems: readonly string[] };
 
+export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
+  readonly plan?: RenderResolvedLessonVisualInput['plan'];
+};
+
 const SceneIconQueriesSchema = z.strictObject({
   object: z.string(),
   action: z.string(),
@@ -141,22 +145,26 @@ Final check: does every sentence under a title add something? Are the entries of
 
 const MALFORMED_ANSWER_PROBLEM = 'The answer must follow the requested JSON structure.';
 
-const buildScenePrompt = (input: RenderResolvedLessonVisualInput): string => {
+const buildScenePrompt = (input: GenerateLessonSceneInput): string => {
   const correction = input.retryFeedback?.trim()
     ? `\nRequired correction from the previous attempt:\n${input.retryFeedback.trim()}\n`
     : '';
   return `Lesson: ${input.sectionTitle}
 Description: ${input.sectionDescription}
-Planned visual: ${JSON.stringify({
-    anchorHeading: input.plan.anchorHeading,
-    concept: input.plan.concept,
-    factualRequirements: input.plan.factualRequirements,
-    pedagogicalGoal: input.plan.pedagogicalGoal,
-    title: input.plan.title,
-    visualDirection: input.plan.visualDirection,
-  })}
+${
+  input.plan
+    ? `Planned visual: ${JSON.stringify({
+        anchorHeading: input.plan.anchorHeading,
+        concept: input.plan.concept,
+        factualRequirements: input.plan.factualRequirements,
+        pedagogicalGoal: input.plan.pedagogicalGoal,
+        title: input.plan.title,
+        visualDirection: input.plan.visualDirection,
+      })}`
+    : ''
+}
 ${correction}
-LESSON TEXT:
+${input.lessonMarkdown.length > MAX_VISUAL_LESSON_CHARS ? 'LESSON EXCERPT (truncated; only this excerpt is available for analysis):' : 'LESSON TEXT:'}
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 };
 
@@ -216,7 +224,7 @@ const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string
 
 /** Generates and validates one lesson scene, then chooses its icons. */
 export const generateLessonScene = async (
-  input: RenderResolvedLessonVisualInput
+  input: GenerateLessonSceneInput
 ): Promise<LessonSceneOutcome> => {
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
@@ -241,7 +249,11 @@ export const generateLessonScene = async (
   }
   const draft = parsed.data;
   const scene = toScene(draft);
-  const problems = findDraftProblems(draft, scene, input.lessonMarkdown);
+  const problems = findDraftProblems(
+    draft,
+    scene,
+    input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)
+  );
   if (problems.length) return { kind: 'invalid', problems };
   return {
     kind: 'scene',

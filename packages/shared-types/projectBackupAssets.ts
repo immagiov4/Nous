@@ -4,6 +4,7 @@ import {
   LEARNING_ARTIFACT_ID_SEPARATOR,
   type LearningArtifactKind,
 } from './learningArtifact';
+import { LessonPlaybackSchema } from './lessonPlaybackSchema';
 import { isLessonScene } from './lessonScene';
 import {
   buildProjectAssetPlaceholder,
@@ -94,9 +95,19 @@ const collectStructuredPdfRefs = (project: Record<string, unknown>): ProjectAsse
   );
 };
 
+const playbackBlocks = (section: Record<string, unknown>) => {
+  if (section.playback === undefined) return [];
+  const parsed = LessonPlaybackSchema.safeParse(section.playback);
+  if (!parsed.success) throw new InvalidProjectBackupAssetError();
+  return parsed.data.blocks;
+};
+
 export const collectProjectAssetReferences = (project: unknown): readonly ProjectAssetRef[] => {
   if (!isRecord(project)) throw new InvalidProjectBackupAssetError();
   const refs = [
+    ...readProjectSections(project).flatMap(section =>
+      playbackBlocks(section).flatMap(block => block.audio.map(audio => readAssetRef(audio.asset)))
+    ),
     ...readProjectSections(project).flatMap(section =>
       Array.isArray(section.generatedVisuals)
         ? section.generatedVisuals.flatMap(collectRenderRefs)
@@ -306,6 +317,15 @@ export const remapProjectAssetReferences = <T>(
     remappedProject.id = targetProjectId;
   }
   for (const section of readProjectSections(remappedProject)) {
+    if (section.playback !== undefined) {
+      section.playback = {
+        ...LessonPlaybackSchema.parse(section.playback),
+        blocks: playbackBlocks(section).map(block => ({
+          ...block,
+          audio: block.audio.map(audio => ({ ...audio, asset: remapRef(audio.asset, idMap) })),
+        })),
+      };
+    }
     if (!Array.isArray(section.generatedVisuals)) continue;
     for (const visual of section.generatedVisuals) {
       if (!isRecord(visual)) continue;

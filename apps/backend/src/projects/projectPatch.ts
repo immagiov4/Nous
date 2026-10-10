@@ -35,6 +35,9 @@ const applySectionPatchToNode = (
 ): LearningPlanNodeSnapshot =>
   canonicalizeLessonNodeContent({
     ...node,
+    ...(sectionPatch.playback !== undefined
+      ? { playback: sectionPatch.playback ?? undefined }
+      : {}),
     ...(sectionPatch.annotations !== undefined ? { annotations: sectionPatch.annotations } : {}),
     ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
     ...(sectionPatch.contentBlocks === undefined

@@ -761,6 +761,7 @@ const ENGLISH_UI_MESSAGES = {
   'Embedding delle icone': 'Icon embeddings',
   'Icone delle scene': 'Scene icons',
   'Scene delle lezioni': 'Lesson scenes',
+  'Preparazione ascolto': 'Playback preparation',
   'Composizione del diagramma…': 'Laying out the diagram…',
   confronto: 'comparison',
   Criterio: 'Criterion',

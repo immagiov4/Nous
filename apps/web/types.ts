@@ -1,6 +1,7 @@
 import type { CoursePlanningPreferences } from '@shared/coursePlanningControls';
 import type { LearningArtifactKind } from '@shared/learningArtifact';
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
+import type { LessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import type { ProjectDocumentImageAsset, ProjectLessonVisual } from '@shared/projectAsset';
@@ -541,6 +542,7 @@ export interface LessonVisualPlanningDecision {
 }
 
 export interface LearningSection {
+  playback?: LessonPlayback;
   id: string;
   moduleTitle?: string;
   title: string;

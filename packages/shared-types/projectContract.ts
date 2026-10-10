@@ -1,4 +1,5 @@
 import type { LessonInstructionPackId } from './lessonInstructionPacks';
+import type { LessonPlayback } from './lessonPlayback';
 
 // Contract types shared between the frontend (apps/web) and the backend
 // (apps/backend). These shapes travel over the network and through the
@@ -87,6 +88,7 @@ export interface ProjectWriteOptions {
 
 export interface SectionPatch {
   sectionId: string;
+  playback?: LessonPlayback | null;
   annotations?: unknown[];
   content?: string | null;
   contentBlocks?: unknown[] | null;
