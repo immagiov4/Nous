@@ -923,7 +923,7 @@ export function PlaybackTimeline({
 
   return (
     <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
-      <span className="w-9 text-right">{formatTime(time)}</span>
+      <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>
       <input
         type="range"
         aria-label={t('Posizione audio')}
@@ -932,9 +932,9 @@ export function PlaybackTimeline({
         max={duration || 100}
         value={time}
         onChange={event => onSeek(parseFloat(event.target.value))}
-        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
+        className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
       />
-      <span className="whitespace-nowrap">
+      <span className="shrink-0 whitespace-nowrap">
         {estimated ? '≈ ' : ''}
         {formatTime(duration)}
       </span>
