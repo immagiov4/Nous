@@ -16,6 +16,7 @@ import { startWorkflowRun, type WorkflowRunCreator } from './workflowStart.js';
 
 export class LessonPlaybackTargetError extends Error {}
 export class LessonPlaybackStaleError extends Error {}
+export class LessonPlaybackVoiceError extends Error {}
 
 interface PlaybackTarget {
   userId: string;
@@ -65,6 +66,9 @@ export const createLessonPlaybackApi = (dependencies: {
       return { lessonKey: playback.lessonKey, blocks: playback.blocks };
     },
     prepare: async input => {
+      if (!ttsClient.getVoiceProfiles().some(profile => profile.id === input.voice)) {
+        throw new LessonPlaybackVoiceError();
+      }
       const { project, playback } = await load(input);
       if (playback.lessonKey !== input.lessonKey) throw new LessonPlaybackStaleError();
       const block = playback.blocks.find(candidate => candidate.id === input.blockId);
@@ -80,6 +84,7 @@ export const createLessonPlaybackApi = (dependencies: {
           input.projectId,
           project.incarnationId,
           input.sectionId,
+          input.lessonKey,
         ]),
         projectId: input.projectId,
         requestKey: randomUUID(),

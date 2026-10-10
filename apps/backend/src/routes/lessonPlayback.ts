@@ -6,6 +6,7 @@ import {
   type LessonPlaybackApi,
   LessonPlaybackStaleError,
   LessonPlaybackTargetError,
+  LessonPlaybackVoiceError,
 } from '../workflows/lessonPlaybackApi.js';
 import { createWorkflowAsyncRoute } from './workflows.js';
 
@@ -26,6 +27,10 @@ const INVALID_REQUEST = {
 export const createLessonPlaybackRouter = (api: LessonPlaybackApi): Router => {
   const router = Router();
   const asyncRoute = createWorkflowAsyncRoute((response, error) => {
+    if (error instanceof LessonPlaybackVoiceError) {
+      response.status(400).json(INVALID_REQUEST);
+      return true;
+    }
     if (error instanceof LessonPlaybackTargetError) {
       response
         .status(404)
@@ -45,6 +50,7 @@ export const createLessonPlaybackRouter = (api: LessonPlaybackApi): Router => {
   router.get(
     '/:projectId/sections/:sectionId/playback',
     asyncRoute(async (request, response) => {
+      response.setHeader('Cache-Control', 'private, no-store');
       const params = targetSchema.safeParse(request.params);
       if (!params.success) return response.status(400).json(INVALID_REQUEST);
       return response.json(await api.get({ ...params.data, userId: getCurrentUser(request).id }));
@@ -53,6 +59,7 @@ export const createLessonPlaybackRouter = (api: LessonPlaybackApi): Router => {
   router.post(
     '/:projectId/sections/:sectionId/playback/blocks/:blockId/prepare',
     asyncRoute(async (request, response) => {
+      response.setHeader('Cache-Control', 'private, no-store');
       const params = prepareParametersSchema.safeParse(request.params);
       const body = prepareBodySchema.safeParse(request.body);
       if (!params.success || !body.success) return response.status(400).json(INVALID_REQUEST);

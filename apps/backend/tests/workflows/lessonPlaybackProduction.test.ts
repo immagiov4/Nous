@@ -1,3 +1,4 @@
+import type { LessonScene } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { prepare } = vi.hoisted(() => ({ prepare: vi.fn() }));
@@ -62,8 +63,29 @@ test('reuses a block completed between the API cache read and the run starting',
 
 test('passes saved scene and motion into another voice request and stages only its audio', async () => {
   const { section, assets, services, context } = setup();
+  const scene: LessonScene = {
+    type: 'parts',
+    title: 'Componenti',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [
+      { label: 'Confini', detail: '', icon: '' },
+      { label: 'Interazioni', detail: '', icon: '' },
+    ],
+  };
+  const savedPrepared = {
+    scene,
+    motion: [{ effect: 'focus' as const, targets: ['item:0', 'item:1'], quote: 'Prima frase.' }],
+  };
+  const playback = preparedPlayback(section);
+  section.playback = {
+    ...playback,
+    blocks: playback.blocks.map(block => ({ ...block, prepared: savedPrepared })),
+  };
   prepare.mockResolvedValue({
-    prepared: { motion: [] },
+    prepared: savedPrepared,
     audio: {
       bytes: new Uint8Array([1]),
       mediaType: 'audio/mpeg',
@@ -81,6 +103,7 @@ test('passes saved scene and motion into another voice request and stages only i
       block: expect.objectContaining({ prepared: section.playback?.blocks[0]?.prepared }),
       ttsModel: 'tts-model',
       voice: 'Puck',
+      lesson: expect.objectContaining({ description: 'Descrizione' }),
     })
   );
   expect(assets.stage).toHaveBeenCalledWith(
@@ -92,6 +115,7 @@ test('passes saved scene and motion into another voice request and stages only i
   );
   expect(result.block.audio).toHaveLength(1);
   expect(result.block.audio[0]?.voice).toBe('Puck');
+  expect(result.block.prepared).toEqual(savedPrepared);
 });
 
 test.each([

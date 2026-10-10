@@ -9,6 +9,7 @@ import type { LessonScene } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
+import { failPermanently } from '../../workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
@@ -72,14 +73,17 @@ const prepareScene = async (
     if (outcome.kind === 'scene') return outcome.scene;
     retryFeedback = outcome.problems.join('\n');
   }
-  throw new Error('Playback scene preparation failed validation after corrective attempts.');
+  throw failPermanently({
+    code: 'lesson_playback_scene_invalid',
+    message: 'Playback scene preparation failed validation after corrective attempts.',
+  });
 };
 
 /** Prepares one block's visual cues and audio; the caller owns its eventual asset reference. */
 export const prepareLessonPlaybackBlock = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<PreparedLessonPlaybackBlock> => {
-  const { block, voice, config, signal } = input;
+  const { signal } = input;
   signal.throwIfAborted();
   // Audio does not depend on the scene, so both are prepared at the same time.
   const [prepared, audio] = await Promise.all([prepareVisuals(input), prepareAudio(input)]);
