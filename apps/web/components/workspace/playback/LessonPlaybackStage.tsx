@@ -193,20 +193,30 @@ export default function LessonPlaybackStage({
     const slot = sceneFit.current;
     const card = sceneCard.current;
     if (!slot || !card) throw new Error('Playback scene must be mounted');
-    // Fit the complete card, preserving the prototype's internal layout and proportions.
+    // Measure before scaling: transforms must not feed back into the natural dimensions.
     const fitScene = () => {
-      const scale = card.offsetHeight ? Math.min(1, slot.clientHeight / card.offsetHeight) : 1;
+      if (!slot.clientWidth || !slot.clientHeight) return;
+      card.style.width = `${slot.clientWidth}px`;
+      const width = Math.max(card.offsetWidth, card.scrollWidth);
+      card.style.width = `${width}px`;
+      const height = Math.max(card.offsetHeight, card.scrollHeight);
+      if (!width || !height) return;
+      const scale = Math.min(1, slot.clientWidth / width, slot.clientHeight / height);
       slot.style.setProperty('--scene-scale', String(scale));
-      slot.style.setProperty(
-        '--scene-top',
-        `${Math.max(0, (slot.clientHeight - card.offsetHeight * scale) / 2)}px`
-      );
+      slot.style.setProperty('--scene-top', `${(slot.clientHeight - height * scale) / 2}px`);
+      slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
     const observer = new ResizeObserver(fitScene);
     observer.observe(slot);
     observer.observe(card);
+    // A replacement or asynchronous diagram can change overflow without resizing the card.
+    const mutations = new MutationObserver(fitScene);
+    mutations.observe(card, { childList: true, characterData: true, subtree: true });
     fitScene();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      mutations.disconnect();
+    };
   }, []);
   useLayoutEffect(() => {
     latest.current = { time, speed, readTime, animate };

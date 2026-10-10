@@ -347,7 +347,7 @@ export default function LessonPlayer({
             {answer ? (
               <motion.div
                 key={answer.id}
-                className="absolute inset-x-0 bottom-full mb-2.5"
+                className="absolute inset-x-0 bottom-full mb-2.5 rounded-2xl"
                 initial={{ height: shouldAnimate ? 0 : 'auto', opacity: shouldAnimate ? 0 : 1 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
