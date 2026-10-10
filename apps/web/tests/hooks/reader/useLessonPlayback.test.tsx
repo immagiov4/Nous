@@ -90,6 +90,7 @@ test('prepares on play, waits for the first block, then prepares exactly one ahe
     void result.current.play();
   });
   await waitFor(() => expect(prepareLessonPlayback).toHaveBeenCalledTimes(1));
+  expect(result.current.loading).toBe(true);
   expect(audio.play).not.toHaveBeenCalled();
   await act(async () => {
     first.resolve({ block: blocks[0] });
@@ -100,6 +101,8 @@ test('prepares on play, waits for the first block, then prepares exactly one ahe
     '1',
   ]);
   expect(audio.play).toHaveBeenCalledTimes(1);
+  expect(result.current.loading).toBe(false);
+  expect(result.current.playing).toBe(true);
   act(() => {
     audio.dispatchEvent(new Event('ended'));
   });

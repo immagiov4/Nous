@@ -4,7 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderTtsModel } from '../../../components/workspace/shell/types.ts';
-import UnifiedAudioPanel from '../../../components/workspace/UnifiedAudioPanel.tsx';
+import UnifiedAudioPanel, {
+  PlaybackPlayButton,
+} from '../../../components/workspace/UnifiedAudioPanel.tsx';
 
 const buildTtsModel = (
   overrides: Partial<WorkspaceReaderTtsModel> & Record<string, unknown> = {}
@@ -57,6 +59,18 @@ const AudioHarness = ({ initialMusicUrl = '' }: { initialMusicUrl?: string }) =>
 };
 
 describe('UnifiedAudioPanel', () => {
+  test('keeps the player play button stationary while retaining the reader hover behavior', () => {
+    const onClick = vi.fn();
+    const { rerender } = render(
+      <PlaybackPlayButton loading={false} playing={false} stationary onClick={onClick} />
+    );
+    const button = screen.getByRole('button', { name: 'Riproduci' });
+    expect(button).not.toHaveClass('hover:scale-105');
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledOnce();
+    rerender(<PlaybackPlayButton loading={false} playing={false} onClick={onClick} />);
+    expect(button).toHaveClass('hover:scale-105');
+  });
   test('centers the panel on phones and restores icon anchoring from the tablet breakpoint', () => {
     const { container } = render(
       <UnifiedAudioPanel

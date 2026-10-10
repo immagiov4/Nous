@@ -1,12 +1,14 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import { useSpokenAnswer } from '../../../hooks/reader/useSpokenAnswer.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { useSpeechInput } from '../../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { playbackSentenceSelector } from '../../../utils/reader/lessonPlayback.ts';
 import { appendSpeechTranscription } from '../../shared/SpeechInputButton.tsx';
 import ContextMenu from '../ContextMenu.tsx';
@@ -28,6 +30,30 @@ const NOTE_SAVED_MS = 3_000;
 const SKIP_SECONDS = 5;
 const noAction = () => {};
 
+function AnswerPanelTransition({
+  children,
+  shouldAnimate,
+}: {
+  children: ReactNode;
+  shouldAnimate: boolean;
+}) {
+  const isPresent = useIsPresent();
+  return (
+    <motion.div
+      className="absolute inset-x-0 bottom-full mb-2.5"
+      inert={!isPresent || undefined}
+      aria-hidden={!isPresent || undefined}
+      initial={{ height: shouldAnimate ? 0 : 'auto', opacity: shouldAnimate ? 0 : 1 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+      style={{ overflow: 'hidden' }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 export default function LessonPlayer({
   sectionId,
   projectId,
@@ -35,7 +61,7 @@ export default function LessonPlayer({
   overlays,
   tts,
   onClose,
-  autoPlay = false,
+  autoPlay = true,
 }: {
   sectionId: string;
   projectId: string;
@@ -96,6 +122,7 @@ export default function LessonPlayer({
   const { viewportHeight } = useMobileKeyboardOffset();
   const block = playback.blocks[playback.index];
   const mobile = content.isMobileViewport;
+  const shouldAnimate = useShouldAnimate();
   const { play } = playback;
   useEffect(() => {
     if (autoPlay) void play();
@@ -204,7 +231,7 @@ export default function LessonPlayer({
   const renderComposer = (send = ask, disabled = false) => (
     <ContextMenu
       type="lesson"
-      placement={mobile ? 'mobile-sheet' : 'desktop-floating'}
+      placement="desktop-floating"
       selectedText=""
       isDarkMode={content.isDarkMode}
       isLoading={
@@ -218,6 +245,7 @@ export default function LessonPlayer({
       onHighlight={noAction}
       onSaveNote={noAction}
       playbackComposer={{
+        isMobileViewport: mobile,
         speech: mobile
           ? undefined
           : {
@@ -350,6 +378,8 @@ export default function LessonPlayer({
           time={playback.time}
           duration={playback.duration}
           content={content}
+          speed={tts.playbackRate}
+          readTime={playback.readTime}
         />
       ) : (
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
@@ -391,6 +421,7 @@ export default function LessonPlayer({
                 </span>
               </button>
               <PlaybackPlayButton
+                stationary
                 onClick={togglePlay}
                 disabled={questionActive || !block}
                 loading={playback.loading}
@@ -413,7 +444,7 @@ export default function LessonPlayer({
               </div>
             </div>
             <div
-              className={`grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none md:w-52 ${mobile && playback.playing ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'}`}
+              className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none md:w-52 ${mobile && playback.playing ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'}`}
               inert={(mobile && playback.playing) || undefined}
             >
               <div className="overflow-hidden">
@@ -428,38 +459,40 @@ export default function LessonPlayer({
           </div>
         </div>
         <div className="relative flex min-w-0 flex-col gap-2.5 md:w-[30rem] md:max-w-[45vw]">
-          {answer ? (
-            <div className="md:absolute md:inset-x-0 md:bottom-full md:mb-2.5">
-              <ContextAnswerPanel
-                contextAnswer={answer}
-                pendingQuestion={pendingQuestion}
-                onAnswerComplete={text => {
-                  if (spokenQuestion.current?.id !== answer.id) return;
-                  spokenQuestion.current = null;
-                  void answerAudio.speak(text);
-                }}
-                contextAnswerPanelRef={panelRef}
-                contextAnswerSize={overlays.contextAnswerSize}
-                handleContextAnswerResizeStart={noAction}
-                isDarkMode={content.isDarkMode}
-                isMobileViewport={mobile}
-                docked
-                composerPortal={composerPortal}
-                renderComposer={renderComposer}
-                libraryAssistantDataSource={overlays.libraryAssistantDataSource}
-                currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
-                onClose={closeAnswer}
-                onOpenLibraryReference={reference => {
-                  onClose();
-                  overlays.onOpenLibraryReference(reference);
-                }}
-                onSaveConversationNote={overlays.onSaveConversationNote}
-                onUpdateConversationNote={overlays.onUpdateConversationNote}
-                onSaveArtifactToLesson={overlays.onSaveArtifactToLesson}
-                onReplaceArtifactInLesson={overlays.onReplaceArtifactInLesson}
-              />
-            </div>
-          ) : null}
+          <AnimatePresence>
+            {answer ? (
+              <AnswerPanelTransition key={answer.id} shouldAnimate={shouldAnimate}>
+                <ContextAnswerPanel
+                  contextAnswer={answer}
+                  pendingQuestion={pendingQuestion}
+                  onAnswerComplete={text => {
+                    if (spokenQuestion.current?.id !== answer.id) return;
+                    spokenQuestion.current = null;
+                    void answerAudio.speak(text);
+                  }}
+                  contextAnswerPanelRef={panelRef}
+                  contextAnswerSize={overlays.contextAnswerSize}
+                  handleContextAnswerResizeStart={noAction}
+                  isDarkMode={content.isDarkMode}
+                  isMobileViewport={mobile}
+                  docked
+                  composerPortal={composerPortal}
+                  renderComposer={renderComposer}
+                  libraryAssistantDataSource={overlays.libraryAssistantDataSource}
+                  currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
+                  onClose={closeAnswer}
+                  onOpenLibraryReference={reference => {
+                    onClose();
+                    overlays.onOpenLibraryReference(reference);
+                  }}
+                  onSaveConversationNote={overlays.onSaveConversationNote}
+                  onUpdateConversationNote={overlays.onUpdateConversationNote}
+                  onSaveArtifactToLesson={overlays.onSaveArtifactToLesson}
+                  onReplaceArtifactInLesson={overlays.onReplaceArtifactInLesson}
+                />
+              </AnswerPanelTransition>
+            ) : null}
+          </AnimatePresence>
           {answerAudio.error ? (
             <p role="alert" className="text-sm text-red-700 dark:text-red-300">
               {answerAudio.error}

@@ -26,7 +26,7 @@ interface ChartTheme {
   readonly surface: string;
 }
 
-const readTheme = (host: HTMLElement): ChartTheme => {
+const readTheme = (host: HTMLElement, prototype: boolean): ChartTheme => {
   const css = getComputedStyle(host);
   const token = (name: string) => css.getPropertyValue(name).trim();
   return {
@@ -35,16 +35,22 @@ const readTheme = (host: HTMLElement): ChartTheme => {
     ink: token('--ink'),
     muted: token('--muted'),
     // One --chart-N token per item a scene may hold, so every slice keeps a distinct color.
-    palette: Array.from({ length: LESSON_SCENE_LIMITS.items }, (_, index) =>
+    palette: Array.from({ length: prototype ? 3 : LESSON_SCENE_LIMITS.items }, (_, index) =>
       token(`--chart-${index}`)
     ),
-    surface: token('--surface'),
+    surface: prototype ? 'white' : token('--surface'),
   };
 };
 
 type Plot = typeof import('@observablehq/plot');
 
-const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: ChartTheme) => {
+const plotOptions = (
+  plot: Plot,
+  scene: LessonScene,
+  width: number,
+  theme: ChartTheme,
+  prototype: boolean
+) => {
   const items = scene.items.map(item => ({
     label: item.label,
     time: item.time ?? 0,
@@ -67,6 +73,7 @@ const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: Chart
   };
   const text = { fill: theme.ink, fontSize: 14, fontWeight: 550 };
   if (scene.type === 'line') {
+    const x = prototype ? 'label' : 'time';
     return {
       ...common,
       marks: [
@@ -74,25 +81,27 @@ const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: Chart
         plot.lineY(items, {
           stroke: theme.accent,
           strokeWidth: LAYOUT.lineWidth,
-          x: 'time',
+          x,
           y: 'value',
         }),
-        plot.dot(items, { fill: theme.accent, r: LAYOUT.pointRadius, x: 'time', y: 'value' }),
+        plot.dot(items, { fill: theme.accent, r: LAYOUT.pointRadius, x, y: 'value' }),
         plot.text(items, {
           dy: -LAYOUT.labelOffset,
           text: 'value',
-          x: 'time',
+          x,
           y: 'value',
           ...text,
         }),
       ],
       // A continuous time axis keeps real gaps; each tick shows the lesson's name for that time.
-      x: {
-        inset: LAYOUT.lineInset,
-        label: null,
-        tickFormat: (time: number) => items.find(item => item.time === time)?.label ?? '',
-        ticks: items.map(item => item.time),
-      },
+      x: prototype
+        ? { domain: items.map(item => item.label), label: null, padding: 0.25 }
+        : {
+            inset: LAYOUT.lineInset,
+            label: null,
+            tickFormat: (time: number) => items.find(item => item.time === time)?.label ?? '',
+            ticks: items.map(item => item.time),
+          },
       y: { grid: true, label: null, nice: true, ticks: 4, zero: true },
     };
   }
@@ -247,9 +256,11 @@ const drawDonut = async (
 export const SceneChart = ({
   isDarkMode,
   scene,
+  prototype = false,
 }: {
   readonly isDarkMode: boolean;
   readonly scene: LessonScene;
+  readonly prototype?: boolean;
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -265,13 +276,13 @@ export const SceneChart = ({
       if (!width || width === drawnWidth || drawing) return;
       drawing = true;
       try {
-        const theme = readTheme(host);
+        const theme = readTheme(host, prototype);
         let chart: HTMLElement | SVGSVGElement;
         if (scene.type === 'donut') {
           chart = await drawDonut(scene, width, theme);
         } else {
           const plot = await import('@observablehq/plot');
-          chart = plot.plot(plotOptions(plot, scene, width, theme) as never);
+          chart = plot.plot(plotOptions(plot, scene, width, theme, prototype) as never);
         }
         if (disposed) return;
         host.replaceChildren(chart);
@@ -297,7 +308,7 @@ export const SceneChart = ({
       disposed = true;
       observer.disconnect();
     };
-  }, [isDarkMode, scene]);
+  }, [isDarkMode, scene, prototype]);
   return (
     <figure className="data-chart">
       {/* Each drawing labels its own SVG; the donut legend stays readable as a list. */}

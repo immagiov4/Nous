@@ -424,7 +424,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               onClick={handleRegenerateIntent}
               title={t('Rigenera la lezione corrente')}
               aria-haspopup="dialog"
-              className="model-panel-section-toggle mt-3 flex w-full items-center gap-2 py-2 text-left text-sm font-semibold disabled:opacity-50"
+              className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-colors ${
+                !canRegenerate || isLoading
+                  ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500'
+                  : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
+              }`}
             >
               <RefreshCw className="h-4 w-4" />
               {t('Rigenera')}
