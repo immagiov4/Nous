@@ -65,6 +65,8 @@ export const buildLessonPlaybackKey = (section: LearningPlanNodeSnapshot): strin
         contentBlocks: lessonPlaybackContent(section),
         generatedVisuals: lessonPlaybackVisuals(section).map(visualContent),
         lastGenerationRunId: section.lastGenerationRunId ?? null,
+        title: typeof section.title === 'string' ? section.title : '',
+        description: typeof section.description === 'string' ? section.description : '',
       })
     )
     .digest('hex');

@@ -26,6 +26,7 @@ vi.mock('../../../src/services/lessonPlayback/playbackMotion.js', () => ({
 
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackBlock } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
+import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
 
 const scene: LessonScene = {
@@ -101,6 +102,25 @@ test('resumes recorded scene and motion after an audio failure without repeating
   expect(audio).toHaveBeenCalledTimes(2);
   await prepareLessonPlaybackBlock(request);
   expect(audio).toHaveBeenCalledTimes(2);
+});
+
+test('waits for audio still in flight before a scene failure propagates', async () => {
+  let finishAudio!: (value: typeof preparedAudio) => void;
+  audio.mockReturnValue(
+    new Promise(resolve => {
+      finishAudio = resolve;
+    })
+  );
+  sceneGeneration.mockRejectedValue(new Error('Scene unavailable'));
+  let settled = false;
+  const preparation = prepareLessonPlaybackBlock(input()).finally(() => {
+    settled = true;
+  });
+  await vi.waitFor(() => expect(sceneGeneration).toHaveBeenCalled());
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  finishAudio(preparedAudio);
+  await expect(preparation).rejects.toThrow('Scene unavailable');
 });
 
 test('keeps a paid scene when motion fails before it can be recorded', async () => {
@@ -222,7 +242,8 @@ test('reuses prepared visuals and motion when preparing another voice', async ()
 
 test('exhausts exactly three scene attempts and propagates operational errors immediately', async () => {
   sceneGeneration.mockResolvedValue({ kind: 'invalid', problems: ['Invalid quotation.'] });
-  await expect(prepareLessonPlaybackBlock(input())).rejects.toThrow(/scene preparation failed/);
+  const failure = await prepareLessonPlaybackBlock(input()).catch(error => toStepFailure(error));
+  expect(failure).toMatchObject({ kind: 'permanent', code: 'lesson_playback_scene_invalid' });
   expect(sceneGeneration).toHaveBeenCalledTimes(3);
   sceneGeneration.mockReset().mockRejectedValue(new Error('Provider unavailable'));
   await expect(prepareLessonPlaybackBlock(input())).rejects.toThrow('Provider unavailable');
@@ -251,7 +272,7 @@ test('shows several scenes of one block without motion', async () => {
         [storedScene]
       )
     )
-  ).resolves.toBeDefined();
+  ).resolves.toEqual({ prepared: { motion: [] }, audio: preparedAudio });
   expect(motion).not.toHaveBeenCalled();
 });
 

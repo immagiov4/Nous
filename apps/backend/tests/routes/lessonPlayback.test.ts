@@ -38,6 +38,7 @@ describe('lesson playback routes', () => {
     };
     const response = await request(app).get(url);
     expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
     expect(response.body.blocks.map(block => block.speech)).toEqual([
       'Prima frase.',
       'Seconda frase.',
@@ -88,6 +89,7 @@ describe('lesson playback routes', () => {
       .post(`${url}/blocks/0/prepare`)
       .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'Zephyr' });
     expect(response.status).toBe(202);
+    expect(response.headers['cache-control']).toBe('private, no-store');
     expect(response.body).toEqual({ blockId: '0', voice: 'Zephyr', runId: expect.any(String) });
     expect(createRun).toHaveBeenCalledOnce();
   });
@@ -126,5 +128,28 @@ describe('lesson playback routes', () => {
         .status
     ).toBe(400);
     expect(createRun).not.toHaveBeenCalled();
+  });
+
+  test('rejects arbitrary voice values before loading projects or starting workflows', async () => {
+    const { app, section, createRun, projectReader } = setup();
+    const response = await request(app)
+      .post(`${url}/blocks/0/prepare`)
+      .send({ lessonKey: preparedPlayback(section).lessonKey, voice: 'unconfigured-voice' });
+    expect(response.status).toBe(400);
+    expect(projectReader.loadProjectWithRevision).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  test('deduplicates blocks and voices within one key, but starts a run for a changed lesson', async () => {
+    const { app, section, createRun } = setup();
+    const originalKey = preparedPlayback(section).lessonKey;
+    const prepare = (lessonKey: string, block = '0', voice = 'Kore') =>
+      request(app).post(`${url}/blocks/${block}/prepare`).send({ lessonKey, voice });
+    await prepare(originalKey);
+    await prepare(originalKey, '1', 'Zephyr');
+    expect(createRun.mock.calls[0][0].dedupeKey).toBe(createRun.mock.calls[1][0].dedupeKey);
+    section.lastGenerationRunId = 'generation-2';
+    await prepare(preparedPlayback(section).lessonKey);
+    expect(createRun.mock.calls[2][0].dedupeKey).not.toBe(createRun.mock.calls[0][0].dedupeKey);
   });
 });
