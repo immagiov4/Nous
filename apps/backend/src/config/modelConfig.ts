@@ -220,7 +220,7 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   openAiSceneIconModel: process.env.OPENAI_MODEL_SCENE_ICON || 'gpt-6-luna',
   openAiResearchModel: process.env.OPENAI_MODEL_RESEARCH || DEFAULT_OPENAI_RESEARCH_MODEL,
   progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
-  playbackPreparationModel: process.env.MODEL_PLAYBACK_PREPARATION || 'openai/gpt-6-luna',
+  playbackPreparationModel: process.env.MODEL_PLAYBACK_PREPARATION || 'anthropic/claude-haiku-5.5',
   sceneModel: process.env.MODEL_SCENE || 'openai/gpt-6-luna',
   sceneIconModel: process.env.MODEL_SCENE_ICON || 'openai/gpt-6-luna',
   progressReasoningEffort: 'low',

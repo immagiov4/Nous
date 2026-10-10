@@ -98,7 +98,7 @@ const defaultModelConfig = {
   openAiSceneModel: 'gpt-6-luna',
   sceneIconModel: 'openai/gpt-6-luna',
   sceneIconReasoningEffort: 'none' as const,
-  playbackPreparationModel: 'openai/gpt-6-luna',
+  playbackPreparationModel: 'anthropic/claude-haiku-5.5',
   sceneModel: 'openai/gpt-6-luna',
   playbackPreparationReasoningEffort: 'low' as const,
   sceneReasoningEffort: 'low' as const,

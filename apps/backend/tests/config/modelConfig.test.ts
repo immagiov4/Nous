@@ -132,7 +132,7 @@ describe('global AI provider model mapping', () => {
 
     expect(isTextModelSlot('playbackPreparation')).toBe(true);
     expect(resolveTextModelConfig(config, 'playbackPreparation')).toEqual({
-      model: aiProvider === 'openrouter' ? 'openai/gpt-6-luna' : 'gpt-6-luna',
+      model: aiProvider === 'openrouter' ? 'anthropic/claude-haiku-5.5' : 'gpt-6-luna',
       reasoningEffort: 'low',
     });
   });

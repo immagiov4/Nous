@@ -393,7 +393,7 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   openAiSceneIconModel: 'gpt-6-luna',
   openAiResearchModel: 'gpt-5-search-api',
   progressModel: 'google/gemini-3.1-flash-lite',
-  playbackPreparationModel: 'openai/gpt-6-luna',
+  playbackPreparationModel: 'anthropic/claude-haiku-5.5',
   sceneModel: 'openai/gpt-6-luna',
   sceneIconModel: 'openai/gpt-6-luna',
   progressReasoningEffort: 'low',
