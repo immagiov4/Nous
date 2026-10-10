@@ -848,6 +848,15 @@ export function PlaybackTimeline({
   duration: number;
   onSeek: (time: number) => void;
 }) {
+  // While dragging, only the handle moves; the seek happens on release, so crossing several
+  // lesson parts does not prepare each one.
+  const [dragTime, setDragTime] = useState<number | null>(null);
+  const shownTime = dragTime ?? time;
+  const commitSeek = () => {
+    if (dragTime === null) return;
+    onSeek(dragTime);
+    setDragTime(null);
+  };
   const formatTime = (value: number) => {
     if (!value || Number.isNaN(value)) {
       return '00:00';
@@ -859,19 +868,24 @@ export function PlaybackTimeline({
 
   return (
     <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
-      {elapsedOnly ? null : <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>}
+      {elapsedOnly ? null : (
+        <span className="w-9 shrink-0 text-right">{formatTime(shownTime)}</span>
+      )}
       <input
         type="range"
         aria-label={t('Posizione audio')}
         disabled={duration <= 0}
         min="0"
         max={duration || 100}
-        value={time}
-        onChange={event => onSeek(parseFloat(event.target.value))}
+        value={shownTime}
+        onChange={event => setDragTime(Number.parseFloat(event.target.value))}
+        onPointerUp={commitSeek}
+        onKeyUp={commitSeek}
+        onBlur={commitSeek}
         className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
       />
       <span className="shrink-0 whitespace-nowrap">
-        {elapsedOnly ? formatTime(time) : `${estimated ? '≈ ' : ''}${formatTime(duration)}`}
+        {elapsedOnly ? formatTime(shownTime) : `${estimated ? '≈ ' : ''}${formatTime(duration)}`}
       </span>
     </div>
   );

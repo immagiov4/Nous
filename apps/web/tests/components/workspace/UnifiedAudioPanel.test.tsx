@@ -21,7 +21,10 @@ test.each([true, false])('formats the timeline total and seeks (estimated=%s)', 
   const slider = screen.getByRole('slider', { name: 'Posizione audio' });
   expect(slider).toHaveAttribute('max', '708');
   fireEvent.change(slider, { target: { value: '120' } });
-  expect(seek).toHaveBeenCalledWith(120);
+  expect(seek).not.toHaveBeenCalled();
+  expect(container.querySelector('span:first-child')?.textContent).toBe('02:00');
+  fireEvent.pointerUp(slider);
+  expect(seek).toHaveBeenCalledExactlyOnceWith(120);
 });
 
 test('shows only the current position after the slider when the total is hidden', () => {

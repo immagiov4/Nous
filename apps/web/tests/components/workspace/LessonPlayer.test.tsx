@@ -466,6 +466,20 @@ test('the empty send button stops the voice reading an answer, typing restores s
   expect(screen.queryByRole('button', { name: 'Ferma la voce' })).not.toBeInTheDocument();
 });
 
+test('prepares at most two answer clips at the same time', async () => {
+  vi.mocked(generateSpeech).mockImplementation(() => new Promise(() => {}));
+  completedAnswer.text = 'Prima frase. Seconda frase. Terza frase.';
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  await recordQuestion();
+  fireEvent.click(screen.getByRole('button', { name: 'Completa risposta' }));
+  await waitFor(() => expect(generateSpeech).toHaveBeenCalledTimes(2));
+  await act(async () => {});
+  expect(vi.mocked(generateSpeech).mock.calls.map(([text]) => text)).toEqual([
+    'Prima frase.',
+    'Seconda frase.',
+  ]);
+});
+
 test('reads every part of a long answer through to the end', async () => {
   completedAnswer.text = 'Questa frase fa parte della risposta completa. '.repeat(40).trim();
   render(<LessonPlayer {...props} autoPlay={false} />);
