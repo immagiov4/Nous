@@ -637,6 +637,13 @@ const UnifiedAudioPanel = ({
                   <PlaybackVoiceControl
                     tts={tts}
                     disabled={ttsDisabled}
+                    below={
+                      <PlaybackTimeline
+                        time={tts.currentTime}
+                        duration={tts.duration}
+                        onSeek={tts.onSeek}
+                      />
+                    }
                     leading={
                       <div className="flex shrink-0 items-center gap-0.5">
                         <button
@@ -909,6 +916,7 @@ export function PlaybackVoiceControl({
   compact = false,
   accessory,
   leading,
+  below,
 }: {
   tts: Pick<
     WorkspaceReaderTtsModel,
@@ -920,8 +928,14 @@ export function PlaybackVoiceControl({
   accessory?: ReactNode;
   /** Controls placed inside the same card, before the voice and speed. */
   leading?: ReactNode;
+  /**
+   * Content shown under the voice row instead of the speed slider; the speed label then
+   * opens the slider in a small menu.
+   */
+  below?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const displayedVoices: WorkspaceReaderVoiceOption[] = tts.availableVoices.some(
     voice => voice.id === tts.currentVoice
   )
@@ -972,16 +986,56 @@ export function PlaybackVoiceControl({
             </span>
           </div>
           {accessory}
-          <span className={`${PLAYBACK_RATE_LABEL_WIDTH} ml-auto shrink-0 text-right tabular-nums`}>
-            {playbackRateLabel}
-          </span>
+          {below ? (
+            <div className="relative ml-auto shrink-0">
+              <button
+                type="button"
+                aria-label={t('Velocita')}
+                aria-expanded={speedMenuOpen}
+                disabled={ttsDisabled}
+                onClick={() => setSpeedMenuOpen(!speedMenuOpen)}
+                className="flex items-center gap-1 rounded-full px-2 py-1 tabular-nums transition-colors hover:bg-gray-100 disabled:cursor-not-allowed dark:hover:bg-zinc-700"
+              >
+                {/* Fixed width: the widest label is "1.05x", so speed changes never shift the layout. */}
+                <span className={`${PLAYBACK_RATE_LABEL_WIDTH} text-right`}>
+                  {playbackRateLabel}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
+              </button>
+              <AnimatePresence>
+                {speedMenuOpen ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 4 }}
+                    transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
+                    className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+                  >
+                    <PlaybackSpeedControl
+                      isDisabled={ttsDisabled}
+                      onSpeedChange={tts.onSpeedChange}
+                      playbackRate={tts.playbackRate}
+                    />
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
+          ) : (
+            <span
+              className={`${PLAYBACK_RATE_LABEL_WIDTH} ml-auto shrink-0 text-right tabular-nums`}
+            >
+              {playbackRateLabel}
+            </span>
+          )}
         </div>
 
-        <PlaybackSpeedControl
-          isDisabled={ttsDisabled}
-          onSpeedChange={tts.onSpeedChange}
-          playbackRate={tts.playbackRate}
-        />
+        {below ?? (
+          <PlaybackSpeedControl
+            isDisabled={ttsDisabled}
+            onSpeedChange={tts.onSpeedChange}
+            playbackRate={tts.playbackRate}
+          />
+        )}
       </div>
     </fieldset>
   );
