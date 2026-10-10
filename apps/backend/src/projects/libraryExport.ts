@@ -15,7 +15,7 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
   type ProjectBackupAssetInput,
 } from '@shared/projectBackupArchive';
-import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
+import { collectProjectAssetReferences, omitProjectPlayback } from '@shared/projectBackupAssets';
 import { type LibraryExportConfig, readLibraryExportConfig } from './libraryExportConfig.js';
 import { LibraryExportCoordinator } from './libraryExportCoordinator.js';
 import {
@@ -202,8 +202,11 @@ export const createLibraryExportApi = ({
     ) {
       throw new Error('Project selected for library export changed after the run started.');
     }
-    const project = await runStep(() => projectStore.exportProject(userId, expectedProject.id));
-    if (!project) throw new Error('Project selected for library export was not found.');
+    const exportedProject = await runStep(() =>
+      projectStore.exportProject(userId, expectedProject.id)
+    );
+    if (!exportedProject) throw new Error('Project selected for library export was not found.');
+    const project = omitProjectPlayback(exportedProject);
     const assets: ProjectBackupAssetInput[] = [];
     for (const ref of collectProjectAssetReferences(project)) {
       const asset = await runStep(() =>

@@ -3,6 +3,7 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
 import type { LessonScene } from './lessonScene';
+import { getMarkdownMathRangeAt } from './markdownMathSyntax';
 import type { ProjectAssetRef } from './projectAsset';
 
 /** UTF-16 offsets, end exclusive. */
@@ -95,12 +96,12 @@ interface MarkdownChunk extends PlaybackRange {
   readonly kind: 'heading' | 'speech' | 'visual';
 }
 
-const HEADING_PREFIX = /^[ \t]*#{1,6}[ \t]+/u;
 const IMAGE_CHUNK = /^!\[[^\]\r\n]*\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)$/u;
 const PDF_IMAGE = /\{\{PDF_IMAGE:[^|{}]+(?:\|alt=[^|{}]*)?(?:\|caption=[^{}]*)?\}\}/gu;
 const markdownParser = unified().use(remarkParse).use(remarkGfm);
 
 interface MarkdownAnalysis {
+  readonly headings: PlaybackRange[];
   readonly visuals: PlaybackRange[];
   readonly inlineCode: PlaybackRange[];
   readonly omissions: PlaybackRange[];
@@ -118,6 +119,7 @@ interface MarkdownNode {
 
 const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   const analysis: MarkdownAnalysis = {
+    headings: [],
     visuals: [],
     inlineCode: [],
     omissions: [],
@@ -130,12 +132,41 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
       analysis.visuals.push({ start, end });
       return;
     }
+    if (node.type === 'heading') analysis.headings.push({ start, end });
     collectInlineRanges(node, markdown, analysis);
     if (node.children) for (const child of node.children) visit(child);
   };
   visit(markdownParser.parse(markdown) as MarkdownNode);
+  collectMathRanges(markdown, analysis);
   analysis.omissions.sort((left, right) => left.start - right.start);
+  analysis.inlineVisuals.sort((left, right) => left.start - right.start);
   return analysis;
+};
+
+const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void => {
+  const protectedRanges = [
+    ...analysis.visuals,
+    ...analysis.inlineCode,
+    ...analysis.inlineVisuals,
+  ].sort((left, right) => left.start - right.start);
+  let protectedIndex = 0;
+  let cursor = 0;
+  while (cursor < markdown.length) {
+    while (protectedRanges[protectedIndex]?.end <= cursor) protectedIndex += 1;
+    const protectedRange = protectedRanges[protectedIndex];
+    if (protectedRange && protectedRange.start <= cursor) {
+      cursor = protectedRange.end;
+      continue;
+    }
+    const mathRange = getMarkdownMathRangeAt(markdown, cursor);
+    if (mathRange && (!protectedRange || mathRange.end <= protectedRange.start)) {
+      analysis.omissions.push(mathRange);
+      analysis.inlineVisuals.push(mathRange);
+      cursor = mathRange.end;
+    } else {
+      cursor += 1;
+    }
+  }
 };
 
 const collectInlineRanges = (
@@ -157,7 +188,9 @@ const collectInlineRanges = (
       { start, end: start + delimiterLength },
       { start: end - delimiterLength, end }
     );
-  } else if (['emphasis', 'strong', 'delete', 'link', 'linkReference'].includes(node.type)) {
+  } else if (
+    ['heading', 'emphasis', 'strong', 'delete', 'link', 'linkReference'].includes(node.type)
+  ) {
     const first = node.children?.[0];
     const last = node.children?.at(-1);
     if (first && last) {
@@ -188,7 +221,8 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
   let end = 0;
   let structure = 'paragraph';
   let visualIndex = 0;
-  let visualEnd = 0;
+  let headingIndex = 0;
+  let consumedEnd = 0;
   const flush = () => {
     if (end <= start) return;
     const text = markdown.slice(start, end);
@@ -202,15 +236,15 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
     const text = line[0].replace(/[\r\n]+$/u, '');
     const lineStart = line.index;
     const lineEnd = lineStart + text.length;
-    if (lineStart < visualEnd) continue;
+    if (lineStart < consumedEnd) continue;
     const visual = analysis.visuals[visualIndex];
     if (visual && visual.start >= lineStart && visual.start <= lineEnd) {
       flush();
       chunks.push({ start: lineStart, end: visual.end, kind: 'visual' });
-      visualEnd = visual.end;
+      consumedEnd = visual.end;
       visualIndex += 1;
-      start = visualEnd;
-      end = visualEnd;
+      start = consumedEnd;
+      end = consumedEnd;
       continue;
     }
     if (!text.trim()) {
@@ -220,11 +254,14 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
       structure = 'paragraph';
       continue;
     }
-    if (HEADING_PREFIX.test(text)) {
+    const heading = analysis.headings[headingIndex];
+    if (heading && heading.start >= lineStart && heading.start <= lineEnd) {
       flush();
-      chunks.push({ start: lineStart, end: lineEnd, kind: 'heading' });
-      start = lineEnd;
-      end = lineEnd;
+      chunks.push({ start: lineStart, end: heading.end, kind: 'heading' });
+      consumedEnd = heading.end;
+      headingIndex += 1;
+      start = consumedEnd;
+      end = consumedEnd;
       structure = 'paragraph';
       continue;
     }
@@ -386,7 +423,7 @@ export const segmentLessonPlayback = (
         pendingHeadings.push(text);
         continue;
       }
-      if (!text.speech) {
+      if (!text.speech.trim()) {
         for (const visual of text.visuals) attachVisual(visual);
         continue;
       }

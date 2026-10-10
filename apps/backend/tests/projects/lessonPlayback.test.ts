@@ -107,6 +107,41 @@ describe('playback persistence and assets', () => {
     expect(buildLessonPlaybackKey(section)).not.toBe(referencedKey);
   });
   test.each([
+    'html',
+    'image',
+    'mermaid',
+    'svg',
+  ])('reads preserved historical %s visuals and hashes their content', kind => {
+    const section = playbackSection();
+    const visual = {
+      id: 'historical-visual',
+      title: 'Visuale storica',
+      createdAt: '2026-08-28T12:00:00Z',
+      kind,
+      code: 'Contenuto storico',
+    };
+    section.generatedVisuals = [visual];
+    section.contentBlocks = [
+      { type: 'markdown', markdown: 'Introduzione.' },
+      { type: 'generated-visual', slotId: 'historical-slot', visualId: visual.id },
+    ];
+    const canonical = canonicalizeLessonNodeContent(section);
+    const key = buildLessonPlaybackKey(canonical);
+    expect(readLessonPlayback(canonical)).toMatchObject({
+      lessonKey: key,
+      blocks: [
+        { speech: 'Introduzione.', visuals: [{ kind: 'generated-visual', visualId: visual.id }] },
+      ],
+    });
+    expect(canonical.generatedVisuals).toEqual([visual]);
+    expect(
+      buildLessonPlaybackKey({
+        ...canonical,
+        generatedVisuals: [{ ...visual, code: 'Modificato' }],
+      })
+    ).not.toBe(key);
+  });
+  test.each([
     true,
     false,
   ])('backup collection and import remap audio without requiring visuals (modules: %s)', modules => {
@@ -216,6 +251,21 @@ describe('playback persistence and assets', () => {
         },
       })
     ).toThrow();
+  });
+
+  test.each([
+    'image/png',
+    'audio/wav',
+    'audio/ogg',
+    'audio/mp3',
+  ])('rejects imported playback assets outside canonical MP3: %s', mediaType => {
+    const section = playbackSection();
+    const playback = preparedPlayback(section);
+    playback.blocks[0].audio[0].asset = { ...playbackAsset, mediaType };
+    section.playback = playback;
+    expect(() => canonicalizeLessonNodeContent(section)).toThrow();
+    expect(() => collectProjectAssetReferences(playbackProject(section))).toThrow();
+    expect(() => remapProjectAssetReferences(playbackProject(section), new Map())).toThrow();
   });
 
   test.each([
