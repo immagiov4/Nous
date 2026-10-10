@@ -110,6 +110,28 @@ test('prepares on play, waits for the first block, then prepares exactly one ahe
   expect(vi.mocked(prepareLessonPlayback).mock.calls[2][0].blockId).toBe('2');
 });
 
+test('a seek prepares its block at once instead of waiting for the preparation ahead', async () => {
+  const ahead = deferred<Awaited<ReturnType<typeof prepareLessonPlayback>>>();
+  vi.mocked(prepareLessonPlayback)
+    .mockResolvedValueOnce({ block: blocks[0] })
+    .mockReturnValueOnce(ahead.promise);
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(prepareLessonPlayback).toHaveBeenCalledTimes(2));
+  act(() => result.current.seek(25));
+  await waitFor(() => expect(prepareLessonPlayback).toHaveBeenCalledTimes(3));
+  expect(vi.mocked(prepareLessonPlayback).mock.calls[2][0].blockId).toBe('2');
+  await waitFor(() => expect(result.current.index).toBe(2));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(audio.play).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    ahead.resolve({ block: blocks[1] });
+  });
+  expect(result.current.blocks).toEqual(blocks);
+});
+
 test('refreshes a stale lesson key before retrying preparation', async () => {
   vi.mocked(getLessonPlayback)
     .mockResolvedValueOnce({ lessonKey: 'old', blocks })

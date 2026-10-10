@@ -17,6 +17,10 @@ import type { LessonLearningAid, LessonLearningAidKind } from '../../../types.ts
 import { createEntityId } from '../../../utils/ids.ts';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import {
+  READER_HEADER_PILL_CLASS_NAME,
+  READER_HEADER_PILL_IDLE_CLASS_NAME,
+} from './readerHeaderPill.ts';
 
 interface LearningAidsProps {
   readonly isDarkMode: boolean;
@@ -409,10 +413,10 @@ export function HeaderLearningAids({
         type="button"
         aria-expanded={isOpen}
         aria-label={t(isOpen ? 'Chiudi concetti chiave' : 'Apri concetti chiave')}
-        className={`inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
+        className={`${READER_HEADER_PILL_CLASS_NAME} ${
           isOpen
             ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100'
-            : 'border-gray-300 bg-transparent text-gray-500 shadow-none hover:border-gray-400 hover:text-gray-800 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-100'
+            : READER_HEADER_PILL_IDLE_CLASS_NAME
         }`}
         onClick={() => setIsOpen(current => !current)}
         title={t('Concetti chiave')}

@@ -37,6 +37,12 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'Ti ascolto… rilascia': 'Listening… release',
+  Spazio: 'Space',
+  'Tieni premuto': 'Hold',
+  'per fare una domanda a voce': 'to ask a question out loud',
+  'per inviare': 'to send',
+  'Sto trascrivendo la domanda…': 'Transcribing your question…',
   'Torna alla lezione': 'Back to the lesson',
   Riproduci: 'Play',
   'Visualizzazione della lezione': 'Lesson visual',
@@ -436,6 +442,9 @@ const ENGLISH_UI_MESSAGES = {
   'Nessun utente corrisponde alla ricerca.': 'No users match this search.',
   'Pagine utenti': 'User pages',
   'Pagine segnalazioni': 'Report pages',
+  Audio: 'Audio',
+  'Parte precedente': 'Previous part',
+  'Parte successiva': 'Next part',
   'Pagina precedente': 'Previous page',
   'Pagina successiva': 'Next page',
   'Pagina {currentPage}': 'Page {currentPage}',

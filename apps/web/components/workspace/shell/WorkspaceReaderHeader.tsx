@@ -3,6 +3,10 @@ import { memo, type ReactNode, useMemo, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
 import { HeaderLearningAids, MobileLearningAids } from './LessonLearningAids.tsx';
+import {
+  READER_HEADER_PILL_CLASS_NAME,
+  READER_HEADER_PILL_IDLE_CLASS_NAME,
+} from './readerHeaderPill.ts';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
@@ -43,14 +47,6 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const [isMobileLearningAidsOpen, setIsMobileLearningAidsOpen] = useState(false);
   const canRegenerate = hasActiveSection;
   const visibleLoadingStatus = isMobileViewport ? loadingStatus : loadingStatus.toUpperCase();
-  let regenerateAvailabilityClassName = '';
-  if (!canRegenerate || isLoading) {
-    regenerateAvailabilityClassName =
-      'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500';
-  } else if (!isMobileViewport) {
-    regenerateAvailabilityClassName =
-      'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300';
-  }
   let loadingBadge: ReactNode = null;
   if (isLoading) {
     loadingBadge = (
@@ -136,11 +132,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               type="button"
               onClick={onPlayLesson}
               disabled={!canRegenerate || isLoading}
-              className={`inline-flex items-center justify-center rounded-full border transition-colors ${
+              className={`disabled:cursor-not-allowed disabled:opacity-50 ${
                 isMobileViewport
-                  ? 'h-9 w-9 border-0 bg-transparent text-gray-400 hover:bg-black/5 hover:text-gray-600 dark:bg-transparent dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
-                  : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
-              } ${regenerateAvailabilityClassName}`}
+                  ? 'inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
+                  : `${READER_HEADER_PILL_CLASS_NAME} ${READER_HEADER_PILL_IDLE_CLASS_NAME}`
+              }`}
               title={t(
                 canRegenerate ? 'Riproduci la lezione corrente' : 'Apri una lezione per ascoltarla'
               )}
@@ -151,27 +147,6 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               {!isMobileViewport ? <span>{t('Riproduci')}</span> : null}
             </button>
           </div>
-
-          <MusicPlayer
-            isMobileViewport={isMobileViewport}
-            isOpen={isAudioOpen}
-            onToggle={open => {
-              setIsAudioOpen(open);
-              if (open) {
-                onSetSettingsOpen(false);
-                setIsMobileLearningAidsOpen(false);
-              }
-            }}
-            initialTab={lastAudioTab}
-            onTabChange={onSetLastAudioTab}
-            musicUrl={musicUrl}
-            setMusicUrl={onSetMusicUrl}
-            isMusicPlaying={isMusicPlaying}
-            setIsMusicPlaying={onSetIsMusicPlaying}
-            musicVolume={musicVolume}
-            setMusicVolume={onSetMusicVolume}
-            tts={tts}
-          />
 
           {isMobileViewport && hasActiveSection ? (
             <MobileLearningAids
@@ -200,6 +175,27 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
           {!isMobileViewport ? (
             <div className="mx-1 h-4 w-px bg-gray-300 dark:bg-zinc-600" />
           ) : null}
+
+          <MusicPlayer
+            isMobileViewport={isMobileViewport}
+            isOpen={isAudioOpen}
+            onToggle={open => {
+              setIsAudioOpen(open);
+              if (open) {
+                onSetSettingsOpen(false);
+                setIsMobileLearningAidsOpen(false);
+              }
+            }}
+            initialTab={lastAudioTab}
+            onTabChange={onSetLastAudioTab}
+            musicUrl={musicUrl}
+            setMusicUrl={onSetMusicUrl}
+            isMusicPlaying={isMusicPlaying}
+            setIsMusicPlaying={onSetIsMusicPlaying}
+            musicVolume={musicVolume}
+            setMusicVolume={onSetMusicVolume}
+            tts={tts}
+          />
 
           <button
             type="button"

@@ -1,90 +1,22 @@
 import { LoaderCircle, Mic, Square, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
-import {
-  requestSpeechTranscription,
-  type SttAudioFormat,
-} from '../../services/openrouter/sttClient.ts';
+import { type SpeechInputController, useSpeechInput } from '../../hooks/useSpeechInput.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 
-const MAX_SPEECH_RECORDING_MS = 90_000;
-const TEMPORARY_ERROR_DISMISS_MS = 8_000;
 const VIEWPORT_ERROR_ALERT_BOTTOM =
   'calc(max(1rem, env(safe-area-inset-bottom, 0px)) + var(--keyboard-inset, 0px))';
 
-const RECORDING_FORMATS: ReadonlyArray<{
-  format: SttAudioFormat;
-  mimeType: string;
-}> = [
-  { mimeType: 'audio/webm;codecs=opus', format: 'webm' },
-  { mimeType: 'audio/webm', format: 'webm' },
-  { mimeType: 'audio/ogg;codecs=opus', format: 'ogg' },
-  { mimeType: 'audio/mp4', format: 'm4a' },
-];
-
-type SpeechInputState = 'idle' | 'recording' | 'transcribing';
-type SpeechInputVariant = 'compact' | 'round';
-
-interface SpeechInputError {
-  autoDismiss: boolean;
-  message: string;
-  retryAvailable?: boolean;
-}
-
-interface FailedTranscription {
-  audio: Blob;
-  format: SttAudioFormat;
-}
-
 interface SpeechInputButtonProps {
+  readonly controller?: SpeechInputController;
   readonly disabled?: boolean;
   readonly errorPresentation?: 'inline' | 'viewport';
   readonly language?: string;
   readonly onTranscription: (text: string) => void;
-  readonly variant?: SpeechInputVariant;
+  readonly variant?: 'compact' | 'round';
 }
 
-const stopStreamTracks = (stream: MediaStream | null) => {
-  stream?.getTracks().forEach(track => {
-    track.stop();
-  });
-};
-
-const getMicrophoneError = (error: unknown): SpeechInputError => {
-  if (error instanceof DOMException && error.name === 'NotAllowedError') {
-    return {
-      autoDismiss: false,
-      message: t('Permesso microfono negato. Abilitalo nelle impostazioni del browser.'),
-    };
-  }
-
-  if (error instanceof DOMException && error.name === 'NotFoundError') {
-    return { autoDismiss: false, message: t('Nessun microfono disponibile.') };
-  }
-
-  if (error instanceof DOMException && error.name === 'NotReadableError') {
-    return {
-      autoDismiss: true,
-      message: t('Il microfono è occupato o non è temporaneamente disponibile. Riprova.'),
-    };
-  }
-
-  return {
-    autoDismiss: true,
-    message: t('Non riesco ad accedere al microfono. Riprova.'),
-  };
-};
-
-const selectRecordingFormat = () => {
-  const selectedFormat = RECORDING_FORMATS.find(({ mimeType }) =>
-    MediaRecorder.isTypeSupported(mimeType)
-  );
-
-  return selectedFormat || RECORDING_FORMATS[0];
-};
-
-const getButtonLabel = (state: SpeechInputState): string => {
+const getButtonLabel = (state: SpeechInputController['state']): string => {
   if (state === 'recording') {
     return t('Ferma e trascrivi');
   }
@@ -109,7 +41,7 @@ function SpeechErrorAlert({
   onRetry,
   presentation,
 }: Readonly<{
-  error: SpeechInputError;
+  error: NonNullable<SpeechInputController['speechInputError']>;
   onDismiss: () => void;
   onRetry: () => void;
   presentation: 'inline' | 'viewport';
@@ -151,206 +83,42 @@ function SpeechErrorAlert({
   );
 }
 
-export default function SpeechInputButton({
+export default function SpeechInputButton(props: SpeechInputButtonProps) {
+  if (props.controller) return <SpeechInputButtonView {...props} controller={props.controller} />;
+  return <LocalSpeechInputButton {...props} />;
+}
+
+function LocalSpeechInputButton(props: SpeechInputButtonProps) {
+  const controller = useSpeechInput(props);
+  return <SpeechInputButtonView {...props} controller={controller} />;
+}
+
+function SpeechInputButtonView({
   disabled = false,
   errorPresentation = 'inline',
-  language = getAppLocale(),
-  onTranscription,
   variant = 'round',
-}: SpeechInputButtonProps) {
-  const [state, setState] = useState<SpeechInputState>('idle');
-  const [speechInputError, setSpeechInputError] = useState<SpeechInputError | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const failedTranscriptionRef = useRef<FailedTranscription | null>(null);
-  const isMountedRef = useRef(true);
-  const onTranscriptionRef = useRef(onTranscription);
-
-  useEffect(() => {
-    onTranscriptionRef.current = onTranscription;
-  }, [onTranscription]);
-
-  useEffect(() => {
-    if (!speechInputError?.autoDismiss) {
-      return;
-    }
-
-    const timeout = globalThis.window.setTimeout(() => {
-      setSpeechInputError(null);
-    }, TEMPORARY_ERROR_DISMISS_MS);
-
-    return () => {
-      globalThis.window.clearTimeout(timeout);
-    };
-  }, [speechInputError]);
-
-  const clearRecordingTimeout = useCallback(() => {
-    if (recordingTimeoutRef.current) {
-      clearTimeout(recordingTimeoutRef.current);
-      recordingTimeoutRef.current = null;
-    }
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    clearRecordingTimeout();
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
-      recorder.stop();
-    }
-  }, [clearRecordingTimeout]);
-
-  const transcribeRecording = useCallback(
-    async ({ audio, format }: FailedTranscription) => {
-      setState('transcribing');
-      setSpeechInputError(null);
-
-      try {
-        const transcription = await requestSpeechTranscription(audio, format, language);
-        if (isMountedRef.current) {
-          failedTranscriptionRef.current = null;
-          onTranscriptionRef.current(transcription);
-        }
-      } catch {
-        if (isMountedRef.current) {
-          failedTranscriptionRef.current = { audio, format };
-          setSpeechInputError({
-            autoDismiss: false,
-            message: t('Trascrizione non riuscita. Puoi riprovare senza registrare di nuovo.'),
-            retryAvailable: true,
-          });
-        }
-      } finally {
-        if (isMountedRef.current) {
-          setState('idle');
-        }
-      }
-    },
-    [language]
-  );
-
-  const startRecording = useCallback(async () => {
-    setSpeechInputError(null);
-    failedTranscriptionRef.current = null;
-
-    if (globalThis.window.isSecureContext === false) {
-      setSpeechInputError({
-        autoDismiss: false,
-        message: t('Il microfono richiede una connessione sicura (HTTPS o localhost).'),
-      });
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setSpeechInputError({
-        autoDismiss: false,
-        message: t('La registrazione audio non è supportata da questo browser.'),
-      });
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!isMountedRef.current) {
-        stopStreamTracks(stream);
-        return;
-      }
-
-      const recordingFormat = selectRecordingFormat();
-      const recorder = new MediaRecorder(stream, { mimeType: recordingFormat.mimeType });
-      const audioChunks: Blob[] = [];
-
-      recorderRef.current = recorder;
-      streamRef.current = stream;
-      recorder.ondataavailable = event => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data);
-        }
-      };
-      recorder.onerror = () => {
-        recorder.onstop = null;
-        clearRecordingTimeout();
-        stopStreamTracks(stream);
-        recorderRef.current = null;
-        streamRef.current = null;
-        if (isMountedRef.current) {
-          setState('idle');
-          setSpeechInputError({
-            autoDismiss: true,
-            message: t('La registrazione si è interrotta. Riprova.'),
-          });
-        }
-      };
-      recorder.onstop = async () => {
-        clearRecordingTimeout();
-        stopStreamTracks(stream);
-        recorderRef.current = null;
-        streamRef.current = null;
-        if (!isMountedRef.current) {
-          return;
-        }
-
-        const audio = new Blob(audioChunks, { type: recorder.mimeType });
-        if (audio.size === 0) {
-          setState('idle');
-          setSpeechInputError({
-            autoDismiss: true,
-            message: t('Non ho rilevato audio. Riprova.'),
-          });
-          return;
-        }
-
-        await transcribeRecording({ audio, format: recordingFormat.format });
-      };
-
-      recorder.start();
-      setState('recording');
-      recordingTimeoutRef.current = setTimeout(() => {
-        if (recorder.state !== 'inactive') {
-          recorder.stop();
-        }
-      }, MAX_SPEECH_RECORDING_MS);
-    } catch (error) {
-      stopStreamTracks(streamRef.current);
-      streamRef.current = null;
-      recorderRef.current = null;
-      setState('idle');
-      setSpeechInputError(getMicrophoneError(error));
-    }
-  }, [clearRecordingTimeout, transcribeRecording]);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-
-    return () => {
-      isMountedRef.current = false;
-      clearRecordingTimeout();
-      const recorder = recorderRef.current;
-      if (recorder && recorder.state !== 'inactive') {
-        recorder.ondataavailable = null;
-        recorder.onstop = null;
-        recorder.stop();
-      }
-      stopStreamTracks(streamRef.current);
-    };
-  }, [clearRecordingTimeout]);
-
+  controller,
+}: SpeechInputButtonProps & { controller: SpeechInputController }) {
+  const {
+    state,
+    speechInputError,
+    startRecording,
+    stopRecording,
+    retryFailedTranscription,
+    dismissError,
+  } = controller;
   const isRecording = state === 'recording';
   const isTranscribing = state === 'transcribing';
   const buttonLabel = getButtonLabel(state);
-  const isButtonDisabled = isTranscribing || (disabled && !isRecording);
+  const isButtonDisabled = state === 'requesting' || isTranscribing || (disabled && !isRecording);
   const sizeClassName = variant === 'compact' ? 'h-8 w-8 rounded-xl' : 'h-10 w-10 rounded-full';
   const colorClassName = isRecording
     ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30'
     : 'text-stone-400 hover:bg-stone-100 hover:text-stone-600 disabled:text-stone-300 dark:text-stone-500 dark:hover:bg-zinc-700 dark:hover:text-stone-300 dark:disabled:text-stone-600';
-  const retryFailedTranscription = () => {
-    const failedTranscription = failedTranscriptionRef.current;
-    if (failedTranscription) void transcribeRecording(failedTranscription);
-  };
   const speechErrorAlert = speechInputError ? (
     <SpeechErrorAlert
       error={speechInputError}
-      onDismiss={() => setSpeechInputError(null)}
+      onDismiss={dismissError}
       onRetry={retryFailedTranscription}
       presentation={errorPresentation}
     />

@@ -11,6 +11,7 @@ import {
   MoreVertical,
   NotebookPen,
   Paperclip,
+  Square,
   X,
 } from 'lucide-react';
 import {
@@ -29,6 +30,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
+import type { SpeechInputController } from '../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
   ContextMenuPlacement,
@@ -50,11 +52,16 @@ import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechIn
 
 interface ContextMenuProps {
   readonly playbackComposer?: {
+    isMobileViewport?: boolean;
+    speech?: SpeechInputController;
+    listening?: boolean;
     value: string;
     noteMode: boolean;
     onChange: (value: string) => void;
     onToggleNote: () => void;
     onSubmit: () => void;
+    /** Set while an answer is generating: the empty field's send button stops it. */
+    onStopResponse?: () => void;
   };
   readonly anchorX?: number;
   readonly anchorY?: number;
@@ -1058,6 +1065,12 @@ const ContextMenu = ({
     changeInput(appendSpeechTranscription(displayedInput, transcription));
   };
 
+  const showSpeechInput =
+    !trimmedInput ||
+    playbackComposer?.isMobileViewport ||
+    playbackComposer?.listening ||
+    (playbackComposer?.speech &&
+      (playbackComposer.speech.state !== 'idle' || playbackComposer.speech.speechInputError));
   const renderSelectionDesktop = () => (
     <div className="space-y-2">
       <div className="flex items-center gap-2.5">
@@ -1081,7 +1094,7 @@ const ContextMenu = ({
         ) : null}
 
         <form
-          className={`${playbackComposer ? 'transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none' : ''} ${playbackComposer?.noteMode ? '!items-end !border-amber-700/50 ring-4 ring-amber-700/15' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
+          className={`${playbackComposer ? 'transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none' : ''} ${playbackComposer?.listening ? '!border-orange-300 ring-4 ring-orange-500/10' : ''} ${playbackComposer?.noteMode ? '!items-end !border-amber-700/50 ring-4 ring-amber-700/15' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
           onSubmit={handleAskSubmit}
         >
           <div
@@ -1089,14 +1102,39 @@ const ContextMenu = ({
             style={
               playbackComposer
                 ? {
-                    height: playbackComposer.noteMode
-                      ? `calc(${PLAYBACK_NOTE_ROWS}lh + 1.25rem)`
-                      : '2.5rem',
+                    height:
+                      playbackComposer.noteMode && !playbackComposer.listening
+                        ? `calc(${PLAYBACK_NOTE_ROWS}lh + 1.25rem)`
+                        : '2.5rem',
                   }
                 : undefined
             }
           >
-            {playbackComposer?.noteMode ? (
+            {playbackComposer?.listening ? (
+              <motion.output
+                initial={{ opacity: shouldAnimate ? 0 : 1 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+                className="flex h-10 items-center gap-3 px-3.5 text-sm font-normal text-stone-600 dark:text-stone-200"
+              >
+                <span
+                  aria-hidden="true"
+                  className="lesson-question-wave flex items-center gap-0.5 text-orange-500"
+                >
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span>
+                  {t('Ti ascolto… rilascia')} <span className="font-semibold">{t('Spazio')}</span>{' '}
+                  {t('per inviare')}
+                </span>
+              </motion.output>
+            ) : playbackComposer?.noteMode ? (
               <motion.textarea
                 initial={{ opacity: shouldAnimate ? 0 : 1 }}
                 animate={{ opacity: 1 }}
@@ -1124,9 +1162,10 @@ const ContextMenu = ({
             )}
           </div>
 
-          {!trimmedInput || playbackComposer ? (
+          {showSpeechInput ? (
             <div className={isLessonMode ? 'mr-1.5' : ''}>
               <SpeechInputButton
+                controller={playbackComposer?.speech}
                 disabled={isLoading}
                 errorPresentation={isMobileSheet ? 'viewport' : 'inline'}
                 onTranscription={handleSpeechTranscription}
@@ -1134,7 +1173,17 @@ const ContextMenu = ({
               />
             </div>
           ) : null}
-          {trimmedInput || playbackComposer ? (
+          {playbackComposer?.onStopResponse && !trimmedInput ? (
+            <button
+              type="button"
+              onClick={playbackComposer.onStopResponse}
+              aria-label={t('Annulla')}
+              title={t('Annulla')}
+              className={`${askButtonClassName} motion-reduce:transition-none`}
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+          ) : trimmedInput || playbackComposer ? (
             <button
               type="submit"
               data-context-menu-target="submit"
@@ -1151,7 +1200,7 @@ const ContextMenu = ({
             </button>
           ) : null}
 
-          {shouldShowToolbarNoteButton ? (
+          {shouldShowToolbarNoteButton && !playbackComposer?.listening ? (
             <button
               type="button"
               onClick={handleToggleNoteEditor}

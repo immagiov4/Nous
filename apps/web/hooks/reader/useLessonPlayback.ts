@@ -82,11 +82,22 @@ export function useLessonPlayback({
   }, []);
 
   const prepare = useCallback(
-    (blockIndex: number, requestedVoice: string, epoch: number) => {
+    ({
+      blockIndex,
+      requestedVoice,
+      epoch,
+      background,
+    }: {
+      blockIndex: number;
+      requestedVoice: string;
+      epoch: number;
+      /** Prefetches wait in line; the block about to play starts at once. */
+      background: boolean;
+    }) => {
       const controller = lifetime.current;
       if (!controller) throw new Error('Playback session is not mounted');
       const signal = controller.signal;
-      const task = queue.current.then(async () => {
+      const task = (background ? queue.current : Promise.resolve()).then(async () => {
         signal.throwIfAborted();
         if (epoch !== intent.current.epoch) return null;
         const target = { projectId, sectionId };
@@ -133,23 +144,24 @@ export function useLessonPlayback({
           playback = await getLessonPlayback(target, signal);
           result = await request();
         }
-        {
-          const preparedBlock = result.block;
-          playback = {
-            ...playback,
-            blocks: playback.blocks.map(block =>
-              block.id === preparedBlock.id ? preparedBlock : block
-            ),
-          };
-        }
         signal.throwIfAborted();
-        ready.current.set(cacheKey(), result.block);
+        const preparedBlock = result.block;
+        // Preparations can overlap: merge into the latest lesson so a parallel one is not lost.
+        const base =
+          playbackRef.current?.lessonKey === playback.lessonKey ? playbackRef.current : playback;
+        playback = {
+          ...base,
+          blocks: base.blocks.map(block => (block.id === preparedBlock.id ? preparedBlock : block)),
+        };
+        ready.current.set(cacheKey(), preparedBlock);
         playbackRef.current = playback;
         setBlocks(playback.blocks);
         return playback.blocks[blockIndex];
       });
-      // A failed preparation releases the queue; the learner can retry the same block.
-      queue.current = task.catch(() => undefined);
+      if (background) {
+        // A failed preparation releases the queue; the learner can retry the same block.
+        queue.current = task.catch(() => undefined);
+      }
       return task;
     },
     [getAudio, projectId, sectionId]
@@ -177,7 +189,7 @@ export function useLessonPlayback({
       audio.pause();
       loadedVoice.current = null;
       try {
-        const block = await prepare(blockIndex, requestedVoice, epoch);
+        const block = await prepare({ blockIndex, requestedVoice, epoch, background: false });
         if (!block || epoch !== intent.current.epoch) return;
         const recording = block.audio.find(candidate => candidate.voice === requestedVoice);
         if (!recording) throw new Error('Prepared playback audio missing');
@@ -205,7 +217,12 @@ export function useLessonPlayback({
           }
           setPlaying(true);
           if (blockIndex + 1 < (playbackRef.current?.blocks.length ?? 0)) {
-            void prepare(blockIndex + 1, requestedVoice, epoch).catch(error => {
+            void prepare({
+              blockIndex: blockIndex + 1,
+              requestedVoice,
+              epoch,
+              background: true,
+            }).catch(error => {
               if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
               console.error('Lesson playback preparation failed', error);
               setFailed(true);
@@ -241,7 +258,12 @@ export function useLessonPlayback({
       setFailed(false);
       const next = intent.current.index + 1;
       if (next < (playbackRef.current?.blocks.length ?? 0)) {
-        void prepare(next, latest.current.voice, intent.current.epoch).catch(error => {
+        void prepare({
+          blockIndex: next,
+          requestedVoice: latest.current.voice,
+          epoch: intent.current.epoch,
+          background: true,
+        }).catch(error => {
           if (lifetime.current?.signal.aborted) return;
           console.error('Lesson playback preparation failed', error);
           setFailed(true);

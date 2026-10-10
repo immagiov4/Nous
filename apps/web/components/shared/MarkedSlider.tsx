@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 
-const THUMB_SIZE_PX = 40;
+const THUMB_SIZE_PX = 32;
 const getThumbCenterOffset = (progressPercent: number): number =>
   THUMB_SIZE_PX * (0.5 - progressPercent / 100);
 
@@ -39,7 +39,7 @@ export function MarkedSlider({
   const progressPercent = (stepIndex / stepCount) * 100;
   const fillOffset = getThumbCenterOffset(progressPercent);
   return (
-    <div className={`relative h-9 w-full ${disabled ? 'opacity-50' : ''}`}>
+    <div className={`relative h-7 w-full ${disabled ? 'opacity-50' : ''}`}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 overflow-hidden rounded-full bg-gray-200 dark:bg-zinc-700"
@@ -78,7 +78,7 @@ export function MarkedSlider({
         step={step}
         value={value}
         disabled={disabled}
-        className="absolute inset-0 z-10 m-0 h-9 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-9 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:-mt-0.5 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-300 motion-safe:[&::-moz-range-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-110 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-300 motion-safe:[&::-webkit-slider-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-110 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
+        className="absolute inset-0 z-10 m-0 h-7 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-not-allowed [&::-moz-range-thumb]:box-border [&::-moz-range-thumb]:h-8 [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-gray-200 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:h-7 [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-7 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:-mt-0.5 [&::-webkit-slider-thumb]:h-8 [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-gray-200 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md motion-safe:[&::-moz-range-thumb]:delay-100 motion-safe:[&::-moz-range-thumb]:duration-300 motion-safe:[&::-moz-range-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-moz-range-thumb]:transition-transform motion-safe:[&::-moz-range-thumb:hover]:delay-0 motion-safe:[&::-moz-range-thumb:hover]:scale-110 motion-safe:[&::-webkit-slider-thumb]:delay-100 motion-safe:[&::-webkit-slider-thumb]:duration-300 motion-safe:[&::-webkit-slider-thumb]:ease-[cubic-bezier(0.22,1,0.36,1)] motion-safe:[&::-webkit-slider-thumb]:transition-transform motion-safe:[&::-webkit-slider-thumb:hover]:delay-0 motion-safe:[&::-webkit-slider-thumb:hover]:scale-110 dark:[&::-moz-range-thumb]:border-zinc-600 dark:[&::-moz-range-thumb]:bg-zinc-100 dark:[&::-webkit-slider-thumb]:border-zinc-600 dark:[&::-webkit-slider-thumb]:bg-zinc-100"
       />
     </div>
   );
