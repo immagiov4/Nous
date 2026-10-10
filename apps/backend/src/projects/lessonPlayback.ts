@@ -101,8 +101,10 @@ export const reconcileLessonPlayback = (
     if (!section.playback && !before?.playback) return section;
     const key = buildLessonPlaybackKey(section);
     let playback = section.playback;
-    if (before && !playbackWrite) {
-      playback = buildLessonPlaybackKey(before) === key ? before.playback : undefined;
+    // Only the server prepares playback: ordinary writes keep the stored data and never accept
+    // client-supplied playback, including on a new project or section.
+    if (!playbackWrite) {
+      playback = before && buildLessonPlaybackKey(before) === key ? before.playback : undefined;
     }
     if (playback?.lessonKey !== key) playback = undefined;
     const { playback: _previousPlayback, ...rest } = section;
