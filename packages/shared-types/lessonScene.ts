@@ -1,3 +1,5 @@
+import { cueTimes, playbackMode } from './lessonSceneAnimation';
+
 /**
  * Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed
  * catalog of forms. The model fills content; the reader components own geometry and style, so
@@ -7,7 +9,8 @@
  * them back to the model as corrective feedback and the persistence layer can reject bad data.
  */
 
-export const LESSON_SCENE_TYPES = [
+/** The original catalog also identifies the durable contract deployed before animated scenes. */
+export const STATIC_LESSON_SCENE_TYPES = [
   'definition',
   'parts',
   'signals',
@@ -45,6 +48,12 @@ export const LESSON_SCENE_TYPES = [
   'journey',
 ] as const;
 
+export const LESSON_SCENE_TYPES = [
+  ...STATIC_LESSON_SCENE_TYPES,
+  'proportional',
+  'guided-path',
+] as const;
+
 export type LessonSceneType = (typeof LESSON_SCENE_TYPES)[number];
 
 /** Selection rule for each form; the model reads it before choosing. */
@@ -66,6 +75,7 @@ export const LESSON_SCENE_CATALOG: Readonly<Record<LessonSceneType, string>> = {
   distribution: 'SOLO osservazioni quantitative o frequenze esplicite nel testo.',
   donut: 'SOLO quantità esplicite che compongono un totale noto.',
   flowchart: 'Azioni, decisioni e diramazioni con condizioni esplicite.',
+  'guided-path': 'Un percorso esplicito da seguire gradualmente, una tappa alla volta.',
   hierarchy: 'Un concetto superiore e sottoinsiemi espliciti.',
   hypothesis: 'Una domanda verificabile e modi di controllarla.',
   interval: 'SOLO una stima numerica e limiti dichiarati nel testo.',
@@ -77,6 +87,7 @@ export const LESSON_SCENE_CATALOG: Readonly<Record<LessonSceneType, string>> = {
   network: 'Più fattori che contribuiscono a uno stesso concetto.',
   number: 'SOLO una quantità esplicita nel testo con unità; mai statistiche inventate.',
   parts: 'Un concetto composto da 2–4 parti.',
+  proportional: 'Una quantità cresce per unità uguali, con dati e limiti dichiarati nel testo.',
   quote: 'Una citazione o domanda esatta, utile per soffermarsi.',
   roles: '2–3 persone con ruoli distinti.',
   sequence: 'Messaggi ordinati tra partecipanti: chiamate, risposte ed eventi distinti.',
@@ -194,7 +205,32 @@ export interface LessonSceneDiagram {
   readonly nodes: LessonSceneDiagramNode[];
 }
 
+export interface LessonSceneCue {
+  readonly anchor?: string;
+  readonly value: number;
+}
+
+export interface LessonScenePathStep {
+  readonly anchor?: string;
+  readonly label: string;
+  readonly detail: string;
+}
+
 export interface LessonScene {
+  readonly autoplay?: boolean;
+  readonly durationMs?: number;
+  readonly narration?: string;
+  readonly inputLabel?: string;
+  readonly unitLabel?: string;
+  readonly min?: number;
+  readonly max?: number;
+  readonly initial?: number;
+  readonly amountPerUnit?: number;
+  readonly outputUnit?: string;
+  readonly outputLabel?: string;
+  readonly assumption?: string;
+  readonly cues?: LessonSceneCue[];
+  readonly steps?: LessonScenePathStep[];
   readonly body: string;
   readonly criteria?: string[];
   readonly diagram?: LessonSceneDiagram;
@@ -206,6 +242,32 @@ export interface LessonScene {
   readonly title: string;
   readonly type: LessonSceneType;
 }
+
+export interface ProportionalLessonScene extends LessonScene {
+  readonly type: 'proportional';
+  readonly autoplay: boolean;
+  readonly inputLabel: string;
+  readonly unitLabel: string;
+  readonly min: number;
+  readonly max: number;
+  readonly initial: number;
+  readonly amountPerUnit: number;
+  readonly outputUnit: string;
+  readonly outputLabel: string;
+  readonly assumption: string;
+}
+
+export interface GuidedPathLessonScene extends LessonScene {
+  readonly type: 'guided-path';
+  readonly autoplay: boolean;
+  readonly steps: LessonScenePathStep[];
+}
+
+export type AnimatedLessonScene = ProportionalLessonScene | GuidedPathLessonScene;
+
+/** Callers supply validated scenes; the form identifies its animation contract. */
+export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>
+  scene.type === 'proportional' || scene.type === 'guided-path';
 
 /** Quote and decision forms use quote as their main content, rather than a closing question. */
 export const hasConflictingLessonSceneClosingText = (scene: LessonScene): boolean =>
@@ -545,6 +607,86 @@ const findShapeProblems = (scene: Record<string, unknown>, type: LessonSceneType
   return [];
 };
 
+const findAnimatedSceneProblems = (
+  scene: Record<string, unknown>,
+  source: string | undefined
+): string[] => {
+  const problems: string[] = [];
+  if (typeof scene.autoplay !== 'boolean') problems.push('Autoplay must be explicit.');
+  if (
+    scene.durationMs !== undefined &&
+    (typeof scene.durationMs !== 'number' ||
+      !Number.isFinite(scene.durationMs) ||
+      scene.durationMs <= 0)
+  ) {
+    problems.push('Invalid duration.');
+  }
+  if (scene.type === 'proportional') {
+    const { min, max, initial, amountPerUnit } = scene;
+    if (
+      ![min, max, initial].every(Number.isInteger) ||
+      (min as number) < 1 ||
+      (max as number) < (min as number) ||
+      (initial as number) < (min as number) ||
+      (initial as number) > (max as number)
+    )
+      problems.push('Invalid quantity bounds.');
+    if (
+      typeof amountPerUnit !== 'number' ||
+      !Number.isFinite(amountPerUnit) ||
+      amountPerUnit <= 0
+    ) {
+      problems.push('Invalid unit amount.');
+    }
+    if (
+      ['inputLabel', 'unitLabel', 'outputUnit', 'outputLabel', 'assumption'].some(
+        key => typeof scene[key] !== 'string' || !(scene[key] as string).trim()
+      )
+    )
+      problems.push('Missing quantity label.');
+    if (
+      scene.cues !== undefined &&
+      (!Array.isArray(scene.cues) ||
+        scene.cues.some(
+          cue =>
+            !isRecord(cue) ||
+            typeof cue.value !== 'number' ||
+            (cue.anchor !== undefined && typeof cue.anchor !== 'string')
+        ))
+    )
+      problems.push('Invalid quantity cues.');
+  } else if (
+    !Array.isArray(scene.steps) ||
+    scene.steps.length < 2 ||
+    scene.steps.some(
+      step =>
+        !isRecord(step) ||
+        typeof step.label !== 'string' ||
+        !step.label.trim() ||
+        typeof step.detail !== 'string' ||
+        !step.detail.trim() ||
+        (step.anchor !== undefined && typeof step.anchor !== 'string')
+    )
+  )
+    problems.push('Invalid path.');
+  if (scene.narration !== undefined && typeof scene.narration !== 'string') {
+    problems.push('Narration must be text.');
+  }
+  if (problems.length) return problems;
+  const animated = scene as unknown as AnimatedLessonScene;
+  const narration = source ?? animated.narration;
+  // Stored scenes may carry only anchors; exactness can be checked when lesson text is available.
+  if (narration !== undefined && playbackMode(animated) === 'text') {
+    try {
+      cueTimes(narration, animated.type === 'guided-path' ? animated.steps : (animated.cues ?? []));
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      problems.push(error.message);
+    }
+  }
+  return problems;
+};
+
 /**
  * Returns every contract violation of a scene. With `source`, quotations, quantities, relations,
  * and diagram connections must also be grounded in that lesson text.
@@ -566,6 +708,17 @@ export const findLessonSceneProblems = (value: unknown, source?: string): string
     source !== undefined && value.quote && !source.includes(value.quote as string)
       ? ['The quote must be copied exactly from the lesson.']
       : [];
+  if (type === 'proportional' || type === 'guided-path') {
+    return [
+      ...findAnimatedSceneProblems(value, source),
+      ...((value.items as unknown[]).length || (value.groups as unknown[]).length
+        ? [
+            'Animated forms keep their content in quantity parameters or steps: items and groups must be empty.',
+          ]
+        : []),
+      ...quoteProblems,
+    ];
+  }
   if (LESSON_SCENE_DIAGRAM_TYPES.has(type)) {
     // The renderer draws only the diagram, so items or groups would be silently dropped.
     const unusedContent =

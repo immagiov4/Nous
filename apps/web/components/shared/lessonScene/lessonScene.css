@@ -1507,3 +1507,254 @@
 .lesson-scene .type-sequence .visual-content {
   margin-top: 18px;
 }
+
+/* Animated cards retain interactive.css geometry and inherit the scene color roles. */
+.lesson-scene.lesson-scene-animated {
+  padding: 0;
+  border: 0;
+}
+.lesson-scene.lesson-scene-animated .scene.interaction-card {
+  animation: none;
+  --interaction-gap: 24px;
+  --interaction-transition: 300ms;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 32px;
+}
+.lesson-scene.lesson-scene-animated .scene.interaction-card h2 {
+  font-weight: 650;
+  line-height: 1.12;
+  max-width: none;
+  text-wrap: wrap;
+  font-size: 28px;
+  letter-spacing: -0.04em;
+  margin: 10px 0;
+}
+.lesson-scene.lesson-scene-animated .scene.interaction-card header p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .meaning-icon {
+  background: currentColor;
+  mask-image: var(--icon-url);
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  -webkit-mask-image: var(--icon-url);
+  -webkit-mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  stroke: none;
+  fill: none;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-layout {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  align-items: center;
+  gap: var(--interaction-gap);
+  margin: 32px 0;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .replica-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .replica {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--paper);
+  transition:
+    background-color var(--interaction-transition),
+    border-color var(--interaction-transition);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .replica > * {
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--interaction-transition),
+    transform var(--interaction-transition);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .replica.present {
+  background: var(--tint);
+  border-color: var(--blue);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .replica.present > * {
+  opacity: 1;
+  transform: none;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .replica strong {
+  font-size: 15px;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .replica > span:last-child {
+  font-size: 11px;
+  color: var(--muted);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .server-symbol {
+  color: var(--blue);
+  font-size: 24px;
+  line-height: 1;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-result {
+  padding: 24px;
+  text-align: center;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-result > span {
+  font-size: 14px;
+  color: var(--muted);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-result > strong {
+  display: block;
+  font-size: 54px;
+  letter-spacing: -0.05em;
+  margin: 10px 0;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-result small {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .formula {
+  font-size: 16px;
+  color: var(--muted);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .guided-stops {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  padding: 0;
+  margin: 36px 0 24px;
+  gap: 20px;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .guided-stops li {
+  position: relative;
+  min-width: 0;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .guided-stops li:not(:last-child):after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 2px;
+  background: var(--muted);
+  top: 50%;
+  left: 100%;
+  border-radius: 2px;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop {
+  display: flex;
+  width: 100%;
+  min-height: 114px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 8px;
+  border: 2px solid transparent;
+  border-radius: 18px;
+  background: var(--paper);
+  transition:
+    border-color var(--interaction-transition),
+    background var(--interaction-transition);
+  font: inherit;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop.current {
+  border-color: var(--blue);
+  background: var(--tint);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .stop-number {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 13px;
+  transition:
+    background-color var(--interaction-transition),
+    color var(--interaction-transition);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .current .stop-number,
+.lesson-scene.lesson-scene-animated .interaction-card .visited .stop-number {
+  background: var(--blue);
+  color: var(--surface);
+}
+.lesson-scene.lesson-scene-animated .interaction-card .guided-stops strong {
+  font-size: 15px;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .path-explanation {
+  background: var(--paper);
+  border-radius: 16px;
+  padding: 22px;
+  min-height: 112px;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .path-position {
+  font-size: 12px;
+  color: var(--blue);
+  font-weight: 600;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .path-explanation p {
+  font-size: 19px;
+  line-height: 1.4;
+  margin-top: 8px;
+}
+@media (max-width: 600px) {
+  .lesson-scene.lesson-scene-animated .scene.interaction-card {
+    --interaction-gap: 24px;
+    --interaction-transition: 300ms;
+    padding: 24px 18px;
+  }
+  .lesson-scene.lesson-scene-animated .scene.interaction-card h2 {
+    font-size: 24px;
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .quantity-layout {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin: 24px 0;
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .quantity-result {
+    padding: 8px;
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .quantity-result > strong {
+    font-size: 44px;
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .guided-stops {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    margin-top: 24px;
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .guided-stops .guided-stop {
+    min-height: 62px;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 12px 18px;
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .guided-stops li:not(:last-child):after {
+    width: 2px;
+    height: 14px;
+    top: 100%;
+    left: 33px;
+  }
+  .lesson-scene.lesson-scene-animated .interaction-card .path-explanation {
+    min-height: 140px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-scene.lesson-scene-animated .scene.interaction-card {
+    --interaction-transition: 0ms;
+  }
+}
+.lesson-scene.lesson-scene-animated .interaction-card .server-symbol .meaning-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  background: currentColor;
+  mask: var(--icon-url) center / contain no-repeat;
+  -webkit-mask: var(--icon-url) center / contain no-repeat;
+}

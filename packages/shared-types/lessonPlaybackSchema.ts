@@ -5,6 +5,7 @@ import {
   LESSON_SCENE_RELATION_KINDS,
   LESSON_SCENE_TYPES,
   LESSON_SCENE_VERDICTS,
+  STATIC_LESSON_SCENE_TYPES,
 } from './lessonScene';
 import type { ProjectAssetRef } from './projectAsset';
 
@@ -16,9 +17,35 @@ export const ProjectAssetRefSchema: z.ZodType<ProjectAssetRef> = z.object({
 });
 const LessonSceneIconSlotSchema = z.string();
 
+/** Prototype scene data shared by generation and durable storage; formulas remain in the renderer. */
+export const LessonSceneAnimationShape = {
+  autoplay: z.boolean().optional(),
+  durationMs: z.number().positive().optional(),
+  narration: z.string().optional(),
+  inputLabel: z.string().optional(),
+  unitLabel: z.string().optional(),
+  min: z.number().int().positive().optional(),
+  max: z.number().int().positive().optional(),
+  initial: z.number().int().positive().optional(),
+  amountPerUnit: z.number().positive().optional(),
+  outputUnit: z.string().optional(),
+  outputLabel: z.string().optional(),
+  assumption: z.string().optional(),
+  cues: z.array(z.object({ anchor: z.string().optional(), value: z.number() })).optional(),
+  steps: z
+    .array(
+      z.object({
+        anchor: z.string().optional(),
+        label: z.string(),
+        detail: z.string(),
+      })
+    )
+    .optional(),
+};
+
 // Structural only: durable schemas admit no custom checks. The scene generation step validates the
 // full contract with findLessonSceneProblems before a scene enters workflow state.
-export const LessonSceneSchema = z.object({
+export const PreAnimatedLessonSceneSchema = z.object({
   body: z.string(),
   criteria: z.array(z.string()).optional(),
   diagram: z
@@ -64,6 +91,11 @@ export const LessonSceneSchema = z.object({
     })
     .optional(),
   title: z.string(),
+  type: z.enum(STATIC_LESSON_SCENE_TYPES),
+});
+
+export const LessonSceneSchema = PreAnimatedLessonSceneSchema.extend({
+  ...LessonSceneAnimationShape,
   type: z.enum(LESSON_SCENE_TYPES),
 });
 
@@ -110,6 +142,19 @@ export const LessonPlaybackBlockSchema = z.object({
   ),
   prepared: PlaybackPreparedSchema.optional(),
   audio: z.array(PlaybackAudioSchema),
+});
+
+export const PreAnimatedLessonPlaybackBlockSchema = LessonPlaybackBlockSchema.extend({
+  prepared: PlaybackPreparedSchema.extend({
+    scene: PreAnimatedLessonSceneSchema.optional(),
+  }).optional(),
+  visuals: z.array(
+    z.union([
+      LessonPlaybackBlockSchema.shape.visuals.element.options[0],
+      LessonPlaybackBlockSchema.shape.visuals.element.options[1],
+      z.object({ kind: z.literal('scene'), scene: PreAnimatedLessonSceneSchema }),
+    ])
+  ),
 });
 
 export const LessonPlaybackSchema = z.object({

@@ -1,5 +1,6 @@
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
   findLessonSceneProblems,
   hasConflictingLessonSceneClosingText,
@@ -11,7 +12,9 @@ import {
   LESSON_SCENE_TYPES,
   LESSON_SCENE_VERDICTS,
   type LessonScene,
+  type LessonSceneType,
 } from '@shared/lessonScene';
+import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
 import { LESSON_SCENE_CLOSING_TEXT_RULE } from '@shared/lessonVisualContracts';
 import * as z from 'zod';
 
@@ -35,6 +38,7 @@ export type LessonSceneOutcome =
   | { readonly kind: 'invalid'; readonly problems: readonly string[] };
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
+  readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
 };
 
@@ -94,19 +98,19 @@ const SceneDraftSchema = z.strictObject({
     })
     .nullable(),
   diagram: SceneDiagramSchema.nullable(),
+  ...LessonSceneAnimationShape,
+  cues: z.array(LessonSceneAnimationShape.cues.unwrap().element.strict()).optional(),
+  steps: z.array(LessonSceneAnimationShape.steps.unwrap().element.strict()).optional(),
 });
 
 type SceneDraft = z.infer<typeof SceneDraftSchema>;
 
-const { $schema: _dialect, ...SCENE_OUTPUT_SCHEMA } = z.toJSONSchema(SceneDraftSchema) as Record<
-  string,
-  unknown
->;
+const catalogText = (types: readonly LessonSceneType[]): string =>
+  types.map(type => `- ${type}: ${LESSON_SCENE_CATALOG[type]}`).join('\n');
 
-const catalogText = (): string =>
-  LESSON_SCENE_TYPES.map(type => `- ${type}: ${LESSON_SCENE_CATALOG[type]}`).join('\n');
-
-const SCENE_SYSTEM_PROMPT = `Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language.
+const sceneSystemPrompt = (
+  types: readonly LessonSceneType[]
+) => `Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (definition, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language.
 
 FIELDS
 - intent: one concrete sentence about the reader's task; never shown.
@@ -120,6 +124,12 @@ FIELDS
 - criteria: row labels for matrix, otherwise [].
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. Never write SVG, coordinates, CSS, or Mermaid code.
+- proportional: items and groups []; supply autoplay, optional durationMs, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
+- guided-path: items and groups []; supply autoplay, optional durationMs, and steps: at least two {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
+- Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration, when supplied, quotes the lesson; anchors are exact quotations of the lesson text. Supply data only, never formulas, scripts, CSS, coordinates, or animation code.
+
+ANIMATED SCENE SELECTION
+${interactiveSelectionRules}
 
 CLOSING TEXT
 ${LESSON_SCENE_CLOSING_TEXT_RULE}
@@ -133,13 +143,13 @@ Use 2 to 4 elements when needed; never fill space. A label identifies a concept;
 FORMS
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side in one form (checklist, parts, grid); only steps the lesson explicitly orders become steps or a sequence. Never chain parallel items as consecutive steps.
 - definition: the defining sentence in body and attributes in items; a condition common to all attributes goes in body once. checklist: concrete questions in labels. limits: two items meaning "Shows" and "Does not prove", in the lesson language. roles: people as items with a neutral profile. quote: only the exact quotation or question, in quote, with body "". steps: strictly ordered actions, not alternatives.
-- comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other forms need at least two items, except quote, number, flowchart, sequence, and journey; those three diagram forms keep all content in diagram, with items and groups [].
+- comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other forms need at least two items, except quote, number, flowchart, sequence, journey, proportional, and guided-path; diagram and animated forms keep items and groups [].
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
 
 CATALOG
-${catalogText()}
+${catalogText(types)}
 
 Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Can the closing text be omitted without losing necessary meaning? If yes, leave it empty.`;
 
@@ -169,6 +179,11 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 };
 
 const toScene = (draft: SceneDraft): LessonScene => ({
+  ...Object.fromEntries(
+    Object.keys(LessonSceneAnimationShape)
+      .filter(key => draft[key as keyof SceneDraft] !== undefined)
+      .map(key => [key, draft[key as keyof SceneDraft]])
+  ),
   body: draft.body,
   ...(draft.criteria.length ? { criteria: draft.criteria } : {}),
   ...(draft.diagram && LESSON_SCENE_DIAGRAM_TYPES.has(draft.type)
@@ -229,21 +244,26 @@ export const generateLessonScene = async (
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
   const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
+  // A resumed workflow must generate within the catalog admitted by its saved contract.
+  const schema = input.allowedSceneTypes
+    ? SceneDraftSchema.extend({ type: z.enum(input.allowedSceneTypes) })
+    : SceneDraftSchema;
+  const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
   const response = await generateStructuredOutput<unknown>({
     config,
-    output: { name: 'lesson_scene', schema: SCENE_OUTPUT_SCHEMA },
+    output: { name: 'lesson_scene', schema: outputSchema },
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${SCENE_SYSTEM_PROMPT}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(input.allowedSceneTypes ?? LESSON_SCENE_TYPES)}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
     return null;
   });
-  const parsed = SceneDraftSchema.safeParse(response);
+  const parsed = schema.safeParse(response);
   if (!parsed.success) {
     return { kind: 'invalid', problems: [MALFORMED_ANSWER_PROBLEM] };
   }

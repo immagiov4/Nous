@@ -1,11 +1,13 @@
 import type { LessonPlaybackBlock, PlaybackRange } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
 import { Fragment, type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useResolvedProjectVisual } from '../../../hooks/useResolvedProjectVisual.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
+import type { ReadSceneAnimationFrame } from '../../shared/lessonScene/AnimatedScene.tsx';
 import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
@@ -21,6 +23,7 @@ import {
 } from './captionFormat.ts';
 import {
   type CaptionRun,
+  captionAnchorTimes,
   captionMotionEvents,
   motionStates,
   sceneElements,
@@ -34,7 +37,7 @@ interface CaptionClock {
   feather: number;
   bodyDuration: number;
   speechRanges: PlaybackRange[];
-  read: () => { bodyTime: number; revealTime: number };
+  read: () => { blockTime: number; bodyTime: number; revealTime: number };
 }
 
 function PlaybackScene({
@@ -44,6 +47,7 @@ function PlaybackScene({
   speed,
   animate,
   isDarkMode,
+  interval,
 }: {
   scene: LessonScene;
   block: LessonPlaybackBlock;
@@ -51,10 +55,55 @@ function PlaybackScene({
   speed: number;
   animate: boolean;
   isDarkMode: boolean;
+  interval: { start: number; duration: number };
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
+    if (!isAnimatedLessonScene(scene)) return undefined;
+    const cues = scene.type === 'guided-path' ? scene.steps : (scene.cues ?? []);
+    let synchronized = playbackMode(scene) === 'text';
+    if (synchronized) {
+      try {
+        cueTimes(block.speech, cues);
+      } catch {
+        synchronized = false;
+      }
+    }
+    let previousClock: CaptionClock | null = null;
+    let times: number[] | undefined;
+    return () => {
+      const current = clock.current;
+      if (!current || !current.bodyDuration) return undefined;
+      if (synchronized && !current.width) return undefined;
+      if (current !== previousClock) {
+        times = synchronized
+          ? captionAnchorTimes({
+              anchors: cues.map(cue => cue.anchor as string),
+              speech: block.speech,
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: current.feather,
+              duration: current.bodyDuration,
+            })
+          : undefined;
+        previousClock = current;
+      }
+      const { blockTime, revealTime } = current.read();
+      return synchronized
+        ? {
+            elapsedMs: Math.max(0, revealTime * 1000),
+            durationMs: current.bodyDuration * 1000,
+            cueTimes: times,
+          }
+        : {
+            elapsedMs: (blockTime - interval.start) * 1000,
+            durationMs: interval.duration * 1000,
+          };
+    };
+  }, [scene, block.speech, clock, interval.start, interval.duration]);
   useEffect(() => {
-    if (!block.prepared?.motion.length) return;
+    if (isAnimatedLessonScene(scene) || !block.prepared?.motion.length) return;
     const element = host.current;
     if (!element) throw new Error('Playback scene must be mounted');
     let elements = sceneElements(element, scene);
@@ -124,7 +173,12 @@ function PlaybackScene({
   }, [animate, block.prepared?.motion, block.speech, clock, scene, speed]);
   return (
     <div ref={host}>
-      <LessonSceneVisual scene={scene} isDarkMode={isDarkMode} variant="bare" />
+      <LessonSceneVisual
+        scene={scene}
+        isDarkMode={isDarkMode}
+        variant="bare"
+        readAnimationFrame={readAnimationFrame}
+      />
     </div>
   );
 }
@@ -140,6 +194,7 @@ function PlaybackStoredVisual({
   clock: RefObject<CaptionClock | null>;
   speed: number;
   animate: boolean;
+  interval: { start: number; duration: number };
 }) {
   const resolved = useResolvedProjectVisual(visual, content.projectId);
   const scene = resolved.result?.visual.scene;
@@ -274,7 +329,11 @@ export default function LessonPlaybackStage({
           const elapsed = read ? read() : fallbackTime;
           const bodyTime = elapsed - duration * headingShare;
           const ahead = bodyTime + captionLookAhead(elapsed, rate, CAPTION_TIMING.lookAheadSeconds);
-          return { bodyTime, revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead };
+          return {
+            blockTime: elapsed,
+            bodyTime,
+            revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead,
+          };
         },
       };
       paragraph.scrollTop = 0;
@@ -356,7 +415,16 @@ export default function LessonPlaybackStage({
     visual?.kind === 'generated-visual'
       ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
       : undefined;
-  const sceneProps = { block, clock, speed, animate };
+  const sceneProps = {
+    block,
+    clock,
+    speed,
+    animate,
+    interval: {
+      start: visuals.length ? (duration * visualIndex) / visuals.length : 0,
+      duration: visuals.length ? duration / visuals.length : duration,
+    },
+  };
   return (
     <div className="lesson-player-stage">
       <section className="listening-stage">

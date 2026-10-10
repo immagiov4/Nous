@@ -18,7 +18,10 @@ export const createProductionLessonPlaybackServices = (
   projectStore: Pick<ProjectStore, 'loadProjectWithRevision'> = getProjectStore()
 ): LessonPlaybackServices => ({
   persistPlayback: createLessonPlaybackPersistence({ assets }),
-  preparePlayback: async ({ input, signal, execution, idempotencyKey, providerEffect }) => {
+  preparePlayback: async (
+    { input, signal, execution, idempotencyKey, providerEffect },
+    allowedSceneTypes
+  ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
     const playback = section && readLessonPlayback(section);
@@ -42,6 +45,7 @@ export const createProductionLessonPlaybackServices = (
     }
     if (!providerEffect) throw new Error('Playback preparation requires durable provider results.');
     const prepared = await prepareLessonPlaybackBlock({
+      allowedSceneTypes,
       block,
       lesson: {
         title: typeof section.title === 'string' ? section.title : '',
