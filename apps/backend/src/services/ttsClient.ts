@@ -52,13 +52,14 @@ const DEFAULT_TTS_VOICE_IDS = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'] as 
 const GROK_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
 const GROK_TTS_VOICES = new Set(['ara', 'eve', 'rex', 'sal', 'leo']);
 
+// Every Gemini TTS model shares the same voices and PCM output, whichever one is the default.
+const isGeminiTtsModel = (model: string): boolean =>
+  model.startsWith('google/gemini-') && model.endsWith('-tts');
+
 // Normalize voices crossing the rollout boundary; preserve provider-specific custom voices.
 const normalizeModelVoice = (model: string, voice: string): string => {
   const lowerVoice = voice.toLowerCase();
-  if (
-    model === CONFIG_DEFAULT_TTS_MODEL &&
-    (GROK_TTS_VOICES.has(lowerVoice) || lowerVoice === 'coral')
-  ) {
+  if (isGeminiTtsModel(model) && (GROK_TTS_VOICES.has(lowerVoice) || lowerVoice === 'coral')) {
     return CONFIG_DEFAULT_TTS_VOICE;
   }
   if (
@@ -200,7 +201,7 @@ class TTSClient {
   }
 
   private async requestSpeech(attempt: OpenRouterSpeechAttempt): Promise<GeneratedSpeechAudio> {
-    const geminiTts = attempt.model === CONFIG_DEFAULT_TTS_MODEL;
+    const geminiTts = isGeminiTtsModel(attempt.model);
     const response = await fetch(`${OPENROUTER_API_BASE_URL}/audio/speech`, {
       method: 'POST',
       headers: getOpenRouterJsonHeaders(),

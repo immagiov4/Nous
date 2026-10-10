@@ -68,7 +68,7 @@ describe('useTtsPlayer', () => {
           contextLength: 4096,
           id: 'google/gemini-3.8-flash-lite-tts',
           name: 'Google: Gemini 3.8 Flash Lite TTS',
-          pricing: { completion: '0.000009', prompt: '0.0000005' },
+          pricing: { completion: '0.000006', prompt: '0.0000005' },
           supportedParameters: ['response_format'],
           supportsVoiceCloning: false,
         },

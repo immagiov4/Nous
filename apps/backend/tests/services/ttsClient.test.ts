@@ -55,6 +55,27 @@ describe('ttsClient', () => {
     expect(audio.generationId).toBe('gen-openai');
   });
 
+  test('keeps PCM handling for a Gemini TTS model that is not the default', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(new Uint8Array([0, 0, 1, 0]).buffer, {
+        headers: { 'content-type': 'audio/pcm;rate=24000;channels=1' },
+      })
+    );
+
+    const audio = await ttsClient.generateSpeech({
+      text: 'Ciao.',
+      model: 'google/gemini-3.8-flash-tts',
+      voice: 'Kore',
+      speed: 1,
+    });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      response_format: string;
+    };
+    expect(requestBody.response_format).toBe('pcm');
+    expect(audio.contentType).toBe('audio/wav');
+  });
+
   test.each([
     'audio/pcm;rate=24000;channels=1',
     'audio/pcm; channels=1; rate=24000',
