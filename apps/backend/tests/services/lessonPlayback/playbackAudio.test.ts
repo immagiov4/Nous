@@ -4,11 +4,15 @@ const { generateSpeech, getConfig } = vi.hoisted(() => ({
   generateSpeech: vi.fn(),
   getConfig: vi.fn(),
 }));
-vi.mock('../../../src/services/ttsClient.js', () => ({ ttsClient: { generateSpeech } }));
+vi.mock('../../../src/services/ttsClient.js', () => ({
+  MAX_TTS_TEXT_CHARS: 10_000,
+  ttsClient: { generateSpeech },
+}));
 vi.mock('../../../src/config/modelConfig.js', () => ({ getResolvedGlobalModelConfig: getConfig }));
 
 import { preparePlaybackAudio } from '../../../src/services/lessonPlayback/playbackAudio.js';
 import { mp3DurationSeconds } from '../../../src/services/lessonPlayback/playbackMp3.js';
+import { MAX_TTS_TEXT_CHARS } from '../../../src/services/ttsClient.js';
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -116,6 +120,15 @@ test.each([
   mp3Frames().subarray(0, 100),
 ])('rejects missing or truncated MP3 frames', bytes => {
   expect(() => mp3DurationSeconds(bytes)).toThrow();
+});
+
+test('fails permanently without speech work when the text exceeds the request limit', async () => {
+  await expect(
+    preparePlaybackAudio({ ...request(), text: 'a'.repeat(MAX_TTS_TEXT_CHARS + 1) })
+  ).rejects.toMatchObject({
+    failure: { kind: 'permanent', code: 'lesson_playback_text_too_long' },
+  });
+  expect(generateSpeech).not.toHaveBeenCalled();
 });
 
 test('propagates cancellation before requesting speech', async () => {

@@ -2,7 +2,8 @@ import { Mp3Encoder } from '@breezystack/lamejs';
 import type { PlaybackAudio } from '@shared/lessonPlayback';
 
 import { getResolvedGlobalModelConfig } from '../../config/modelConfig.js';
-import { ttsClient } from '../ttsClient.js';
+import { failPermanently } from '../../workflows/retryPolicy.js';
+import { MAX_TTS_TEXT_CHARS, ttsClient } from '../ttsClient.js';
 import { mp3DurationSeconds } from './playbackMp3.js';
 
 export type PreparedPlaybackAudio = Omit<PlaybackAudio, 'asset'> & {
@@ -72,6 +73,13 @@ export const preparePlaybackAudio = async ({
   readonly signal: AbortSignal;
 }): Promise<PreparedPlaybackAudio> => {
   signal.throwIfAborted();
+  // Retrying cannot shorten the text, so an oversized block fails without provider work.
+  if (text.length > MAX_TTS_TEXT_CHARS) {
+    throw failPermanently({
+      code: 'lesson_playback_text_too_long',
+      message: 'Playback text exceeds the speech request limit.',
+    });
+  }
   const model = requestedModel ?? (await getResolvedGlobalModelConfig()).ttsModel;
   signal.throwIfAborted();
   const audio = await ttsClient.generateSpeech({ model, signal, text, voice });

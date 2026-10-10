@@ -1,4 +1,15 @@
-import { beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
+
+vi.hoisted(() => {
+  for (const name of [
+    'MODEL_PLAYBACK_PREPARATION',
+    'OPENAI_MODEL_PLAYBACK_PREPARATION',
+    'CODEX_MODEL_PLAYBACK_PREPARATION',
+  ]) {
+    vi.stubEnv(name, '');
+  }
+});
+afterAll(() => vi.unstubAllEnvs());
 
 import {
   getGlobalModelConfig,

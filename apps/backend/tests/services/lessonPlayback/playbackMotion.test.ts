@@ -12,6 +12,7 @@ import {
   planPlaybackMotion,
   validatePlaybackMotion,
 } from '../../../src/services/lessonPlayback/playbackMotion.js';
+import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 
 const scene: LessonScene = {
   type: 'parts',
@@ -94,6 +95,25 @@ test('rejects overlapping occurrences of an otherwise exact quote', () => {
   expect(() => validatePlaybackMotion([{ ...focus[0], quote: 'aaa' }], scene, 'aaaa')).toThrow(
     /unique/
   );
+});
+
+test.each([
+  { events: [{ ...focus[0], quote: speech }, focus[1]] },
+  { events: [{ ...focus[0], targets: ['item:0', 'item:1'], quote: speech }, focus[1]] },
+  { events: [{ ...focus[0], quote: focus[1].quote }, focus[1]] },
+])('rejects intersecting exact anchors across events', ({ events }) => {
+  expect(() => validatePlaybackMotion(events, scene, speech)).toThrow(/overlap/);
+});
+
+test('rejects whitespace anchors but accepts touching intervals', () => {
+  expect(() =>
+    validatePlaybackMotion([{ ...focus[0], quote: '\n' }, focus[1]], scene, `${speech}\n`)
+  ).toThrow(/non-whitespace/);
+  const touching = [
+    { ...focus[0], quote: 'Uno' },
+    { ...focus[1], quote: 'Due' },
+  ];
+  expect(validatePlaybackMotion(touching, scene, 'UnoDue')).toEqual(touching);
 });
 
 test.each([
@@ -192,8 +212,28 @@ test('corrects parser errors but propagates transport errors', async () => {
 
 test('stops after the existing three-attempt scene policy', async () => {
   generate.mockResolvedValue(response([focus[0]]));
-  await expect(planPlaybackMotion(input())).rejects.toThrow(/failed validation/);
+  const failure = await planPlaybackMotion(input()).catch(error => toStepFailure(error));
+  expect(failure).toMatchObject({ kind: 'permanent', code: 'lesson_playback_motion_invalid' });
   expect(generate).toHaveBeenCalledTimes(3);
+});
+
+test('single-target compact scenes stay static without a model call', async () => {
+  await expect(
+    planPlaybackMotion({
+      ...input(),
+      scene: { ...scene, type: 'definition', items: scene.items.slice(0, 1) },
+    })
+  ).resolves.toEqual([]);
+  expect(generate).not.toHaveBeenCalled();
+});
+
+test('single-target reveal forms retain their valid appearance plan', async () => {
+  const events = [reveal[0]];
+  generate.mockResolvedValue(response(events));
+  await expect(
+    planPlaybackMotion({ ...input(), scene: { ...scene, items: scene.items.slice(0, 1) } })
+  ).resolves.toEqual(events);
+  expect(generate).toHaveBeenCalledOnce();
 });
 
 test('keeps sequence scenes and scenes without targets static, as in the lab', async () => {

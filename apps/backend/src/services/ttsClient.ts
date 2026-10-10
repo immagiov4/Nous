@@ -25,6 +25,9 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/** Longest text one speech request may carry. */
+export const MAX_TTS_TEXT_CHARS = 10_000;
+
 export const DEFAULT_TTS_MODEL =
   process.env.MODEL_TTS || process.env.TTS_MODEL_NAME || CONFIG_DEFAULT_TTS_MODEL;
 const DEFAULT_TTS_VOICE = process.env.TTS_VOICE || CONFIG_DEFAULT_TTS_VOICE;

@@ -2,7 +2,7 @@
 import './config/env.js';
 
 import { closeBackendResources } from './backendShutdown.js';
-import { getGlobalModelConfig } from './config/modelConfig.js';
+import { getResolvedGlobalModelConfig } from './config/modelConfig.js';
 import {
   buildBackendServerUrl,
   getBackendServerConfig,
@@ -66,11 +66,13 @@ const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, 
   console.log(`[Backend] STT API available at ${backendUrl}/api/stt`);
   console.log(`[Backend] OpenRouter TTS default model: ${DEFAULT_TTS_MODEL}`);
   // Build or load the icon index now, so the first lesson scene does not wait for it.
-  void loadIconIndex(getGlobalModelConfig().embeddingModel).catch(error => {
-    console.error('[Backend] Icon index warm-up failed.', {
-      errorType: error instanceof Error ? error.name : 'UnknownError',
+  void getResolvedGlobalModelConfig()
+    .then(config => loadIconIndex(config.embeddingModel))
+    .catch(error => {
+      console.error('[Backend] Icon index warm-up failed.', {
+        errorType: error instanceof Error ? error.name : 'UnknownError',
+      });
     });
-  });
 });
 
 server.on('error', (error: NodeJS.ErrnoException) => {

@@ -125,6 +125,50 @@ describe('playback persistence and assets', () => {
     ]);
     expect(collectProjectAssetReferences(project)).toEqual([playbackAsset]);
   });
+
+  test('remapping preserves newer playback metadata at every nesting level', () => {
+    const section = playbackSection();
+    const saved = preparedPlayback(section);
+    const playback = {
+      ...saved,
+      futurePlayback: 'retain',
+      blocks: saved.blocks.map(block => ({
+        ...block,
+        futureBlock: 'retain',
+        prepared: { ...block.prepared, futureScene: 'retain' },
+        audio: block.audio.map(audio => ({ ...audio, futureAudio: 'retain' })),
+      })),
+    };
+    section.playback = playback;
+    const imported = remapProjectAssetReferences(
+      playbackProject(section),
+      new Map([[playbackAsset.id, 'd'.repeat(64)]])
+    );
+    expect(imported.learningPlan?.sections?.[0]?.playback).toEqual({
+      ...playback,
+      blocks: playback.blocks.map(block => ({
+        ...block,
+        audio: block.audio.map(audio => ({
+          ...audio,
+          asset: { ...audio.asset, id: 'd'.repeat(64) },
+        })),
+      })),
+    });
+    expect(section.playback).toBe(playback);
+  });
+
+  test.each([
+    { title: 'Titolo corretto' },
+    { description: 'Contesto corretto' },
+  ])('invalidates preparation when lesson context changes: %j', change => {
+    const original = playbackSection();
+    original.playback = preparedPlayback(original);
+    const changed = { ...original, ...change };
+    const after = playbackProject(changed);
+    expect(buildLessonPlaybackKey(changed)).not.toBe(original.playback.lessonKey);
+    reconcileLessonPlayback(after, playbackProject(original));
+    expect(after.learningPlan?.sections?.[0]).not.toHaveProperty('playback');
+  });
   test('imported images retain the lesson key while audio and image IDs are remapped', () => {
     const section = playbackSection();
     const image = { ...playbackAsset, id: 'e'.repeat(64), mediaType: 'image/png' };
@@ -172,5 +216,73 @@ describe('playback persistence and assets', () => {
         },
       })
     ).toThrow();
+  });
+
+  test.each([
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0], {
+        spans: [{ ...saved.blocks[0].spans[0], speech: { start: 10, end: 2 } }],
+      });
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0], {
+        spans: [{ ...saved.blocks[0].spans[0], source: { start: 10, end: 2 } }],
+      });
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, id: 'z'.repeat(64) };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, hash: 'z'.repeat(64) };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, byteSize: Number.MAX_SAFE_INTEGER + 1 };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, mediaType: ' ; charset=utf8' };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0].prepared, {
+        scene: {
+          type: 'comparison',
+          title: 'Esempio',
+          body: '',
+          note: '',
+          quote: '',
+          items: [],
+          groups: [
+            { label: 'A', items: [' '], icons: [''] },
+            { label: 'B', items: ['Due'], icons: [''] },
+          ],
+        },
+      });
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0], {
+        visuals: [
+          {
+            kind: 'scene',
+            scene: {
+              type: 'comparison',
+              title: 'Esempio',
+              body: '',
+              note: '',
+              quote: '',
+              items: [],
+              groups: [
+                { label: 'A', items: [''], icons: [''] },
+                { label: 'B', items: ['Due'], icons: [''] },
+              ],
+            },
+          },
+        ],
+      });
+    },
+  ])('project and backup boundaries reject malformed playback invariants', corrupt => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    corrupt(section.playback as ReturnType<typeof preparedPlayback>);
+    expect(() => canonicalizeLessonNodeContent(section)).toThrow();
+    expect(() => collectProjectAssetReferences(playbackProject(section))).toThrow();
   });
 });

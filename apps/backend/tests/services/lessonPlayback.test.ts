@@ -77,6 +77,87 @@ describe('lesson playback segmentation', () => {
     for (const block of blocks) expectExactSpans(block, markdown);
   });
 
+  test.each([
+    '\n',
+    '\r\n',
+  ])('splits adjacent paragraph, list and quote boundaries (%j)', newline => {
+    const markdown = ['Introduzione.', '- Primo.', '- Secondo.', '> Citazione.', '> Ancora.'].join(
+      newline
+    );
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual([
+      'Introduzione.',
+      `Primo.${newline}Secondo.`,
+      `Citazione.${newline}Ancora.`,
+    ]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test.each([
+    '- Introduzione.\n\n  ```ts\n  const value = 1;\n  ```\n\nDopo.',
+    '> Introduzione.\n>\n> ```ts\n> const value = 1;\n> ```\n\nDopo.',
+    'Introduzione.\n\n    const value = 1;\n\nDopo.',
+  ])('excludes container-relative and indented code from speech', markdown => {
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech.trim())).toEqual(['Introduzione.', 'Dopo.']);
+    expect(blocks[0]?.visuals).toEqual([
+      { kind: 'markdown', markdown: expect.stringContaining('const value = 1;') },
+    ]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('recognizes GFM tables with optional pipes and retains ordinary mathematical text', () => {
+    const table = 'Label|Value\n---|---\nUno|Due';
+    const markdown = `Introduzione.\n${table}\n\n|x| = 3`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Introduzione.', '|x| = 3']);
+    expect(blocks[0]?.visuals).toEqual([{ kind: 'markdown', markdown: table }]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('keeps inline images and canonical PDF image placeholders visual-only', () => {
+    const image = '![Diagramma](d.png)';
+    const pdf = '{{PDF_IMAGE:asset-1|alt=Figura|caption=Esempio}}';
+    const markdown = `Guarda ${image} qui.\n\n${pdf}\n\nPoi ${pdf} prosegui.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Guarda  qui.', 'Poi  prosegui.']);
+    expect(blocks[0]?.visuals).toEqual([
+      { kind: 'markdown', markdown: image },
+      { kind: 'markdown', markdown: pdf },
+    ]);
+    expect(blocks[1]?.visuals).toEqual([{ kind: 'markdown', markdown: pdf }]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('retains images inside emphasis while code keeps image syntax literal', () => {
+    const image = '![Foto](a.png)';
+    const pdf = '{{PDF_IMAGE:1|alt=Foto}}';
+    const markdown = `Prima **${image}** e *${pdf}* dopo.\n\n\`${image}\` resta testo.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Prima  e  dopo.', `${image} resta testo.`]);
+    expect(blocks[0]?.visuals).toEqual([
+      { kind: 'markdown', markdown: image },
+      { kind: 'markdown', markdown: pdf },
+    ]);
+    expect(blocks[1]?.visuals).toEqual([]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test('protects literal image syntax in multiline inline code', () => {
+    const markdown = 'Prima `a\n![Foto](a.png)` dopo.';
+    const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(block?.speech).toBe('Prima a\n![Foto](a.png) dopo.');
+    expect(block?.visuals).toEqual([]);
+    expectExactSpans(block as LessonPlaybackBlock, markdown);
+  });
+
+  test('preserves escaped backticks, including runs before genuine inline code', () => {
+    const markdown = 'Un \\`segno\\` e \\`\\`due\\`\\`, poi `a_b * c`.';
+    const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(block?.speech).toBe('Un `segno` e ``due``, poi a_b * c.');
+    expectExactSpans(block as LessonPlaybackBlock, markdown);
+  });
+
   test('skips quizzes and YouTube clips while retaining original content block indexes', () => {
     const content: readonly PlaybackContentBlock[] = [
       { type: 'inline-quiz' },
