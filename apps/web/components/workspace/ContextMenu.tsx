@@ -95,6 +95,7 @@ const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const MORE_ACTIONS_MENU_WIDTH = 240;
 const MORE_ACTIONS_MENU_GAP = 8;
+const PLAYBACK_NOTE_ROWS = 5;
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
@@ -1080,13 +1081,27 @@ const ContextMenu = ({
         ) : null}
 
         <form
-          className={`${playbackComposer?.noteMode ? '!border-amber-700/50 ring-4 ring-amber-700/15 !items-end' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
+          className={`${playbackComposer ? 'transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none !items-end' : ''} ${playbackComposer?.noteMode ? '!border-amber-700/50 ring-4 ring-amber-700/15' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
           onSubmit={handleAskSubmit}
         >
-          <div className="min-w-0 flex-1">
+          <div
+            className={`min-w-0 flex-1 ${playbackComposer ? 'overflow-hidden text-sm leading-6 transition-[height] duration-200 ease-out motion-reduce:transition-none' : ''}`}
+            style={
+              playbackComposer
+                ? {
+                    height: playbackComposer.noteMode
+                      ? `calc(${PLAYBACK_NOTE_ROWS}lh + 1.25rem)`
+                      : '2.5rem',
+                  }
+                : undefined
+            }
+          >
             {playbackComposer?.noteMode ? (
-              <textarea
-                rows={5}
+              <motion.textarea
+                initial={{ opacity: shouldAnimate ? 0 : 1 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+                rows={PLAYBACK_NOTE_ROWS}
                 value={displayedInput}
                 onChange={event => changeInput(event.target.value)}
                 disabled={isLoading}
@@ -1094,7 +1109,10 @@ const ContextMenu = ({
                 className="custom-scrollbar block min-w-0 w-full flex-1 resize-none overflow-y-auto border-0 bg-transparent px-3.5 py-2.5 text-sm leading-6 text-stone-800 placeholder:text-stone-400 outline-none focus:ring-0 dark:text-stone-100 dark:placeholder:text-stone-300"
               />
             ) : (
-              <input
+              <motion.input
+                initial={playbackComposer && shouldAnimate ? { opacity: 0 } : false}
+                animate={{ opacity: 1 }}
+                transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
                 type="text"
                 data-context-menu-target="input"
                 value={displayedInput}
@@ -1106,7 +1124,7 @@ const ContextMenu = ({
             )}
           </div>
 
-          {!trimmedInput ? (
+          {!trimmedInput || playbackComposer ? (
             <div className={isLessonMode ? 'mr-1.5' : ''}>
               <SpeechInputButton
                 disabled={isLoading}
@@ -1115,13 +1133,14 @@ const ContextMenu = ({
                 variant="compact"
               />
             </div>
-          ) : (
+          ) : null}
+          {trimmedInput || playbackComposer ? (
             <button
               type="submit"
               data-context-menu-target="submit"
               aria-label={t(playbackComposer?.noteMode ? 'Salva nota' : 'Invia domanda')}
-              disabled={areContextActionsDisabled}
-              className={`${askButtonClassName} ${playbackComposer?.noteMode ? '!bg-amber-700 !text-white' : ''}`}
+              disabled={areContextActionsDisabled || !trimmedInput}
+              className={`${askButtonClassName} ${playbackComposer ? 'motion-reduce:transition-none' : ''} ${playbackComposer?.noteMode ? '!bg-amber-700 !text-white' : ''}`}
               title={t(playbackComposer?.noteMode ? 'Salva nota' : 'Invia domanda')}
             >
               {isLoading ? (
@@ -1130,14 +1149,14 @@ const ContextMenu = ({
                 <ArrowUp className="h-4 w-4" />
               )}
             </button>
-          )}
+          ) : null}
 
           {shouldShowToolbarNoteButton ? (
             <button
               type="button"
               onClick={handleToggleNoteEditor}
               disabled={isLoading}
-              className={`${noteButtonClassName} ${playbackComposer?.noteMode ? '!border-amber-700/60 !bg-amber-50 !text-amber-800 dark:!bg-amber-950 dark:!text-amber-200' : ''}`}
+              className={`${noteButtonClassName} ${playbackComposer ? 'motion-reduce:transition-none' : ''} ${playbackComposer?.noteMode ? '!border-amber-700/60 !bg-amber-50 !text-amber-800 dark:!bg-amber-950 dark:!text-amber-200' : ''}`}
               aria-pressed={playbackComposer?.noteMode}
               title={
                 isAnnotationMode

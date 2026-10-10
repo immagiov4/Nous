@@ -8,7 +8,7 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from 'ai';
-import { motion } from 'framer-motion';
+import { motion, useIsPresent } from 'framer-motion';
 import {
   Check,
   Globe,
@@ -606,6 +606,7 @@ function ContextAnswerPanelSession({
   onSaveArtifactToLesson,
   onReplaceArtifactInLesson,
 }: ContextAnswerPanelProps) {
+  const isPresent = useIsPresent();
   const [originLessonArtifactPayloads, setOriginLessonArtifactPayloads] = useState(
     () => currentLessonArtifactPayloads
   );
@@ -1983,15 +1984,16 @@ function ContextAnswerPanelSession({
     <motion.div
       ref={contextAnswerPanelRef}
       data-context-answer-panel="true"
-      className={`${docked && !isMobileViewport ? 'relative h-[58vh] max-h-[58vh] w-full' : 'fixed'} z-50 flex flex-col overflow-hidden border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] dark:border-zinc-700/60 dark:bg-zinc-800 ${
-        isMobileViewport
+      inert={!isPresent || undefined}
+      className={`${docked ? 'relative h-[58dvh] max-h-[58dvh] w-full' : 'fixed'} z-50 flex flex-col overflow-hidden border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] dark:border-zinc-700/60 dark:bg-zinc-800 ${
+        isMobileViewport && !docked
           ? 'inset-x-0 h-[80dvh] rounded-t-[2rem] rounded-b-none border-x-0 border-b-0'
           : docked
             ? 'rounded-2xl'
             : 'right-8 top-6 rounded-2xl animate-in slide-in-from-bottom-10 duration-500'
       }`}
       style={
-        isMobileViewport
+        isMobileViewport && !docked
           ? {
               bottom: `${keyboardOffset}px`,
               maxHeight:
@@ -2003,8 +2005,12 @@ function ContextAnswerPanelSession({
             ? undefined
             : contextAnswerSize
       }
-      initial={isMobileViewport ? { opacity: 0, transform: 'translate3d(0, 100%, 0)' } : false}
-      animate={isMobileViewport ? { opacity: 1, transform: 'translate3d(0, 0, 0)' } : undefined}
+      initial={
+        isMobileViewport && !docked ? { opacity: 0, transform: 'translate3d(0, 100%, 0)' } : false
+      }
+      animate={
+        isMobileViewport && !docked ? { opacity: 1, transform: 'translate3d(0, 0, 0)' } : undefined
+      }
       transition={isMobileViewport ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] } : undefined}
     >
       <button
@@ -2116,14 +2122,14 @@ function ContextAnswerPanelSession({
         </div>
       </div>
 
-      {renderComposer && !isMobileViewport ? (
+      {renderComposer && (docked || !isMobileViewport) ? (
         <div className="flex shrink-0 items-center justify-between border-t border-stone-100 pt-2 dark:border-zinc-700">
           {conversationTools}
           {isLoading ? conversationTrailingControl : null}
         </div>
       ) : null}
       <div
-        hidden={Boolean(renderComposer && !isMobileViewport)}
+        hidden={Boolean(renderComposer && (docked || !isMobileViewport))}
         className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60"
       >
         <div
@@ -2150,8 +2156,12 @@ function ContextAnswerPanelSession({
           inputDataTarget={CONTEXT_ANSWER_INPUT_TARGET}
           isLoading={isLoading}
           className="flex items-center gap-2"
-          trailingContent={renderComposer && !isMobileViewport ? null : conversationTrailingControl}
-          leadingContent={renderComposer && !isMobileViewport ? null : conversationTools}
+          trailingContent={
+            renderComposer && (docked || !isMobileViewport) ? null : conversationTrailingControl
+          }
+          leadingContent={
+            renderComposer && (docked || !isMobileViewport) ? null : conversationTools
+          }
           inputShellClassName="min-w-0 flex-1 rounded-full border border-stone-200/80 bg-stone-50/80 px-3 py-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-500/80 dark:bg-stone-700/70 dark:focus-within:border-stone-400 dark:focus-within:bg-stone-700"
           inputClassName="h-10 w-full min-w-0 border-0 bg-transparent px-2 text-sm text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-400"
           submitButtonClassName={`${isLoading ? 'hidden' : 'flex'} h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500`}
@@ -2202,7 +2212,7 @@ function ContextAnswerPanelSession({
   return (
     <>
       {answerPanel}
-      {composerPortal && renderComposer && !isMobileViewport
+      {isPresent && composerPortal && renderComposer && (docked || !isMobileViewport)
         ? createPortal(renderComposer(handleSubmit, isComposerDisabled), composerPortal)
         : null}
     </>

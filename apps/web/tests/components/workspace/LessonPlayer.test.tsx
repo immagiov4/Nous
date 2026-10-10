@@ -160,10 +160,13 @@ test('sending a question pauses playback and prevents resuming until the answer 
 
 test('mobile note mode expands the field and uses the same save path', async () => {
   render(<LessonPlayer {...props} content={{ ...content, isMobileViewport: true }} />);
+  expect(screen.getByRole('button', { name: 'Detta' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Invia domanda' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
   const field = screen.getByRole('textbox');
   expect(field).toHaveAttribute('rows', '5');
   fireEvent.change(field, { target: { value: 'Nota dal telefono.' } });
+  expect(screen.getByRole('button', { name: 'Detta' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Salva nota' }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
 });

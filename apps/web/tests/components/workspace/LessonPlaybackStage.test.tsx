@@ -2,7 +2,7 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
 import { act, render } from '@testing-library/react';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -21,6 +21,47 @@ import type { WorkspaceReaderContentModel } from '../../../components/workspace/
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 
 vi.mock('../../../utils/motion/useShouldAnimate.ts', () => ({ useShouldAnimate: vi.fn() }));
+
+let resizeScene: () => void;
+const disconnectScene = vi.fn();
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resizeScene = callback;
+      }
+      observe() {}
+      disconnect = disconnectScene;
+    }
+  );
+});
+
+test('fits the complete scene into changing available height and releases the observer', () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'Una frase.' }];
+  const { container, unmount } = render(
+    <LessonPlaybackStage
+      block={segmentLessonPlayback(sources)[0]}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      duration={6}
+      time={0}
+    />
+  );
+  const slot = container.querySelector<HTMLElement>('.scene-fit');
+  const card = container.querySelector<HTMLElement>('.scene-host');
+  if (!slot || !card) throw new Error('Scene must be mounted');
+  Object.defineProperty(card, 'offsetHeight', { configurable: true, value: 600 });
+  Object.defineProperty(slot, 'clientHeight', { configurable: true, value: 300 });
+  act(() => resizeScene());
+  expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.5');
+  expect(slot.style.getPropertyValue('--scene-top')).toBe('0px');
+  Object.defineProperty(slot, 'clientHeight', { configurable: true, value: 800 });
+  act(() => resizeScene());
+  expect(slot.style.getPropertyValue('--scene-scale')).toBe('1');
+  expect(slot.style.getPropertyValue('--scene-top')).toBe('100px');
+  unmount();
+  expect(disconnectScene).toHaveBeenCalledTimes(1);
+});
 
 test('mounts a fresh scene for each block so the page transition restarts', () => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);

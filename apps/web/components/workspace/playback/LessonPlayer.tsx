@@ -1,10 +1,12 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { playbackSentenceSelector } from '../../../utils/reader/lessonPlayback.ts';
 import ContextMenu from '../ContextMenu.tsx';
 import ContextAnswerPanel from '../shell/ContextAnswerPanel.tsx';
@@ -82,6 +84,7 @@ export default function LessonPlayer({
   const { viewportHeight } = useMobileKeyboardOffset();
   const block = playback.blocks[playback.index];
   const mobile = content.isMobileViewport;
+  const shouldAnimate = useShouldAnimate();
   const { play } = playback;
   useEffect(() => {
     if (autoPlay) void play();
@@ -180,7 +183,7 @@ export default function LessonPlayer({
   const renderComposer = (send = ask, disabled = false) => (
     <ContextMenu
       type="lesson"
-      placement={mobile ? 'mobile-sheet' : 'desktop-floating'}
+      placement="desktop-floating"
       selectedText=""
       isDarkMode={content.isDarkMode}
       isLoading={noteStatus === 'saving' || (!noteMode && disabled)}
@@ -325,7 +328,7 @@ export default function LessonPlayer({
               </div>
             </div>
             <div
-              className={`grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none md:w-52 ${mobile && playback.playing ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'}`}
+              className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none md:w-52 ${mobile && playback.playing ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'}`}
               inert={(mobile && playback.playing) || undefined}
             >
               <div className="overflow-hidden">
@@ -340,32 +343,42 @@ export default function LessonPlayer({
           </div>
         </div>
         <div className="relative flex min-w-0 flex-col gap-2.5 md:w-[30rem] md:max-w-[45vw]">
-          {answer ? (
-            <div className="md:absolute md:inset-x-0 md:bottom-full md:mb-2.5">
-              <ContextAnswerPanel
-                contextAnswer={answer}
-                contextAnswerPanelRef={panelRef}
-                contextAnswerSize={overlays.contextAnswerSize}
-                handleContextAnswerResizeStart={noAction}
-                isDarkMode={content.isDarkMode}
-                isMobileViewport={mobile}
-                docked
-                composerPortal={composerPortal}
-                renderComposer={renderComposer}
-                libraryAssistantDataSource={overlays.libraryAssistantDataSource}
-                currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
-                onClose={closeAnswer}
-                onOpenLibraryReference={reference => {
-                  onClose();
-                  overlays.onOpenLibraryReference(reference);
-                }}
-                onSaveConversationNote={overlays.onSaveConversationNote}
-                onUpdateConversationNote={overlays.onUpdateConversationNote}
-                onSaveArtifactToLesson={overlays.onSaveArtifactToLesson}
-                onReplaceArtifactInLesson={overlays.onReplaceArtifactInLesson}
-              />
-            </div>
-          ) : null}
+          <AnimatePresence>
+            {answer ? (
+              <motion.div
+                key={answer.id}
+                className="absolute inset-x-0 bottom-full mb-2.5"
+                initial={{ height: shouldAnimate ? 0 : 'auto', opacity: shouldAnimate ? 0 : 1 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+                style={{ overflow: 'hidden' }}
+              >
+                <ContextAnswerPanel
+                  contextAnswer={answer}
+                  contextAnswerPanelRef={panelRef}
+                  contextAnswerSize={overlays.contextAnswerSize}
+                  handleContextAnswerResizeStart={noAction}
+                  isDarkMode={content.isDarkMode}
+                  isMobileViewport={mobile}
+                  docked
+                  composerPortal={composerPortal}
+                  renderComposer={renderComposer}
+                  libraryAssistantDataSource={overlays.libraryAssistantDataSource}
+                  currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
+                  onClose={closeAnswer}
+                  onOpenLibraryReference={reference => {
+                    onClose();
+                    overlays.onOpenLibraryReference(reference);
+                  }}
+                  onSaveConversationNote={overlays.onSaveConversationNote}
+                  onUpdateConversationNote={overlays.onUpdateConversationNote}
+                  onSaveArtifactToLesson={overlays.onSaveArtifactToLesson}
+                  onReplaceArtifactInLesson={overlays.onReplaceArtifactInLesson}
+                />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
           {noteStatus === 'saved' ? (
             <output className="inline-flex items-center gap-2 self-end rounded-full bg-white px-3 py-2 text-xs font-semibold text-amber-800 shadow-sm dark:bg-zinc-800 dark:text-amber-200">
               <Check className="h-3.5 w-3.5" />

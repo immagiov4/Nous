@@ -1883,7 +1883,7 @@
 .lesson-player-stage .caption-page {
   animation: lesson-player-caption-in var(--caption-change) ease-out;
 }
-.lesson-player-stage .listening-stage > .scene-host {
+.lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   min-height: 300px;
   width: 100%;
   max-height: calc(100dvh - 180px);
@@ -1920,7 +1920,7 @@
     justify-content: center;
     padding: 24px 0 12px;
   }
-  .lesson-player-stage .listening-stage > .scene-host {
+  .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
     order: 0;
     max-height: none;
     min-height: 260px;
@@ -1963,7 +1963,7 @@
 .lesson-player-stage .listening-stage .table-wrap {
   width: 100%;
 }
-.lesson-player-stage .listening-stage > .scene-host {
+.lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   align-items: safe center;
 }
 .lesson-player-stage .captions {
@@ -2194,4 +2194,35 @@
   -webkit-mask-repeat: no-repeat;
   stroke: none;
   fill: none;
+}
+
+.lesson-player-stage .scene-fit {
+  display: contents;
+}
+@media (max-width: 650px) {
+  .lesson-player-stage .listening-stage {
+    min-height: 0;
+  }
+  .lesson-player-stage .captions {
+    min-height: 0;
+    flex-shrink: 0;
+  }
+  .lesson-player-stage .captions p {
+    --caption-height: 2lh;
+  }
+  .lesson-player-stage .scene-fit {
+    display: block;
+    position: relative;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    order: 0;
+  }
+  .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
+    position: absolute;
+    top: var(--scene-top, 0px);
+    overflow: visible;
+    transform: scale(var(--scene-scale, 1));
+    transform-origin: top center;
+  }
 }

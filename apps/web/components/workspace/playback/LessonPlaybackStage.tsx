@@ -183,10 +183,31 @@ export default function LessonPlaybackStage({
     return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
   }, [block, sources]);
   const captions = useRef<HTMLParagraphElement>(null);
+  const sceneFit = useRef<HTMLDivElement>(null);
+  const sceneCard = useRef<HTMLElement>(null);
   const clock = useRef<CaptionClock | null>(null);
   const scroll = useRef({ line: -1, target: 0 });
   const animate = useShouldAnimate();
   const latest = useRef({ time, speed, readTime, animate });
+  useLayoutEffect(() => {
+    const slot = sceneFit.current;
+    const card = sceneCard.current;
+    if (!slot || !card) throw new Error('Playback scene must be mounted');
+    // Fit the complete card, preserving the prototype's internal layout and proportions.
+    const fitScene = () => {
+      const scale = card.offsetHeight ? Math.min(1, slot.clientHeight / card.offsetHeight) : 1;
+      slot.style.setProperty('--scene-scale', String(scale));
+      slot.style.setProperty(
+        '--scene-top',
+        `${Math.max(0, (slot.clientHeight - card.offsetHeight * scale) / 2)}px`
+      );
+    };
+    const observer = new ResizeObserver(fitScene);
+    observer.observe(slot);
+    observer.observe(card);
+    fitScene();
+    return () => observer.disconnect();
+  }, []);
   useLayoutEffect(() => {
     latest.current = { time, speed, readTime, animate };
   }, [time, speed, readTime, animate]);
@@ -331,34 +352,40 @@ export default function LessonPlaybackStage({
             })}
           </p>
         </section>
-        <section className="scene-host" aria-label="Visualizzazione della lezione">
-          {visual?.kind === 'scene' ? (
-            <PlaybackScene
-              key={visualKey}
-              {...sceneProps}
-              scene={visual.scene}
-              isDarkMode={content.isDarkMode}
-            />
-          ) : null}
-          {visual?.kind === 'markdown' ? (
-            <MarkdownRenderer
-              content={visual.markdown}
-              isDarkMode={content.isDarkMode}
-              projectId={content.projectId}
-              lessonAssetsById={content.activeSectionAssetsById}
-              lessonImageRefsById={content.activeSectionImageRefsById}
-              generatedVisualsById={content.activeSectionGeneratedVisualsById}
-            />
-          ) : null}
-          {stored ? (
-            <PlaybackStoredVisual
-              key={visualKey}
-              {...sceneProps}
-              visual={stored}
-              content={content}
-            />
-          ) : null}
-        </section>
+        <div ref={sceneFit} className="scene-fit">
+          <section
+            ref={sceneCard}
+            className="scene-host"
+            aria-label="Visualizzazione della lezione"
+          >
+            {visual?.kind === 'scene' ? (
+              <PlaybackScene
+                key={visualKey}
+                {...sceneProps}
+                scene={visual.scene}
+                isDarkMode={content.isDarkMode}
+              />
+            ) : null}
+            {visual?.kind === 'markdown' ? (
+              <MarkdownRenderer
+                content={visual.markdown}
+                isDarkMode={content.isDarkMode}
+                projectId={content.projectId}
+                lessonAssetsById={content.activeSectionAssetsById}
+                lessonImageRefsById={content.activeSectionImageRefsById}
+                generatedVisualsById={content.activeSectionGeneratedVisualsById}
+              />
+            ) : null}
+            {stored ? (
+              <PlaybackStoredVisual
+                key={visualKey}
+                {...sceneProps}
+                visual={stored}
+                content={content}
+              />
+            ) : null}
+          </section>
+        </div>
       </section>
     </div>
   );

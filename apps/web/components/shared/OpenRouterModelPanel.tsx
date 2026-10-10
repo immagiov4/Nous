@@ -97,7 +97,6 @@ export default function OpenRouterModelPanel({
             </div>
           </div>
 
-          {actions}
           {courseNotes ? (
             <div className="mt-3">
               <button
@@ -139,6 +138,7 @@ export default function OpenRouterModelPanel({
               ) : null}
             </div>
           ) : null}
+          {actions}
         </div>
       </div>
     </div>
