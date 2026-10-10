@@ -277,8 +277,10 @@ describe.skipIf(!shouldRun)('project asset reconciliation integration', () => {
         userId,
         updatedAt: createdAt,
         buildPatch: () => {
+          // Mirrors the stored section: the playback key covers its title too.
           const section = {
             id: 'section-1',
+            title: 'Section',
             contentBlocks: [{ type: 'markdown', markdown: 'Stesso testo.' }],
             lastGenerationRunId: 'first-generation',
           };
