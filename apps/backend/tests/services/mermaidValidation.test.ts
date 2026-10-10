@@ -1,5 +1,12 @@
-import { expect, test } from 'vitest';
-import { isParseableMermaid } from '../../src/services/mermaidValidation.js';
+import { execFile } from 'node:child_process';
+import { beforeEach, expect, test, vi } from 'vitest';
+import { classifyMermaidInputs, isParseableMermaid } from '../../src/services/mermaidValidation.js';
+
+vi.mock('node:child_process', { spy: true });
+
+beforeEach(() => {
+  vi.mocked(execFile).mockClear();
+});
 
 test('keeps the parser DOM out of the server process', async () => {
   const serverWindow = globalThis.window;
@@ -7,6 +14,29 @@ test('keeps the parser DOM out of the server process', async () => {
     isParseableMermaid('classDiagram\nclass Animal', new AbortController().signal)
   ).resolves.toBe(true);
   expect(globalThis.window).toBe(serverWindow);
+  expect(execFile).toHaveBeenCalledOnce();
+});
+
+test('classifies several inputs in order with one isolated process', async () => {
+  const serverWindow = globalThis.window;
+  await expect(
+    classifyMermaidInputs(
+      [
+        'graph = buildGraph()',
+        'sequenceDiagram\nA->>B: Message',
+        'packet = {}',
+        'classDiagram\nclass Animal',
+      ],
+      new AbortController().signal
+    )
+  ).resolves.toEqual([false, true, false, true]);
+  expect(execFile).toHaveBeenCalledOnce();
+  expect(globalThis.window).toBe(serverWindow);
+});
+
+test('starts no parser process for an empty classification batch', async () => {
+  await expect(classifyMermaidInputs([], new AbortController().signal)).resolves.toEqual([]);
+  expect(execFile).not.toHaveBeenCalled();
 });
 
 test('reports parser execution failures separately from syntax rejection', async () => {

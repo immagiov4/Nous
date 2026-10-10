@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { reviewLessonContentDraftStrict } from '../../src/services/lessonGenerationModel.js';
@@ -10,6 +11,7 @@ import { automationCourse, flawedAutomationLesson } from '../fixtures/lessonRevi
 
 const { generateStructuredOutput } = vi.hoisted(() => ({ generateStructuredOutput: vi.fn() }));
 vi.mock('../../src/services/structuredGeneration.js', () => ({ generateStructuredOutput }));
+vi.mock('node:child_process', { spy: true });
 
 const generationInput: LessonGenerationInput = {
   config: { ...getGlobalModelConfig(), aiProvider: 'codex', aiProviderOverrides: {} },
@@ -100,6 +102,49 @@ const review = () => reviewLessonContentDraftStrict({ draft: original, generatio
 
 beforeEach(() => {
   generateStructuredOutput.mockReset();
+  vi.mocked(execFile).mockClear();
+});
+
+test.each([
+  false,
+  true,
+])('classifies fences across draft blocks in one process (diagram: %s)', async hasDiagram => {
+  const reviewed: LessonContentDraft = {
+    ...original,
+    contentBlocks: [
+      { type: 'markdown', markdown: '```\ngraph = buildGraph()\n```\n\n```\npacket = {}\n```' },
+      {
+        type: 'markdown',
+        markdown: hasDiagram
+          ? '```\nsequenceDiagram\nA->>B: Message\n```'
+          : '```\nsequenceDiagram();\n```',
+      },
+    ],
+  };
+  mockReview(reviewed, preserved);
+  const result = reviewLessonContentDraftStrict({ draft: reviewed, generationInput });
+  if (hasDiagram) {
+    await expect(result).rejects.toMatchObject({ code: 'lesson_embedded_mermaid_unsupported' });
+  } else {
+    await expect(result).resolves.toEqual(reviewed);
+  }
+  expect(execFile).toHaveBeenCalledOnce();
+});
+
+test.each([
+  'Plain lesson text.',
+  '```ts\ngraph = buildGraph()\n```',
+  '```\n```',
+])('starts no parser process without untagged fence bodies: %s', async markdown => {
+  const reviewed: LessonContentDraft = {
+    ...original,
+    contentBlocks: [{ type: 'markdown', markdown }],
+  };
+  mockReview(reviewed, preserved);
+  await expect(
+    reviewLessonContentDraftStrict({ draft: reviewed, generationInput })
+  ).resolves.toEqual(reviewed);
+  expect(execFile).not.toHaveBeenCalled();
 });
 
 test('writer and reviewer preserve useful qualifications without defensive padding', async () => {

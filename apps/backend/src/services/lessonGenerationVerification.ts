@@ -56,7 +56,7 @@ import {
   getLessonReferenceAvailability,
 } from './lessonGenerationPrompt.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
-import { isParseableMermaid } from './mermaidValidation.js';
+import { classifyMermaidInputs } from './mermaidValidation.js';
 import { generateStructuredOutput } from './structuredGeneration.js';
 
 interface LessonResponseSchemaContract {
@@ -183,22 +183,23 @@ const draftMarkdownMatches = (draft: LessonContentDraft, pattern: RegExp): boole
 const markdownParser = unified().use(remarkParse);
 type MarkdownRoot = ReturnType<typeof markdownParser.parse>;
 
-const containsMermaidCode = async (
+const collectUntaggedFences = (
   node: MarkdownRoot | MarkdownRoot['children'][number],
   markdown: string,
-  signal: AbortSignal
-): Promise<boolean> => {
+  untaggedBodies: string[]
+): boolean => {
   if (node.type === 'code') {
     const offset = node.position?.start.offset;
     if (offset === undefined) throw new Error('Parsed Markdown code has no source position.');
     // The parser owns container boundaries and indentation; only fenced nodes qualify.
     if (!/^(?:`{3,}|~{3,})/.test(markdown.slice(offset))) return false;
     if (node.lang) return /^mermaid\b/i.test(node.lang);
-    return node.value.length > 0 && (await isParseableMermaid(node.value, signal, true));
+    if (node.value.length > 0) untaggedBodies.push(node.value);
+    return false;
   }
   if ('children' in node) {
     for (const child of node.children) {
-      if (await containsMermaidCode(child, markdown, signal)) return true;
+      if (collectUntaggedFences(child, markdown, untaggedBodies)) return true;
     }
   }
   return false;
@@ -208,15 +209,17 @@ const containsMermaidFence = async (
   draft: LessonContentDraft,
   signal: AbortSignal
 ): Promise<boolean> => {
+  const untaggedBodies: string[] = [];
   for (const block of draft.contentBlocks) {
     if (
       block.type === 'markdown' &&
-      (await containsMermaidCode(markdownParser.parse(block.markdown), block.markdown, signal))
+      collectUntaggedFences(markdownParser.parse(block.markdown), block.markdown, untaggedBodies)
     ) {
       return true;
     }
   }
-  return false;
+  if (untaggedBodies.length === 0) return false;
+  return (await classifyMermaidInputs(untaggedBodies, signal)).some(Boolean);
 };
 
 const buildVerificationSchema = (
