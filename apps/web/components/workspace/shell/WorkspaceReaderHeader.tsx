@@ -152,27 +152,6 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             </button>
           </div>
 
-          <MusicPlayer
-            isMobileViewport={isMobileViewport}
-            isOpen={isAudioOpen}
-            onToggle={open => {
-              setIsAudioOpen(open);
-              if (open) {
-                onSetSettingsOpen(false);
-                setIsMobileLearningAidsOpen(false);
-              }
-            }}
-            initialTab={lastAudioTab}
-            onTabChange={onSetLastAudioTab}
-            musicUrl={musicUrl}
-            setMusicUrl={onSetMusicUrl}
-            isMusicPlaying={isMusicPlaying}
-            setIsMusicPlaying={onSetIsMusicPlaying}
-            musicVolume={musicVolume}
-            setMusicVolume={onSetMusicVolume}
-            tts={tts}
-          />
-
           {isMobileViewport && hasActiveSection ? (
             <MobileLearningAids
               isDarkMode={isDarkMode}
@@ -200,6 +179,27 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
           {!isMobileViewport ? (
             <div className="mx-1 h-4 w-px bg-gray-300 dark:bg-zinc-600" />
           ) : null}
+
+          <MusicPlayer
+            isMobileViewport={isMobileViewport}
+            isOpen={isAudioOpen}
+            onToggle={open => {
+              setIsAudioOpen(open);
+              if (open) {
+                onSetSettingsOpen(false);
+                setIsMobileLearningAidsOpen(false);
+              }
+            }}
+            initialTab={lastAudioTab}
+            onTabChange={onSetLastAudioTab}
+            musicUrl={musicUrl}
+            setMusicUrl={onSetMusicUrl}
+            isMusicPlaying={isMusicPlaying}
+            setIsMusicPlaying={onSetIsMusicPlaying}
+            musicVolume={musicVolume}
+            setMusicVolume={onSetMusicVolume}
+            tts={tts}
+          />
 
           <button
             type="button"
