@@ -24,6 +24,33 @@ export interface TimedMotionEvent extends PlaybackMotionEvent {
   durationMs: number;
 }
 
+/** Resolves exact anchors on the caption clock, including anchors in the spoken heading. */
+export function captionAnchorTimes({
+  anchors,
+  speech,
+  speechRanges,
+  runs,
+  width,
+  feather,
+  duration,
+}: {
+  anchors: readonly string[];
+  speech: string;
+  speechRanges: readonly PlaybackRange[];
+  runs: readonly CaptionRun[];
+  width: number;
+  feather: number;
+  duration: number;
+}): number[] {
+  return anchors.map(anchor => {
+    const offset = speech.indexOf(anchor);
+    if (offset < 0) throw new Error('Caption quotation must exist in speech');
+    const first = runs[speechRanges.findIndex(word => word.end > offset)];
+    if (!first) throw new Error('Caption quotation must cover caption words');
+    return (first.start / (width + feather)) * duration * 1000;
+  });
+}
+
 /** The API stores quotations; resolve them to the same word-width clock as listen.mjs. */
 export function captionMotionEvents({
   events,
@@ -42,7 +69,16 @@ export function captionMotionEvents({
   feather: number;
   duration: number;
 }): TimedMotionEvent[] {
-  const timed = events.map(event => {
+  const times = captionAnchorTimes({
+    anchors: events.map(event => event.quote),
+    speech,
+    speechRanges,
+    runs,
+    width,
+    feather,
+    duration,
+  });
+  const timed = events.map((event, index) => {
     const offset = speech.indexOf(event.quote);
     if (offset < 0) throw new Error('Motion quotation must exist in speech');
     // Headings precede the body clock: project their anchors onto its zero boundary.
@@ -54,7 +90,7 @@ export function captionMotionEvents({
     const first = runs[firstIndex];
     const last = runs[endIndex];
     if (!first || !last) throw new Error('Motion quotation must cover caption words');
-    const atMs = (first.start / (width + feather)) * duration * 1000;
+    const atMs = times[index];
     const durationMs =
       event.effect === 'reveal'
         ? REVEAL_DURATION_MS

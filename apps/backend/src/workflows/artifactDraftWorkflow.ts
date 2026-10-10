@@ -69,7 +69,7 @@ const createArtifactDraftWorkflowSchemas = (visualContract: LessonVisualContract
     requestText: z.string().min(1),
     requestedVisualKind: z
       .enum(
-        visualContract === CurrentLessonVisualContractSchemas
+        visualContract.supportsScenes
           ? ['html', 'image', 'mermaid', 'scene', 'svg']
           : ['html', 'image', 'mermaid', 'svg']
       )
@@ -238,9 +238,7 @@ export const createArtifactDraftWorkflow = (
       // Pre-scene definitions keep their legacy plan contract (see toLegacyLessonVisualTypes).
       return renderState(
         input,
-        visualContract === CurrentLessonVisualContractSchemas
-          ? plan
-          : toLegacyLessonVisualTypes(plan)
+        visualContract.supportsScenes ? plan : toLegacyLessonVisualTypes(plan)
       );
     },
   });

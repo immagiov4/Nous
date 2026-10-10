@@ -5,7 +5,7 @@ import {
   PlaybackAudioSchema,
   PlaybackPreparedSchema,
 } from '@shared/lessonPlaybackSchema';
-import type { LessonScene } from '@shared/lessonScene';
+import { isAnimatedLessonScene, type LessonScene, type LessonSceneType } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
@@ -16,6 +16,7 @@ import { type PreparedPlaybackAudio, preparePlaybackAudio } from './playbackAudi
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
 
 interface PrepareLessonPlaybackBlockInput {
+  readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
   readonly block: LessonPlaybackBlock;
@@ -61,6 +62,7 @@ const prepareScene = async (
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
     const outcome = await generateLessonScene({
+      allowedSceneTypes: input.allowedSceneTypes,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown: block.speech,
       retryFeedback,
@@ -79,7 +81,7 @@ const prepareScene = async (
 export const prepareLessonPlaybackBlock = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<PreparedLessonPlaybackBlock> => {
-  const { block, voice, config, signal } = input;
+  const { signal } = input;
   signal.throwIfAborted();
   // Audio does not depend on the scene, so both are prepared at the same time.
   const [prepared, audio] = await Promise.all([prepareVisuals(input), prepareAudio(input)]);
@@ -103,7 +105,9 @@ const prepareVisuals = async (
         ).scene
       : await prepareScene(input);
     const planMotion = async () =>
-      scene ? await planPlaybackMotion({ scene, speech: block.speech, config, signal }) : [];
+      scene && !isAnimatedLessonScene(scene)
+        ? await planPlaybackMotion({ scene, speech: block.speech, config, signal })
+        : [];
     const motion = input.providerEffect
       ? await input.providerEffect.run({
           key: 'motion',

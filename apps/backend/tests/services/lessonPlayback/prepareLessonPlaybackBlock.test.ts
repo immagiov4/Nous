@@ -27,6 +27,7 @@ vi.mock('../../../src/services/lessonPlayback/playbackMotion.js', () => ({
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackBlock } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
+import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
 
 const scene: LessonScene = {
   type: 'parts',
@@ -80,6 +81,37 @@ beforeEach(() => {
   audio.mockResolvedValue(preparedAudio);
   sceneGeneration.mockResolvedValue({ kind: 'scene', scene });
   motion.mockResolvedValue(events);
+});
+
+test.each([
+  proportionalScene,
+  guidedPathScene,
+])('prepares $type without planning motion events', async animated => {
+  const request = input([{ kind: 'scene', scene: animated }]);
+  expect(await prepareLessonPlaybackBlock(request)).toEqual({
+    prepared: { scene: animated, motion: [] },
+    audio: preparedAudio,
+  });
+  expect(motion).not.toHaveBeenCalled();
+  const stored = { ...storedScene, render: { kind: 'scene' as const, scene: animated } };
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  expect(
+    await prepareLessonPlaybackBlock({
+      ...input([{ kind: 'generated-visual', visualId: stored.id }], [stored]),
+      providerEffect,
+    })
+  ).toMatchObject({ prepared: { scene: animated, motion: [] } });
+  sceneGeneration.mockResolvedValueOnce({ kind: 'scene', scene: animated });
+  expect(await prepareLessonPlaybackBlock(input())).toMatchObject({
+    prepared: { scene: animated, motion: [] },
+  });
+  expect(motion).not.toHaveBeenCalled();
 });
 
 test('resumes recorded scene and motion after an audio failure without repeating their providers', async () => {

@@ -19,6 +19,7 @@ import {
   LessonResearchSummarySchema,
   type LessonVisualContractSchemas,
   LessonYouTubePlanningSchema,
+  PreAnimatedLessonVisualContractSchemas,
   PreviousEvidenceLessonResearchDossierSchema,
   PreviousLessonPdfImageMetadataSchema,
   PreviousLessonQuizSchema,
@@ -313,7 +314,7 @@ const createLessonGenerationDurableSchemaSet = ({
   };
 };
 
-// Every historical definition predates lesson scenes and keeps the legacy visual contract.
+// Pre-scene definitions keep the legacy visual contract.
 const legacyVisualLessonSchemas = {
   documentAssetsSchema: LessonDocumentAssetsSchema,
   lessonContentDraftSchema: LegacyLessonVisualContractSchemas.LessonContentDraftSchema,
@@ -333,6 +334,15 @@ export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDur
   lessonResultBlockSchema: CurrentLessonVisualContractSchemas.LessonResultBlockSchema,
   routing: true,
   visualContract: CurrentLessonVisualContractSchemas,
+});
+export const PreAnimatedLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
+  ...legacyVisualLessonSchemas,
+  evidence: true,
+  lessonContentDraftSchema: PreAnimatedLessonVisualContractSchemas.LessonContentDraftSchema,
+  lessonResearchDossierSchema: LessonResearchDossierSchema,
+  lessonResultBlockSchema: PreAnimatedLessonVisualContractSchemas.LessonResultBlockSchema,
+  routing: true,
+  visualContract: PreAnimatedLessonVisualContractSchemas,
 });
 export const PreviousPreSceneLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet({

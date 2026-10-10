@@ -1,4 +1,4 @@
-import type { LessonScene } from './lessonScene';
+import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
 import type { ProjectAssetRef } from './projectAsset';
 
 /** UTF-16 offsets, end exclusive. */
@@ -28,6 +28,7 @@ export interface PlaybackMotionEvent {
 
 /** Stable scene element IDs shared by preparation and the playback renderer. */
 export const motionTargets = (scene: LessonScene): { id: string; label: string }[] => {
+  if (isAnimatedLessonScene(scene)) return [];
   if (scene.type === 'matrix') {
     return (scene.criteria ?? scene.groups[0]?.items ?? []).map((label, index) => ({
       id: `row:${index}`,
