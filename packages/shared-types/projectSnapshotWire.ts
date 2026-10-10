@@ -7,6 +7,7 @@ import {
   LESSON_GENERATED_VISUAL_BLOCK_TYPE,
   LESSON_MARKDOWN_BLOCK_TYPE,
 } from './lessonContent';
+import { LessonPlaybackSchema } from './lessonPlaybackSchema';
 import { isValidProjectLessonVisual } from './projectAsset';
 import type { ProjectSourceKind } from './projectContract';
 import { isSourceArchivePdfWarningReason } from './sourceArchiveWarnings';
@@ -265,6 +266,9 @@ export const canonicalizeLessonNodeContent = <Node extends Record<string, unknow
   node: Node,
   options: ProjectSnapshotWireDecodeOptions = {}
 ): Node => {
+  if (node.playback !== undefined && !LessonPlaybackSchema.safeParse(node.playback).success) {
+    throw new ProjectSnapshotWireError('Dati di ascolto della lezione non validi.');
+  }
   try {
     if (!Array.isArray(node.contentBlocks)) {
       if (node.contentBlocks === undefined || node.contentBlocks === null) return node;

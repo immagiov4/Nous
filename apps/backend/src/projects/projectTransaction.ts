@@ -13,6 +13,7 @@ import type {
 type TransactionProjectPatch = Omit<ProjectPatch, 'updatedAt'>;
 
 interface LockedProjectRow {
+  incarnation_id: string;
   document_index: unknown;
   meta: SavedProjectMeta;
   revision: number | string;
@@ -20,11 +21,13 @@ interface LockedProjectRow {
 }
 
 export interface LockedProjectSnapshot {
+  incarnationId: string;
   revision: number;
   snapshot: ProjectSnapshot;
 }
 
 export interface TransactionalProjectPatchInput {
+  playbackWrite?: boolean;
   buildPatch: (project: LockedProjectSnapshot) => TransactionProjectPatch | null;
   projectId: string;
   updatedAt: string;
@@ -54,6 +57,7 @@ const lockProjectInTransaction = async (
   const rows = input.waitForProjectLock
     ? await transaction<LockedProjectRow[]>`
       select
+        project.incarnation_id,
         project.meta,
         project.revision,
         project_snapshot.snapshot,
@@ -66,6 +70,7 @@ const lockProjectInTransaction = async (
     `
     : await transaction<LockedProjectRow[]>`
       select
+        project.incarnation_id,
         project.meta,
         project.revision,
         project_snapshot.snapshot,
@@ -99,7 +104,11 @@ export const planProjectPatch = (
   locked: LockedProjectSnapshot & { meta: SavedProjectMeta },
   { buildPatch, updatedAt }: Pick<TransactionalProjectPatchInput, 'buildPatch' | 'updatedAt'>
 ): PlannedProjectRevision | null => {
-  const patch = buildPatch({ revision: locked.revision, snapshot: locked.snapshot });
+  const patch = buildPatch({
+    incarnationId: locked.incarnationId,
+    revision: locked.revision,
+    snapshot: locked.snapshot,
+  });
   if (patch === null) return null;
   const effectiveUpdatedAt =
     Date.parse(locked.snapshot.updatedAt) > Date.parse(updatedAt)
@@ -128,7 +137,12 @@ export const patchProjectInTransaction = async (
     input
   );
   const planned = planProjectPatch(
-    { meta: row.meta, revision: currentRevision, snapshot: currentSnapshot },
+    {
+      incarnationId: row.incarnation_id,
+      meta: row.meta,
+      revision: currentRevision,
+      snapshot: currentSnapshot,
+    },
     input
   );
   if (!planned) {
@@ -139,6 +153,7 @@ export const patchProjectInTransaction = async (
     };
   }
   const meta = await commitProjectRevision(transaction, {
+    playbackWrite: input.playbackWrite,
     expectedRevision: currentRevision,
     isNewProject: false,
     meta: planned.meta,

@@ -1,13 +1,10 @@
 import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
-import {
-  LESSON_SCENE_EDGE_KINDS,
-  LESSON_SCENE_NODE_KINDS,
-  LESSON_SCENE_RELATION_KINDS,
-  LESSON_SCENE_TYPES,
-  LESSON_SCENE_VERDICTS,
-} from '@shared/lessonScene';
-import type { ProjectAssetRef, ProjectLessonVisual } from '@shared/projectAsset';
+import { LessonSceneSchema, ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
+
+export { ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
+
+import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
 import {
@@ -32,13 +29,6 @@ const TranscriptRangeSchema = z.object({
 
 const YouTubeTranscriptSegmentSchema = TranscriptRangeSchema.extend({
   text: z.string(),
-});
-
-export const ProjectAssetRefSchema: z.ZodType<ProjectAssetRef> = z.object({
-  byteSize: z.number().int().nonnegative(),
-  hash: Sha256HexSchema,
-  id: Sha256HexSchema,
-  mediaType: LessonIdentifierSchema,
 });
 
 export const ResearchSourceSchema = z.object({
@@ -224,59 +214,6 @@ const GeneratedVisualResultBlockSchema = z.object({
   slotId: LessonIdentifierSchema,
   type: z.literal('generated-visual'),
   visualId: LessonIdentifierSchema,
-});
-
-const LessonSceneIconSlotSchema = z.string();
-
-// Structural only: durable schemas admit no custom checks. The scene generation step validates the
-// full contract with findLessonSceneProblems before a scene enters workflow state.
-const LessonSceneSchema = z.object({
-  body: z.string(),
-  criteria: z.array(z.string()).optional(),
-  diagram: z
-    .object({
-      edges: z.array(
-        z.object({
-          evidence: z.string(),
-          from: z.string(),
-          kind: z.enum(LESSON_SCENE_EDGE_KINDS),
-          label: z.string(),
-          to: z.string(),
-        })
-      ),
-      nodes: z.array(
-        z.object({ id: z.string(), kind: z.enum(LESSON_SCENE_NODE_KINDS), label: z.string() })
-      ),
-    })
-    .optional(),
-  groups: z.array(
-    z.object({
-      icons: z.array(LessonSceneIconSlotSchema),
-      items: z.array(z.string()),
-      label: z.string(),
-      verdict: z.enum(LESSON_SCENE_VERDICTS).optional(),
-    })
-  ),
-  items: z.array(
-    z.object({
-      detail: z.string(),
-      icon: LessonSceneIconSlotSchema,
-      label: z.string(),
-      time: z.number().optional(),
-      value: z.number().optional(),
-    })
-  ),
-  note: z.string(),
-  quote: z.string(),
-  relation: z
-    .object({
-      evidence: z.string(),
-      kind: z.enum(LESSON_SCENE_RELATION_KINDS),
-      label: z.string(),
-    })
-    .optional(),
-  title: z.string(),
-  type: z.enum(LESSON_SCENE_TYPES),
 });
 
 /**

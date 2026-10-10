@@ -96,6 +96,7 @@ const sectionCommitPatch = (
   imageRefs: input.imageRefs,
   learningAids: input.learningAids,
   lastGenerationRunId: runId,
+  playback: null,
   quiz: input.quiz,
   sectionId: input.request.sectionId,
   visualPlanningDecision: input.visualPlanningDecision,

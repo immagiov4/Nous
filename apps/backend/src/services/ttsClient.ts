@@ -283,14 +283,18 @@ class TTSClient {
     };
   }
 
-  async generateSpeech(request: TTSRequest): Promise<GeneratedSpeechAudio> {
-    const selectedProfile = request.voice ? this.getVoiceProfile(request.voice) : undefined;
+  resolveVoice(model: string, requestedVoice?: string): string {
+    const selectedProfile = requestedVoice ? this.getVoiceProfile(requestedVoice) : undefined;
     const voice = normalizeOptionalText(
-      selectedProfile?.voiceDesignPrompt ?? request.voice,
+      selectedProfile?.voiceDesignPrompt ?? requestedVoice,
       this.getDefaultProfile().voiceDesignPrompt || DEFAULT_TTS_VOICE
     );
+    return normalizeModelVoice(model, voice);
+  }
+
+  async generateSpeech(request: TTSRequest): Promise<GeneratedSpeechAudio> {
     const model = normalizeOptionalText(request.model, DEFAULT_TTS_MODEL);
-    const normalizedVoice = normalizeModelVoice(model, voice);
+    const normalizedVoice = this.resolveVoice(model, request.voice);
 
     console.log(
       `[TTSClient] Generating OpenRouter speech for ${request.text.length} chars with model: ${model}, voice: ${normalizedVoice}`

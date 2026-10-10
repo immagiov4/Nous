@@ -64,13 +64,15 @@ export const preparePlaybackAudio = async ({
   text,
   voice,
   signal,
+  model: requestedModel,
 }: {
+  readonly model?: string;
   readonly text: string;
   readonly voice: string;
   readonly signal: AbortSignal;
 }): Promise<PreparedPlaybackAudio> => {
   signal.throwIfAborted();
-  const { ttsModel: model } = await getResolvedGlobalModelConfig();
+  const model = requestedModel ?? (await getResolvedGlobalModelConfig()).ttsModel;
   signal.throwIfAborted();
   const audio = await ttsClient.generateSpeech({ model, signal, text, voice });
   signal.throwIfAborted();

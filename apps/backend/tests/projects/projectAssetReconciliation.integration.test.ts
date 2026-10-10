@@ -10,6 +10,7 @@ import {
 } from '../../src/projects/projectAsset.js';
 import { patchProjectInTransaction } from '../../src/projects/projectTransaction.js';
 import type { ProjectSnapshot, SavedProjectMeta } from '../../src/projects/types.js';
+import { preparedPlayback } from '../helpers/lessonPlayback.js';
 
 const shouldRun =
   process.env.RUN_SUPABASE_LOCAL_TESTS === '1' ||
@@ -247,5 +248,78 @@ describe.skipIf(!shouldRun)('project asset reconciliation integration', () => {
         order by id
       `
     ).toEqual(statesBeforeFailure);
+  });
+
+  test('a same-text regeneration clears playback and queues its adopted MP3 atomically', async () => {
+    if (!sql) throw new Error('Project asset integration database is required.');
+    const assetStore = new PostgresProjectAssetStore(sql, createMemoryStorage());
+    const asset = await assetStore.stage({
+      bytes: new Uint8Array([1, 2, 3]),
+      mediaType: 'audio/mpeg',
+      nodeInstanceId,
+      projectId,
+      runId,
+      userId,
+      idempotencyKey: 'playback-audio',
+      signal: new AbortController().signal,
+    });
+    await sql.begin(async transaction => {
+      await assetStore.adoptNodeAssets(transaction, {
+        assetIds: [asset.id],
+        nodeInstanceId,
+        projectId,
+        runId,
+        userId,
+      });
+      await patchProjectInTransaction(transaction, {
+        playbackWrite: true,
+        projectId,
+        userId,
+        updatedAt: createdAt,
+        buildPatch: () => {
+          const section = {
+            id: 'section-1',
+            contentBlocks: [{ type: 'markdown', markdown: 'Stesso testo.' }],
+            lastGenerationRunId: 'first-generation',
+          };
+          const playback = preparedPlayback(section);
+          return {
+            section: {
+              sectionId: 'section-1',
+              contentBlocks: section.contentBlocks,
+              lastGenerationRunId: section.lastGenerationRunId,
+              playback: {
+                ...playback,
+                blocks: playback.blocks.map(block => ({
+                  ...block,
+                  audio: block.audio.map(audio => ({ ...audio, asset })),
+                })),
+              },
+            },
+          };
+        },
+      });
+    });
+    const saved = await sql.begin(transaction =>
+      patchProjectInTransaction(transaction, {
+        projectId,
+        userId,
+        updatedAt: createdAt,
+        buildPatch: () => ({
+          section: {
+            sectionId: 'section-1',
+            lastGenerationRunId: 'second-generation',
+            playback: null,
+          },
+        }),
+      })
+    );
+    expect(saved.snapshot.learningPlan?.sections?.[0]?.playback).toBeUndefined();
+    expect(await sql`select state from public.project_assets where id = ${asset.id}`).toEqual([
+      { state: 'deletion-pending' },
+    ]);
+    const persisted =
+      await sql`select snapshot from public.project_snapshots where user_id = ${userId} and id = ${projectId}`;
+    expect(persisted[0]?.snapshot.learningPlan.sections[0]).not.toHaveProperty('playback');
   });
 });

@@ -29,6 +29,7 @@ const app = createApp({
   courseGenerationApi: workflowRuntime.courseGenerationApi,
   courseInterviewApi: workflowRuntime.courseInterviewApi,
   lessonGenerationApi: workflowRuntime.lessonGenerationApi,
+  lessonPlaybackApi: workflowRuntime.lessonPlaybackApi,
   lessonVisualRetryStarter: workflowRuntime.lessonVisualRetryStarter,
   libraryExportApi,
   pdfMappingRepairApi: workflowRuntime.pdfMappingRepairApi,

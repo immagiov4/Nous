@@ -1,15 +1,23 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
+import {
+  LessonSceneSchema,
+  PlaybackAudioSchema,
+  PlaybackPreparedSchema,
+} from '@shared/lessonPlaybackSchema';
 import type { LessonScene } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
-
+import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
+import type { WorkflowProviderEffectExecutor } from '../../workflows/types.js';
 import { generateLessonScene } from '../lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../lessonVisualModelConfig.js';
 import { type PreparedPlaybackAudio, preparePlaybackAudio } from './playbackAudio.js';
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
 
 interface PrepareLessonPlaybackBlockInput {
+  readonly providerEffect?: WorkflowProviderEffectExecutor;
+  readonly ttsModel?: string;
   readonly block: LessonPlaybackBlock;
   readonly lesson: {
     readonly title: string;
@@ -75,13 +83,51 @@ export const prepareLessonPlaybackBlock = async (
   signal.throwIfAborted();
   let prepared = block.prepared;
   if (!prepared) {
-    const scene = await prepareScene(input);
-    const motion = scene
-      ? await planPlaybackMotion({ scene, speech: block.speech, config, signal })
-      : [];
+    const scene = input.providerEffect
+      ? (
+          await input.providerEffect.run({
+            key: 'scene',
+            outputSchema: z.object({ scene: LessonSceneSchema.optional() }),
+            operation: async () => ({ scene: await prepareScene(input) }),
+          })
+        ).scene
+      : await prepareScene(input);
+    const planMotion = async () =>
+      scene ? await planPlaybackMotion({ scene, speech: block.speech, config, signal }) : [];
+    const motion = input.providerEffect
+      ? await input.providerEffect.run({
+          key: 'motion',
+          outputSchema: PlaybackPreparedSchema.shape.motion,
+          operation: planMotion,
+        })
+      : await planMotion();
     prepared = { ...(scene ? { scene } : {}), motion };
   }
-  const audio = await preparePlaybackAudio({ text: block.speech, voice, signal });
+  const generateAudio = () =>
+    preparePlaybackAudio({
+      text: block.speech,
+      voice,
+      signal,
+      ...(input.ttsModel ? { model: input.ttsModel } : {}),
+    });
+  let audio: PreparedPlaybackAudio;
+  if (input.providerEffect) {
+    const stored = await input.providerEffect.run({
+      key: 'audio',
+      outputSchema: PlaybackAudioSchema.omit({ asset: true }).extend({
+        data: z.string(),
+        mediaType: z.literal('audio/mpeg'),
+      }),
+      operation: async () => {
+        const { bytes, ...metadata } = await generateAudio();
+        return { ...metadata, data: Buffer.from(bytes).toString('base64') };
+      },
+    });
+    const { data, ...metadata } = stored;
+    audio = { ...metadata, bytes: Buffer.from(data, 'base64') };
+  } else {
+    audio = await generateAudio();
+  }
   signal.throwIfAborted();
   return { prepared, audio };
 };

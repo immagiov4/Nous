@@ -26,6 +26,7 @@ vi.mock('../../../src/services/lessonPlayback/playbackMotion.js', () => ({
 
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackBlock } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
+import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
 
 const scene: LessonScene = {
   type: 'parts',
@@ -79,6 +80,43 @@ beforeEach(() => {
   audio.mockResolvedValue(preparedAudio);
   sceneGeneration.mockResolvedValue({ kind: 'scene', scene });
   motion.mockResolvedValue(events);
+});
+
+test('resumes recorded scene and motion after an audio failure without repeating their providers', async () => {
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  audio.mockRejectedValueOnce(new Error('Audio unavailable'));
+  const request = { ...input(), providerEffect, ttsModel: 'tts-model' };
+  await expect(prepareLessonPlaybackBlock(request)).rejects.toThrow('Audio unavailable');
+  const result = await prepareLessonPlaybackBlock(request);
+  expect(result.prepared).toEqual({ scene, motion: events });
+  expect([...result.audio.bytes]).toEqual([1]);
+  expect(sceneGeneration).toHaveBeenCalledOnce();
+  expect(motion).toHaveBeenCalledOnce();
+  expect(audio).toHaveBeenCalledTimes(2);
+  await prepareLessonPlaybackBlock(request);
+  expect(audio).toHaveBeenCalledTimes(2);
+});
+
+test('keeps a paid scene when motion fails before it can be recorded', async () => {
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  motion.mockRejectedValueOnce(new Error('Motion unavailable'));
+  const request = { ...input(), providerEffect };
+  await expect(prepareLessonPlaybackBlock(request)).rejects.toThrow('Motion unavailable');
+  await expect(prepareLessonPlaybackBlock(request)).resolves.toMatchObject({ prepared: { scene } });
+  expect(sceneGeneration).toHaveBeenCalledOnce();
+  expect(motion).toHaveBeenCalledTimes(2);
 });
 
 test('generates from the complete block speech only when visuals are absent', async () => {
