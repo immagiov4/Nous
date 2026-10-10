@@ -634,45 +634,10 @@ const UnifiedAudioPanel = ({
 
               {activeTab === 'voce' ? (
                 <div className="space-y-3">
-                  <PlaybackVoiceControl
+                  <ReaderPlaybackCard
                     tts={tts}
                     disabled={ttsDisabled}
-                    below={
-                      <PlaybackTimeline
-                        time={tts.currentTime}
-                        duration={tts.duration}
-                        onSeek={tts.onSeek}
-                      />
-                    }
-                    leading={
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          aria-label={t('Parte precedente')}
-                          onClick={() => tts.onSkipChunk('prev')}
-                          disabled={ttsDisabled}
-                          className="rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-                        >
-                          <SkipBack className="h-5 w-5" />
-                        </button>
-                        <PlaybackPlayButton
-                          onClick={tts.onPlayPause}
-                          disabled={ttsDisabled}
-                          loading={tts.isLoading}
-                          playing={tts.isPlaying}
-                        />
-                        <button
-                          type="button"
-                          aria-label={t('Parte successiva')}
-                          onClick={() => tts.onSkipChunk('next')}
-                          disabled={ttsDisabled}
-                          className="rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-                        >
-                          <SkipForward className="h-5 w-5" />
-                        </button>
-                      </div>
-                    }
-                    accessory={
+                    textPicker={
                       <button
                         type="button"
                         aria-label={t('Scegli dal testo')}
@@ -875,8 +840,11 @@ export function PlaybackTimeline({
   duration,
   onSeek,
   estimated = false,
+  elapsedOnly = false,
 }: {
   estimated?: boolean;
+  /** Shows only the current position, after the slider, without the total duration. */
+  elapsedOnly?: boolean;
   time: number;
   duration: number;
   onSeek: (time: number) => void;
@@ -892,7 +860,7 @@ export function PlaybackTimeline({
 
   return (
     <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
-      <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>
+      {elapsedOnly ? null : <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>}
       <input
         type="range"
         aria-label={t('Posizione audio')}
@@ -904,139 +872,191 @@ export function PlaybackTimeline({
         className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
       />
       <span className="shrink-0 whitespace-nowrap">
-        {estimated ? '≈ ' : ''}
-        {formatTime(duration)}
+        {elapsedOnly ? formatTime(time) : `${estimated ? '≈ ' : ''}${formatTime(duration)}`}
       </span>
     </div>
   );
 }
-export function PlaybackVoiceControl({
-  tts,
-  disabled: ttsDisabled = false,
-  compact = false,
-  accessory,
-  leading,
-  below,
-}: {
-  tts: Pick<
-    WorkspaceReaderTtsModel,
-    'currentVoice' | 'availableVoices' | 'playbackRate' | 'onVoiceChange' | 'onSpeedChange'
-  >;
-  disabled?: boolean;
-  compact?: boolean;
-  /** Control shown right after the voice picker, such as the text picker. */
-  accessory?: ReactNode;
-  /** Controls placed inside the same card, before the voice and speed. */
-  leading?: ReactNode;
-  /**
-   * Content shown under the voice row instead of the speed slider; the speed label then
-   * opens the slider in a small menu.
-   */
-  below?: ReactNode;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
-  const displayedVoices: WorkspaceReaderVoiceOption[] = tts.availableVoices.some(
-    voice => voice.id === tts.currentVoice
-  )
+type VoiceSpeedModel = Pick<
+  WorkspaceReaderTtsModel,
+  'currentVoice' | 'availableVoices' | 'playbackRate' | 'onVoiceChange' | 'onSpeedChange'
+>;
+
+const getDisplayedVoices = (tts: VoiceSpeedModel): WorkspaceReaderVoiceOption[] =>
+  tts.availableVoices.some(voice => voice.id === tts.currentVoice)
     ? tts.availableVoices
     : [
         { id: tts.currentVoice, label: tts.currentVoice, language: 'custom' },
         ...tts.availableVoices,
       ];
-  const currentVoiceLabel =
-    displayedVoices.find(voice => voice.id === tts.currentVoice)?.label ?? tts.currentVoice;
+
+const getCurrentVoiceLabel = (tts: VoiceSpeedModel): string =>
+  getDisplayedVoices(tts).find(voice => voice.id === tts.currentVoice)?.label ?? tts.currentVoice;
+
+/** Voice name with a native select laid invisibly over it. */
+function VoicePicker({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean }) {
+  return (
+    <div className="relative flex min-w-0 items-center">
+      <select
+        aria-label={t('Voce')}
+        title={t('Voce')}
+        value={tts.currentVoice}
+        onChange={event => tts.onVoiceChange(event.target.value as VoiceProfileId)}
+        className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
+        disabled={disabled}
+      >
+        {getDisplayedVoices(tts).map(voice => (
+          <option key={voice.id} value={voice.id}>
+            {voice.label}
+          </option>
+        ))}
+      </select>
+      <span aria-hidden="true" className="pointer-events-none flex min-w-0 items-center gap-1">
+        <span className="truncate">{getCurrentVoiceLabel(tts)}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
+      </span>
+    </div>
+  );
+}
+
+/** Speed label that opens the speed slider in a small menu above it. */
+function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={t('Velocita')}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 rounded-full px-2 py-1 text-sm font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400 dark:text-zinc-200 dark:hover:bg-zinc-700 dark:disabled:text-zinc-500"
+      >
+        {/* Fixed width: the widest label is "1.05x", so speed changes never shift the layout. */}
+        <span className={`${PLAYBACK_RATE_LABEL_WIDTH} text-right`}>
+          {getPlaybackRateLabel(tts.playbackRate)}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
+      </button>
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
+            className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+          >
+            <PlaybackSpeedControl
+              isDisabled={disabled}
+              onSpeedChange={tts.onSpeedChange}
+              playbackRate={tts.playbackRate}
+            />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** Card holding the reader's transport, voice, text picker, speed menu and position. */
+function ReaderPlaybackCard({
+  tts,
+  disabled,
+  textPicker,
+}: {
+  tts: WorkspaceReaderTtsModel;
+  disabled: boolean;
+  textPicker: ReactNode;
+}) {
+  const skipClassName =
+    'rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100';
+  return (
+    <fieldset className="flex min-w-0 w-full items-center gap-3 rounded-3xl border border-gray-200 bg-white p-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
+      <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
+      <div className="flex shrink-0 flex-col items-center gap-1.5">
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            aria-label={t('Parte precedente')}
+            onClick={() => tts.onSkipChunk('prev')}
+            disabled={disabled}
+            className={skipClassName}
+          >
+            <SkipBack className="h-5 w-5" />
+          </button>
+          <PlaybackPlayButton
+            onClick={tts.onPlayPause}
+            disabled={disabled}
+            loading={tts.isLoading}
+            playing={tts.isPlaying}
+          />
+          <button
+            type="button"
+            aria-label={t('Parte successiva')}
+            onClick={() => tts.onSkipChunk('next')}
+            disabled={disabled}
+            className={skipClassName}
+          >
+            <SkipForward className="h-5 w-5" />
+          </button>
+        </div>
+        <div
+          className={`max-w-full text-sm font-medium ${
+            disabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
+          }`}
+        >
+          <VoicePicker tts={tts} disabled={disabled} />
+        </div>
+      </div>
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          {textPicker}
+          <SpeedMenu tts={tts} disabled={disabled} />
+        </div>
+        <PlaybackTimeline
+          time={tts.currentTime}
+          duration={tts.duration}
+          onSeek={tts.onSeek}
+          elapsedOnly
+        />
+      </div>
+    </fieldset>
+  );
+}
+
+export function PlaybackVoiceControl({
+  tts,
+  disabled: ttsDisabled = false,
+  compact = false,
+}: {
+  tts: VoiceSpeedModel;
+  disabled?: boolean;
+  compact?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const currentVoiceLabel = getCurrentVoiceLabel(tts);
   const playbackRateLabel = getPlaybackRateLabel(tts.playbackRate);
 
   const control = (
-    <fieldset
-      className={`min-w-0 w-full rounded-3xl border border-gray-200 bg-white pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15 ${
-        leading ? 'flex items-center gap-1 pl-1.5 pr-3' : 'px-3'
-      }`}
-    >
+    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
       <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
-      {leading}
-      <div className="min-w-0 flex-1">
-        <div
-          className={`flex min-h-10 items-center gap-2 px-1 text-sm font-medium ${
-            ttsDisabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
-          }`}
-        >
-          <div className="relative flex min-h-10 min-w-0 items-center">
-            <select
-              aria-label={t('Voce')}
-              title={t('Voce')}
-              value={tts.currentVoice}
-              onChange={event => tts.onVoiceChange(event.target.value as VoiceProfileId)}
-              className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
-              disabled={ttsDisabled}
-            >
-              {displayedVoices.map(voice => (
-                <option key={voice.id} value={voice.id}>
-                  {voice.label}
-                </option>
-              ))}
-            </select>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none flex min-w-0 items-center gap-1"
-            >
-              <span className="truncate">{currentVoiceLabel}</span>
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
-            </span>
-          </div>
-          {accessory}
-          {below ? (
-            <div className="relative ml-auto shrink-0">
-              <button
-                type="button"
-                aria-label={t('Velocita')}
-                aria-expanded={speedMenuOpen}
-                disabled={ttsDisabled}
-                onClick={() => setSpeedMenuOpen(!speedMenuOpen)}
-                className="flex items-center gap-1 rounded-full px-2 py-1 tabular-nums transition-colors hover:bg-gray-100 disabled:cursor-not-allowed dark:hover:bg-zinc-700"
-              >
-                {/* Fixed width: the widest label is "1.05x", so speed changes never shift the layout. */}
-                <span className={`${PLAYBACK_RATE_LABEL_WIDTH} text-right`}>
-                  {playbackRateLabel}
-                </span>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
-              </button>
-              <AnimatePresence>
-                {speedMenuOpen ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 4 }}
-                    transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-                    className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
-                  >
-                    <PlaybackSpeedControl
-                      isDisabled={ttsDisabled}
-                      onSpeedChange={tts.onSpeedChange}
-                      playbackRate={tts.playbackRate}
-                    />
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <span
-              className={`${PLAYBACK_RATE_LABEL_WIDTH} ml-auto shrink-0 text-right tabular-nums`}
-            >
-              {playbackRateLabel}
-            </span>
-          )}
-        </div>
-
-        {below ?? (
-          <PlaybackSpeedControl
-            isDisabled={ttsDisabled}
-            onSpeedChange={tts.onSpeedChange}
-            playbackRate={tts.playbackRate}
-          />
-        )}
+      <div
+        className={`flex min-h-10 items-center gap-2 px-1 text-sm font-medium ${
+          ttsDisabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
+        }`}
+      >
+        <VoicePicker tts={tts} disabled={ttsDisabled} />
+        <span className={`${PLAYBACK_RATE_LABEL_WIDTH} ml-auto shrink-0 text-right tabular-nums`}>
+          {playbackRateLabel}
+        </span>
       </div>
+
+      <PlaybackSpeedControl
+        isDisabled={ttsDisabled}
+        onSpeedChange={tts.onSpeedChange}
+        playbackRate={tts.playbackRate}
+      />
     </fieldset>
   );
   if (!compact) return control;

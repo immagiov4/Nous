@@ -24,6 +24,12 @@ test.each([true, false])('formats the timeline total and seeks (estimated=%s)', 
   expect(seek).toHaveBeenCalledWith(120);
 });
 
+test('shows only the current position after the slider when the total is hidden', () => {
+  render(<PlaybackTimeline time={62} duration={708} elapsedOnly onSeek={vi.fn()} />);
+  expect(screen.getByText('01:02')).toBeInTheDocument();
+  expect(screen.queryByText('11:48')).not.toBeInTheDocument();
+});
+
 const openSpeedMenu = () => fireEvent.click(screen.getByRole('button', { name: 'Velocita' }));
 
 const buildTtsModel = (
