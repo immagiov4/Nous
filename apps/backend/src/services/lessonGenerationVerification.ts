@@ -180,14 +180,33 @@ const draftMarkdownMatches = (draft: LessonContentDraft, pattern: RegExp): boole
 const containsMermaidFence = (draft: LessonContentDraft): boolean =>
   draft.contentBlocks.some(block => {
     if (block.type !== 'markdown') return false;
+    let openFence: { marker: string; length: number; awaitingDeclaration: boolean } | undefined;
     return block.markdown.split('\n').some(line => {
       let trimmed = line.trimStart();
       while (trimmed.startsWith('>')) trimmed = trimmed.slice(1).trimStart();
+      if (openFence) {
+        const { marker, length } = openFence;
+        if (
+          trimmed.trimEnd().length >= length &&
+          [...trimmed.trimEnd()].every(character => character === marker)
+        ) {
+          openFence = undefined;
+          return false;
+        }
+        if (!openFence.awaitingDeclaration || !trimmed.trim()) return false;
+        openFence.awaitingDeclaration = false;
+        return /^(?:sequenceDiagram|flowchart|graph|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline)\b/.test(
+          trimmed
+        );
+      }
       const fence = trimmed[0];
       if (fence !== '`' && fence !== '~') return false;
       let fenceLength = 0;
       while (trimmed[fenceLength] === fence) fenceLength += 1;
-      return fenceLength >= 3 && /^mermaid\b/i.test(trimmed.slice(fenceLength).trimStart());
+      if (fenceLength < 3) return false;
+      const info = trimmed.slice(fenceLength).trim();
+      openFence = { marker: fence, length: fenceLength, awaitingDeclaration: !info };
+      return /^mermaid\b/i.test(info);
     });
   });
 

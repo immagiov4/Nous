@@ -143,17 +143,37 @@ test.each([
   expect(generateStructuredOutput).toHaveBeenCalledOnce();
 });
 
-test('rejects Mermaid fences introduced by model review', async () => {
+test.each([
+  '```mermaid\ngraph TD\nA-->B\n```',
+  '```\n\nsequenceDiagram\nparticipant A\nparticipant B\nA->>B: Message\n```',
+  '> ~~~\n> \n> sequenceDiagram\n> participant A\n> A->>A: Message\n> ~~~',
+])('rejects Mermaid fences introduced by model review: %s', async fence => {
   const reviewed = structuredClone(original);
   const markdown = reviewed.contentBlocks[0];
   if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
-  markdown.markdown += '\n\n```mermaid\ngraph TD\nA-->B\n```';
+  markdown.markdown += `\n\n${fence}`;
   mockReview(reviewed, preserved);
 
   await expect(review()).rejects.toMatchObject({
     code: 'lesson_embedded_mermaid_unsupported',
   });
   expect(generateStructuredOutput).toHaveBeenCalledOnce();
+});
+
+test.each([
+  '```\n\nconst answer = 42;\n```',
+  '```ts\nconst answer = 42;\n```',
+  '```ts\nsequenceDiagram();\n```',
+  '```\nconst answer = 42;\nsequenceDiagram();\n```',
+  '```\nconst answer = 42;\n```\nsequenceDiagram\n',
+])('preserves ordinary code fences: %s', async fence => {
+  const reviewed = structuredClone(original);
+  const markdown = reviewed.contentBlocks[0];
+  if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
+  markdown.markdown += `\n\n${fence}`;
+  mockReview(reviewed, preserved);
+
+  await expect(review()).resolves.toEqual(reviewed);
 });
 
 describe('lesson review quality report contract', () => {
