@@ -1096,13 +1096,14 @@ export function PlaybackVoiceControl({
       </button>
       <AnimatePresence>
         {expanded ? (
-          // Anchored to the left edge so the menu stays put when the speed label grows.
+          // Anchored to one edge so the menu stays put when the speed label grows: the right
+          // edge on phones, where the pill sits on the right, the left edge from tablets up.
           <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-            className="absolute bottom-full left-0 z-50 mb-2 w-56"
+            className="absolute bottom-full right-0 z-50 mb-2 w-56 md:left-0 md:right-auto"
           >
             {control}
           </motion.div>
