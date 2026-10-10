@@ -29,20 +29,24 @@ const SKIP_SECONDS = 5;
 const COMPOSER_BAR_HEIGHT = 'md:h-[3.375rem]';
 const noAction = () => {};
 
-/** Sends a spoken question into the open conversation, so it continues there. */
+interface SpokenFollowUpQuestion {
+  readonly id: string;
+  readonly text: string;
+}
+
+/** Hands a spoken question to the open conversation, so it continues there. */
 function SpokenFollowUp({
   question,
   send,
-  onSent,
+  deliver,
 }: {
-  question: string;
+  question: SpokenFollowUpQuestion;
   send: (text: string) => void;
-  onSent: () => void;
+  deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
 }) {
   useEffect(() => {
-    send(question);
-    onSent();
-  }, [question, send, onSent]);
+    deliver(question, send);
+  }, [deliver, question, send]);
   return null;
 }
 
@@ -123,12 +127,13 @@ export default function LessonPlayer({
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
-  const [spokenFollowUp, setSpokenFollowUp] = useState<string | null>(null);
+  const [spokenFollowUp, setSpokenFollowUp] = useState<SpokenFollowUpQuestion | null>(null);
+  const deliveredFollowUps = useRef(new Set<string>());
   const answerAudio = useSpokenAnswer(tts.currentVoice, tts.playbackRate);
   const speech = useSpeechInput({
     onTranscription: text => {
       const question = spokenQuestion.current;
-      if (question?.initialQuestion) setSpokenFollowUp(text);
+      if (question?.initialQuestion) setSpokenFollowUp({ id: crypto.randomUUID(), text });
       else if (question) setAnswer({ ...question, initialQuestion: text });
       else changeDraft(appendSpeechTranscription(draft, text));
     },
@@ -259,7 +264,17 @@ export default function LessonPlayer({
   const spaceHintHidden = Boolean(answer) || listening || noteMode || Boolean(draft);
   const questionActive = Boolean(answer) || holdingSpace;
   const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
-  const clearSpokenFollowUp = useCallback(() => setSpokenFollowUp(null), []);
+  // The effect that delivers a follow-up can run more than once (re-renders, Strict Mode), so
+  // each spoken question is sent exactly once by id.
+  const deliverSpokenFollowUp = useCallback(
+    (question: SpokenFollowUpQuestion, send: (text: string) => void) => {
+      if (deliveredFollowUps.current.has(question.id)) return;
+      deliveredFollowUps.current.add(question.id);
+      send(question.text);
+      setSpokenFollowUp(null);
+    },
+    []
+  );
   const renderComposer = ({
     send = ask,
     disabled = false,
@@ -273,7 +288,7 @@ export default function LessonPlayer({
   } = {}) => (
     <>
       {conversation && spokenFollowUp ? (
-        <SpokenFollowUp question={spokenFollowUp} send={send} onSent={clearSpokenFollowUp} />
+        <SpokenFollowUp question={spokenFollowUp} send={send} deliver={deliverSpokenFollowUp} />
       ) : null}
       <ContextMenu
         type="lesson"

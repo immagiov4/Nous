@@ -3,7 +3,7 @@ import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ComponentProps } from 'react';
+import { type ComponentProps, StrictMode } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import LessonPlayer from '../../../components/workspace/playback/LessonPlayer.tsx';
 import type {
@@ -352,7 +352,12 @@ test.each([
 });
 
 test('a spoken question with a conversation open continues that conversation', async () => {
-  render(<LessonPlayer {...props} autoPlay={false} />);
+  // Strict Mode runs effects twice: the spoken question must still be sent once.
+  render(
+    <StrictMode>
+      <LessonPlayer {...props} autoPlay={false} />
+    </StrictMode>
+  );
   await recordQuestion();
   vi.mocked(requestSpeechTranscription).mockResolvedValueOnce('E poi?');
   fireEvent.keyDown(window, space);
