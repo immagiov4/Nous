@@ -14,6 +14,7 @@ export type AdminModelProviderSlot =
   | 'image'
   | 'lesson'
   | 'progress'
+  | 'playbackPreparation'
   | 'scene'
   | 'sceneIcon'
   | 'research';
@@ -242,12 +243,14 @@ export interface AdminModelConfig {
     | 'course'
     | 'lesson'
     | 'progress'
+    | 'playbackPreparation'
     | 'scene'
     | 'sceneIcon'
     | 'research'
   >;
   codexLessonModel: string;
   codexProgressModel: string;
+  codexPlaybackPreparationModel: string;
   codexSceneModel: string;
   codexSceneIconModel: string;
   codexResearchModel: string;
@@ -267,13 +270,16 @@ export interface AdminModelConfig {
   openAiImageModel: string;
   openAiLessonModel: string;
   openAiProgressModel: string;
+  openAiPlaybackPreparationModel: string;
   openAiSceneModel: string;
   openAiSceneIconModel: string;
   openAiResearchModel: string;
   progressModel: string;
+  playbackPreparationModel: string;
   sceneModel: string;
   sceneIconModel: string;
   progressReasoningEffort: AdminReasoningEffort;
+  playbackPreparationReasoningEffort: AdminReasoningEffort;
   sceneReasoningEffort: AdminReasoningEffort;
   sceneIconReasoningEffort: AdminReasoningEffort;
   researchModel: string;
@@ -304,6 +310,7 @@ export type AdminModelConfigPatch = Partial<
     | 'codexFastModelSlots'
     | 'codexLessonModel'
     | 'codexProgressModel'
+    | 'codexPlaybackPreparationModel'
     | 'codexSceneModel'
     | 'codexSceneIconModel'
     | 'codexResearchModel'
@@ -323,13 +330,16 @@ export type AdminModelConfigPatch = Partial<
     | 'openAiImageModel'
     | 'openAiLessonModel'
     | 'openAiProgressModel'
+    | 'openAiPlaybackPreparationModel'
     | 'openAiSceneModel'
     | 'openAiSceneIconModel'
     | 'openAiResearchModel'
     | 'progressModel'
+    | 'playbackPreparationModel'
     | 'sceneModel'
     | 'sceneIconModel'
     | 'progressReasoningEffort'
+    | 'playbackPreparationReasoningEffort'
     | 'sceneReasoningEffort'
     | 'sceneIconReasoningEffort'
     | 'researchModel'
@@ -358,6 +368,7 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   codexFastModelSlots: ['artifact', 'artifactInteractive', 'course', 'lesson'],
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
+  codexPlaybackPreparationModel: 'gpt-6-luna',
   codexSceneModel: 'gpt-6-luna',
   codexSceneIconModel: 'gpt-6-luna',
   codexResearchModel: 'gpt-5.6-terra',
@@ -377,13 +388,16 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   openAiImageModel: 'gpt-image-2',
   openAiLessonModel: 'gpt-5.6-terra',
   openAiProgressModel: 'gpt-5.6-luna',
+  openAiPlaybackPreparationModel: 'gpt-6-luna',
   openAiSceneModel: 'gpt-6-luna',
   openAiSceneIconModel: 'gpt-6-luna',
   openAiResearchModel: 'gpt-5-search-api',
   progressModel: 'google/gemini-3.1-flash-lite',
+  playbackPreparationModel: 'openai/gpt-6-luna',
   sceneModel: 'openai/gpt-6-luna',
   sceneIconModel: 'openai/gpt-6-luna',
   progressReasoningEffort: 'low',
+  playbackPreparationReasoningEffort: 'low',
   sceneReasoningEffort: 'low',
   sceneIconReasoningEffort: 'none',
   researchModel: 'perplexity/sonar-pro-search',
@@ -510,6 +524,10 @@ const normalizeAdminModelConfig = (
     config?.codexProgressModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexProgressModel
   ),
+  codexPlaybackPreparationModel: readConfigValue(
+    config?.codexPlaybackPreparationModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexPlaybackPreparationModel
+  ),
   codexSceneModel: readConfigValue(
     config?.codexSceneModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexSceneModel
@@ -574,6 +592,10 @@ const normalizeAdminModelConfig = (
     config?.openAiProgressModel,
     DEFAULT_ADMIN_MODEL_CONFIG.openAiProgressModel
   ),
+  openAiPlaybackPreparationModel: readConfigValue(
+    config?.openAiPlaybackPreparationModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiPlaybackPreparationModel
+  ),
   openAiSceneModel: readConfigValue(
     config?.openAiSceneModel,
     DEFAULT_ADMIN_MODEL_CONFIG.openAiSceneModel
@@ -587,6 +609,10 @@ const normalizeAdminModelConfig = (
     DEFAULT_ADMIN_MODEL_CONFIG.openAiResearchModel
   ),
   progressModel: readConfigValue(config?.progressModel, DEFAULT_ADMIN_MODEL_CONFIG.progressModel),
+  playbackPreparationModel: readConfigValue(
+    config?.playbackPreparationModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.playbackPreparationModel
+  ),
   sceneModel: readConfigValue(config?.sceneModel, DEFAULT_ADMIN_MODEL_CONFIG.sceneModel),
   sceneIconModel: readConfigValue(
     config?.sceneIconModel,
@@ -595,6 +621,10 @@ const normalizeAdminModelConfig = (
   progressReasoningEffort: readReasoningEffort(
     config?.progressReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.progressReasoningEffort
+  ),
+  playbackPreparationReasoningEffort: readReasoningEffort(
+    config?.playbackPreparationReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.playbackPreparationReasoningEffort
   ),
   sceneReasoningEffort: readReasoningEffort(
     config?.sceneReasoningEffort,

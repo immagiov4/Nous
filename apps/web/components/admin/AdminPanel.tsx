@@ -157,10 +157,13 @@ type AdminTextModelKey =
   | 'openAiResearchModel'
   | 'progressModel'
   | 'researchModel'
+  | 'codexPlaybackPreparationModel'
   | 'codexSceneModel'
   | 'codexSceneIconModel'
+  | 'openAiPlaybackPreparationModel'
   | 'openAiSceneModel'
   | 'openAiSceneIconModel'
+  | 'playbackPreparationModel'
   | 'sceneModel'
   | 'sceneIconModel';
 
@@ -173,6 +176,7 @@ type AdminReasoningKey =
   | 'lessonReasoningEffort'
   | 'progressReasoningEffort'
   | 'researchReasoningEffort'
+  | 'playbackPreparationReasoningEffort'
   | 'sceneReasoningEffort'
   | 'sceneIconReasoningEffort';
 type AdminTextModelSlot = Exclude<AdminModelProviderSlot, 'image'>;
@@ -186,6 +190,7 @@ const TEXT_MODEL_LABELS = {
   lessons: () => t('Lezioni'),
   progress: () => t('Avanzamento'),
   research: () => t('Ricerca'),
+  playbackPreparation: () => t('Preparazione ascolto'),
   scenes: () => t('Scene delle lezioni'),
   sceneIcons: () => t('Icone delle scene'),
 } as const;
@@ -286,6 +291,17 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     slot: 'research',
   },
   {
+    icon: Volume2,
+    labelKey: 'playbackPreparation',
+    models: {
+      openrouter: 'playbackPreparationModel',
+      openai: 'openAiPlaybackPreparationModel',
+      codex: 'codexPlaybackPreparationModel',
+    },
+    reasoning: 'playbackPreparationReasoningEffort',
+    slot: 'playbackPreparation',
+  },
+  {
     icon: LayoutGrid,
     labelKey: 'scenes',
     models: {
@@ -309,8 +325,12 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
   },
 ];
 
-// Scene slots follow the global provider and always run fast on Codex (see the backend model config).
-const SCENE_MODEL_SLOTS = new Set<AdminTextModelSlot>(['scene', 'sceneIcon']);
+// Live slots follow the global provider and always run fast on Codex (see the backend model config).
+const LIVE_TEXT_MODEL_SLOTS = new Set<AdminTextModelSlot>([
+  'playbackPreparation',
+  'scene',
+  'sceneIcon',
+]);
 
 const PROVIDER_SECTIONS: ReadonlyArray<{
   id: AdminAiProvider;
@@ -326,7 +346,7 @@ const PROVIDER_OVERRIDE_ROWS: ReadonlyArray<{
   label: () => string;
   slot: AdminModelProviderSlot;
 }> = [
-  ...TEXT_MODEL_ROWS.filter(row => !SCENE_MODEL_SLOTS.has(row.slot)).map(row => ({
+  ...TEXT_MODEL_ROWS.filter(row => !LIVE_TEXT_MODEL_SLOTS.has(row.slot)).map(row => ({
     icon: row.icon,
     label: TEXT_MODEL_LABELS[row.labelKey],
     slot: row.slot,
@@ -658,7 +678,7 @@ export default function AdminPanel() {
             </select>
           </label>
         </div>
-        {provider === 'codex' && !SCENE_MODEL_SLOTS.has(row.slot) ? (
+        {provider === 'codex' && !LIVE_TEXT_MODEL_SLOTS.has(row.slot) ? (
           <label className="mt-2 flex items-center gap-2 text-sm text-stone-600 dark:text-zinc-300">
             <input
               type="checkbox"

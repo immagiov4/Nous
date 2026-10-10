@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import {
   getGlobalModelConfig,
   getResolvedModelConfigForProvider,
+  isTextModelSlot,
   patchGlobalModelConfig,
   resetModelConfigForTesting,
   resolveAiProviderForSlot,
@@ -120,6 +121,59 @@ describe('global AI provider model mapping', () => {
     expect(resolveCodexServiceTierForSlot(config, 'lesson')).toBe('fast');
     expect(resolveCodexServiceTierForSlot(config, 'course')).toBe('fast');
     expect(resolveCodexServiceTierForSlot(config, 'research')).toBeUndefined();
+  });
+
+  test.each([
+    'openrouter',
+    'openai',
+    'codex',
+  ] as const)('defaults playback preparation independently of lessons for %s', aiProvider => {
+    const config = patchGlobalModelConfig({ aiProvider, lessonModel: 'custom-lesson' });
+
+    expect(isTextModelSlot('playbackPreparation')).toBe(true);
+    expect(resolveTextModelConfig(config, 'playbackPreparation')).toEqual({
+      model: aiProvider === 'openrouter' ? 'openai/gpt-6-luna' : 'gpt-6-luna',
+      reasoningEffort: 'low',
+    });
+  });
+
+  test.each([
+    'openrouter',
+    'openai',
+    'codex',
+  ] as const)('resolves the configured playback preparation model for %s', aiProvider => {
+    const config = patchGlobalModelConfig({
+      aiProvider,
+      playbackPreparationModel: 'openrouter-playback',
+      codexPlaybackPreparationModel: 'codex-playback',
+      openAiPlaybackPreparationModel: 'openai-playback',
+      playbackPreparationReasoningEffort: 'medium',
+    });
+
+    expect(resolveTextModelConfig(config, 'playbackPreparation')).toEqual({
+      model: `${aiProvider}-playback`,
+      reasoningEffort: 'medium',
+    });
+  });
+
+  test('keeps playback preparation fast and outside durable slot settings', async () => {
+    const config = patchGlobalModelConfig({
+      aiProvider: 'codex',
+      aiProviderOverrides: { playbackPreparation: 'openai', lesson: 'openrouter' },
+      codexFastModelSlots: ['playbackPreparation', 'lesson'],
+    });
+
+    expect(config.aiProviderOverrides).toEqual({ lesson: 'openrouter' });
+    expect(config.codexFastModelSlots).toEqual(['lesson']);
+    expect(resolveAiProviderForSlot(config, 'playbackPreparation')).toBe('codex');
+    expect(resolveCodexServiceTierForSlot(config, 'playbackPreparation')).toBe('fast');
+    expect(
+      resolveCodexServiceTierForSlot({ ...config, codexFastModelSlots: [] }, 'playbackPreparation')
+    ).toBe('fast');
+    const userConfig = await getResolvedModelConfigForProvider('openrouter', {
+      playbackPreparation: 'openai',
+    });
+    expect(resolveAiProviderForSlot(userConfig, 'playbackPreparation')).toBe('openrouter');
   });
 
   test('resolves global and user provider overrides by model slot', async () => {

@@ -90,13 +90,17 @@ const defaultModelConfig = {
   researchReasoningEffort: 'none' as const,
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   codexSceneIconModel: 'gpt-6-luna',
+  codexPlaybackPreparationModel: 'gpt-6-luna',
   codexSceneModel: 'gpt-6-luna',
   embeddingModel: 'google/gemini-embedding-2',
   openAiSceneIconModel: 'gpt-6-luna',
+  openAiPlaybackPreparationModel: 'gpt-6-luna',
   openAiSceneModel: 'gpt-6-luna',
   sceneIconModel: 'openai/gpt-6-luna',
   sceneIconReasoningEffort: 'none' as const,
+  playbackPreparationModel: 'openai/gpt-6-luna',
   sceneModel: 'openai/gpt-6-luna',
+  playbackPreparationReasoningEffort: 'low' as const,
   sceneReasoningEffort: 'low' as const,
   ttsVoice: 'Ara',
   updatedAt: '2026-07-07T00:00:00.000Z',
@@ -326,6 +330,52 @@ describe('AdminPanel', () => {
           codexArtifactModel: 'codex-artifact-sol',
           openAiArtifactModel: 'openai-artifact-sol',
           lessonModel: defaultModelConfig.lessonModel,
+        })
+      )
+    );
+  });
+
+  test('saves playback preparation models and shared reasoning independently of lessons', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+    await openConfiguration(user);
+    await openProviderSections(user);
+
+    for (const [provider, model] of [
+      ['OpenRouter', 'openrouter/playback'],
+      ['OpenAI API', 'openai-playback'],
+      ['Codex app-server', 'codex-playback'],
+    ]) {
+      fireEvent.change(screen.getByLabelText(`Modello Preparazione ascolto per ${provider}`), {
+        target: { value: model },
+      });
+    }
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Ragionamento Preparazione ascolto per OpenRouter' }),
+      'medium'
+    );
+    for (const select of screen.getAllByRole('combobox', {
+      name: /Ragionamento Preparazione ascolto per/,
+    })) {
+      expect(select).toHaveValue('medium');
+    }
+    expect(
+      screen.queryByRole('combobox', { name: 'Provider per Preparazione ascolto' })
+    ).toBeNull();
+    expect(screen.getAllByRole('checkbox', { name: 'Modalità Fast' })).toHaveLength(8);
+    await user.click(screen.getByRole('button', { name: 'Salva modelli' }));
+
+    await waitFor(() =>
+      expect(patchAdminModelConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          playbackPreparationModel: 'openrouter/playback',
+          openAiPlaybackPreparationModel: 'openai-playback',
+          codexPlaybackPreparationModel: 'codex-playback',
+          playbackPreparationReasoningEffort: 'medium',
+          lessonModel: defaultModelConfig.lessonModel,
+          lessonReasoningEffort: defaultModelConfig.lessonReasoningEffort,
+          aiProviderOverrides: {},
+          codexFastModelSlots: defaultModelConfig.codexFastModelSlots,
         })
       )
     );
