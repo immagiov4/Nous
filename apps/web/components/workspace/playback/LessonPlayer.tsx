@@ -384,7 +384,18 @@ export default function LessonPlayer({
       ) : (
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
       )}
-      <div className="shrink-0 px-2 pb-2 md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
+      <div className="shrink-0 px-2 pb-2 md:relative md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
+        {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
+        <p
+          aria-hidden={Boolean(answer) || listening}
+          className={`pointer-events-none absolute bottom-9 left-1/2 hidden -translate-x-1/2 items-center gap-1.5 whitespace-nowrap text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${answer || listening ? 'opacity-0' : 'opacity-100'}`}
+        >
+          {t('Tieni premuto')}
+          <kbd className="rounded-md border border-b-2 border-stone-200 bg-white px-1.5 py-0.5 font-sans text-[11px] font-semibold text-stone-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-stone-200">
+            {t('Spazio')}
+          </kbd>
+          {t('per fare una domanda a voce')}
+        </p>
         <div className="min-w-0 pb-2 md:pb-0">
           {playback.loading ? (
             <output className="mb-2 block text-xs text-stone-500 dark:text-stone-300">

@@ -39,6 +39,8 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 const ENGLISH_UI_MESSAGES = {
   'Ti ascolto… rilascia': 'Listening… release',
   Spazio: 'Space',
+  'Tieni premuto': 'Hold',
+  'per fare una domanda a voce': 'to ask a question out loud',
   'per inviare': 'to send',
   'Sto trascrivendo la domanda…': 'Transcribing your question…',
   'Non è stato possibile leggere la risposta. Puoi leggerla nel pannello.':
