@@ -1,0 +1,2197 @@
+/* Ported from notes-live-lab/style.css; original cascade order is preserved. */ .lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --paper: #fdfbf7;
+  --surface: #fff;
+  --ink: #1f1f1f;
+  --muted: #4a4a4a;
+  --line: #e5e7eb;
+  --blue: #a94f34;
+  --tint: #fbefe9;
+  --radius: 24px;
+  --motion: 320ms;
+  --chart-0: #7c8f6f;
+  --chart-1: #5e7a9b;
+  --chart-2: #b8915a;
+  --space: 24px;
+  color-scheme: light;
+  font-family: "Inter", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  font-synthesis: none;
+}
+.lesson-player-stage,
+.lesson-player-stage * {
+  box-sizing: border-box;
+}
+.lesson-player-stage .lesson-scene p {
+  line-height: 1.5;
+  margin: 0;
+}
+.lesson-player-stage .lesson-scene h1,
+.lesson-player-stage .lesson-scene h2,
+.lesson-player-stage .lesson-scene h3 {
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+  margin: 0;
+  font-weight: 650;
+}
+.lesson-player-stage .lesson-scene h1 {
+  font-size: 28px;
+}
+.lesson-player-stage .lesson-scene h3 {
+  font-size: 22px;
+}
+.lesson-player-stage .lesson-scene ul,
+.lesson-player-stage .lesson-scene ol {
+  margin: 0;
+  padding: 0;
+}
+.lesson-player-stage .lesson-scene li {
+  line-height: 1.45;
+}
+.lesson-player-stage .lesson-scene strong {
+  font-weight: 600;
+}
+.lesson-player-stage .lesson-scene [hidden] {
+  display: none !important;
+}
+.lesson-player-stage .scene-host {
+  background: var(--surface);
+  border-radius: var(--radius);
+  min-height: 460px;
+  display: flex;
+  align-items: center;
+  padding: 36px;
+  overflow: hidden;
+}
+.lesson-player-stage .lesson-scene .scene {
+  width: 100%;
+  animation: appear var(--motion) ease-out;
+}
+.lesson-player-stage .lesson-scene .scene h2 {
+  font-size: clamp(27px, 2.7vw, 40px);
+  max-width: 680px;
+}
+.lesson-player-stage .lesson-scene .scene-intro {
+  font-size: 17px;
+  color: var(--muted);
+  margin-top: 14px;
+  max-width: 620px;
+}
+.lesson-player-stage .lesson-scene .visual-content {
+  margin-top: 32px;
+}
+.lesson-player-stage .lesson-scene .scene-note {
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  margin-top: 28px;
+}
+.lesson-player-stage .lesson-scene .waiting {
+  margin: auto;
+  text-align: center;
+  color: var(--muted);
+  font-size: 20px;
+}
+.lesson-player-stage .lesson-scene .waiting-symbol {
+  font-size: 85px;
+  letter-spacing: -0.07em;
+  color: #d5d5da;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+.lesson-player-stage .lesson-scene .concept strong,
+.lesson-player-stage .lesson-scene .sequence strong,
+.lesson-player-stage .lesson-scene .cause strong {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.lesson-player-stage .lesson-scene .concept p,
+.lesson-player-stage .lesson-scene .sequence p,
+.lesson-player-stage .lesson-scene .cause p {
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 7px;
+}
+.lesson-player-stage .lesson-scene .parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .parts .concept {
+  padding-top: 24px;
+  border-top: 3px solid var(--blue);
+}
+.lesson-player-stage .lesson-scene .groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.lesson-player-stage .lesson-scene .groups section {
+  padding: 22px;
+  border-radius: 18px;
+  background: var(--paper);
+}
+.lesson-player-stage .lesson-scene .groups section:first-child {
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .groups h3 {
+  font-size: 20px;
+  line-height: 1.2;
+  margin-bottom: 18px;
+}
+.lesson-player-stage .lesson-scene .groups ul {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  font-size: 14px;
+}
+.lesson-player-stage .lesson-scene .signals section:first-child {
+  background: var(--paper);
+}
+.lesson-player-stage .lesson-scene .signals section:last-child {
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .table-wrap {
+  overflow: auto;
+}
+.lesson-player-stage .lesson-scene table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  font-size: 15px;
+}
+.lesson-player-stage .lesson-scene th,
+.lesson-player-stage .lesson-scene td {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.lesson-player-stage .lesson-scene th {
+  background: var(--tint);
+  font-weight: 600;
+}
+.lesson-player-stage .lesson-scene .sequence {
+  list-style: none;
+  display: grid;
+  gap: 22px;
+}
+.lesson-player-stage .lesson-scene .sequence li {
+  display: flex;
+  align-items: start;
+  gap: 18px;
+}
+.lesson-player-stage .lesson-scene .step-index {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--blue);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+.lesson-player-stage .lesson-scene .steps {
+  gap: 0;
+}
+.lesson-player-stage .lesson-scene .steps li {
+  padding-bottom: 22px;
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .steps li:not(:last-child):before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 34px;
+  bottom: 3px;
+  border-left: 1px solid var(--line);
+}
+.lesson-player-stage .lesson-scene .timeline {
+  border-left: 2px solid var(--blue);
+  padding-left: 22px;
+}
+.lesson-player-stage .lesson-scene .timeline .step-index {
+  border-radius: 5px;
+  background: var(--blue);
+  color: white;
+}
+.lesson-player-stage .lesson-scene .checklist .step-index {
+  font-size: 18px;
+  background: none;
+}
+.lesson-player-stage .lesson-scene .causal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lesson-player-stage .lesson-scene .cause {
+  flex: 1;
+  min-width: 0;
+}
+.lesson-player-stage .lesson-scene .arrow {
+  font-size: 24px;
+  color: var(--blue);
+}
+.lesson-player-stage .lesson-scene .definition {
+  display: grid;
+  gap: 22px;
+}
+.lesson-player-stage .lesson-scene .root-node {
+  border: 1px solid var(--line);
+  padding: 16px;
+  text-align: center;
+  border-radius: 14px;
+  margin: 0 20% 30px;
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .branches {
+  display: flex;
+  gap: 20px;
+  justify-content: space-around;
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+}
+.lesson-player-stage .lesson-scene .branches .concept {
+  flex: 1;
+}
+.lesson-player-stage .lesson-scene .network {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 32px;
+  align-items: center;
+}
+.lesson-player-stage .lesson-scene .hub {
+  background: var(--tint);
+  border: 1px solid var(--diagram-rule);
+  border-radius: 50%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  text-align: center;
+  font-size: 20px;
+}
+.lesson-player-stage .lesson-scene .satellites {
+  display: grid;
+  gap: 20px;
+  border-left: 2px solid var(--line);
+  padding-left: 22px;
+}
+.lesson-player-stage .lesson-scene .cycle {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 26px;
+  border: 2px dashed #b9d7fa;
+  border-radius: 40px;
+  padding: 24px;
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .cycle-arrow {
+  font-size: 40px;
+  position: absolute;
+  right: -14px;
+  top: 35%;
+  background: white;
+  color: var(--blue);
+}
+.lesson-player-stage .lesson-scene .decision-question {
+  background: var(--tint);
+  padding: 20px;
+  text-align: center;
+  border-radius: 20px;
+  margin-bottom: 24px;
+}
+.lesson-player-stage .lesson-scene .continuum-line {
+  height: 8px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--line), var(--accent));
+  margin: 30px 0;
+}
+.lesson-player-stage .lesson-scene .endpoints {
+  display: flex;
+  justify-content: space-between;
+  gap: 40px;
+}
+.lesson-player-stage .lesson-scene .endpoints .concept {
+  max-width: 45%;
+}
+.lesson-player-stage .lesson-scene .balance-pans section {
+  border-bottom: 3px solid var(--blue);
+}
+.lesson-player-stage .lesson-scene .beam {
+  height: 3px;
+  background: var(--ink);
+  margin-top: 24px;
+}
+.lesson-player-stage .lesson-scene .fulcrum {
+  width: 0;
+  height: 0;
+  border-left: 18px solid transparent;
+  border-right: 18px solid transparent;
+  border-bottom: 30px solid var(--ink);
+  margin: auto;
+}
+.lesson-player-stage .lesson-scene .concept-map {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .map-index {
+  font-size: 12px;
+  color: var(--blue);
+  display: block;
+  margin-bottom: 10px;
+}
+.lesson-player-stage .lesson-scene .concept-map .concept {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+}
+.lesson-player-stage .lesson-scene .claim {
+  border-left: 4px solid var(--blue);
+  padding-left: 24px;
+  display: grid;
+  gap: 24px;
+}
+.lesson-player-stage .lesson-scene .hypothesis {
+  display: flex;
+  gap: 30px;
+}
+.lesson-player-stage .lesson-scene .question-mark {
+  font-size: 96px;
+  color: var(--blue);
+  line-height: 1;
+}
+.lesson-player-stage .lesson-scene .source {
+  border: 1px solid var(--line);
+  padding: 24px;
+  border-radius: 18px;
+  display: grid;
+  gap: 18px;
+}
+.lesson-player-stage .lesson-scene .source-seal {
+  color: var(--blue);
+  font-size: 45px;
+}
+.lesson-player-stage .lesson-scene .not-equal {
+  font-size: 60px;
+  color: var(--blue);
+  text-align: center;
+  margin-bottom: 14px;
+}
+.lesson-player-stage .lesson-scene .counterexample > .concept {
+  margin-top: 15px;
+}
+.lesson-player-stage .lesson-scene .limits section {
+  border-radius: 0;
+  border-left: 3px solid var(--blue);
+  background: transparent;
+}
+.lesson-player-stage .lesson-scene .limits section:last-child {
+  border-color: var(--line);
+}
+.lesson-player-stage .lesson-scene .limit-line {
+  height: 1px;
+  background: var(--line);
+  margin-top: 24px;
+}
+.lesson-player-stage .lesson-scene blockquote {
+  font-size: clamp(25px, 2.7vw, 39px);
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+.lesson-player-stage .lesson-scene blockquote > span {
+  display: block;
+  font-size: 80px;
+  color: var(--blue);
+  height: 56px;
+}
+.lesson-player-stage .lesson-scene .roles {
+  display: flex;
+  gap: 25px;
+}
+.lesson-player-stage .lesson-scene .roles section {
+  flex: 1;
+  font-size: 14px;
+}
+.lesson-player-stage .lesson-scene .roles p {
+  color: var(--muted);
+  margin-top: 10px;
+}
+.lesson-player-stage .lesson-scene .avatar {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  background: var(--tint);
+  border-radius: 50%;
+  font-size: 22px;
+  color: var(--blue);
+  margin-bottom: 20px;
+}
+.lesson-player-stage .lesson-scene .beforeafter section:first-child {
+  opacity: 0.65;
+  background: var(--paper);
+}
+.lesson-player-stage .lesson-scene .beforeafter section:last-child {
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .change-arrow {
+  text-align: center;
+  color: var(--blue);
+  font-size: 40px;
+}
+.lesson-player-stage .lesson-scene .layers {
+  display: grid;
+  gap: 10px;
+}
+.lesson-player-stage .lesson-scene .layers > div {
+  margin-left: calc(var(--level) * 22px);
+  background: var(--tint);
+  padding: 18px;
+  border-radius: 12px;
+  border-left: 3px solid var(--blue);
+}
+.lesson-player-stage .lesson-scene .layers p {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 5px;
+}
+.lesson-player-stage .lesson-scene .boundary {
+  border: 2px dashed #bfd5ec;
+  border-radius: 40px;
+  padding: 26px;
+  display: grid;
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .boundary-groups {
+  font-size: 13px;
+}
+.lesson-player-stage .lesson-scene .big-number {
+  font-size: 120px;
+  letter-spacing: -0.08em;
+  color: var(--blue);
+}
+.lesson-player-stage .lesson-scene .big-number span {
+  display: block;
+  font-size: 18px;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.lesson-player-stage .lesson-scene .bars {
+  display: grid;
+  gap: 22px;
+}
+.lesson-player-stage .lesson-scene .bars > div {
+  display: grid;
+  grid-template-columns: 50px 1fr 40px;
+  align-items: center;
+  gap: 15px;
+}
+.lesson-player-stage .lesson-scene .bar-track {
+  background: var(--paper);
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.lesson-player-stage .lesson-scene .bar-track i {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  width: var(--amount);
+  border-radius: 6px;
+}
+.lesson-player-stage .lesson-scene .distribution {
+  display: flex;
+  height: 220px;
+  align-items: end;
+}
+.lesson-player-stage .lesson-scene .distribution > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.lesson-player-stage .lesson-scene .distribution .bar-track {
+  width: 100%;
+  height: 130px;
+  display: flex;
+  align-items: end;
+}
+.lesson-player-stage .lesson-scene .distribution i {
+  width: 100%;
+  height: var(--amount);
+  border-radius: 0;
+}
+.lesson-player-stage .lesson-scene .donut-layout {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}
+.lesson-player-stage .lesson-scene .donut {
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  padding: 30px;
+  flex-shrink: 0;
+}
+.lesson-player-stage .lesson-scene .donut > span {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: white;
+  border-radius: 50%;
+  font-size: 40px;
+}
+.lesson-player-stage .lesson-scene .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.lesson-player-stage .lesson-scene .interval {
+  display: flex;
+  align-items: center;
+  padding: 60px 0;
+  gap: 10px;
+}
+.lesson-player-stage .lesson-scene .interval i {
+  height: 6px;
+  background: var(--chart-1);
+  flex: 1;
+}
+.lesson-player-stage .lesson-scene .interval strong {
+  border-radius: 50%;
+  background: var(--blue);
+  color: white;
+  padding: 15px;
+}
+.lesson-player-stage .lesson-scene .axis {
+  stroke: var(--line);
+  fill: none;
+}
+.lesson-player-stage .lesson-scene .chart-line {
+  stroke: var(--blue);
+  stroke-width: 5;
+  fill: none;
+  stroke-linejoin: round;
+}
+.lesson-player-stage .lesson-scene svg {
+  width: 100%;
+  font-size: 13px;
+  overflow: visible;
+}
+@media (min-width: 1500px) {
+  .lesson-player-stage .scene-host {
+    min-height: 510px;
+  }
+}
+@media (max-width: 850px) {
+  .lesson-player-stage .scene-host {
+    min-height: 340px;
+    padding: 28px;
+  }
+  .lesson-player-stage .lesson-scene .scene h2 {
+    font-size: 30px;
+  }
+  .lesson-player-stage .lesson-scene .visual-content {
+    margin-top: 26px;
+  }
+  .lesson-player-stage .lesson-scene .scene-note {
+    margin-top: 20px;
+  }
+  .lesson-player-stage .lesson-scene .causal {
+    flex-wrap: wrap;
+  }
+  .lesson-player-stage .lesson-scene .cause {
+    min-width: 80px;
+  }
+}
+@media (max-width: 520px) {
+  .lesson-player-stage .scene-host {
+    padding: 24px;
+    min-height: 340px;
+  }
+  .lesson-player-stage .lesson-scene .scene h2 {
+    font-size: 28px;
+  }
+  .lesson-player-stage .lesson-scene .scene-intro {
+    font-size: 15px;
+  }
+  .lesson-player-stage .lesson-scene .groups {
+    gap: 12px;
+  }
+  .lesson-player-stage .lesson-scene .groups section {
+    padding: 16px;
+  }
+  .lesson-player-stage .lesson-scene .groups h3 {
+    font-size: 17px;
+  }
+  .lesson-player-stage .lesson-scene .groups li {
+    font-size: 13px;
+  }
+  .lesson-player-stage .lesson-scene .donut-layout {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .lesson-player-stage .lesson-scene .parts {
+    grid-template-columns: 1fr;
+  }
+  .lesson-player-stage .lesson-scene .roles {
+    gap: 16px;
+  }
+  .lesson-player-stage .lesson-scene .network {
+    gap: 16px;
+  }
+  .lesson-player-stage .lesson-scene .hub {
+    font-size: 15px;
+    padding: 12px;
+  }
+  .lesson-player-stage .lesson-scene .concept strong,
+  .lesson-player-stage .lesson-scene .sequence strong,
+  .lesson-player-stage .lesson-scene .cause strong {
+    font-size: 17px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-player-stage,
+  .lesson-player-stage .lesson-scene-bare {
+    --motion: 0ms;
+  }
+  .lesson-player-stage * {
+    scroll-behavior: auto !important;
+  }
+}
+.lesson-player-stage .lesson-scene .limits-items {
+  display: grid;
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .limits-items .concept {
+  border-left: 3px solid var(--blue);
+  padding-left: 18px;
+}
+.lesson-player-stage .lesson-scene .limits-items .concept:nth-child(even) {
+  border-color: var(--line);
+}
+.lesson-player-stage .lesson-scene .limits:empty {
+  display: none;
+}
+@media (min-width: 851px) and (max-height: 800px) {
+  .lesson-player-stage .scene-host {
+    min-height: 350px;
+    padding: 28px;
+  }
+  .lesson-player-stage .lesson-scene .scene h2 {
+    font-size: 30px;
+  }
+  .lesson-player-stage .lesson-scene .scene-intro {
+    font-size: 15px;
+    margin-top: 10px;
+  }
+  .lesson-player-stage .lesson-scene .visual-content {
+    margin-top: 22px;
+  }
+  .lesson-player-stage .lesson-scene .scene-note {
+    margin-top: 20px;
+    padding-top: 14px;
+  }
+  .lesson-player-stage .lesson-scene .groups section {
+    padding: 18px;
+  }
+  .lesson-player-stage .lesson-scene .groups h3 {
+    font-size: 18px;
+  }
+  .lesson-player-stage .lesson-scene .groups ul {
+    gap: 9px;
+  }
+}
+@media (max-width: 520px) {
+  .lesson-player-stage .scene-host {
+    min-height: 300px;
+    padding: 20px;
+  }
+  .lesson-player-stage .lesson-scene .scene h2 {
+    font-size: 24px;
+  }
+  .lesson-player-stage .lesson-scene .scene-intro {
+    font-size: 14px;
+  }
+  .lesson-player-stage .lesson-scene .visual-content {
+    margin-top: 20px;
+  }
+  .lesson-player-stage .lesson-scene .groups section {
+    padding: 14px;
+  }
+  .lesson-player-stage .lesson-scene .groups h3 {
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  .lesson-player-stage .lesson-scene .groups li {
+    font-size: 12px;
+  }
+  .lesson-player-stage .lesson-scene .groups ul {
+    gap: 9px;
+  }
+  .lesson-player-stage .lesson-scene .scene-note {
+    font-size: 12px;
+    margin-top: 16px;
+    padding-top: 12px;
+  }
+  .lesson-player-stage .lesson-scene .concept strong,
+  .lesson-player-stage .lesson-scene .sequence strong {
+    font-size: 16px;
+  }
+  .lesson-player-stage .lesson-scene .concept p,
+  .lesson-player-stage .lesson-scene .sequence p {
+    font-size: 13px;
+  }
+}
+.lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --note-bg: #fbefe9;
+  --note-ink: #744431;
+}
+/* Ported from notes-live-lab/graphics.css; original cascade order is preserved. */
+.lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --diagram-gap: 20px;
+  --diagram-pad: 22px;
+  --diagram-radius: 18px;
+  --diagram-title: 25px;
+  --diagram-label: 18px;
+  --diagram-copy: 15px;
+  --icon-size: 24px;
+  --symbol-size: 58px;
+  --diagram-rule: #d1d5db;
+}
+.lesson-player-stage .scene-host {
+  container-type: inline-size;
+  padding: 30px;
+  min-height: 420px;
+  overflow: visible;
+}
+.lesson-player-stage .lesson-scene .scene h2 {
+  font-size: var(--diagram-title);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  font-weight: 620;
+  text-wrap: balance;
+}
+.lesson-player-stage .lesson-scene .scene-intro {
+  font-size: var(--diagram-copy);
+  margin-top: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.lesson-player-stage .lesson-scene .visual-content {
+  margin-top: 26px;
+}
+.lesson-player-stage .lesson-scene .meaning-icon {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  flex: 0 0 var(--icon-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--blue);
+  overflow: visible;
+}
+.lesson-player-stage .lesson-scene .item-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--blue);
+  flex: 0 0 5px;
+  margin: 9px 9px 0;
+}
+.lesson-player-stage .lesson-scene .concept {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.lesson-player-stage .lesson-scene .concept strong,
+.lesson-player-stage .lesson-scene .sequence strong,
+.lesson-player-stage .lesson-scene .cause strong {
+  font-size: var(--diagram-label);
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.lesson-player-stage .lesson-scene .concept p,
+.lesson-player-stage .lesson-scene .sequence p,
+.lesson-player-stage .lesson-scene .cause p {
+  font-size: var(--diagram-copy);
+  line-height: 1.5;
+  margin-top: 5px;
+  color: var(--muted);
+}
+.lesson-player-stage .lesson-scene .definition {
+  display: grid;
+  gap: 22px;
+}
+.lesson-player-stage .lesson-scene .definition .concept {
+  padding: 0;
+}
+.lesson-player-stage .lesson-scene .type-definition .scene-intro {
+  font-size: 18px;
+  color: var(--ink);
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.lesson-player-stage .lesson-scene .parts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .parts .concept {
+  padding: 16px 0;
+  border-top: 1px solid var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .groups,
+.lesson-player-stage .lesson-scene .groups.related {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto;
+  gap: 14px;
+  position: relative;
+  align-items: stretch;
+}
+.lesson-player-stage .lesson-scene .groups section {
+  display: block;
+  grid-row: auto;
+  grid-column: auto !important;
+  min-width: 0;
+  padding: var(--diagram-pad);
+  border: 0;
+  border-radius: var(--diagram-radius);
+  background: var(--paper);
+}
+.lesson-player-stage .lesson-scene .groups.related section:first-child {
+  padding-right: 32px;
+}
+.lesson-player-stage .lesson-scene .groups.related section:last-child {
+  padding-left: 32px;
+}
+.lesson-player-stage .lesson-scene .groups h3 {
+  font-size: var(--diagram-label);
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  margin: 0 0 18px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.lesson-player-stage .lesson-scene .groups ul {
+  display: grid;
+  gap: 14px;
+  font-size: var(--diagram-copy);
+  color: var(--ink);
+  align-content: start;
+}
+.lesson-player-stage .lesson-scene .groups li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: inherit;
+  line-height: 1.45;
+  min-width: 0;
+}
+.lesson-player-stage .lesson-scene .groups li .meaning-icon {
+  --icon-size: 20px;
+  margin-top: 1px;
+}
+.lesson-player-stage .lesson-scene .groups.related .relation {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--symbol-size);
+  height: var(--symbol-size);
+  border-radius: 50%;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  gap: 0;
+  z-index: 1;
+}
+.lesson-player-stage .lesson-scene .relation-symbol {
+  display: block;
+  color: var(--blue);
+  font-size: 34px;
+  font-weight: 450;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.lesson-player-stage .lesson-scene .signals.related section:last-child {
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .scene-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 0;
+  padding: 13px 15px;
+  background: var(--note-bg);
+  border-radius: 12px;
+  color: var(--note-ink);
+  font-size: 13px;
+  margin-top: 22px;
+}
+.lesson-player-stage .lesson-scene .scene-note svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+.lesson-player-stage .lesson-scene .scene-note p {
+  line-height: 1.45;
+}
+.lesson-player-stage .lesson-scene .sequence {
+  gap: 22px;
+}
+.lesson-player-stage .lesson-scene .sequence li {
+  gap: 15px;
+}
+.lesson-player-stage .lesson-scene .step-index {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+.lesson-player-stage .lesson-scene .checklist {
+  padding: 22px;
+  background: var(--tint);
+  border-radius: var(--diagram-radius);
+}
+.lesson-player-stage .lesson-scene .checklist .step-index {
+  background: var(--surface);
+  width: 36px;
+  height: 36px;
+}
+.lesson-player-stage .lesson-scene .checklist .meaning-icon {
+  --icon-size: 21px;
+}
+.lesson-player-stage .lesson-scene .steps {
+  gap: 0;
+}
+.lesson-player-stage .lesson-scene .steps li {
+  padding-bottom: 24px;
+}
+.lesson-player-stage .lesson-scene .steps li:last-child {
+  padding-bottom: 0;
+}
+.lesson-player-stage .lesson-scene .timeline {
+  border: 0;
+  padding: 0;
+}
+.lesson-player-stage .lesson-scene .timeline li {
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .timeline li:not(:last-child):before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 34px;
+  height: calc(100% - 12px);
+  border-left: 1px solid var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .causal {
+  gap: 10px;
+}
+.lesson-player-stage .lesson-scene .cause {
+  display: grid;
+  gap: 10px;
+  padding: 15px;
+  background: var(--paper);
+  border-radius: 12px;
+}
+.lesson-player-stage .lesson-scene .cause p {
+  margin: 0;
+}
+.lesson-player-stage .lesson-scene .arrow {
+  flex-shrink: 0;
+}
+.lesson-player-stage .lesson-scene .root-node {
+  position: relative;
+  border: 0;
+  background: var(--tint);
+  font-size: 18px;
+  margin: 0 auto 30px;
+  max-width: 75%;
+  padding: 14px 20px;
+}
+.lesson-player-stage .lesson-scene .root-node:after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  height: 30px;
+  border-left: 1px solid var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .branches {
+  border-color: var(--diagram-rule);
+  gap: 16px;
+}
+.lesson-player-stage .lesson-scene .branches > .concept {
+  position: relative;
+  flex-direction: column;
+  padding: 0 8px;
+}
+.lesson-player-stage .lesson-scene .branches > .concept:before {
+  content: "";
+  position: absolute;
+  top: -24px;
+  left: 20px;
+  height: 16px;
+  border-left: 1px solid var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .network {
+  gap: 28px;
+}
+.lesson-player-stage .lesson-scene .hub {
+  position: relative;
+  font-size: 18px;
+  aspect-ratio: auto;
+  min-height: 90px;
+  border: 0;
+  border-radius: 16px;
+}
+.lesson-player-stage .lesson-scene .hub:after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 28px;
+  border-top: 1px solid var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .satellites {
+  border-color: var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .satellites > .concept {
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .satellites > .concept:before {
+  content: "";
+  position: absolute;
+  right: 100%;
+  top: 12px;
+  width: 22px;
+  border-top: 1px solid var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .concept-map {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.lesson-player-stage .lesson-scene .concept-map .concept {
+  border: 0;
+  border-left: 1px solid var(--diagram-rule);
+  border-radius: 0;
+  padding: 0 0 0 16px;
+}
+.lesson-player-stage .lesson-scene .claim {
+  border-color: var(--diagram-rule);
+  padding-left: 18px;
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .claim-rule {
+  display: none;
+}
+.lesson-player-stage .lesson-scene .source {
+  border: 1px solid var(--diagram-rule);
+  padding: 22px;
+}
+.lesson-player-stage .lesson-scene .hypothesis {
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .question-mark {
+  font-size: 56px;
+}
+.lesson-player-stage .lesson-scene .limits-items {
+  gap: 14px;
+}
+.lesson-player-stage .lesson-scene .limits-items .concept {
+  border: 0;
+  border-radius: 14px;
+  padding: 18px;
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .limits-items .concept:nth-child(even) {
+  background: var(--paper);
+}
+.lesson-player-stage .lesson-scene .limits:empty {
+  display: none;
+}
+.lesson-player-stage .lesson-scene .counterexample {
+  display: grid;
+  gap: 22px;
+}
+.lesson-player-stage .lesson-scene .counterexample .concept {
+  padding-left: 14px;
+  border-left: 2px solid var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .roles {
+  gap: 16px;
+}
+.lesson-player-stage .lesson-scene .roles section {
+  padding: 20px;
+  border-radius: var(--diagram-radius);
+  background: var(--paper);
+  font-size: var(--diagram-copy);
+}
+.lesson-player-stage .lesson-scene .roles strong {
+  font-size: var(--diagram-label);
+  line-height: 1.3;
+  display: block;
+}
+.lesson-player-stage .lesson-scene .roles p {
+  font-size: var(--diagram-copy);
+  line-height: 1.5;
+}
+.lesson-player-stage .lesson-scene .avatar {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 16px;
+}
+.lesson-player-stage .lesson-scene .type-quote header h2 {
+  font-size: 18px;
+  color: var(--muted);
+}
+.lesson-player-stage .lesson-scene blockquote {
+  font-size: 26px;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+}
+.lesson-player-stage .lesson-scene blockquote > span {
+  font-size: 50px;
+  height: 40px;
+}
+.lesson-player-stage .lesson-scene .layers > div {
+  border-color: var(--diagram-rule);
+  margin-left: calc(var(--level) * 16px);
+}
+.lesson-player-stage .lesson-scene .boundary {
+  border-radius: 20px;
+  border-color: var(--diagram-rule);
+}
+.lesson-player-stage .lesson-scene .bars > div {
+  grid-template-columns: minmax(70px, 1fr) 3fr 35px;
+}
+.lesson-player-stage .lesson-scene .bars {
+  gap: 18px;
+}
+.lesson-player-stage .lesson-scene .bar-track {
+  height: 22px;
+}
+.lesson-player-stage .lesson-scene .big-number {
+  font-size: 76px;
+}
+.lesson-player-stage .lesson-scene .interval {
+  position: relative;
+  height: 140px;
+  padding: 0;
+}
+.lesson-player-stage .lesson-scene .interval-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: var(--chart-1);
+}
+.lesson-player-stage .lesson-scene .interval-point {
+  position: absolute;
+  left: var(--position);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+.lesson-player-stage .lesson-scene .interval-point span {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.lesson-player-stage .lesson-scene .interval-point.stimate {
+  outline: 3px solid var(--surface);
+}
+@media (max-width: 1000px) {
+  .lesson-player-stage .scene-host {
+    min-height: 360px;
+  }
+}
+@container (max-width: 460px) {
+  .lesson-player-stage .lesson-scene .groups.related {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .lesson-player-stage .lesson-scene .groups.related section:first-child {
+    padding: 20px 20px 30px;
+  }
+  .lesson-player-stage .lesson-scene .groups.related section:last-child {
+    padding: 30px 20px 20px;
+  }
+  .lesson-player-stage .lesson-scene .groups.related .relation {
+    position: relative;
+    left: auto;
+    top: auto;
+    transform: none;
+    margin: calc(-1 * (var(--symbol-size) + 16px) / 2) auto;
+    grid-row: 2;
+  }
+  .lesson-player-stage .lesson-scene .groups.related section:last-child {
+    grid-row: 3;
+  }
+  .lesson-player-stage .lesson-scene .groups.related[data-relation="leads"] .relation-symbol {
+    transform: rotate(90deg);
+  }
+  .lesson-player-stage .lesson-scene .parts,
+  .lesson-player-stage .lesson-scene .roles {
+    grid-template-columns: 1fr;
+  }
+  .lesson-player-stage .lesson-scene .roles {
+    display: grid;
+  }
+  .lesson-player-stage .lesson-scene .causal {
+    flex-direction: column;
+  }
+  .lesson-player-stage .lesson-scene .cause {
+    width: 100%;
+  }
+  .lesson-player-stage .lesson-scene .causal > .arrow {
+    transform: rotate(90deg);
+  }
+  .lesson-player-stage .lesson-scene .branches {
+    flex-direction: column;
+    border-top: 0;
+    border-left: 1px solid var(--diagram-rule);
+    padding: 0 0 0 18px;
+    margin-left: 16px;
+  }
+  .lesson-player-stage .lesson-scene .branches > .concept {
+    flex-direction: row;
+  }
+  .lesson-player-stage .lesson-scene .branches > .concept:before {
+    top: 12px;
+    left: -18px;
+    width: 18px;
+    height: 0;
+    border-top: 1px solid var(--diagram-rule);
+  }
+  .lesson-player-stage .lesson-scene .root-node {
+    margin-left: 0;
+  }
+  .lesson-player-stage .lesson-scene .root-node:after {
+    left: 16px;
+  }
+  .lesson-player-stage .lesson-scene .network {
+    grid-template-columns: 1fr;
+  }
+  .lesson-player-stage .lesson-scene .hub:after {
+    left: 22px;
+    top: 100%;
+    height: 28px;
+    width: 0;
+    border-left: 1px solid var(--diagram-rule);
+  }
+  .lesson-player-stage .lesson-scene .satellites {
+    margin-left: 22px;
+  }
+  .lesson-player-stage .lesson-scene .groups:not(.related) {
+    grid-template-columns: 1fr;
+  }
+  .lesson-player-stage .lesson-scene .table-wrap {
+    font-size: 13px;
+  }
+  .lesson-player-stage .lesson-scene th,
+  .lesson-player-stage .lesson-scene td {
+    padding: 10px;
+  }
+  .lesson-player-stage .lesson-scene .scene-note {
+    font-size: 13px;
+  }
+}
+@media (max-width: 520px) {
+  .lesson-player-stage,
+  .lesson-player-stage .lesson-scene-bare {
+    --diagram-title: 22px;
+    --diagram-label: 17px;
+    --diagram-copy: 14px;
+    --diagram-pad: 18px;
+    --symbol-size: 48px;
+  }
+  .lesson-player-stage .scene-host {
+    padding: 22px;
+  }
+  .lesson-player-stage .lesson-scene .scene h2 {
+    font-size: var(--diagram-title);
+  }
+  .lesson-player-stage .lesson-scene .scene-intro {
+    font-size: 14px;
+  }
+  .lesson-player-stage .lesson-scene .relation-symbol {
+    font-size: 30px;
+  }
+  .lesson-player-stage .lesson-scene .visual-content {
+    margin-top: 22px;
+  }
+}
+.lesson-player-stage .lesson-scene .scenario-question {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 17px;
+  line-height: 1.5;
+}
+.lesson-player-stage .lesson-scene .relation-symbol {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+.lesson-player-stage .lesson-scene .relation-symbol .meaning-icon {
+  --icon-size: 32px;
+  color: var(--blue);
+}
+.lesson-player-stage .lesson-scene .scene-note > .meaning-icon {
+  --icon-size: 20px;
+  color: var(--note-ink);
+  margin-top: 1px;
+}
+.lesson-player-stage .lesson-scene .question-mark .meaning-icon {
+  --icon-size: 44px;
+}
+.lesson-player-stage .lesson-scene .nested-layers section {
+  padding: 18px;
+  border: 1px solid var(--diagram-rule);
+  border-radius: 14px;
+}
+.lesson-player-stage .lesson-scene .nested-layers section > section {
+  margin-top: 16px;
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .nested-layers p {
+  font-size: 14px;
+  margin-top: 6px;
+  color: var(--muted);
+}
+.lesson-player-stage .lesson-scene .interval-point:first-child span {
+  left: 0;
+  transform: none;
+}
+.lesson-player-stage .lesson-scene .interval-point:last-child span {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --boundary-stroke: #8a8a8a;
+  --nested-outer: #a3a09a;
+  --nested-middle: #8a8177;
+  --nested-inner: #9c6b50;
+  --nested-fill: #fdfbf7;
+  --nested-focus: #fbefe9;
+}
+.lesson-player-stage .lesson-scene .type-number .visual-content {
+  display: grid;
+  place-items: center;
+  padding: 22px 0;
+}
+.lesson-player-stage .lesson-scene .big-number {
+  text-align: center;
+  line-height: 1.1;
+}
+.lesson-player-stage .lesson-scene .big-number span {
+  margin-top: 12px;
+}
+.lesson-player-stage .lesson-scene .type-number header {
+  text-align: center;
+}
+.lesson-player-stage .lesson-scene .boundary {
+  padding: var(--diagram-pad);
+  border-color: var(--boundary-stroke);
+}
+.lesson-player-stage .lesson-scene .nested-layers section {
+  padding: 20px;
+  border: 1.5px solid var(--nested-outer);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.lesson-player-stage .lesson-scene .nested-layers section > section {
+  margin-top: 18px;
+  border-color: var(--nested-middle);
+  background: var(--nested-fill);
+}
+.lesson-player-stage .lesson-scene .nested-layers section > section > section {
+  border-color: var(--nested-inner);
+  background: var(--nested-focus);
+}
+.lesson-player-stage .lesson-scene .groups.assessment h3 {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.lesson-player-stage .lesson-scene .groups.assessment .verdict-prefer {
+  background: var(--tint);
+}
+.lesson-player-stage .lesson-scene .groups.assessment .verdict-avoid {
+  background: var(--paper);
+}
+.lesson-player-stage .lesson-scene .groups.assessment .verdict-avoid h3 .meaning-icon {
+  color: var(--muted);
+}
+.lesson-player-stage .lesson-scene .scene-note.scenario-question {
+  font-size: 16px;
+  border: 0;
+  padding: 16px 18px;
+  margin-top: 24px;
+}
+.lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --connector-color: #8a8177;
+  --connector-width: 2px;
+  --connector-radius: 10px;
+}
+.lesson-player-stage .lesson-scene .definition {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 24px;
+}
+.lesson-player-stage .lesson-scene .definition .concept {
+  flex-direction: column;
+  gap: 12px;
+}
+.lesson-player-stage .lesson-scene .table-wrap {
+  border: 1px solid var(--line);
+  border-radius: var(--diagram-radius);
+  overflow: auto;
+}
+.lesson-player-stage .lesson-scene .table-wrap table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.lesson-player-stage .lesson-scene .table-wrap tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.lesson-player-stage .lesson-scene .source {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  align-items: center;
+  max-width: none;
+  padding: var(--diagram-pad);
+  border: 0;
+  border-radius: var(--diagram-radius);
+  background: var(--nested-fill);
+  gap: 28px;
+}
+.lesson-player-stage .lesson-scene .source-profile {
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.lesson-player-stage .lesson-scene .source-profile > .concept {
+  max-width: 100%;
+}
+.lesson-player-stage .lesson-scene .source dl {
+  margin: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--diagram-rule);
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.lesson-player-stage .lesson-scene .source dl > div {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 5px;
+}
+.lesson-player-stage .lesson-scene .source dt {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+  color: var(--muted);
+}
+.lesson-player-stage .lesson-scene .source dd {
+  margin: 0 0 0 34px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.lesson-player-stage .lesson-scene .root-node:after {
+  border-color: var(--connector-color);
+  border-width: var(--connector-width);
+}
+.lesson-player-stage .lesson-scene .branches {
+  border-color: var(--connector-color);
+  border-width: var(--connector-width);
+}
+.lesson-player-stage .lesson-scene .branches > .concept:before {
+  border-color: var(--connector-color);
+  border-width: var(--connector-width);
+}
+.lesson-player-stage .lesson-scene .network {
+  gap: 44px;
+}
+.lesson-player-stage .lesson-scene .hub:after {
+  width: 22px;
+  border-color: var(--connector-color);
+  border-width: var(--connector-width);
+}
+.lesson-player-stage .lesson-scene .satellites {
+  padding-left: 22px;
+  border: 0;
+  gap: 20px;
+}
+.lesson-player-stage .lesson-scene .satellites > .concept:before {
+  left: -22px;
+  right: auto;
+  top: 12px;
+  width: 22px;
+  border-top: var(--connector-width) solid var(--connector-color);
+}
+.lesson-player-stage .lesson-scene .satellites > .concept:not(:last-child):after {
+  content: "";
+  position: absolute;
+  left: -22px;
+  top: 12px;
+  height: calc(100% + 20px);
+  border-left: var(--connector-width) solid var(--connector-color);
+}
+.lesson-player-stage .lesson-scene .satellites > .concept:first-child:before {
+  height: 10px;
+  border-left: var(--connector-width) solid var(--connector-color);
+  border-top-left-radius: var(--connector-radius);
+}
+.lesson-player-stage .lesson-scene .satellites > .concept:first-child:after {
+  top: 22px;
+  height: calc(100% + 10px);
+}
+.lesson-player-stage .lesson-scene .satellites > .concept:last-child:before {
+  top: 2px;
+  height: 12px;
+  border-top: 0;
+  border-bottom: var(--connector-width) solid var(--connector-color);
+  border-left: var(--connector-width) solid var(--connector-color);
+  border-bottom-left-radius: var(--connector-radius);
+}
+.lesson-player-stage .lesson-scene .satellites > .concept:nth-last-child(2):after {
+  height: calc(100% + 10px);
+}
+.lesson-player-stage .lesson-scene .cycle {
+  padding: 24px 24px 32px;
+  border-color: var(--connector-color);
+  border-width: var(--connector-width);
+}
+.lesson-player-stage .lesson-scene .cycle-arrow {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: 0;
+  transform: translate(-50%, 50%);
+  width: 40px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+}
+.lesson-player-stage .lesson-scene .cycle-arrow .meaning-icon {
+  --icon-size: 25px;
+}
+.lesson-player-stage .lesson-scene .data-chart {
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+}
+.lesson-player-stage .lesson-scene .data-chart > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-size: 13px;
+}
+.lesson-player-stage .lesson-scene .data-chart .domain {
+  stroke: var(--muted);
+}
+.lesson-player-stage .lesson-scene .data-chart [aria-label$="grid"] {
+  opacity: 0.45;
+}
+.lesson-player-stage .lesson-scene .ring-chart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  margin: auto;
+}
+.lesson-player-stage .lesson-scene .ring-chart svg {
+  width: 220px;
+  max-width: 55%;
+  height: auto;
+  flex-shrink: 0;
+}
+.lesson-player-stage .lesson-scene .chart-values {
+  list-style: none;
+  display: grid;
+  gap: 15px;
+  font-size: 15px;
+}
+.lesson-player-stage .lesson-scene .chart-values li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lesson-player-stage .lesson-scene .legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: 0 0 12px;
+}
+.lesson-player-stage .lesson-scene .interval-values {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.lesson-player-stage .lesson-scene .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@container (max-width: 460px) {
+  .lesson-player-stage .lesson-scene .source dl > div {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .lesson-player-stage .lesson-scene .ring-chart {
+    flex-direction: column;
+    gap: 18px;
+  }
+  .lesson-player-stage .lesson-scene .ring-chart svg {
+    max-width: 100%;
+    width: 190px;
+  }
+  .lesson-player-stage .lesson-scene .network {
+    gap: 28px;
+  }
+  .lesson-player-stage .lesson-scene .hub:after {
+    width: 0;
+    left: 0;
+    top: 100%;
+    height: 28px;
+    border-left: var(--connector-width) solid var(--connector-color);
+    border-top: 0;
+  }
+  .lesson-player-stage .lesson-scene .satellites {
+    margin-left: 0;
+  }
+  .lesson-player-stage .lesson-scene .definition {
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  }
+  .lesson-player-stage .lesson-scene .cycle {
+    gap: 20px;
+  }
+  .lesson-player-stage .lesson-scene .cycle .concept {
+    flex-direction: column;
+  }
+  .lesson-player-stage .lesson-scene .interval-values {
+    font-size: 12px;
+  }
+}
+.lesson-player-stage .lesson-scene .network .hub:after {
+  width: 44px;
+}
+@container (max-width: 460px) {
+  .lesson-player-stage .lesson-scene .network .hub:after {
+    width: 0;
+  }
+}
+.lesson-player-stage .lesson-scene .hierarchy {
+  --branch-gap: 16px;
+  --branch-drop: 24px;
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches {
+  display: flex;
+  flex-direction: row;
+  border: 0;
+  padding: var(--branch-drop) 0 0;
+  margin: 0;
+  gap: var(--branch-gap);
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept {
+  flex: 1;
+  align-items: center;
+  text-align: center;
+  flex-direction: column;
+  padding: 0;
+  position: relative;
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept:before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--branch-drop));
+  left: calc(-0.5 * var(--branch-gap));
+  right: calc(-0.5 * var(--branch-gap));
+  width: auto;
+  height: 16px;
+  border: 0;
+  border-top: var(--connector-width) solid var(--connector-color);
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept:after {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--branch-drop));
+  left: 50%;
+  height: 16px;
+  border-left: var(--connector-width) solid var(--connector-color);
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept:first-child:before {
+  left: 50%;
+  border-left: var(--connector-width) solid var(--connector-color);
+  border-top-left-radius: var(--connector-radius);
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept:last-child:before {
+  right: 50%;
+  border-right: var(--connector-width) solid var(--connector-color);
+  border-top-right-radius: var(--connector-radius);
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept:first-child:after,
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept:last-child:after {
+  display: none;
+}
+.lesson-player-stage .lesson-scene .hierarchy .branches > .concept:only-child:before {
+  right: auto;
+  border-top: 0;
+  border-right: 0;
+  border-radius: 0;
+}
+.lesson-player-stage .lesson-scene .hierarchy .root-node {
+  margin-left: auto;
+  margin-right: auto;
+}
+.lesson-player-stage .lesson-scene .hierarchy .root-node:after {
+  left: 50%;
+}
+.lesson-player-stage .lesson-scene .definition {
+  max-width: 660px;
+  margin-inline: auto;
+}
+.lesson-player-stage .lesson-scene .definition .concept {
+  align-items: center;
+  text-align: center;
+}
+.lesson-player-stage .lesson-scene .concept-badge {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--tint);
+  flex-shrink: 0;
+}
+.lesson-player-stage .lesson-scene .definition {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lesson-player-stage .lesson-scene .definition > .concept {
+  flex: 1 1 120px;
+  max-width: 220px;
+}
+@container (max-width: 460px) {
+  .lesson-player-stage .lesson-scene .source {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .lesson-player-stage .lesson-scene .source dl {
+    padding: 20px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--diagram-rule);
+  }
+}
+.lesson-player-stage .lesson-scene .diagram-scroll {
+  overflow: auto;
+  max-width: 100%;
+  padding: 12px 4px 20px;
+  border-radius: var(--diagram-radius);
+}
+.lesson-player-stage .lesson-scene .mermaid-diagram {
+  min-width: 0;
+  text-align: center;
+}
+.lesson-player-stage .lesson-scene .mermaid-diagram > svg {
+  display: block;
+  margin-inline: auto;
+  height: auto;
+}
+.lesson-player-stage .lesson-scene .type-sequence .visual-content {
+  margin-top: 18px;
+}
+.lesson-player-stage .scene-host:has(.mermaid-diagram) {
+  min-height: 0;
+}
+/* Ported from notes-live-lab/listen.css; original cascade order is preserved. */
+.lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --caption-change: 180ms;
+  --caption-feather: 22px;
+}
+.lesson-player-stage .listening-stage {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 6%;
+  align-items: center;
+  padding: 32px 0;
+}
+.lesson-player-stage .captions {
+  min-height: 210px;
+  display: flex;
+  align-items: center;
+}
+.lesson-player-stage .captions p {
+  font-size: clamp(23px, 2.4vw, 34px);
+  line-height: 1.5;
+  letter-spacing: -0.025em;
+  width: 100%;
+}
+.lesson-player-stage .caption-word {
+  display: inline-block;
+  opacity: 0;
+  color: var(--ink);
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(var(--reveal-edge, 0px) - var(--caption-feather)),
+    transparent var(--reveal-edge, 0px)
+  );
+}
+.lesson-player-stage .caption-page {
+  animation: lesson-player-caption-in var(--caption-change) ease-out;
+}
+.lesson-player-stage .listening-stage > .scene-host {
+  min-height: 300px;
+  width: 100%;
+  max-height: calc(100dvh - 180px);
+  overflow: auto;
+}
+.lesson-player-stage .approved-image {
+  display: block;
+  max-width: 100%;
+  max-height: 70dvh;
+  margin: auto;
+  object-fit: contain;
+}
+.lesson-player-stage .approved-interactive {
+  width: 100%;
+  height: 60dvh;
+  border: 0;
+}
+.lesson-player-stage .lesson-scene .scene {
+  animation: lesson-player-caption-in var(--caption-change) ease-out;
+}
+@keyframes lesson-player-caption-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (max-width: 650px) {
+  .lesson-player-stage .listening-stage {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    justify-content: center;
+    padding: 24px 0 12px;
+  }
+  .lesson-player-stage .listening-stage > .scene-host {
+    order: 0;
+    max-height: none;
+    min-height: 260px;
+    padding: 22px;
+  }
+  .lesson-player-stage .captions {
+    order: 1;
+    min-height: 105px;
+    width: 100%;
+    align-items: center;
+  }
+  .lesson-player-stage .captions p {
+    font-size: 22px;
+    line-height: 1.45;
+    text-align: center;
+  }
+  .lesson-player-stage .lesson-scene .scene h2 {
+    font-size: 22px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-player-stage .caption-word {
+    mask-image: none;
+    transition: none;
+  }
+  .lesson-player-stage .caption-page,
+  .lesson-player-stage .lesson-scene .scene {
+    animation: none;
+  }
+}
+.lesson-player-stage .lesson-code {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow: auto;
+  max-width: 100%;
+  margin: 0;
+}
+.lesson-player-stage .listening-stage .table-wrap {
+  width: 100%;
+}
+.lesson-player-stage .listening-stage > .scene-host {
+  align-items: safe center;
+}
+.lesson-player-stage .captions {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+}
+.lesson-player-stage .captions h2 {
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  margin: 0 0 16px;
+}
+.lesson-player-stage .captions h2:empty {
+  display: none;
+}
+.lesson-player-stage .caption-word code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.87em;
+  background: var(--tint);
+  border-radius: 4px;
+  padding: 1px 3px;
+}
+.lesson-player-stage .caption-word strong {
+  font-weight: 700;
+}
+.lesson-player-stage .caption-word br {
+  line-height: 1.7;
+}
+@media (max-width: 650px) {
+  .lesson-player-stage .captions h2 {
+    text-align: center;
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+}
+.lesson-player-stage .captions p {
+  --caption-height: min(45dvh, 8lh);
+  position: relative;
+  max-height: var(--caption-height);
+  overflow: auto;
+  scrollbar-width: none;
+  margin: 0;
+}
+.lesson-player-stage .captions p::after {
+  content: "";
+  display: block;
+  height: calc(var(--caption-height) - 1lh);
+}
+.lesson-player-stage .captions p::-webkit-scrollbar {
+  display: none;
+}
+@media (max-width: 650px) {
+  .lesson-player-stage .captions p {
+    --caption-height: 4lh;
+  }
+}
+@media (min-width: 651px) {
+  .lesson-player-stage .listening-stage {
+    align-items: start;
+    align-content: safe center;
+  }
+  .lesson-player-stage .captions {
+    justify-content: flex-start;
+  }
+}
+.lesson-player-stage .lesson-code {
+  --code-key: #91442f;
+  --code-string: #326345;
+  --code-number: #76528b;
+  --code-comment: #68665f;
+  --code-keyword: #365f8c;
+  color: var(--ink);
+}
+.lesson-player-stage .lesson-code .hljs-attr,
+.lesson-player-stage .lesson-code .hljs-property,
+.lesson-player-stage .lesson-code .hljs-title {
+  color: var(--code-key);
+}
+.lesson-player-stage .lesson-code .hljs-string,
+.lesson-player-stage .lesson-code .hljs-regexp {
+  color: var(--code-string);
+}
+.lesson-player-stage .lesson-code .hljs-number,
+.lesson-player-stage .lesson-code .hljs-literal {
+  color: var(--code-number);
+}
+.lesson-player-stage .lesson-code .hljs-keyword,
+.lesson-player-stage .lesson-code .hljs-built_in,
+.lesson-player-stage .lesson-code .hljs-type {
+  color: var(--code-keyword);
+}
+.lesson-player-stage .lesson-code .hljs-comment {
+  color: var(--code-comment);
+}
+/* Ported from notes-live-lab/motion.css; original cascade order is preserved. */
+.lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --motion-accent: #a94f34;
+  --motion-soft: #f2dfd6;
+  --motion-radius: 16px;
+  --motion-padding: 14px;
+  --motion-border: 2px;
+}
+.lesson-player-stage .lesson-scene .motion-target {
+  --motion-emphasis: 0;
+  transform-origin: center;
+  border-radius: var(--motion-radius);
+  box-shadow: 0 0 0 var(--motion-border) rgb(169 79 52 / var(--motion-emphasis));
+  will-change: opacity, transform;
+}
+.lesson-player-stage .lesson-scene tr.motion-target {
+  box-shadow: none;
+}
+.lesson-player-stage .lesson-scene tr.motion-target > * {
+  border-top: var(--motion-border) solid rgb(169 79 52 / var(--motion-emphasis));
+  border-bottom: var(--motion-border) solid rgb(169 79 52 / var(--motion-emphasis)) !important;
+}
+.lesson-player-stage .lesson-scene tr.motion-target > :first-child {
+  border-left: var(--motion-border) solid rgb(169 79 52 / var(--motion-emphasis));
+  border-radius: var(--motion-radius) 0 0 var(--motion-radius);
+}
+.lesson-player-stage .lesson-scene tr.motion-target > :last-child {
+  border-right: var(--motion-border) solid rgb(169 79 52 / var(--motion-emphasis));
+  border-radius: 0 var(--motion-radius) var(--motion-radius) 0;
+}
+.lesson-player-stage .lesson-scene g.motion-target {
+  box-shadow: none;
+  transform-box: fill-box;
+}
+.lesson-player-stage .lesson-scene g.motion-target rect,
+.lesson-player-stage .lesson-scene g.motion-target polygon,
+.lesson-player-stage .lesson-scene g.motion-target circle {
+  stroke-width: calc(1.5px + var(--motion-emphasis) * 2px) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-player-stage .lesson-scene .motion-target {
+    will-change: auto;
+  }
+}
+.lesson-player-stage .lesson-scene .motion-target.concept {
+  border-radius: var(--motion-radius) !important;
+}
+.lesson-player-stage .lesson-scene .scene .motion-target:is(.concept, li, .cause),
+.lesson-player-stage .lesson-scene .scene .source dl > div.motion-target {
+  padding: var(--motion-padding);
+}
+.lesson-player-stage .lesson-scene .scene .motion-target:is(.concept, .cause) {
+  border-color: transparent;
+}
+.lesson-player-stage .lesson-scene .scene .sequence {
+  width: 100%;
+  max-width: none;
+  gap: 12px;
+}
+.lesson-player-stage .lesson-scene .scene .sequence > li.motion-target {
+  padding: 10px var(--motion-padding);
+}
+.lesson-player-stage,
+.lesson-player-stage .lesson-scene-bare {
+  --paper: var(--bg-paper);
+  --surface: var(--bg-surface);
+  --ink: var(--ink-primary);
+  --muted: var(--ink-secondary);
+  --line: var(--border-subtle);
+  --tint: var(--lesson-player-tint);
+}
+.lesson-player-stage {
+  --lesson-player-tint: #fbefe9;
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  width: 100%;
+  max-width: 1500px;
+  margin-inline: auto;
+  padding-inline: 5%;
+  overflow: auto;
+  font-family: "Inter", system-ui, sans-serif;
+  font-synthesis: none;
+}
+.dark .lesson-player-stage {
+  --lesson-player-tint: rgba(251, 146, 60, 0.14);
+}
+.lesson-player-stage .lesson-scene-bare {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  container-type: normal;
+  width: 100%;
+}
+.lesson-player-stage .scene-host > div {
+  width: 100%;
+}
+.lesson-player-stage .lesson-player-generated {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.lesson-player-stage .lesson-player-generated img {
+  width: auto;
+  max-width: 100%;
+  max-height: 70dvh;
+  border-radius: 0;
+}
+@media (max-width: 650px) {
+  .lesson-player-stage {
+    padding-inline: 18px;
+  }
+}
+
+.lesson-player-stage .lesson-scene .meaning-icon {
+  display: inline-block;
+  vertical-align: middle;
+  background: currentColor;
+  mask-image: var(--icon-url);
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  -webkit-mask-image: var(--icon-url);
+  -webkit-mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  stroke: none;
+  fill: none;
+}

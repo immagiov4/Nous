@@ -64,12 +64,12 @@ test('keeps values visible after a drawing failure and retries at the same width
   });
   const { container } = render(<SceneChart isDarkMode={false} scene={bars} />);
   await waitFor(() => expect(error).toHaveBeenCalledTimes(1));
-  expect(container.querySelector('figcaption')).toHaveClass('interval-values');
+  await waitFor(() => expect(container.querySelector('figcaption')).toHaveClass('interval-values'));
   expect(screen.getByText('2024: 12')).toBeVisible();
 
   act(() => notifyResize());
   await waitFor(() => expect(container.querySelector('svg')).not.toBeNull());
-  expect(container.querySelector('figcaption')).toHaveClass('sr-only');
+  await waitFor(() => expect(container.querySelector('figcaption')).toHaveClass('sr-only'));
   expect(plotMock).toHaveBeenCalledTimes(2);
 });
 
@@ -77,6 +77,30 @@ test('deduplicates initial observer notifications while a drawing is pending', a
   render(<SceneChart isDarkMode={false} scene={bars} />);
   act(() => notifyResize());
   await waitFor(() => expect(plotMock).toHaveBeenCalledTimes(1));
+});
+
+test('uses the prototype categorical line geometry only inside the player', async () => {
+  const scene = {
+    ...bars,
+    type: 'line' as const,
+    items: bars.items.map((item, index) => ({ ...item, time: index * 10 })),
+  };
+  const { container, rerender } = render(<SceneChart isDarkMode={false} scene={scene} prototype />);
+  await waitFor(() => expect(container.querySelector('svg')).not.toBeNull());
+  expect(lineYMock).toHaveBeenLastCalledWith(
+    expect.anything(),
+    expect.objectContaining({ x: 'label' })
+  );
+  expect(plotMock).toHaveBeenLastCalledWith(
+    expect.objectContaining({ x: { domain: ['2023', '2024'], label: null, padding: 0.25 } })
+  );
+  rerender(<SceneChart isDarkMode={false} scene={scene} />);
+  await waitFor(() =>
+    expect(lineYMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ x: 'time' })
+    )
+  );
 });
 
 test('keeps repeated labels distinct in the numeric caption', async () => {

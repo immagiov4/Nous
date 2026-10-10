@@ -259,6 +259,8 @@ export default function LessonPlayer({
           time={playback.time}
           duration={playback.duration}
           content={content}
+          speed={tts.playbackRate}
+          readTime={playback.readTime}
         />
       ) : (
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
@@ -300,6 +302,7 @@ export default function LessonPlayer({
                 </span>
               </button>
               <PlaybackPlayButton
+                stationary
                 onClick={togglePlay}
                 disabled={Boolean(answer) || !block}
                 loading={playback.loading}

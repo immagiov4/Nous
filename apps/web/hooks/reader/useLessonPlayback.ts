@@ -282,6 +282,7 @@ export function useLessonPlayback({
   }, [getAudio, start, voice]);
 
   const timeline = useMemo(() => playbackTimeline(blocks, voice), [blocks, voice]);
+  const readTime = useCallback(() => getAudio().currentTime, [getAudio]);
   const elapsed = timeline.slice(0, index).reduce((sum, block) => sum + block.duration, 0) + time;
   const total = timeline.reduce((sum, block) => sum + block.duration, 0);
   const seek = (target: number) => {
@@ -314,5 +315,6 @@ export function useLessonPlayback({
     play,
     pause,
     seek,
+    readTime,
   };
 }

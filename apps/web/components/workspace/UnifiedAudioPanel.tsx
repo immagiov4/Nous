@@ -854,11 +854,13 @@ export function PlaybackPlayButton({
   disabled = false,
   loading,
   playing,
+  stationary = false,
 }: {
   onClick: () => void;
   disabled?: boolean;
   loading: boolean;
   playing: boolean;
+  stationary?: boolean;
 }) {
   const state = { isDisabled: disabled, isLoading: loading, isPlaying: playing };
   return (
@@ -866,7 +868,11 @@ export function PlaybackPlayButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={getTtsPlayButtonClassName(state)}
+      className={
+        stationary
+          ? getTtsPlayButtonClassName(state).replace('hover:scale-105', '')
+          : getTtsPlayButtonClassName(state)
+      }
       title={getTtsPlayButtonTitle(state)}
       aria-label={t(loading ? 'In caricamento' : playing ? 'Pausa' : 'Riproduci')}
     >

@@ -1,114 +1,129 @@
-import { type LessonPlaybackBlock, motionTargets } from '@shared/lessonPlayback';
+import type { LessonPlaybackBlock, PlaybackRange } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
-import { Fragment, useEffect, useMemo, useRef } from 'react';
+import { Fragment, type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useResolvedProjectVisual } from '../../../hooks/useResolvedProjectVisual.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
-import { playbackWordIndex, playbackWords } from '../../../utils/reader/lessonPlayback.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
-import './captions.css';
+import {
+  CAPTION_SCROLL,
+  CAPTION_TIMING,
+  captionFormat,
+  captionLookAhead,
+  captionPauses,
+  captionSource,
+  captionSpeechRanges,
+  pacedCaptionTime,
+} from './captionFormat.ts';
+import {
+  type CaptionRun,
+  captionMotionEvents,
+  motionStates,
+  sceneElements,
+  type TimedMotionEvent,
+} from './stageMotion.ts';
+import './stage.css';
 
-const MOTION_TIMING = { transitionMs: 420, maxFocusSeconds: 4 };
-const ITEM_SELECTORS: Record<string, string> = {
-  steps: '.sequence>li',
-  timeline: '.sequence>li',
-  checklist: '.sequence>li',
-  hypothesis: '.sequence>li',
-  causal: '.cause',
-  roles: '.roles>section',
-  layers: '.nested-layers section',
-  source: '.source-profile .concept,.source dl>div',
-  number: '.big-number',
-};
-
-function sceneElements(host: HTMLElement, scene: LessonScene) {
-  const elements = new Map<string, HTMLElement | SVGElement>();
-  if (scene.diagram) {
-    const nodes = Array.from(host.querySelectorAll<SVGElement>('g.node'));
-    scene.diagram.nodes.forEach((node, index) => {
-      const element = nodes.find(element => element.id.includes(`flowchart-n${index}-`));
-      if (element) elements.set(`node:${node.id}`, element);
-    });
-    host.querySelectorAll<SVGElement>('path.flowchart-link').forEach((element, index) => {
-      elements.set(`edge:${index}`, element);
-    });
-  } else {
-    const selector =
-      scene.type === 'matrix'
-        ? 'tbody>tr'
-        : scene.groups.length
-          ? '.groups>section'
-          : (ITEM_SELECTORS[scene.type] ?? '.visual-content .concept');
-    const targets = motionTargets(scene);
-    host.querySelectorAll<HTMLElement>(selector).forEach((element, index) => {
-      if (targets[index]) elements.set(targets[index].id, element);
-    });
-  }
-  return elements;
+interface CaptionClock {
+  runs: CaptionRun[];
+  width: number;
+  feather: number;
+  bodyDuration: number;
+  speechRanges: PlaybackRange[];
+  read: () => { bodyTime: number; revealTime: number };
 }
 
 function PlaybackScene({
   scene,
   block,
-  time,
-  duration,
+  clock,
+  speed,
+  animate,
   isDarkMode,
 }: {
   scene: LessonScene;
   block: LessonPlaybackBlock;
-  time: number;
-  duration: number;
+  clock: RefObject<CaptionClock | null>;
+  speed: number;
+  animate: boolean;
   isDarkMode: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const animate = useShouldAnimate();
-  const words = useMemo(() => playbackWords(block.speech), [block.speech]);
-  const cues = useMemo(
-    () =>
-      (block.prepared?.motion ?? []).map(event => {
-        const offset = block.speech.indexOf(event.quote);
-        const start = (words.filter(word => word.start < offset).length / words.length) * duration;
-        const end =
-          (words.filter(word => word.start < offset + event.quote.length).length / words.length) *
-          duration;
-        return { ...event, start, end };
-      }),
-    [block.prepared?.motion, block.speech, duration, words]
-  );
   useEffect(() => {
+    if (!block.prepared?.motion.length) return;
     const element = host.current;
     if (!element) throw new Error('Playback scene must be mounted');
+    let elements = sceneElements(element, scene);
+    let events: TimedMotionEvent[] = [];
+    let previousClock: CaptionClock | null = null;
+    let previousFrame = '';
     const render = () => {
-      for (const [id, target] of sceneElements(element, scene)) {
-        const reveal = cues.find(cue => cue.effect === 'reveal' && cue.targets.includes(id));
-        const focus = cues.some(
-          cue =>
-            cue.effect === 'focus' &&
-            cue.targets.includes(id) &&
-            time >= cue.start &&
-            time < Math.min(cue.end, cue.start + MOTION_TIMING.maxFocusSeconds)
-        );
-        target.style.opacity = reveal && time < reveal.start ? '0' : '1';
-        target.style.transition = animate
-          ? `opacity ${MOTION_TIMING.transitionMs}ms, outline-color ${MOTION_TIMING.transitionMs}ms`
-          : 'none';
-        target.classList.toggle('outline', focus);
-        target.classList.toggle('outline-orange-500', focus);
-        target.classList.toggle('rounded-xl', focus);
+      const current = clock.current;
+      if (!current || !current.width || !current.bodyDuration) return;
+      if (current !== previousClock) {
+        events = captionMotionEvents({
+          events: block.prepared?.motion ?? [],
+          speech: block.speech,
+          speechRanges: current.speechRanges,
+          runs: current.runs,
+          width: current.width,
+          feather: current.feather,
+          duration: current.bodyDuration,
+        });
+        previousClock = current;
+        previousFrame = '';
+      }
+      if (events.some(event => event.targets.some(target => !elements.has(target)))) return;
+      const revealTime = Math.max(0, current.read().revealTime * 1000);
+      const frameKey = `${revealTime}:${animate}:${speed}`;
+      if (frameKey === previousFrame) return;
+      previousFrame = frameKey;
+      const states = motionStates(
+        Array.from(elements.keys()),
+        events,
+        revealTime,
+        !animate,
+        CAPTION_TIMING.highlightDelaySeconds * 1000 * speed
+      );
+      for (const [id, target] of elements) {
+        const state = states.get(id);
+        if (!state) throw new Error('Motion target state must exist');
+        target.dataset.motionId = id;
+        target.classList.add('motion-target');
+        target.style.opacity = String(state.opacity);
+        target.style.setProperty('--motion-emphasis', String(state.emphasis));
       }
     };
-    render();
-    // Diagrams render asynchronously; apply the same current-time state to their SVG.
-    const observer = new MutationObserver(render);
+    // Mermaid mounts its targets asynchronously. Rediscover only when the scene DOM changes.
+    const observer = new MutationObserver(() => {
+      elements = sceneElements(element, scene);
+      previousFrame = '';
+      render();
+    });
     observer.observe(element, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [animate, cues, scene, time]);
+    let frame = 0;
+    const tick = () => {
+      render();
+      frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      for (const target of elements.values()) {
+        target.classList.remove('motion-target');
+        target.style.removeProperty('opacity');
+        target.style.removeProperty('--motion-emphasis');
+        delete target.dataset.motionId;
+      }
+    };
+  }, [animate, block.prepared?.motion, block.speech, clock, scene, speed]);
   return (
     <div ref={host}>
-      <LessonSceneVisual scene={scene} isDarkMode={isDarkMode} />
+      <LessonSceneVisual scene={scene} isDarkMode={isDarkMode} variant="bare" />
     </div>
   );
 }
@@ -116,29 +131,23 @@ function PlaybackScene({
 function PlaybackStoredVisual({
   visual,
   content,
-  block,
-  time,
-  duration,
+  ...props
 }: {
   visual: StoredLessonVisual;
   content: WorkspaceReaderContentModel;
   block: LessonPlaybackBlock;
-  time: number;
-  duration: number;
+  clock: RefObject<CaptionClock | null>;
+  speed: number;
+  animate: boolean;
 }) {
   const resolved = useResolvedProjectVisual(visual, content.projectId);
   const scene = resolved.result?.visual.scene;
   return scene ? (
-    <PlaybackScene
-      scene={scene}
-      block={block}
-      time={time}
-      duration={duration}
-      isDarkMode={content.isDarkMode}
-    />
+    <PlaybackScene {...props} scene={scene} isDarkMode={content.isDarkMode} />
   ) : (
     <GeneratedVisualFrame
-      title={visual.title ?? block.heading}
+      className="lesson-player-generated"
+      title={visual.title ?? props.block.heading}
       visual={visual}
       projectId={content.projectId}
       isDarkMode={content.isDarkMode}
@@ -151,111 +160,206 @@ export default function LessonPlaybackStage({
   time,
   duration,
   content,
+  speed = 1,
+  readTime,
 }: {
   block: LessonPlaybackBlock;
   time: number;
   duration: number;
   content: WorkspaceReaderContentModel;
+  speed?: number;
+  readTime?: () => number;
 }) {
-  const words = useMemo(() => playbackWords(block.speech), [block.speech]);
-  const activeIndex = playbackWordIndex(words.length, time, duration);
-  const activeWord = useRef<HTMLSpanElement>(null);
+  const sources = useMemo(
+    () =>
+      content.sectionContentBlocks?.length
+        ? content.sectionContentBlocks
+        : [{ type: 'markdown' as const, markdown: content.sectionContent }],
+    [content.sectionContentBlocks, content.sectionContent]
+  );
+  const formatted = useMemo(() => {
+    const source = captionSource(block, sources);
+    const captions = captionFormat(source.markdown);
+    return { ...captions, speechRanges: captionSpeechRanges(captions.words, source.ranges) };
+  }, [block, sources]);
   const captions = useRef<HTMLParagraphElement>(null);
-  const captionScroll = useRef({ line: -1, target: 0 });
+  const clock = useRef<CaptionClock | null>(null);
+  const scroll = useRef({ line: -1, target: 0 });
   const animate = useShouldAnimate();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each block starts a new caption page
-  useEffect(() => {
-    if (captions.current) captions.current.scrollTop = 0;
-    captionScroll.current = { line: -1, target: 0 };
-  }, [block.id]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: advancing the word moves the scroll target
-  useEffect(() => {
+  const latest = useRef({ time, speed, readTime, animate });
+  useLayoutEffect(() => {
+    latest.current = { time, speed, readTime, animate };
+  }, [time, speed, readTime, animate]);
+
+  useLayoutEffect(() => {
     const paragraph = captions.current;
-    const word = activeWord.current;
-    if (!paragraph || !word) return;
-    const line = word.offsetTop;
-    const scroll = captionScroll.current;
-    if (line === scroll.line) return;
-    if (line + word.offsetHeight > scroll.target + paragraph.clientHeight / 2) {
-      scroll.target = Math.max(0, line);
-      paragraph.scrollTo({ top: scroll.target, behavior: animate ? 'smooth' : 'instant' });
-    }
-    scroll.line = line;
-  }, [activeIndex, animate, block.id]);
+    if (!paragraph) throw new Error('Captions must be mounted');
+    const measure = () => {
+      let width = 0;
+      const runs = Array.from(paragraph.querySelectorAll<HTMLElement>('.caption-word'), span => {
+        const start = width;
+        const wordWidth = span.getBoundingClientRect().width;
+        width += wordWidth;
+        return { span, start, width: wordWidth };
+      });
+      const feather = parseFloat(getComputedStyle(paragraph).getPropertyValue('--caption-feather'));
+      const bodyDuration =
+        (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
+      const pauses = captionPauses(
+        formatted.words,
+        runs.map(run => (run.start + run.width) / width),
+        bodyDuration
+      );
+      const headingShare =
+        formatted.headingWords / (formatted.words.length + formatted.headingWords);
+      clock.current = {
+        runs,
+        width,
+        feather,
+        bodyDuration,
+        speechRanges: formatted.speechRanges,
+        read: () => {
+          const {
+            readTime: read,
+            time: fallbackTime,
+            speed: rate,
+            animate: motion,
+          } = latest.current;
+          const elapsed = read ? read() : fallbackTime;
+          const bodyTime = elapsed - duration * headingShare;
+          const ahead = bodyTime + captionLookAhead(elapsed, rate, CAPTION_TIMING.lookAheadSeconds);
+          return { bodyTime, revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead };
+        },
+      };
+      paragraph.scrollTop = 0;
+      scroll.current = { line: -1, target: 0 };
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [duration, formatted]);
+
+  useEffect(() => {
+    let previousClock: CaptionClock | null = null;
+    let previousBodyTime: number | undefined;
+    const render = () => {
+      const paragraph = captions.current;
+      if (!paragraph) throw new Error('Captions must be mounted');
+      const current = clock.current;
+      if (!current || !current.width || !current.bodyDuration) return;
+      if (previousClock !== current) {
+        previousClock = current;
+        previousBodyTime = undefined;
+      }
+      const { bodyTime, revealTime } = current.read();
+      const motion = latest.current.animate;
+      if (previousBodyTime === bodyTime) return;
+      const progress = Math.max(0, Math.min(1, revealTime / current.bodyDuration));
+      const edge = progress * (current.width + current.feather);
+      let active = edge >= current.width ? current.runs.at(-1)?.span : undefined;
+      for (const run of current.runs) {
+        const local = edge - run.start;
+        run.span.style.opacity = local > 0 ? '1' : '0';
+        run.span.style.setProperty('--reveal-edge', `${local}px`);
+        const readAge = bodyTime - ((run.start + run.width) / current.width) * current.bodyDuration;
+        const fade = Math.max(0, Math.min(1, readAge / CAPTION_TIMING.readFadeSeconds));
+        const text = run.span.firstElementChild as HTMLElement;
+        text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
+        if (local >= 0 && local <= run.width) active = run.span;
+      }
+      if (active && active.offsetTop !== scroll.current.line) {
+        const line = active.offsetTop;
+        if (
+          line + active.offsetHeight >
+          scroll.current.target + paragraph.clientHeight * CAPTION_SCROLL.trigger
+        ) {
+          scroll.current.target = Math.max(
+            0,
+            line - paragraph.clientHeight * CAPTION_SCROLL.destination
+          );
+          paragraph.scrollTo({
+            top: scroll.current.target,
+            behavior: motion ? 'smooth' : 'instant',
+          });
+        }
+        scroll.current.line = line;
+      }
+      previousBodyTime = bodyTime;
+    };
+    let frame = 0;
+    const tick = () => {
+      render();
+      frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   const visuals = block.visuals.length
     ? block.visuals
     : block.prepared?.scene
       ? [{ kind: 'scene' as const, scene: block.prepared.scene }]
       : [];
-  const visual =
-    visuals[
-      Math.min(
-        visuals.length - 1,
-        duration > 0 ? Math.floor((time / duration) * visuals.length) : 0
-      )
-    ];
+  const visualIndex = Math.min(
+    visuals.length - 1,
+    duration > 0 ? Math.floor((time / duration) * visuals.length) : 0
+  );
+  const visual = visuals[visualIndex];
+  const visualKey = `${block.id}:${visualIndex}`;
   const stored =
     visual?.kind === 'generated-visual'
       ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
       : undefined;
+  const sceneProps = { block, clock, speed, animate };
   return (
-    <section className="grid min-h-0 flex-1 grid-cols-1 items-center gap-5 overflow-auto px-4 py-3 md:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] md:gap-[6%] md:px-[4%] md:py-6">
-      <div className="order-2 min-h-0 md:order-1">
-        {block.heading ? (
-          <h2 className="mb-4 text-[13px] font-bold text-stone-800 dark:text-stone-100">
-            {block.heading}
-          </h2>
-        ) : null}
-        <p
-          ref={captions}
-          className="lesson-playback-captions text-[19px] leading-normal tracking-[-.025em] text-stone-900 md:text-[clamp(23px,2.4vw,34px)] dark:text-stone-100"
-        >
-          {words.map((word, index) =>
-            block.heading &&
-            block.speech.startsWith(`${block.heading}\n`) &&
-            word.start < block.heading.length ? null : (
-              <Fragment key={word.start}>
-                <span
-                  ref={index === activeIndex ? activeWord : undefined}
-                  className={`inline-block ${index < activeIndex ? 'opacity-45' : index === activeIndex ? 'opacity-100' : 'opacity-10'} motion-safe:transition-opacity`}
-                >
-                  {word.text}
-                </span>{' '}
-              </Fragment>
-            )
-          )}
-        </p>
-      </div>
-      <div className="order-1 min-h-0 max-h-full overflow-auto rounded-3xl bg-white px-5 py-5 md:order-2 md:px-10 md:py-9 dark:bg-zinc-800">
-        {visual?.kind === 'scene' ? (
-          <PlaybackScene
-            scene={visual.scene}
-            block={block}
-            time={time}
-            duration={duration}
-            isDarkMode={content.isDarkMode}
-          />
-        ) : null}
-        {visual?.kind === 'markdown' ? (
-          <MarkdownRenderer
-            content={visual.markdown}
-            isDarkMode={content.isDarkMode}
-            projectId={content.projectId}
-            lessonAssetsById={content.activeSectionAssetsById}
-            lessonImageRefsById={content.activeSectionImageRefsById}
-            generatedVisualsById={content.activeSectionGeneratedVisualsById}
-          />
-        ) : null}
-        {stored ? (
-          <PlaybackStoredVisual
-            visual={stored}
-            content={content}
-            block={block}
-            time={time}
-            duration={duration}
-          />
-        ) : null}
-      </div>
-    </section>
+    <div className="lesson-player-stage">
+      <section className="listening-stage">
+        <section className="captions" aria-label="Sottotitoli">
+          <h2>{formatted.headings.at(-1) || block.heading}</h2>
+          <p ref={captions} key={block.id} className="caption-page">
+            {formatted.words.map((word, index) => {
+              const Tag = word.code ? 'code' : word.bold ? 'strong' : 'span';
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: the authored caption page is static and remounted per block
+                <Fragment key={`${index}:${word.text}`}>
+                  {word.breakBefore && index > 0 ? <br /> : null}
+                  <span className="caption-word">
+                    <Tag>{(word.breakBefore ? `${word.marker} ` : '') + word.text}</Tag>
+                  </span>{' '}
+                </Fragment>
+              );
+            })}
+          </p>
+        </section>
+        <section className="scene-host" aria-label="Visualizzazione della lezione">
+          {visual?.kind === 'scene' ? (
+            <PlaybackScene
+              key={visualKey}
+              {...sceneProps}
+              scene={visual.scene}
+              isDarkMode={content.isDarkMode}
+            />
+          ) : null}
+          {visual?.kind === 'markdown' ? (
+            <MarkdownRenderer
+              content={visual.markdown}
+              isDarkMode={content.isDarkMode}
+              projectId={content.projectId}
+              lessonAssetsById={content.activeSectionAssetsById}
+              lessonImageRefsById={content.activeSectionImageRefsById}
+              generatedVisualsById={content.activeSectionGeneratedVisualsById}
+            />
+          ) : null}
+          {stored ? (
+            <PlaybackStoredVisual
+              key={visualKey}
+              {...sceneProps}
+              visual={stored}
+              content={content}
+            />
+          ) : null}
+        </section>
+      </section>
+    </div>
   );
 }

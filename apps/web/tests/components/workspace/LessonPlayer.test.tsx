@@ -90,6 +90,7 @@ beforeEach(() => {
     play: vi.fn(async () => {}),
     pause: vi.fn(),
     seek: vi.fn(),
+    readTime: vi.fn(() => 0),
   };
   vi.mocked(useLessonPlayback).mockImplementation(() => playback);
   save.mockResolvedValue({ saved: true, merged: false, annotationId: 'annotation' });
