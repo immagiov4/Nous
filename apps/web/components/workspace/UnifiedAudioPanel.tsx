@@ -935,8 +935,22 @@ function VoicePicker({
 }
 
 /** Speed label that opens the speed slider in a small menu above it. */
+const SPEED_MENU_WIDTH_PX = 224;
+const SPEED_MENU_VIEWPORT_MARGIN_PX = 8;
+
 function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean }) {
   const [open, setOpen] = useState(false);
+  // Menu offset from the button's left edge: centered on the button, kept inside the viewport.
+  const [menuLeft, setMenuLeft] = useState(0);
+  const toggle = (button: HTMLButtonElement) => {
+    if (!open) {
+      const rect = button.getBoundingClientRect();
+      const centered = rect.left + rect.width / 2 - SPEED_MENU_WIDTH_PX / 2;
+      const maxLeft = globalThis.innerWidth - SPEED_MENU_VIEWPORT_MARGIN_PX - SPEED_MENU_WIDTH_PX;
+      setMenuLeft(Math.min(Math.max(centered, SPEED_MENU_VIEWPORT_MARGIN_PX), maxLeft) - rect.left);
+    }
+    setOpen(!open);
+  };
   return (
     <div className="relative shrink-0">
       <button
@@ -944,7 +958,7 @@ function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean 
         aria-label={t('Velocita')}
         aria-expanded={open}
         disabled={disabled}
-        onClick={() => setOpen(!open)}
+        onClick={event => toggle(event.currentTarget)}
         className="flex items-center gap-1 rounded-full px-2 py-1 text-sm font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400 dark:text-zinc-200 dark:hover:bg-zinc-700 dark:disabled:text-zinc-500"
       >
         {/* Sized for the widest label ("1.05x") so the button, and the slider menu anchored to
@@ -959,7 +973,8 @@ function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean 
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-            className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+            style={{ left: menuLeft, width: SPEED_MENU_WIDTH_PX }}
+            className="absolute bottom-full z-50 mb-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
           >
             <PlaybackSpeedControl
               isDisabled={disabled}

@@ -17,6 +17,7 @@ import { generateSpeech } from '../../../services/openrouter/tts.ts';
 
 const completedAnswer = vi.hoisted(() => ({ text: 'La risposta completa alla domanda.' }));
 const sendInConversation = vi.hoisted(() => vi.fn());
+const streamedAnswer = vi.hoisted(() => ({ text: '' }));
 
 vi.mock('../../../hooks/reader/useLessonPlayback.ts', () => ({ useLessonPlayback: vi.fn() }));
 vi.mock('../../../components/workspace/playback/LessonPlaybackStage.tsx', () => ({
@@ -32,6 +33,7 @@ vi.mock('../../../components/workspace/shell/ContextAnswerPanel.tsx', () => ({
     contextAnswer,
     pendingQuestion,
     onAnswerComplete,
+    onAnswerProgress,
     renderComposer,
   }: ComponentProps<
     typeof import('../../../components/workspace/shell/ContextAnswerPanel.tsx').default
@@ -40,6 +42,9 @@ vi.mock('../../../components/workspace/shell/ContextAnswerPanel.tsx', () => ({
       <p>{pendingQuestion ? 'Trascrizione domanda' : contextAnswer.initialQuestion}</p>
       <button type="button" onClick={onClose}>
         Chiudi risposta
+      </button>
+      <button type="button" onClick={() => onAnswerProgress?.(streamedAnswer.text)}>
+        Risposta in arrivo
       </button>
       <button type="button" onClick={() => onAnswerComplete?.(completedAnswer.text)}>
         Completa risposta
@@ -142,6 +147,7 @@ let playback: ReturnType<typeof useLessonPlayback>;
 beforeEach(() => {
   setAccountLocale('it');
   completedAnswer.text = 'La risposta completa alla domanda.';
+  sendInConversation.mockReset();
   Recorder.instances = [];
   AnswerAudio.instances = [];
   getUserMedia.mockReset().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
@@ -425,6 +431,39 @@ test('phone ignores Space', () => {
   fireEvent.keyUp(window, space);
   expect(getUserMedia).not.toHaveBeenCalled();
   expect(playback.pause).not.toHaveBeenCalled();
+});
+
+test('starts speaking each finished sentence while the answer is still streaming', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  await recordQuestion();
+  streamedAnswer.text = 'La prima frase è pronta. La seconda è in arri';
+  fireEvent.click(screen.getByRole('button', { name: 'Risposta in arrivo' }));
+  await waitFor(() => expect(AnswerAudio.instances[0]?.play).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(generateSpeech).mock.calls).toEqual([['La prima frase è pronta.', 'Kore']]);
+  completedAnswer.text = 'La prima frase è pronta. La seconda è in arrivo.';
+  fireEvent.click(screen.getByRole('button', { name: 'Completa risposta' }));
+  await act(async () => AnswerAudio.instances[0].onended?.());
+  await waitFor(() => expect(AnswerAudio.instances[1]?.play).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(generateSpeech).mock.calls.map(([text]) => text)).toEqual([
+    'La prima frase è pronta.',
+    'La seconda è in arrivo.',
+  ]);
+});
+
+test('the empty send button stops the voice reading an answer, typing restores sending', async () => {
+  const user = userEvent.setup();
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  await recordQuestion();
+  fireEvent.click(screen.getByRole('button', { name: 'Completa risposta' }));
+  await waitFor(() => expect(AnswerAudio.instances[0]?.play).toHaveBeenCalledTimes(1));
+  const field = screen.getByRole('textbox');
+  await user.type(field, 'E poi?');
+  expect(screen.queryByRole('button', { name: 'Ferma la voce' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Invia domanda' })).toBeEnabled();
+  await user.clear(field);
+  fireEvent.click(screen.getByRole('button', { name: 'Ferma la voce' }));
+  expect(AnswerAudio.instances[0].pause).toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Ferma la voce' })).not.toBeInTheDocument();
 });
 
 test('reads every part of a long answer through to the end', async () => {

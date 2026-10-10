@@ -249,6 +249,8 @@ export default function LessonPlayer({
       void saveNote();
       return;
     }
+    // A new question silences the voice still reading the previous answer.
+    answerAudio.stop();
     send(draft.trim());
     setDraft('');
     anchor.current = null;
@@ -258,7 +260,17 @@ export default function LessonPlayer({
   const questionActive = Boolean(answer) || holdingSpace;
   const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
   const clearSpokenFollowUp = useCallback(() => setSpokenFollowUp(null), []);
-  const renderComposer = (send = ask, disabled = false, conversation = false) => (
+  const renderComposer = ({
+    send = ask,
+    disabled = false,
+    conversation = false,
+    stopResponse,
+  }: {
+    send?: (text: string) => void;
+    disabled?: boolean;
+    conversation?: boolean;
+    stopResponse?: () => void;
+  } = {}) => (
     <>
       {conversation && spokenFollowUp ? (
         <SpokenFollowUp question={spokenFollowUp} send={send} onSent={clearSpokenFollowUp} />
@@ -298,6 +310,11 @@ export default function LessonPlayer({
             if (noteStatus === 'error') setNoteStatus('idle');
           },
           onSubmit: () => submit(send),
+          stopAction: stopResponse
+            ? { kind: 'response', onStop: stopResponse }
+            : answerAudio.speaking
+              ? { kind: 'voice', onStop: answerAudio.stop }
+              : undefined,
         }}
       />
     </>
@@ -514,10 +531,13 @@ export default function LessonPlayer({
                 <ContextAnswerPanel
                   contextAnswer={answer}
                   pendingQuestion={pendingQuestion}
+                  onAnswerProgress={text => {
+                    if (spokenQuestion.current?.id === answer.id) answerAudio.follow(text, false);
+                  }}
                   onAnswerComplete={text => {
                     if (spokenQuestion.current?.id !== answer.id) return;
                     spokenQuestion.current = null;
-                    void answerAudio.speak(text);
+                    answerAudio.follow(text, true);
                   }}
                   contextAnswerPanelRef={panelRef}
                   contextAnswerSize={overlays.contextAnswerSize}
@@ -526,7 +546,9 @@ export default function LessonPlayer({
                   isMobileViewport={mobile}
                   docked
                   composerPortal={composerPortal}
-                  renderComposer={(send, disabled) => renderComposer(send, disabled, true)}
+                  renderComposer={(send, disabled, stopResponse) =>
+                    renderComposer({ send, disabled, conversation: true, stopResponse })
+                  }
                   libraryAssistantDataSource={overlays.libraryAssistantDataSource}
                   currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
                   onClose={closeAnswer}

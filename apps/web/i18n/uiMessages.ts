@@ -782,6 +782,7 @@ const ENGLISH_UI_MESSAGES = {
   'Chiudi artefatto': 'Close artifact',
   'Conferma rigenerazione': 'Confirm regeneration',
   'Ferma e trascrivi': 'Stop and transcribe',
+  'Ferma la voce': 'Stop the voice',
   'Generazione artefatto in corso...': 'Generating artifact...',
   'Immagine generata': 'Generated image',
   'Immagine non disponibile': 'Image unavailable',

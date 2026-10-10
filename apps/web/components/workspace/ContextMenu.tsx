@@ -11,6 +11,8 @@ import {
   MoreVertical,
   NotebookPen,
   Paperclip,
+  Square,
+  VolumeX,
   X,
 } from 'lucide-react';
 import {
@@ -59,6 +61,8 @@ interface ContextMenuProps {
     onChange: (value: string) => void;
     onToggleNote: () => void;
     onSubmit: () => void;
+    /** Replaces the send button while the field is empty: stops the answer or its voice. */
+    stopAction?: { kind: 'response' | 'voice'; onStop: () => void };
   };
   readonly anchorX?: number;
   readonly anchorY?: number;
@@ -1170,7 +1174,23 @@ const ContextMenu = ({
               />
             </div>
           ) : null}
-          {trimmedInput || playbackComposer ? (
+          {playbackComposer?.stopAction && !trimmedInput ? (
+            <button
+              type="button"
+              onClick={playbackComposer.stopAction.onStop}
+              aria-label={t(
+                playbackComposer.stopAction.kind === 'voice' ? 'Ferma la voce' : 'Annulla'
+              )}
+              title={t(playbackComposer.stopAction.kind === 'voice' ? 'Ferma la voce' : 'Annulla')}
+              className={`${askButtonClassName} motion-reduce:transition-none`}
+            >
+              {playbackComposer.stopAction.kind === 'voice' ? (
+                <VolumeX className="h-4 w-4" />
+              ) : (
+                <Square className="h-3.5 w-3.5 fill-current" />
+              )}
+            </button>
+          ) : trimmedInput || playbackComposer ? (
             <button
               type="submit"
               data-context-menu-target="submit"

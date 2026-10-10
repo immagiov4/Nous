@@ -510,9 +510,16 @@ const buildContextDraftLesson = (
 interface ContextAnswerPanelProps {
   readonly pendingQuestion?: boolean;
   readonly onAnswerComplete?: (text: string) => void;
+  /** Receives the answer text so far while it streams, before onAnswerComplete. */
+  readonly onAnswerProgress?: (text: string) => void;
   readonly docked?: boolean;
   readonly composerPortal?: HTMLElement | null;
-  readonly renderComposer?: (send: (text: string) => void, disabled: boolean) => ReactNode;
+  /** stopResponse is set while an answer is being generated. */
+  readonly renderComposer?: (
+    send: (text: string) => void,
+    disabled: boolean,
+    stopResponse?: () => void
+  ) => ReactNode;
   readonly artifactActionFeedbackOverride?: 'saved';
   readonly artifactPreviewIdOverride?: string | null;
   readonly artifactPortalContainer?: HTMLElement | null;
@@ -552,6 +559,17 @@ interface ContextAnswerPanelProps {
   ) => Promise<ContextArtifactMutationResult>;
 }
 
+/** Text of the assistant messages that answer the latest user message. */
+const getLatestResponseText = (messages: readonly UIMessage[]) => {
+  const userIndex = messages.map(message => message.role).lastIndexOf('user');
+  return messages
+    .slice(userIndex + 1)
+    .filter(message => message.role === 'assistant')
+    .map(getUiMessageText)
+    .join('\n\n')
+    .trim();
+};
+
 const toolCardClassName =
   'rounded-[1.4rem] border border-stone-200/90 bg-[#fbf7ef] px-4 py-3 text-sm text-stone-700 shadow-[0_12px_28px_-22px_rgba(46,34,16,0.55)] dark:border-stone-400/95 dark:bg-stone-700/90 dark:text-stone-200';
 const autoSubmittedInitialQuestionIds = new Set<string>();
@@ -585,6 +603,7 @@ export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps
 function ContextAnswerPanelSession({
   pendingQuestion = false,
   onAnswerComplete,
+  onAnswerProgress,
   docked = false,
   composerPortal,
   renderComposer,
@@ -837,22 +856,18 @@ function ContextAnswerPanelSession({
       if (toolCall.toolName === 'requestAddToNotes') {
         const noteInput = isRequestAddToNotesInput(toolCall.input) ? toolCall.input : null;
         const currentState = readContextRequestState();
-        const primaryCandidate = noteInput
+        const candidates = noteInput
           ? buildConversationNoteSaveCandidates({
               anchor: selectionAnchorRef.current,
               toolInput: {
                 note: noteInput.noteDraft,
                 selectedText: noteInput.selectedTextDraft,
               },
-            })[0]
-          : null;
+            })
+          : [];
 
-        const hasAnchorableProposal = Boolean(
-          primaryCandidate &&
-            hasAnchorableConversationNoteCandidate(
-              currentState.lessonContent || '',
-              primaryCandidate
-            )
+        const hasAnchorableProposal = candidates.some(candidate =>
+          hasAnchorableConversationNoteCandidate(currentState.lessonContent || '', candidate)
         );
 
         if (noteInput && !hasAnchorableProposal) {
@@ -1056,6 +1071,14 @@ function ContextAnswerPanelSession({
   const { addToolOutput, error, messages, sendMessage, status, stop } = contextChat;
 
   const spokenResponse = useRef<string | null>(null);
+  const streamedResponse = useRef('');
+  useEffect(() => {
+    if (!onAnswerProgress || status !== 'streaming' || hasRequestedResponseStop) return;
+    const text = getLatestResponseText(messages);
+    if (!text || text === streamedResponse.current) return;
+    streamedResponse.current = text;
+    onAnswerProgress(text);
+  }, [hasRequestedResponseStop, messages, onAnswerProgress, status]);
   useEffect(() => {
     if (!onAnswerComplete || status !== 'ready' || error || hasRequestedResponseStop) return;
     const last = messages.at(-1);
@@ -1066,13 +1089,7 @@ function ContextAnswerPanelSession({
       shouldContinueContextResponse(messages)
     )
       return;
-    const userIndex = messages.map(message => message.role).lastIndexOf('user');
-    const text = messages
-      .slice(userIndex + 1)
-      .filter(message => message.role === 'assistant')
-      .map(getUiMessageText)
-      .join('\n\n')
-      .trim();
+    const text = getLatestResponseText(messages);
     if (!text || spokenResponse.current === last.id) return;
     spokenResponse.current = last.id;
     onAnswerComplete(text);
@@ -2245,7 +2262,14 @@ function ContextAnswerPanelSession({
     <>
       {answerPanel}
       {isPresent && composerPortal && renderComposer && (docked || !isMobileViewport)
-        ? createPortal(renderComposer(handleSubmit, isComposerDisabled), composerPortal)
+        ? createPortal(
+            renderComposer(
+              handleSubmit,
+              isComposerDisabled,
+              isLoading ? handleStopResponse : undefined
+            ),
+            composerPortal
+          )
         : null}
     </>
   );
