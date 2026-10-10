@@ -1,6 +1,6 @@
 import { type LessonPlaybackBlock, motionTargets } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
-import { useEffect, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef } from 'react';
 import { useResolvedProjectVisual } from '../../../hooks/useResolvedProjectVisual.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -9,6 +9,7 @@ import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
+import './captions.css';
 
 const MOTION_TIMING = { transitionMs: 420, maxFocusSeconds: 4 };
 const ITEM_SELECTORS: Record<string, string> = {
@@ -159,14 +160,28 @@ export default function LessonPlaybackStage({
   const words = useMemo(() => playbackWords(block.speech), [block.speech]);
   const activeIndex = playbackWordIndex(words.length, time, duration);
   const activeWord = useRef<HTMLSpanElement>(null);
+  const captions = useRef<HTMLParagraphElement>(null);
+  const captionScroll = useRef({ line: -1, target: 0 });
   const animate = useShouldAnimate();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each block starts a new caption page
+  useEffect(() => {
+    if (captions.current) captions.current.scrollTop = 0;
+    captionScroll.current = { line: -1, target: 0 };
+  }, [block.id]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: advancing the word moves the scroll target
   useEffect(() => {
-    activeWord.current?.scrollIntoView?.({
-      block: 'nearest',
-      behavior: animate ? 'smooth' : 'instant',
-    });
-  }, [activeIndex, animate]);
+    const paragraph = captions.current;
+    const word = activeWord.current;
+    if (!paragraph || !word) return;
+    const line = word.offsetTop;
+    const scroll = captionScroll.current;
+    if (line === scroll.line) return;
+    if (line + word.offsetHeight > scroll.target + paragraph.clientHeight / 2) {
+      scroll.target = Math.max(0, line);
+      paragraph.scrollTo({ top: scroll.target, behavior: animate ? 'smooth' : 'instant' });
+    }
+    scroll.line = line;
+  }, [activeIndex, animate, block.id]);
   const visuals = block.visuals.length
     ? block.visuals
     : block.prepared?.scene
@@ -191,18 +206,22 @@ export default function LessonPlaybackStage({
             {block.heading}
           </h2>
         ) : null}
-        <p className="relative max-h-[4lh] overflow-auto text-[19px] leading-normal tracking-[-.025em] text-stone-900 md:max-h-[8lh] md:text-[clamp(23px,2.4vw,34px)] dark:text-stone-100">
+        <p
+          ref={captions}
+          className="lesson-playback-captions text-[19px] leading-normal tracking-[-.025em] text-stone-900 md:text-[clamp(23px,2.4vw,34px)] dark:text-stone-100"
+        >
           {words.map((word, index) =>
             block.heading &&
             block.speech.startsWith(`${block.heading}\n`) &&
             word.start < block.heading.length ? null : (
-              <span
-                key={word.start}
-                ref={index === activeIndex ? activeWord : undefined}
-                className={`${index < activeIndex ? 'opacity-45' : index === activeIndex ? 'opacity-100' : 'opacity-10'} motion-safe:transition-opacity`}
-              >
-                {word.text}{' '}
-              </span>
+              <Fragment key={word.start}>
+                <span
+                  ref={index === activeIndex ? activeWord : undefined}
+                  className={`inline-block ${index < activeIndex ? 'opacity-45' : index === activeIndex ? 'opacity-100' : 'opacity-10'} motion-safe:transition-opacity`}
+                >
+                  {word.text}
+                </span>{' '}
+              </Fragment>
             )
           )}
         </p>

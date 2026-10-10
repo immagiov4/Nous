@@ -148,7 +148,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
         style={{ marginLeft: shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0 }}
       >
         <WorkspaceReaderBanners {...banners} />
-        <WorkspaceReaderHeader {...header} onPlayLesson={() => openPlayer(false)} />
+        <WorkspaceReaderHeader {...header} onPlayLesson={() => openPlayer(true)} />
         <div
           data-reader-content-layer="true"
           className="relative flex min-h-0 min-w-0 flex-1 flex-col"

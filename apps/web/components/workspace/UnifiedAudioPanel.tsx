@@ -970,12 +970,12 @@ export function PlaybackVoiceControl({
             ttsDisabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
           }`}
         >
-          <span className="flex min-w-0 items-center gap-1">
+          <span className="flex min-w-0 flex-1 items-center gap-1">
             <span className="truncate">{currentVoiceLabel}</span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
           </span>
           <span className="text-gray-300 dark:text-zinc-600">•</span>
-          <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+          <span className="min-w-[5ch] shrink-0 text-right tabular-nums">{playbackRateLabel}</span>
         </div>
       </div>
 
@@ -996,10 +996,10 @@ export function PlaybackVoiceControl({
         aria-label={`${t('Voce')} · ${t('Velocita')}`}
         className="flex min-h-10 items-center gap-2 rounded-3xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
       >
-        <span>{currentVoiceLabel}</span>
+        <span className="w-[7ch] truncate text-left">{currentVoiceLabel}</span>
         <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
         <span className="text-gray-300 dark:text-zinc-600">•</span>
-        <span>{playbackRateLabel}</span>
+        <span className="min-w-[5ch] shrink-0 text-right tabular-nums">{playbackRateLabel}</span>
       </button>
       {expanded ? (
         <div className="absolute bottom-full right-0 z-50 mb-2 w-56">{control}</div>

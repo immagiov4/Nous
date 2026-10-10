@@ -32,7 +32,7 @@ export default function LessonPlayer({
   overlays,
   tts,
   onClose,
-  autoPlay = false,
+  autoPlay = true,
 }: {
   sectionId: string;
   projectId: string;

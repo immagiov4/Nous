@@ -29,7 +29,11 @@ vi.mock('../../../components/workspace/shell/WorkspaceReaderContent.tsx', () => 
 }));
 
 vi.mock('../../../components/workspace/shell/WorkspaceReaderHeader.tsx', () => ({
-  default: () => <div data-testid="workspace-header" />,
+  default: ({ onPlayLesson }: { onPlayLesson: () => void }) => (
+    <button data-testid="workspace-header" onClick={onPlayLesson} type="button">
+      Header play
+    </button>
+  ),
 }));
 
 vi.mock('../../../components/workspace/shell/WorkspaceReaderOverlays.tsx', () => ({
@@ -37,7 +41,17 @@ vi.mock('../../../components/workspace/shell/WorkspaceReaderOverlays.tsx', () =>
 }));
 
 vi.mock('../../../components/workspace/shell/WorkspaceReaderSidebar.tsx', () => ({
-  default: () => <div data-testid="workspace-sidebar" />,
+  default: ({ onPlayLesson }: { onPlayLesson: () => void }) => (
+    <button data-testid="workspace-sidebar" onClick={onPlayLesson} type="button">
+      Sidebar play
+    </button>
+  ),
+}));
+
+vi.mock('../../../components/workspace/playback/LessonPlayer.tsx', () => ({
+  default: ({ autoPlay }: { autoPlay: boolean }) => (
+    <div role="dialog" data-autoplay={String(autoPlay)} />
+  ),
 }));
 
 const buildProps = (): WorkspaceReaderShellProps => {
@@ -211,6 +225,18 @@ const buildProps = (): WorkspaceReaderShellProps => {
 };
 
 describe('WorkspaceReaderShell', () => {
+  test.each([
+    'workspace-header',
+    'workspace-sidebar',
+  ])('%s opens the player with autoplay', async entry => {
+    const props = buildProps();
+    props.sidebar.activeSectionId = 'lesson';
+    props.content.projectId = 'project';
+    render(<WorkspaceReaderShell {...props} />);
+    fireEvent.click(screen.getByTestId(entry));
+    expect(await screen.findByRole('dialog')).toHaveAttribute('data-autoplay', 'true');
+  });
+
   test('resets both window and content scroll positions on mount', () => {
     const props = buildProps();
     vi.spyOn(globalThis, 'scrollTo').mockImplementation(() => {});

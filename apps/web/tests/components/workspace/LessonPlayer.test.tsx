@@ -95,6 +95,21 @@ beforeEach(() => {
   save.mockResolvedValue({ saved: true, merged: false, annotationId: 'annotation' });
 });
 
+test.each([
+  undefined,
+  true,
+])('starts on open with autoPlay=%s and displays preparation', autoPlay => {
+  playback = { ...playback, playing: false, loading: true };
+  const { rerender } = render(<LessonPlayer {...props} autoPlay={autoPlay} />);
+  expect(playback.play).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'In caricamento' })).toBeInTheDocument();
+  expect(screen.getByRole('status')).toBeInTheDocument();
+  playback = { ...playback, loading: false, playing: true };
+  rerender(<LessonPlayer {...props} autoPlay={autoPlay} />);
+  expect(playback.play).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Pausa' })).toBeEnabled();
+});
+
 test('anchors the note when writing begins, then exits note mode after persistence', async () => {
   const { rerender } = render(<LessonPlayer {...props} />);
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
@@ -137,7 +152,7 @@ test('sending a question pauses playback and prevents resuming until the answer 
   const play = screen.getByRole('button', { name: 'Pausa' });
   expect(play).toBeDisabled();
   fireEvent.click(play);
-  expect(playback.play).not.toHaveBeenCalled();
+  expect(playback.play).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'Chiudi risposta' }));
   expect(play).toBeEnabled();
 });
