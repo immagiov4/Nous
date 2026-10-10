@@ -182,8 +182,8 @@ describe('ttsClient', () => {
       expect(overridden.DEFAULT_TTS_MODEL).toBe('x-ai/grok-voice-tts-1.0');
       expect(await overridden.ttsClient.listModels()).toEqual([
         expect.objectContaining({
-          id: 'google/gemini-3.8-flash-tts',
-          name: 'Google: Gemini 3.8 Flash TTS',
+          id: 'google/gemini-3.8-flash-lite-tts',
+          name: 'Google: Gemini 3.8 Flash Lite TTS',
         }),
       ]);
     } finally {

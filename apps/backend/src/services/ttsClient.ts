@@ -75,15 +75,15 @@ const VOICE_PROFILE_MODES = new Set(['openrouter_voice', 'voice_design']);
 const DEFAULT_TTS_MODEL_SUMMARY: TtsModelSummary = {
   contextLength: 0,
   id: CONFIG_DEFAULT_TTS_MODEL,
-  name: 'Google: Gemini 3.8 Flash TTS',
+  name: 'Google: Gemini 3.8 Flash Lite TTS',
   pricing: {
-    completion: '0.000009',
+    completion: '0.000006',
     prompt: '0.0000005',
   },
   supportedParameters: ['response_format'],
   supportsVoiceCloning: false,
   voiceHelpLabel: 'Voci OpenRouter',
-  voiceHelpUrl: 'https://openrouter.ai/google/gemini-3.8-flash-tts/api',
+  voiceHelpUrl: 'https://openrouter.ai/google/gemini-3.8-flash-lite-tts/api',
 };
 
 const formatVoiceName = (voiceId: string): string =>

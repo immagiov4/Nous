@@ -62,12 +62,12 @@ describe('useTtsPlayer', () => {
       contentType: 'audio/wav',
     });
     openRouterMocks.getTTSModels.mockResolvedValue({
-      defaultModel: 'google/gemini-3.8-flash-tts',
+      defaultModel: 'google/gemini-3.8-flash-lite-tts',
       models: [
         {
           contextLength: 4096,
-          id: 'google/gemini-3.8-flash-tts',
-          name: 'Google: Gemini 3.8 Flash TTS',
+          id: 'google/gemini-3.8-flash-lite-tts',
+          name: 'Google: Gemini 3.8 Flash Lite TTS',
           pricing: { completion: '0.000009', prompt: '0.0000005' },
           supportedParameters: ['response_format'],
           supportsVoiceCloning: false,
@@ -192,7 +192,7 @@ describe('useTtsPlayer', () => {
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledWith(
       expect.any(String),
       'Zephyr',
-      'google/gemini-3.8-flash-tts'
+      'google/gemini-3.8-flash-lite-tts'
     );
     expect(result.current.audioState.currentChunkIndex).toBe(0);
 
