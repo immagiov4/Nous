@@ -93,7 +93,7 @@ export type PlaybackContentBlock =
   | { readonly type: 'inline-quiz' | 'youtube-clips' };
 
 interface MarkdownChunk extends PlaybackRange {
-  readonly kind: 'heading' | 'speech' | 'visual';
+  readonly kind: 'heading' | 'speech' | 'visual' | 'omitted';
 }
 
 const IMAGE_CHUNK = /^!\[[^\]\r\n]*\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)$/u;
@@ -102,7 +102,7 @@ const markdownParser = unified().use(remarkParse).use(remarkGfm);
 
 interface MarkdownAnalysis {
   readonly headings: PlaybackRange[];
-  readonly visuals: PlaybackRange[];
+  readonly blocks: MarkdownChunk[];
   readonly inlineCode: PlaybackRange[];
   readonly omissions: PlaybackRange[];
   readonly inlineVisuals: PlaybackRange[];
@@ -120,7 +120,7 @@ interface MarkdownNode {
 const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   const analysis: MarkdownAnalysis = {
     headings: [],
-    visuals: [],
+    blocks: [],
     inlineCode: [],
     omissions: [],
     inlineVisuals: [],
@@ -128,8 +128,12 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
   const visit = (node: MarkdownNode): void => {
     const start = node.position.start.offset;
     const end = node.position.end.offset;
-    if (node.type === 'code' || node.type === 'table') {
-      analysis.visuals.push({ start, end });
+    if (['code', 'table', 'definition', 'thematicBreak'].includes(node.type)) {
+      analysis.blocks.push({
+        start,
+        end,
+        kind: node.type === 'code' || node.type === 'table' ? 'visual' : 'omitted',
+      });
       return;
     }
     if (node.type === 'heading') analysis.headings.push({ start, end });
@@ -145,7 +149,7 @@ const analyzeMarkdown = (markdown: string): MarkdownAnalysis => {
 
 const collectMathRanges = (markdown: string, analysis: MarkdownAnalysis): void => {
   const protectedRanges = [
-    ...analysis.visuals,
+    ...analysis.blocks,
     ...analysis.inlineCode,
     ...analysis.inlineVisuals,
   ].sort((left, right) => left.start - right.start);
@@ -220,7 +224,7 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
   let start = 0;
   let end = 0;
   let structure = 'paragraph';
-  let visualIndex = 0;
+  let blockIndex = 0;
   let headingIndex = 0;
   let consumedEnd = 0;
   const flush = () => {
@@ -237,12 +241,12 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
     const lineStart = line.index;
     const lineEnd = lineStart + text.length;
     if (lineStart < consumedEnd) continue;
-    const visual = analysis.visuals[visualIndex];
-    if (visual && visual.start >= lineStart && visual.start <= lineEnd) {
+    const block = analysis.blocks[blockIndex];
+    if (block && block.start >= lineStart && block.start <= lineEnd) {
       flush();
-      chunks.push({ start: lineStart, end: visual.end, kind: 'visual' });
-      consumedEnd = visual.end;
-      visualIndex += 1;
+      chunks.push({ start: lineStart, end: block.end, kind: block.kind });
+      consumedEnd = block.end;
+      blockIndex += 1;
       start = consumedEnd;
       end = consumedEnd;
       continue;
@@ -402,6 +406,7 @@ export const segmentLessonPlayback = (
     const { markdown } = content;
     const analysis = analyzeMarkdown(markdown);
     for (const chunk of markdownChunks(markdown, analysis)) {
+      if (chunk.kind === 'omitted') continue;
       if (chunk.kind === 'visual') {
         attachVisual({ kind: 'markdown', markdown: markdown.slice(chunk.start, chunk.end) });
         continue;

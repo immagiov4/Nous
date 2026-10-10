@@ -164,6 +164,58 @@ describe('lesson playback segmentation', () => {
     for (const block of blocks) expectExactSpans(block, markdown);
   });
 
+  test.each([
+    '[ref]: https://example.test',
+    '[ref]:\n  https://example.test\n  "Titolo $x$"',
+    '> [ref]: https://example.test\n>   "Titolo"',
+    '- [ref]: https://example.test',
+  ])('omits reference definitions while retaining linked prose: %s', definition => {
+    const markdown = `${definition}\n\nUna [fonte][ref], [ref][] e [ref].\n\nDopo.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Una fonte, ref e ref.', 'Dopo.']);
+    expect(blocks.map(block => block.id)).toEqual(['0', '1']);
+    for (const block of blocks) {
+      expect(block.visuals).toEqual([]);
+      expectExactSpans(block, markdown);
+    }
+    expect(segmentLessonPlayback([markdownBlock(definition)])).toEqual([]);
+  });
+
+  test('separates a definition from immediately following prose', () => {
+    const markdown = '[ref]: https://example.test\n  "Titolo"\nLeggi [fonte][ref].';
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Leggi fonte.']);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test.each([
+    '---',
+    '***',
+    '___',
+    '* * *',
+    '> ---',
+    '- ***',
+  ])('omits parsed thematic breaks without producing speech or visuals: %s', separator => {
+    const markdown = `Prima.\r\n\r\n${separator}\r\nDopo.`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Prima.', 'Dopo.']);
+    expect(blocks.map(block => block.id)).toEqual(['0', '1']);
+    for (const block of blocks) {
+      expect(block.visuals).toEqual([]);
+      expectExactSpans(block, markdown);
+    }
+    expect(segmentLessonPlayback([markdownBlock(separator)])).toEqual([]);
+  });
+
+  test('preserves definition and separator syntax when authored as code', () => {
+    const code = '```md\n[ref]: https://example.test\n\n---\n```';
+    const markdown = `Scrivi \`[ref]: https://example.test\` e \`---\`.\n\n${code}`;
+    const [block] = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(block?.speech).toBe('Scrivi [ref]: https://example.test e ---.');
+    expect(block?.visuals).toEqual([{ kind: 'markdown', markdown: code }]);
+    expectExactSpans(block as LessonPlaybackBlock, markdown);
+  });
+
   test('keeps inline images and canonical PDF image placeholders visual-only', () => {
     const image = '![Diagramma](d.png)';
     const pdf = '{{PDF_IMAGE:asset-1|alt=Figura|caption=Esempio}}';
