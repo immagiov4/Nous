@@ -1,5 +1,6 @@
 import { Mp3Encoder } from '@breezystack/lamejs';
 import type { PlaybackAudio } from '@shared/lessonPlayback';
+import { MPEGDecoder } from 'mpg123-decoder';
 
 import { getResolvedGlobalModelConfig } from '../../config/modelConfig.js';
 import { failPermanently } from '../../workflows/retryPolicy.js';
@@ -15,6 +16,41 @@ const MP3_BITRATE_KBPS = 64;
 const MP3_MONO_CHANNELS = 1;
 const PCM_BYTES_PER_SAMPLE = 2;
 const PCM_WAV_HEADER_BYTES = 44;
+const PCM16_MAGNITUDE = 2 ** (PCM_BYTES_PER_SAMPLE * 8 - 1);
+
+const encodeMonoSamples = (samples: Int16Array, sampleRate: number): Buffer => {
+  const encoder = new Mp3Encoder(MP3_MONO_CHANNELS, sampleRate, MP3_BITRATE_KBPS);
+  // The encoder returns Int8Array chunks; Buffer.concat accepts only Uint8Array views.
+  return Buffer.concat(
+    [encoder.encodeBuffer(samples), encoder.flush()].map(chunk =>
+      Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+    )
+  );
+};
+
+const reencodeSpeechMp3 = async (audioBuffer: ArrayBuffer) => {
+  const input = new Uint8Array(audioBuffer);
+  mp3DurationSeconds(input);
+  const decoder = new MPEGDecoder();
+  await decoder.ready;
+  try {
+    const { channelData, samplesDecoded, sampleRate, errors } = decoder.decode(input);
+    if (errors.length || !samplesDecoded || !sampleRate || !channelData.length) {
+      throw new Error('Invalid TTS MP3 audio.');
+    }
+    const samples = new Int16Array(samplesDecoded);
+    for (let frame = 0; frame < samples.length; frame += 1) {
+      let sum = 0;
+      for (const channel of channelData) sum += channel[frame];
+      const mono = Math.max(-1, Math.min(1, sum / channelData.length));
+      samples[frame] = Math.round(mono * (mono < 0 ? PCM16_MAGNITUDE : PCM16_MAGNITUDE - 1));
+    }
+    const bytes = encodeMonoSamples(samples, sampleRate);
+    return { bytes, durationSeconds: mp3DurationSeconds(bytes) };
+  } finally {
+    decoder.free();
+  }
+};
 
 /** Reads the canonical PCM16 WAV emitted by ttsClient, downmixing its channels to mono. */
 const encodeSpeechWav = (audioBuffer: ArrayBuffer) => {
@@ -48,14 +84,8 @@ const encodeSpeechWav = (audioBuffer: ArrayBuffer) => {
     }
     samples[frame] = Math.round(sum / channels);
   }
-  const encoder = new Mp3Encoder(MP3_MONO_CHANNELS, sampleRate, MP3_BITRATE_KBPS);
   return {
-    // The encoder returns Int8Array chunks; Buffer.concat accepts only Uint8Array views.
-    bytes: Buffer.concat(
-      [encoder.encodeBuffer(samples), encoder.flush()].map(chunk =>
-        Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
-      )
-    ),
+    bytes: encodeMonoSamples(samples, sampleRate),
     durationSeconds: samples.length / sampleRate,
   };
 };
@@ -70,7 +100,7 @@ export const validatePlaybackText = (text: string): void => {
   }
 };
 
-/** Prepares one utterance with the configured TTS model; MP3 responses retain their bytes. */
+/** Prepares one utterance as mono MP3 using the shared speech encoder settings. */
 export const preparePlaybackAudio = async ({
   text,
   voice,
@@ -93,11 +123,11 @@ export const preparePlaybackAudio = async ({
   if (mediaType === 'audio/wav') {
     prepared = encodeSpeechWav(audio.audioBuffer);
   } else if (mediaType === 'audio/mpeg' || mediaType === 'audio/mp3') {
-    const bytes = new Uint8Array(audio.audioBuffer);
-    prepared = { bytes, durationSeconds: mp3DurationSeconds(bytes) };
+    prepared = await reencodeSpeechMp3(audio.audioBuffer);
   } else {
     throw new Error('Unsupported TTS audio format.');
   }
+  signal.throwIfAborted();
   return {
     ...prepared,
     mediaType: 'audio/mpeg',

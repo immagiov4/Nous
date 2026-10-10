@@ -1,3 +1,4 @@
+import { Mp3Encoder } from '@breezystack/lamejs';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { generateSpeech, getConfig } = vi.hoisted(() => ({
@@ -88,18 +89,51 @@ const mp3Frames = () => {
   return frames;
 };
 
-test('passes non-Gemini MP3 through and measures frames rather than estimating from bytes', async () => {
-  const bytes = mp3Frames();
+test.each([
+  'audio/mpeg',
+  'audio/mp3',
+])('re-encodes provider %s stereo as mono at the WAV bitrate', async contentType => {
+  const sampleRate = 24000;
+  const left = Int16Array.from({ length: sampleRate }, (_, index) =>
+    Math.round(Math.sin((index * 2 * Math.PI * 440) / sampleRate) * 12000)
+  );
+  const right = Int16Array.from(left, sample => Math.round(sample / 2));
+  const encoder = new Mp3Encoder(2, sampleRate, 128);
+  const bytes = Buffer.concat(
+    [encoder.encodeBuffer(left, right), encoder.flush()].map(chunk =>
+      Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+    )
+  );
+  generateSpeech.mockResolvedValue({
+    audioBuffer: pcmWav(),
+    contentType: 'audio/wav',
+    model: 'wav-provider',
+    voice: 'Kore',
+  });
+  const wavResult = await preparePlaybackAudio(request());
+  const wavHeader = Buffer.from(wavResult.bytes).readUInt32BE();
   getConfig.mockResolvedValue({ ttsModel: 'x-ai/grok-voice-tts-1.0' });
   generateSpeech.mockResolvedValue({
     audioBuffer: Uint8Array.from(bytes).buffer,
-    contentType: 'audio/mpeg',
+    contentType,
     model: 'x-ai/grok-voice-tts-1.0',
     voice: 'Ara',
   });
   const result = await preparePlaybackAudio(request());
-  expect(Buffer.from(result.bytes)).toEqual(bytes);
-  expect(result.durationSeconds).toBeCloseTo((3 * 1152) / 44100, 10);
+  const encoded = Buffer.from(result.bytes);
+  expect(encoded).not.toEqual(bytes);
+  expect(encoded.length).toBeLessThan(bytes.length);
+  let offset = 0;
+  while (offset < encoded.length) {
+    const header = encoded.readUInt32BE(offset);
+    expect((header >>> 12) & 15).toBe((wavHeader >>> 12) & 15);
+    expect((header >>> 10) & 3).toBe((wavHeader >>> 10) & 3);
+    expect((header >>> 6) & 3).toBe(3);
+    offset += 192 + ((header >>> 9) & 1);
+  }
+  expect(offset).toBe(encoded.length);
+  expect(result.durationSeconds).toBe(mp3DurationSeconds(encoded));
+  expect(result.durationSeconds).toBeGreaterThanOrEqual(1);
   expect(result).toMatchObject({ model: 'x-ai/grok-voice-tts-1.0', voice: 'Ara' });
 });
 
@@ -150,6 +184,7 @@ test('discards speech returned after cancellation', async () => {
 test.each([
   'audio/ogg',
   'audio/wav',
+  'audio/mpeg',
 ])('rejects unsupported or malformed %s audio', async contentType => {
   generateSpeech.mockResolvedValue({ audioBuffer: new ArrayBuffer(0), contentType });
   await expect(preparePlaybackAudio(request())).rejects.toThrow();
