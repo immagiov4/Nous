@@ -1004,12 +1004,12 @@ export function PlaybackVoiceControl({
       >
         <span className="truncate">{currentVoiceLabel}</span>
         <span className="text-gray-300 dark:text-zinc-600">·</span>
-        {/* Only the speed keeps a fixed width, so changing it never shifts the controls. */}
-        <span className="w-[4.5ch] shrink-0 tabular-nums">{playbackRateLabel}</span>
+        <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
       </button>
       {expanded ? (
-        <div className="absolute bottom-full right-0 z-50 mb-2 w-56">{control}</div>
+        // Anchored to the left edge: when the speed label grows, the pill extends rightward and the open menu stays put.
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-56">{control}</div>
       ) : null}
     </div>
   );
