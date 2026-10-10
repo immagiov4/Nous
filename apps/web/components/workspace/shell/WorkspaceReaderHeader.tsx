@@ -139,7 +139,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               className={`inline-flex items-center justify-center rounded-full border transition-colors ${
                 isMobileViewport
                   ? 'h-9 w-9 border-0 bg-transparent text-gray-400 hover:bg-black/5 hover:text-gray-600 dark:bg-transparent dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200'
-                  : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
+                  : 'h-10 gap-2 px-4 text-xs font-semibold uppercase tracking-[0.14em]'
               } ${regenerateAvailabilityClassName}`}
               title={t(
                 canRegenerate ? 'Riproduci la lezione corrente' : 'Apri una lezione per ascoltarla'
