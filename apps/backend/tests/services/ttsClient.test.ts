@@ -33,12 +33,14 @@ describe('ttsClient', () => {
 
   test('uses the model selected by the global admin configuration', async () => {
     fetchMock.mockResolvedValueOnce(createAudioResponse());
+    const signal = new AbortController().signal;
 
     const audio = await ttsClient.generateSpeech({
       text: 'Ciao.',
       model: 'openai/admin-selected-tts',
       voice: 'Zephyr',
       speed: 1,
+      signal,
     });
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
@@ -53,6 +55,8 @@ describe('ttsClient', () => {
     expect(audio.contentType).toBe('audio/mpeg');
     expect([...new Uint8Array(audio.audioBuffer)]).toEqual([1, 2, 3]);
     expect(audio.generationId).toBe('gen-openai');
+    expect(audio).toMatchObject({ model: requestBody.model, voice: requestBody.voice });
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(signal);
   });
 
   test.each([
@@ -95,6 +99,7 @@ describe('ttsClient', () => {
     expect(wav.readUInt32LE(40)).toBe(4);
     expect([...wav.subarray(44)]).toEqual([0, 0, 1, 0]);
     expect(audio.generationId).toBe('gen-gemini');
+    expect(audio).toMatchObject({ model: DEFAULT_TTS_MODEL, voice: requestBody.voice });
   });
 
   test.each([

@@ -23,6 +23,7 @@ export interface ServerConfig {
 }
 
 export interface TTSRequest {
+  signal?: AbortSignal;
   text: string;
   model?: string;
   voice?: string;
@@ -30,6 +31,8 @@ export interface TTSRequest {
 }
 
 export interface GeneratedSpeechAudio {
+  model: string;
+  voice: string;
   audioBuffer: ArrayBuffer;
   contentType: string;
   generationId?: string;

@@ -39,6 +39,16 @@ Fresh databases receive Gemini and Zephyr from the global configuration seed. Th
 
 Sources: [speech service](../../../apps/backend/src/services/ttsClient.ts), [TTS route](../../../apps/backend/src/routes/tts.ts), [global configuration seed](../../../supabase/migrations/20260814203920_restore_global_model_config_seed.sql), [reader voices](../../../apps/web/services/audio/voiceProfile.ts).
 
+### Playback block preparation
+
+`prepareLessonPlaybackBlock` prepares one `LessonPlaybackBlock` and returns `prepared` plus MP3 bytes, duration, and the model and voice actually used by TTS. Gemini PCM16 WAV is downmixed to mono and encoded at 64 kb/s with `@breezystack/lamejs` 1.2.7; duration comes from the PCM sample count. Existing MP3 responses retain their bytes and use MPEG Layer III frame durations. Cancellation reaches the TTS request.
+
+A block without visuals receives a validated lesson scene generated from its complete speech without a visual plan. When a scene is needed, speech exceeding the generator's existing text limit fails explicitly rather than being marked prepared from an excerpt. Existing scenes, including resolved `generated-visual` references, are reused; visuals without scene data receive audio and an empty motion list. Multiple available scenes are rejected because the block's motion events have a single target namespace.
+
+The `playbackPreparation` model uses the laboratory motion prompt and a Zod-derived output schema. `motionTargets` in the shared playback contract supplies the same element IDs to preparation and the future player. Validation requires exact, unique speech quotations, known targets, complete focus coverage or none, and complete single-target reveals only for checklist, steps, hypothesis, timeline, and parts scenes. List forms require reveals; empty events are valid. Sequence scenes and scenes without targets remain static, as in the laboratory. Scene generation and motion planning each allow up to three attempts including the initial request, feeding validation problems into the next request; operational failures propagate. The returned events contain quotes rather than timestamps, and the caller supplies the eventual audio asset reference. When `block.prepared` already exists, preparation reuses its scene and motion while generating audio for the requested voice.
+
+Sources: [block preparation](../../../apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts), [audio preparation](../../../apps/backend/src/services/lessonPlayback/playbackAudio.ts), [motion planning](../../../apps/backend/src/services/lessonPlayback/playbackMotion.ts), [shared playback contract](../../../packages/shared-types/lessonPlayback.ts).
+
 ### Content Preprocessing for Speech
 Before text is sent to the TTS provider, it undergoes rigorous cleaning to remove visual-only elements and formatting artifacts. This is handled primarily by `prepareMarkdownForSpeech` in `apps/web/utils/reader/readingText.ts`.
 

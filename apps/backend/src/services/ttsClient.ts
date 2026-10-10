@@ -31,6 +31,7 @@ const DEFAULT_TTS_VOICE = process.env.TTS_VOICE || CONFIG_DEFAULT_TTS_VOICE;
 const TTS_RESPONSE_FORMAT = 'mp3';
 
 interface OpenRouterSpeechAttempt {
+  signal?: AbortSignal;
   model: string;
   speed?: number;
   text: string;
@@ -202,6 +203,7 @@ class TTSClient {
   private async requestSpeech(attempt: OpenRouterSpeechAttempt): Promise<GeneratedSpeechAudio> {
     const geminiTts = attempt.model === CONFIG_DEFAULT_TTS_MODEL;
     const response = await fetch(`${OPENROUTER_API_BASE_URL}/audio/speech`, {
+      signal: attempt.signal,
       method: 'POST',
       headers: getOpenRouterJsonHeaders(),
       body: JSON.stringify({
@@ -265,12 +267,16 @@ class TTSClient {
       wav.writeUInt32LE(audioBuffer.byteLength, 40);
       Buffer.from(audioBuffer).copy(wav, 44);
       return {
+        model: attempt.model,
+        voice: attempt.voice,
         audioBuffer: Uint8Array.from(wav).buffer,
         contentType: 'audio/wav',
         generationId: response.headers.get('x-generation-id') || undefined,
       };
     }
     return {
+      model: attempt.model,
+      voice: attempt.voice,
       audioBuffer,
       contentType: response.headers.get('content-type') || 'audio/mpeg',
       generationId: response.headers.get('x-generation-id') || undefined,
@@ -291,6 +297,7 @@ class TTSClient {
     );
 
     return this.requestSpeech({
+      signal: request.signal,
       model,
       text: request.text,
       voice: normalizedVoice,

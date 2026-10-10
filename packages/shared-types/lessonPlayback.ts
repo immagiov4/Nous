@@ -26,6 +26,34 @@ export interface PlaybackMotionEvent {
   readonly quote: string;
 }
 
+/** Stable scene element IDs shared by preparation and the playback renderer. */
+export const motionTargets = (scene: LessonScene): { id: string; label: string }[] => {
+  if (scene.type === 'matrix') {
+    return (scene.criteria ?? scene.groups[0]?.items ?? []).map((label, index) => ({
+      id: `row:${index}`,
+      label,
+    }));
+  }
+  if (scene.diagram) {
+    return [
+      ...scene.diagram.nodes.map(node => ({ id: `node:${node.id}`, label: node.label })),
+      ...scene.diagram.edges.map((edge, index) => ({
+        id: `edge:${index}`,
+        label: edge.label || `${edge.from} → ${edge.to}`,
+      })),
+    ];
+  }
+  return scene.groups.length
+    ? scene.groups.map((group, index) => ({
+        id: `group:${index}`,
+        label: [group.label, ...group.items].join(' · '),
+      }))
+    : scene.items.map((item, index) => ({
+        id: `item:${index}`,
+        label: [item.label, item.detail].filter(Boolean).join(' · '),
+      }));
+};
+
 export interface PlaybackAudio {
   readonly model: string;
   readonly voice: string;
