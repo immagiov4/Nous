@@ -3,9 +3,12 @@ import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
+import { useSpokenAnswer } from '../../../hooks/reader/useSpokenAnswer.ts';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
+import { useSpeechInput } from '../../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { playbackSentenceSelector } from '../../../utils/reader/lessonPlayback.ts';
+import { appendSpeechTranscription } from '../../shared/SpeechInputButton.tsx';
 import ContextMenu from '../ContextMenu.tsx';
 import ContextAnswerPanel from '../shell/ContextAnswerPanel.tsx';
 import type {
@@ -75,6 +78,17 @@ export default function LessonPlayer({
   const anchor = useRef<ReturnType<typeof playbackSentenceSelector>>(null);
   const [noteStatus, setNoteStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
+  const [holdingSpace, setHoldingSpace] = useState(false);
+  const spaceDown = useRef(false);
+  const spokenQuestion = useRef<ContextAnswerState | null>(null);
+  const answerAudio = useSpokenAnswer(tts.currentVoice, tts.playbackRate);
+  const speech = useSpeechInput({
+    onTranscription: text => {
+      const question = spokenQuestion.current;
+      if (question) setAnswer({ ...question, initialQuestion: text });
+      else changeDraft(appendSpeechTranscription(draft, text));
+    },
+  });
   const [composerPortal, setComposerPortal] = useState<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
@@ -150,10 +164,11 @@ export default function LessonPlayer({
       if (mounted.current) setNoteStatus('error');
     }
   };
-  const ask = (question: string) => {
-    playback.pause();
-    const selector = anchor.current ?? currentAnchor();
-    setAnswer({
+  const createQuestion = (
+    question: string,
+    selector = anchor.current ?? currentAnchor()
+  ): ContextAnswerState => {
+    return {
       id: crypto.randomUUID(),
       initialQuestion: question,
       projectId,
@@ -166,7 +181,13 @@ export default function LessonPlayer({
       contextBefore: selector?.prefix,
       contextAfter: selector?.suffix,
       documentSourceReferences: content.documentSourceReferences,
-    });
+    };
+  };
+  const ask = (question: string) => {
+    playback.pause();
+    answerAudio.stop();
+    spokenQuestion.current = null;
+    setAnswer(createQuestion(question));
   };
   const submit = (send: (text: string) => void) => {
     if (noteMode) {
@@ -177,13 +198,18 @@ export default function LessonPlayer({
     setDraft('');
     anchor.current = null;
   };
+  const listening = holdingSpace && !speech.speechInputError;
+  const questionActive = Boolean(answer) || holdingSpace;
+  const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
   const renderComposer = (send = ask, disabled = false) => (
     <ContextMenu
       type="lesson"
       placement={mobile ? 'mobile-sheet' : 'desktop-floating'}
       selectedText=""
       isDarkMode={content.isDarkMode}
-      isLoading={noteStatus === 'saving' || (!noteMode && disabled)}
+      isLoading={
+        noteStatus === 'saving' || holdingSpace || pendingQuestion || (!noteMode && disabled)
+      }
       lessonCreationBlockReason={null}
       onAsk={send}
       onClose={noAction}
@@ -192,6 +218,16 @@ export default function LessonPlayer({
       onHighlight={noAction}
       onSaveNote={noAction}
       playbackComposer={{
+        speech: mobile
+          ? undefined
+          : {
+              ...speech,
+              startRecording: () => {
+                spokenQuestion.current = null;
+                return speech.startRecording();
+              },
+            },
+        listening,
         value: draft,
         noteMode,
         onChange: changeDraft,
@@ -203,9 +239,64 @@ export default function LessonPlayer({
       }}
     />
   );
-  const closeAnswer = () => setAnswer(null);
+  const closeAnswer = () => {
+    answerAudio.stop();
+    answerAudio.clearError();
+    speech.reset();
+    spokenQuestion.current = null;
+    spaceDown.current = false;
+    setHoldingSpace(false);
+    setAnswer(null);
+  };
+
+  useEffect(() => {
+    if (mobile) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return;
+      const target = event.target instanceof Element ? event.target : document.activeElement;
+      if (
+        target?.closest(
+          'input, textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+        )
+      )
+        return;
+      event.preventDefault();
+      if (event.repeat || spaceDown.current) return;
+      playback.pause();
+      answerAudio.stop();
+      answerAudio.clearError();
+      speech.reset();
+      spaceDown.current = true;
+      setHoldingSpace(true);
+      setNoteMode(false);
+      spokenQuestion.current = createQuestion('', currentAnchor());
+      setAnswer(null);
+      void speech.startRecording();
+    };
+    const keyup = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || !spaceDown.current) return;
+      event.preventDefault();
+      spaceDown.current = false;
+      setHoldingSpace(false);
+      if (!speech.speechInputError) {
+        setAnswer(previous => previous ?? spokenQuestion.current);
+        speech.stopRecording();
+      }
+    };
+    const blur = () => {
+      if (spaceDown.current) closeAnswer();
+    };
+    window.addEventListener('keydown', keydown);
+    window.addEventListener('keyup', keyup);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', keydown);
+      window.removeEventListener('keyup', keyup);
+      window.removeEventListener('blur', blur);
+    };
+  });
   const togglePlay = () => {
-    if (answer) return;
+    if (questionActive) return;
     if (playback.playing || playback.loading) playback.pause();
     else void playback.play();
   };
@@ -220,7 +311,7 @@ export default function LessonPlayer({
       onKeyDown={event => {
         if (event.key === 'Escape') {
           event.stopPropagation();
-          if (answer) closeAnswer();
+          if (questionActive) closeAnswer();
           else onClose();
         }
         if (event.key === 'Tab') {
@@ -276,9 +367,9 @@ export default function LessonPlayer({
               <button
                 type="button"
                 onClick={() => {
-                  if (!answer) void playback.play();
+                  if (!questionActive) void playback.play();
                 }}
-                disabled={Boolean(answer)}
+                disabled={questionActive}
                 className="underline"
               >
                 {t('Riprova')}
@@ -301,7 +392,7 @@ export default function LessonPlayer({
               </button>
               <PlaybackPlayButton
                 onClick={togglePlay}
-                disabled={Boolean(answer) || !block}
+                disabled={questionActive || !block}
                 loading={playback.loading}
                 playing={playback.playing}
               />
@@ -341,6 +432,12 @@ export default function LessonPlayer({
             <div className="md:absolute md:inset-x-0 md:bottom-full md:mb-2.5">
               <ContextAnswerPanel
                 contextAnswer={answer}
+                pendingQuestion={pendingQuestion}
+                onAnswerComplete={text => {
+                  if (spokenQuestion.current?.id !== answer.id) return;
+                  spokenQuestion.current = null;
+                  void answerAudio.speak(text);
+                }}
                 contextAnswerPanelRef={panelRef}
                 contextAnswerSize={overlays.contextAnswerSize}
                 handleContextAnswerResizeStart={noAction}
@@ -362,6 +459,11 @@ export default function LessonPlayer({
                 onReplaceArtifactInLesson={overlays.onReplaceArtifactInLesson}
               />
             </div>
+          ) : null}
+          {answerAudio.error ? (
+            <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+              {answerAudio.error}
+            </p>
           ) : null}
           {noteStatus === 'saved' ? (
             <output className="inline-flex items-center gap-2 self-end rounded-full bg-white px-3 py-2 text-xs font-semibold text-amber-800 shadow-sm dark:bg-zinc-800 dark:text-amber-200">

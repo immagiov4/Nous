@@ -508,6 +508,8 @@ const buildContextDraftLesson = (
 };
 
 interface ContextAnswerPanelProps {
+  readonly pendingQuestion?: boolean;
+  readonly onAnswerComplete?: (text: string) => void;
   readonly docked?: boolean;
   readonly composerPortal?: HTMLElement | null;
   readonly renderComposer?: (send: (text: string) => void, disabled: boolean) => ReactNode;
@@ -581,6 +583,8 @@ export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps
 }
 
 function ContextAnswerPanelSession({
+  pendingQuestion = false,
+  onAnswerComplete,
   docked = false,
   composerPortal,
   renderComposer,
@@ -1049,6 +1053,29 @@ function ContextAnswerPanelSession({
     },
   });
   const { addToolOutput, error, messages, sendMessage, status, stop } = contextChat;
+
+  const spokenResponse = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onAnswerComplete || status !== 'ready' || error || hasRequestedResponseStop) return;
+    const last = messages.at(-1);
+    if (
+      !last ||
+      last.role !== 'assistant' ||
+      hasPendingResponsePart(last) ||
+      shouldContinueContextResponse(messages)
+    )
+      return;
+    const userIndex = messages.map(message => message.role).lastIndexOf('user');
+    const text = messages
+      .slice(userIndex + 1)
+      .filter(message => message.role === 'assistant')
+      .map(getUiMessageText)
+      .join('\n\n')
+      .trim();
+    if (!text || spokenResponse.current === last.id) return;
+    spokenResponse.current = last.id;
+    onAnswerComplete(text);
+  }, [error, hasRequestedResponseStop, messages, onAnswerComplete, status]);
 
   const retrievedArtifactIds = useMemo(() => getRetrievedArtifactIds(messages), [messages]);
   const replacementDraftPayloads = useMemo(
@@ -2098,6 +2125,11 @@ function ContextAnswerPanelSession({
               />
             ) : null}
 
+            {pendingQuestion ? (
+              <output className="text-sm text-stone-500 dark:text-stone-300">
+                {t('Sto trascrivendo la domanda…')}
+              </output>
+            ) : null}
             {isLoading ? (
               <div className="text-sm text-stone-400 dark:text-stone-500">
                 {t('Sto continuando a rispondere...')}

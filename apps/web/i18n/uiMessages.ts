@@ -37,6 +37,12 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'Ti ascolto… rilascia': 'Listening… release',
+  Spazio: 'Space',
+  'per inviare': 'to send',
+  'Sto trascrivendo la domanda…': 'Transcribing your question…',
+  'Non è stato possibile leggere la risposta. Puoi leggerla nel pannello.':
+    'Could not read the answer aloud. You can read it in the panel.',
   'Torna alla lezione': 'Back to the lesson',
   Riproduci: 'Play',
   'Riproduci lezione': 'Play lesson',

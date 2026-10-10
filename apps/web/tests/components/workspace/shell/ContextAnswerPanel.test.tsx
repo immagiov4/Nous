@@ -284,6 +284,93 @@ describe('ContextAnswerPanel', () => {
     chatTextComposerProps.length = 0;
   });
 
+  test('waits for transcription before sending the initial question', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const props = buildProps({ id: 'spoken-transcription', initialQuestion: '' });
+    const view = render(<ContextAnswerPanel {...props} pendingQuestion />);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('Sto trascrivendo la domanda');
+    view.rerender(
+      <ContextAnswerPanel
+        {...props}
+        contextAnswer={{ ...props.contextAnswer, initialQuestion: 'La domanda dettata' }}
+      />
+    );
+    expect(sendMessageMock).toHaveBeenCalledExactlyOnceWith({ text: 'La domanda dettata' });
+  });
+
+  test('emits the full current answer only after streaming and tool continuation finish', () => {
+    const onAnswerComplete = vi.fn();
+    const messages: UIMessage[] = [
+      { id: 'old-user', role: 'user', parts: [{ type: 'text', text: 'Prima domanda' }] },
+      {
+        id: 'old-answer',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Risposta precedente' }],
+      },
+      { id: 'spoken-user', role: 'user', parts: [{ type: 'text', text: 'Domanda attuale' }] },
+      { id: 'answer-start', role: 'assistant', parts: [{ type: 'text', text: 'Prima parte.' }] },
+      { id: 'answer-end', role: 'assistant', parts: [{ type: 'text', text: 'Seconda parte.' }] },
+    ];
+    const chat = {
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages,
+      sendMessage: sendMessageMock,
+      status: 'streaming',
+    };
+    useChatMock.mockReturnValue(chat);
+    const props = { ...buildProps({ id: 'spoken-answer' }), onAnswerComplete };
+    const view = render(<ContextAnswerPanel {...props} />);
+    expect(onAnswerComplete).not.toHaveBeenCalled();
+    useChatMock.mockReturnValue({ ...chat, status: 'ready' });
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(true);
+    view.rerender(<ContextAnswerPanel {...props} />);
+    expect(onAnswerComplete).not.toHaveBeenCalled();
+    lastAssistantMessageIsCompleteWithToolCallsMock.mockReturnValue(false);
+    useChatMock.mockReturnValue({ ...chat, status: 'ready', messages: [...messages] });
+    view.rerender(<ContextAnswerPanel {...props} />);
+    expect(onAnswerComplete).toHaveBeenCalledExactlyOnceWith('Prima parte.\n\nSeconda parte.');
+    view.rerender(
+      <ContextAnswerPanel {...props} onAnswerComplete={text => onAnswerComplete(text)} />
+    );
+    expect(onAnswerComplete).toHaveBeenCalledTimes(1);
+  });
+
+  test('answer failure displays the Italian message and never starts speech', () => {
+    const onAnswerComplete = vi.fn();
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: new Error('private backend error'),
+      messages: [
+        {
+          id: 'partial-answer',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Risposta parziale' }],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'error',
+    });
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ id: 'failed-spoken-answer' })}
+        onAnswerComplete={onAnswerComplete}
+      />
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Non è stato possibile ottenere una risposta. Riprova tra poco.'
+    );
+    expect(screen.queryByText('private backend error')).toBeNull();
+    expect(onAnswerComplete).not.toHaveBeenCalled();
+  });
+
   test('continues a docked desktop conversation from the external composer', async () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,

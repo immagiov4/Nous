@@ -29,6 +29,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
+import type { SpeechInputController } from '../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
   ContextMenuPlacement,
@@ -50,6 +51,8 @@ import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechIn
 
 interface ContextMenuProps {
   readonly playbackComposer?: {
+    speech?: SpeechInputController;
+    listening?: boolean;
     value: string;
     noteMode: boolean;
     onChange: (value: string) => void;
@@ -1057,6 +1060,11 @@ const ContextMenu = ({
     changeInput(appendSpeechTranscription(displayedInput, transcription));
   };
 
+  const showSpeechInput =
+    !trimmedInput ||
+    playbackComposer?.listening ||
+    (playbackComposer?.speech &&
+      (playbackComposer.speech.state !== 'idle' || playbackComposer.speech.speechInputError));
   const renderSelectionDesktop = () => (
     <div className="space-y-2">
       <div className="flex items-center gap-2.5">
@@ -1080,11 +1088,30 @@ const ContextMenu = ({
         ) : null}
 
         <form
-          className={`${playbackComposer?.noteMode ? '!border-amber-700/50 ring-4 ring-amber-700/15 !items-end' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
+          className={`${playbackComposer?.listening ? '!border-orange-300 ring-4 ring-orange-500/10' : ''} ${playbackComposer?.noteMode ? '!border-amber-700/50 ring-4 ring-amber-700/15 !items-end' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
           onSubmit={handleAskSubmit}
         >
           <div className="min-w-0 flex-1">
-            {playbackComposer?.noteMode ? (
+            {playbackComposer?.listening ? (
+              <output className="flex h-10 items-center gap-3 px-3.5 text-sm font-normal text-stone-600 dark:text-stone-200">
+                <span
+                  aria-hidden="true"
+                  className="lesson-question-wave flex items-center gap-0.5 text-orange-500"
+                >
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span>
+                  {t('Ti ascolto… rilascia')} <span className="font-semibold">{t('Spazio')}</span>{' '}
+                  {t('per inviare')}
+                </span>
+              </output>
+            ) : playbackComposer?.noteMode ? (
               <textarea
                 rows={5}
                 value={displayedInput}
@@ -1106,9 +1133,10 @@ const ContextMenu = ({
             )}
           </div>
 
-          {!trimmedInput ? (
+          {showSpeechInput ? (
             <div className={isLessonMode ? 'mr-1.5' : ''}>
               <SpeechInputButton
+                controller={playbackComposer?.speech}
                 disabled={isLoading}
                 errorPresentation={isMobileSheet ? 'viewport' : 'inline'}
                 onTranscription={handleSpeechTranscription}
@@ -1132,7 +1160,7 @@ const ContextMenu = ({
             </button>
           )}
 
-          {shouldShowToolbarNoteButton ? (
+          {shouldShowToolbarNoteButton && !playbackComposer?.listening ? (
             <button
               type="button"
               onClick={handleToggleNoteEditor}
