@@ -1,7 +1,7 @@
 import type { AnimatedLessonScene, ProportionalLessonScene } from './lessonScene';
 
 // Ported from notes-live-lab/interactive-model.mjs. Scene data never supplies executable formulas.
-export const interactionTiming = { stepMs: 2400, wordMs: 250 };
+const interactionTiming = { stepMs: 2400, wordMs: 250 };
 
 export const interactiveSelectionRules = `Gradual playback is the default.
 To synchronize with words, associate every element with an exact, unique, ordered narration anchor; elements may share an anchor as a group.
