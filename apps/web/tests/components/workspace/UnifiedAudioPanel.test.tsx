@@ -108,7 +108,7 @@ describe('UnifiedAudioPanel', () => {
     expect(panel).toHaveClass('sm:absolute', 'sm:right-0', 'sm:left-auto', 'sm:translate-x-0');
   });
 
-  test('keeps transport and voice controls in one row, with the text picker by the voice', async () => {
+  test('keeps transport, voice, speed and the text picker in one card', async () => {
     const user = userEvent.setup();
     const onSkipChunk = vi.fn();
     const onPlayPause = vi.fn();
@@ -130,9 +130,8 @@ describe('UnifiedAudioPanel', () => {
     expect(screen.queryByText('Parte 2 di 3')).not.toBeInTheDocument();
     expect(screen.queryByRole('slider', { name: 'Posizione audio' })).not.toBeInTheDocument();
     const playButton = screen.getByRole('button', { name: 'Riproduci' });
-    const transportRow = playButton.parentElement?.parentElement;
     const voiceControl = screen.getByRole('group', { name: 'Voce · Velocita' });
-    expect(transportRow).toContainElement(voiceControl);
+    expect(voiceControl).toContainElement(playButton);
     expect(voiceControl).toContainElement(screen.getByRole('button', { name: 'Scegli dal testo' }));
     await user.click(screen.getByRole('button', { name: 'Parte precedente' }));
     await user.click(playButton);
