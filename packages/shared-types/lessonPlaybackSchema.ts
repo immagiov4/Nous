@@ -114,7 +114,7 @@ export const LessonPlaybackBlockSchema = z.object({
   audio: z.array(PlaybackAudioSchema),
 });
 
-export const LessonPlaybackSchema = z.object({
+const LessonPlaybackSchema = z.object({
   version: z.literal(1),
   lessonKey: z.string().length(64),
   blocks: z.array(LessonPlaybackBlockSchema),
