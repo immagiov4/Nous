@@ -29,7 +29,7 @@ The TTS system centers around the `useTtsPlayer` hook, which manages the lifecyc
 
 ### Model, voices, and audio format
 
-The default model is `google/gemini-3.8-flash-tts` through OpenRouter's `/audio/speech` endpoint. The reader offers Zephyr, Puck, Charon, Kore, and Fenrir, with Zephyr as its default. Saved reader preferences outside that catalog reset to Zephyr. The backend selects the model from the global configuration and resolves the requested voice before contacting OpenRouter.
+The default model is `google/gemini-3.8-flash-lite-tts` through OpenRouter's `/audio/speech` endpoint. The reader offers Zephyr, Puck, Charon, Kore, and Fenrir, with Zephyr as its default. Saved reader preferences outside that catalog reset to Zephyr. The backend selects the model from the global configuration and resolves the requested voice before contacting OpenRouter.
 
 During the Grok-to-Gemini transition, the speech service converts legacy Grok voices and `coral` to Zephyr for Gemini. For a persisted Grok model, it converts the reader's Gemini voices and `coral` to Ara. Other provider-specific voice values pass through. This normalization covers both reader requests and the configured administrative voice.
 
