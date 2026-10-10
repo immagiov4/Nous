@@ -24,6 +24,9 @@ import LessonPlaybackStage from './LessonPlaybackStage.tsx';
 
 const NOTE_SAVED_MS = 3_000;
 const SKIP_SECONDS = 5;
+// Height of the single-row floating composer (40px buttons, 6px padding, 1px border), so the
+// playback controls and the Space hint share its axis on desktop.
+const COMPOSER_BAR_HEIGHT = 'md:h-[3.375rem]';
 const noAction = () => {};
 
 /** Sends a spoken question into the open conversation, so it continues there. */
@@ -417,27 +420,32 @@ export default function LessonPlayer({
         <p className="flex-1 p-4">{t('Questa lezione non contiene testo da ascoltare.')}</p>
       )}
       <div className="shrink-0 px-2 pb-2 md:relative md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
-        <div className="min-w-0 pb-2 md:pb-0">
-          {playback.loading ? (
-            <output className="mb-2 block text-xs text-stone-500 dark:text-stone-300">
-              {t('Preparo voce e visualizzazione…')}
-            </output>
-          ) : null}
-          {playback.failed ? (
-            <p role="alert" className="mb-2 text-sm text-red-700 dark:text-red-300">
-              {t('Impossibile preparare l’ascolto della lezione. Riprova.')}{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  if (!questionActive) void playback.play();
-                }}
-                disabled={questionActive}
-                className="underline"
-              >
-                {t('Riprova')}
-              </button>
-            </p>
-          ) : null}
+        <div
+          className={`min-w-0 pb-2 md:relative md:flex md:items-center md:pb-0 ${COMPOSER_BAR_HEIGHT}`}
+        >
+          {/* On desktop, status lines sit above the controls so the bottom row keeps one axis. */}
+          <div className="md:absolute md:bottom-full md:left-0 md:w-max md:max-w-[45vw]">
+            {playback.loading ? (
+              <output className="mb-2 block text-xs text-stone-500 dark:text-stone-300">
+                {t('Preparo voce e visualizzazione…')}
+              </output>
+            ) : null}
+            {playback.failed ? (
+              <p role="alert" className="mb-2 text-sm text-red-700 dark:text-red-300">
+                {t('Impossibile preparare l’ascolto della lezione. Riprova.')}{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!questionActive) void playback.play();
+                  }}
+                  disabled={questionActive}
+                  className="underline"
+                >
+                  {t('Riprova')}
+                </button>
+              </p>
+            ) : null}
+          </div>
           <div className="flex flex-col-reverse gap-2 md:flex-row md:items-center md:gap-3">
             <div className="flex items-center gap-2 md:gap-3">
               <button
@@ -471,9 +479,7 @@ export default function LessonPlayer({
                   5
                 </span>
               </button>
-              {/* Fixed slot wide enough for the longest voice at 1.05x: the pill keeps its natural
-                  width, and speed changes never shift the timeline after it. */}
-              <div className="ml-auto flex justify-end md:ml-0 md:w-44 md:justify-start">
+              <div className="ml-auto md:ml-0">
                 <PlaybackVoiceSpeed tts={tts} pill />
               </div>
             </div>
@@ -495,10 +501,10 @@ export default function LessonPlayer({
         {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
         <p
           aria-hidden={spaceHintHidden}
-          className={`pointer-events-none hidden min-w-0 flex-1 items-center justify-center gap-1 self-center whitespace-nowrap text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
+          className={`pointer-events-none hidden min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap ${COMPOSER_BAR_HEIGHT} text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
         >
           {t('Tieni premuto')}
-          <kbd className="font-sans text-orange-700 dark:text-orange-300">{t('Spazio')}</kbd>
+          <kbd className="font-sans">{t('Spazio')}</kbd>
           {t('per fare una domanda a voce')}
         </p>
         <div className="relative flex min-w-0 flex-col gap-2.5 md:w-[30rem] md:max-w-[45vw]">
