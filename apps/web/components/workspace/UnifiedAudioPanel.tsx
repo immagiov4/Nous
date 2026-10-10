@@ -1000,12 +1000,13 @@ export function PlaybackVoiceControl({
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
         aria-label={`${t('Voce')} · ${t('Velocita')}`}
-        className="flex min-h-10 items-center gap-2 rounded-3xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+        className="flex min-h-10 items-center gap-1.5 rounded-3xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
       >
-        <span className="w-[7ch] truncate text-left">{currentVoiceLabel}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
-        <span className="text-gray-300 dark:text-zinc-600">•</span>
-        <span className="min-w-[5ch] shrink-0 text-right tabular-nums">{playbackRateLabel}</span>
+        <span className="truncate">{currentVoiceLabel}</span>
+        <span className="text-gray-300 dark:text-zinc-600">·</span>
+        {/* Only the speed keeps a fixed width, so changing it never shifts the controls. */}
+        <span className="w-[4.5ch] shrink-0 tabular-nums">{playbackRateLabel}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
       </button>
       {expanded ? (
         <div className="absolute bottom-full right-0 z-50 mb-2 w-56">{control}</div>
