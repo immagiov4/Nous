@@ -108,27 +108,41 @@ describe('UnifiedAudioPanel', () => {
     expect(panel).toHaveClass('sm:absolute', 'sm:right-0', 'sm:left-auto', 'sm:translate-x-0');
   });
 
-  test('shows how many speech parts exist and lets the user choose one directly', async () => {
+  test('keeps text picker with part skips, play and position in one row above voice and speed', async () => {
     const user = userEvent.setup();
-    const onSelectChunk = vi.fn();
+    const onSkipChunk = vi.fn();
+    const onPlayPause = vi.fn();
 
     render(
       <UnifiedAudioPanel
         initialTab="voce"
-        isOpen
         isMusicPlaying={false}
+        isOpen
         musicUrl=""
-        musicVolume={60}
+        musicVolume={0.5}
         setIsMusicPlaying={() => {}}
         setMusicUrl={() => {}}
         setMusicVolume={() => {}}
-        tts={buildTtsModel({ currentChunkIndex: 1, onSelectChunk })}
+        tts={buildTtsModel({ currentChunkIndex: 1, onSkipChunk, onPlayPause })}
       />
     );
 
-    expect(screen.getByText('Parte 2 di 3')).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Parte da leggere' }), '2');
-    expect(onSelectChunk).toHaveBeenCalledWith(2);
+    expect(screen.queryByText('Parte 2 di 3')).not.toBeInTheDocument();
+    const playButton = screen.getByRole('button', { name: 'Riproduci' });
+    const transportRow = playButton.parentElement;
+    const pickerColumn = screen.getByRole('button', { name: 'Scegli dal testo' }).parentElement;
+    expect(transportRow).toContainElement(pickerColumn);
+    expect(pickerColumn).toContainElement(screen.getByRole('button', { name: 'Parte precedente' }));
+    expect(pickerColumn).toContainElement(screen.getByRole('button', { name: 'Parte successiva' }));
+    expect(transportRow).toContainElement(screen.getByRole('slider', { name: 'Posizione audio' }));
+    expect(transportRow?.nextElementSibling).toBe(
+      screen.getByRole('group', { name: 'Voce · Velocita' })
+    );
+    await user.click(screen.getByRole('button', { name: 'Parte precedente' }));
+    await user.click(playButton);
+    await user.click(screen.getByRole('button', { name: 'Parte successiva' }));
+    expect(onSkipChunk.mock.calls).toEqual([['prev'], ['next']]);
+    expect(onPlayPause).toHaveBeenCalledOnce();
   });
 
   test('starts direct selection from the lesson text', async () => {
@@ -203,7 +217,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  test('shows voice and playback speed in one full-width row', () => {
+  test('shows voice and playback speed together', () => {
     const { container } = render(
       <UnifiedAudioPanel
         initialTab="voce"

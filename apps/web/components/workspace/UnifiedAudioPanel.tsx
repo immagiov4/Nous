@@ -87,6 +87,7 @@ const PLAYBACK_RATE_MIN = 0.8;
 const PLAYBACK_RATE_MAX = 2;
 const PLAYBACK_RATE_STEP = 0.05;
 const PLAYBACK_RATE_MARKER_COUNT = 5;
+const PLAYBACK_RATE_LABEL_WIDTH = 'w-[5ch]';
 type AudioTab = 'voce' | 'ambiente';
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
@@ -562,7 +563,7 @@ const UnifiedAudioPanel = ({
             >
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700 dark:text-zinc-200">
-                  Audio
+                  {t('Audio')}
                 </span>
                 <button
                   type="button"
@@ -631,100 +632,68 @@ const UnifiedAudioPanel = ({
               </div>
 
               {activeTab === 'voce' ? (
-                <div className="space-y-4">
-                  <PlaybackTimeline
-                    time={tts.currentTime}
-                    duration={tts.duration}
-                    onSeek={tts.onSeek}
-                  />
-
-                  {tts.chunkOptions.length > 0 ? (
-                    <div className="space-y-1.5 px-1">
-                      <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-600 dark:text-zinc-300">
-                        <label htmlFor={`${inputId}-tts-chunk`}>{t('Parte da leggere')}</label>
-                        <span className="shrink-0 tabular-nums text-gray-500 dark:text-zinc-400">
-                          {t('Parte {current} di {total}', {
-                            current: tts.currentChunkIndex + 1,
-                            total: tts.chunkOptions.length,
-                          })}
-                        </span>
-                      </div>
-                      <div className="flex items-stretch gap-2">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 flex-col items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label={t('Scegli dal testo')}
+                        aria-pressed={isTextPickerActive}
+                        disabled={ttsDisabled}
+                        onClick={() => onSetTextPickerActive(!isTextPickerActive)}
+                        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 disabled:cursor-not-allowed disabled:opacity-45 ${
+                          isTextPickerActive
+                            ? 'border-orange-400 bg-orange-100 text-orange-800 dark:border-orange-500 dark:bg-orange-950/60 dark:text-orange-200'
+                            : 'border-gray-300 bg-white text-gray-600 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-orange-500/70 dark:hover:text-orange-300'
+                        }`}
+                        title={
+                          isTextPickerActive
+                            ? t('Annulla selezione dal testo')
+                            : t('Passa sul testo e clicca la parte da leggere')
+                        }
+                      >
+                        <MousePointer2 className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <div className="flex">
                         <button
                           type="button"
-                          aria-label={t('Scegli dal testo')}
-                          aria-pressed={isTextPickerActive}
+                          aria-label={t('Parte precedente')}
+                          onClick={() => tts.onSkipChunk('prev')}
                           disabled={ttsDisabled}
-                          onClick={() => onSetTextPickerActive(!isTextPickerActive)}
-                          className={`inline-flex w-10 shrink-0 items-center justify-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 disabled:cursor-not-allowed disabled:opacity-45 ${
-                            isTextPickerActive
-                              ? 'border-orange-400 bg-orange-100 text-orange-800 dark:border-orange-500 dark:bg-orange-950/60 dark:text-orange-200'
-                              : 'border-gray-300 bg-white text-gray-600 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-orange-500/70 dark:hover:text-orange-300'
-                          }`}
-                          title={
-                            isTextPickerActive
-                              ? t('Annulla selezione dal testo')
-                              : t('Passa sul testo e clicca la parte da leggere')
-                          }
+                          className="rounded-md p-0.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                         >
-                          <MousePointer2 className="h-4 w-4" aria-hidden="true" />
+                          <SkipBack className="h-4 w-4" />
                         </button>
-                        <div className="relative min-w-0 flex-1">
-                          <select
-                            id={`${inputId}-tts-chunk`}
-                            aria-label={t('Parte da leggere')}
-                            value={tts.currentChunkIndex}
-                            onChange={event =>
-                              tts.onSelectChunk(Number.parseInt(event.target.value, 10))
-                            }
-                            disabled={ttsDisabled}
-                            className="w-full cursor-pointer appearance-none truncate rounded-xl border border-gray-300 bg-white py-2 pl-3 pr-10 text-sm text-gray-700 outline-none transition-colors hover:border-gray-400 focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus:border-zinc-400 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-800/60 dark:disabled:text-zinc-500"
-                          >
-                            {tts.chunkOptions.map(option => (
-                              <option key={option.index} value={option.index}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown
-                            aria-hidden="true"
-                            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-600 dark:text-zinc-300"
-                          />
-                        </div>
+                        <button
+                          type="button"
+                          aria-label={t('Parte successiva')}
+                          onClick={() => tts.onSkipChunk('next')}
+                          disabled={ttsDisabled}
+                          className="rounded-md p-0.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        >
+                          <SkipForward className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
-                  ) : null}
 
-                  <div className="space-y-2">
-                    <PlaybackVoiceControl tts={tts} disabled={ttsDisabled} />
+                    <PlaybackPlayButton
+                      onClick={tts.onPlayPause}
+                      disabled={ttsDisabled}
+                      loading={tts.isLoading}
+                      playing={tts.isPlaying}
+                    />
 
-                    <div className="flex items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => tts.onSkipChunk('prev')}
-                        disabled={ttsDisabled}
-                        className="rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                      >
-                        <SkipBack className="h-5 w-5" />
-                      </button>
-
-                      <PlaybackPlayButton
-                        onClick={tts.onPlayPause}
-                        disabled={ttsDisabled}
-                        loading={tts.isLoading}
-                        playing={tts.isPlaying}
+                    <div className="min-w-0 flex-1">
+                      <PlaybackTimeline
+                        time={tts.currentTime}
+                        duration={tts.duration}
+                        onSeek={tts.onSeek}
+                        elapsedOnly
                       />
-
-                      <button
-                        type="button"
-                        onClick={() => tts.onSkipChunk('next')}
-                        disabled={ttsDisabled}
-                        className="rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                      >
-                        <SkipForward className="h-5 w-5" />
-                      </button>
                     </div>
                   </div>
+
+                  <PlaybackVoiceControl tts={tts} disabled={ttsDisabled} />
 
                   {tts.errorMessage ? (
                     <p className="rounded-xl bg-red-50 px-3 py-2 text-center text-[11px] font-medium leading-5 text-red-700 dark:bg-red-950/30 dark:text-red-200">
@@ -906,8 +875,11 @@ export function PlaybackTimeline({
   duration,
   onSeek,
   estimated = false,
+  elapsedOnly = false,
 }: {
   estimated?: boolean;
+  /** Shows only the current position, after the slider, without the total duration. */
+  elapsedOnly?: boolean;
   time: number;
   duration: number;
   onSeek: (time: number) => void;
@@ -923,7 +895,7 @@ export function PlaybackTimeline({
 
   return (
     <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
-      <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>
+      {elapsedOnly ? null : <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>}
       <input
         type="range"
         aria-label={t('Posizione audio')}
@@ -934,10 +906,14 @@ export function PlaybackTimeline({
         onChange={event => onSeek(parseFloat(event.target.value))}
         className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
       />
-      <span className="shrink-0 whitespace-nowrap">
-        {estimated ? '≈ ' : ''}
-        {formatTime(duration)}
-      </span>
+      {elapsedOnly ? (
+        <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>
+      ) : (
+        <span className="shrink-0 whitespace-nowrap">
+          {estimated ? '≈ ' : ''}
+          {formatTime(duration)}
+        </span>
+      )}
     </div>
   );
 }
@@ -967,9 +943,9 @@ export function PlaybackVoiceControl({
   const playbackRateLabel = getPlaybackRateLabel(tts.playbackRate);
 
   const control = (
-    <fieldset className="flex min-w-0 w-full items-center gap-3 rounded-3xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
+    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
       <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
-      <div className="relative min-h-10 shrink-0">
+      <div className="relative min-h-10">
         <select
           aria-label={t('Voce')}
           title={t('Voce')}
@@ -991,44 +967,55 @@ export function PlaybackVoiceControl({
             ttsDisabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
           }`}
         >
-          <span className="flex min-w-0 items-center gap-1">
+          <span className="flex min-w-0 flex-1 items-center gap-1">
             <span className="truncate">{currentVoiceLabel}</span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
+          </span>
+          <span className={`${PLAYBACK_RATE_LABEL_WIDTH} shrink-0 text-right tabular-nums`}>
+            {playbackRateLabel}
           </span>
         </div>
       </div>
 
-      <div className="min-w-0 flex-1">
-        <PlaybackSpeedControl
-          isDisabled={ttsDisabled}
-          onSpeedChange={tts.onSpeedChange}
-          playbackRate={tts.playbackRate}
-        />
-      </div>
-      <span className="shrink-0 text-sm font-medium tabular-nums text-gray-700 dark:text-zinc-200">
-        {playbackRateLabel}
-      </span>
+      <PlaybackSpeedControl
+        isDisabled={ttsDisabled}
+        onSpeedChange={tts.onSpeedChange}
+        playbackRate={tts.playbackRate}
+      />
     </fieldset>
   );
   if (!compact) return control;
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
         aria-label={`${t('Voce')} · ${t('Velocita')}`}
-        className="flex min-h-10 items-center gap-1.5 rounded-3xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+        className="flex min-h-10 max-w-full items-center gap-1.5 rounded-3xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
       >
         <span className="truncate">{currentVoiceLabel}</span>
         <span className="text-gray-300 dark:text-zinc-600">·</span>
-        <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+        {/* Fixed width: the widest label is "1.05x", so speed changes never shift the layout. */}
+        <span className={`${PLAYBACK_RATE_LABEL_WIDTH} shrink-0 text-left tabular-nums`}>
+          {playbackRateLabel}
+        </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
       </button>
-      {expanded ? (
-        // Anchored to the left edge: when the speed label grows, the pill extends rightward and the open menu stays put.
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-56">{control}</div>
-      ) : null}
+      <AnimatePresence>
+        {expanded ? (
+          // Anchored to the left edge so the menu stays put when the speed label grows.
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
+            className="absolute bottom-full left-0 z-50 mb-2 w-56"
+          >
+            {control}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

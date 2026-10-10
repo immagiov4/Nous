@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
@@ -15,6 +16,7 @@ import { requestSpeechTranscription } from '../../../services/openrouter/sttClie
 import { generateSpeech } from '../../../services/openrouter/tts.ts';
 
 const completedAnswer = vi.hoisted(() => ({ text: 'La risposta completa alla domanda.' }));
+const sendInConversation = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../hooks/reader/useLessonPlayback.ts', () => ({ useLessonPlayback: vi.fn() }));
 vi.mock('../../../components/workspace/playback/LessonPlaybackStage.tsx', () => ({
@@ -42,7 +44,7 @@ vi.mock('../../../components/workspace/shell/ContextAnswerPanel.tsx', () => ({
       <button type="button" onClick={() => onAnswerComplete?.(completedAnswer.text)}>
         Completa risposta
       </button>
-      {renderComposer?.(vi.fn(), false)}
+      {renderComposer?.(sendInConversation, false)}
     </div>
   ),
 }));
@@ -208,6 +210,28 @@ test('anchors the note when writing begins, then exits note mode after persisten
   expect(screen.getByRole('status')).toBeInTheDocument();
 });
 
+test('saves a note after API parsing reorders the source span properties', async () => {
+  const block = LessonPlaybackBlockSchema.parse(blocks[0]);
+  playback = { ...playback, blocks: [block], playing: false };
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Da ricordare.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Salva nota' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0]).toEqual([
+    { projectId: 'project', lessonId: 'lesson' },
+    {
+      note: 'Da ricordare.',
+      selectedText: 'La prima frase.',
+      selectedTextStart: 0,
+      contextBefore: '',
+      contextAfter: 'La seconda frase.',
+    },
+  ]);
+  await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(''));
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
 test('retains note text and the original sentence after a failed save and retries', async () => {
   save.mockResolvedValueOnce({ saved: false, merged: false, error: 'private backend detail' });
   render(<LessonPlayer {...props} />);
@@ -319,6 +343,18 @@ test.each([
   else fireEvent.keyDown(window, space);
   expect(AnswerAudio.instances[0].pause).toHaveBeenCalled();
   expect(playback.play).not.toHaveBeenCalled();
+});
+
+test('a spoken question with a conversation open continues that conversation', async () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  await recordQuestion();
+  vi.mocked(requestSpeechTranscription).mockResolvedValueOnce('E poi?');
+  fireEvent.keyDown(window, space);
+  await waitFor(() => expect(Recorder.instances.at(-1)?.state).toBe('recording'));
+  fireEvent.keyUp(window, space);
+  await waitFor(() => expect(sendInConversation).toHaveBeenCalledWith('E poi?'));
+  expect(sendInConversation).toHaveBeenCalledOnce();
+  expect(screen.getByText('Perché funziona?')).toBeInTheDocument();
 });
 
 test('closing while speech is being generated prevents late audio playback', async () => {

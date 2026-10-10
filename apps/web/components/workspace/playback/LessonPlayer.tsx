@@ -1,7 +1,7 @@
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { ArrowLeft, Check, RotateCcw, RotateCw } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLessonPlayback } from '../../../hooks/reader/useLessonPlayback.ts';
 import { useSpokenAnswer } from '../../../hooks/reader/useSpokenAnswer.ts';
@@ -29,6 +29,23 @@ import LessonPlaybackStage from './LessonPlaybackStage.tsx';
 const NOTE_SAVED_MS = 3_000;
 const SKIP_SECONDS = 5;
 const noAction = () => {};
+
+/** Sends a spoken question into the open conversation, so it continues there. */
+function SpokenFollowUp({
+  question,
+  send,
+  onSent,
+}: {
+  question: string;
+  send: (text: string) => void;
+  onSent: () => void;
+}) {
+  useEffect(() => {
+    send(question);
+    onSent();
+  }, [question, send, onSent]);
+  return null;
+}
 
 function AnswerPanelTransition({
   children,
@@ -107,11 +124,13 @@ export default function LessonPlayer({
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
+  const [spokenFollowUp, setSpokenFollowUp] = useState<string | null>(null);
   const answerAudio = useSpokenAnswer(tts.currentVoice, tts.playbackRate);
   const speech = useSpeechInput({
     onTranscription: text => {
       const question = spokenQuestion.current;
-      if (question) setAnswer({ ...question, initialQuestion: text });
+      if (question?.initialQuestion) setSpokenFollowUp(text);
+      else if (question) setAnswer({ ...question, initialQuestion: text });
       else changeDraft(appendSpeechTranscription(draft, text));
     },
   });
@@ -148,7 +167,17 @@ export default function LessonPlayer({
       !block ||
       !original ||
       block.speech !== original.speech ||
-      JSON.stringify(block.spans) !== JSON.stringify(original.spans)
+      block.spans.length !== original.spans.length ||
+      block.spans.some((span, index) => {
+        const sourceSpan = original.spans[index];
+        return (
+          span.sourceBlockIndex !== sourceSpan.sourceBlockIndex ||
+          span.speech.start !== sourceSpan.speech.start ||
+          span.speech.end !== sourceSpan.speech.end ||
+          span.source.start !== sourceSpan.source.start ||
+          span.source.end !== sourceSpan.source.end
+        );
+      })
     )
       return null;
     return playbackSentenceSelector(block, playback.time, playback.duration, sourceBlocks);
@@ -226,46 +255,53 @@ export default function LessonPlayer({
     anchor.current = null;
   };
   const listening = holdingSpace && !speech.speechInputError;
+  const spaceHintHidden = Boolean(answer) || listening || noteMode || Boolean(draft);
   const questionActive = Boolean(answer) || holdingSpace;
   const pendingQuestion = Boolean(answer && !answer.initialQuestion && speech.state !== 'idle');
-  const renderComposer = (send = ask, disabled = false) => (
-    <ContextMenu
-      type="lesson"
-      placement="desktop-floating"
-      selectedText=""
-      isDarkMode={content.isDarkMode}
-      isLoading={
-        noteStatus === 'saving' || holdingSpace || pendingQuestion || (!noteMode && disabled)
-      }
-      lessonCreationBlockReason={null}
-      onAsk={send}
-      onClose={noAction}
-      onCreateLesson={noAction}
-      onDeleteAnnotation={noAction}
-      onHighlight={noAction}
-      onSaveNote={noAction}
-      playbackComposer={{
-        isMobileViewport: mobile,
-        speech: mobile
-          ? undefined
-          : {
-              ...speech,
-              startRecording: () => {
-                spokenQuestion.current = null;
-                return speech.startRecording();
+  const clearSpokenFollowUp = useCallback(() => setSpokenFollowUp(null), []);
+  const renderComposer = (send = ask, disabled = false, conversation = false) => (
+    <>
+      {conversation && spokenFollowUp ? (
+        <SpokenFollowUp question={spokenFollowUp} send={send} onSent={clearSpokenFollowUp} />
+      ) : null}
+      <ContextMenu
+        type="lesson"
+        placement="desktop-floating"
+        selectedText=""
+        isDarkMode={content.isDarkMode}
+        isLoading={
+          noteStatus === 'saving' || holdingSpace || pendingQuestion || (!noteMode && disabled)
+        }
+        lessonCreationBlockReason={null}
+        onAsk={send}
+        onClose={noAction}
+        onCreateLesson={noAction}
+        onDeleteAnnotation={noAction}
+        onHighlight={noAction}
+        onSaveNote={noAction}
+        playbackComposer={{
+          isMobileViewport: mobile,
+          speech: mobile
+            ? undefined
+            : {
+                ...speech,
+                startRecording: () => {
+                  spokenQuestion.current = null;
+                  return speech.startRecording();
+                },
               },
-            },
-        listening,
-        value: draft,
-        noteMode,
-        onChange: changeDraft,
-        onToggleNote: () => {
-          setNoteMode(!noteMode);
-          if (noteStatus === 'error') setNoteStatus('idle');
-        },
-        onSubmit: () => submit(send),
-      }}
-    />
+          listening,
+          value: draft,
+          noteMode,
+          onChange: changeDraft,
+          onToggleNote: () => {
+            setNoteMode(!noteMode);
+            if (noteStatus === 'error') setNoteStatus('idle');
+          },
+          onSubmit: () => submit(send),
+        }}
+      />
+    </>
   );
   const closeAnswer = () => {
     answerAudio.stop();
@@ -297,8 +333,8 @@ export default function LessonPlayer({
       spaceDown.current = true;
       setHoldingSpace(true);
       setNoteMode(false);
-      spokenQuestion.current = createQuestion('', currentAnchor());
-      setAnswer(null);
+      // With a conversation open, the spoken question continues it instead of starting a new one.
+      spokenQuestion.current = answer ?? createQuestion('', currentAnchor());
       void speech.startRecording();
     };
     const keyup = (event: KeyboardEvent) => {
@@ -387,8 +423,8 @@ export default function LessonPlayer({
       <div className="shrink-0 px-2 pb-2 md:relative md:flex md:items-end md:justify-between md:gap-4 md:px-[4%] md:pb-6">
         {/* Desktop only: push-to-talk has no equivalent on touch screens. */}
         <p
-          aria-hidden={Boolean(answer) || listening}
-          className={`pointer-events-none absolute bottom-9 left-1/2 hidden -translate-x-1/2 items-center gap-1.5 whitespace-nowrap text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${answer || listening ? 'opacity-0' : 'opacity-100'}`}
+          aria-hidden={spaceHintHidden}
+          className={`pointer-events-none absolute bottom-full left-1/2 mb-1 hidden -translate-x-1/2 items-center gap-1.5 whitespace-nowrap text-xs text-stone-500 transition-opacity duration-200 ease-out motion-reduce:transition-none md:flex dark:text-stone-400 ${spaceHintHidden ? 'opacity-0' : 'opacity-100'}`}
         >
           {t('Tieni premuto')}
           <kbd className="rounded-md border border-b-2 border-stone-200 bg-white px-1.5 py-0.5 font-sans text-[11px] font-semibold text-stone-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-stone-200">
@@ -488,7 +524,7 @@ export default function LessonPlayer({
                   isMobileViewport={mobile}
                   docked
                   composerPortal={composerPortal}
-                  renderComposer={renderComposer}
+                  renderComposer={(send, disabled) => renderComposer(send, disabled, true)}
                   libraryAssistantDataSource={overlays.libraryAssistantDataSource}
                   currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
                   onClose={closeAnswer}
