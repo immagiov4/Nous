@@ -2,6 +2,7 @@
 import './config/env.js';
 
 import { closeBackendResources } from './backendShutdown.js';
+import { getGlobalModelConfig } from './config/modelConfig.js';
 import {
   buildBackendServerUrl,
   getBackendServerConfig,
@@ -14,6 +15,7 @@ import { PostgresLibraryExportRunStore } from './projects/libraryExportRunStore.
 import { getProjectStore } from './projects/projectStore.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
 import { startFeedbackOutboxWorker, stopFeedbackOutboxWorker } from './services/feedbackService.js';
+import { loadIconIndex } from './services/lessonScenes/lessonSceneIcons.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 import { createWorkflowRuntimeComposition } from './workflows/runtime/workflowRuntimeComposition.js';
 
@@ -63,6 +65,12 @@ const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, 
   console.log(`[Backend] TTS API available at ${backendUrl}/api/tts`);
   console.log(`[Backend] STT API available at ${backendUrl}/api/stt`);
   console.log(`[Backend] OpenRouter TTS default model: ${DEFAULT_TTS_MODEL}`);
+  // Build or load the icon index now, so the first lesson scene does not wait for it.
+  void loadIconIndex(getGlobalModelConfig().embeddingModel).catch(error => {
+    console.error('[Backend] Icon index warm-up failed.', {
+      errorType: error instanceof Error ? error.name : 'UnknownError',
+    });
+  });
 });
 
 server.on('error', (error: NodeJS.ErrnoException) => {

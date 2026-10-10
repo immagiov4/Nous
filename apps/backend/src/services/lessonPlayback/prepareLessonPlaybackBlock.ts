@@ -81,6 +81,16 @@ export const prepareLessonPlaybackBlock = async (
 ): Promise<PreparedLessonPlaybackBlock> => {
   const { block, voice, config, signal } = input;
   signal.throwIfAborted();
+  // Audio does not depend on the scene, so both are prepared at the same time.
+  const [prepared, audio] = await Promise.all([prepareVisuals(input), prepareAudio(input)]);
+  signal.throwIfAborted();
+  return { prepared, audio };
+};
+
+const prepareVisuals = async (
+  input: PrepareLessonPlaybackBlockInput
+): Promise<PreparedLessonPlaybackBlock['prepared']> => {
+  const { block, config, signal } = input;
   let prepared = block.prepared;
   if (!prepared) {
     const scene = input.providerEffect
@@ -103,6 +113,13 @@ export const prepareLessonPlaybackBlock = async (
       : await planMotion();
     prepared = { ...(scene ? { scene } : {}), motion };
   }
+  return prepared;
+};
+
+const prepareAudio = async (
+  input: PrepareLessonPlaybackBlockInput
+): Promise<PreparedPlaybackAudio> => {
+  const { block, voice, signal } = input;
   const generateAudio = () =>
     preparePlaybackAudio({
       text: block.speech,
@@ -128,6 +145,5 @@ export const prepareLessonPlaybackBlock = async (
   } else {
     audio = await generateAudio();
   }
-  signal.throwIfAborted();
-  return { prepared, audio };
+  return audio;
 };
