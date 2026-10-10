@@ -11,7 +11,7 @@ import {
 } from '@shared/projectBackupArchive';
 import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
 import JSZip from 'jszip';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -272,7 +272,9 @@ test('legacy JSON backups restore lessons without prepared playback', async () =
   lesson.playback = buildPreparedPlayback([]);
   const file = new Blob([JSON.stringify(exportProjectData(snapshot))]);
   const imported = normalizeImportedProject(await readLegacyProjectImportData(file));
-  assert.equal(flattenLessons(imported.learningPlan?.modules)[0]?.playback, undefined);
+  const restoredLesson = flattenLessons(imported.learningPlan?.modules)[0];
+  expect(restoredLesson).toMatchObject({ id: lesson.id, title: lesson.title });
+  expect(restoredLesson?.playback).toBeUndefined();
   assert.ok(lesson.playback);
 });
 

@@ -218,6 +218,23 @@ const collectInlineRanges = (
   }
 };
 
+/** Preserve both content and line-ending offsets, including bare CR and blank lines. */
+function* markdownLines(markdown: string) {
+  let start = 0;
+  for (const newline of markdown.matchAll(/\r\n|[\r\n]/gu)) {
+    const end = newline.index + newline[0].length;
+    yield { start, end, contentEnd: newline.index };
+    start = end;
+  }
+  if (start < markdown.length) yield { start, end: markdown.length, contentEnd: markdown.length };
+}
+
+const lineStructure = (text: string, current: string): string => {
+  if (/^[ \t]*>/u.test(text)) return 'quote';
+  if (/^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/u.test(text)) return 'list';
+  return current;
+};
+
 /** Keep source offsets while separating authored prose and container-relative visual blocks. */
 const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownChunk[] => {
   const chunks: MarkdownChunk[] = [];
@@ -234,12 +251,18 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
     chunks.push({ start, end, kind: visual ? 'visual' : 'speech' });
     start = end;
   };
+  const appendParagraphLine = (text: string, lineStart: number, lineEnd: number) => {
+    const nextStructure = lineStructure(text, structure);
+    if (nextStructure !== structure) flush();
+    structure = nextStructure;
+    if (end === start) start = lineStart;
+    end = lineEnd;
+  };
 
-  for (const line of markdown.matchAll(/[^\r\n]*(?:\r\n|[\r\n]|$)/gu)) {
-    if (!line[0]) continue;
-    const text = line[0].replace(/[\r\n]+$/u, '');
-    const lineStart = line.index;
-    const lineEnd = lineStart + text.length;
+  for (const line of markdownLines(markdown)) {
+    const text = markdown.slice(line.start, line.contentEnd);
+    const lineStart = line.start;
+    const lineEnd = line.contentEnd;
     if (lineStart < consumedEnd) continue;
     const block = analysis.blocks[blockIndex];
     if (block && block.start >= lineStart && block.start <= lineEnd) {
@@ -269,15 +292,7 @@ const markdownChunks = (markdown: string, analysis: MarkdownAnalysis): MarkdownC
       structure = 'paragraph';
       continue;
     }
-    const nextStructure = /^[ \t]*>/u.test(text)
-      ? 'quote'
-      : /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/u.test(text)
-        ? 'list'
-        : structure;
-    if (nextStructure !== structure) flush();
-    structure = nextStructure;
-    if (end === start) start = lineStart;
-    end = lineEnd;
+    appendParagraphLine(text, lineStart, lineEnd);
   }
   flush();
   return chunks;
@@ -331,6 +346,12 @@ const appendInline = (
   }
 };
 
+const speechPrefixLength = (line: string): number => {
+  const indentation = /^[ \t>]*/u.exec(line)?.[0].length ?? 0;
+  const marker = /^(?:#{1,6}|[-+*]|\d+[.)])[ \t]+/u.exec(line.slice(indentation));
+  return indentation + (marker?.[0].length ?? 0);
+};
+
 const spokenText = (
   markdown: string,
   range: PlaybackRange,
@@ -339,23 +360,14 @@ const spokenText = (
 ): SpokenText => {
   const result: SpokenText = { speech: '', spans: [], visuals: [], sourceBlockIndex };
   const text = markdown.slice(range.start, range.end);
-  for (const line of text.matchAll(/[^\r\n]*(?:\r\n|[\r\n]|$)/gu)) {
-    if (!line[0]) continue;
-    const lineStart = range.start + line.index;
+  for (const line of markdownLines(text)) {
+    const lineStart = range.start + line.start;
     const insideCode = analysis.inlineCode.some(
       code => code.start < lineStart && code.end > lineStart
     );
-    const prefix = insideCode
-      ? ''
-      : (/^(?:[ \t]*>[ \t]?)*[ \t]*(?:#{1,6}[ \t]+|(?:[-+*]|\d+[.)])[ \t]+)?/u.exec(line[0])?.[0] ??
-        '');
-    const start = range.start + line.index + prefix.length;
-    appendInline(
-      result,
-      markdown,
-      { start, end: range.start + line.index + line[0].length },
-      analysis
-    );
+    const prefixLength = insideCode ? 0 : speechPrefixLength(text.slice(line.start, line.end));
+    const start = lineStart + prefixLength;
+    appendInline(result, markdown, { start, end: range.start + line.end }, analysis);
   }
   return result;
 };
@@ -383,6 +395,21 @@ const joinSpokenText = (
   return result;
 };
 
+const appendHeadingSeparator = (text: SpokenText, markdown: string, end: number): void => {
+  const newline = /^(?:\r\n|[\r\n])/u.exec(markdown.slice(end))?.[0];
+  if (newline) {
+    appendSource(text, markdown, end, end + newline.length);
+    return;
+  }
+  // A heading-only content block has no authored separator before the next block.
+  text.spans.push({
+    speech: { start: text.speech.length, end: text.speech.length + 1 },
+    source: { start: end, end },
+    sourceBlockIndex: text.sourceBlockIndex,
+  });
+  text.speech += '\n';
+};
+
 /** Deterministically segment authored lesson text and attach visuals to its spoken introductions. */
 export const segmentLessonPlayback = (
   contentBlocks: readonly PlaybackContentBlock[]
@@ -397,13 +424,7 @@ export const segmentLessonPlayback = (
     else pendingVisuals.push(visual);
   };
 
-  for (const [sourceBlockIndex, content] of contentBlocks.entries()) {
-    if (content.type === 'generated-visual') {
-      if (content.visualId) attachVisual({ kind: 'generated-visual', visualId: content.visualId });
-      continue;
-    }
-    if (content.type !== 'markdown') continue;
-    const { markdown } = content;
+  const appendMarkdown = (markdown: string, sourceBlockIndex: number): void => {
     const analysis = analyzeMarkdown(markdown);
     for (const chunk of markdownChunks(markdown, analysis)) {
       if (chunk.kind === 'omitted') continue;
@@ -414,17 +435,7 @@ export const segmentLessonPlayback = (
       const text = spokenText(markdown, chunk, sourceBlockIndex, analysis);
       if (chunk.kind === 'heading') {
         heading = text.speech;
-        const newline = /^(?:\r\n|[\r\n])/u.exec(markdown.slice(chunk.end))?.[0];
-        if (newline) appendSource(text, markdown, chunk.end, chunk.end + newline.length);
-        else {
-          // A heading-only content block has no authored separator before the next block.
-          text.spans.push({
-            speech: { start: text.speech.length, end: text.speech.length + 1 },
-            source: { start: chunk.end, end: chunk.end },
-            sourceBlockIndex,
-          });
-          text.speech += '\n';
-        }
+        appendHeadingSeparator(text, markdown, chunk.end);
         pendingHeadings.push(text);
         continue;
       }
@@ -444,6 +455,14 @@ export const segmentLessonPlayback = (
       pendingHeadings = [];
       pendingVisuals = [];
     }
+  };
+
+  for (const [sourceBlockIndex, content] of contentBlocks.entries()) {
+    if (content.type === 'generated-visual') {
+      if (content.visualId) attachVisual({ kind: 'generated-visual', visualId: content.visualId });
+      continue;
+    }
+    if (content.type === 'markdown') appendMarkdown(content.markdown, sourceBlockIndex);
   }
   return blocks;
 };

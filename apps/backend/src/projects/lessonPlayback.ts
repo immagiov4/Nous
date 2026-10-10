@@ -13,12 +13,11 @@ import type { LearningPlanNodeSnapshot, ProjectSnapshot } from './types.js';
 
 const lessonPlaybackContent = (
   section: LearningPlanNodeSnapshot
-): readonly PlaybackContentBlock[] =>
-  Array.isArray(section.contentBlocks)
-    ? section.contentBlocks
-    : typeof section.content === 'string'
-      ? [{ type: 'markdown', markdown: section.content }]
-      : [];
+): readonly PlaybackContentBlock[] => {
+  if (Array.isArray(section.contentBlocks)) return section.contentBlocks;
+  if (typeof section.content === 'string') return [{ type: 'markdown', markdown: section.content }];
+  return [];
+};
 
 /** Asset content, rather than its project-local ID, keeps imported playback reusable. */
 const visualContent = (visual: ProjectLessonVisual) => {

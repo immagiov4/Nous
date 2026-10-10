@@ -129,6 +129,7 @@ describe('lesson playback segmentation', () => {
   test.each([
     '\n',
     '\r\n',
+    '\r',
   ])('splits adjacent paragraph, list and quote boundaries (%j)', newline => {
     const markdown = ['Introduzione.', '- Primo.', '- Secondo.', '> Citazione.', '> Ancora.'].join(
       newline
@@ -139,6 +140,17 @@ describe('lesson playback segmentation', () => {
       `Primo.${newline}Secondo.`,
       `Citazione.${newline}Ancora.`,
     ]);
+    for (const block of blocks) expectExactSpans(block, markdown);
+  });
+
+  test.each([
+    '> >\t- ',
+    '>\t> 12) ',
+    '>>+\t',
+  ])('strips nested quote and list prefixes while preserving speech offsets: %j', prefix => {
+    const markdown = `${prefix}Prima 🧠.\r\n${prefix}**Poi.**`;
+    const blocks = segmentLessonPlayback([markdownBlock(markdown)]);
+    expect(blocks.map(block => block.speech)).toEqual(['Prima 🧠.\r\nPoi.']);
     for (const block of blocks) expectExactSpans(block, markdown);
   });
 
