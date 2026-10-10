@@ -122,6 +122,7 @@ test('prepares on play, waits for the first block, then prepares exactly one ahe
   });
   await waitFor(() => expect(prepareLessonPlayback).toHaveBeenCalledTimes(3));
   expect(vi.mocked(prepareLessonPlayback).mock.calls[2][0].blockId).toBe('2');
+  expect(vi.mocked(prepareLessonPlayback).mock.calls[1][1]?.aborted).toBe(true);
 });
 
 test('a seek prepares its block at once instead of waiting for the preparation ahead', async () => {
@@ -144,6 +145,102 @@ test('a seek prepares its block at once instead of waiting for the preparation a
     ahead.resolve({ block: blocks[1], voice: 'Kore', model: 'tts' });
   });
   expect(result.current.blocks).toEqual(blocks);
+});
+
+test('a new selection aborts obsolete polling and late results cannot start another preparation', async () => {
+  const pendingRuns = new Map<string, ReturnType<typeof deferred<void>>>();
+  const completed = new Set<string>();
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request =>
+    completed.has(request.blockId)
+      ? { block: blocks[Number(request.blockId)], voice: 'Kore', model: 'tts' }
+      : { runId: request.blockId, blockId: request.blockId, voice: 'Kore' }
+  );
+  vi.mocked(waitForLessonPlayback).mockImplementation(runId => {
+    const run = deferred<void>();
+    pendingRuns.set(runId, run);
+    return run.promise;
+  });
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(pendingRuns.has('0')).toBe(true));
+  act(() => result.current.seek(15));
+  await waitFor(() => expect(pendingRuns.has('1')).toBe(true));
+  act(() => result.current.seek(25));
+  await waitFor(() => expect(pendingRuns.has('2')).toBe(true));
+  const signals = vi.mocked(waitForLessonPlayback).mock.calls.map(([, , signal]) => signal);
+  expect(signals.map(signal => signal.aborted)).toEqual([true, true, false]);
+  await act(async () => {
+    completed.add('2');
+    pendingRuns.get('2')?.resolve(undefined);
+  });
+  expect(result.current.index).toBe(2);
+  expect(result.current.time).toBe(5);
+  expect(result.current.playing).toBe(true);
+  const readsBeforeLateResults = vi.mocked(getLessonPlayback).mock.calls.length;
+  await act(async () => {
+    pendingRuns.get('0')?.resolve(undefined);
+    pendingRuns.get('1')?.resolve(undefined);
+  });
+  expect(getLessonPlayback).toHaveBeenCalledTimes(readsBeforeLateResults);
+  expect(prepareLessonPlayback).toHaveBeenCalledTimes(4);
+  expect(audio.play).toHaveBeenCalledOnce();
+  expect(result.current.failed).toBe(false);
+});
+
+test.each([
+  'pause',
+  'voice',
+  'unmount',
+])('%s aborts a pending preparation and prevents a late response from continuing it', async action => {
+  const pending = deferred<void>();
+  vi.mocked(prepareLessonPlayback).mockResolvedValueOnce({
+    runId: 'run',
+    blockId: '0',
+    voice: 'Kore',
+  });
+  vi.mocked(waitForLessonPlayback).mockReturnValueOnce(pending.promise);
+  const { result, rerender, unmount } = renderHook(
+    ({ voice }) => useLessonPlayback({ ...target, voice }),
+    { initialProps: { voice: 'Kore' } }
+  );
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(waitForLessonPlayback).toHaveBeenCalledOnce());
+  const signal = vi.mocked(waitForLessonPlayback).mock.calls[0][2];
+  if (action === 'pause') act(() => result.current.pause());
+  else if (action === 'voice') {
+    rerender({ voice: 'Zephyr' });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  } else unmount();
+  expect(signal.aborted).toBe(true);
+  const requests = vi.mocked(prepareLessonPlayback).mock.calls.length;
+  const reads = vi.mocked(getLessonPlayback).mock.calls.length;
+  await act(async () => pending.resolve(undefined));
+  expect(prepareLessonPlayback).toHaveBeenCalledTimes(requests);
+  expect(getLessonPlayback).toHaveBeenCalledTimes(reads);
+  if (action !== 'unmount') expect(result.current.failed).toBe(false);
+});
+
+test('a new selection aborts the previous asset download', async () => {
+  const pending = deferred<Uint8Array>();
+  vi.mocked(downloadProjectAssetBytes).mockReturnValueOnce(pending.promise);
+  const { result } = renderHook(() => useLessonPlayback(target));
+  act(() => {
+    void result.current.play();
+  });
+  await waitFor(() => expect(downloadProjectAssetBytes).toHaveBeenCalledOnce());
+  const signal = vi.mocked(downloadProjectAssetBytes).mock.calls[0][2];
+  act(() => result.current.seek(25));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(signal?.aborted).toBe(true);
+  await act(async () => pending.resolve(new Uint8Array([1])));
+  expect(result.current.index).toBe(2);
+  expect(result.current.time).toBe(5);
+  expect(audio.play).toHaveBeenCalledOnce();
+  expect(result.current.failed).toBe(false);
 });
 
 test('refreshes a stale lesson key before retrying preparation', async () => {

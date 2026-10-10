@@ -16,7 +16,7 @@ type PreparedPlayback = Extract<
   { block: unknown }
 >;
 
-/** Owns one audio element and a serial preparation queue for the current lesson. */
+/** Owns one audio element, cancellable playback attempts and a background preparation queue. */
 export function useLessonPlayback({
   projectId,
   sectionId,
@@ -45,7 +45,7 @@ export function useLessonPlayback({
   }, []);
   const playbackRef = useRef<Playback | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
-  const lifetime = useRef<AbortController | null>(null);
+  const preparationController = useRef<AbortController | null>(null);
   const intent = useRef({ playing: false, index: 0, epoch: 0 });
   const objectUrl = useRef<string | null>(null);
   const ready = useRef(new Map<string, PreparedPlayback>());
@@ -63,14 +63,13 @@ export function useLessonPlayback({
   useEffect(() => {
     const audio = new Audio();
     audioRef.current = audio;
-    lifetime.current = new AbortController();
     const sessionIntent = intent.current;
-    const controller = lifetime.current;
     audio.ontimeupdate = () => setTime(audio.currentTime);
     audio.ondurationchange = () => {
       if (Number.isFinite(audio.duration)) setDuration(audio.duration);
     };
     audio.onerror = () => {
+      preparationController.current?.abort();
       loadedVoice.current = null;
       intent.current.playing = false;
       setPlaying(false);
@@ -78,7 +77,7 @@ export function useLessonPlayback({
       setFailed(true);
     };
     return () => {
-      controller.abort();
+      preparationController.current?.abort();
       sessionIntent.epoch++;
       sessionIntent.playing = false;
       audio.pause();
@@ -88,22 +87,28 @@ export function useLessonPlayback({
     };
   }, []);
 
+  const beginPlaybackAttempt = useCallback(() => {
+    preparationController.current?.abort();
+    const controller = new AbortController();
+    preparationController.current = controller;
+    return { epoch: ++intent.current.epoch, signal: controller.signal };
+  }, []);
+
   const prepare = useCallback(
     ({
       blockIndex,
       requestedVoice,
       epoch,
       background,
+      signal,
     }: {
       blockIndex: number;
       requestedVoice: string;
       epoch: number;
       /** Prefetches wait in line; the block about to play starts at once. */
       background: boolean;
+      signal: AbortSignal;
     }) => {
-      const controller = lifetime.current;
-      if (!controller) throw new Error('Playback session is not mounted');
-      const signal = controller.signal;
       const task = (background ? queue.current : Promise.resolve()).then(async () => {
         signal.throwIfAborted();
         if (epoch !== intent.current.epoch) return null;
@@ -121,14 +126,18 @@ export function useLessonPlayback({
           );
         };
         const requestCurrent = async () => {
+          signal.throwIfAborted();
           try {
             return await request();
           } catch (error) {
             if (!(error instanceof LessonPlaybackRequestError) || error.status !== 409) throw error;
+            signal.throwIfAborted();
             playback = await getLessonPlayback(target, signal);
+            signal.throwIfAborted();
             if (!loadedVoice.current && blockIndex === 0) return request();
             // A regenerated lesson cannot share the old recording's captions or note anchors.
             intent.current.epoch++;
+            preparationController.current?.abort();
             intent.current.index = 0;
             intent.current.playing = false;
             loadedVoice.current = null;
@@ -146,14 +155,16 @@ export function useLessonPlayback({
           }
         };
         let result = await requestCurrent();
+        signal.throwIfAborted();
         if (!result) return null;
         while ('runId' in result) {
           await waitForLessonPlayback(result.runId, projectId, signal);
+          signal.throwIfAborted();
           playback = await getLessonPlayback(target, signal);
           result = await requestCurrent();
+          signal.throwIfAborted();
           if (!result) return null;
         }
-        signal.throwIfAborted();
         const preparedBlock = result.block;
         // Preparations can overlap: merge into the latest lesson so a parallel one is not lost.
         const base =
@@ -185,6 +196,7 @@ export function useLessonPlayback({
   const pause = useCallback(() => {
     const audio = getAudio();
     intent.current.epoch++;
+    preparationController.current?.abort();
     intent.current.playing = false;
     audio.pause();
     setPlaying(false);
@@ -195,7 +207,7 @@ export function useLessonPlayback({
     async (blockIndex: number, offset = 0, relative = false) => {
       const audio = getAudio();
       started.current = true;
-      const epoch = ++intent.current.epoch;
+      const { epoch, signal } = beginPlaybackAttempt();
       const requestedVoice = latest.current.voice;
       intent.current.index = blockIndex;
       setIndex(blockIndex);
@@ -206,19 +218,21 @@ export function useLessonPlayback({
       audio.pause();
       loadedVoice.current = null;
       try {
-        const prepared = await prepare({ blockIndex, requestedVoice, epoch, background: false });
-        if (!prepared || epoch !== intent.current.epoch) return;
+        const prepared = await prepare({
+          blockIndex,
+          requestedVoice,
+          epoch,
+          background: false,
+          signal,
+        });
+        if (!prepared || epoch !== intent.current.epoch || signal.aborted) return;
         const block = prepared.block;
         const recording = block.audio.find(
           candidate => candidate.voice === prepared.voice && candidate.model === prepared.model
         );
         if (!recording) throw new Error('Prepared playback audio missing');
-        const bytes = await downloadProjectAssetBytes(
-          projectId,
-          recording.asset,
-          lifetime.current?.signal
-        );
-        if (epoch !== intent.current.epoch) return;
+        const bytes = await downloadProjectAssetBytes(projectId, recording.asset, signal);
+        if (epoch !== intent.current.epoch || signal.aborted) return;
         if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
         objectUrl.current = URL.createObjectURL(
           new Blob([Uint8Array.from(bytes)], { type: recording.asset.mediaType })
@@ -234,7 +248,7 @@ export function useLessonPlayback({
         loadedVoice.current = requestedVoice;
         if (intent.current.playing) {
           await audio.play();
-          if (epoch !== intent.current.epoch) return;
+          if (epoch !== intent.current.epoch || signal.aborted) return;
           if (!intent.current.playing) {
             audio.pause();
             return;
@@ -246,36 +260,37 @@ export function useLessonPlayback({
               requestedVoice,
               epoch,
               background: true,
+              signal,
             }).catch(error => {
-              if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
+              if (epoch !== intent.current.epoch || signal.aborted) return;
               console.error('Lesson playback preparation failed', error);
               setFailed(true);
             });
           }
         }
       } catch (error) {
-        if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
+        if (epoch !== intent.current.epoch || signal.aborted) return;
         console.error('Lesson playback failed', error);
         pause();
         setFailed(true);
       } finally {
-        if (epoch === intent.current.epoch && !lifetime.current?.signal.aborted) setLoading(false);
+        if (epoch === intent.current.epoch && !signal.aborted) setLoading(false);
       }
     },
-    [getAudio, pause, prepare, projectId]
+    [beginPlaybackAttempt, getAudio, pause, prepare, projectId]
   );
 
   const play = useCallback(async () => {
     const audio = getAudio();
-    const epoch = intent.current.epoch;
     intent.current.playing = true;
     if (!loadedVoice.current || loadedVoice.current !== latest.current.voice) {
       await start(intent.current.index, audio.currentTime);
       return;
     }
+    const { epoch, signal } = beginPlaybackAttempt();
     try {
       await audio.play();
-      if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
+      if (epoch !== intent.current.epoch || signal.aborted) return;
       if (!intent.current.playing) {
         audio.pause();
         return;
@@ -287,21 +302,22 @@ export function useLessonPlayback({
         void prepare({
           blockIndex: next,
           requestedVoice: latest.current.voice,
-          epoch: intent.current.epoch,
+          epoch,
           background: true,
+          signal,
         }).catch(error => {
-          if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
+          if (epoch !== intent.current.epoch || signal.aborted) return;
           console.error('Lesson playback preparation failed', error);
           setFailed(true);
         });
       }
     } catch (error) {
-      if (epoch !== intent.current.epoch || lifetime.current?.signal.aborted) return;
+      if (epoch !== intent.current.epoch || signal.aborted) return;
       console.error('Lesson playback start failed', error);
       pause();
       setFailed(true);
     }
-  }, [getAudio, pause, prepare, start]);
+  }, [beginPlaybackAttempt, getAudio, pause, prepare, start]);
 
   useEffect(() => {
     const audio = getAudio();
