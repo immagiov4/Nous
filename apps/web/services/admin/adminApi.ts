@@ -388,7 +388,7 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   sceneIconReasoningEffort: 'none',
   researchModel: 'perplexity/sonar-pro-search',
   researchReasoningEffort: 'none',
-  ttsModel: 'google/gemini-3.8-flash-tts',
+  ttsModel: 'google/gemini-3.8-flash-lite-tts',
   ttsVoice: 'Zephyr',
   updatedAt: '',
 };

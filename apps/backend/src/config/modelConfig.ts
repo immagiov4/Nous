@@ -14,7 +14,7 @@ export type TextModelSlot =
 export type ModelProviderSlot = TextModelSlot | 'image';
 export type ModelProviderOverrides = Partial<Record<ModelProviderSlot, AiProvider>>;
 
-export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
+export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-lite-tts';
 export const DEFAULT_TTS_VOICE = 'Zephyr';
 export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-lite-image';
 const DEFAULT_EMBEDDING_MODEL = 'google/gemini-embedding-2';
