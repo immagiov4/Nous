@@ -173,7 +173,9 @@ test.each([
   markdown.markdown += `\n\n${fence}`;
   mockReview(reviewed, preserved);
 
-  await expect(review()).resolves.toEqual(reviewed);
+  await expect(
+    reviewLessonContentDraftStrict({ draft: reviewed, generationInput })
+  ).resolves.toEqual(reviewed);
 });
 
 describe('lesson review quality report contract', () => {
