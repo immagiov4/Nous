@@ -85,10 +85,13 @@ export const prepareLessonPlaybackBlock = async (
 ): Promise<PreparedLessonPlaybackBlock> => {
   const { signal } = input;
   signal.throwIfAborted();
-  // Audio does not depend on the scene, so both are prepared at the same time.
-  const [prepared, audio] = await Promise.all([prepareVisuals(input), prepareAudio(input)]);
+  // Audio does not depend on the scene, so both are prepared at the same time. Both settle
+  // before a failure propagates, so a retry never overlaps paid work still in flight.
+  const [visuals, audio] = await Promise.allSettled([prepareVisuals(input), prepareAudio(input)]);
+  if (visuals.status === 'rejected') throw visuals.reason;
+  if (audio.status === 'rejected') throw audio.reason;
   signal.throwIfAborted();
-  return { prepared, audio };
+  return { prepared: visuals.value, audio: audio.value };
 };
 
 const prepareVisuals = async (

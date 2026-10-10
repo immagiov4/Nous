@@ -104,6 +104,25 @@ test('resumes recorded scene and motion after an audio failure without repeating
   expect(audio).toHaveBeenCalledTimes(2);
 });
 
+test('waits for audio still in flight before a scene failure propagates', async () => {
+  let finishAudio!: (value: typeof preparedAudio) => void;
+  audio.mockReturnValue(
+    new Promise(resolve => {
+      finishAudio = resolve;
+    })
+  );
+  sceneGeneration.mockRejectedValue(new Error('Scene unavailable'));
+  let settled = false;
+  const preparation = prepareLessonPlaybackBlock(input()).finally(() => {
+    settled = true;
+  });
+  await vi.waitFor(() => expect(sceneGeneration).toHaveBeenCalled());
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  finishAudio(preparedAudio);
+  await expect(preparation).rejects.toThrow('Scene unavailable');
+});
+
 test('keeps a paid scene when motion fails before it can be recorded', async () => {
   const recorded = new Map<string, unknown>();
   const providerEffect: WorkflowProviderEffectExecutor = {
