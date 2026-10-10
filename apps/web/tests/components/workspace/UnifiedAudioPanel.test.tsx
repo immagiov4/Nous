@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, test, vi } from 'vitest';
@@ -30,7 +30,8 @@ test('shows only the current position after the slider when the total is hidden'
   expect(screen.queryByText('11:48')).not.toBeInTheDocument();
 });
 
-const openSpeedMenu = () => fireEvent.click(screen.getByRole('button', { name: 'Velocita' }));
+const openSpeedMenu = () =>
+  fireEvent.click(screen.getByRole('button', { name: 'Voce · Velocita' }));
 
 const buildTtsModel = (
   overrides: Partial<WorkspaceReaderTtsModel> & Record<string, unknown> = {}
@@ -116,7 +117,7 @@ describe('UnifiedAudioPanel', () => {
     expect(panel).toHaveClass('sm:absolute', 'sm:right-0', 'sm:left-auto', 'sm:translate-x-0');
   });
 
-  test('keeps transport, voice, position and the text picker in one card, with speed in a menu', async () => {
+  test('keeps transport, text picker, position and the voice and speed menu in one card', async () => {
     const user = userEvent.setup();
     const onSkipChunk = vi.fn();
     const onPlayPause = vi.fn();
@@ -137,8 +138,10 @@ describe('UnifiedAudioPanel', () => {
 
     expect(screen.queryByText('Parte 2 di 3')).not.toBeInTheDocument();
     const playButton = screen.getByRole('button', { name: 'Riproduci' });
-    const voiceControl = screen.getByRole('group', { name: 'Voce · Velocita' });
+    const voiceControl = screen.getByRole('group', { name: 'Audio' });
     expect(voiceControl).toContainElement(playButton);
+    expect(voiceControl).toContainElement(screen.getByRole('button', { name: 'Voce · Velocita' }));
+    expect(screen.queryByRole('combobox', { name: 'Voce' })).not.toBeInTheDocument();
     expect(voiceControl).toContainElement(screen.getByRole('slider', { name: 'Posizione audio' }));
     expect(screen.queryByRole('slider', { name: 'Velocita' })).not.toBeInTheDocument();
     expect(voiceControl).toContainElement(screen.getByRole('button', { name: 'Scegli dal testo' }));
@@ -296,7 +299,7 @@ describe('UnifiedAudioPanel', () => {
     expect(onVoiceChange).toHaveBeenCalledOnce();
   });
 
-  test('disables the speed menu while TTS is unavailable', async () => {
+  test('disables the voice and speed menu while TTS is unavailable', async () => {
     const user = userEvent.setup();
     const onSpeedChange = vi.fn();
     render(
@@ -313,8 +316,7 @@ describe('UnifiedAudioPanel', () => {
       />
     );
 
-    const speedButton = screen.getByRole('button', { name: 'Velocita' });
-    expect(screen.getByRole('combobox', { name: 'Voce' })).toBeDisabled();
+    const speedButton = screen.getByRole('button', { name: 'Voce · Velocita' });
     expect(speedButton).toBeDisabled();
 
     await user.click(speedButton);
@@ -341,7 +343,9 @@ describe('UnifiedAudioPanel', () => {
     openSpeedMenu();
 
     expect(screen.getByRole('slider', { name: 'Velocita' })).toHaveValue('2');
-    expect(screen.getByText('2x')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: 'Voce · Velocita' })).getByText('2x')
+    ).toBeInTheDocument();
     expect(onSpeedChange).toHaveBeenCalledOnce();
     expect(onSpeedChange).toHaveBeenCalledWith(2);
   });

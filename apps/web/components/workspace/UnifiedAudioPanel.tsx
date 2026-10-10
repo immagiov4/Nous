@@ -516,8 +516,8 @@ const UnifiedAudioPanel = ({
   };
 
   const panelClassName = isMobileViewport
-    ? 'fixed left-1/2 top-20 z-50 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 sm:absolute sm:right-0 sm:top-[calc(100%+0.75rem)] sm:left-auto sm:w-[22rem] sm:translate-x-0'
-    : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[22rem]';
+    ? 'fixed left-1/2 top-20 z-50 w-[min(25rem,calc(100vw-2rem))] -translate-x-1/2 sm:absolute sm:right-0 sm:top-[calc(100%+0.75rem)] sm:left-auto sm:w-[25rem] sm:translate-x-0'
+    : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[25rem]';
 
   const isAudioMenuButtonActive = isOpen || isMusicPlaying || tts.isPlaying;
   let audioMenuButtonClassName: string;
@@ -919,47 +919,7 @@ function VoicePicker({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolea
   );
 }
 
-/** Speed label that opens the speed slider in a small menu above it. */
-function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative shrink-0">
-      <button
-        type="button"
-        aria-label={t('Velocita')}
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 rounded-full px-2 py-1 text-sm font-medium tabular-nums text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400 dark:text-zinc-200 dark:hover:bg-zinc-700 dark:disabled:text-zinc-500"
-      >
-        {/* Fixed width: the widest label is "1.05x", so speed changes never shift the layout. */}
-        <span className={`${PLAYBACK_RATE_LABEL_WIDTH} text-right`}>
-          {getPlaybackRateLabel(tts.playbackRate)}
-        </span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
-      </button>
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-            className="absolute bottom-full right-0 z-50 mb-2 w-56 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
-          >
-            <PlaybackSpeedControl
-              isDisabled={disabled}
-              onSpeedChange={tts.onSpeedChange}
-              playbackRate={tts.playbackRate}
-            />
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/** Card holding the reader's transport, voice, text picker, speed menu and position. */
+/** Card holding the reader's transport, text picker, voice and speed menu, and position. */
 function ReaderPlaybackCard({
   tts,
   disabled,
@@ -973,46 +933,37 @@ function ReaderPlaybackCard({
     'rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100';
   return (
     <fieldset className="flex min-w-0 w-full items-center gap-3 rounded-3xl border border-gray-200 bg-white p-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
-      <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
-      <div className="flex shrink-0 flex-col items-center gap-1.5">
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            aria-label={t('Parte precedente')}
-            onClick={() => tts.onSkipChunk('prev')}
-            disabled={disabled}
-            className={skipClassName}
-          >
-            <SkipBack className="h-5 w-5" />
-          </button>
-          <PlaybackPlayButton
-            onClick={tts.onPlayPause}
-            disabled={disabled}
-            loading={tts.isLoading}
-            playing={tts.isPlaying}
-          />
-          <button
-            type="button"
-            aria-label={t('Parte successiva')}
-            onClick={() => tts.onSkipChunk('next')}
-            disabled={disabled}
-            className={skipClassName}
-          >
-            <SkipForward className="h-5 w-5" />
-          </button>
-        </div>
-        <div
-          className={`max-w-full text-sm font-medium ${
-            disabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
-          }`}
+      <legend className="sr-only">{t('Audio')}</legend>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          aria-label={t('Parte precedente')}
+          onClick={() => tts.onSkipChunk('prev')}
+          disabled={disabled}
+          className={skipClassName}
         >
-          <VoicePicker tts={tts} disabled={disabled} />
-        </div>
+          <SkipBack className="h-5 w-5" />
+        </button>
+        <PlaybackPlayButton
+          onClick={tts.onPlayPause}
+          disabled={disabled}
+          loading={tts.isLoading}
+          playing={tts.isPlaying}
+        />
+        <button
+          type="button"
+          aria-label={t('Parte successiva')}
+          onClick={() => tts.onSkipChunk('next')}
+          disabled={disabled}
+          className={skipClassName}
+        >
+          <SkipForward className="h-5 w-5" />
+        </button>
       </div>
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex items-center justify-between gap-2">
           {textPicker}
-          <SpeedMenu tts={tts} disabled={disabled} />
+          <PlaybackVoiceControl tts={tts} disabled={disabled} compact embedded />
         </div>
         <PlaybackTimeline
           time={tts.currentTime}
@@ -1029,10 +980,13 @@ export function PlaybackVoiceControl({
   tts,
   disabled: ttsDisabled = false,
   compact = false,
+  embedded = false,
 }: {
   tts: VoiceSpeedModel;
   disabled?: boolean;
   compact?: boolean;
+  /** Compact pill inside another card: no border of its own, menu anchored to the right. */
+  embedded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const currentVoiceLabel = getCurrentVoiceLabel(tts);
@@ -1067,7 +1021,12 @@ export function PlaybackVoiceControl({
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
         aria-label={`${t('Voce')} · ${t('Velocita')}`}
-        className="flex min-h-10 max-w-full items-center gap-1.5 rounded-3xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+        disabled={ttsDisabled}
+        className={`flex min-h-10 max-w-full items-center gap-1.5 rounded-3xl text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:text-gray-400 dark:text-zinc-200 dark:disabled:text-zinc-500 ${
+          embedded
+            ? 'px-2.5 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-700'
+            : 'border border-gray-200 bg-white px-3.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800'
+        }`}
       >
         <span className="truncate">{currentVoiceLabel}</span>
         <span className="text-gray-300 dark:text-zinc-600">·</span>
@@ -1079,13 +1038,13 @@ export function PlaybackVoiceControl({
       </button>
       <AnimatePresence>
         {expanded ? (
-          // Anchored to the left edge so the menu stays put when the speed label grows.
+          // Anchored to one edge so the menu stays put when the speed label grows.
           <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-            className="absolute bottom-full left-0 z-50 mb-2 w-56"
+            className={`absolute bottom-full z-50 mb-2 w-56 ${embedded ? 'right-0' : 'left-0'}`}
           >
             {control}
           </motion.div>

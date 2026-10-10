@@ -183,7 +183,7 @@ The shell integrates "Learning Aids" which are persistent tools configured for t
 
 ### Aid Categories
 *  **TTS (Text-to-Speech)**: Managed via `WorkspaceReaderTtsModel`, supporting skip-chunk, playback rate adjustment, and Gemini voice profiles (Zephyr, Puck, Charon, Kore, and Fenrir). The backend normalizes voices against the configured model during the Grok-to-Gemini transition; see the [TTS contract](../03-section-features/04-p-multimedia.md#model-voices-and-audio-format).
-*  **Audio/Music**: The header manages background music URLs and volume to facilitate concentration. The normal reader’s Voice tab is a single card: previous/play/next with the voice picker below them; beside them, the text-selection button and the speed label (which opens the speed slider in a small menu), with the timeline and current position below.
+*  **Audio/Music**: The header manages background music URLs and volume to facilitate concentration. The normal reader’s Voice tab is a single card: previous/play/next; beside them, the text-selection button and the same voice · speed button as the lesson player (opening voice and speed in a small menu), with the timeline and current position below.
 *  **Focus Mode**: A UI toggle that optimizes the reading column (narrowing the max-width to ~76ch) and hides secondary distractions.
 
 Sources: [apps/web/components/workspace/shell/types.ts:120-170](../../../apps/web/components/workspace/shell/types.ts#L120-L170), [apps/web/components/workspace/shell/WorkspaceReaderContent.tsx:645-660](../../../apps/web/components/workspace/shell/WorkspaceReaderContent.tsx#L645-L660)
