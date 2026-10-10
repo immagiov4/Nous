@@ -1081,7 +1081,7 @@ const ContextMenu = ({
         ) : null}
 
         <form
-          className={`${playbackComposer ? 'transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none !items-end' : ''} ${playbackComposer?.noteMode ? '!border-amber-700/50 ring-4 ring-amber-700/15' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
+          className={`${playbackComposer ? 'transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none' : ''} ${playbackComposer?.noteMode ? '!items-end !border-amber-700/50 ring-4 ring-amber-700/15' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
           onSubmit={handleAskSubmit}
         >
           <div

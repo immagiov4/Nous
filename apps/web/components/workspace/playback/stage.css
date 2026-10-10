@@ -1856,7 +1856,6 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   gap: 6%;
   align-items: center;
@@ -1887,7 +1886,7 @@
   animation: lesson-player-caption-in var(--caption-change) ease-out;
 }
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
-  min-height: 0;
+  min-height: 300px;
   width: 100%;
   max-height: none;
   overflow: visible;
@@ -1926,7 +1925,7 @@
   .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
     order: 0;
     max-height: none;
-    min-height: 0;
+    min-height: 260px;
     padding: 22px;
   }
   .lesson-player-stage .captions {
@@ -2202,14 +2201,13 @@
 .lesson-player-stage .scene-fit {
   position: relative;
   width: 100%;
-  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: clip;
 }
 .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
   position: absolute;
-  top: var(--scene-top, 0px);
+  top: 0;
   left: var(--scene-left, 0px);
   transform: scale(var(--scene-scale, 1));
   transform-origin: top left;
@@ -2225,15 +2223,10 @@
     min-height: 0;
   }
   .lesson-player-stage .captions {
-    min-height: 0;
     flex-shrink: 0;
   }
-  .lesson-player-stage .captions p {
-    --caption-height: 2lh;
-  }
   .lesson-player-stage .scene-fit {
-    height: auto;
-    flex: 1;
+    flex-shrink: 0;
     order: 0;
   }
 }

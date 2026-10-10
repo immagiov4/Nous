@@ -908,7 +908,7 @@ export function PlaybackTimeline({
 
   return (
     <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
-      <span className="w-9 text-right">{formatTime(time)}</span>
+      <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>
       <input
         type="range"
         aria-label={t('Posizione audio')}
@@ -917,9 +917,9 @@ export function PlaybackTimeline({
         max={duration || 100}
         value={time}
         onChange={event => onSeek(parseFloat(event.target.value))}
-        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
+        className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
       />
-      <span className="whitespace-nowrap">
+      <span className="shrink-0 whitespace-nowrap">
         {estimated ? '≈ ' : ''}
         {formatTime(duration)}
       </span>
@@ -1000,15 +1000,16 @@ export function PlaybackVoiceControl({
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
         aria-label={`${t('Voce')} · ${t('Velocita')}`}
-        className="flex min-h-10 items-center gap-2 rounded-3xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+        className="flex min-h-10 items-center gap-1.5 rounded-3xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
       >
-        <span className="w-[7ch] truncate text-left">{currentVoiceLabel}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
-        <span className="text-gray-300 dark:text-zinc-600">•</span>
-        <span className="min-w-[5ch] shrink-0 text-right tabular-nums">{playbackRateLabel}</span>
+        <span className="truncate">{currentVoiceLabel}</span>
+        <span className="text-gray-300 dark:text-zinc-600">·</span>
+        <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
       </button>
       {expanded ? (
-        <div className="absolute bottom-full right-0 z-50 mb-2 w-56">{control}</div>
+        // Anchored to the left edge: when the speed label grows, the pill extends rightward and the open menu stays put.
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-56">{control}</div>
       ) : null}
     </div>
   );

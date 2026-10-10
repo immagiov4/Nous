@@ -39,6 +39,7 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 const ENGLISH_UI_MESSAGES = {
   'Torna alla lezione': 'Back to the lesson',
   Riproduci: 'Play',
+  'Visualizzazione della lezione': 'Lesson visual',
   'Riproduci lezione': 'Play lesson',
   'Riproduci la lezione corrente': 'Play the current lesson',
   'Apri una lezione per ascoltarla': 'Open a lesson to listen',

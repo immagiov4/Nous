@@ -334,7 +334,7 @@ export default function LessonPlayer({
               <div className="overflow-hidden">
                 <PlaybackTimeline
                   time={playback.elapsed}
-                  duration={playback.duration ? playback.total : 0}
+                  duration={playback.total}
                   estimated={playback.estimated}
                   onSeek={playback.seek}
                 />
