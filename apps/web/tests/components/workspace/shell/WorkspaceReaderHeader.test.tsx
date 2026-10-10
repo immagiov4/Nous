@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderHeaderModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderHeader from '../../../../components/workspace/shell/WorkspaceReaderHeader.tsx';
@@ -8,10 +9,6 @@ import { setAccountLocale } from '../../../../i18n/uiMessages.ts';
 
 vi.mock('../../../../components/workspace/UnifiedAudioPanel.tsx', () => ({
   default: () => <div data-testid="music-player" />,
-}));
-
-vi.mock('../../../../components/workspace/shell/WorkspaceReaderSettingsPanel.tsx', () => ({
-  default: () => <div data-testid="settings-panel" />,
 }));
 
 const buildProps = (): WorkspaceReaderHeaderModel => ({
@@ -30,6 +27,7 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   musicUrl: '',
   musicVolume: 20,
   onOpenSidebar: vi.fn(),
+  onPlayLesson: vi.fn(),
   onRegenerateActiveSection: vi.fn(),
   onSaveLearningAids: vi.fn(async () => true),
   onSetDarkMode: vi.fn(),
@@ -66,12 +64,38 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   },
 });
 
+function Header(props: WorkspaceReaderHeaderModel) {
+  const [open, setOpen] = useState(props.isSettingsOpen);
+  return (
+    <WorkspaceReaderHeader
+      {...props}
+      isSettingsOpen={open}
+      onSetSettingsOpen={value => {
+        setOpen(value);
+        props.onSetSettingsOpen(value);
+      }}
+    />
+  );
+}
+
 describe('WorkspaceReaderHeader', () => {
+  test('opens playback from the header and keeps regeneration in settings', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<Header {...props} />);
+    await user.click(screen.getByRole('button', { name: /Riproduci/i }));
+    expect(props.onPlayLesson).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /^Rigenera$/i })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
+    expect(screen.getByRole('button', { name: /^Rigenera$/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Istruzioni personalizzate' })).toBeInTheDocument();
+  });
   test('updates memoized controls when only the account locale changes, preserving the open dialog', async () => {
     const user = userEvent.setup();
     setAccountLocale('it');
-    const view = render(<WorkspaceReaderHeader {...buildProps()} />);
+    const view = render(<Header {...buildProps()} />);
     try {
+      await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
       await user.click(screen.getByRole('button', { name: /Rigenera/i }));
       act(() => setAccountLocale('en'));
       expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
@@ -86,8 +110,9 @@ describe('WorkspaceReaderHeader', () => {
     const user = userEvent.setup();
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} />);
+    render(<Header {...props} />);
 
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
     await user.click(screen.getByRole('button', { name: /Rigenera/i }));
 
     const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
@@ -106,9 +131,10 @@ describe('WorkspaceReaderHeader', () => {
     const user = userEvent.setup();
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+    render(<Header {...props} isMobileViewport />);
 
-    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
+    await user.click(screen.getByRole('button', { name: /^Rigenera$/i }));
 
     const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
     expect(dialog).toHaveClass('fixed');
@@ -119,9 +145,10 @@ describe('WorkspaceReaderHeader', () => {
   test('keeps mobile dark mode and keyboard focus inside the portaled confirmation', async () => {
     const user = userEvent.setup();
 
-    render(<WorkspaceReaderHeader {...buildProps()} isDarkMode isMobileViewport />);
+    render(<Header {...buildProps()} isDarkMode isMobileViewport />);
 
-    const trigger = screen.getByRole('button', { name: /Rigenera la/i });
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
+    const trigger = screen.getByRole('button', { name: /^Rigenera$/i });
     await user.click(trigger);
 
     const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
@@ -138,22 +165,23 @@ describe('WorkspaceReaderHeader', () => {
     expect(confirmButton).toHaveFocus();
 
     await user.click(cancelButton);
-    expect(trigger).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Apri impostazioni lettura' })).toHaveFocus();
   });
 
   test('rebuilds the focus trap when the open confirmation changes layout', async () => {
     const user = userEvent.setup();
     const props = buildProps();
-    const { rerender } = render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+    const { rerender } = render(<Header {...props} isMobileViewport />);
 
-    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
+    await user.click(screen.getByRole('button', { name: /^Rigenera$/i }));
     const mobileDialog = screen.getByRole('dialog', {
       name: /Conferma rigenerazione contenuto/i,
     });
     const mobileCancelButton = within(mobileDialog).getByRole('button', { name: 'Annulla' });
     expect(mobileCancelButton).toHaveFocus();
 
-    rerender(<WorkspaceReaderHeader {...props} isMobileViewport={false} />);
+    rerender(<Header {...props} isMobileViewport={false} />);
 
     const desktopDialog = screen.getByRole('dialog', {
       name: /Conferma rigenerazione contenuto/i,
@@ -177,8 +205,9 @@ describe('WorkspaceReaderHeader', () => {
   }) => {
     const user = userEvent.setup();
 
-    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport={isMobileViewport} />);
+    render(<Header {...buildProps()} isMobileViewport={isMobileViewport} />);
 
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
     const trigger = screen.getByRole('button', { name: /Rigenera/i });
     await user.click(trigger);
 
@@ -190,16 +219,17 @@ describe('WorkspaceReaderHeader', () => {
     await user.keyboard('{Escape}');
 
     expect(dialog).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Apri impostazioni lettura' })).toHaveFocus();
   });
 
   test('dismisses the mobile regeneration confirmation when pressing outside its card', async () => {
     const user = userEvent.setup();
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+    render(<Header {...props} isMobileViewport />);
 
-    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
+    await user.click(screen.getByRole('button', { name: /^Rigenera$/i }));
 
     await user.click(screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i }));
 
@@ -213,9 +243,10 @@ describe('WorkspaceReaderHeader', () => {
     const user = userEvent.setup();
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+    render(<Header {...props} isMobileViewport />);
 
-    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
+    await user.click(screen.getByRole('button', { name: /^Rigenera$/i }));
 
     const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
     await user.click(within(dialog).getByText('Rigenerare questa lezione?'));
@@ -228,8 +259,9 @@ describe('WorkspaceReaderHeader', () => {
     const user = userEvent.setup();
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} />);
+    render(<Header {...props} />);
 
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
     await user.click(screen.getByRole('button', { name: /Rigenera/i }));
     await user.click(document.body);
 
@@ -243,8 +275,9 @@ describe('WorkspaceReaderHeader', () => {
     const user = userEvent.setup();
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} />);
+    render(<Header {...props} />);
 
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
     await user.click(screen.getByRole('button', { name: /Rigenera/i }));
 
     const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
@@ -258,8 +291,9 @@ describe('WorkspaceReaderHeader', () => {
     const user = userEvent.setup();
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} />);
+    render(<Header {...props} />);
 
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
     await user.click(screen.getByRole('button', { name: /Rigenera/i }));
     await user.click(screen.getByRole('button', { name: 'Annulla' }));
 
@@ -272,14 +306,15 @@ describe('WorkspaceReaderHeader', () => {
   test('hides the regeneration confirmation while the lesson is loading', async () => {
     const user = userEvent.setup();
     const props = buildProps();
-    const { rerender } = render(<WorkspaceReaderHeader {...props} />);
+    const { rerender } = render(<Header {...props} />);
 
+    await user.click(screen.getByRole('button', { name: 'Apri impostazioni lettura' }));
     await user.click(screen.getByRole('button', { name: /Rigenera/i }));
     expect(
       screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
     ).toBeInTheDocument();
 
-    rerender(<WorkspaceReaderHeader {...props} isLoading />);
+    rerender(<Header {...props} isLoading />);
 
     expect(
       screen.queryByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
@@ -307,30 +342,28 @@ describe('WorkspaceReaderHeader', () => {
 
   test('keeps database saving silent while preserving save errors', () => {
     const props = buildProps();
-    const { rerender } = render(
-      <WorkspaceReaderHeader {...props} isMobileViewport syncState="saving" />
-    );
+    const { rerender } = render(<Header {...props} isMobileViewport syncState="saving" />);
 
     expect(screen.queryByText('Salvataggio')).not.toBeInTheDocument();
 
-    rerender(<WorkspaceReaderHeader {...props} isMobileViewport syncState="error" />);
+    rerender(<Header {...props} isMobileViewport syncState="error" />);
 
     expect(screen.getByText('Errore')).toBeInTheDocument();
   });
 
   test('does not reserve an empty mobile status row when the reader is idle', () => {
     const props = buildProps();
-    const { rerender } = render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+    const { rerender } = render(<Header {...props} isMobileViewport />);
 
     expect(screen.getByRole('banner').children).toHaveLength(1);
 
-    rerender(<WorkspaceReaderHeader {...props} isLoading isMobileViewport />);
+    rerender(<Header {...props} isLoading isMobileViewport />);
 
     expect(screen.getByRole('banner').children).toHaveLength(2);
   });
 
   test('uses transparent floating controls on the phone header', () => {
-    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport />);
+    render(<Header {...buildProps()} isMobileViewport />);
 
     expect(screen.getByRole('banner')).toHaveClass('pointer-events-none');
     expect(screen.getByRole('banner')).toHaveClass('absolute');
@@ -343,7 +376,7 @@ describe('WorkspaceReaderHeader', () => {
   test('keeps the music player available on mobile', () => {
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+    render(<Header {...props} isMobileViewport />);
 
     expect(screen.getByTestId('music-player')).toBeInTheDocument();
   });
@@ -351,7 +384,7 @@ describe('WorkspaceReaderHeader', () => {
   test('closes mobile key concepts when pressing outside the panel', async () => {
     const user = userEvent.setup();
 
-    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport />);
+    render(<Header {...buildProps()} isMobileViewport />);
 
     await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
     expect(screen.getByRole('complementary', { name: 'Concetti chiave' })).toBeInTheDocument();
@@ -368,7 +401,7 @@ describe('WorkspaceReaderHeader', () => {
   test('closes mobile key concepts with Escape', async () => {
     const user = userEvent.setup();
 
-    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport />);
+    render(<Header {...buildProps()} isMobileViewport />);
 
     await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
     await user.keyboard('{Escape}');
@@ -381,12 +414,12 @@ describe('WorkspaceReaderHeader', () => {
   test('keeps only the reader controls in the mobile floating header', () => {
     const props = buildProps();
 
-    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+    render(<Header {...props} isMobileViewport />);
 
     expect(screen.queryByText('Lezione 1')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Apri elenco lezioni' })).toHaveClass('h-11', 'w-11');
     expect(
-      screen.getByRole('button', { name: 'Rigenera la lezione corrente' })
+      screen.getByRole('button', { name: 'Riproduci la lezione corrente' })
     ).toBeInTheDocument();
     expect(screen.getByTestId('music-player')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Apri concetti chiave' })).toBeInTheDocument();

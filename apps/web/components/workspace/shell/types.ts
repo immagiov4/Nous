@@ -107,6 +107,7 @@ export interface WorkspaceReaderVoiceOption {
 }
 
 export interface WorkspaceReaderSidebarModel {
+  onPlayLesson?: () => void;
   activeSectionId: string | null;
   canRepairApplicationExercises: boolean;
   expandedModuleId: string | null;
@@ -171,6 +172,7 @@ export interface WorkspaceReaderTextPickerModel {
 }
 
 export interface WorkspaceReaderHeaderModel {
+  onPlayLesson?: () => void;
   lastAudioTab: AudioPanelTab;
   onSetLastAudioTab: (tab: AudioPanelTab) => void;
   hasActiveSection: boolean;

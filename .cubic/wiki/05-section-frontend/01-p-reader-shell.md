@@ -64,9 +64,21 @@ Sources: [sidebar state](../../../apps/web/components/workspace/shell/WorkspaceR
 
 ### Regeneration Confirmation
 
-Regenerating the active lesson requires a shared modal confirmation. The header renders it inline on desktop and through a body portal on mobile, while preserving the same interaction contract: focus enters and remains inside the modal, an outside press or `Escape` dismisses it, and focus returns to the regeneration trigger. When a responsive layout change replaces the modal DOM node, focus containment is rebuilt against the new panel.
+Regenerating the active lesson requires a shared modal confirmation. The header renders it inline on desktop and through a body portal on mobile, while preserving the same interaction contract: focus enters and remains inside the modal, an outside press or `Escape` dismisses it, and focus returns to the settings button. When a responsive layout change replaces the modal DOM node, focus containment is rebuilt against the new panel.
 
 Sources: [apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx:81-143](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx#L81-L143), [apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx:263-318](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx#L263-L318), [apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx:87-182](../../../apps/web/tests/components/workspace/shell/WorkspaceReaderHeader.test.tsx#L87-L182)
+
+### Lesson playback
+
+The header's **Riproduci** action opens the full-screen `LessonPlayer`; playback starts when the learner presses play. The play button beside the current ready lesson in the sidebar opens the player and starts playback directly. **Rigenera** lives in the reader settings menu and retains its confirmation dialog, returning focus to the settings button on dismissal.
+
+`useLessonPlayback` owns the audio element and serializes preparation through the playback API. It prepares the current block, starts its audio, then prepares one following block. A pending workflow is polled until its committed result is available. A stale lesson key refreshes the playback data; an already loaded recording is paused and the position is reset before using the revised lesson. The timeline uses measured audio durations where available and the listening prototype's word-rate estimate for the remaining blocks.
+
+`LessonPlaybackStage` estimates word positions within each measured block duration, fades past words, and displays the section heading above the captions. It shows one visual at a time, divides a block's duration equally among its visuals, and reuses `LessonSceneVisual` and `MarkdownRenderer`. Scene focus and reveal follow the preparation's quotation positions; reduced-motion preferences disable their transitions.
+
+The player reuses `ContextMenu` as its question and note composer. A note captures the active sentence when typing begins, translates its source spans through `createSectionAnnotationSelector`, and saves through the normal section annotation path. A successful save clears the draft and exits note mode; a failed save preserves the draft for retry. Questions pause playback; closing the answer panel enables the playback button again. On desktop, `ContextAnswerPanel` docks above the floating bar and delegates its composer to that bar; on mobile, it retains its own composer. Playback controls reuse the controls extracted from `UnifiedAudioPanel`; the mobile timeline appears while paused.
+
+Sources: [shell entry points](../../../apps/web/components/workspace/WorkspaceReaderShell.tsx), [header and regeneration](../../../apps/web/components/workspace/shell/WorkspaceReaderHeader.tsx), [sidebar](../../../apps/web/components/workspace/shell/WorkspaceReaderSidebar.tsx), [player](../../../apps/web/components/workspace/playback/LessonPlayer.tsx), [answer panel](../../../apps/web/components/workspace/shell/ContextAnswerPanel.tsx), [preparation and audio lifecycle](../../../apps/web/hooks/reader/useLessonPlayback.ts), [caption and visual stage](../../../apps/web/components/workspace/playback/LessonPlaybackStage.tsx), [annotation mapping and timeline](../../../apps/web/utils/reader/lessonPlayback.ts), [playback API client](../../../apps/web/services/openrouter/lessonPlaybackClient.ts).
 
 ## Lifecycle and Viewport Management
 

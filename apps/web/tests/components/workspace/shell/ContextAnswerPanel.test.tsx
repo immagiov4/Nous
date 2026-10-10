@@ -284,6 +284,42 @@ describe('ContextAnswerPanel', () => {
     chatTextComposerProps.length = 0;
   });
 
+  test('continues a docked desktop conversation from the external composer', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const portal = document.createElement('div');
+    document.body.append(portal);
+    const view = render(
+      <ContextAnswerPanel
+        {...buildProps({ id: 'external-composer' })}
+        isMobileViewport={false}
+        docked
+        composerPortal={portal}
+        renderComposer={(send, disabled) => (
+          <button type="button" disabled={disabled} onClick={() => send('Un altro esempio?')}>
+            Continua dalla barra
+          </button>
+        )}
+      />
+    );
+    try {
+      expect(screen.queryByRole('textbox')).toBeNull();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Continua dalla barra' }));
+      expect(sendMessageMock).toHaveBeenLastCalledWith({ text: 'Un altro esempio?' });
+      expect(
+        screen.getByRole('button', { name: 'Apri strumenti conversazione' })
+      ).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      portal.remove();
+    }
+  });
+
   test('renders the mobile follow-up as a full-width bottom sheet that shrinks above the keyboard', () => {
     useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 240, viewportHeight: 528 });
     useChatMock.mockReturnValue({

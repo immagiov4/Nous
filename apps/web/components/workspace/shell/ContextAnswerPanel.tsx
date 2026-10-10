@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
   useEffect,
@@ -29,6 +30,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   cancelledToolOutput,
   useChatResponseControl,
@@ -506,6 +508,9 @@ const buildContextDraftLesson = (
 };
 
 interface ContextAnswerPanelProps {
+  readonly docked?: boolean;
+  readonly composerPortal?: HTMLElement | null;
+  readonly renderComposer?: (send: (text: string) => void, disabled: boolean) => ReactNode;
   readonly artifactActionFeedbackOverride?: 'saved';
   readonly artifactPreviewIdOverride?: string | null;
   readonly artifactPortalContainer?: HTMLElement | null;
@@ -576,6 +581,9 @@ export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps
 }
 
 function ContextAnswerPanelSession({
+  docked = false,
+  composerPortal,
+  renderComposer,
   artifactActionFeedbackOverride,
   artifactPreviewIdOverride,
   artifactPortalContainer,
@@ -1559,12 +1567,12 @@ function ContextAnswerPanelSession({
       messagesScrollTopOverride === undefined ? messagesContainerRef.current.scrollHeight : 0;
   }, [autoScrollKey, messages.length, messagesScrollTopOverride]);
 
-  const handleSubmit = () => {
+  const handleSubmit = (text = displayedInput) => {
     if (isComposerDisabled) {
       return;
     }
 
-    const trimmedInput = displayedInput.trim();
+    const trimmedInput = text.trim();
     if (!trimmedInput) {
       return;
     }
@@ -1572,11 +1580,6 @@ function ContextAnswerPanelSession({
     if (isMobileViewport && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
-
-    focusStopAfterSubmitRef.current =
-      !isMobileViewport &&
-      document.activeElement instanceof HTMLElement &&
-      document.activeElement.dataset.chatComposerTarget === CONTEXT_ANSWER_SUBMIT_TARGET;
 
     responseControl.begin();
     setHasRequestedResponseStop(false);
@@ -1828,14 +1831,164 @@ function ContextAnswerPanelSession({
     return null;
   };
 
-  return (
+  const conversationTools = (
+    <div ref={toolMenuRef} className="relative flex shrink-0 items-center">
+      <button
+        type="button"
+        onClick={() => setIsToolMenuOpen(currentValue => !currentValue)}
+        disabled={isComposerDisabled}
+        className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
+          hasActiveToolPreference
+            ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'
+            : 'text-stone-400 hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-zinc-700 dark:hover:text-stone-300'
+        }`}
+        title={t('Apri strumenti conversazione')}
+        aria-expanded={isToolMenuOpen}
+        aria-haspopup="menu"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+
+      {isToolMenuOpen ? (
+        <div
+          className="absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(18.5rem,calc(100vw-5rem))] overflow-hidden rounded-2xl border border-stone-200/90 bg-white p-2 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.4)] dark:border-zinc-600/80 dark:bg-stone-800"
+          role="menu"
+        >
+          <button
+            type="button"
+            onClick={() =>
+              setToolPreferences(currentPreferences => ({
+                ...currentPreferences,
+                annotate: !currentPreferences.annotate,
+              }))
+            }
+            className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
+            role="menuitemcheckbox"
+            aria-checked={toolPreferences.annotate}
+          >
+            <span
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                toolPreferences.annotate
+                  ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                  : 'border-stone-300 text-transparent dark:border-zinc-500'
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
+                <NotebookPen className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                {t('Annota')}
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                {t(
+                  'Segnala con forza che vuoi trasformare il chiarimento in una nota o aggiornare quella già collegata al passaggio.'
+                )}
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setToolPreferences(currentPreferences => ({
+                ...currentPreferences,
+                webSearch: !currentPreferences.webSearch,
+              }))
+            }
+            className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
+            role="menuitemcheckbox"
+            aria-checked={toolPreferences.webSearch}
+          >
+            <span
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                toolPreferences.webSearch
+                  ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                  : 'border-stone-300 text-transparent dark:border-zinc-500'
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
+                <Globe className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                {t('Cerca sul web')}
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                {t(
+                  'Dai priorita a grounding e verifica con fonti esterne quando servono informazioni aggiornate o non presenti nel testo.'
+                )}
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setToolPreferences(currentPreferences => ({
+                ...currentPreferences,
+                generateArtifacts: !currentPreferences.generateArtifacts,
+              }))
+            }
+            className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
+            role="menuitemcheckbox"
+            aria-checked={toolPreferences.generateArtifacts}
+          >
+            <span
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                toolPreferences.generateArtifacts
+                  ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                  : 'border-stone-300 text-transparent dark:border-zinc-500'
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
+                <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                {t('Genera artefatti visuali')}
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                {t(
+                  'Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i concetti del follow-up.'
+                )}
+              </span>
+            </span>
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+  const conversationTrailingControl = isLoading ? (
+    <button
+      ref={contextStopButtonRef}
+      type="button"
+      onClick={handleStopResponse}
+      disabled={isStoppingResponse}
+      aria-busy={isStoppingResponse || undefined}
+      aria-label={t('Annulla')}
+      title={t('Annulla')}
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-orange-400 dark:text-stone-950 dark:hover:bg-orange-300"
+    >
+      {isStoppingResponse ? (
+        <LoaderCircle className="h-4 w-4 motion-safe:animate-spin" />
+      ) : (
+        <Square className="h-4 w-4 fill-current" />
+      )}
+    </button>
+  ) : (
+    <SpeechInputButton disabled={isComposerDisabled} onTranscription={handleSpeechTranscription} />
+  );
+  const answerPanel = (
     <motion.div
       ref={contextAnswerPanelRef}
       data-context-answer-panel="true"
-      className={`fixed z-50 flex flex-col overflow-hidden border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] dark:border-zinc-700/60 dark:bg-zinc-800 ${
+      className={`${docked && !isMobileViewport ? 'relative h-[58vh] max-h-[58vh] w-full' : 'fixed'} z-50 flex flex-col overflow-hidden border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] dark:border-zinc-700/60 dark:bg-zinc-800 ${
         isMobileViewport
           ? 'inset-x-0 h-[80dvh] rounded-t-[2rem] rounded-b-none border-x-0 border-b-0'
-          : 'right-8 top-6 rounded-2xl animate-in slide-in-from-bottom-10 duration-500'
+          : docked
+            ? 'rounded-2xl'
+            : 'right-8 top-6 rounded-2xl animate-in slide-in-from-bottom-10 duration-500'
       }`}
       style={
         isMobileViewport
@@ -1846,7 +1999,9 @@ function ContextAnswerPanelSession({
                   ? `calc(100dvh - ${keyboardOffset}px)`
                   : `${viewportHeight}px`,
             }
-          : contextAnswerSize
+          : docked
+            ? undefined
+            : contextAnswerSize
       }
       initial={isMobileViewport ? { opacity: 0, transform: 'translate3d(0, 100%, 0)' } : false}
       animate={isMobileViewport ? { opacity: 1, transform: 'translate3d(0, 0, 0)' } : undefined}
@@ -1864,7 +2019,7 @@ function ContextAnswerPanelSession({
 
       <div className="mb-5 shrink-0 border-b border-stone-100/90 pb-4 pr-12 dark:border-zinc-700/60">
         <p className="mb-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">
-          Follow-up
+          {docked ? t('Approfondimento') : 'Follow-up'}
         </p>
         <p className="line-clamp-2 text-sm leading-6 text-stone-500 dark:text-stone-400">
           {contextAnswer.selectedText}
@@ -1961,7 +2116,16 @@ function ContextAnswerPanelSession({
         </div>
       </div>
 
-      <div className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60">
+      {renderComposer && !isMobileViewport ? (
+        <div className="flex shrink-0 items-center justify-between border-t border-stone-100 pt-2 dark:border-zinc-700">
+          {conversationTools}
+          {isLoading ? conversationTrailingControl : null}
+        </div>
+      ) : null}
+      <div
+        hidden={Boolean(renderComposer && !isMobileViewport)}
+        className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60"
+      >
         <div
           className="pointer-events-none absolute -top-12 left-0 right-0 z-10 h-12 bg-gradient-to-b from-transparent to-white transition-opacity duration-200 dark:to-zinc-800"
           style={{ opacity: isChatNotAtBottom ? 1 : 0 }}
@@ -1969,7 +2133,14 @@ function ContextAnswerPanelSession({
         <ChatTextComposer
           value={displayedInput}
           onChange={setInput}
-          onSubmit={handleSubmit}
+          onSubmit={() => {
+            focusStopAfterSubmitRef.current =
+              !isMobileViewport &&
+              document.activeElement instanceof HTMLElement &&
+              document.activeElement.dataset.chatComposerTarget === CONTEXT_ANSWER_SUBMIT_TARGET;
+
+            handleSubmit();
+          }}
           placeholder={
             isWaitingForNoteDecision
               ? t('Accetta o rifiuta la nota proposta per continuare...')
@@ -1979,159 +2150,8 @@ function ContextAnswerPanelSession({
           inputDataTarget={CONTEXT_ANSWER_INPUT_TARGET}
           isLoading={isLoading}
           className="flex items-center gap-2"
-          trailingContent={
-            isLoading ? (
-              <button
-                ref={contextStopButtonRef}
-                type="button"
-                onClick={handleStopResponse}
-                disabled={isStoppingResponse}
-                aria-busy={isStoppingResponse || undefined}
-                aria-label={t('Annulla')}
-                title={t('Annulla')}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-orange-400 dark:text-stone-950 dark:hover:bg-orange-300"
-              >
-                {isStoppingResponse ? (
-                  <LoaderCircle className="h-4 w-4 motion-safe:animate-spin" />
-                ) : (
-                  <Square className="h-4 w-4 fill-current" />
-                )}
-              </button>
-            ) : (
-              <SpeechInputButton
-                disabled={isComposerDisabled}
-                onTranscription={handleSpeechTranscription}
-              />
-            )
-          }
-          leadingContent={
-            <div ref={toolMenuRef} className="relative flex shrink-0 items-center">
-              <button
-                type="button"
-                onClick={() => setIsToolMenuOpen(currentValue => !currentValue)}
-                disabled={isComposerDisabled}
-                className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
-                  hasActiveToolPreference
-                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'
-                    : 'text-stone-400 hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-zinc-700 dark:hover:text-stone-300'
-                }`}
-                title={t('Apri strumenti conversazione')}
-                aria-expanded={isToolMenuOpen}
-                aria-haspopup="menu"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-
-              {isToolMenuOpen ? (
-                <div
-                  className="absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(18.5rem,calc(100vw-5rem))] overflow-hidden rounded-2xl border border-stone-200/90 bg-white p-2 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.4)] dark:border-zinc-600/80 dark:bg-stone-800"
-                  role="menu"
-                >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setToolPreferences(currentPreferences => ({
-                        ...currentPreferences,
-                        annotate: !currentPreferences.annotate,
-                      }))
-                    }
-                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
-                    role="menuitemcheckbox"
-                    aria-checked={toolPreferences.annotate}
-                  >
-                    <span
-                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
-                        toolPreferences.annotate
-                          ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
-                          : 'border-stone-300 text-transparent dark:border-zinc-500'
-                      }`}
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
-                        <NotebookPen className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                        {t('Annota')}
-                      </span>
-                      <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        {t(
-                          'Segnala con forza che vuoi trasformare il chiarimento in una nota o aggiornare quella già collegata al passaggio.'
-                        )}
-                      </span>
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setToolPreferences(currentPreferences => ({
-                        ...currentPreferences,
-                        webSearch: !currentPreferences.webSearch,
-                      }))
-                    }
-                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
-                    role="menuitemcheckbox"
-                    aria-checked={toolPreferences.webSearch}
-                  >
-                    <span
-                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
-                        toolPreferences.webSearch
-                          ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
-                          : 'border-stone-300 text-transparent dark:border-zinc-500'
-                      }`}
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
-                        <Globe className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                        {t('Cerca sul web')}
-                      </span>
-                      <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        {t(
-                          'Dai priorita a grounding e verifica con fonti esterne quando servono informazioni aggiornate o non presenti nel testo.'
-                        )}
-                      </span>
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setToolPreferences(currentPreferences => ({
-                        ...currentPreferences,
-                        generateArtifacts: !currentPreferences.generateArtifacts,
-                      }))
-                    }
-                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
-                    role="menuitemcheckbox"
-                    aria-checked={toolPreferences.generateArtifacts}
-                  >
-                    <span
-                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
-                        toolPreferences.generateArtifacts
-                          ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
-                          : 'border-stone-300 text-transparent dark:border-zinc-500'
-                      }`}
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
-                        <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                        {t('Genera artefatti visuali')}
-                      </span>
-                      <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        {t(
-                          'Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i concetti del follow-up.'
-                        )}
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          }
+          trailingContent={renderComposer && !isMobileViewport ? null : conversationTrailingControl}
+          leadingContent={renderComposer && !isMobileViewport ? null : conversationTools}
           inputShellClassName="min-w-0 flex-1 rounded-full border border-stone-200/80 bg-stone-50/80 px-3 py-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-500/80 dark:bg-stone-700/70 dark:focus-within:border-stone-400 dark:focus-within:bg-stone-700"
           inputClassName="h-10 w-full min-w-0 border-0 bg-transparent px-2 text-sm text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-400"
           submitButtonClassName={`${isLoading ? 'hidden' : 'flex'} h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500`}
@@ -2162,7 +2182,7 @@ function ContextAnswerPanelSession({
         ) : null}
       </div>
 
-      {!isMobileViewport ? (
+      {!isMobileViewport && !docked ? (
         <button
           type="button"
           aria-label={t('Ridimensiona pannello risposta')}
@@ -2178,5 +2198,13 @@ function ContextAnswerPanelSession({
         </button>
       ) : null}
     </motion.div>
+  );
+  return (
+    <>
+      {answerPanel}
+      {composerPortal && renderComposer && !isMobileViewport
+        ? createPortal(renderComposer(handleSubmit, isComposerDisabled), composerPortal)
+        : null}
+    </>
   );
 }

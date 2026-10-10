@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react';
 import type { SettingsPanelSectionId } from '../../../types.ts';
 import OpenRouterModelPanel, {
   type CourseGenerationNotesBinding,
 } from '../../shared/OpenRouterModelPanel.tsx';
 
 interface WorkspaceReaderSettingsPanelProps {
+  readonly actions?: ReactNode;
   readonly courseNotes?: CourseGenerationNotesBinding;
   readonly onClose: () => void;
   readonly onSectionToggle: (sections: SettingsPanelSectionId[]) => void;
@@ -11,6 +13,7 @@ interface WorkspaceReaderSettingsPanelProps {
 }
 
 export default function WorkspaceReaderSettingsPanel({
+  actions,
   courseNotes,
   expandedSections,
   onClose,
@@ -19,6 +22,7 @@ export default function WorkspaceReaderSettingsPanel({
   return (
     <OpenRouterModelPanel
       className="pointer-events-auto fixed left-1/2 top-20 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 sm:absolute sm:right-8 sm:top-[calc(100%+0.75rem)] sm:left-auto sm:translate-x-0 max-h-[calc(100dvh-6rem)]"
+      actions={actions}
       courseNotes={courseNotes}
       expandedSections={expandedSections}
       onClose={onClose}

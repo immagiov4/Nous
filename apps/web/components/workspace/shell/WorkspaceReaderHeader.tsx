@@ -1,4 +1,4 @@
-import { Moon, RefreshCw, Settings2, SidebarOpen, Sun } from 'lucide-react';
+import { Moon, Play, RefreshCw, Settings2, SidebarOpen, Sun } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -61,6 +61,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   musicVolume,
   onOpenSidebar,
   onRegenerateActiveSection,
+  onPlayLesson,
   onSaveLearningAids,
   onSetDarkMode,
   onSetCourseGenerationNotes,
@@ -80,6 +81,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const [isMobileLearningAidsOpen, setIsMobileLearningAidsOpen] = useState(false);
   const [regenerateConfirmPanel, setRegenerateConfirmPanel] = useState<HTMLDivElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const regenerateTriggerRef = useRef<HTMLDivElement>(null);
   const canRegenerate = hasActiveSection;
   const isRegenerateConfirmVisible = isRegenerateConfirmOpen && canRegenerate && !isLoading;
@@ -89,8 +91,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
       return;
     }
 
+    const settingsButton = settingsButtonRef.current;
     const previouslyFocusedElement =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+        ? document.activeElement
+        : settingsButton;
     const focusableControls = Array.from(
       regenerateConfirmPanel?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') ?? []
     );
@@ -137,9 +142,8 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
-      if (previouslyFocusedElement?.isConnected) {
-        previouslyFocusedElement.focus();
-      }
+      if (previouslyFocusedElement?.isConnected) previouslyFocusedElement.focus();
+      else settingsButton?.focus();
     };
   }, [isRegenerateConfirmVisible, regenerateConfirmPanel]);
 
@@ -257,7 +261,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
           <div ref={regenerateTriggerRef} className="relative">
             <button
               type="button"
-              onClick={handleRegenerateIntent}
+              onClick={onPlayLesson}
               disabled={!canRegenerate || isLoading}
               className={`inline-flex items-center justify-center rounded-full border transition-colors ${
                 isMobileViewport
@@ -265,15 +269,13 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                   : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
               } ${regenerateAvailabilityClassName}`}
               title={t(
-                canRegenerate ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
+                canRegenerate ? 'Riproduci la lezione corrente' : 'Apri una lezione per ascoltarla'
               )}
-              aria-expanded={isRegenerateConfirmVisible}
-              aria-haspopup="dialog"
             >
-              <RefreshCw
+              <Play
                 className={`${isMobileViewport ? 'reader-mobile-control-icon' : 'h-4 w-4'} ${isLoading ? 'animate-spin' : ''}`}
               />
-              {!isMobileViewport ? <span>{t('Rigenera')}</span> : null}
+              {!isMobileViewport ? <span>{t('Riproduci')}</span> : null}
             </button>
 
             {isMobileViewport && isRegenerateConfirmVisible && portalContainer
@@ -370,6 +372,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
           ) : null}
 
           <button
+            ref={settingsButtonRef}
             type="button"
             onClick={() => {
               onSetSettingsOpen(!isSettingsOpen);
@@ -414,6 +417,19 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
 
       {isSettingsOpen ? (
         <WorkspaceReaderSettingsPanel
+          actions={
+            <button
+              type="button"
+              disabled={!canRegenerate || isLoading}
+              onClick={handleRegenerateIntent}
+              title={t('Rigenera la lezione corrente')}
+              aria-haspopup="dialog"
+              className="model-panel-section-toggle mt-3 flex w-full items-center gap-2 py-2 text-left text-sm font-semibold disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('Rigenera')}
+            </button>
+          }
           courseNotes={courseNotesBinding}
           expandedSections={settingsPanelExpandedSections}
           onClose={() => onSetSettingsOpen(false)}

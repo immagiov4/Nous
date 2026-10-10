@@ -37,6 +37,22 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'Torna alla lezione': 'Back to the lesson',
+  Riproduci: 'Play',
+  'Riproduci lezione': 'Play lesson',
+  'Riproduci la lezione corrente': 'Play the current lesson',
+  'Apri una lezione per ascoltarla': 'Open a lesson to listen',
+  'Chiedi su questo punto della lezione': 'Ask about this point in the lesson',
+  'Scrivi una nota su questo punto della lezione': 'Write a note about this point in the lesson',
+  'Nota salvata': 'Note saved',
+  'Indietro di 5 secondi': 'Back 5 seconds',
+  'Avanti di 5 secondi': 'Forward 5 seconds',
+  'Posizione audio': 'Audio position',
+  'Preparo voce e visualizzazione…': 'Preparing audio and visuals…',
+  'Questa lezione non contiene testo da ascoltare.': 'This lesson has no text to listen to.',
+  'Impossibile preparare l’ascolto della lezione. Riprova.':
+    'Could not prepare lesson playback. Try again.',
+
   [ANNOTATION_PROJECTION_ERROR_MESSAGE]:
     'Some saved highlights are not visible in this text. Your notes are preserved.',
   'Impossibile preparare la selezione. Chiudi il menu e seleziona di nuovo il testo.':

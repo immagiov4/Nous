@@ -1,5 +1,5 @@
 import { ChevronDown, X } from 'lucide-react';
-import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { SettingsPanelSectionId } from '../../types.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
@@ -11,6 +11,7 @@ export interface CourseGenerationNotesBinding {
 }
 
 interface OpenRouterModelPanelProps {
+  readonly actions?: ReactNode;
   readonly className?: string;
   readonly style?: CSSProperties;
   readonly courseNotes?: CourseGenerationNotesBinding;
@@ -20,6 +21,7 @@ interface OpenRouterModelPanelProps {
 }
 
 export default function OpenRouterModelPanel({
+  actions,
   className,
   style,
   courseNotes,
@@ -95,6 +97,7 @@ export default function OpenRouterModelPanel({
             </div>
           </div>
 
+          {actions}
           {courseNotes ? (
             <div className="mt-3">
               <button
