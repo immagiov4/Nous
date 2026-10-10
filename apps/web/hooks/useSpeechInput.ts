@@ -78,6 +78,13 @@ export function useSpeechInput({
   language?: string;
 }) {
   const [state, setState] = useState<SpeechInputState>('idle');
+  const currentState = useRef<SpeechInputState>('idle');
+  const transitionTo = useCallback((next: SpeechInputState) => {
+    currentState.current = next;
+    setState(next);
+  }, []);
+  // Native key events can arrive between a recorder transition and React committing it.
+  const readState = useCallback(() => currentState.current, []);
   const [speechInputError, setSpeechInputError] = useState<SpeechInputError | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -126,7 +133,7 @@ export function useSpeechInput({
   const transcribeRecording = useCallback(
     async ({ audio, format }: FailedTranscription) => {
       const recordingSession = session.current;
-      setState('transcribing');
+      transitionTo('transcribing');
       setSpeechInputError(null);
 
       try {
@@ -146,11 +153,11 @@ export function useSpeechInput({
         }
       } finally {
         if (isMountedRef.current && recordingSession === session.current) {
-          setState('idle');
+          transitionTo('idle');
         }
       }
     },
-    [language]
+    [language, transitionTo]
   );
 
   const startRecording = useCallback(async () => {
@@ -177,7 +184,7 @@ export function useSpeechInput({
     const recordingSession = ++session.current;
     starting.current = true;
     stopRequested.current = false;
-    setState('requesting');
+    transitionTo('requesting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!isMountedRef.current || recordingSession !== session.current) {
@@ -187,7 +194,7 @@ export function useSpeechInput({
 
       if (stopRequested.current) {
         stopStreamTracks(stream);
-        setState('idle');
+        transitionTo('idle');
         setSpeechInputError({ autoDismiss: true, message: t('Non ho rilevato audio. Riprova.') });
         return;
       }
@@ -210,7 +217,7 @@ export function useSpeechInput({
         recorderRef.current = null;
         streamRef.current = null;
         if (isMountedRef.current) {
-          setState('idle');
+          transitionTo('idle');
           setSpeechInputError({
             autoDismiss: true,
             message: t('La registrazione si è interrotta. Riprova.'),
@@ -229,7 +236,7 @@ export function useSpeechInput({
 
         const audio = new Blob(audioChunks, { type: recorder.mimeType });
         if (audio.size === 0) {
-          setState('idle');
+          transitionTo('idle');
           setSpeechInputError({
             autoDismiss: true,
             message: t('Non ho rilevato audio. Riprova.'),
@@ -241,7 +248,7 @@ export function useSpeechInput({
       };
 
       recorder.start();
-      setState('recording');
+      transitionTo('recording');
       recordingTimeoutRef.current = setTimeout(() => {
         if (recorder.state !== 'inactive') {
           recorder.stop();
@@ -252,12 +259,12 @@ export function useSpeechInput({
       stopStreamTracks(streamRef.current);
       streamRef.current = null;
       recorderRef.current = null;
-      setState('idle');
+      transitionTo('idle');
       setSpeechInputError(getMicrophoneError(error));
     } finally {
       if (recordingSession === session.current) starting.current = false;
     }
-  }, [clearRecordingTimeout, transcribeRecording]);
+  }, [clearRecordingTimeout, transcribeRecording, transitionTo]);
 
   const cancel = useCallback(() => {
     session.current++;
@@ -286,9 +293,9 @@ export function useSpeechInput({
 
   const reset = useCallback(() => {
     cancel();
-    setState('idle');
+    transitionTo('idle');
     setSpeechInputError(null);
-  }, [cancel]);
+  }, [cancel, transitionTo]);
   // Capture can start before React commits the corresponding state update.
   const cancelPendingRecording = useCallback(() => {
     if (!starting.current) return false;
@@ -301,6 +308,7 @@ export function useSpeechInput({
   };
   return {
     state,
+    readState,
     speechInputError,
     startRecording,
     stopRecording,

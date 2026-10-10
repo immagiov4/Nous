@@ -75,6 +75,7 @@ export function useLessonPlayback({
   const started = useRef(false);
   const previousVoice = useRef(voice);
   const loadedVoice = useRef<string | null>(null);
+  const targetPosition = useRef({ offset: 0, relative: false });
   const latest = useRef({ voice, speed });
   useEffect(() => {
     latest.current = { voice, speed };
@@ -90,6 +91,9 @@ export function useLessonPlayback({
     };
     audio.onerror = () => {
       preparationController.current?.abort();
+      if (loadedVoice.current) {
+        targetPosition.current = { offset: audio.currentTime, relative: false };
+      }
       loadedVoice.current = null;
       intent.current.playing = false;
       setPlaying(false);
@@ -159,6 +163,7 @@ export function useLessonPlayback({
             intent.current.epoch++;
             preparationController.current?.abort();
             intent.current.index = 0;
+            targetPosition.current = { offset: 0, relative: false };
             intent.current.playing = false;
             loadedVoice.current = null;
             playbackRef.current = playback;
@@ -230,6 +235,7 @@ export function useLessonPlayback({
       const { epoch, signal } = beginPlaybackAttempt();
       const requestedVoice = latest.current.voice;
       intent.current.index = blockIndex;
+      targetPosition.current = { offset, relative };
       setIndex(blockIndex);
       setTime(offset);
       setDuration(0);
@@ -263,6 +269,7 @@ export function useLessonPlayback({
           recording.durationSeconds
         );
         setTime(audio.currentTime);
+        targetPosition.current = { offset: audio.currentTime, relative: false };
         audio.playbackRate = latest.current.speed;
         setDuration(recording.durationSeconds);
         loadedVoice.current = requestedVoice;
@@ -305,7 +312,8 @@ export function useLessonPlayback({
     intent.current.playing = true;
     if (!loadedVoice.current || loadedVoice.current !== latest.current.voice) {
       unlockLessonPlaybackAudio(audio);
-      await start(intent.current.index, audio.currentTime);
+      const { offset, relative } = targetPosition.current;
+      await start(intent.current.index, offset, relative);
       return;
     }
     const { epoch, signal } = beginPlaybackAttempt();
@@ -349,6 +357,7 @@ export function useLessonPlayback({
         pause();
         loadedVoice.current = null;
         intent.current.index = 0;
+        targetPosition.current = { offset: 0, relative: false };
         audio.currentTime = 0;
         setIndex(0);
         setTime(0);
@@ -368,8 +377,10 @@ export function useLessonPlayback({
     if (previousVoice.current === voice) return;
     previousVoice.current = voice;
     if (started.current) {
-      const progress = duration > 0 ? getAudio().currentTime / duration : 0;
-      void start(intent.current.index, progress, true);
+      const position = loadedVoice.current
+        ? { offset: duration > 0 ? getAudio().currentTime / duration : 0, relative: true }
+        : targetPosition.current;
+      void start(intent.current.index, position.offset, position.relative);
     }
   }, [duration, getAudio, start, voice]);
 

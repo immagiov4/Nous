@@ -44,24 +44,24 @@ interface SpokenFollowUpQuestion {
 
 /** Connects the conversation generation state and spoken questions to the player. */
 function ConversationBridge({
-  generating,
-  onGeneratingChange,
+  blocked,
+  onBlockedChange,
   question,
   send,
   deliver,
 }: {
-  generating: boolean;
-  onGeneratingChange: (generating: boolean) => void;
+  blocked: boolean;
+  onBlockedChange: (blocked: boolean) => void;
   question: SpokenFollowUpQuestion | null;
   send: (text: string) => void;
   deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
 }) {
   useLayoutEffect(() => {
-    onGeneratingChange(generating);
-  }, [generating, onGeneratingChange]);
+    onBlockedChange(blocked);
+  }, [blocked, onBlockedChange]);
   useEffect(() => {
-    if (question && !generating) deliver(question, send);
-  }, [deliver, generating, question, send]);
+    if (question && !blocked) deliver(question, send);
+  }, [blocked, deliver, question, send]);
   return null;
 }
 
@@ -144,9 +144,9 @@ export default function LessonPlayer({
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
-  const answerGenerating = useRef(false);
-  const syncAnswerGenerating = useCallback((generating: boolean) => {
-    answerGenerating.current = generating;
+  const answerSubmissionBlocked = useRef(false);
+  const syncAnswerSubmissionBlocked = useCallback((blocked: boolean) => {
+    answerSubmissionBlocked.current = blocked;
   }, []);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
   const heldTranscription = useRef<string | null>(null);
@@ -210,7 +210,8 @@ export default function LessonPlayer({
       })
     )
       return null;
-    return playbackSentenceSelector(block, playback.time, playback.duration, sourceBlocks);
+    const time = !playback.loading && playback.duration > 0 ? playback.readTime() : playback.time;
+    return playbackSentenceSelector(block, time, playback.duration, sourceBlocks);
   };
   const changeDraft = (value: string) => {
     if (!draft && value) anchor.current = currentAnchor();
@@ -312,8 +313,8 @@ export default function LessonPlayer({
     <>
       {conversation ? (
         <ConversationBridge
-          generating={Boolean(stopResponse)}
-          onGeneratingChange={syncAnswerGenerating}
+          blocked={disabled || Boolean(stopResponse)}
+          onBlockedChange={syncAnswerSubmissionBlocked}
           question={spokenFollowUp}
           send={send}
           deliver={deliverSpokenFollowUp}
@@ -362,29 +363,27 @@ export default function LessonPlayer({
       />
     </>
   );
-  const closeAnswer = () => {
-    speech.reset();
+  const { reset: resetSpeech } = speech;
+  const cancelCapture = useCallback(() => {
+    resetSpeech();
     spokenQuestion.current = null;
     heldTranscription.current = null;
     spaceDown.current = false;
     setHoldingSpace(false);
-    answerGenerating.current = false;
+    setAnswer(previous => (previous?.initialQuestion ? previous : null));
+  }, [resetSpeech]);
+  const closeAnswer = () => {
+    cancelCapture();
+    answerSubmissionBlocked.current = false;
+    setSpokenFollowUp(null);
     setAnswer(null);
   };
 
-  const { reset: resetSpeech } = speech;
   useEffect(() => {
     if (mobile) return;
     // Leaving desktop mode releases the capture session and its pending question together.
-    return () => {
-      resetSpeech();
-      spokenQuestion.current = null;
-      heldTranscription.current = null;
-      spaceDown.current = false;
-      setHoldingSpace(false);
-      setAnswer(previous => (previous?.initialQuestion ? previous : null));
-    };
-  }, [mobile, resetSpeech]);
+    return cancelCapture;
+  }, [cancelCapture, mobile]);
 
   useEffect(() => {
     if (mobile) return;
@@ -398,7 +397,7 @@ export default function LessonPlayer({
       )
         return;
       event.preventDefault();
-      if (event.repeat || spaceDown.current || answerGenerating.current) return;
+      if (event.repeat || spaceDown.current || answerSubmissionBlocked.current) return;
       playback.pause();
       speech.reset();
       heldTranscription.current = null;
@@ -418,7 +417,12 @@ export default function LessonPlayer({
         spokenQuestion.current = null;
         return;
       }
-      if (!speech.speechInputError) {
+      const captureState = speech.readState();
+      if (
+        captureState === 'recording' ||
+        captureState === 'transcribing' ||
+        heldTranscription.current !== null
+      ) {
         setAnswer(previous => previous ?? spokenQuestion.current);
         if (heldTranscription.current !== null) {
           receiveTranscription(heldTranscription.current);
@@ -428,7 +432,7 @@ export default function LessonPlayer({
       }
     };
     const blur = () => {
-      if (spaceDown.current) closeAnswer();
+      if (spaceDown.current) cancelCapture();
     };
     window.addEventListener('keydown', keydown);
     window.addEventListener('keyup', keyup);
