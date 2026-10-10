@@ -7,12 +7,12 @@ import {
   type LessonSceneGroup,
   type LessonSceneItem,
 } from '@shared/lessonScene';
-import { Fragment } from 'react';
+import { Fragment, useContext } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { SceneChart } from './SceneChart.tsx';
 import { SceneDiagram } from './SceneDiagram.tsx';
-import { SceneIcon, SceneIconProvider } from './SceneIcon.tsx';
+import { SceneIcon, SceneIconProvider, ScenePrototypeContext } from './SceneIcon.tsx';
 import './lessonScene.css';
 
 /**
@@ -65,6 +65,7 @@ const GroupSection = ({ group }: { group: LessonSceneGroup }) => (
 );
 
 const Groups = ({ kind = 'comparison', scene }: { kind?: string; scene: LessonScene }) => {
+  const masked = useContext(ScenePrototypeContext);
   if (!scene.groups.length) return null;
   const related =
     ['comparison', 'signals'].includes(kind) &&
@@ -86,7 +87,22 @@ const Groups = ({ kind = 'comparison', scene }: { kind?: string; scene: LessonSc
           {index === 1 && related ? (
             <div aria-label={relation.label} className="relation" role="img">
               <span className="relation-symbol">
-                {LESSON_SCENE_RELATION_SYMBOLS[relation.kind]}
+                {masked ? (
+                  <SceneIcon
+                    name={
+                      {
+                        greater: 'math-greater',
+                        less: 'math-lower',
+                        different: 'equal-not',
+                        equal: 'equal',
+                        versus: 'vs',
+                        leads: 'arrow-right',
+                      }[relation.kind]
+                    }
+                  />
+                ) : (
+                  LESSON_SCENE_RELATION_SYMBOLS[relation.kind]
+                )}
               </span>
             </div>
           ) : null}
@@ -164,6 +180,7 @@ const NestedLayers = ({ items }: { items: readonly LessonSceneItem[] }) =>
   );
 
 const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: LessonScene }) => {
+  const prototype = useContext(ScenePrototypeContext);
   const { items } = scene;
   if (LESSON_SCENE_DIAGRAM_TYPES.has(scene.type))
     return <SceneDiagram isDarkMode={isDarkMode} scene={scene} />;
@@ -176,7 +193,7 @@ const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: Lesso
     );
   }
   if (LESSON_SCENE_NUMERIC_TYPES.has(scene.type))
-    return <SceneChart isDarkMode={isDarkMode} scene={scene} />;
+    return <SceneChart isDarkMode={isDarkMode} scene={scene} prototype={prototype} />;
   switch (scene.type) {
     case 'definition':
       return (
@@ -249,13 +266,15 @@ const SceneContent = ({ isDarkMode, scene }: { isDarkMode: boolean; scene: Lesso
           <Concepts items={items} />
         </div>
       );
-    case 'decision':
+    case 'decision': {
+      const question = prototype ? (scene.quote || scene.body).trim() : scene.quote || scene.body;
       return (
         <div className="decision">
-          <div className="decision-question">{scene.quote || scene.body}</div>
-          <Groups kind="branches" scene={scene} />
+          {question || !prototype ? <div className="decision-question">{question}</div> : null}
+          <Groups kind={question || !prototype ? 'branches' : 'decision-options'} scene={scene} />
         </div>
       );
+    }
     case 'continuum':
       return (
         <div className="continuum">
@@ -373,13 +392,18 @@ export const LessonSceneVisual = ({
   className = '',
   isDarkMode = false,
   scene,
+  variant = 'card',
 }: {
   readonly className?: string;
   readonly isDarkMode?: boolean;
   readonly scene: LessonScene;
+  readonly variant?: 'card' | 'bare';
 }) => (
-  <figure className={`lesson-scene ${className}`} data-nous-speech="ignore">
-    <SceneIconProvider>
+  <figure
+    className={`lesson-scene ${variant === 'bare' ? 'lesson-scene-bare' : ''} ${className}`}
+    data-nous-speech="ignore"
+  >
+    <SceneIconProvider prototype={variant === 'bare'}>
       <article className={`scene type-${scene.type}`}>
         <header>
           <h2>{scene.title}</h2>
@@ -390,17 +414,18 @@ export const LessonSceneVisual = ({
         <div className="visual-content">
           <SceneContent isDarkMode={isDarkMode} scene={scene} />
         </div>
-        {/* Conflicting closing text is omitted while the main scene remains visible. */}
+        {/* The reader omits conflicting closing text; the player follows the laboratory scene. */}
         {scene.quote.trim() &&
         scene.type !== 'quote' &&
         scene.type !== 'decision' &&
-        !hasConflictingLessonSceneClosingText(scene) ? (
+        (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
           <aside aria-label={t('Domanda')} className="scene-note scenario-question">
             <SceneIcon name="help-circle" />
             <p>{scene.quote}</p>
           </aside>
         ) : null}
-        {scene.note.trim() && !hasConflictingLessonSceneClosingText(scene) ? (
+        {scene.note.trim() &&
+        (variant === 'bare' || !hasConflictingLessonSceneClosingText(scene)) ? (
           <aside aria-label={t('Nota')} className="scene-note">
             <SceneIcon name="info-circle" />
             <p>{scene.note}</p>

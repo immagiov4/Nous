@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import type { LessonScene } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, test, vi } from 'vitest';
+import { beforeAll, describe, expect, test, vi } from 'vitest';
 
 // The real path data is a 2 MB lazy chunk; one known icon keeps the test deterministic.
 vi.mock('@tabler-icon-nodes', () => ({
@@ -16,6 +16,11 @@ vi.mock('@tabler-icon-nodes', () => ({
 
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual.tsx';
+
+beforeAll(async () => {
+  // Load the mocked asset before measuring the component's asynchronous render.
+  await import('@tabler-icon-nodes');
+});
 
 const comparison: LessonScene = {
   body: '',
@@ -40,6 +45,35 @@ const comparison: LessonScene = {
 };
 
 describe('lesson scene visual', () => {
+  test('renders the player scene bare with prototype icon masks and preserves reader cards', async () => {
+    const { container, rerender } = render(<LessonSceneVisual scene={comparison} variant="bare" />);
+    expect(container.querySelector('figure')).toHaveClass('lesson-scene-bare');
+    expect(container.querySelector('li svg')).toBeNull();
+    const icon = container.querySelector<HTMLElement>('li .meaning-icon');
+    await waitFor(() =>
+      expect(decodeURIComponent(icon?.style.getPropertyValue('--icon-url') ?? '')).toContain(
+        'M22 9l-10 -4'
+      )
+    );
+    expect(
+      screen.getByRole('img', { name: 'conta di più di' }).querySelector('.meaning-icon')
+    ).not.toBeNull();
+    rerender(<LessonSceneVisual scene={comparison} />);
+    expect(container.querySelector('figure')).not.toHaveClass('lesson-scene-bare');
+    expect(screen.getByRole('img', { name: 'conta di più di' })).toHaveTextContent('>');
+    await waitFor(() => expect(container.querySelector('li svg path')).not.toBeNull());
+  });
+
+  test('uses prototype decision options when a bare scene has no question', () => {
+    const { container } = render(
+      <LessonSceneVisual
+        scene={{ ...comparison, body: '', quote: '', type: 'decision' }}
+        variant="bare"
+      />
+    );
+    expect(container.querySelector('.decision-question')).toBeNull();
+    expect(container.querySelector('.decision-options')).not.toBeNull();
+  });
   test.each([
     'checklist',
     'steps',

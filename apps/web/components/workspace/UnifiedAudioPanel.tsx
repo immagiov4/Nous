@@ -148,7 +148,7 @@ const getTtsPlayButtonTitle = ({
     return t('In caricamento');
   }
 
-  return isPlaying ? t('Pausa') : 'Play';
+  return t(isPlaying ? 'Pausa' : 'Riproduci');
 };
 
 const formatPlaybackRateLabel = (value: number): string => {
@@ -305,11 +305,6 @@ const UnifiedAudioPanel = ({
   const isYtApiReady =
     hasUserActivatedPlayer &&
     (isYtReady || (typeof globalThis.window !== 'undefined' && Boolean(globalThis.window.YT)));
-  const ttsPlayButtonState = {
-    isDisabled: ttsDisabled,
-    isLoading: tts.isLoading,
-    isPlaying: tts.isPlaying,
-  };
 
   useEffect(() => {
     if ((!isOpen || activeTab !== 'voce') && isTextPickerActive) {
@@ -327,27 +322,6 @@ const UnifiedAudioPanel = ({
     setHasUserActivatedPlayerLocal(true);
     setPlayerErrorVideoId(null);
     setMusicUrl(url);
-  };
-
-  const displayedVoices: WorkspaceReaderVoiceOption[] = tts.availableVoices.some(
-    voice => voice.id === tts.currentVoice
-  )
-    ? tts.availableVoices
-    : [
-        { id: tts.currentVoice, label: tts.currentVoice, language: 'custom' },
-        ...tts.availableVoices,
-      ];
-  const currentVoiceLabel =
-    displayedVoices.find(voice => voice.id === tts.currentVoice)?.label ?? tts.currentVoice;
-  const playbackRateLabel = getPlaybackRateLabel(tts.playbackRate);
-
-  const formatTime = (value: number) => {
-    if (!value || Number.isNaN(value)) {
-      return '00:00';
-    }
-    const minutes = Math.floor(value / 60);
-    const seconds = Math.floor(value % 60);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
   const getPlayerOrigin = () => {
@@ -643,18 +617,11 @@ const UnifiedAudioPanel = ({
 
               {activeTab === 'voce' ? (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    <span className="w-9 text-right">{formatTime(tts.currentTime)}</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max={tts.duration || 100}
-                      value={tts.currentTime}
-                      onChange={event => tts.onSeek(parseFloat(event.target.value))}
-                      className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
-                    />
-                    <span className="w-9">{formatTime(tts.duration)}</span>
-                  </div>
+                  <PlaybackTimeline
+                    time={tts.currentTime}
+                    duration={tts.duration}
+                    onSeek={tts.onSeek}
+                  />
 
                   {tts.chunkOptions.length > 0 ? (
                     <div className="space-y-1.5 px-1">
@@ -714,49 +681,7 @@ const UnifiedAudioPanel = ({
                   ) : null}
 
                   <div className="space-y-2">
-                    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
-                      <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
-                      <div className="relative min-h-10">
-                        <select
-                          aria-label={t('Voce')}
-                          title={t('Voce')}
-                          value={tts.currentVoice}
-                          onChange={event =>
-                            tts.onVoiceChange(event.target.value as VoiceProfileId)
-                          }
-                          className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
-                          disabled={ttsDisabled}
-                        >
-                          {displayedVoices.map(voice => (
-                            <option key={voice.id} value={voice.id}>
-                              {voice.label}
-                            </option>
-                          ))}
-                        </select>
-
-                        <div
-                          aria-hidden="true"
-                          className={`pointer-events-none flex min-h-10 items-center gap-2 px-1 text-sm font-medium ${
-                            ttsDisabled
-                              ? 'text-gray-400 dark:text-zinc-500'
-                              : 'text-gray-700 dark:text-zinc-200'
-                          }`}
-                        >
-                          <span className="flex min-w-0 items-center gap-1">
-                            <span className="truncate">{currentVoiceLabel}</span>
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
-                          </span>
-                          <span className="text-gray-300 dark:text-zinc-600">•</span>
-                          <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
-                        </div>
-                      </div>
-
-                      <PlaybackSpeedControl
-                        isDisabled={ttsDisabled}
-                        onSpeedChange={tts.onSpeedChange}
-                        playbackRate={tts.playbackRate}
-                      />
-                    </fieldset>
+                    <PlaybackVoiceControl tts={tts} disabled={ttsDisabled} />
 
                     <div className="flex items-center justify-center gap-3">
                       <button
@@ -768,21 +693,12 @@ const UnifiedAudioPanel = ({
                         <SkipBack className="h-5 w-5" />
                       </button>
 
-                      <button
-                        type="button"
+                      <PlaybackPlayButton
                         onClick={tts.onPlayPause}
                         disabled={ttsDisabled}
-                        className={getTtsPlayButtonClassName(ttsPlayButtonState)}
-                        title={getTtsPlayButtonTitle(ttsPlayButtonState)}
-                      >
-                        {tts.isLoading ? (
-                          <Loader2 className="h-6 w-6 animate-spin" />
-                        ) : tts.isPlaying ? (
-                          <Pause className="h-6 w-6 fill-current" />
-                        ) : (
-                          <Play className="h-6 w-6 fill-current" />
-                        )}
-                      </button>
+                        loading={tts.isLoading}
+                        playing={tts.isPlaying}
+                      />
 
                       <button
                         type="button"
@@ -932,3 +848,169 @@ const UnifiedAudioPanel = ({
 };
 
 export default UnifiedAudioPanel;
+
+export function PlaybackPlayButton({
+  onClick,
+  disabled = false,
+  loading,
+  playing,
+  stationary = false,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  loading: boolean;
+  playing: boolean;
+  stationary?: boolean;
+}) {
+  const state = { isDisabled: disabled, isLoading: loading, isPlaying: playing };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={
+        stationary
+          ? getTtsPlayButtonClassName(state).replace('hover:scale-105', '')
+          : getTtsPlayButtonClassName(state)
+      }
+      title={getTtsPlayButtonTitle(state)}
+      aria-label={t(loading ? 'In caricamento' : playing ? 'Pausa' : 'Riproduci')}
+    >
+      {loading ? (
+        <Loader2 className="h-6 w-6 animate-spin" />
+      ) : playing ? (
+        <Pause className="h-6 w-6 fill-current" />
+      ) : (
+        <Play className="h-6 w-6 fill-current" />
+      )}
+    </button>
+  );
+}
+export function PlaybackTimeline({
+  time,
+  duration,
+  onSeek,
+  estimated = false,
+}: {
+  estimated?: boolean;
+  time: number;
+  duration: number;
+  onSeek: (time: number) => void;
+}) {
+  const formatTime = (value: number) => {
+    if (!value || Number.isNaN(value)) {
+      return '00:00';
+    }
+    const minutes = Math.floor(value / 60);
+    const seconds = Math.floor(value % 60);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
+      <span className="w-9 shrink-0 text-right">{formatTime(time)}</span>
+      <input
+        type="range"
+        aria-label={t('Posizione audio')}
+        disabled={duration <= 0}
+        min="0"
+        max={duration || 100}
+        value={time}
+        onChange={event => onSeek(parseFloat(event.target.value))}
+        className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
+      />
+      <span className="shrink-0 whitespace-nowrap">
+        {estimated ? '≈ ' : ''}
+        {formatTime(duration)}
+      </span>
+    </div>
+  );
+}
+export function PlaybackVoiceControl({
+  tts,
+  disabled: ttsDisabled = false,
+  compact = false,
+}: {
+  tts: Pick<
+    WorkspaceReaderTtsModel,
+    'currentVoice' | 'availableVoices' | 'playbackRate' | 'onVoiceChange' | 'onSpeedChange'
+  >;
+  disabled?: boolean;
+  compact?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const displayedVoices: WorkspaceReaderVoiceOption[] = tts.availableVoices.some(
+    voice => voice.id === tts.currentVoice
+  )
+    ? tts.availableVoices
+    : [
+        { id: tts.currentVoice, label: tts.currentVoice, language: 'custom' },
+        ...tts.availableVoices,
+      ];
+  const currentVoiceLabel =
+    displayedVoices.find(voice => voice.id === tts.currentVoice)?.label ?? tts.currentVoice;
+  const playbackRateLabel = getPlaybackRateLabel(tts.playbackRate);
+
+  const control = (
+    <fieldset className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white px-3 pb-3 shadow-sm focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:border-orange-500/70 dark:focus-within:ring-orange-500/15">
+      <legend className="sr-only">{`${t('Voce')} · ${t('Velocita')}`}</legend>
+      <div className="relative min-h-10">
+        <select
+          aria-label={t('Voce')}
+          title={t('Voce')}
+          value={tts.currentVoice}
+          onChange={event => tts.onVoiceChange(event.target.value as VoiceProfileId)}
+          className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
+          disabled={ttsDisabled}
+        >
+          {displayedVoices.map(voice => (
+            <option key={voice.id} value={voice.id}>
+              {voice.label}
+            </option>
+          ))}
+        </select>
+
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none flex min-h-10 items-center gap-2 px-1 text-sm font-medium ${
+            ttsDisabled ? 'text-gray-400 dark:text-zinc-500' : 'text-gray-700 dark:text-zinc-200'
+          }`}
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-1">
+            <span className="truncate">{currentVoiceLabel}</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-zinc-500" />
+          </span>
+          <span className="text-gray-300 dark:text-zinc-600">•</span>
+          <span className="min-w-[5ch] shrink-0 text-right tabular-nums">{playbackRateLabel}</span>
+        </div>
+      </div>
+
+      <PlaybackSpeedControl
+        isDisabled={ttsDisabled}
+        onSpeedChange={tts.onSpeedChange}
+        playbackRate={tts.playbackRate}
+      />
+    </fieldset>
+  );
+  if (!compact) return control;
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        aria-label={`${t('Voce')} · ${t('Velocita')}`}
+        className="flex min-h-10 items-center gap-1.5 rounded-3xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+      >
+        <span className="truncate">{currentVoiceLabel}</span>
+        <span className="text-gray-300 dark:text-zinc-600">·</span>
+        <span className="shrink-0 tabular-nums">{playbackRateLabel}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+      </button>
+      {expanded ? (
+        // Anchored to the left edge: when the speed label grows, the pill extends rightward and the open menu stays put.
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-56">{control}</div>
+      ) : null}
+    </div>
+  );
+}

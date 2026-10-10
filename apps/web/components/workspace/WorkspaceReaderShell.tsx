@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect } from 'react';
+import { lazy, memo, Suspense, useEffect, useLayoutEffect, useState } from 'react';
 import {
   READER_MOBILE_TOP_FADE_ALPHA_PROPERTY,
   READER_MOBILE_TOP_FADE_SCROLL_RANGE_PX,
@@ -12,6 +12,8 @@ import WorkspaceReaderHeader from './shell/WorkspaceReaderHeader.tsx';
 import WorkspaceReaderOverlays from './shell/WorkspaceReaderOverlays.tsx';
 import WorkspaceReaderSidebar from './shell/WorkspaceReaderSidebar.tsx';
 
+const LessonPlayer = lazy(() => import('./playback/LessonPlayer.tsx'));
+
 const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   banners,
   content,
@@ -22,6 +24,14 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   sidebar,
 }: WorkspaceReaderShellProps) {
   useAppLocale();
+  const [player, setPlayer] = useState<{ sectionId: string; autoPlay: boolean } | null>(null);
+  const openPlayer = (autoPlay: boolean) => {
+    if (!sidebar.activeSectionId || !content.projectId) return;
+    if (header.tts.isPlaying || header.tts.isLoading) header.tts.onPlayPause();
+    overlays.onCloseContextAnswer();
+    overlays.onCloseContextMenu();
+    setPlayer({ sectionId: sidebar.activeSectionId, autoPlay });
+  };
   const { viewportHeight } = useMobileKeyboardOffset();
 
   useEffect(() => {
@@ -131,14 +141,14 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
           className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-white/80 backdrop-blur dark:bg-zinc-800/80"
         />
       ) : null}
-      <WorkspaceReaderSidebar {...sidebarModel} />
+      <WorkspaceReaderSidebar {...sidebarModel} onPlayLesson={() => openPlayer(true)} />
 
       <div
         className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-paper-light transition-[margin] duration-300 dark:bg-paper-dark"
         style={{ marginLeft: shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0 }}
       >
         <WorkspaceReaderBanners {...banners} />
-        <WorkspaceReaderHeader {...header} />
+        <WorkspaceReaderHeader {...header} onPlayLesson={() => openPlayer(true)} />
         <div
           data-reader-content-layer="true"
           className="relative flex min-h-0 min-w-0 flex-1 flex-col"
@@ -147,6 +157,20 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
           <WorkspaceReaderOverlays {...overlays} />
         </div>
       </div>
+      {player && player.sectionId === sidebar.activeSectionId && content.projectId ? (
+        <Suspense fallback={null}>
+          <LessonPlayer
+            key={`${content.projectId}:${player.sectionId}:${content.sectionContent}`}
+            sectionId={player.sectionId}
+            projectId={content.projectId}
+            content={content}
+            overlays={overlays}
+            tts={header.tts}
+            autoPlay={player.autoPlay}
+            onClose={() => setPlayer(null)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 });
