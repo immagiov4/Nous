@@ -482,13 +482,13 @@ const findNumericProblems = (
 
 const findItemShapeProblems = (scene: Record<string, unknown>): string[] =>
   (scene.items as unknown[]).length < 2
-    ? [`The ${scene.type} form requires at least two items.`]
+    ? [`The ${scene.type as string} form requires at least two items.`]
     : [];
 
 const findTwoGroupProblems = (scene: Record<string, unknown>): string[] => {
   const groups = scene.groups as LessonSceneGroup[];
   return groups.length !== 2 || groups.some(group => !group.items.length)
-    ? [`The ${scene.type} form requires exactly two non-empty groups.`]
+    ? [`The ${scene.type as string} form requires exactly two non-empty groups.`]
     : [];
 };
 
@@ -530,8 +530,8 @@ const findProportionalSceneProblems = (
     .element.refine(
       cue =>
         Number.isInteger(cue.value) &&
-        !(cue.value < (initial as number)) &&
-        !(cue.value > (max as number))
+        cue.value >= (initial as number) &&
+        cue.value <= (max as number)
     )
     .array()
     .optional();
