@@ -51,7 +51,6 @@ import {
   type LessonYouTubeSearchStateSchema,
   type LessonYouTubeState,
   type LessonYouTubeStateSchema,
-  PreAnimatedLessonGenerationDurableSchemaSet,
   PreviousEvidenceLessonGenerationDurableSchemaSet,
   PreviousLessonGenerationDurableSchemaSet,
   PreviousPreSceneLessonGenerationDurableSchemaSet,
@@ -893,12 +892,13 @@ export const createLessonGenerationWorkflow = <
   Services extends LessonGenerationWorkflowServices = LessonGenerationWorkflowServices,
 >(
   executionDefaults: Config,
-  configSchema: z.ZodType<Config> = LessonGenerationWorkflowConfigSchema as z.ZodType<Config>
+  configSchema: z.ZodType<Config> = LessonGenerationWorkflowConfigSchema as z.ZodType<Config>,
+  durableSchemas: LessonGenerationDurableSchemaSet = CurrentLessonGenerationDurableSchemaSet
 ) =>
   createLessonGenerationWorkflowDefinition<Config, Services>(
     executionDefaults,
     configSchema,
-    CurrentLessonGenerationDurableSchemaSet
+    durableSchemas
   );
 
 export const createPreviousLessonGenerationWorkflow = <
@@ -922,15 +922,6 @@ export const createPreviousPreSceneLessonGenerationWorkflow = (
     executionDefaults,
     configSchema,
     PreviousPreSceneLessonGenerationDurableSchemaSet
-  );
-
-export const createPreAnimatedLessonGenerationWorkflow = (
-  executionDefaults: LessonGenerationWorkflowConfig
-) =>
-  createLessonGenerationWorkflowDefinition(
-    executionDefaults,
-    LessonGenerationWorkflowConfigSchema,
-    PreAnimatedLessonGenerationDurableSchemaSet
   );
 
 export const createPreviousResearchContractLessonGenerationWorkflow = <

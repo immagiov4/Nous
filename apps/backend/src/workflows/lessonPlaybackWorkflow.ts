@@ -1,7 +1,4 @@
-import {
-  LessonPlaybackBlockSchema,
-  type PreAnimatedLessonPlaybackBlockSchema,
-} from '@shared/lessonPlaybackSchema';
+import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import type { LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 
@@ -19,6 +16,7 @@ import type {
 } from './types.js';
 
 export const LESSON_PLAYBACK_WORKFLOW_ID = 'prepare-lesson-playback-block';
+
 export const LessonPlaybackInputSchema = z.object({
   userId: z.string().min(1),
   projectId: z.string().min(1),
@@ -29,12 +27,15 @@ export const LessonPlaybackInputSchema = z.object({
   voice: z.string().min(1),
   model: z.string().min(1),
 });
+
 const LessonPlaybackResultSchema = z.object({
   target: LessonPlaybackInputSchema,
   block: LessonPlaybackBlockSchema,
   assetOwner: z.string().optional(),
 });
+
 export type LessonPlaybackInput = z.infer<typeof LessonPlaybackInputSchema>;
+
 export type LessonPlaybackResult = z.infer<typeof LessonPlaybackResultSchema>;
 
 export interface LessonPlaybackServices {
@@ -58,9 +59,7 @@ export interface LessonPlaybackServices {
 
 export const createLessonPlaybackWorkflow = (
   executionDefaults: WorkflowExecutionDefaults,
-  blockSchema:
-    | typeof LessonPlaybackBlockSchema
-    | typeof PreAnimatedLessonPlaybackBlockSchema = LessonPlaybackBlockSchema
+  blockSchema = LessonPlaybackBlockSchema
 ) => {
   const resultSchema = LessonPlaybackResultSchema.extend({ block: blockSchema });
   const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;

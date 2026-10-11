@@ -1,4 +1,9 @@
-import { buildLessonSceneDiagramSource, type LessonScene } from '@shared/lessonScene';
+import {
+  buildLessonSceneDiagramSource,
+  type LessonSceneDiagram,
+  type LessonSceneDiagramNode,
+  type SceneContentData,
+} from '@shared/lessonScene';
 import { useEffect, useRef, useState } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -64,6 +69,7 @@ const configureMermaid = (mermaid: Mermaid, host: HTMLElement): void => {
 };
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
 // Open asynchronous arrowheads drawn at the same scale as the other message tips.
 const OPEN_ARROWHEAD = {
   markerHeight: '10',
@@ -73,8 +79,11 @@ const OPEN_ARROWHEAD = {
   refY: '7',
   viewBox: '0 0 20 14',
 } as const;
+
 const OPEN_ARROWHEAD_PATH = 'M9 1 L18 7 L9 13';
+
 const MESSAGE_LABEL_PADDING = { x: 4, y: 3 } as const;
+
 const MESSAGE_LABEL_RADIUS = '4';
 
 /** Post-processing Mermaid's sequence output: open async arrowheads and opaque message labels. */
@@ -105,10 +114,10 @@ export const SceneDiagram = ({
   scene,
 }: {
   readonly isDarkMode: boolean;
-  readonly scene: LessonScene;
+  readonly scene: SceneContentData;
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
-  const renderedSceneRef = useRef<LessonScene | null>(null);
+  const renderedSceneRef = useRef<SceneContentData | null>(null);
   const [status, setStatus] = useState<'failed' | 'loading' | 'ready'>('loading');
   useEffect(() => {
     const host = hostRef.current;
@@ -166,8 +175,9 @@ export const SceneDiagram = ({
     };
   }, [isDarkMode, scene]);
 
-  const diagram = scene.diagram;
-  const labelOf = (id: string) => diagram?.nodes.find(node => node.id === id)?.label ?? id;
+  const diagram = scene.diagram as LessonSceneDiagram;
+  const labelOf = (id: string) =>
+    (diagram.nodes.find(node => node.id === id) as LessonSceneDiagramNode).label;
   return (
     <>
       <section
@@ -189,7 +199,7 @@ export const SceneDiagram = ({
       <details className="diagram-description">
         <summary>{t('Leggi i collegamenti')}</summary>
         <ol>
-          {diagram?.edges.map((edge, index) => (
+          {diagram.edges.map((edge, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: repeated messages are valid; the list is static
             <li key={`${index}-${edge.from}-${edge.to}-${edge.label}`}>
               {`${labelOf(edge.from)} → ${labelOf(edge.to)}`}

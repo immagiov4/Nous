@@ -1,4 +1,5 @@
 import * as z from 'zod';
+
 import { ResearchSourceRoutingSchema } from '../services/researchSourceRouting.js';
 import {
   CourseDocumentIndexSchema,
@@ -19,7 +20,6 @@ import {
   LessonResearchSummarySchema,
   type LessonVisualContractSchemas,
   LessonYouTubePlanningSchema,
-  PreAnimatedLessonVisualContractSchemas,
   PreviousEvidenceLessonResearchDossierSchema,
   PreviousLessonPdfImageMetadataSchema,
   PreviousLessonQuizSchema,
@@ -28,6 +28,7 @@ import {
   ResearchSourceSchema,
   YouTubeResearchOutcomeSchema,
 } from './lessonGenerationWorkflowSchemas.js';
+
 export const LessonGenerationRequestSchema = z.object({
   forceRegenerate: z.boolean(),
   projectId: LessonIdentifierSchema,
@@ -101,6 +102,7 @@ const StepFailureBaseShape = {
   code: LessonIdentifierSchema,
   message: LessonIdentifierSchema,
 };
+
 const createLessonVisualFanOutResultSchema = (visualContract: LessonVisualContractSchemas) =>
   z.discriminatedUnion('status', [
     z.object({
@@ -326,24 +328,23 @@ const legacyVisualLessonSchemas = {
   visualContract: LegacyLessonVisualContractSchemas,
 };
 
-export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
-  ...legacyVisualLessonSchemas,
-  evidence: true,
-  lessonContentDraftSchema: CurrentLessonVisualContractSchemas.LessonContentDraftSchema,
-  lessonResearchDossierSchema: LessonResearchDossierSchema,
-  lessonResultBlockSchema: CurrentLessonVisualContractSchemas.LessonResultBlockSchema,
-  routing: true,
-  visualContract: CurrentLessonVisualContractSchemas,
-});
-export const PreAnimatedLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
-  ...legacyVisualLessonSchemas,
-  evidence: true,
-  lessonContentDraftSchema: PreAnimatedLessonVisualContractSchemas.LessonContentDraftSchema,
-  lessonResearchDossierSchema: LessonResearchDossierSchema,
-  lessonResultBlockSchema: PreAnimatedLessonVisualContractSchemas.LessonResultBlockSchema,
-  routing: true,
-  visualContract: PreAnimatedLessonVisualContractSchemas,
-});
+export const createSceneLessonGenerationDurableSchemaSet = (
+  visualContract: LessonVisualContractSchemas
+) =>
+  createLessonGenerationDurableSchemaSet({
+    ...legacyVisualLessonSchemas,
+    evidence: true,
+    lessonContentDraftSchema: visualContract.LessonContentDraftSchema,
+    lessonResearchDossierSchema: LessonResearchDossierSchema,
+    lessonResultBlockSchema: visualContract.LessonResultBlockSchema,
+    routing: true,
+    visualContract,
+  });
+
+export const CurrentLessonGenerationDurableSchemaSet = createSceneLessonGenerationDurableSchemaSet(
+  CurrentLessonVisualContractSchemas
+);
+
 export const PreviousPreSceneLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet({
     ...legacyVisualLessonSchemas,
@@ -351,11 +352,13 @@ export const PreviousPreSceneLessonGenerationDurableSchemaSet =
     lessonResearchDossierSchema: LessonResearchDossierSchema,
     routing: true,
   });
+
 export const PreviousEvidenceLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet({
     ...legacyVisualLessonSchemas,
     routing: true,
   });
+
 export const PreviousRoutingLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet(legacyVisualLessonSchemas);
 
@@ -410,24 +413,43 @@ export const PreviousLessonGenerationDurableSchemaSet = createLessonGenerationDu
 export type LessonGenerationDurableSchemaSet = typeof CurrentLessonGenerationDurableSchemaSet;
 
 export type LessonDraftState = z.infer<typeof LessonDraftStateSchema>;
+
 export type LessonAidsState = z.infer<typeof LessonAidsStateSchema>;
+
 export type LessonContextState = z.infer<typeof LessonContextStateSchema>;
+
 export type LessonCoverageState = z.infer<typeof LessonCoverageStateSchema>;
+
 export type LessonGenerationWorkflowInput = z.infer<typeof LessonGenerationWorkflowInputSchema>;
+
 export type LessonGenerationRequest = z.infer<typeof LessonGenerationRequestSchema>;
+
 export type SublessonGenerationInput = z.infer<typeof SublessonGenerationInputSchema>;
+
 export type SublessonPlanState = z.infer<typeof SublessonPlanStateSchema>;
+
 export type SublessonReadyState = z.infer<typeof SublessonReadyStateSchema>;
+
 export type LessonGenerationPreparationOutcome = z.infer<
   typeof LessonGenerationPreparationOutcomeSchema
 >;
+
 export type LessonGenerationWorkflowResult = z.infer<typeof LessonGenerationWorkflowResultSchema>;
+
 export type LessonPersistenceState = z.infer<typeof LessonPersistenceStateSchema>;
+
 export type LessonResearchState = z.infer<typeof LessonResearchStateSchema>;
+
 export type LessonReviewedState = z.infer<typeof LessonReviewedStateSchema>;
+
 export type LessonSourcesState = z.infer<typeof LessonSourcesStateSchema>;
+
 export type LessonYouTubePlanState = z.infer<typeof LessonYouTubePlanStateSchema>;
+
 export type LessonYouTubeSearchState = z.infer<typeof LessonYouTubeSearchStateSchema>;
+
 export type LessonVisualsState = z.infer<typeof LessonVisualsStateSchema>;
+
 export type LessonVisualFanOutState = z.infer<typeof LessonVisualFanOutStateSchema>;
+
 export type LessonYouTubeState = z.infer<typeof LessonYouTubeStateSchema>;

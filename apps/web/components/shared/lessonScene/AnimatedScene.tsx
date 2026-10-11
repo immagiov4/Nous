@@ -9,20 +9,15 @@ import {
   automaticQuantity,
   PROPORTIONAL_REPLICA_LIMIT,
   proportionalResult,
+  type ReadSceneAnimationFrame,
+  type SceneAnimationFrame,
 } from '@shared/lessonSceneAnimation';
 import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { SceneIcon } from './SceneIcon.tsx';
 
-/** The lesson stage supplies its clock and complete caption cues; the reader plays gradually. */
-export interface SceneAnimationFrame {
-  readonly elapsedMs: number;
-  readonly durationMs: number;
-  readonly cueTimes?: number[];
-}
-
-export type ReadSceneAnimationFrame = () => SceneAnimationFrame | undefined;
+export type { ReadSceneAnimationFrame, SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 
 function quantityRenderer(
   element: HTMLElement,

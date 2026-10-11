@@ -1,13 +1,6 @@
 import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
-import {
-  LessonSceneSchema,
-  PreAnimatedLessonSceneSchema,
-  ProjectAssetRefSchema,
-} from '@shared/lessonPlaybackSchema';
-
-export { ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
-
+import { LessonSceneSchema, ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
@@ -16,14 +9,19 @@ import {
   YouTubeCandidateDecisionSchema,
 } from '../services/lessonResearchContract.js';
 
+export { ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
+
 export {
   LessonResearchSummarySchema,
   PreviousLessonResearchSummarySchema,
 } from '../services/lessonResearchContract.js';
 
 const SHA256_HEX_LENGTH = 64;
+
 export const Sha256HexSchema = z.string().length(SHA256_HEX_LENGTH);
+
 export const LessonIdentifierSchema = z.string().min(1);
+
 const TimestampSchema = z.string().min(1);
 
 const TranscriptRangeSchema = z.object({
@@ -110,6 +108,7 @@ const LessonPdfImageMetadataPrefixShape = {
   intrinsicWidth: z.number().int().positive().optional(),
   pageNumber: z.number().int().positive().optional(),
 };
+
 const LessonPdfImageMetadataSuffixShape = {
   sourceId: LessonIdentifierSchema.optional(),
   sourceOrder: z.number().int().nonnegative(),
@@ -123,6 +122,7 @@ export const LessonPdfImageMetadataSchema = z.object({
   sourceHash: Sha256HexSchema.optional(),
   ...LessonPdfImageMetadataSuffixShape,
 });
+
 export const PreviousLessonPdfImageMetadataSchema = z.object({
   ...LessonPdfImageMetadataPrefixShape,
   ...LessonPdfImageMetadataSuffixShape,
@@ -232,7 +232,7 @@ const createLessonVisualContractSchemas = ({
 }: {
   includeScene: boolean;
   visualTypes: readonly [string, ...string[]];
-  sceneSchema?: typeof LessonSceneSchema | typeof PreAnimatedLessonSceneSchema;
+  sceneSchema?: typeof LessonSceneSchema;
 }) => {
   const LessonVisualPlanSchema = z.object({
     altText: z.string(),
@@ -416,17 +416,14 @@ export const toLegacyLessonVisualTypes = <T>(value: T): T => {
   ) as T;
 };
 
-export const CurrentLessonVisualContractSchemas = createLessonVisualContractSchemas({
-  includeScene: true,
-  visualTypes: LESSON_VISUAL_TYPES,
-});
+export const createSceneLessonVisualContractSchemas = (sceneSchema = LessonSceneSchema) =>
+  createLessonVisualContractSchemas({
+    includeScene: true,
+    visualTypes: LESSON_VISUAL_TYPES,
+    sceneSchema,
+  });
 
-/** Retains the definition fingerprints deployed on the lesson playback stack. */
-export const PreAnimatedLessonVisualContractSchemas = createLessonVisualContractSchemas({
-  includeScene: true,
-  visualTypes: LESSON_VISUAL_TYPES,
-  sceneSchema: PreAnimatedLessonSceneSchema,
-});
+export const CurrentLessonVisualContractSchemas = createSceneLessonVisualContractSchemas();
 
 export const {
   LessonContentDraftSchema,
