@@ -66,7 +66,18 @@ async function actOnElement(
         )
       );
       if (!editable) return 'not-actionable';
-      await element.fill(action.type === 'type' ? action.text : credentials[action.field]);
+      if (action.type === 'fill-credential') {
+        const matchingField = await element.evaluate((element, field) => {
+          if (!(element instanceof HTMLInputElement)) return false;
+          if (field === 'password') return element.type === 'password';
+          return element.type === 'email' || ['email', 'username'].includes(element.autocomplete);
+        }, action.field);
+        if (!matchingField) return 'not-actionable';
+        await element.fill(credentials[action.field]);
+      } else {
+        await element.fill('');
+        await page.keyboard.type(action.text);
+      }
       break;
     }
     case 'drag':

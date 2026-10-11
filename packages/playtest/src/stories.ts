@@ -18,6 +18,9 @@ const storySchema = z
     budget: z.object({ steps: z.number().int().positive() }),
   })
   .superRefine((story, context) => {
+    if (new Set(story.viewports).size !== story.viewports.length) {
+      context.addIssue({ code: 'custom', path: ['viewports'], message: 'Duplicate viewports' });
+    }
     if (story.kind === 'mission' && !story.persona) {
       context.addIssue({
         code: 'custom',

@@ -14,7 +14,7 @@ export type PlaytestAdapter = {
   prepare(
     story: Story,
     viewport: Viewport
-  ): Promise<{ credentials: { email: string; password: string } }>;
+  ): Promise<{ credentials: { email: string; password: string }; cleanup?: () => Promise<void> }>;
   classify(event: ObservedEvent): StopVerdict;
   styleReference(): string[];
   taxonomy(): string;

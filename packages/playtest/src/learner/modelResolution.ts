@@ -16,6 +16,7 @@ const entrySchema = z.object({
     completion: priceSchema,
     input_cache_read: priceSchema.optional(),
     input_cache_write: priceSchema.optional(),
+    overrides: z.array(z.unknown()).optional(),
   }),
   top_provider: z.object({ max_completion_tokens: z.number().int().positive() }),
   supported_parameters: z.array(z.string()).optional(),
@@ -25,6 +26,8 @@ const catalogueSchema = z.object({ data: z.array(z.object({ id: z.string() }).pa
 /** Only text/image inputs are supported by Pi; prices are expressed per million tokens. */
 export function mapOpenRouterModel(entry: unknown): Model<'openai-completions'> {
   const metadata = entrySchema.parse(entry);
+  if (metadata.pricing.overrides?.length)
+    throw new Error(`Unsupported OpenRouter pricing overrides: ${metadata.id}`);
   const input = metadata.architecture.input_modalities.filter(
     (modality): modality is 'text' | 'image' => modality === 'text' || modality === 'image'
   );

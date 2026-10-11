@@ -52,4 +52,3 @@ vai avanti volentieri.
 
 ## Esempi di stile dei messaggi
 
-<!-- Da compilare con esempi reali dal corpus del manutentore. -->

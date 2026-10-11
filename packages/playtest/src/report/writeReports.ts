@@ -12,11 +12,14 @@ function escapeHtml(text: string): string {
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] as string
   );
 }
+function escapeMarkdown(text: string): string {
+  return escapeHtml(text.replace(/[\\`*_{}[\]()#+.!|~:-]/g, '\\$&'));
+}
 function evidenceLink(from: string, path: string): string {
   return relative(from, path).split('\\').join('/').split('/').map(encodeURIComponent).join('/');
 }
 function findingMarkdown(finding: InspectorFinding, dir: string): string {
-  return `### ${escapeHtml(finding.taxonomyClass)}: ${escapeHtml(finding.title)}\n\n${escapeHtml(finding.trigger)}\n\nExpected: ${escapeHtml(finding.expected)}\n\nActual: ${escapeHtml(finding.actual)}\n\nStep ${finding.stepIndex}: [Screenshot](${evidenceLink(dir, finding.screenshotPath)})`;
+  return `### ${escapeMarkdown(finding.taxonomyClass)}: ${escapeMarkdown(finding.title)}\n\n${escapeMarkdown(finding.trigger)}\n\nExpected: ${escapeMarkdown(finding.expected)}\n\nActual: ${escapeMarkdown(finding.actual)}\n\nStep ${finding.stepIndex}: [Screenshot](${evidenceLink(dir, finding.screenshotPath)})`;
 }
 
 /** Raw facts and the learner trace are retained alongside the three separate report categories. */
@@ -44,7 +47,7 @@ export async function writeStoryReports(input: {
     inspectionError,
   };
   const sections = [
-    `# ${escapeHtml(record.storyId)} (${record.viewport})`,
+    `# ${escapeMarkdown(record.storyId)} (${record.viewport})`,
     `Outcome: ${record.outcome}`,
     ...(record.elapsedMs === undefined ? [] : [`Elapsed: ${record.elapsedMs.toFixed(1)} ms`]),
     ...(record.modelUsage
@@ -52,25 +55,26 @@ export async function writeStoryReports(input: {
           `Model usage (Pi): ${record.modelUsage.total.totalTokens} tokens; USD ${record.modelUsage.total.cost.total.toFixed(6)}`,
         ]
       : []),
-    ...(record.reason ? [escapeHtml(record.reason)] : []),
-    ...(record.correlationId ? [`Request: ${escapeHtml(record.correlationId)}`] : []),
+    ...(record.reason ? [escapeMarkdown(record.reason)] : []),
+    ...(record.cleanupError ? [`Cleanup: ${escapeMarkdown(record.cleanupError)}`] : []),
+    ...(record.correlationId ? [`Request: ${escapeMarkdown(record.correlationId)}`] : []),
     ...(stopEvent?.kind === 'response'
-      ? [`Stopped response: ${stopEvent.status} ${escapeHtml(stopEvent.url)}`]
+      ? [`Stopped response: ${stopEvent.status} ${escapeMarkdown(stopEvent.url)}`]
       : []),
     ...(tracePath ? [`[Browser trace](${evidenceLink(dir, tracePath)})`] : []),
-    ...(inspectionError ? [inspectionError] : []),
+    ...(inspectionError ? [escapeMarkdown(inspectionError)] : []),
     '## Probe findings',
     ...probeFindings.map(finding => findingMarkdown(finding, dir)),
     '## Judge findings',
     ...judgeFindings.map(finding => findingMarkdown(finding, dir)),
     '## Learner friction',
-    ...record.friction.map(escapeHtml),
+    ...record.friction.map(escapeMarkdown),
     '## Diary',
-    ...(learner?.diary.map(escapeHtml) ?? []),
+    ...(learner?.diary.map(escapeMarkdown) ?? []),
     '## Observations',
     ...(learner?.observations.map(
       observation =>
-        `Step ${observation.stepIndex}: ${escapeHtml(observation.url)} — [Screenshot](${evidenceLink(dir, observation.screenshotPath)})`
+        `Step ${observation.stepIndex}: ${escapeMarkdown(observation.url)} — [Screenshot](${evidenceLink(dir, observation.screenshotPath)})`
     ) ?? []),
   ];
   await writeFile(record.reportPath, `${JSON.stringify(json, null, 2)}\n`);

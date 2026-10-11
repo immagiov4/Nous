@@ -22,6 +22,7 @@ export type LearnerTurn = { decision: LearnerDecision; result?: ActionResult };
 export type MissionOutcome = 'completed' | 'abandoned' | 'harness-limit' | 'operator-failure';
 export type LearnerRunResult = {
   outcome: MissionOutcome | 'app-error';
+  reason?: string;
   turns: LearnerTurn[];
   diary: string[];
   friction: string[];
@@ -60,11 +61,18 @@ export async function runLearner(input: {
   const systemPrompt = buildLearnerPrompt(input);
   while (result.turns.length < input.story.budget.steps) {
     if (appStopped()) return result;
-    const decision = await input.source.decide({
-      systemPrompt,
-      history: [...result.turns],
-      observation,
-    });
+    let decision: LearnerDecision;
+    try {
+      decision = await input.source.decide({
+        systemPrompt,
+        history: [...result.turns],
+        observation,
+      });
+    } catch {
+      result.outcome = appStopped() ? 'app-error' : 'operator-failure';
+      result.reason = 'The learner could not obtain its next decision.';
+      return result;
+    }
     if (appStopped()) return result;
     const turn: LearnerTurn = { decision };
     result.turns.push(turn);

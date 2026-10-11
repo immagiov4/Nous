@@ -55,6 +55,8 @@ export function createPiDecisionSource(options: {
   return {
     async decide(input) {
       const model = await resolveModel();
+      if (!model.input.includes('image'))
+        throw new Error('The learner requires an image-capable model.');
       let decision: LearnerDecision | undefined;
       const accept = async (next: LearnerDecision, ctx: ExtensionContext) => {
         if (decision) throw new Error('A learner decision has already been selected.');

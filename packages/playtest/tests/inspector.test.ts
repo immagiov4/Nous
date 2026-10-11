@@ -14,7 +14,9 @@ import { createPiVisualJudge, type VisualJudge } from '../src/inspector/judge';
 import type { LearnerRunResult } from '../src/learner/loop';
 import { mapOpenRouterModel } from '../src/learner/modelResolution';
 import type { Observation } from '../src/operator/session';
-import catalogueEntry from './fixtures/models/openrouter-sonnet-4.json';
+import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
+
+const catalogueEntry = { ...tieredEntry, pricing: { ...tieredEntry.pricing, overrides: [] } };
 
 const sdk = vi.hoisted(() => ({
   find: vi.fn(),
@@ -109,7 +111,7 @@ describe('inspector', () => {
     expect(result.expected).toBe('Maintainer threshold: 10');
   });
 
-  it('pairs each screenshot with compact visible names without node metadata or learner history', async () => {
+  it('pairs each screenshot with compact visible names and passes the recorded trace separately', async () => {
     const judge = vi.fn(async () => [finding()]);
     const screens = observations.map((screen, index) => ({
       ...screen,
@@ -123,12 +125,19 @@ describe('inspector', () => {
         box: { x: 0, y: 0, w: 10, h: 10 },
       })),
     }));
+    const trace = {
+      learner: { ...learner, diary: ['Recorded history'] },
+      probeSignals: [],
+      elapsedMs: 120,
+      tracePath: 'trace.zip',
+    };
     expect(
       await inspect({
         ...input,
         observations: screens,
         learner: { ...learner, diary: ['Private history'] },
         judge: { judge },
+        trace,
       })
     ).toEqual([finding()]);
     expect(judge).toHaveBeenCalledExactlyOnceWith({
@@ -138,6 +147,7 @@ describe('inspector', () => {
       ],
       styleReference: input.styleReference,
       taxonomy: input.taxonomy,
+      trace,
     });
   });
 
@@ -232,6 +242,7 @@ describe('Pi visual judge with a mocked SDK', () => {
     })),
     styleReference,
     taxonomy: 'D01: clipping',
+    trace: { learner, probeSignals: [], elapsedMs: 120, tracePath: 'trace.zip' },
   });
 
   it('resolves shared model metadata and sends ordered real images through an isolated session', async () => {
@@ -256,6 +267,7 @@ describe('Pi visual judge with a mocked SDK', () => {
       screenshots: judgeInput().screenshots.map((screen, stepIndex) => ({ stepIndex, ...screen })),
       styleReference,
       taxonomy: 'D01: clipping',
+      trace: judgeInput().trace,
       imageOrder: 'Screenshots in list order, then style references in list order.',
     });
     expect(imageInput.images).toEqual(

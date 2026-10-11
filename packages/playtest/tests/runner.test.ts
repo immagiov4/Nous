@@ -1,13 +1,19 @@
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ReactMarkdown from 'react-markdown';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PlaytestAdapter } from '../src/adapter';
 import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
 import type { VisualJudge } from '../src/inspector/judge';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
+import { writeStoryReports } from '../src/report/writeReports';
 import { runPlaytest } from '../src/runner';
 import type { Story } from '../src/types';
 
@@ -107,6 +113,87 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it.each([
+    'completed',
+    'operator-failure',
+    'app-error',
+  ] as const)('cleans up the prepared account after the browser closes for %s', async outcome => {
+    const app = adapter();
+    const cleanup = vi.fn(async () => {
+      expect(
+        (await readFile(join(runDir, 'story-0-cleanup', 'desktop', 'trace.zip'))).length
+      ).toBeGreaterThan(0);
+    });
+    app.prepare = async () => ({
+      credentials: { email: 'learner@example.test', password: 'secret' },
+      cleanup,
+    });
+    if (outcome === 'app-error') app.baseUrl = () => `${baseUrl}/error`;
+    const summary = await run([story('cleanup')], app, () => ({
+      decide: async () => {
+        if (outcome === 'operator-failure') throw new Error('Synthetic model failure');
+        return { type: 'stop', reason: 'completed', summary: 'Done' };
+      },
+    }));
+    expect(summary.records[0].outcome).toBe(outcome);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect((await report(summary.records[0].reportPath)).tracePath).toBeDefined();
+  });
+
+  it('retains partial learner evidence for inspection and reporting after a model failure', async () => {
+    const summary = await run([story('partial')], adapter(), () =>
+      createScriptedDecisionSource([
+        { type: 'diary', entry: 'Observed the page' },
+        { type: 'report-friction', text: 'Unclear question' },
+      ])
+    );
+    const data = await report(summary.records[0].reportPath);
+    expect(data.outcome).toBe('operator-failure');
+    expect(data.learner.diary).toEqual(['Observed the page']);
+    expect(data.friction).toEqual(['Unclear question']);
+    expect(judge.mock.calls[0][0].trace?.learner).toEqual(data.learner);
+    expect(judge.mock.calls[0][0].trace?.probeSignals).toEqual(data.probeSignals);
+    expect(judge.mock.calls[0][0].trace?.elapsedMs).toBeGreaterThan(0);
+  });
+  it('retains cleanup failures alongside an application stop', async () => {
+    const app = adapter();
+    app.baseUrl = () => `${baseUrl}/error`;
+    app.prepare = async () => ({
+      credentials: { email: 'learner@example.test', password: 'secret' },
+      cleanup: async () => {
+        throw new Error('Synthetic cleanup failure');
+      },
+    });
+    const summary = await run([story('cleanup-failure')], app);
+    const data = await report(summary.records[0].reportPath);
+    expect(data.outcome).toBe('app-error');
+    expect(data.cleanupError).toBe('The adapter could not clean up the synthetic story account.');
+    expect(await readFile(data.reportPath.replace(/\.json$/, '.md'), 'utf8')).toContain('Cleanup:');
+  });
+
+  it('renders untrusted report text as literal Markdown without remote images or links', async () => {
+    runDir = await mkdtemp(join(tmpdir(), 'playtest-markdown-'));
+    const injected =
+      '![image](https://attacker.invalid/image) [link](https://attacker.invalid)\n# Fake heading\n<script>bad</script>';
+    await writeStoryReports({
+      record: {
+        storyId: injected,
+        viewport: 'desktop',
+        outcome: 'completed',
+        reason: injected,
+        correlationId: injected,
+        findings: [],
+        friction: [injected],
+        reportPath: join(runDir, 'story.json'),
+      },
+    });
+    const markdown = await readFile(join(runDir, 'story.md'), 'utf8');
+    const rendered = renderToStaticMarkup(createElement(ReactMarkdown, null, markdown));
+    expect(rendered).not.toContain('<img');
+    expect(rendered).not.toContain('<a href="https://attacker.invalid');
+    expect(rendered).not.toContain('<script>');
+    expect(rendered).toContain('![image](https://attacker.invalid/image)');
+  });
   it('writes isolated story×viewport reports, traces and stable summary counts', async () => {
     const app = adapter();
     const prepare = app.prepare;
@@ -292,14 +379,14 @@ describe('CLI', () => {
     vi.stubEnv('NOUS_E2E_DATA', '');
     await expect(main([])).rejects.toThrow('NOUS_E2E_DATA is unset');
     runDir = await mkdtemp(join(tmpdir(), 'playtest-cli-missing-'));
-    const child = Bun.spawn([process.execPath, 'run', resolve('packages/playtest/src/cli.ts')], {
+    const child = promisify(execFile)('bun', ['run', resolve('packages/playtest/src/cli.ts')], {
       cwd: runDir,
       env: { ...process.env, NOUS_E2E_DATA: runDir },
-      stdout: 'pipe',
-      stderr: 'pipe',
+      windowsHide: true,
     });
-    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(exitCode).toBe(1);
+    const failure = await child.catch(error => error as { code: number; stderr: string });
+    expect('code' in failure && failure.code).toBe(1);
+    const stderr = failure.stderr;
     expect(stderr).toContain('Adapter module is missing:');
     expect(stderr).toContain('e2e');
     expect(stderr).toContain('adapter.ts');
@@ -319,10 +406,20 @@ describe('CLI', () => {
     };`
     );
     await mkdir(join(runDir, 'stories'));
-    for (const id of ['selected', 'excluded']) {
+    await mkdir(join(runDir, 'personas'));
+    await writeFile(
+      join(runDir, 'personas', 'person.md'),
+      '---\nid: person\n---\nA synthetic learner.\n'
+    );
+    for (const [id, kind, tag] of [
+      ['selected', 'check', 'fixture'],
+      ['excluded', 'check', 'fixture'],
+      ['wrong-tag', 'check', 'other'],
+      ['wrong-kind', 'mission', 'fixture'],
+    ]) {
       await writeFile(
         join(runDir, 'stories', `${id}.md`),
-        `---\nid: ${id}\nkind: check\ntitle: ${id}\nviewports: [desktop]\nrequires: {}\ntags: [fixture]\nbudget: { steps: 1 }\n---\nExplore.\n`
+        `---\nid: ${id}\nkind: ${kind}\n${kind === 'mission' ? 'persona: person\n' : ''}title: ${id}\nviewports: [desktop]\nrequires: {}\ntags: [${tag}]\nbudget: { steps: 1 }\n---\nExplore.\n`
       );
     }
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -336,6 +433,10 @@ describe('CLI', () => {
         'fake',
         '--id',
         'selected',
+        '--id',
+        'wrong-tag',
+        '--id',
+        'wrong-kind',
         '--tag',
         'fixture',
         '--kind',
@@ -351,6 +452,22 @@ describe('CLI', () => {
       'selected',
     ]);
     expect(summary.outcomeCounts['blocked-precondition']).toBe(1);
+    const args = ['--adapter', adapterPath, '--provider', 'fake', '--model', 'fake'];
+    for (const filter of [
+      ['--id', 'stale-id'],
+      ['--tag', 'stale-tag'],
+    ]) {
+      await expect(main([...args, ...filter])).rejects.toThrow('No stories match');
+    }
+    vi.stubEnv('NOUS_E2E_DATA', '');
+    const logExplicit = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await main([...args, '--id', 'selected', '--run-dir', join(runDir, 'explicit')]);
+    } finally {
+      logExplicit.mockRestore();
+    }
+    expect((await report(join(runDir, 'explicit', 'summary.json'))).records).toHaveLength(1);
+    vi.stubEnv('NOUS_E2E_DATA', runDir);
     await expect(
       main([
         '--adapter',

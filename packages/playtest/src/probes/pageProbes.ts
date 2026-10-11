@@ -1,5 +1,3 @@
-export { installProbes } from './collect';
-
 export type ProbeSignal =
   | {
       kind: 'clipped-text';
@@ -78,6 +76,19 @@ export function initializePageProbes(): void {
     for (let current: Element | null = element; current; current = current.parentElement) {
       const style = getComputedStyle(current);
       const rect = current.getBoundingClientRect();
+      const inset = /^inset\(([-\d.]+)(%|px)\)$/.exec(style.clipPath);
+      if (inset) {
+        // CSS inset() clips all four sides; 50% leaves an empty painted rectangle.
+        const offset = Number(inset[1]);
+        const horizontal = inset[2] === '%' ? (rect.width * offset) / 100 : offset;
+        const vertical = inset[2] === '%' ? (rect.height * offset) / 100 : offset;
+        box = intersection(box, {
+          left: rect.left + horizontal,
+          right: rect.right - horizontal,
+          top: rect.top + vertical,
+          bottom: rect.bottom - vertical,
+        });
+      }
       if (style.clip !== 'auto') {
         const offsets = style.clip.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
         if (offsets?.length === 4) {

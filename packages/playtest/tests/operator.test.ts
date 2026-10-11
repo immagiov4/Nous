@@ -51,6 +51,75 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it('counts repeated navigation invalidations against the approved capture retry budget', async () => {
+    const page = await fixture('<p>Initial document</p>');
+    const screenshot = page.screenshot.bind(page);
+    let count = 0;
+    const capture = vi.spyOn(page, 'screenshot').mockImplementation(async options => {
+      const image = await screenshot(options);
+      await page.goto(`data:text/html,<p>Document ${++count}</p>`);
+      return image;
+    });
+    await expect(session.observe()).rejects.toThrow('Document changed during capture');
+    expect(capture).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads non-interactive painted text and still withholds covered text', async () => {
+    await fixture(
+      '<p style="pointer-events:none">Visible hint</p><div style="position:relative"><p style="pointer-events:none">Covered hint</p><div style="position:absolute;inset:0;background:white"></div></div>'
+    );
+    const observation = await session.observe();
+    expect(observation.nodes.map(node => node.name)).toContain('Visible hint');
+    expect(JSON.stringify(observation.nodes)).not.toContain('Covered hint');
+  });
+
+  it('keeps ordinary message fields visible while masking credential-bearing controls', async () => {
+    const page = await fixture(
+      '<label>Message<textarea>Ordinary question</textarea></label><div contenteditable>Editable note</div><input value="' +
+        credentials.password +
+        '"><input type="password" value="' +
+        credentials.password +
+        '">'
+    );
+    const observation = await session.observe();
+    const image = await readFile(observation.screenshotPath);
+    expect(image.equals(await page.screenshot({ mask: [page.locator('input')] }))).toBe(true);
+    expect(observation.nodes.map(node => node.name)).toContain('Editable note');
+    expect(JSON.stringify(observation.nodes)).not.toContain(credentials.password);
+  });
+
+  it('rejects credentials in ordinary fields and mismatched login fields', async () => {
+    const page = await fixture(
+      '<label>Message<textarea></textarea></label><label>Email<input type="email"></label><label>Password<input type="password"></label>'
+    );
+    const observation = await session.observe();
+    for (const [name, field] of [
+      ['Message', 'password'],
+      ['Message', 'email'],
+      ['Email', 'password'],
+      ['Password', 'email'],
+    ] as const) {
+      expect(
+        (await session.act({ type: 'fill-credential', ref: ref(observation, name), field })).status
+      ).toBe('not-actionable');
+    }
+    expect(await page.locator('textarea').inputValue()).toBe('');
+    expect(await page.locator('input[type=email]').inputValue()).toBe('');
+  });
+
+  it('redacts form-encoded credentials containing spaces from observed URLs', async () => {
+    const page = await fixture('<p>Public page</p>');
+    // Supply a secret with spaces at the operator boundary, independent of native form filling.
+    const { observePage } = await import('../src/operator/observe');
+    vi.spyOn(page, 'url').mockReturnValue('https://example.test/?password=a+b&email=a%2Bb');
+    const observation = await observePage({
+      page,
+      stepIndex: 0,
+      screenshotPath: join(runDir, 'encoded.png'),
+      secrets: ['a b', 'a+b'],
+    });
+    expect(observation.url).toBe('https://example.test/?password=[redacted]&email=[redacted]');
+  });
   it.each([1, 2])('retries a failed screenshot once (%i injected failures)', async failures => {
     const page = await fixture('<main>Visible capture</main>');
     const original = page.screenshot.bind(page);
@@ -229,6 +298,11 @@ describe('operator', () => {
       '<label>Message<textarea></textarea></label><button onclick="this.textContent=\'Clicked\'">Send</button><div role="slider" style="width:200px;height:30px;background:gray">Drag</div>'
     );
     const message = 'A literal message: <b>hello</b>\nsecond line';
+    await page.locator('textarea').evaluate(element => {
+      element.addEventListener('keydown', event => {
+        element.setAttribute('data-last-key', (event as KeyboardEvent).key);
+      });
+    });
     const typed = await session.act({
       type: 'type',
       ref: ref(await session.observe(), 'Message'),
@@ -236,6 +310,7 @@ describe('operator', () => {
     });
     expect(typed.status).toBe('ok');
     expect(await page.locator('textarea').inputValue()).toBe(message);
+    expect(await page.locator('textarea').getAttribute('data-last-key')).toBe('e');
     expect((await session.act({ type: 'press', key: 'Tab' })).status).toBe('ok');
     const clicked = await session.act({
       type: 'click',

@@ -7,7 +7,7 @@ import {
   streamSimple,
   unregisterApiProviders,
 } from '@mariozechner/pi-ai';
-import { afterAll, expect, it } from 'vitest';
+import { afterAll, expect, it, vi } from 'vitest';
 import { createModelUsage, meterModel, withModelUsage } from '../src/modelUsage';
 
 const api = 'synthetic-playtest-usage';
@@ -49,7 +49,10 @@ const syntheticStream = () => {
   return events;
 };
 registerApiProvider({ api, stream: syntheticStream, streamSimple: syntheticStream }, api);
-afterAll(() => unregisterApiProviders(api));
+afterAll(() => {
+  unregisterApiProviders(api);
+  unregisterApiProviders(`playtest-usage:${api}`);
+});
 
 it('records final Pi usage once, preserves stream events and separates concurrent stories and phases', async () => {
   const first = createModelUsage();
@@ -71,4 +74,19 @@ it('records final Pi usage once, preserves stream events and separates concurren
   expect(second.total).toEqual({ ...message.usage, responses: 1 });
   expect(second.judge.responses).toBe(0);
   expect(meterModel(model)).toBe(model);
+});
+
+it('handles rejected stream results without recording fabricated usage', async () => {
+  const events = createAssistantMessageEventStream();
+  const failure = new Error('Synthetic provider failure');
+  vi.spyOn(events, 'result').mockImplementation(() => Promise.reject(failure));
+  registerApiProvider({ api, stream: () => events, streamSimple: () => events }, api);
+  unregisterApiProviders(`playtest-usage:${api}`);
+  const report = createModelUsage();
+  await withModelUsage(report, 'learner', async () => {
+    const stream = streamSimple(meterModel(model), { messages: [] }, { apiKey: 'synthetic' });
+    await expect(stream.result()).rejects.toThrow(failure);
+  });
+  expect(report.total.responses).toBe(0);
+  expect(report.total.totalTokens).toBe(0);
 });

@@ -53,8 +53,21 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
     const x = rect.x + rect.width / 2;
     const y = rect.y + rect.height / 2;
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
-    const top = document.elementFromPoint(x, y);
-    return top === element || (!textOnly && top !== null && element.contains(top));
+    // Non-interactive copy still paints; restore its hit testing only while measuring coverage.
+    const style = (element as HTMLElement | SVGElement).style;
+    const pointerEvents = style.getPropertyValue('pointer-events');
+    const priority = style.getPropertyPriority('pointer-events');
+    const restoreHitTesting = getComputedStyle(element).pointerEvents === 'none';
+    try {
+      if (restoreHitTesting) style.setProperty('pointer-events', 'auto', 'important');
+      const top = document.elementFromPoint(x, y);
+      return top === element || (!textOnly && top !== null && element.contains(top));
+    } finally {
+      if (restoreHitTesting) {
+        if (pointerEvents) style.setProperty('pointer-events', pointerEvents, priority);
+        else style.removeProperty('pointer-events');
+      }
+    }
   };
   const semanticSelector =
     'button, a[href], input, textarea, select, h1, h2, h3, h4, h5, h6, [role], [contenteditable]';
@@ -139,7 +152,13 @@ function visibleSnapshot({ secrets, prefix }: { secrets: string[]; prefix: strin
 /** Credentials, including encoded copies, are withheld from learner-facing URLs and labels. */
 function redact(text: string, secrets: string[]): string {
   for (const secret of secrets.filter(Boolean)) {
-    for (const representation of new Set([secret, encodeURIComponent(secret), encodeURI(secret)])) {
+    const formEncoded = new URLSearchParams({ secret }).toString().slice('secret='.length);
+    for (const representation of new Set([
+      secret,
+      encodeURIComponent(secret),
+      encodeURI(secret),
+      formEncoded,
+    ])) {
       text = text.split(representation).join('[redacted]');
     }
   }
@@ -157,14 +176,27 @@ export async function observePage(options: {
     secrets,
     prefix: randomUUID(),
   });
+  const editable = page.locator('input, textarea, [contenteditable]');
+  const secretFields = await editable.evaluateAll(
+    (elements, secrets) =>
+      elements.flatMap((element, index) => {
+        const value =
+          element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+            ? element.value
+            : (element.textContent ?? '');
+        return secrets.some(secret => secret && value.includes(secret)) ? [index] : [];
+      }),
+    secrets
+  );
   await page.screenshot({
     path: screenshotPath,
     fullPage: false,
     // Live locators keep credential fields masked even if the app replaces them during capture.
     mask: [
       page.locator(
-        'input:not(:placeholder-shown), textarea:not(:placeholder-shown), [contenteditable]'
+        'input[type="password"], input[type="email"], input[autocomplete="username"], input[autocomplete="email"]'
       ),
+      ...secretFields.map(index => editable.nth(index)),
       ...secrets.filter(Boolean).map(secret => page.getByText(secret)),
     ],
   });

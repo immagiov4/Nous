@@ -24,6 +24,7 @@ export type StoryRunRecord = {
   viewport: Viewport;
   outcome: StoryOutcome;
   reason?: string;
+  cleanupError?: string;
   correlationId?: string;
   affect?: string;
   elapsedMs?: number;
@@ -187,6 +188,7 @@ async function runStoryWithUsage(
     });
     record.outcome = learner.outcome;
     record.friction = learner.friction;
+    record.reason = learner.reason;
     const stopDecision = learner.turns.at(-1)?.decision;
     if (stopDecision?.type === 'stop') record.reason = stopDecision.summary;
   } catch {
@@ -200,6 +202,13 @@ async function runStoryWithUsage(
         record.outcome = 'operator-failure';
         record.reason = 'The harness could not save the browser trace.';
       }
+    }
+    try {
+      await prepared.cleanup?.();
+    } catch {
+      record.outcome = 'operator-failure';
+      record.cleanupError = 'The adapter could not clean up the synthetic story account.';
+      record.reason = record.cleanupError;
     }
   }
   if (stopped) {
@@ -215,6 +224,13 @@ async function runStoryWithUsage(
       probeFindings,
       learner,
       observations: learner.observations,
+      trace: {
+        learner,
+        probeSignals,
+        elapsedMs: performance.now() - startedAt,
+        tracePath,
+        stopEvent,
+      },
     };
     try {
       record.findings = await withModelUsage(modelUsage, 'judge', () =>

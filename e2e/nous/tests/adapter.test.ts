@@ -1,8 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { chromium } from 'playwright';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PostgresProjectStore } from '../../../apps/backend/src/projects/postgresProjectStore';
@@ -54,6 +56,40 @@ vi.mock('../../../packages/playtest/src/inspector/judge', () => ({
 }));
 
 describe('Nous adapter', () => {
+  it('rejects in-repository data paths whose segment merely starts with two dots', () => {
+    vi.stubEnv('NOUS_E2E_DATA', join(REPO_ROOT, '..playtest'));
+    expect(dataRoot).toThrow('outside');
+    vi.stubEnv('NOUS_E2E_DATA', join(REPO_ROOT, '..', 'external-playtest'));
+    expect(dataRoot()).toBe(join(REPO_ROOT, '..', 'external-playtest'));
+  });
+
+  it('accepts saved isolated configuration on shutdown but refuses a recycled process identity', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-stop-identity-'));
+    await mkdir(join(temporaryRoot, 'stack', 'supabase'), { recursive: true });
+    await writeFile(
+      join(temporaryRoot, 'stack', 'supabase', 'config.toml'),
+      '# Saved configuration may differ from the current repository\nproject_id="nous-playtest"\n[api]\nport=55321\n[db]\nport=55322\nshadow_port=55320\n[studio]\nport=55323\n[inbucket]\nport=55324\n[auth.email.smtp]\nenabled=false\n'
+    );
+    await writeFile(
+      join(temporaryRoot, 'stack', 'frontend-pid.json'),
+      JSON.stringify({
+        pid: process.pid,
+        repoRoot: REPO_ROOT,
+        identity: 'different-process-birth-time',
+      })
+    );
+    const failure = await promisify(execFile)(
+      'bun',
+      ['run', join(REPO_ROOT, 'e2e/nous/stack.ts'), '--stop'],
+      { env: { ...process.env, NOUS_E2E_DATA: temporaryRoot }, windowsHide: true }
+    ).catch(error => error as { code: number; stderr: string });
+    expect('code' in failure && failure.code).toBe(1);
+    expect(failure.stderr).toContain('process identity changed');
+    expect(() => process.kill(process.pid, 0)).not.toThrow();
+    expect(
+      JSON.parse(await readFile(join(temporaryRoot, 'stack', 'frontend-pid.json'), 'utf8')).pid
+    ).toBe(process.pid);
+  });
   it.each([
     'Supabase',
     'backend',
@@ -114,13 +150,16 @@ describe('Nous adapter', () => {
       'fixture',
       [
         '-e',
-        `Bun.serve({hostname:'127.0.0.1',port:${address.port},fetch:()=>new Response('healthy')})`,
+        `require('node:http').createServer((_request,response)=>response.end('healthy')).listen(${address.port},'127.0.0.1')`,
       ],
       url,
       process.env
     );
     try {
       expect(await (await fetch(url)).text()).toBe('healthy');
+      expect(
+        JSON.parse(await readFile(join(temporaryRoot, 'stack', 'fixture-pid.json'), 'utf8'))
+      ).toMatchObject({ pid, repoRoot: REPO_ROOT, identity: expect.any(String) });
     } finally {
       process.kill(pid);
     }
@@ -252,6 +291,62 @@ describe('Nous adapter', () => {
     expect(close).toHaveBeenCalledTimes(2);
   });
 
+  it('seeds the private-law mission with a matching lesson and cleans up projects before its account', async () => {
+    const userId = crypto.randomUUID();
+    const fetcher = vi.fn(async () => Response.json({ id: userId }));
+    vi.stubGlobal('fetch', fetcher);
+    const save = vi
+      .spyOn(PostgresProjectStore.prototype, 'saveProject')
+      .mockResolvedValue({} as Awaited<ReturnType<PostgresProjectStore['saveProject']>>);
+    vi.spyOn(PostgresProjectStore.prototype, 'listProjects').mockResolvedValue([
+      { id: 'synthetic-project' },
+    ] as Awaited<ReturnType<PostgresProjectStore['listProjects']>>);
+    const deleted = vi.spyOn(PostgresProjectStore.prototype, 'deleteProject').mockResolvedValue();
+    vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
+    const stories = await loadStories(fileURLToPath(new URL('../stories', import.meta.url)));
+    const mission = stories.find(story => story.id === 'esame-diritto-privato');
+    if (!mission) throw new Error('Bundled mission is missing');
+    const prepared = await prepare(mission, 'mobile', status);
+    expect(save.mock.calls[0][1]).toMatchObject({
+      activeSectionId: 'lesson-contract',
+      learningPlan: {
+        modules: [
+          {
+            id: 'module-law',
+            children: [{ id: 'lesson-contract', contentBlocks: expect.any(Array) }],
+          },
+        ],
+      },
+    });
+    await prepared.cleanup();
+    expect(deleted).toHaveBeenCalledExactlyOnceWith(userId, 'synthetic-project');
+    expect(fetcher.mock.calls.at(-1)).toEqual([
+      `${status.API_URL}/auth/v1/admin/users/${userId}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    ]);
+    expect(deleted.mock.invocationCallOrder[0]).toBeLessThan(
+      fetcher.mock.invocationCallOrder.at(-1) as number
+    );
+  });
+
+  it('cleans up a created synthetic account when course preparation fails', async () => {
+    const userId = crypto.randomUUID();
+    const fetcher = vi.fn(async () => Response.json({ id: userId }));
+    vi.stubGlobal('fetch', fetcher);
+    vi.spyOn(PostgresProjectStore.prototype, 'saveProject').mockRejectedValue(
+      new Error('Synthetic seed failure')
+    );
+    vi.spyOn(PostgresProjectStore.prototype, 'listProjects').mockResolvedValue([]);
+    vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
+    await expect(
+      prepare({ ...story, requires: { course: 'synthetic-short' } }, 'desktop', status)
+    ).rejects.toThrow('Synthetic seed failure');
+    expect(fetcher.mock.calls.at(-1)).toEqual([
+      `${status.API_URL}/auth/v1/admin/users/${userId}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    ]);
+  });
+
   it('imports JSON fixtures through the product import method and rejects traversal', async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-adapter-'));
     vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
@@ -269,6 +364,13 @@ describe('Nous adapter', () => {
     vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
     await prepare({ ...story, requires: { course: 'fixture:synthetic.json' } }, 'desktop', status);
     expect(importProject.mock.calls[0][1]).toEqual(snapshot);
+    await writeFile(join(temporaryRoot, 'fixtures', '..synthetic.json'), JSON.stringify(snapshot));
+    await prepare(
+      { ...story, requires: { course: 'fixture:..synthetic.json' } },
+      'desktop',
+      status
+    );
+    expect(importProject.mock.calls[1][1]).toEqual(snapshot);
     const archive = Buffer.from('synthetic archive bytes');
     await writeFile(join(temporaryRoot, 'fixtures', 'synthetic.zip'), archive);
     const importArchive = vi
@@ -415,6 +517,7 @@ describe('Nous adapter', () => {
       });
       const observation = await session.observe();
       expect(observation.nodes.some(node => node.name === 'After navigation')).toBe(true);
+      expect(page.screenshot).toHaveBeenCalledTimes(2);
       expect(observation.nodes.some(node => node.name === 'Before navigation')).toBe(false);
       const signals = await session.signals();
       expect(signals).toContainEqual(

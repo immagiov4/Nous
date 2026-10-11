@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { appendFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import * as z from 'zod';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -23,12 +24,62 @@ const statusSchema = z.object({
   JWT_SECRET: z.string().min(1),
 });
 export type StackStatus = z.infer<typeof statusSchema>;
+const executeFile = promisify(execFile);
+const ownedProcessSchema = z.object({
+  pid: z.number().int().positive(),
+  repoRoot: z.literal(REPO_ROOT),
+  identity: z.string().min(1),
+});
+const stackConfigSchema = z.object({
+  project_id: z.literal(PROJECT_ID),
+  api: z.object({ port: z.literal(PORTS.api) }),
+  db: z.object({ port: z.literal(PORTS.db), shadow_port: z.literal(PORTS.shadow) }),
+  studio: z.object({ port: z.literal(PORTS.studio) }),
+  inbucket: z.object({ port: z.literal(PORTS.mail) }),
+  auth: z.object({ email: z.object({ smtp: z.object({ enabled: z.literal(false) }) }) }),
+});
+
+/** Birth time and command distinguish an owned server from a recycled PID. */
+async function processIdentity(pid: number): Promise<string | undefined> {
+  if (process.platform === 'win32') {
+    const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; if ($p) { @{ startedAt = $p.CreationDate.ToUniversalTime().ToString('o'); command = $p.CommandLine } | ConvertTo-Json -Compress }`;
+    const { stdout } = await executeFile('powershell.exe', ['-NoProfile', '-Command', command], {
+      windowsHide: true,
+    });
+    if (!stdout.trim()) return undefined;
+    return JSON.stringify(
+      z
+        .object({ startedAt: z.string().min(1), command: z.string().min(1) })
+        .parse(JSON.parse(stdout))
+    );
+  }
+  try {
+    const { stdout } = await executeFile(
+      'ps',
+      ['-ww', '-p', String(pid), '-o', 'lstart=', '-o', 'args='],
+      { env: { ...process.env, LC_ALL: 'C' } }
+    );
+    return stdout.trim() || undefined;
+  } catch (error) {
+    if ((error as { code?: number }).code === 1) return undefined;
+    throw error;
+  }
+}
+
+async function ownedProcess(name: string) {
+  return readFile(join(dataRoot(), 'stack', `${name}-pid.json`), 'utf8')
+    .then(text => ownedProcessSchema.parse(JSON.parse(text)))
+    .catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    });
+}
 
 export function dataRoot(): string {
   if (!process.env.NOUS_E2E_DATA) throw new Error('NOUS_E2E_DATA is unset.');
   const root = resolve(process.env.NOUS_E2E_DATA);
   const fromRepo = relative(REPO_ROOT, root);
-  if (!fromRepo.startsWith('..') && !fromRepo.includes(':'))
+  if (fromRepo !== '..' && !fromRepo.startsWith(`..${sep}`) && !isAbsolute(fromRepo))
     throw new Error('NOUS_E2E_DATA must be outside the repository.');
   return root;
 }
@@ -59,14 +110,7 @@ async function configureStack(): Promise<string> {
       .replace('[auth.email.smtp]\nenabled = true', '[auth.email.smtp]\nenabled = false')
       .replace('[auth.email.smtp]\r\nenabled = true', '[auth.email.smtp]\r\nenabled = false') +
     `\n[analytics]\nenabled = false\n\n[inbucket]\nenabled = true\nport = ${PORTS.mail}\n`;
-  z.object({
-    project_id: z.literal(PROJECT_ID),
-    api: z.object({ port: z.literal(PORTS.api) }),
-    db: z.object({ port: z.literal(PORTS.db), shadow_port: z.literal(PORTS.shadow) }),
-    studio: z.object({ port: z.literal(PORTS.studio) }),
-    inbucket: z.object({ port: z.literal(PORTS.mail) }),
-    auth: z.object({ email: z.object({ smtp: z.object({ enabled: z.literal(false) }) }) }),
-  }).parse(Bun.TOML.parse(config));
+  stackConfigSchema.parse(Bun.TOML.parse(config));
   const existing = await readFile(join(supabase, 'config.toml'), 'utf8').catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined;
@@ -116,16 +160,17 @@ async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<st
   return stdout;
 }
 
-function terminateChild(child: { pid?: number; kill(): unknown }): void {
+function terminateChild(child: { pid?: number; kill(): unknown }, detached = false): void {
   if (process.platform === 'win32' && child.pid) {
-    const stopper = Bun.spawn(['taskkill', '/PID', String(child.pid), '/T', '/F'], {
-      stdout: 'ignore',
-      stderr: 'ignore',
-    });
-    void stopper.exited.then(code => {
-      if (code !== 0)
-        process.stderr.write('[playtest] Could not stop expired stage process tree.\n');
-    });
+    void executeFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+    }).catch(() => process.stderr.write('[playtest] Could not stop expired stage process tree.\n'));
+  } else if (detached && child.pid) {
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
   } else child.kill();
 }
 
@@ -234,42 +279,49 @@ export async function startServer(
   });
   // Keep a rejection handled while the PID record is being written.
   void exited.catch(() => {});
+  let abort: (() => void) | undefined;
   const interrupted = new Promise<never>((_resolve, reject) => {
-    signal?.addEventListener(
-      'abort',
-      () => {
-        terminateChild(child);
-        reject(signal.reason);
-      },
-      { once: true }
-    );
+    abort = () => {
+      terminateChild(child, true);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener('abort', abort, { once: true });
   });
-  if (!child.pid) return exited;
-  await writeFile(
-    join(dataRoot(), 'stack', `${name}-pid.json`),
-    JSON.stringify({ pid: child.pid, repoRoot: REPO_ROOT })
-  );
-  process.stderr.write(`[playtest] readiness: ${name} ${readinessUrl}\n`);
-  const ready = async () => {
-    for (;;) {
-      const response = await Promise.race([
-        fetch(readinessUrl, { signal }).catch(() => undefined),
-        exited,
-        interrupted,
-      ]);
-      if (response?.ok) {
-        await response.body?.cancel();
-        return;
+  try {
+    if (!child.pid) return await exited;
+    const identity = await Promise.race([processIdentity(child.pid), exited, interrupted]);
+    if (!identity) return await exited;
+    await writeFile(
+      join(dataRoot(), 'stack', `${name}-pid.json`),
+      JSON.stringify({ pid: child.pid, repoRoot: REPO_ROOT, identity })
+    );
+    process.stderr.write(`[playtest] readiness: ${name} ${readinessUrl}\n`);
+    const ready = async () => {
+      for (;;) {
+        const response = await Promise.race([
+          fetch(readinessUrl, { signal }).catch(() => undefined),
+          exited,
+          interrupted,
+        ]);
+        if (response?.ok) {
+          await response.body?.cancel();
+          return;
+        }
+        await response?.body?.cancel();
+        // Yield to process-exit events without imposing a retry delay.
+        await setImmediate();
       }
-      await response?.body?.cancel();
-      // Yield to process-exit events without imposing a retry delay.
-      await setImmediate();
-    }
-  };
-  await Promise.race([ready(), exited, interrupted]);
-  startupComplete = true;
-  child.unref();
-  return child.pid;
+    };
+    await Promise.race([ready(), exited, interrupted]);
+    startupComplete = true;
+    child.unref();
+    return child.pid;
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) terminateChild(child, true);
+    throw error;
+  } finally {
+    if (abort) signal?.removeEventListener('abort', abort);
+  }
 }
 
 /** Explicit workdir and URLs keep every database operation off the developer's project. */
@@ -331,18 +383,10 @@ export async function ensureStack(): Promise<void> {
       env,
       work: async signal => {
         process.stderr.write(`[playtest] ${server.name}: checking owned process\n`);
-        const owned = await readFile(join(dataRoot(), 'stack', `${server.name}-pid.json`), 'utf8')
-          .then(text =>
-            z
-              .object({ pid: z.number().int().positive(), repoRoot: z.literal(REPO_ROOT) })
-              .parse(JSON.parse(text))
-          )
-          .catch((error: NodeJS.ErrnoException) => {
-            if (error.code === 'ENOENT') return undefined;
-            throw error;
-          });
+        const owned = await ownedProcess(server.name);
         if (
           owned &&
+          (await processIdentity(owned.pid)) === owned.identity &&
           (await fetch(server.url, { signal }).then(
             response => response.ok,
             () => false
@@ -363,23 +407,25 @@ export async function ensureStack(): Promise<void> {
 }
 
 /** Stop only the recorded app processes and the explicitly named isolated Supabase project. */
-export async function stopStack(): Promise<void> {
-  await configureStack();
+async function stopStack(): Promise<void> {
+  const savedConfig = await readFile(join(dataRoot(), 'stack', 'supabase', 'config.toml'), 'utf8');
+  stackConfigSchema.parse(Bun.TOML.parse(savedConfig));
   for (const name of ['frontend', 'backend']) {
     const pidPath = join(dataRoot(), 'stack', `${name}-pid.json`);
-    const owned = await readFile(pidPath, 'utf8')
-      .then(text =>
-        z
-          .object({ pid: z.number().int().positive(), repoRoot: z.literal(REPO_ROOT) })
-          .parse(JSON.parse(text))
-      )
-      .catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return undefined;
-        throw error;
-      });
+    const owned = await ownedProcess(name);
     if (!owned) continue;
+    const identity = await processIdentity(owned.pid);
+    if (identity === undefined) {
+      await rm(pidPath);
+      continue;
+    }
+    if (identity !== owned.identity)
+      throw new Error(`Could not safely stop playtest ${name}: process identity changed.`);
     if (process.platform === 'win32') {
-      const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owned.pid}'; if ($p) { if (!$p.CommandLine.Contains('${REPO_ROOT.replaceAll("'", "''")}')) { exit 1 }; taskkill /PID ${owned.pid} /T /F | Out-Null }`;
+      const expected = z
+        .object({ startedAt: z.string(), command: z.string() })
+        .parse(JSON.parse(owned.identity));
+      const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owned.pid}'; if ($p) { if ($p.CreationDate.ToUniversalTime().ToString('o') -cne '${expected.startedAt.replaceAll("'", "''")}' -or $p.CommandLine -cne '${expected.command.replaceAll("'", "''")}') { exit 1 }; taskkill /PID ${owned.pid} /T /F | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 } }`;
       const child = Bun.spawn(['powershell.exe', '-NoProfile', '-Command', command], {
         stdout: 'ignore',
         stderr: 'ignore',

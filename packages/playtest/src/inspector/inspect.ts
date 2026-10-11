@@ -47,6 +47,7 @@ export async function inspect(input: {
   judge?: VisualJudge;
   styleReference: string[];
   taxonomy: string;
+  trace?: Parameters<VisualJudge['judge']>[0]['trace'];
 }): Promise<InspectorFinding[]> {
   const findings = input.probeFindings.map(probeFinding);
   if (input.judge) {
@@ -59,6 +60,7 @@ export async function inspect(input: {
       })),
       styleReference: input.styleReference,
       taxonomy: input.taxonomy,
+      trace: input.trace,
     });
     let dropped = 0;
     for (const candidate of candidates) {

@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { collectSignals } from '../src/probes/collect';
-import { installProbes, type ProbeSignal } from '../src/probes/pageProbes';
+import { collectSignals, installProbes } from '../src/probes/collect';
+import type { ProbeSignal } from '../src/probes/pageProbes';
 import { toFindings } from '../src/probes/thresholds';
 
 const viewport = { width: 800, height: 600 };
@@ -28,6 +28,19 @@ async function fixture(name: string) {
     await readFile(new URL(`./fixtures/pages/${name}.html`, import.meta.url), 'utf8')
   );
 }
+
+it('ignores text clipped to an empty painted rectangle by inset(50%) on an ancestor', async () => {
+  await page.setContent(
+    '<div style="clip-path:inset(50%)"><span style="display:inline-block;width:1px;overflow:hidden;white-space:nowrap">Screen reader only</span></div><span style="display:inline-block;width:20px;overflow:hidden;white-space:nowrap">Visible clipped text</span>'
+  );
+  const signals = await collectSignals(page);
+  expect(signals).not.toContainEqual(
+    expect.objectContaining({ kind: 'clipped-text', text: 'Screen reader only' })
+  );
+  expect(signals).toContainEqual(
+    expect.objectContaining({ kind: 'clipped-text', text: 'Visible clipped text' })
+  );
+});
 
 async function frames() {
   await page.evaluate(

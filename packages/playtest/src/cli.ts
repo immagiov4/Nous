@@ -37,7 +37,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
     },
   });
   const dataRoot = process.env.NOUS_E2E_DATA;
-  if (!dataRoot)
+  if (!dataRoot && !values['run-dir'])
     throw new Error('NOUS_E2E_DATA is unset. Set it to the local playtest data directory.');
   const adapterPath = resolve(values.adapter);
   const adapterFile = await stat(adapterPath).catch(error => {
@@ -70,6 +70,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
     tags: values.tag,
     kinds,
   });
+  if (stories.length === 0) throw new Error('No stories match the selected filters.');
   const personas = stories.some(story => story.persona)
     ? await loadPersonas(join(adapterDir, 'personas'))
     : new Map();
@@ -83,7 +84,9 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
     headed: values.headed,
     model: values.model,
     provider: values.provider,
-    runDir: values['run-dir'] ? resolve(values['run-dir']) : join(dataRoot, 'runs', timestamp),
+    runDir: values['run-dir']
+      ? resolve(values['run-dir'])
+      : join(dataRoot as string, 'runs', timestamp),
   });
   console.log(`Playtest reports: ${join(summary.runDir, 'summary.html')}`);
   console.log(JSON.stringify(summary.outcomeCounts));

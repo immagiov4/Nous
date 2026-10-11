@@ -26,6 +26,13 @@ async function loadModifiedCheck(transform: (markdown: string) => string) {
 }
 
 describe('story and persona loading', () => {
+  it('rejects duplicate viewports while naming the invalid source file', async () => {
+    const fixture = await loadModifiedCheck(markdown =>
+      markdown.replace('[desktop, mobile]', '[desktop, desktop]')
+    );
+    await expect(fixture.load()).rejects.toThrow('viewports: Duplicate viewports');
+    await expect(fixture.load()).rejects.toThrow(fixture.sourcePath);
+  });
   it('parses check and mission stories recursively and sorts by id', async () => {
     const stories = await loadStories(storyDir);
     expect(stories).toEqual([

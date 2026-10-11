@@ -5,7 +5,7 @@ title: Prepararsi all’esame di diritto privato
 persona: giulia
 viewports: [mobile]
 requires:
-  course: synthetic-short
+  course: synthetic-law-short
 tags: [study, law]
 budget:
   steps: 80

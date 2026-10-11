@@ -5,13 +5,35 @@ import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type DecisionSource, type LearnerDecision, runLearner } from '../src/learner/loop';
 import { createModelResolver, mapOpenRouterModel } from '../src/learner/modelResolution';
+import { createPiDecisionSource } from '../src/learner/piDecisionSource';
 import { ACTING_RULES, buildLearnerPrompt } from '../src/learner/prompt';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
 import { type OperatorSession, openOperatorSession } from '../src/operator/session';
 import type { Story } from '../src/types';
-import catalogueEntry from './fixtures/models/openrouter-sonnet-4.json';
+import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
+
+const catalogueEntry = { ...tieredEntry, pricing: { ...tieredEntry.pricing, overrides: [] } };
+const sdk = vi.hoisted(() => ({ find: vi.fn(), createSession: vi.fn() }));
+vi.mock('@mariozechner/pi-coding-agent', async importOriginal => ({
+  ...(await importOriginal<typeof import('@mariozechner/pi-coding-agent')>()),
+  ModelRegistry: { inMemory: () => ({ find: sdk.find }) },
+  createAgentSession: sdk.createSession,
+}));
 
 describe('learner model resolution', () => {
+  it('rejects a text-only learner model before opening a Pi session or reading the screenshot', async () => {
+    sdk.find.mockReturnValue({ ...mapOpenRouterModel(catalogueEntry), input: ['text'] });
+    const source = createPiDecisionSource({ provider: 'openrouter', model: catalogueEntry.id });
+    await expect(source.decide({ systemPrompt: '', history: [], observation })).rejects.toThrow(
+      'image-capable model'
+    );
+    expect(sdk.createSession).not.toHaveBeenCalled();
+  });
+  it('rejects pricing tiers that Pi cannot represent instead of reporting base-rate costs', () => {
+    expect(() => mapOpenRouterModel(tieredEntry)).toThrow(
+      'Unsupported OpenRouter pricing overrides'
+    );
+  });
   it('maps a recorded catalogue entry to Pi units and capabilities', () => {
     expect(mapOpenRouterModel(catalogueEntry)).toEqual({
       id: 'anthropic/claude-sonnet-4',
@@ -167,6 +189,22 @@ function run(
 }
 
 describe('learner loop', () => {
+  it('retains the diary, friction and observations when a later model decision fails', async () => {
+    const scripted = createScriptedDecisionSource([
+      { type: 'diary', entry: 'Read the page' },
+      { type: 'report-friction', text: 'Confusing question' },
+      { type: 'act', action: { type: 'observe' }, expectation: 'Read again' },
+    ]);
+    const result = await run(scripted);
+    expect(result).toMatchObject({
+      outcome: 'operator-failure',
+      reason: 'The learner could not obtain its next decision.',
+      diary: ['Read the page'],
+      friction: ['Confusing question'],
+    });
+    expect(result.turns).toHaveLength(3);
+    expect(result.observations).toHaveLength(2);
+  });
   it('composes only the app, optional persona, story bodies and shared acting rules', () => {
     const persona = {
       id: 'persona-id-sentinel',

@@ -18,7 +18,6 @@ export type ModelUsage = {
   total: ReportedUsage;
 };
 const scope = new AsyncLocalStorage<{ report: ModelUsage; phase: Phase }>();
-const meteredApis = new Set<Api>();
 
 function emptyUsage(): ReportedUsage {
   return {
@@ -51,15 +50,26 @@ function monitor(stream: AssistantMessageEventStream): AssistantMessageEventStre
   const current = scope.getStore();
   if (current) {
     // result() observes the final message without consuming events needed by Pi's agent.
-    void stream.result().then(message => {
-      for (const target of [current.report[current.phase], current.report.total]) {
-        target.responses++;
-        for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const)
-          target[field] += message.usage[field];
-        for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
-          target.cost[field] += message.usage.cost[field];
+    void stream.result().then(
+      message => {
+        for (const target of [current.report[current.phase], current.report.total]) {
+          target.responses++;
+          for (const field of [
+            'input',
+            'output',
+            'cacheRead',
+            'cacheWrite',
+            'totalTokens',
+          ] as const)
+            target[field] += message.usage[field];
+          for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
+            target.cost[field] += message.usage.cost[field];
+        }
+      },
+      () => {
+        // Pi's consumer owns stream errors; a rejected stream has no final usage to record.
       }
-    });
+    );
   }
   return stream;
 }
@@ -68,18 +78,20 @@ function monitor(stream: AssistantMessageEventStream): AssistantMessageEventStre
 export function meterModel(model: Model<Api>): Model<Api> {
   if (!scope.getStore()) return model;
   const api = `playtest-usage:${model.api}`;
-  if (!meteredApis.has(api)) {
+  if (!getApiProvider(api)) {
     const provider = getApiProvider(model.api);
     if (!provider) throw new Error(`No Pi stream provider for ${model.api}.`);
     const originalApi = model.api;
-    registerApiProvider({
-      api,
-      stream: (selected, context, options) =>
-        monitor(provider.stream({ ...selected, api: originalApi }, context, options)),
-      streamSimple: (selected, context, options) =>
-        monitor(provider.streamSimple({ ...selected, api: originalApi }, context, options)),
-    });
-    meteredApis.add(api);
+    registerApiProvider(
+      {
+        api,
+        stream: (selected, context, options) =>
+          monitor(provider.stream({ ...selected, api: originalApi }, context, options)),
+        streamSimple: (selected, context, options) =>
+          monitor(provider.streamSimple({ ...selected, api: originalApi }, context, options)),
+      },
+      api
+    );
   }
   return { ...model, api };
 }

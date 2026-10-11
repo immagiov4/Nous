@@ -10,9 +10,9 @@ import { type Observation, observePage } from './observe';
 import { VIEWPORTS } from './viewports';
 
 export type { ActionResult, LearnerAction } from './actions';
-export type { Observation, VisibleNode } from './observe';
+export type { Observation } from './observe';
 
-export const SCREENSHOT_CAPTURE_RETRIES = 1;
+const SCREENSHOT_CAPTURE_RETRIES = 1;
 
 export type OperatorSession = {
   observe(): Promise<Observation>;
@@ -70,7 +70,7 @@ export async function openOperatorSession(options: {
             screenshotPath: join(runDir, `step-${currentStep}.png`),
             secrets: [credentials.email, credentials.password],
           });
-          if (version !== documentVersion) continue;
+          if (version !== documentVersion) throw new Error('Document changed during capture.');
           const signals = await collectSignals(page, capturedDocument);
           capturedSignals = [...(capturedSignals ?? []), ...signals];
           return observation;
