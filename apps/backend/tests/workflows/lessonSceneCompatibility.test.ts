@@ -74,11 +74,14 @@ describe('lesson scene deployment compatibility', () => {
   };
   test.each(
     Object.entries(sceneDefinitions)
-  )('%s keeps its deployed scene hash', (workflowId, hash) => {
-    expect(
-      registry.listDefinitionDeployments().find(entry => entry.current.workflowId === workflowId)
-        ?.current.definitionHash
-    ).toBe(hash);
+  )('%s keeps its deployed scene hash resolvable after the catalog grows', (workflowId, hash) => {
+    const deployment = registry
+      .listDefinitionDeployments()
+      .find(entry => entry.current.workflowId === workflowId);
+    expect(deployment?.supportedDefinitions.map(boundary => boundary.definitionHash)).toContain(
+      hash
+    );
+    expect(registry.resolve(workflowId, hash)).toBeDefined();
   });
 
   test.each(

@@ -1,6 +1,7 @@
 import {
   hasConflictingLessonSceneClosingText,
   isAnimatedLessonScene,
+  isQuickLessonScene,
   LESSON_SCENE_RELATION_SYMBOLS,
   type LessonScene,
 } from '@shared/lessonScene';
@@ -42,7 +43,7 @@ export const LessonSceneVisual = ({
   >
     <SceneIconProvider prototype={variant === 'bare' || isAnimatedLessonScene(scene)}>
       <article
-        className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}`}
+        className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}${isQuickLessonScene(scene) ? ' quick-scene' : ''}`}
       >
         <header>
           <h2>{scene.title}</h2>

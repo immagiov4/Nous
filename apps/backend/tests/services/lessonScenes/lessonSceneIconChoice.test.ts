@@ -41,6 +41,7 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIcons.js', () => ({
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { chooseLessonSceneIcons } from '../../../src/services/lessonScenes/lessonSceneIconChoice.js';
 import { embedTexts } from '../../../src/services/lessonScenes/lessonSceneIcons.js';
+import { LAB_COMPOSITION_SCENE, LAB_QUICK_SCENES } from '../../helpers/lessonSceneLabExamples';
 
 const scene: LessonScene = {
   body: '',
@@ -70,6 +71,57 @@ const entries = [
 
 beforeEach(() => {
   generateStructuredOutputMock.mockReset();
+});
+
+test('applies resolved icons to group headings, entities, centers, and composition items', async () => {
+  const integration = LAB_QUICK_SCENES.find(scene => scene.type === 'integration');
+  if (!integration) throw new Error('Missing integration example');
+  const grouped = {
+    ...integration,
+    groups: integration.groups.map(group => ({ ...group, icon: '' })),
+  };
+  const slots = [
+    { kind: 'center' as const },
+    { kind: 'group-icon' as const, group: 0 },
+    { kind: 'group' as const, group: 0, entry: 0 },
+  ];
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    choices: [
+      { slot: 'center', concept: 'same meaning', icon: 'school' },
+      { slot: 'groups.0.icon', concept: 'same meaning', icon: 'school' },
+      { slot: 'groups.0.items.0', concept: 'same meaning', icon: 'school' },
+    ],
+  });
+  const chosen = await chooseLessonSceneIcons({
+    config: getGlobalModelConfig(),
+    scene: grouped,
+    signal: new AbortController().signal,
+    entries: slots.map(slot => ({
+      slot,
+      text: 'school',
+      queries: { action: 'school', object: 'school', concept: 'school' },
+    })),
+  });
+  expect(chosen.icon).toBe('school');
+  expect(chosen.groups[0].icon).toBe('school');
+  expect(chosen.groups[0].icons[0]).toBe('school');
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    choices: [{ slot: 'panels.0.items.0', concept: 'same meaning', icon: 'school' }],
+  });
+  const composition = await chooseLessonSceneIcons({
+    config: getGlobalModelConfig(),
+    scene: LAB_COMPOSITION_SCENE,
+    signal: new AbortController().signal,
+    entries: [
+      {
+        slot: { kind: 'panel', panel: 0, item: 0 },
+        text: 'school',
+        queries: { action: 'school', object: 'school', concept: 'school' },
+      },
+    ],
+  });
+  expect(composition.panels?.[0].items[0].icon).toBe('school');
+  expect(composition.panels?.[1].items[0].icon).toBe('point');
 });
 
 test('chooses icons only among retrieved candidates and retries a reused icon', async () => {

@@ -61,8 +61,20 @@ const ICON_POLICY = `Choose one icon for each scene entry, ONLY among that entry
 - A check mark means done or correct: avoid it while the text still asks to verify. Do not use success or failure icons to hint at a quiz answer.
 For each entry return {slot, concept, icon}: concept is the meaning in a few words, in the lesson language.`;
 
-const slotId = (slot: LessonSceneIconSlot): string =>
-  slot.kind === 'item' ? `items.${slot.item}` : `groups.${slot.group}.items.${slot.entry}`;
+const slotId = (slot: LessonSceneIconSlot): string => {
+  switch (slot.kind) {
+    case 'item':
+      return `items.${slot.item}`;
+    case 'group':
+      return `groups.${slot.group}.items.${slot.entry}`;
+    case 'panel':
+      return `panels.${slot.panel}.items.${slot.item}`;
+    case 'group-icon':
+      return `groups.${slot.group}.icon`;
+    case 'center':
+      return 'center';
+  }
+};
 
 const untilAborted = <T>(promise: Promise<T>, signal: AbortSignal): Promise<T> => {
   signal.throwIfAborted();
@@ -169,6 +181,9 @@ const applyIcons = (scene: LessonScene, icons: ReadonlyMap<string, string>): Les
   ...scene,
   groups: scene.groups.map((group, groupIndex) => ({
     ...group,
+    ...(group.icon !== undefined
+      ? { icon: icons.get(slotId({ group: groupIndex, kind: 'group-icon' })) ?? FALLBACK_ICON }
+      : {}),
     icons: group.items.map(
       (_, entry) => icons.get(slotId({ entry, group: groupIndex, kind: 'group' })) ?? FALLBACK_ICON
     ),
@@ -177,6 +192,19 @@ const applyIcons = (scene: LessonScene, icons: ReadonlyMap<string, string>): Les
     ...item,
     icon: icons.get(slotId({ item: index, kind: 'item' })) ?? FALLBACK_ICON,
   })),
+  ...(scene.icon !== undefined ? { icon: icons.get('center') ?? FALLBACK_ICON } : {}),
+  ...(scene.panels
+    ? {
+        panels: scene.panels.map((panel, panelIndex) => ({
+          ...panel,
+          items: panel.items.map((item, index) => ({
+            ...item,
+            icon:
+              icons.get(slotId({ item: index, panel: panelIndex, kind: 'panel' })) ?? FALLBACK_ICON,
+          })),
+        })),
+      }
+    : {}),
 });
 
 interface IconChoiceInput {

@@ -206,7 +206,7 @@
   left: 16px;
   top: 34px;
   bottom: 3px;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--diagram-rule);
 }
 .lesson-player-stage .lesson-scene .timeline {
   border-left: 2px solid var(--blue);
@@ -1631,8 +1631,8 @@
   margin: auto;
 }
 .lesson-player-stage .lesson-scene .ring-chart svg {
-  width: 220px;
-  max-width: 55%;
+  width: 100%;
+  max-width: 640px;
   height: auto;
   flex-shrink: 0;
 }
@@ -1684,7 +1684,6 @@
   }
   .lesson-player-stage .lesson-scene .ring-chart svg {
     max-width: 100%;
-    width: 190px;
   }
   .lesson-player-stage .lesson-scene .network {
     gap: 28px;

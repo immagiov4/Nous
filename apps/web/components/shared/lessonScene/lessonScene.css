@@ -187,7 +187,7 @@
   left: 16px;
   top: 34px;
   bottom: 3px;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--diagram-rule);
 }
 .lesson-scene .timeline .step-index {
   border-radius: 5px;
@@ -761,8 +761,17 @@
   border: 0;
   background: var(--tint);
   font-size: 18px;
-  margin: 0 auto var(--diagram-gap);
+  margin: 0 auto 30px;
   padding: 14px 20px;
+  max-width: 75%;
+}
+.lesson-scene .root-node:after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  height: 30px;
+  border-left: var(--connector-width) solid var(--connector-color);
 }
 .lesson-scene .branches {
   justify-content: space-around;
@@ -773,13 +782,12 @@
   border-width: var(--connector-width);
 }
 .lesson-scene .hierarchy .branches {
-  display: grid;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 auto;
-  padding: 0;
+  display: flex;
+  flex-direction: row;
   border: 0;
-  gap: var(--diagram-gap);
+  padding: var(--branch-drop) 0 0;
+  margin: 0;
+  gap: var(--branch-gap);
 }
 .lesson-scene .hierarchy .branches > .concept {
   align-items: flex-start;
@@ -989,8 +997,6 @@
     padding: 30px 20px 20px;
     grid-row: 3;
   }
-  .lesson-scene .groups.related[data-relation="greater"] .relation-symbol,
-  .lesson-scene .groups.related[data-relation="less"] .relation-symbol,
   .lesson-scene .groups.related[data-relation="leads"] .relation-symbol {
     transform: rotate(90deg);
   }
@@ -1028,7 +1034,7 @@
     border-left: 1px solid var(--diagram-rule);
   }
   .lesson-scene .satellites {
-    margin-left: 22px;
+    margin-left: 0;
   }
   .lesson-scene .groups:not(.related) {
     grid-template-columns: 1fr;
@@ -1288,13 +1294,7 @@
   border-bottom-left-radius: var(--connector-radius);
 }
 .lesson-scene .satellites > .concept:nth-last-child(2):after {
-  height: calc(
-    100% +
-    var(--network-item-gap) +
-    var(--network-branch-y) -
-    var(--connector-radius) -
-    var(--network-stem-start)
-  );
+  height: calc(100% + 10px);
 }
 .lesson-scene .cycle {
   display: grid;
@@ -1351,8 +1351,8 @@
   margin: auto;
 }
 .lesson-scene .ring-chart svg {
-  width: 220px;
-  max-width: 55%;
+  width: 100%;
+  max-width: 640px;
   height: auto;
   flex-shrink: 0;
 }
@@ -1404,21 +1404,20 @@
   }
   .lesson-scene .ring-chart svg {
     max-width: 100%;
-    width: 190px;
   }
   .lesson-scene .network {
     --network-gap: 28px;
   }
   .lesson-scene .hub:after {
     width: 0;
-    left: var(--network-gutter);
+    left: 0;
     top: 100%;
-    height: calc(var(--network-gap) + var(--network-branch-y));
+    height: 28px;
     border-left: var(--connector-width) solid var(--connector-color);
     border-top: 0;
   }
   .lesson-scene .satellites {
-    margin-left: var(--network-gutter);
+    margin-left: 0;
   }
   .lesson-scene .definition {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -1439,14 +1438,6 @@
 @container (max-width: 460px) {
   .lesson-scene .network .hub:after {
     width: 0;
-  }
-  .lesson-scene .network .satellites > .concept:first-child:before {
-    height: 0;
-    border-left: 0;
-    border-top-left-radius: 0;
-  }
-  .lesson-scene .network .satellites > .concept:first-child:after {
-    --network-stem-start: var(--network-branch-y);
   }
 }
 .lesson-scene .definition .concept {
@@ -1808,4 +1799,803 @@
   background: currentColor;
   mask: var(--icon-url) center / contain no-repeat;
   -webkit-mask: var(--icon-url) center / contain no-repeat;
+}
+
+/* Static geometry and composition from the settled prototype source. */
+.lesson-scene .quick-scene {
+  animation: none !important;
+  container-type: inline-size;
+  --q-accent: oklch(from var(--accent) 0.55 0.17 h);
+  --blue: var(--q-accent);
+  --q-fill: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  --q-border: color-mix(in srgb, var(--accent) 45%, var(--surface));
+  --q-axis: var(--muted);
+  --tint: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+.lesson-scene .quick-scene .q-box {
+  background: var(--q-fill);
+  border: 1px solid var(--q-border);
+  border-radius: 18px;
+  padding: 20px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-box strong,
+.lesson-scene .quick-scene .q-box h3 {
+  font-size: 18px;
+  line-height: 1.3;
+}
+.lesson-scene .quick-scene .q-box p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 15px;
+}
+.lesson-scene .quick-scene .q-box ul {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.lesson-scene .quick-scene .q-box li {
+  font-size: 15px;
+}
+.lesson-scene .quick-scene .q-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 18px;
+}
+.lesson-scene .quick-scene .q-axis {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.lesson-scene .quick-scene .q-axis-x {
+  text-align: right;
+  margin-top: 12px;
+}
+.lesson-scene .quick-scene .q-quadrant {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  background: var(--blue);
+  border: 2px solid var(--blue);
+  border-radius: 20px;
+  overflow: hidden;
+}
+.lesson-scene .quick-scene .q-quadrant .q-box {
+  border-radius: 0;
+  background: var(--surface);
+}
+.lesson-scene .quick-scene .q-quadrant .q-box:first-child {
+  background: var(--tint);
+}
+.lesson-scene .quick-scene .q-svg {
+  display: block;
+  width: 100%;
+  max-height: 400px;
+  overflow: visible;
+  font: 14px system-ui;
+  fill: var(--ink);
+}
+.lesson-scene .quick-scene .q-grid {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+.lesson-scene .quick-scene .q-radar {
+  fill: var(--tint);
+  fill-opacity: 0.75;
+  stroke: var(--blue);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.lesson-scene .quick-scene .q-series {
+  stroke: var(--blue);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.lesson-scene .quick-scene .q-dot {
+  fill: var(--blue);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.lesson-scene .quick-scene .q-tree,
+.lesson-scene .quick-scene .q-tree ul {
+  list-style: none;
+  padding: 0;
+}
+.lesson-scene .quick-scene .q-tree li {
+  text-align: center;
+  position: relative;
+}
+.lesson-scene .quick-scene .q-tree > li > .q-box {
+  width: max-content;
+  min-width: calc((100% - (var(--root-columns) - 1) * var(--tree-gap)) / var(--root-columns));
+  max-width: 100%;
+  margin: auto;
+  background: var(--tint);
+}
+.lesson-scene .quick-scene .q-tree ul {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  padding-top: 32px;
+}
+.lesson-scene .quick-scene .q-tree ul > li {
+  flex: 1;
+  min-width: 0;
+}
+.lesson-scene .quick-scene .q-tree ul > li:before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  height: 32px;
+  top: -32px;
+  border-left: 2px solid var(--blue);
+}
+.lesson-scene .quick-scene .q-tree ul > li:after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -16px;
+  border-top: 2px solid var(--blue);
+}
+.lesson-scene .quick-scene .q-tree ul > li:first-child:after {
+  left: 50%;
+}
+.lesson-scene .quick-scene .q-tree ul > li:last-child:after {
+  right: 50%;
+}
+.lesson-scene .quick-scene .q-tree .q-box {
+  padding: 16px 10px;
+}
+.lesson-scene .quick-scene .q-tree .q-box strong {
+  font-size: 16px;
+}
+.lesson-scene .quick-scene .q-tree .q-box p {
+  font-size: 13px;
+}
+.lesson-scene .quick-scene .q-stack {
+  display: grid;
+  gap: 12px;
+}
+.lesson-scene .quick-scene .q-layer {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.lesson-scene .quick-scene .q-layer > b {
+  color: var(--blue);
+  font-size: 20px;
+}
+.lesson-scene .quick-scene .q-layer .q-box {
+  flex: 1;
+}
+.lesson-scene .quick-scene .q-layer:first-child .q-box {
+  background: var(--tint);
+}
+.lesson-scene .quick-scene .q-treemap {
+  height: 280px;
+  position: relative;
+}
+.lesson-scene .quick-scene .q-tile {
+  position: absolute;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  text-align: center;
+  background: var(--tint);
+  border: 2px solid var(--surface);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 14px;
+}
+.lesson-scene .quick-scene .q-tile:nth-child(even) {
+  background: var(--q-fill);
+}
+.lesson-scene .quick-scene .q-tile b {
+  color: var(--blue);
+}
+.lesson-scene .quick-scene .q-table {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+.lesson-scene .quick-scene .q-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+.lesson-scene .quick-scene .q-table th,
+.lesson-scene .quick-scene .q-table td {
+  text-align: left;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-table thead,
+.lesson-scene .quick-scene .q-table tbody th {
+  background: var(--tint);
+}
+.lesson-scene .quick-scene .q-table tr:last-child > * {
+  border-bottom: 0;
+}
+.lesson-scene .quick-scene .q-gantt {
+  display: grid;
+  gap: 20px;
+}
+.lesson-scene .quick-scene .q-gantt > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) 2fr;
+  gap: 8px 18px;
+  align-items: center;
+}
+.lesson-scene .quick-scene .q-gantt small {
+  grid-column: 2;
+  color: var(--muted);
+}
+.lesson-scene .quick-scene .q-gantt-track {
+  height: 22px;
+  position: relative;
+  background: var(--q-fill);
+  border-radius: 8px;
+}
+.lesson-scene .quick-scene .q-gantt-track > span {
+  position: absolute;
+  height: 100%;
+  background: var(--blue);
+  border-radius: 8px;
+}
+.lesson-scene .quick-scene .q-process {
+  display: flex;
+  list-style: none;
+  gap: 32px;
+}
+.lesson-scene .quick-scene .q-process li {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.lesson-scene .quick-scene .q-step-marker {
+  position: relative;
+  height: 44px;
+  display: grid;
+  justify-items: center;
+}
+.lesson-scene .quick-scene .q-index {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--blue);
+  color: var(--surface);
+  margin: 0;
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+.lesson-scene .quick-scene .q-process .q-box {
+  height: calc(100% - 44px);
+  text-align: center;
+  padding: 18px 12px;
+}
+.lesson-scene .quick-scene .q-units {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 14px;
+  text-align: center;
+}
+.lesson-scene .quick-scene .q-result {
+  text-align: center;
+  margin-top: 26px;
+}
+.lesson-scene .quick-scene .q-result > strong {
+  font-size: 44px;
+  color: var(--blue);
+}
+.lesson-scene .quick-scene .q-result p {
+  color: var(--muted);
+}
+.lesson-scene .quick-scene .q-tree {
+  --tree-gap: 14px;
+}
+.lesson-scene .quick-scene .q-tree ul {
+  position: relative;
+  gap: var(--tree-gap);
+}
+.lesson-scene .quick-scene .q-tree ul:before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  height: 16px;
+  border-left: 2px solid var(--blue);
+}
+.lesson-scene .quick-scene .q-tree ul > li:before {
+  height: 16px;
+  top: -16px;
+}
+.lesson-scene .quick-scene .q-tree ul > li:after {
+  left: calc(var(--tree-gap) / -2);
+  right: calc(var(--tree-gap) / -2);
+  height: 16px;
+}
+.lesson-scene .quick-scene .q-tree ul > li:first-child:after {
+  left: 50%;
+  border-left: 2px solid var(--blue);
+  border-top-left-radius: 8px;
+}
+.lesson-scene .quick-scene .q-tree ul > li:last-child:after {
+  right: 50%;
+  border-right: 2px solid var(--blue);
+  border-top-right-radius: 8px;
+}
+.lesson-scene .quick-scene .q-tree ul > li:first-child:before,
+.lesson-scene .quick-scene .q-tree ul > li:last-child:before {
+  display: none;
+}
+.lesson-scene .quick-scene .q-tree ul > li:only-child:after {
+  display: none;
+}
+.lesson-scene .quick-scene .q-tree ul > li:only-child:before {
+  display: block;
+}
+@media (max-width: 600px) {
+  .lesson-scene .quick-scene .q-tree {
+    --tree-gap: 6px;
+  }
+}
+
+.lesson-scene .quick-scene .q-box > .meaning-icon {
+  display: block;
+  margin: 0 auto 10px;
+  width: 26px;
+  height: 26px;
+}
+.lesson-scene .quick-scene .q-box h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lesson-scene .quick-scene .q-box h3 .meaning-icon {
+  flex-shrink: 0;
+}
+.lesson-scene .quick-scene .q-axes {
+  stroke: var(--q-axis);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.lesson-scene .quick-scene .q-grid {
+  stroke: #d2d2d2;
+}
+.lesson-scene .quick-scene .q-tile {
+  padding: 8px;
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-tile strong {
+  font-size: clamp(12px, 3cqi, 18px);
+}
+.lesson-scene .quick-scene .q-tile .meaning-icon {
+  margin: auto;
+}
+.lesson-scene .quick-scene .q-cycle {
+  position: relative;
+  aspect-ratio: 1;
+  max-width: 510px;
+  margin: 0 auto;
+}
+.lesson-scene .quick-scene .q-cycle > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 0.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lesson-scene .quick-scene .q-cycle-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 28%;
+  min-height: 18%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 5px;
+  border: 1.5px solid var(--blue);
+  background: var(--q-fill);
+  border-radius: 20px;
+  text-align: center;
+  font-size: clamp(11px, 3cqi, 17px);
+}
+.lesson-scene .quick-scene .q-cycle-node .meaning-icon {
+  width: 24px;
+  height: 24px;
+}
+.lesson-scene .quick-scene .q-cycle-center {
+  position: absolute;
+  inset: 38% 32%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: clamp(12px, 3cqi, 18px);
+  font-weight: 600;
+}
+.lesson-scene .quick-scene .q-venn-diagram {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 1fr;
+  align-items: center;
+  width: 100%;
+  max-width: 700px;
+  aspect-ratio: 100 / 64;
+  margin: auto;
+  padding: 0 28px;
+  gap: 12px;
+}
+.lesson-scene .quick-scene .q-venn-circles {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.lesson-scene .quick-scene .q-venn-circles i {
+  display: block;
+  width: 64%;
+  aspect-ratio: 1;
+  border: 2px solid var(--blue);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  flex-shrink: 0;
+}
+.lesson-scene .quick-scene .q-venn-circles i + i {
+  margin-left: -28%;
+  border-color: var(--q-axis);
+  background: color-mix(in srgb, var(--q-axis) 12%, transparent);
+}
+.lesson-scene .quick-scene .q-venn-region {
+  position: relative;
+  text-align: center;
+  font-size: clamp(11px, 2.9cqi, 17px);
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-venn-region p {
+  font-size: inherit;
+  margin-top: 10px;
+  line-height: 1.45;
+}
+.lesson-scene .quick-scene .q-venn-region strong {
+  font-weight: 650;
+}
+
+@container (max-width: 650px) {
+  .lesson-scene .quick-scene .q-process {
+    flex-direction: column;
+    gap: 26px;
+  }
+  .lesson-scene .quick-scene .q-process li {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .lesson-scene .quick-scene .q-step-marker {
+    height: auto;
+    flex: 0 0 32px;
+  }
+  .lesson-scene .quick-scene .q-process .q-box {
+    height: auto;
+    flex: 1;
+    text-align: left;
+  }
+  .lesson-scene .quick-scene .q-process .q-box > .meaning-icon {
+    margin-left: 0;
+  }
+  .lesson-scene .quick-scene .q-venn-diagram {
+    padding: 0 12px;
+    gap: 5px;
+  }
+}
+@container (max-width: 380px) {
+  .lesson-scene .quick-scene .q-tree .q-box strong {
+    font-size: 12px;
+  }
+  .lesson-scene .quick-scene .q-tree .q-box {
+    padding: 10px 5px;
+  }
+  .lesson-scene .quick-scene .q-table th,
+  .lesson-scene .quick-scene .q-table td {
+    padding: 10px 8px;
+  }
+  .lesson-scene .quick-scene .q-cycle-node {
+    border-radius: 14px;
+  }
+  .lesson-scene .quick-scene .q-cycle-node .meaning-icon {
+    width: 20px;
+    height: 20px;
+  }
+  .lesson-scene .quick-scene .q-tile {
+    padding: 5px;
+  }
+}
+
+.lesson-scene .quick-scene .q-scatter {
+  font-size: 21px;
+}
+.lesson-scene .quick-scene .q-tile {
+  box-shadow: inset 0 0 0 1px var(--q-border);
+}
+
+.lesson-scene .quick-scene .q-radial-label {
+  font-size: 20px;
+  font-weight: 600;
+}
+.lesson-scene .quick-scene .q-radial-value {
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.lesson-scene .quick-scene .q-layer .q-box:has(> .meaning-icon) {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 14px;
+  align-content: center;
+  padding: 16px;
+}
+.lesson-scene .quick-scene .q-layer .q-box > .meaning-icon {
+  grid-row: 1 / span 2;
+  width: 24px;
+  height: 24px;
+  margin: 2px 0 0;
+}
+.lesson-scene .quick-scene .q-layer .q-box > strong,
+.lesson-scene .quick-scene .q-layer .q-box > p {
+  grid-column: 2;
+}
+.lesson-scene .quick-scene .q-layer .q-box > p {
+  margin-top: 5px;
+}
+.lesson-scene .quick-scene .q-entities li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.lesson-scene .quick-scene .q-entities .meaning-icon {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+}
+.lesson-scene .quick-scene .q-step-arrow {
+  position: absolute;
+  left: -30px;
+  top: 2px;
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+.lesson-scene .quick-scene .q-step-arrow > .meaning-icon {
+  width: 28px;
+  height: 28px;
+}
+.lesson-scene .quick-scene .q-step-arrow > [data-icon="arrow-down"] {
+  display: none;
+}
+.lesson-scene .quick-scene .q-integration {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+.lesson-scene .quick-scene .q-bank {
+  display: grid;
+  grid-template-columns: repeat(var(--branches), minmax(0, 1fr));
+  gap: 16px;
+}
+.lesson-scene .quick-scene .q-bank .q-box {
+  text-align: center;
+  padding: 16px 10px;
+}
+.lesson-scene .quick-scene .q-bank .q-box strong {
+  font-size: 16px;
+}
+.lesson-scene .quick-scene .q-bank .q-box p {
+  font-size: 14px;
+}
+.lesson-scene .quick-scene .q-core {
+  width: fit-content;
+  max-width: 100%;
+  margin: auto;
+}
+.lesson-scene .quick-scene .q-core .q-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--tint);
+}
+.lesson-scene .quick-scene .q-core .meaning-icon {
+  margin: 0;
+}
+.lesson-scene .quick-scene .q-branches {
+  display: block;
+  width: 100%;
+  height: 36px;
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lesson-scene .quick-scene .q-branches-out {
+  transform: scaleY(-1);
+}
+@container (max-width: 650px) {
+  .lesson-scene .quick-scene .q-step-arrow {
+    left: 2px;
+    top: -27px;
+  }
+  .lesson-scene .quick-scene .q-step-arrow > [data-icon="arrow-right"] {
+    display: none;
+  }
+  .lesson-scene .quick-scene .q-step-arrow > [data-icon="arrow-down"] {
+    display: block;
+  }
+}
+@container (max-width: 380px) {
+  .lesson-scene .quick-scene .q-venn-circles i {
+    width: 67%;
+  }
+  .lesson-scene .quick-scene .q-venn-circles i + i {
+    margin-left: -34%;
+  }
+  .lesson-scene .quick-scene .q-venn-diagram {
+    grid-template-columns: 1fr 1fr 1fr;
+    aspect-ratio: 100 / 67;
+    padding: 0 9px;
+  }
+  .lesson-scene .quick-scene .q-bank {
+    gap: 10px;
+  }
+  .lesson-scene .quick-scene .q-bank .q-box {
+    padding: 12px 8px;
+  }
+  .lesson-scene .quick-scene .q-bank .q-box strong {
+    font-size: 14px;
+  }
+  .lesson-scene .quick-scene .q-bank .q-box p {
+    font-size: 12px;
+  }
+}
+
+.lesson-scene .quick-scene .q-funnel-segment {
+  fill: color-mix(in srgb, var(--accent) var(--band-tone), var(--surface));
+  stroke: var(--surface);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.lesson-scene .quick-scene .q-funnel-label {
+  fill: var(--ink);
+  font-size: 23px;
+  font-weight: 500;
+}
+.lesson-scene .quick-scene .q-funnel-number {
+  fill: var(--ink);
+  font-size: 34px;
+  font-weight: 650;
+}
+.lesson-scene .quick-scene .q-funnel-cell {
+  fill: none;
+  stroke: var(--q-accent);
+  stroke-width: 1;
+}
+.lesson-scene .quick-scene .q-funnel-cell-fill {
+  fill: var(--q-accent);
+}
+
+.lesson-scene .quick-scene .q-gantt-track {
+  background: var(--tint);
+  box-shadow: inset 0 0 0 1px var(--q-border);
+}
+
+.lesson-scene .quick-scene.type-funnel > header {
+  text-align: center;
+}
+
+.lesson-scene .type-composition .composed-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--diagram-gap);
+}
+.lesson-scene .type-composition .composed-panels > section {
+  min-width: 0;
+  background: var(--tint);
+  border-radius: var(--diagram-radius);
+  padding: var(--diagram-pad);
+}
+.lesson-scene .type-composition .composed-panels h3 {
+  margin: 0 0 var(--diagram-gap);
+  font-size: var(--diagram-label);
+}
+.lesson-scene .type-composition .composed-panels .parts {
+  grid-template-columns: 1fr;
+}
+.lesson-scene .type-composition .composed-panels .sequence {
+  margin: 0;
+}
+@container (max-width: 560px) {
+  .lesson-scene .type-composition .composed-panels {
+    grid-template-columns: 1fr;
+  }
+}
+.lesson-scene .hierarchy {
+  --branch-gap: 16px;
+  --branch-drop: 24px;
+}
+.lesson-scene .hierarchy .branches > .concept {
+  flex: 1;
+  align-items: center;
+  text-align: center;
+  flex-direction: column;
+  padding: 0;
+  position: relative;
+}
+.lesson-scene .hierarchy .branches > .concept:before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--branch-drop));
+  left: calc(-0.5 * var(--branch-gap));
+  right: calc(-0.5 * var(--branch-gap));
+  width: auto;
+  height: 16px;
+  border: 0;
+  border-top: var(--connector-width) solid var(--connector-color);
+}
+.lesson-scene .hierarchy .branches > .concept:after {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--branch-drop));
+  left: 50%;
+  height: 16px;
+  border-left: var(--connector-width) solid var(--connector-color);
+}
+.lesson-scene .hierarchy .branches > .concept:first-child:before {
+  left: 50%;
+  border-left: var(--connector-width) solid var(--connector-color);
+  border-top-left-radius: var(--connector-radius);
+}
+.lesson-scene .hierarchy .branches > .concept:last-child:before {
+  right: 50%;
+  border-right: var(--connector-width) solid var(--connector-color);
+  border-top-right-radius: var(--connector-radius);
+}
+.lesson-scene .hierarchy .branches > .concept:first-child:after,
+.lesson-scene .hierarchy .branches > .concept:last-child:after {
+  display: none;
+}
+.lesson-scene .hierarchy .branches > .concept:only-child:before {
+  right: auto;
+  border-top: 0;
+  border-right: 0;
+  border-radius: 0;
+}
+.lesson-scene .hierarchy .root-node {
+  margin-left: auto;
+  margin-right: auto;
+}
+.lesson-scene .hierarchy .root-node:after {
+  left: 50%;
+}
+.lesson-scene .type-number h2 {
+  margin-inline: auto;
+}
+@media (max-width: 520px) {
+  .lesson-scene {
+    --diagram-title: 22px;
+    --diagram-label: 17px;
+    --diagram-copy: 14px;
+    --diagram-pad: 18px;
+    --symbol-size: 48px;
+  }
 }

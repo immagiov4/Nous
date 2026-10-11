@@ -191,6 +191,19 @@ export function motionStates(
 
 export function sceneElements(host: HTMLElement, scene: LessonScene) {
   const elements = new Map<string, (HTMLElement | SVGElement)[]>();
+  const structuredGroups = host.querySelectorAll<HTMLElement>(
+    '[data-playback-group], [data-playback-panel]'
+  );
+  if (structuredGroups.length) {
+    for (const element of structuredGroups) {
+      const id =
+        element.dataset.playbackPanel !== undefined
+          ? `panel:${element.dataset.playbackPanel}`
+          : `group:${element.dataset.playbackGroup}`;
+      elements.set(id, [element]);
+    }
+    return elements;
+  }
   const chartItems = host.querySelectorAll<HTMLElement | SVGElement>('[data-playback-item]');
   if (chartItems.length) {
     for (const element of chartItems) {
@@ -199,7 +212,7 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
     }
     return elements;
   }
-  if (scene.type === 'matrix')
+  if (scene.type === 'matrix' || scene.type === 'heatmap' || scene.type === 'security')
     host.querySelectorAll<HTMLElement>('tbody>tr').forEach((element, index) => {
       elements.set(`row:${index}`, [element]);
     });
