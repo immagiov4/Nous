@@ -14,5 +14,11 @@ export type Story = {
   sourcePath: string;
 };
 
-export type Persona = { id: string; device?: Viewport; body: string; sourcePath: string };
+export type Persona = {
+  id: string;
+  device?: Viewport;
+  affects?: string[];
+  body: string;
+  sourcePath: string;
+};
 export type StoryFilter = { ids?: string[]; tags?: string[]; kinds?: StoryKind[] };

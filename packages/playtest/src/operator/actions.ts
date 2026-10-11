@@ -2,6 +2,7 @@ import type { ElementHandle, Page } from 'playwright';
 import type { Observation, OperatorWindow } from './observe';
 
 export type LearnerAction =
+  | { type: 'observe' }
   | { type: 'click'; ref: string }
   | { type: 'type'; ref: string; text: string }
   | { type: 'press'; key: string }
@@ -27,7 +28,7 @@ async function attached(element: ElementHandle<Element>): Promise<boolean> {
 async function actOnElement(
   page: Page,
   element: ElementHandle<Element>,
-  action: Exclude<LearnerAction, { type: 'press' | 'scroll' }>,
+  action: Exclude<LearnerAction, { type: 'press' | 'scroll' | 'observe' }>,
   credentials: { email: string; password: string }
 ): Promise<ActionStatus> {
   const target = await element.evaluate(element => {
@@ -87,9 +88,14 @@ export async function executeAction(
   action: LearnerAction,
   credentials: { email: string; password: string }
 ): Promise<ActionStatus> {
+  if (action.type === 'observe') return 'ok';
   if (action.type === 'press') {
-    await page.keyboard.press(action.key);
-    return 'ok';
+    try {
+      await page.keyboard.press(action.key);
+      return 'ok';
+    } catch {
+      return 'not-actionable';
+    }
   }
   if (action.type === 'scroll') {
     const height = page.viewportSize()?.height;

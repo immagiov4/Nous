@@ -1,6 +1,7 @@
 import type { Api, Model } from '@mariozechner/pi-ai';
 import type { ModelRegistry } from '@mariozechner/pi-coding-agent';
 import * as z from 'zod';
+import { meterModel } from '../modelUsage';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const TOKENS_PER_MILLION = 1_000_000;
@@ -78,5 +79,8 @@ async function resolveModel(options: ModelResolutionOptions): Promise<Model<Api>
 /** A source shares one lazy resolution, including concurrent callers and resolution failures. */
 export function createModelResolver(options: ModelResolutionOptions): () => Promise<Model<Api>> {
   let resolution: Promise<Model<Api>> | undefined;
-  return () => (resolution ??= resolveModel(options));
+  return async () => {
+    resolution ??= resolveModel(options);
+    return meterModel(await resolution);
+  };
 }

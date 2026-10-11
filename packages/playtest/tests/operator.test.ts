@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   type Observation,
   type OperatorSession,
@@ -23,6 +23,7 @@ afterAll(async () => {
   await browser?.close();
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   if (!sessionClosed) await session.close();
   sessionClosed = true;
   if (runDir) await rm(runDir, { recursive: true, force: true });
@@ -50,6 +51,25 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it.each([1, 2])('retries a failed screenshot once (%i injected failures)', async failures => {
+    const page = await fixture('<main>Visible capture</main>');
+    const original = page.screenshot.bind(page);
+    let attempts = 0;
+    const screenshot = vi.spyOn(page, 'screenshot').mockImplementation(options => {
+      attempts++;
+      if (attempts <= failures) return Promise.reject(new Error('Synthetic capture failure'));
+      return original(options);
+    });
+    if (failures === 1) {
+      const observation = await session.observe();
+      expect(observation.stepIndex).toBe(0);
+      expect(observation.nodes.map(node => node.name)).toContain('Visible capture');
+      expect((await readFile(observation.screenshotPath)).length).toBeGreaterThan(0);
+    } else {
+      await expect(session.observe()).rejects.toThrow('Synthetic capture failure');
+    }
+    expect(screenshot).toHaveBeenCalledTimes(2);
+  });
   it('excludes covered and offscreen descendants from a visible control name', async () => {
     await fixture(`<button style="position:relative;width:400px;height:100px">
       Visible control

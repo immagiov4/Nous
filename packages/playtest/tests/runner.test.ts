@@ -6,12 +6,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { PlaytestAdapter } from '../src/adapter';
 import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
+import type { VisualJudge } from '../src/inspector/judge';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
 import { runPlaytest } from '../src/runner';
 import type { Story } from '../src/types';
 
 const judge = vi.hoisted(() =>
-  vi.fn(async (_input: { screenshots: string[] }) => [] as InspectorFinding[])
+  vi.fn(async (_input: Parameters<VisualJudge['judge']>[0]) => [] as InspectorFinding[])
 );
 vi.mock('../src/inspector/judge', () => ({ createPiVisualJudge: () => ({ judge }) }));
 let server: Server;
@@ -134,6 +135,13 @@ describe('parallel runner', () => {
     expect(Object.values(summary.outcomeCounts).reduce((sum, count) => sum + count, 0)).toBe(3);
     for (const record of summary.records) {
       const data = await report(record.reportPath);
+      expect(data.elapsedMs).toBeGreaterThan(0);
+      expect(data.elapsedMs).toBe(record.elapsedMs);
+      expect(data.modelUsage.total).toMatchObject({
+        responses: 0,
+        totalTokens: 0,
+        cost: { total: 0 },
+      });
       expect(data.learner.observations).toHaveLength(1);
       expect(data.probeSignals.length).toBeGreaterThan(0);
       expect(data.findings).toEqual([]);
@@ -201,7 +209,7 @@ describe('parallel runner', () => {
         expected: 'Readable',
         actual: 'Clipped',
         stepIndex: 0,
-        screenshotPath: screenshots[0],
+        screenshotPath: screenshots[0].screenshotPath,
       },
     ]);
     const app = adapter();

@@ -51,7 +51,12 @@ export async function inspect(input: {
   const findings = input.probeFindings.map(probeFinding);
   if (input.judge) {
     const candidates = await input.judge.judge({
-      screenshots: input.observations.map(observation => observation.screenshotPath),
+      screenshots: input.observations.map(observation => ({
+        screenshotPath: observation.screenshotPath,
+        visibleText: [
+          ...new Set(observation.nodes.map(node => node.name).filter(name => name.trim())),
+        ],
+      })),
       styleReference: input.styleReference,
       taxonomy: input.taxonomy,
     });

@@ -26,7 +26,11 @@ const storySchema = z
       });
     }
   });
-const personaSchema = z.object({ id: identifier, device: viewport.optional() });
+const personaSchema = z.object({
+  id: identifier,
+  device: viewport.optional(),
+  affects: z.array(identifier).nonempty().optional(),
+});
 
 async function markdownPaths(dir: string): Promise<string[]> {
   const paths = await Promise.all(

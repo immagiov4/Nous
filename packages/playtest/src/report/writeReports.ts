@@ -46,6 +46,12 @@ export async function writeStoryReports(input: {
   const sections = [
     `# ${escapeHtml(record.storyId)} (${record.viewport})`,
     `Outcome: ${record.outcome}`,
+    ...(record.elapsedMs === undefined ? [] : [`Elapsed: ${record.elapsedMs.toFixed(1)} ms`]),
+    ...(record.modelUsage
+      ? [
+          `Model usage (Pi): ${record.modelUsage.total.totalTokens} tokens; USD ${record.modelUsage.total.cost.total.toFixed(6)}`,
+        ]
+      : []),
     ...(record.reason ? [escapeHtml(record.reason)] : []),
     ...(record.correlationId ? [`Request: ${escapeHtml(record.correlationId)}`] : []),
     ...(stopEvent?.kind === 'response'
@@ -82,12 +88,12 @@ export async function writeSummaryReports(summary: RunSummary): Promise<void> {
       const reportDir = dirname(record.reportPath);
       const list = (findings: InspectorFinding[]) =>
         `<ul>${findings.map(finding => `<li>${escapeHtml(finding.taxonomyClass)}: ${escapeHtml(finding.title)} (step ${finding.stepIndex}, <a href="${evidenceLink(summary.runDir, finding.screenshotPath)}">screenshot</a>)</li>`).join('')}</ul>`;
-      return `<tr><td><a href="${evidenceLink(summary.runDir, join(reportDir, 'story.md'))}">${escapeHtml(record.storyId)}</a> (${record.viewport})</td><td>${record.outcome}${record.reason ? `<p>${escapeHtml(record.reason)}</p>` : ''}</td><td>${list(record.findings.filter(finding => finding.source === 'probe'))}</td><td>${list(record.findings.filter(finding => finding.source === 'judge'))}</td><td><ul>${record.friction.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul></td></tr>`;
+      return `<tr><td><a href="${evidenceLink(summary.runDir, join(reportDir, 'story.md'))}">${escapeHtml(record.storyId)}</a> (${record.viewport})</td><td>${record.outcome}${record.reason ? `<p>${escapeHtml(record.reason)}</p>` : ''}</td><td>${record.elapsedMs?.toFixed(1) ?? 'Unavailable'}</td><td>${record.modelUsage ? `USD ${record.modelUsage.total.cost.total.toFixed(6)} (${record.modelUsage.total.totalTokens} tokens)` : 'Unavailable'}</td><td>${list(record.findings.filter(finding => finding.source === 'probe'))}</td><td>${list(record.findings.filter(finding => finding.source === 'judge'))}</td><td><ul>${record.friction.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul></td></tr>`;
     })
     .join('');
   await writeFile(join(summary.runDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
   await writeFile(
     join(summary.runDir, 'summary.html'),
-    `<!doctype html><html lang="en"><meta charset="utf-8"><title>Playtest summary</title><body><h1>Playtest summary</h1><ul>${counts}</ul><table><thead><tr><th>Story</th><th>Outcome</th><th>Probe findings</th><th>Judge findings</th><th>Learner friction</th></tr></thead><tbody>${rows}</tbody></table></body></html>\n`
+    `<!doctype html><html lang="en"><meta charset="utf-8"><title>Playtest summary</title><body><h1>Playtest summary</h1><ul>${counts}</ul><table><thead><tr><th>Story</th><th>Outcome</th><th>Elapsed (ms)</th><th>Model usage (Pi)</th><th>Probe findings</th><th>Judge findings</th><th>Learner friction</th></tr></thead><tbody>${rows}</tbody></table></body></html>\n`
   );
 }

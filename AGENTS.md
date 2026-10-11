@@ -126,6 +126,7 @@ bun run gate:ci       # CI gate: quality + fallow regression + tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
+bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, provider and model
 ```
 
 `doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without

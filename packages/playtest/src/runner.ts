@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { join } from 'node:path';
 import { type Browser, chromium } from 'playwright';
 import type { ObservedEvent, PlaytestAdapter, StopVerdict } from './adapter';
@@ -10,6 +11,7 @@ import {
   runLearner,
 } from './learner/loop';
 import { createPiDecisionSource } from './learner/piDecisionSource';
+import { createModelUsage, type ModelUsage, withModelUsage } from './modelUsage';
 import { type Observation, type OperatorSession, openOperatorSession } from './operator/session';
 import type { ProbeSignal } from './probes/pageProbes';
 import { toFindings } from './probes/thresholds';
@@ -23,6 +25,9 @@ export type StoryRunRecord = {
   outcome: StoryOutcome;
   reason?: string;
   correlationId?: string;
+  affect?: string;
+  elapsedMs?: number;
+  modelUsage?: ModelUsage;
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
@@ -92,6 +97,15 @@ async function runStory(input: {
   getBrowser: () => Promise<Browser>;
   stackFailure?: string;
 }): Promise<StoryRunRecord> {
+  const modelUsage = createModelUsage();
+  return withModelUsage(modelUsage, 'learner', () => runStoryWithUsage(input, modelUsage));
+}
+
+async function runStoryWithUsage(
+  input: Parameters<typeof runStory>[0],
+  modelUsage: ModelUsage
+): Promise<StoryRunRecord> {
+  const startedAt = performance.now();
   const { options, story, viewport } = input;
   // The index also distinguishes IDs differing only by case on Windows filesystems.
   const storyDir = join(
@@ -106,6 +120,7 @@ async function runStory(input: {
     findings: [],
     friction: [],
     reportPath: join(storyDir, 'story.json'),
+    modelUsage,
   };
   let prepared: Awaited<ReturnType<PlaytestAdapter['prepare']>>;
   try {
@@ -114,6 +129,7 @@ async function runStory(input: {
   } catch (error) {
     // Adapter precondition failures are explicitly user-readable by contract.
     record.reason = error instanceof Error ? error.message : 'Story preparation failed.';
+    record.elapsedMs = performance.now() - startedAt;
     await writeStoryReports({ record });
     return record;
   }
@@ -148,9 +164,19 @@ async function runStory(input: {
       runDir: storyDir,
       onEvent,
     });
+    const persona = story.persona ? options.personas.get(story.persona) : undefined;
+    record.affect = persona?.affects
+      ? persona.affects[randomInt(persona.affects.length)]
+      : undefined;
     learner = await runLearner({
       story,
-      persona: story.persona ? options.personas.get(story.persona) : undefined,
+      persona:
+        persona && record.affect
+          ? {
+              ...persona,
+              body: `${persona.body}\n\nStato emotivo iniziale per questa sessione: ${record.affect}. Cambia solo in risposta a ciò che incontri.`,
+            }
+          : persona,
       appDescription: options.adapter.appDescription(),
       operator: withProbeEvidence(session, options, probeSignals, probeFindings),
       source:
@@ -191,17 +217,20 @@ async function runStory(input: {
       observations: learner.observations,
     };
     try {
-      record.findings = await inspect({
-        ...inspection,
-        styleReference: options.adapter.styleReference(),
-        taxonomy: options.adapter.taxonomy(),
-        judge: createPiVisualJudge({ model: options.model, provider: options.provider }),
-      });
+      record.findings = await withModelUsage(modelUsage, 'judge', () =>
+        inspect({
+          ...inspection,
+          styleReference: options.adapter.styleReference(),
+          taxonomy: options.adapter.taxonomy(),
+          judge: createPiVisualJudge({ model: options.model, provider: options.provider }),
+        })
+      );
     } catch {
       inspectionError = 'Visual inspection failed; probe evidence is retained.';
       record.findings = await inspect({ ...inspection, styleReference: [], taxonomy: '' });
     }
   }
+  record.elapsedMs = performance.now() - startedAt;
   await writeStoryReports({ record, learner, probeSignals, tracePath, stopEvent, inspectionError });
   return record;
 }

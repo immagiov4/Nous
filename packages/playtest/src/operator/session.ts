@@ -1,8 +1,8 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Browser } from 'playwright';
+import type { Browser, JSHandle } from 'playwright';
 import type { ObservedEvent } from '../adapter';
-import { collectSignals, installProbes } from '../probes/collect';
+import { collectSignals, drainConsoleSignals, installProbes } from '../probes/collect';
 import type { ProbeSignal } from '../probes/pageProbes';
 import type { Viewport } from '../types';
 import { type ActionResult, executeAction, type LearnerAction } from './actions';
@@ -11,6 +11,8 @@ import { VIEWPORTS } from './viewports';
 
 export type { ActionResult, LearnerAction } from './actions';
 export type { Observation, VisibleNode } from './observe';
+
+export const SCREENSHOT_CAPTURE_RETRIES = 1;
 
 export type OperatorSession = {
   observe(): Promise<Observation>;
@@ -48,14 +50,39 @@ export async function openOperatorSession(options: {
     await installProbes(page);
     await page.goto(baseUrl);
     let stepIndex = 0;
-    const observe = () => {
+    let documentVersion = 0;
+    let capturedSignals: ProbeSignal[] | undefined;
+    page.on('framenavigated', frame => {
+      if (frame === page.mainFrame()) documentVersion++;
+    });
+    const observe = async () => {
       const currentStep = stepIndex++;
-      return observePage({
-        page,
-        stepIndex: currentStep,
-        screenshotPath: join(runDir, `step-${currentStep}.png`),
-        secrets: [credentials.email, credentials.password],
-      });
+      let captureRetries = 0;
+      // Navigation invalidates the whole capture: never pair new-document probes with an old image.
+      for (;;) {
+        const version = documentVersion;
+        let capturedDocument: JSHandle<Document> | undefined;
+        try {
+          capturedDocument = await page.evaluateHandle(() => document);
+          const observation = await observePage({
+            page,
+            stepIndex: currentStep,
+            screenshotPath: join(runDir, `step-${currentStep}.png`),
+            secrets: [credentials.email, credentials.password],
+          });
+          if (version !== documentVersion) continue;
+          const signals = await collectSignals(page, capturedDocument);
+          capturedSignals = [...(capturedSignals ?? []), ...signals];
+          return observation;
+        } catch (error) {
+          if (captureRetries === SCREENSHOT_CAPTURE_RETRIES) throw error;
+          captureRetries++;
+          if (error instanceof Error && error.message.includes('Execution context was destroyed'))
+            await page.waitForLoadState('domcontentloaded');
+        } finally {
+          await capturedDocument?.dispose();
+        }
+      }
     };
     return {
       observe,
@@ -72,7 +99,12 @@ export async function openOperatorSession(options: {
               : 'The observed element cannot receive this action.',
         };
       },
-      signals: () => collectSignals(page),
+      async signals() {
+        if (capturedSignals === undefined) return collectSignals(page);
+        const signals = capturedSignals;
+        capturedSignals = undefined;
+        return [...signals, ...drainConsoleSignals(page)];
+      },
       async close() {
         const tracePath = join(runDir, 'trace.zip');
         try {

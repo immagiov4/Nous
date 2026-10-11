@@ -1,0 +1,429 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PostgresProjectStore } from '../../../apps/backend/src/projects/postgresProjectStore';
+import { openOperatorSession } from '../../../packages/playtest/src/operator/session';
+import { runPlaytest } from '../../../packages/playtest/src/runner';
+import { loadPersonas, loadStories } from '../../../packages/playtest/src/stories';
+import type { Story } from '../../../packages/playtest/src/types';
+import adapter from '../adapter';
+import { prepare, syntheticCourse } from '../prepare';
+import {
+  assertIsolatedStatus,
+  dataRoot,
+  REPO_ROOT,
+  runStackStage,
+  STACK_STAGE_READINESS_LIMIT_MS,
+  type StackStatus,
+  startServer,
+} from '../stack';
+
+let temporaryRoot: string | undefined;
+afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.useRealTimers();
+  if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
+  temporaryRoot = undefined;
+});
+const status: StackStatus = {
+  API_URL: 'http://127.0.0.1:55321',
+  DB_URL: 'postgresql://postgres:test@127.0.0.1:55322/postgres',
+  ANON_KEY: 'synthetic-anon',
+  SERVICE_ROLE_KEY: 'synthetic-service',
+  JWT_SECRET: 'synthetic-secret',
+};
+const story: Story = {
+  id: 'test',
+  kind: 'check',
+  title: 'Test',
+  body: 'Test',
+  viewports: ['desktop'],
+  requires: {},
+  tags: [],
+  budget: { steps: 1 },
+  sourcePath: 'test.md',
+};
+vi.mock('../../../packages/playtest/src/inspector/judge', () => ({
+  createPiVisualJudge: () => ({ judge: async () => [] }),
+}));
+
+describe('Nous adapter', () => {
+  it.each([
+    'Supabase',
+    'backend',
+    'frontend',
+  ])('expires the %s stage at its approved limit with redacted output', async name => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-stage-limit-'));
+    vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
+    await mkdir(join(temporaryRoot, 'stack'));
+    await writeFile(
+      join(temporaryRoot, 'stack', `${name.toLowerCase()}.log`),
+      'Synthetic stage stalled: private-stage-secret\n'
+    );
+    vi.useFakeTimers();
+    let aborted = false;
+    let settled = false;
+    const stage = runStackStage({
+      name,
+      env: { TEST_SECRET: 'private-stage-secret' },
+      work: signal =>
+        new Promise<never>(() => {
+          signal.addEventListener('abort', () => {
+            aborted = true;
+          });
+        }),
+    });
+    const result = stage.catch(error => {
+      settled = true;
+      return error as Error;
+    });
+    await vi.advanceTimersByTimeAsync(STACK_STAGE_READINESS_LIMIT_MS - 1);
+    expect(settled).toBe(false);
+    expect(aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const error = await result;
+    expect(error.message).toBe(
+      `Playtest ${name} readiness failed: stage limit expired.\nSynthetic stage stalled: [redacted]`
+    );
+    expect(aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('clears the stage deadline after successful readiness', async () => {
+    vi.useFakeTimers();
+    expect(await runStackStage({ name: 'backend', work: async () => 'healthy' })).toBe('healthy');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('starts a cold child from HTTP readiness even without a ready log marker', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-startup-'));
+    vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
+    await mkdir(join(temporaryRoot, 'stack'));
+    const reservation = createServer();
+    await new Promise<void>(ready => reservation.listen(0, '127.0.0.1', ready));
+    const address = reservation.address();
+    if (!address || typeof address === 'string') throw new Error('No test TCP address');
+    await new Promise<void>(ready => reservation.close(() => ready()));
+    const url = `http://127.0.0.1:${address.port}`;
+    const pid = await startServer(
+      'fixture',
+      [
+        '-e',
+        `Bun.serve({hostname:'127.0.0.1',port:${address.port},fetch:()=>new Response('healthy')})`,
+      ],
+      url,
+      process.env
+    );
+    try {
+      expect(await (await fetch(url)).text()).toBe('healthy');
+    } finally {
+      process.kill(pid);
+    }
+  });
+
+  it('rejects early child exit with its stage and redacted last output', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-startup-exit-'));
+    vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
+    await mkdir(join(temporaryRoot, 'stack'));
+    await expect(
+      startServer(
+        'frontend',
+        ['-e', "console.error('Synthetic Vite failure', process.env.TEST_SECRET); process.exit(1)"],
+        'http://127.0.0.1:0',
+        { ...process.env, TEST_SECRET: 'private-synthetic-secret' }
+      )
+    ).rejects.toThrow(
+      'Playtest frontend readiness failed: process exited (1).\nSynthetic Vite failure [redacted]'
+    );
+  });
+  it('stops on backend 5xx with its correlation ID, including proxied requests', () => {
+    for (const origin of ['http://127.0.0.1:3301', adapter.baseUrl()]) {
+      expect(
+        adapter.classify({
+          kind: 'response',
+          url: `${origin}/api/projects`,
+          status: 502,
+          headers: { 'x-request-id': 'request-test' },
+        })
+      ).toEqual({ stop: true, reason: 'Backend HTTP 502.', correlationId: 'request-test' });
+    }
+    expect(
+      adapter.classify({
+        kind: 'response',
+        url: 'https://example.test/api/projects',
+        status: 502,
+        headers: {},
+      })
+    ).toEqual({ stop: false });
+    expect(
+      adapter.classify({
+        kind: 'response',
+        url: `${adapter.baseUrl()}/asset.png`,
+        status: 502,
+        headers: {},
+      })
+    ).toEqual({ stop: false });
+    expect(adapter.classify({ kind: 'console', level: 'error', text: 'test' })).toEqual({
+      stop: false,
+    });
+  });
+
+  it('loads the four stories and their mission persona', async () => {
+    const stories = await loadStories(fileURLToPath(new URL('../stories', import.meta.url)));
+    expect(stories.map(story => story.id)).toEqual([
+      'esame-diritto-privato',
+      'home-chat-ask',
+      'lesson-read-and-select',
+      'library-open-course',
+    ]);
+    const personas = await loadPersonas(fileURLToPath(new URL('../personas', import.meta.url)));
+    expect(personas.get('giulia')?.affects?.length).toBeGreaterThan(0);
+    expect(stories.find(story => story.id === 'library-open-course')?.viewports).toEqual([
+      'desktop',
+      'mobile',
+    ]);
+  });
+
+  it('keeps thresholds unset and reference screens empty', () => {
+    expect(adapter.thresholds()).toEqual({});
+    expect(adapter.styleReference()).toEqual([]);
+  });
+
+  it('describes the learner purpose without exposing routes or component identifiers', () => {
+    const description = adapter.appDescription();
+    for (const internal of [
+      '/admin/youtube-lab',
+      '/admin',
+      '/dev/diagnostic',
+      '/dev/first-run',
+      'DiagnosticDemo',
+      'AdminPanel',
+      'AppContent',
+      'className',
+    ])
+      expect(description).not.toContain(internal);
+    expect(description.trim().split('\n')).toHaveLength(1);
+  });
+
+  it('rejects default and remote database addresses before creating an account', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    expect(() =>
+      assertIsolatedStatus({
+        ...status,
+        DB_URL: 'postgresql://postgres:test@127.0.0.1:54322/postgres',
+      })
+    ).toThrow('isolated');
+    await expect(
+      prepare(story, 'desktop', { ...status, API_URL: 'https://example.test:55321' })
+    ).rejects.toThrow('isolated');
+    expect(fetcher).not.toHaveBeenCalled();
+    vi.stubEnv('NOUS_E2E_DATA', REPO_ROOT);
+    expect(dataRoot).toThrow('outside');
+  });
+
+  it('creates distinct confirmed accounts and seeds a readable synthetic lesson', async () => {
+    const fetcher = vi.fn(async () => Response.json({ id: crypto.randomUUID() }));
+    vi.stubGlobal('fetch', fetcher);
+    const save = vi
+      .spyOn(PostgresProjectStore.prototype, 'saveProject')
+      .mockResolvedValue({} as Awaited<ReturnType<PostgresProjectStore['saveProject']>>);
+    const close = vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
+    const seeded = { ...story, requires: { course: 'synthetic-short' } };
+    const first = await prepare(seeded, 'desktop', status);
+    const second = await prepare(seeded, 'mobile', status);
+    expect(first.credentials.email).not.toBe(second.credentials.email);
+    expect(first.credentials.password).not.toBe(second.credentials.password);
+    for (const call of fetcher.mock.calls) {
+      expect(
+        JSON.parse((call as unknown as [string, RequestInit])[1].body as string).email_confirm
+      ).toBe(true);
+    }
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[0][1].activeSectionId).toBe('lesson-water');
+    expect(save.mock.calls[0][1].learningPlan?.modules?.[0].children?.[0].content).toBe(
+      syntheticCourse().learningPlan?.modules?.[0].children?.[0].content
+    );
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('imports JSON fixtures through the product import method and rejects traversal', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-adapter-'));
+    vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
+    await mkdir(join(temporaryRoot, 'fixtures'));
+    const snapshot = syntheticCourse();
+    await writeFile(join(temporaryRoot, 'fixtures', 'synthetic.json'), JSON.stringify(snapshot));
+    await writeFile(join(temporaryRoot, 'outside.json'), '{}');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ id: crypto.randomUUID() }))
+    );
+    const importProject = vi
+      .spyOn(PostgresProjectStore.prototype, 'importProject')
+      .mockResolvedValue({} as Awaited<ReturnType<PostgresProjectStore['importProject']>>);
+    vi.spyOn(PostgresProjectStore.prototype, 'close').mockResolvedValue();
+    await prepare({ ...story, requires: { course: 'fixture:synthetic.json' } }, 'desktop', status);
+    expect(importProject.mock.calls[0][1]).toEqual(snapshot);
+    const archive = Buffer.from('synthetic archive bytes');
+    await writeFile(join(temporaryRoot, 'fixtures', 'synthetic.zip'), archive);
+    const importArchive = vi
+      .spyOn(PostgresProjectStore.prototype, 'importProjectArchive')
+      .mockResolvedValue({} as Awaited<ReturnType<PostgresProjectStore['importProjectArchive']>>);
+    await prepare({ ...story, requires: { course: 'fixture:synthetic.zip' } }, 'mobile', status);
+    expect(importArchive.mock.calls[0][1]).toEqual(archive);
+    expect(importArchive.mock.calls[0][2]).toMatch(/^[a-f0-9-]+$/);
+    await expect(
+      prepare({ ...story, requires: { course: 'fixture:../outside.json' } }, 'desktop', status)
+    ).rejects.toThrow('within');
+    await expect(
+      prepare({ ...story, requires: { course: 'fixture:missing.json' } }, 'desktop', status)
+    ).rejects.toThrow('missing');
+    await expect(
+      prepare({ ...story, requires: { freshness: 'current' } }, 'desktop', status)
+    ).rejects.toThrow('Unsupported');
+  });
+
+  it('passes only the family matrix to the inspector', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-taxonomy-'));
+    vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
+    await mkdir(join(temporaryRoot, 'complaint-mining'));
+    await writeFile(
+      join(temporaryRoot, 'complaint-mining/TAXONOMY.md'),
+      '# Taxonomy\n\n## Family matrix for the checker prompt\n\n| Family | Classes |\n| F01 | D01 |\n\n## Class table\n\nPrivate complaint excerpt\n'
+    );
+    expect(adapter.taxonomy()).toBe('| Family | Classes |\n| F01 | D01 |');
+  });
+
+  it('samples one persona state per session and retains it in the report', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-affect-'));
+    const affects = ['curiosa', 'stanca'];
+    const prompts: string[] = [];
+    const summary = await runPlaytest({
+      adapter: {
+        ...adapter,
+        ensureStack: async () => {},
+        prepare: async () => ({
+          credentials: { email: 'synthetic@example.test', password: 'synthetic' },
+        }),
+        baseUrl: () => 'data:text/html,<p>Contenuto sintetico</p>',
+        taxonomy: () => '',
+      },
+      stories: [{ ...story, persona: 'person', budget: { steps: 2 } }],
+      personas: new Map([
+        ['person', { id: 'person', body: 'Profilo sintetico.', affects, sourcePath: 'person.md' }],
+      ]),
+      concurrency: 1,
+      headed: false,
+      model: 'fake',
+      provider: 'fake',
+      runDir: temporaryRoot,
+      sourceFactory: () => ({
+        async decide(input) {
+          prompts.push(input.systemPrompt);
+          return input.history.length
+            ? { type: 'stop', reason: 'completed', summary: 'Done' }
+            : { type: 'diary', entry: 'Observed' };
+        },
+      }),
+    });
+    expect(summary.records[0].outcome).toBe('completed');
+    expect(affects).toContain(summary.records[0].affect);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toBe(prompts[1]);
+    expect(prompts[0]).toContain(`sessione: ${summary.records[0].affect}.`);
+  });
+
+  it('allows a fresh observation and recovers from an unsupported keyboard key', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-observe-'));
+    const summary = await runPlaytest({
+      adapter: {
+        ...adapter,
+        ensureStack: async () => {},
+        prepare: async () => ({
+          credentials: { email: 'synthetic@example.test', password: 'synthetic' },
+        }),
+        baseUrl: () => 'data:text/html,<label>Answer<input></label><p>Contenuto sintetico</p>',
+        taxonomy: () => '',
+      },
+      stories: [{ ...story, budget: { steps: 3 } }],
+      personas: new Map(),
+      concurrency: 1,
+      headed: false,
+      model: 'fake',
+      provider: 'fake',
+      runDir: temporaryRoot,
+      sourceFactory: () => ({
+        async decide(input) {
+          if (!input.history.length)
+            return {
+              type: 'act',
+              action: { type: 'press', key: 'invalid-key' },
+              expectation: 'Invalid action is returned to the learner.',
+            };
+          if (input.history.length === 1) {
+            expect(input.history[0].result?.status).toBe('not-actionable');
+            return {
+              type: 'act',
+              action: { type: 'observe' },
+              expectation: 'A fresh view without changing the page.',
+            };
+          }
+          expect(input.history[1].result?.status).toBe('ok');
+          expect(input.observation.stepIndex).toBe(2);
+          expect(input.observation.nodes.find(node => node.name === 'Answer')).toBeDefined();
+          return { type: 'stop', reason: 'completed', summary: 'Recovered' };
+        },
+      }),
+    });
+    expect(summary.records[0].outcome).toBe('completed');
+  });
+
+  it.each([
+    'during',
+    'between',
+  ])('keeps image, nodes and probes together when navigation happens %s capture', async phase => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-navigation-'));
+    const browser = await chromium.launch({ headless: true });
+    const session = await openOperatorSession({
+      browser,
+      baseUrl: 'data:text/html,<p>Before navigation</p>',
+      viewport: 'desktop',
+      credentials: { email: 'synthetic@example.test', password: 'synthetic' },
+      runDir: temporaryRoot,
+    });
+    try {
+      const page = browser.contexts()[0].pages()[0];
+      const screenshot = page.screenshot.bind(page);
+      let navigated = false;
+      vi.spyOn(page, 'screenshot').mockImplementation(async options => {
+        if (!navigated) {
+          navigated = true;
+          const before = await screenshot(options);
+          await page.goto(
+            `data:text/html,${encodeURIComponent('<button>After navigation</button><span style="display:inline-block;width:20px;white-space:nowrap;overflow:hidden">New document clipped text</span>')}`
+          );
+          if (phase === 'during')
+            throw new Error('Execution context was destroyed, most likely because of a navigation');
+          return before;
+        }
+        return screenshot(options);
+      });
+      const observation = await session.observe();
+      expect(observation.nodes.some(node => node.name === 'After navigation')).toBe(true);
+      expect(observation.nodes.some(node => node.name === 'Before navigation')).toBe(false);
+      const signals = await session.signals();
+      expect(signals).toContainEqual(
+        expect.objectContaining({ kind: 'clipped-text', text: 'New document clipped text' })
+      );
+      expect(observation.stepIndex).toBe(0);
+    } finally {
+      await session.close();
+      await browser.close();
+    }
+  });
+});

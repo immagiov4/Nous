@@ -109,11 +109,33 @@ describe('inspector', () => {
     expect(result.expected).toBe('Maintainer threshold: 10');
   });
 
-  it('passes only screenshots, style references and taxonomy to the judge', async () => {
+  it('pairs each screenshot with compact visible names without node metadata or learner history', async () => {
     const judge = vi.fn(async () => [finding()]);
-    expect(await inspect({ ...input, judge: { judge } })).toEqual([finding()]);
+    const screens = observations.map((screen, index) => ({
+      ...screen,
+      nodes: (index === 0
+        ? ['Small visible text', '', 'Small visible text', ' ']
+        : ['Next screen']
+      ).map(name => ({
+        name,
+        ref: 'private-ref',
+        role: 'text',
+        box: { x: 0, y: 0, w: 10, h: 10 },
+      })),
+    }));
+    expect(
+      await inspect({
+        ...input,
+        observations: screens,
+        learner: { ...learner, diary: ['Private history'] },
+        judge: { judge },
+      })
+    ).toEqual([finding()]);
     expect(judge).toHaveBeenCalledExactlyOnceWith({
-      screenshots: ['step-0.png', 'step-3.png'],
+      screenshots: [
+        { screenshotPath: 'step-0.png', visibleText: ['Small visible text'] },
+        { screenshotPath: 'step-3.png', visibleText: ['Next screen'] },
+      ],
       styleReference: input.styleReference,
       taxonomy: input.taxonomy,
     });
@@ -203,7 +225,14 @@ describe('Pi visual judge with a mocked SDK', () => {
     });
   });
   const options = { provider: 'openrouter', model: catalogueEntry.id };
-  const judgeInput = () => ({ screenshots, styleReference, taxonomy: 'D01: clipping' });
+  const judgeInput = () => ({
+    screenshots: screenshots.map((screenshotPath, index) => ({
+      screenshotPath,
+      visibleText: [index === 0 ? 'First screen' : 'Second screen'],
+    })),
+    styleReference,
+    taxonomy: 'D01: clipping',
+  });
 
   it('resolves shared model metadata and sends ordered real images through an isolated session', async () => {
     const judge = createPiVisualJudge(options);
@@ -224,7 +253,7 @@ describe('Pi visual judge with a mocked SDK', () => {
     });
     const [prompt, imageInput] = sdk.prompt.mock.calls[0];
     expect(JSON.parse(prompt)).toEqual({
-      screenshots: screenshots.map((screenshotPath, stepIndex) => ({ stepIndex, screenshotPath })),
+      screenshots: judgeInput().screenshots.map((screen, stepIndex) => ({ stepIndex, ...screen })),
       styleReference,
       taxonomy: 'D01: clipping',
       imageOrder: 'Screenshots in list order, then style references in list order.',
@@ -301,7 +330,7 @@ describe('Pi visual judge with a mocked SDK', () => {
     await expect(
       createPiVisualJudge(options).judge({
         ...judgeInput(),
-        screenshots: [join(runDir, 'missing.png')],
+        screenshots: [{ screenshotPath: join(runDir, 'missing.png'), visibleText: [] }],
       })
     ).rejects.toThrow();
     expect(sdk.prompt).toHaveBeenCalledTimes(0);
