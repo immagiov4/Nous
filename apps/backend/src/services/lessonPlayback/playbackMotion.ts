@@ -56,7 +56,7 @@ const validateEvent = (
   if (!event.quote.trim()) throw new Error('Motion requires a non-whitespace source anchor');
   if (event.targets.some(id => !targets.has(id))) throw new Error('Unknown motion target');
   const offset = speech.indexOf(event.quote);
-  if (offset < 0 || speech.indexOf(event.quote, offset + 1) >= 0) {
+  if (offset < 0 || speech.includes(event.quote, offset + 1)) {
     throw new Error('Motion requires an exact, unique source anchor');
   }
   if (new Set(event.targets).size !== event.targets.length) {

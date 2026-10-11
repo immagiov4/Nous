@@ -6,7 +6,7 @@ export interface VoiceOption {
   language: string;
 }
 
-export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-tts';
+export const DEFAULT_TTS_MODEL = 'google/gemini-3.8-flash-lite-tts';
 export const DEFAULT_TTS_VOICE = 'Zephyr';
 
 const DEFAULT_TTS_VOICE_IDS: VoiceProfileId[] = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'];
