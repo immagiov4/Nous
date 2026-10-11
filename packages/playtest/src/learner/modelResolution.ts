@@ -1,10 +1,9 @@
 import type { Api, Model } from '@mariozechner/pi-ai';
 import type { ModelRegistry } from '@mariozechner/pi-coding-agent';
 import * as z from 'zod';
-import { meterModel } from '../modelUsage';
+import { meterModel, type PricedModel, TOKENS_PER_MILLION } from '../modelUsage';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const TOKENS_PER_MILLION = 1_000_000;
 const priceSchema = z.string().trim().min(1).pipe(z.coerce.number<string>().nonnegative());
 const entrySchema = z.object({
   id: z.string().min(1),
@@ -24,10 +23,8 @@ const entrySchema = z.object({
 const catalogueSchema = z.object({ data: z.array(z.object({ id: z.string() }).passthrough()) });
 
 /** Only text/image inputs are supported by Pi; prices are expressed per million tokens. */
-export function mapOpenRouterModel(entry: unknown): Model<'openai-completions'> {
+export function mapOpenRouterModel(entry: unknown): PricedModel<'openai-completions'> {
   const metadata = entrySchema.parse(entry);
-  if (metadata.pricing.overrides?.length)
-    throw new Error(`Unsupported OpenRouter pricing overrides: ${metadata.id}`);
   const input = metadata.architecture.input_modalities.filter(
     (modality): modality is 'text' | 'image' => modality === 'text' || modality === 'image'
   );
@@ -50,6 +47,7 @@ export function mapOpenRouterModel(entry: unknown): Model<'openai-completions'> 
     },
     contextWindow: metadata.context_length,
     maxTokens: metadata.top_provider.max_completion_tokens,
+    pricingOverrides: metadata.pricing.overrides ?? [],
   };
 }
 
@@ -68,7 +66,12 @@ type ModelResolutionOptions = {
 
 async function resolveModel(options: ModelResolutionOptions): Promise<Model<Api>> {
   const registered = options.registry.find(options.provider, options.model);
-  if (registered) return registered;
+  if (
+    registered &&
+    (options.provider !== 'openrouter' ||
+      (registered as PricedModel).pricingOverrides !== undefined)
+  )
+    return registered;
   if (options.provider === 'openrouter') {
     const catalogue = catalogueSchema.parse(
       await (options.fetchCatalogue ?? fetchOpenRouterCatalogue)()

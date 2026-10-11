@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from 'playwright';
 
+export const SCREENSHOT_PRIVACY_MASK = {
+  color: '#FF00FF',
+  shape: 'opaque bounding-box rectangles',
+  scope: 'credential-bearing controls and reflected secret text',
+  purpose: 'Harness privacy redactions, not application UI or defects.',
+} as const;
+
 export type VisibleNode = {
   ref: string;
   role: string;
@@ -191,6 +198,7 @@ export async function observePage(options: {
   await page.screenshot({
     path: screenshotPath,
     fullPage: false,
+    maskColor: SCREENSHOT_PRIVACY_MASK.color,
     // Live locators keep credential fields masked even if the app replaces them during capture.
     mask: [
       page.locator(

@@ -11,6 +11,7 @@ export type PlaytestAdapter = {
   appDescription(): string;
   describeAffect?(affect: string): string;
   baseUrl(): string;
+  locale(): string;
   ensureStack(): Promise<void>;
   prepare(
     story: Story,
@@ -19,5 +20,6 @@ export type PlaytestAdapter = {
   classify(event: ObservedEvent): StopVerdict;
   styleReference(): string[];
   taxonomy(): string;
+  taxonomyClasses(): string[];
   thresholds(): ProbeThresholds;
 };

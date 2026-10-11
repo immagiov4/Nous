@@ -13,6 +13,7 @@ import { type InspectorFinding, inspect, type StepProbeFinding } from '../src/in
 import { createPiVisualJudge, type VisualJudge } from '../src/inspector/judge';
 import type { LearnerRunResult } from '../src/learner/loop';
 import { mapOpenRouterModel } from '../src/learner/modelResolution';
+import { SCREENSHOT_PRIVACY_MASK } from '../src/operator/observe';
 import type { Observation } from '../src/operator/session';
 import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
 
@@ -69,6 +70,7 @@ const input = {
   observations,
   styleReference: ['style.png'],
   taxonomy: 'D01: clipping',
+  taxonomyClasses: ['D01', 'D02'],
 };
 function finding(overrides: Partial<InspectorFinding> = {}): InspectorFinding {
   return {
@@ -177,6 +179,25 @@ describe('inspector', () => {
     }
   });
 
+  it('drops unknown taxonomy classes and counts them with other invalid findings', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const judge = {
+        judge: async () => [
+          finding({ taxonomyClass: 'invented' }),
+          finding({ taxonomyClass: 'D99' }),
+          finding(),
+        ],
+      };
+      expect(await inspect({ ...input, judge })).toEqual([finding()]);
+      expect(warning).toHaveBeenCalledExactlyOnceWith(
+        'Inspector dropped 2 judge findings with invalid screenshot evidence or fields.'
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it('sorts by observation step and taxonomy, preserving ties', async () => {
     const later = finding({ stepIndex: 1, screenshotPath: 'step-3.png', taxonomyClass: 'D02' });
     const earlierClass = finding({
@@ -267,6 +288,7 @@ describe('Pi visual judge with a mocked SDK', () => {
       screenshots: judgeInput().screenshots.map((screen, stepIndex) => ({ stepIndex, ...screen })),
       styleReference,
       taxonomy: 'D01: clipping',
+      privacyRedactions: SCREENSHOT_PRIVACY_MASK,
       trace: judgeInput().trace,
       imageOrder: 'Screenshots in list order, then style references in list order.',
     });

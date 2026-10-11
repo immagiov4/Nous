@@ -12,11 +12,13 @@ const DEFAULT_ADAPTER = 'e2e/nous/adapter.ts';
 const adapterSchema = z.object({
   appDescription: z.function(),
   baseUrl: z.function(),
+  locale: z.function(),
   ensureStack: z.function(),
   prepare: z.function(),
   classify: z.function(),
   styleReference: z.function(),
   taxonomy: z.function(),
+  taxonomyClasses: z.function(),
   thresholds: z.function(),
 });
 

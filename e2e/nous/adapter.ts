@@ -11,6 +11,7 @@ const adapter: PlaytestAdapter = {
   describeAffect: affect =>
     `Stato emotivo iniziale per questa sessione: ${affect}. Cambia solo in risposta a ciò che incontri.`,
   baseUrl: () => APP_URL,
+  locale: () => 'it-IT',
   ensureStack,
   prepare,
   classify(event) {
@@ -34,6 +35,9 @@ const adapter: PlaytestAdapter = {
       /^## Family matrix for the checker prompt\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(text);
     if (!section) throw new Error('Taxonomy family matrix is missing.');
     return section[1].trim();
+  },
+  taxonomyClasses() {
+    return [...new Set(this.taxonomy().match(/\bD\d+\b/g) ?? [])];
   },
   thresholds: () => ({}),
 };

@@ -15,7 +15,6 @@ const PROJECT_ID = 'nous-playtest';
 export const STACK_STAGE_READINESS_LIMIT_MS = 180_000;
 export const STACK_SHUTDOWN_GRACE_MS = 10_000;
 export const STACK_READINESS_POLL_INTERVAL_MS = 500;
-const DIAGNOSTIC_TAIL_LINES = 10;
 // These addresses reuse the working hands spike's isolated port allocation.
 const PORTS = { api: 55321, db: 55322, shadow: 55320, studio: 55323, mail: 55324 };
 const statusSchema = z.object({
@@ -155,25 +154,27 @@ async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<st
   );
   const abort = () => terminateChild(child);
   signal?.addEventListener('abort', abort, { once: true });
-  const stderrOutput = async () => {
+  const captureOutput = async (stream: ReadableStream<Uint8Array>) => {
     const chunks: string[] = [];
     const decoder = new TextDecoder();
-    for await (const chunk of child.stderr) {
+    for await (const chunk of stream) {
       const text = decoder.decode(chunk, { stream: true });
       chunks.push(text);
       await appendFile(join(dataRoot(), 'stack', 'supabase.log'), text);
     }
-    chunks.push(decoder.decode());
+    const final = decoder.decode();
+    chunks.push(final);
+    await appendFile(join(dataRoot(), 'stack', 'supabase.log'), final);
     return chunks.join('');
   };
   const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    stderrOutput(),
+    captureOutput(child.stdout),
+    captureOutput(child.stderr),
     child.exited,
   ]).finally(() => signal?.removeEventListener('abort', abort));
   if (code !== 0) {
     await writeFile(join(dataRoot(), 'stack', 'supabase-error.log'), stderr);
-    throw new Error(`Playtest Supabase ${args[0]} exited (${code}).\n${outputTail(stderr)}`);
+    throw stageError('Supabase', `${args[0]} exited (${code})`);
   }
   return stdout;
 }
@@ -192,19 +193,9 @@ function terminateChild(child: { pid?: number; kill(): unknown }, detached = fal
   } else child.kill();
 }
 
-async function stageOutput(stage: string): Promise<string> {
-  return readFile(join(dataRoot(), 'stack', `${stage.toLowerCase()}.log`), 'utf8').catch(
-    (error: NodeJS.ErrnoException) => `Process output unavailable: ${error.code}`
-  );
-}
-
-function stageError(stage: string, detail: string, output: string, env = process.env): Error {
-  let safe = output;
-  for (const [key, value] of Object.entries(env)) {
-    if (value && /KEY|SECRET|PASSWORD|TOKEN|DATABASE_URL/.test(key))
-      safe = safe.replaceAll(value, '[redacted]');
-  }
-  return new Error(`Playtest ${stage} readiness failed: ${detail}.\n${outputTail(safe)}`);
+function stageError(stage: string, detail: string): Error {
+  const logPath = join(dataRoot(), 'stack', `${stage.toLowerCase()}.log`);
+  return new Error(`Playtest ${stage} readiness failed: ${detail}. Process log: ${logPath}`);
 }
 
 /** A stage owns one deadline across all of its commands and readiness checks. */
@@ -218,11 +209,9 @@ export async function runStackStage<T>(options: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      void stageOutput(options.name).then(output => {
-        const error = stageError(options.name, 'stage limit expired', output, options.env);
-        reject(error);
-        controller.abort(error);
-      });
+      const error = stageError(options.name, 'stage limit expired');
+      reject(error);
+      controller.abort(error);
     }, options.limitMs ?? STACK_STAGE_READINESS_LIMIT_MS);
   });
   try {
@@ -230,18 +219,6 @@ export async function runStackStage<T>(options: {
   } finally {
     clearTimeout(timer);
   }
-}
-
-function outputTail(output: string): string {
-  // Child environments contain credentials; redact them before showing diagnostics.
-  let safe = output;
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value && /KEY|SECRET|PASSWORD|TOKEN/.test(name))
-      safe = safe.replaceAll(value, '[redacted]');
-  }
-  return (
-    safe.trim().split(/\r?\n/).slice(-DIAGNOSTIC_TAIL_LINES).join('\n') || '(no process output)'
-  );
 }
 
 export async function stackStatus(signal?: AbortSignal): Promise<StackStatus> {
@@ -309,12 +286,9 @@ export async function startServer(
   let startupComplete = false;
   // Register exit/error listeners immediately: even an exit before the PID write must settle readiness.
   const exited = new Promise<never>((_resolve, reject) => {
-    const fail = async (detail: string) => {
+    const fail = (detail: string) => {
       if (startupComplete) return;
-      const output = await readFile(logPath, 'utf8').catch(
-        (error: NodeJS.ErrnoException) => `Process output unavailable: ${error.code}`
-      );
-      reject(stageError(name, detail, output, env));
+      reject(stageError(name, detail));
     };
     child.once('error', error => {
       void fail(error.message);
@@ -391,6 +365,8 @@ export async function ensureStack(
     SUPABASE_URL: status.API_URL,
     SUPABASE_SERVICE_ROLE_KEY: status.SERVICE_ROLE_KEY,
     SUPABASE_JWT_SECRET: status.JWT_SECRET,
+    SUPABASE_JWT_ISSUER: `${status.API_URL}/auth/v1`,
+    SUPABASE_JWKS_URL: `${status.API_URL}/auth/v1/.well-known/jwks.json`,
     VITE_SUPABASE_URL: status.API_URL,
     VITE_SUPABASE_ANON_KEY: status.ANON_KEY,
     AUTH_MODE: 'supabase',

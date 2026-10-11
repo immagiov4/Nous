@@ -88,6 +88,8 @@ describe('Nous adapter', () => {
       frontendPath,
       JSON.stringify({ pid: frontendPid, repoRoot: REPO_ROOT, identity: 'owned-process' })
     );
+    vi.stubEnv('SUPABASE_JWT_ISSUER', 'https://developer.example/auth/v1');
+    vi.stubEnv('SUPABASE_JWKS_URL', 'https://developer.example/jwks');
     let identity = 'owned-process';
     const kill = vi.fn((_pid: number, signal: NodeJS.Signals | number | undefined) => {
       if (signal === 0) throw Object.assign(new Error('Exited'), { code: 'ESRCH' });
@@ -112,6 +114,8 @@ describe('Nous adapter', () => {
         signal?: AbortSignal
       ) => {
         expect(env.DATABASE_URL).toBe(status.DB_URL);
+        expect(env.SUPABASE_JWT_ISSUER).toBe(`${status.API_URL}/auth/v1`);
+        expect(env.SUPABASE_JWKS_URL).toBe(`${status.API_URL}/auth/v1/.well-known/jwks.json`);
         expect(signal?.aborted).toBe(false);
         const pid = name === 'backend' ? process.pid : frontendPid;
         const pidPath = name === 'backend' ? backendPath : frontendPath;
@@ -367,7 +371,7 @@ describe('Nous adapter', () => {
     'Supabase',
     'backend',
     'frontend',
-  ])('expires the %s stage at its approved limit with redacted output', async name => {
+  ])('expires the %s stage at its approved limit with a full log path', async name => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-stage-limit-'));
     vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
     await mkdir(join(temporaryRoot, 'stack'));
@@ -398,7 +402,7 @@ describe('Nous adapter', () => {
     await vi.advanceTimersByTimeAsync(1);
     const error = await result;
     expect(error.message).toBe(
-      `Playtest ${name} readiness failed: stage limit expired.\nSynthetic stage stalled: [redacted]`
+      `Playtest ${name} readiness failed: stage limit expired. Process log: ${join(temporaryRoot, 'stack', `${name.toLowerCase()}.log`)}`
     );
     expect(aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
@@ -438,20 +442,27 @@ describe('Nous adapter', () => {
     }
   });
 
-  it('rejects early child exit with its stage and redacted last output', async () => {
+  it('retains full child output on early exit and reports its stage and log path', async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-startup-exit-'));
     vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
     await mkdir(join(temporaryRoot, 'stack'));
     await expect(
       startServer(
         'frontend',
-        ['-e', "console.error('Synthetic Vite failure', process.env.TEST_SECRET); process.exit(1)"],
+        [
+          '-e',
+          "console.log('First output'); for(let i=0;i<20;i++) console.error('Synthetic Vite failure', process.env.TEST_SECRET); console.log('Final output'); process.exit(1)",
+        ],
         'http://127.0.0.1:0',
         { ...process.env, TEST_SECRET: 'private-synthetic-secret' }
       )
     ).rejects.toThrow(
-      'Playtest frontend readiness failed: process exited (1).\nSynthetic Vite failure [redacted]'
+      `Playtest frontend readiness failed: process exited (1). Process log: ${join(temporaryRoot, 'stack', 'frontend.log')}`
     );
+    const output = await readFile(join(temporaryRoot, 'stack', 'frontend.log'), 'utf8');
+    expect(output).toContain('First output');
+    expect(output).toContain('Final output');
+    expect(output.match(/Synthetic Vite failure/g)).toHaveLength(20);
   });
   it('stops on backend 5xx with its correlation ID, including proxied requests', () => {
     for (const origin of ['http://127.0.0.1:3301', adapter.baseUrl()]) {
@@ -672,6 +683,8 @@ describe('Nous adapter', () => {
       '# Taxonomy\n\n## Family matrix for the checker prompt\n\n| Family | Classes |\n| F01 | D01 |\n\n## Class table\n\nPrivate complaint excerpt\n'
     );
     expect(adapter.taxonomy()).toBe('| Family | Classes |\n| F01 | D01 |');
+    expect(adapter.taxonomyClasses()).toEqual(['D01']);
+    expect(adapter.locale()).toBe('it-IT');
   });
 
   it('samples one persona state per session and retains it in the report', async () => {
@@ -768,6 +781,7 @@ describe('Nous adapter', () => {
     const browser = await chromium.launch({ headless: true });
     const session = await openOperatorSession({
       browser,
+      locale: 'it-IT',
       baseUrl: 'data:text/html,<p>Before navigation</p>',
       viewport: 'desktop',
       credentials: { email: 'synthetic@example.test', password: 'synthetic' },

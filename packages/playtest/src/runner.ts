@@ -29,6 +29,8 @@ export type StoryRunRecord = {
   affect?: string;
   elapsedMs?: number;
   modelUsage?: ModelUsage;
+  costEstimated?: true;
+  diagnostics?: { inspection?: string };
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
@@ -37,6 +39,7 @@ export type RunSummary = {
   runDir: string;
   records: StoryRunRecord[];
   outcomeCounts: Record<StoryOutcome, number>;
+  costEstimated?: true;
 };
 type RunOptions = {
   adapter: PlaytestAdapter;
@@ -161,6 +164,7 @@ async function runStoryWithUsage(
       browser: await input.getBrowser(),
       baseUrl: options.adapter.baseUrl(),
       viewport,
+      locale: options.adapter.locale(),
       credentials: prepared.credentials,
       runDir: storyDir,
       onEvent,
@@ -238,14 +242,27 @@ async function runStoryWithUsage(
           ...inspection,
           styleReference: options.adapter.styleReference(),
           taxonomy: options.adapter.taxonomy(),
+          taxonomyClasses: options.adapter.taxonomyClasses(),
           judge: createPiVisualJudge({ model: options.model, provider: options.provider }),
         })
       );
-    } catch {
+    } catch (error) {
+      const cause =
+        error instanceof Error
+          ? `${error.name}: ${error.message}\n${error.stack ?? ''}`
+          : String(error);
+      console.error('[playtest] Visual inspection failed:', cause);
+      record.diagnostics = { inspection: cause };
       inspectionError = 'Visual inspection failed; probe evidence is retained.';
-      record.findings = await inspect({ ...inspection, styleReference: [], taxonomy: '' });
+      record.findings = await inspect({
+        ...inspection,
+        styleReference: [],
+        taxonomy: '',
+        taxonomyClasses: [],
+      });
     }
   }
+  if (modelUsage.costEstimated) record.costEstimated = true;
   record.elapsedMs = performance.now() - startedAt;
   await writeStoryReports({ record, learner, probeSignals, tracePath, stopEvent, inspectionError });
   return record;
@@ -314,7 +331,12 @@ export async function runPlaytest(options: RunOptions): Promise<RunSummary> {
     'blocked-precondition': 0,
   };
   for (const record of records) outcomeCounts[record.outcome]++;
-  const summary = { runDir: options.runDir, records, outcomeCounts };
+  const summary: RunSummary = {
+    runDir: options.runDir,
+    records,
+    outcomeCounts,
+    ...(records.some(record => record.costEstimated) ? { costEstimated: true } : {}),
+  };
   await writeSummaryReports(summary);
   return summary;
 }

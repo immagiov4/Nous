@@ -34,10 +34,8 @@ describe('learner model resolution', () => {
     );
     expect(sdk.createSession).not.toHaveBeenCalled();
   });
-  it('rejects pricing tiers that Pi cannot represent instead of reporting base-rate costs', () => {
-    expect(() => mapOpenRouterModel(tieredEntry)).toThrow(
-      'Unsupported OpenRouter pricing overrides'
-    );
+  it('retains catalogue pricing tiers for per-request accounting', () => {
+    expect(mapOpenRouterModel(tieredEntry).pricingOverrides).toEqual(tieredEntry.pricing.overrides);
   });
   it('maps a recorded catalogue entry to Pi units and capabilities', () => {
     expect(mapOpenRouterModel(catalogueEntry)).toEqual({
@@ -51,6 +49,7 @@ describe('learner model resolution', () => {
       cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
       contextWindow: 200000,
       maxTokens: 64000,
+      pricingOverrides: [],
     });
   });
 
@@ -67,6 +66,19 @@ describe('learner model resolution', () => {
     expect(await resolve()).toBe(model);
     expect(find).toHaveBeenCalledWith('openrouter', model.id);
     expect(fetchCatalogue).toHaveBeenCalledTimes(0);
+  });
+
+  it('loads current catalogue tiers for an OpenRouter registry model with only flat rates', async () => {
+    const { pricingOverrides: _overrides, ...registered } = mapOpenRouterModel(catalogueEntry);
+    const fetchCatalogue = vi.fn(async () => ({ data: [tieredEntry] }));
+    const resolve = createModelResolver({
+      provider: 'openrouter',
+      model: tieredEntry.id,
+      registry: { find: () => registered },
+      fetchCatalogue,
+    });
+    expect(await resolve()).toMatchObject({ pricingOverrides: tieredEntry.pricing.overrides });
+    expect(fetchCatalogue).toHaveBeenCalledOnce();
   });
 
   it('shares a single cached resolution across concurrent and later calls', async () => {
@@ -361,6 +373,7 @@ describe('learner with the headless operator', () => {
   it('executes a scripted click then stop and returns completed with two turns', async () => {
     const session = await openOperatorSession({
       browser,
+      locale: 'it-IT',
       baseUrl: 'about:blank',
       viewport: 'desktop',
       credentials: { email: 'private@example.test', password: 'private-password' },

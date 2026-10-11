@@ -47,6 +47,7 @@ export async function inspect(input: {
   judge?: VisualJudge;
   styleReference: string[];
   taxonomy: string;
+  taxonomyClasses: string[];
   trace?: Parameters<VisualJudge['judge']>[0]['trace'];
 }): Promise<InspectorFinding[]> {
   const findings = input.probeFindings.map(probeFinding);
@@ -62,11 +63,16 @@ export async function inspect(input: {
       taxonomy: input.taxonomy,
       trace: input.trace,
     });
+    const allowedClasses = new Set(input.taxonomyClasses);
     let dropped = 0;
     for (const candidate of candidates) {
       const parsed = judgeFindingSchema.safeParse(candidate);
       const observation = parsed.success ? input.observations[parsed.data.stepIndex] : undefined;
-      if (!parsed.success || observation?.screenshotPath !== parsed.data.screenshotPath) {
+      if (
+        !parsed.success ||
+        !allowedClasses.has(parsed.data.taxonomyClass) ||
+        observation?.screenshotPath !== parsed.data.screenshotPath
+      ) {
         dropped++;
         continue;
       }

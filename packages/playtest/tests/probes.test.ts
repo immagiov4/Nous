@@ -476,3 +476,35 @@ describe('threshold conversion', () => {
     ]);
   });
 });
+
+it.each([
+  'remove',
+  'hide',
+])('retains Event Timing when a slow click handler makes its target %s', async change => {
+  await page.setContent('<button id="slow">Slow</button>');
+  await page.locator('#slow').evaluate((element, change) => {
+    element.addEventListener('click', () => {
+      const start = performance.now();
+      while (performance.now() - start < 150) {
+        /* exceed the browser Event Timing reporting floor */
+      }
+      if (change === 'remove') element.remove();
+      else (element as HTMLElement).style.display = 'none';
+    });
+  }, change);
+  await page.locator('#slow').click();
+  const signals: ProbeSignal[] = [];
+  await expect
+    .poll(async () => {
+      signals.push(...(await collectSignals(page)));
+      return signals.find(
+        signal => signal.kind === 'interaction-latency' && signal.eventType === 'click'
+      );
+    })
+    .toMatchObject({
+      kind: 'interaction-latency',
+      eventType: 'click',
+      target: '#slow',
+      durationMs: expect.any(Number),
+    });
+});

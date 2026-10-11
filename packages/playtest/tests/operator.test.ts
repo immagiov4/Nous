@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { SCREENSHOT_PRIVACY_MASK } from '../src/operator/observe';
 import {
   type Observation,
   type OperatorSession,
@@ -33,6 +34,7 @@ async function fixture(html: string, viewport: 'desktop' | 'mobile' = 'desktop')
   runDir = await mkdtemp(join(tmpdir(), 'playtest-operator-'));
   session = await openOperatorSession({
     browser,
+    locale: 'it-IT',
     baseUrl: `data:text/html,${encodeURIComponent(html)}`,
     viewport,
     credentials,
@@ -51,6 +53,58 @@ function ref(observation: Observation, name: string): string {
 }
 
 describe('operator', () => {
+  it('reobserves when post-action document acquisition loses its execution context', async () => {
+    const page = await fixture('<button>Continue</button>');
+    const observation = await session.observe();
+    const evaluateHandle = page.evaluateHandle.bind(page);
+    const acquisition = vi
+      .spyOn(page, 'evaluateHandle')
+      .mockImplementationOnce((...args) => evaluateHandle(...args))
+      .mockImplementationOnce(async () => {
+        await page.goto('data:text/html,<main>New document</main>');
+        throw new Error('Execution context was destroyed, most likely because of a navigation');
+      });
+    const result = await session.act({ type: 'click', ref: ref(observation, 'Continue') });
+    expect(result.status).toBe('ok');
+    expect(result.observation.nodes.map(node => node.name)).toContain('New document');
+    expect(result.observation.stepIndex).toBe(1);
+    // Target resolution plus two acquisition attempts: no input is dispatched twice.
+    expect(acquisition).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    'desktop',
+    'mobile',
+  ] as const)('returns the new document after a navigating link click on %s', async viewport => {
+    const page = await fixture('<a href="https://operator.test/next">Continue</a>', viewport);
+    await page.route('https://operator.test/next', route =>
+      route.fulfill({ contentType: 'text/html', body: '<main>New document</main>' })
+    );
+    const observation = await session.observe();
+    const result = await session.act({ type: 'click', ref: ref(observation, 'Continue') });
+    expect(result.status).toBe('ok');
+    expect(result.observation.url).toBe('https://operator.test/next');
+    expect(result.observation.nodes.map(node => node.name)).toContain('New document');
+  });
+
+  it.each([
+    'desktop',
+    'mobile',
+  ] as const)('returns the new document after a button navigates from a microtask on %s', async viewport => {
+    const page = await fixture(
+      `<button onclick="queueMicrotask(() => location.href = 'https://operator.test/next')">Continue</button>`,
+      viewport
+    );
+    await page.route('https://operator.test/next', route =>
+      route.fulfill({ contentType: 'text/html', body: '<main>New document</main>' })
+    );
+    const observation = await session.observe();
+    const result = await session.act({ type: 'click', ref: ref(observation, 'Continue') });
+    expect(result.status).toBe('ok');
+    expect(result.observation.url).toBe('https://operator.test/next');
+    expect(result.observation.nodes.map(node => node.name)).toContain('New document');
+  });
+
   it('counts repeated navigation invalidations against the approved capture retry budget', async () => {
     const page = await fixture('<p>Initial document</p>');
     const screenshot = page.screenshot.bind(page);
@@ -83,7 +137,14 @@ describe('operator', () => {
     );
     const observation = await session.observe();
     const image = await readFile(observation.screenshotPath);
-    expect(image.equals(await page.screenshot({ mask: [page.locator('input')] }))).toBe(true);
+    expect(
+      image.equals(
+        await page.screenshot({
+          mask: [page.locator('input')],
+          maskColor: SCREENSHOT_PRIVACY_MASK.color,
+        })
+      )
+    ).toBe(true);
     expect(observation.nodes.map(node => node.name)).toContain('Editable note');
     expect(JSON.stringify(observation.nodes)).not.toContain(credentials.password);
   });
@@ -338,7 +399,7 @@ describe('operator', () => {
       document.body.append(cover);
     });
     expect((await session.act({ type: 'click', ref: ref(observation, 'Target') })).status).toBe(
-      'not-actionable'
+      'target-moved'
     );
     await page.locator('body > div').evaluate(element => element.remove());
     expect(
@@ -350,6 +411,71 @@ describe('operator', () => {
         })
       ).status
     ).toBe('not-actionable');
+  });
+
+  it.each([
+    'click',
+    'drag',
+  ] as const)('keeps the observed point when a control moves before %s', async type => {
+    const page = await fixture(
+      '<button style="position:absolute;left:20px;top:20px" onclick="this.dataset.clicked=\'yes\'">Moving</button>'
+    );
+    const before = await session.observe();
+    const node = before.nodes.find(node => node.name === 'Moving');
+    assert(node);
+    await page.locator('button').evaluate(element => {
+      (element as HTMLElement).style.left = '300px';
+    });
+    const result = await session.act(
+      type === 'click' ? { type, ref: node.ref } : { type, ref: node.ref, dx: 30, dy: 0 }
+    );
+    expect(result).toMatchObject({
+      status: 'target-moved',
+      observedBox: node.box,
+      currentBox: { ...node.box, x: 300 },
+    });
+    expect(await page.locator('button').getAttribute('data-clicked')).toBeNull();
+    expect(
+      (await session.act({ type: 'click', ref: ref(result.observation, 'Moving') })).status
+    ).toBe('ok');
+    expect(await page.locator('button').getAttribute('data-clicked')).toBe('yes');
+  });
+
+  it('uses a touch pointer on mobile and refuses mouse-based selection drag', async () => {
+    const page = await fixture(
+      '<meta name="viewport" content="width=device-width,initial-scale=1"><button onpointerdown="this.dataset.pointer=event.pointerType" onclick="this.dataset.clicked=\'yes\'">Touch</button>',
+      'mobile'
+    );
+    expect(await page.evaluate(() => navigator.maxTouchPoints)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => navigator.userAgent)).toContain('Mobile');
+    const before = await session.observe();
+    expect((await session.act({ type: 'click', ref: ref(before, 'Touch') })).status).toBe('ok');
+    expect(await page.locator('button').getAttribute('data-pointer')).toBe('touch');
+    expect(await page.locator('button').getAttribute('data-clicked')).toBe('yes');
+    expect(
+      (
+        await session.act({
+          type: 'drag',
+          ref: ref(await session.observe(), 'Touch'),
+          dx: 30,
+          dy: 0,
+        })
+      ).status
+    ).toBe('not-actionable');
+  });
+
+  it.each([
+    'desktop',
+    'mobile',
+  ] as const)('applies locale and Accept-Language to the %s context', async viewport => {
+    const page = await fixture('<p>Locale</p>', viewport);
+    expect(await page.evaluate(() => navigator.language)).toBe('it-IT');
+    await page.route('https://locale.example.test/', route =>
+      route.fulfill({ body: 'Localized page' })
+    );
+    const request = page.waitForRequest('https://locale.example.test/');
+    await page.goto('https://locale.example.test/');
+    expect((await request).headers()['accept-language']).toBe('it-IT');
   });
 
   it('uses the mobile viewport and saves a trace while closing only its context', async () => {

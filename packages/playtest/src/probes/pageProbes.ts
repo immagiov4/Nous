@@ -246,6 +246,8 @@ export function initializePageProbes(): void {
     animationActive: boolean;
     reported?: string;
   };
+  const pointerSelectors = new WeakMap<Element, string>();
+  const pointerTargets: { startTime: number; selector: string }[] = [];
   let gesture: Gesture | undefined;
   let animationFrame: number | undefined;
 
@@ -301,6 +303,11 @@ export function initializePageProbes(): void {
   }
 
   function beginGesture(event: PointerEvent): void {
+    if (event.target instanceof Element) {
+      const targetSelector = selector(event.target);
+      pointerSelectors.set(event.target, targetSelector);
+      pointerTargets.push({ startTime: event.timeStamp, selector: targetSelector });
+    }
     if (!(event.target instanceof Element) || !event.buttons || !visibleBox(event.target)) return;
     if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
     const origin = event.target.getBoundingClientRect();
@@ -352,7 +359,7 @@ export function initializePageProbes(): void {
     hadRecentInput: boolean;
     sources: { node?: Node; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[];
   };
-  type EventEntry = PerformanceEntry & { target?: Node };
+  type EventEntry = PerformanceEntry & { target?: Node; targetSelector?: string };
 
   function recordEntries(entries: PerformanceEntry[]): void {
     for (const entry of entries) {
@@ -374,12 +381,22 @@ export function initializePageProbes(): void {
         });
       } else {
         const timing = entry as EventEntry;
-        if (!(timing.target instanceof Element) || !visibleBox(timing.target)) continue;
+        const target =
+          timing.targetSelector ||
+          (timing.target instanceof Element
+            ? (pointerSelectors.get(timing.target) ?? selector(timing.target))
+            : ['pointerdown', 'pointerup', 'click'].includes(timing.name)
+              ? pointerTargets
+                  .slice()
+                  .reverse()
+                  .find(target => target.startTime <= timing.startTime)?.selector
+              : undefined);
+        if (!target) continue;
         signals.push({
           kind: 'interaction-latency',
           durationMs: timing.duration,
           eventType: timing.name,
-          target: selector(timing.target),
+          target,
         });
       }
     }

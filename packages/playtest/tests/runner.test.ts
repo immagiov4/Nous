@@ -4,6 +4,13 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import {
+  type AssistantMessage,
+  createAssistantMessageEventStream,
+  registerApiProvider,
+  streamSimple,
+  unregisterApiProviders,
+} from '@mariozechner/pi-ai';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
@@ -12,11 +19,14 @@ import type { PlaytestAdapter } from '../src/adapter';
 import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
 import type { VisualJudge } from '../src/inspector/judge';
+import { mapOpenRouterModel } from '../src/learner/modelResolution';
 import { ACTING_RULES } from '../src/learner/prompt';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
+import { createModelUsage, meterModel } from '../src/modelUsage';
 import { writeStoryReports } from '../src/report/writeReports';
 import { runPlaytest } from '../src/runner';
 import type { Story } from '../src/types';
+import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
 
 const judge = vi.hoisted(() =>
   vi.fn(async (_input: Parameters<VisualJudge['judge']>[0]) => [] as InspectorFinding[])
@@ -70,6 +80,8 @@ function story(id: string, requires: Story['requires'] = {}): Story {
 }
 function adapter(): PlaytestAdapter {
   return {
+    locale: () => 'it-IT',
+    taxonomyClasses: () => ['D01', 'D02'],
     appDescription: () => 'An app to explore.',
     baseUrl: () => baseUrl,
     ensureStack: async () => {},
@@ -114,6 +126,58 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it('persists estimated request costs in story and summary reports', async () => {
+    const api = 'synthetic-estimated-runner';
+    const pricingModel = {
+      ...mapOpenRouterModel({
+        ...tieredEntry,
+        pricing: { ...tieredEntry.pricing, overrides: [{ condition: 'unknown' }] },
+      }),
+      api,
+    };
+    const providerStream = () => {
+      const events = createAssistantMessageEventStream();
+      const message: AssistantMessage = {
+        role: 'assistant',
+        content: [],
+        api,
+        provider: 'synthetic',
+        model: pricingModel.id,
+        stopReason: 'stop',
+        timestamp: 0,
+        usage: { ...createModelUsage().total, input: 10, totalTokens: 10 },
+      };
+      queueMicrotask(() => {
+        events.push({ type: 'done', reason: 'stop', message });
+        events.end(message);
+      });
+      return events;
+    };
+    registerApiProvider({ api, stream: providerStream, streamSimple: providerStream }, api);
+    try {
+      const summary = await run([story('estimated')], adapter(), () => ({
+        decide: async () => {
+          await streamSimple(
+            meterModel(pricingModel),
+            { messages: [] },
+            { apiKey: 'synthetic' }
+          ).result();
+          return { type: 'stop', reason: 'completed', summary: 'Done' };
+        },
+      }));
+      const data = await report(summary.records[0].reportPath);
+      expect(data.costEstimated).toBe(true);
+      expect(data.modelUsage.requests[0].costEstimated).toBe(true);
+      expect(data.modelUsage.total.cost.input).toBeCloseTo(0.00003);
+      expect((await report(join(runDir, 'summary.json'))).costEstimated).toBe(true);
+      expect(summary.records[0].costEstimated).toBe(true);
+      expect(await readFile(join(runDir, 'summary.html'), 'utf8')).toContain('(estimated)');
+    } finally {
+      unregisterApiProviders(api);
+      unregisterApiProviders(`playtest-usage:${api}`);
+    }
+  });
+
   it('passes the sampled affect unwrapped when the generic adapter has no description hook', async () => {
     runDir = await mkdtemp(join(tmpdir(), 'playtest-neutral-affect-'));
     const prompts: string[] = [];
@@ -390,6 +454,7 @@ describe('parallel runner', () => {
   });
 
   it('retains reports and raw probe evidence when visual inspection fails', async () => {
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
     judge.mockRejectedValue(new Error('Judge unavailable'));
     const app = adapter();
     app.thresholds = () => ({ clippedTextMinOverflowPx: 0 });
@@ -397,6 +462,13 @@ describe('parallel runner', () => {
     const data = await report(summary.records[0].reportPath);
     expect(data.outcome).toBe('completed');
     expect(data.inspectionError).toContain('Visual inspection failed');
+    expect(data.inspectionError).not.toContain('Judge unavailable');
+    expect(data.diagnostics.inspection).toContain('Judge unavailable');
+    expect(stderr).toHaveBeenCalledWith(
+      '[playtest] Visual inspection failed:',
+      expect.stringContaining('Judge unavailable')
+    );
+    stderr.mockRestore();
     expect(data.probeFindings.length).toBeGreaterThan(0);
     expect(data.probeSignals.length).toBeGreaterThan(0);
   });
@@ -437,7 +509,7 @@ describe('CLI', () => {
     await writeFile(
       adapterPath,
       `export default {
-      appDescription: () => 'An app.', baseUrl: () => 'http://localhost',
+      locale: () => 'it-IT', taxonomyClasses: () => ['D01', 'D02'], appDescription: () => 'An app.', baseUrl: () => 'http://localhost',
       ensureStack: async () => { throw new Error('Fixture stack unavailable'); },
       prepare: async () => { throw new Error('Preparation must not run'); },
       classify: () => ({ stop: false }), styleReference: () => [], taxonomy: () => '', thresholds: () => ({})
