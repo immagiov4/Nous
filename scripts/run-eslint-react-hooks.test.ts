@@ -9,6 +9,7 @@ import {
   generateReactHooksLintReport,
   hasReactHooksLintFailures,
   resolveEslintReportPath,
+  resolveReactHooksCachePath,
 } from './run-eslint-react-hooks.ts';
 
 describe('React Hooks ESLint report', () => {
@@ -49,6 +50,8 @@ describe('React Hooks ESLint report', () => {
       expect(coldResults[0].messages).toEqual(
         expect.arrayContaining([expect.objectContaining({ ruleId: 'react-hooks/rules-of-hooks' })])
       );
+      const cachedEntries = await readFile(await resolveReactHooksCachePath(), 'utf8');
+      expect(cachedEntries).toContain(path.basename(sourcePath));
       await rm(reportPath);
       const warmResults = await generateReactHooksLintReport(reportPath);
       expect(warmResults).toEqual(coldResults);

@@ -14,17 +14,23 @@ export const hasReactHooksLintFailures = (
   results: ReadonlyArray<Pick<ESLint.LintResult, 'errorCount' | 'warningCount'>>
 ): boolean => results.some(result => result.errorCount > 0 || result.warningCount > 0);
 
-export const generateReactHooksLintReport = async (
-  reportPath = resolveEslintReportPath()
-): Promise<ESLint.LintResult[]> => {
-  // ESLint invalidates config changes but not plugin upgrades; the lockfile covers dependencies.
+// ESLint invalidates config changes but not plugin upgrades; the lockfile covers dependencies.
+export const resolveReactHooksCachePath = async (): Promise<string> => {
   const dependencyHash = createHash('sha256')
     .update(await readFile('bun.lock'))
     .digest('hex');
+  return path.resolve('.temp/eslint', `react-hooks-${dependencyHash}.cache`);
+};
+
+export const generateReactHooksLintReport = async (
+  reportPath = resolveEslintReportPath()
+): Promise<ESLint.LintResult[]> => {
   const eslint = new ESLint({
     overrideConfigFile: path.resolve('eslint.config.mjs'),
     cache: true,
-    cacheLocation: path.resolve('.temp/eslint', `react-hooks-${dependencyHash}.cache`),
+    // Content hashing keeps the gate correct when edits preserve size and timestamps.
+    cacheStrategy: 'content',
+    cacheLocation: await resolveReactHooksCachePath(),
   });
   const results = await eslint.lintFiles(['apps/web']);
   const formatter = await eslint.loadFormatter('stylish');
