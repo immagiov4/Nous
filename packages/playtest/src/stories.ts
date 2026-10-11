@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import * as z from 'zod';
+import { recordDiagnostic } from './diagnostics';
 import type { Persona, Story, StoryFilter } from './types';
 
 const identifier = z.string().trim().min(1);
@@ -62,6 +63,7 @@ async function loadMarkdown<T>(sourcePath: string, schema: z.ZodType<T>) {
     }
     return { ...result.data, body: sections.body, sourcePath };
   } catch (cause) {
+    recordDiagnostic('story-loading', cause);
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new Error(`Invalid Markdown file "${sourcePath}": ${detail}`, { cause });
   }
@@ -97,6 +99,7 @@ export async function loadStories(dir: string): Promise<Story[]> {
     try {
       personas = await loadPersonas(personaDir);
     } catch (cause) {
+      recordDiagnostic('persona-loading', cause);
       throw new Error(
         `Cannot load personas for "${referencedStory.sourcePath}" from "${personaDir}"`,
         { cause }

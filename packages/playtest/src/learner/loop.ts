@@ -1,3 +1,4 @@
+import { recordDiagnostic } from '../diagnostics';
 import type {
   ActionResult,
   LearnerAction,
@@ -64,7 +65,8 @@ export async function runLearner(input: {
   try {
     observation = await input.operator.observe();
     result.observations.push(observation);
-  } catch {
+  } catch (error) {
+    recordDiagnostic('observation', error);
     result.outcome = appStopped() ? 'app-error' : 'operator-failure';
     return result;
   }
@@ -88,7 +90,8 @@ export async function runLearner(input: {
         })),
         observation: learnerObservation(observation),
       });
-    } catch {
+    } catch (error) {
+      recordDiagnostic('decision', error);
       result.outcome = appStopped() ? 'app-error' : 'operator-failure';
       result.reason = 'The learner could not obtain its next decision.';
       return result;
@@ -102,7 +105,8 @@ export async function runLearner(input: {
           turn.result = await input.operator.act(decision.action);
           observation = turn.result.observation;
           result.observations.push(observation);
-        } catch {
+        } catch (error) {
+          recordDiagnostic('action', error);
           result.outcome = appStopped() ? 'app-error' : 'operator-failure';
           return result;
         }

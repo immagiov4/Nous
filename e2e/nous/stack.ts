@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, openSync } from 'node:fs';
-import { appendFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -8,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { parse as parseToml } from 'smol-toml';
 import * as z from 'zod';
+import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const APP_URL = 'http://127.0.0.1:5173';
@@ -140,10 +142,9 @@ async function configureStack(): Promise<string> {
       'Isolated stack configuration differs from the expected playtest configuration.'
     );
   await writeFile(join(supabase, 'config.toml'), config);
-  for (const directory of ['migrations', 'templates'])
-    await cp(join(REPO_ROOT, 'supabase', directory), join(supabase, directory), {
-      recursive: true,
-    });
+  await cp(join(REPO_ROOT, 'supabase', 'templates'), join(supabase, 'templates'), {
+    recursive: true,
+  });
   return workdir;
 }
 
@@ -179,6 +180,7 @@ async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<st
     exited,
   ]).finally(() => signal?.removeEventListener('abort', abort));
   if (code !== 0) {
+    recordDiagnostic('stack-supabase-command', new Error(stderr));
     await writeFile(join(dataRoot(), 'stack', 'supabase-error.log'), stderr);
     throw stageError('Supabase', `${args[0]} exited (${code})`);
   }
@@ -189,7 +191,7 @@ function terminateChild(child: { pid?: number; kill(): unknown }, detached = fal
   if (process.platform === 'win32' && child.pid) {
     void executeFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
       windowsHide: true,
-    }).catch(() => process.stderr.write('[playtest] Could not stop expired stage process tree.\n'));
+    }).catch(error => recordDiagnostic('stack-termination', error));
   } else if (detached && child.pid) {
     try {
       process.kill(-child.pid, 'SIGTERM');
@@ -222,6 +224,9 @@ export async function runStackStage<T>(options: {
   });
   try {
     return await Promise.race([options.work(controller.signal), expired]);
+  } catch (error) {
+    recordDiagnostic(`stack-${options.name.toLowerCase()}`, error);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -238,7 +243,10 @@ export async function stackStatus(signal?: AbortSignal): Promise<StackStatus> {
 async function requireFreePort(port: number): Promise<void> {
   await new Promise<void>((resolvePort, reject) => {
     const server = createServer();
-    server.once('error', () => reject(new Error(`Playtest app port ${port} is occupied.`)));
+    server.once('error', error => {
+      recordDiagnostic('stack-port', error);
+      reject(new Error(`Playtest app port ${port} is occupied.`, { cause: error }));
+    });
     server.listen(port, '0.0.0.0', () => server.close(() => resolvePort()));
   });
 }
@@ -259,7 +267,10 @@ export async function waitForReadiness(options: {
     for (;;) {
       signal.throwIfAborted();
       const response = await Promise.race([
-        fetch(options.url, { signal }).catch(() => undefined),
+        fetch(options.url, { signal }).catch(error => {
+          recordDiagnostic('stack-readiness', error);
+          return undefined;
+        }),
         options.exited,
       ]);
       await Promise.race([response?.body?.cancel(), options.exited]);
@@ -338,6 +349,56 @@ export async function startServer(
   }
 }
 
+/** Sorted names and byte lengths make names and contents unambiguous hash inputs. */
+export async function migrationFingerprint(directory: string): Promise<string> {
+  const hash = createHash('sha256');
+  const files = (await readdir(directory, { recursive: true, withFileTypes: true }))
+    .filter(entry => entry.isFile())
+    .map(entry => relative(directory, join(entry.parentPath, entry.name)).split(sep).join('/'))
+    .sort();
+  for (const name of files) {
+    const contents = await readFile(join(directory, name));
+    hash.update(JSON.stringify([name, contents.length]));
+    hash.update(contents);
+  }
+  return hash.digest('hex');
+}
+
+/** The destination is fixed inside the validated external isolated workdir. */
+export async function mirrorMigrations(source = join(REPO_ROOT, 'supabase', 'migrations')) {
+  const workdir = join(dataRoot(), 'stack');
+  const destination = join(workdir, 'supabase', 'migrations');
+  const fingerprint = await migrationFingerprint(source);
+  const marker = join(workdir, 'migrations.sha256');
+  const previous = await readFile(marker, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  await rm(destination, { recursive: true, force: true });
+  await cp(source, destination, { recursive: true });
+  return { fingerprint, marker, changed: previous !== fingerprint };
+}
+
+/** Status is identity-checked before reset; the fingerprint commits only after successful apply. */
+export async function initializeIsolatedDatabase(
+  options: { signal?: AbortSignal; command?: typeof supabaseCommand; migrations?: string } = {}
+): Promise<StackStatus> {
+  await configureStack();
+  const migrations = await mirrorMigrations(options.migrations);
+  await writeFile(join(dataRoot(), 'stack', 'supabase.log'), '');
+  const command = options.command ?? supabaseCommand;
+  process.stderr.write('[playtest] Supabase: starting nous-playtest\n');
+  await command(['start'], options.signal);
+  const current = statusSchema.parse(
+    JSON.parse(await command(['status', '--output', 'json'], options.signal))
+  );
+  assertIsolatedStatus(current);
+  if (migrations.changed) await command(['db', 'reset', '--local'], options.signal);
+  await command(['migration', 'up', '--local'], options.signal);
+  await writeFile(migrations.marker, migrations.fingerprint);
+  return current;
+}
+
 /** Explicit workdir and URLs keep every database operation off the developer's project. */
 export async function ensureStack(
   options: {
@@ -352,17 +413,7 @@ export async function ensureStack(
   process.stderr.write('[playtest] Supabase: configuring isolated project\n');
   const status = await runStackStage({
     name: 'Supabase',
-    work:
-      options.initializeSupabase ??
-      (async signal => {
-        await configureStack();
-        await writeFile(join(dataRoot(), 'stack', 'supabase.log'), '');
-        process.stderr.write('[playtest] Supabase: starting nous-playtest\n');
-        await supabaseCommand(['start'], signal);
-        const current = await stackStatus(signal);
-        await supabaseCommand(['migration', 'up', '--local'], signal);
-        return current;
-      }),
+    work: options.initializeSupabase ?? (signal => initializeIsolatedDatabase({ signal })),
   });
   process.stderr.write('[playtest] Supabase: ready; migrations applied\n');
   const env = {
@@ -470,8 +521,9 @@ async function stopAppServers(options: AppShutdownOptions = {}): Promise<void> {
         await executeFile('powershell.exe', ['-NoProfile', '-Command', command], {
           windowsHide: true,
         });
-      } catch {
-        throw new Error(`Could not safely stop playtest ${name}.`);
+      } catch (error) {
+        recordDiagnostic('stack-shutdown', error);
+        throw new Error(`Could not safely stop playtest ${name}.`, { cause: error });
       }
     } else {
       await stopProcessGroup(owned.pid, options.kill ?? process.kill, options.clock ?? stackClock);

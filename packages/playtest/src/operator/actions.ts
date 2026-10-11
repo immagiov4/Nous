@@ -1,4 +1,5 @@
 import type { ElementHandle, Page } from 'playwright';
+import { recordDiagnostic } from '../diagnostics';
 import type { Observation, OperatorWindow, VisibleNode } from './observe';
 
 export type LearnerAction =
@@ -28,7 +29,8 @@ type ActionExecution =
 async function attached(element: ElementHandle<Element>): Promise<boolean> {
   try {
     return await element.evaluate(element => element.isConnected);
-  } catch {
+  } catch (error) {
+    recordDiagnostic('target-resolution', error);
     // Navigation disposes handles from the previous document.
     return false;
   }
@@ -131,7 +133,8 @@ export async function executeAction(
     try {
       await page.keyboard.press(action.key);
       return { status: 'ok' };
-    } catch {
+    } catch (error) {
+      recordDiagnostic('keyboard', error);
       return { status: 'not-actionable' };
     }
   }
@@ -157,7 +160,8 @@ export async function executeAction(
         mobile: options.mobile,
         observedBox: pointerAction ? observedBox : undefined,
       });
-    } catch {
+    } catch (error) {
+      recordDiagnostic('element-action', error);
       return { status: (await attached(element)) ? 'not-actionable' : 'stale-reference' };
     }
   } finally {

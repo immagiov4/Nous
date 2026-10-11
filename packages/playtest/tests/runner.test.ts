@@ -132,6 +132,56 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it('persists learner decision causes without exposing them in the stable reason', async () => {
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const summary = await run([story('decision-failure')], adapter(), () => ({
+      decide: async () => {
+        throw new Error('Provider internal detail');
+      },
+    }));
+    const record = summary.records[0];
+    expect(record.reason).toBe('The learner could not obtain its next decision.');
+    expect(record.diagnostics?.decision).toContain('Provider internal detail');
+    expect((await report(record.reportPath)).diagnostics).toEqual(record.diagnostics);
+    expect(stderr).toHaveBeenCalledWith(
+      '[playtest] decision failed:',
+      record.diagnostics?.decision
+    );
+  });
+
+  it('retains diagnostics for blocked preparation and run-level stack failures', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const missing = await run([story('missing', { missing: true })]);
+    expect((await report(missing.records[0].reportPath)).diagnostics.preparation).toContain(
+      'Fixture is missing'
+    );
+    const app = adapter();
+    app.ensureStack = async () => {
+      throw new Error('Stack cause');
+    };
+    const blocked = await run([story('stack')], app);
+    expect(blocked.records[0].reason).toBe('Stack cause');
+    expect((await report(join(runDir, 'summary.json'))).diagnostics.stack).toContain('Stack cause');
+  });
+
+  it('keeps story JSON evidence and report diagnostics if the Markdown companion is unwritable', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const app = adapter();
+    const prepare = app.prepare;
+    app.prepare = async (...args) => {
+      await mkdir(join(runDir, 'story-0-report', 'desktop', 'story.md'), { recursive: true });
+      return prepare(...args);
+    };
+    const summary = await run([story('report')], app);
+    const data = await report(summary.records[0].reportPath);
+    expect(data.reason).toBe('The harness could not write the story report.');
+    expect(data.diagnostics.report).toContain('EISDIR');
+    expect(data.learner.observations).toHaveLength(1);
+    expect((await report(join(runDir, 'summary.json'))).records[0].diagnostics).toEqual(
+      data.diagnostics
+    );
+  });
+
   it('shares one catalogue resolution across jobs, decision sources and judges', async () => {
     const fetchCatalogue = vi.fn(async () => new Response(JSON.stringify({ data: [tieredEntry] })));
     vi.stubGlobal('fetch', fetchCatalogue);

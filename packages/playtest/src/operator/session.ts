@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type Browser, devices, type JSHandle } from 'playwright';
 import type { ObservedEvent } from '../adapter';
+import { recordDiagnostic } from '../diagnostics';
 import { collectSignals, drainConsoleSignals, installProbes } from '../probes/collect';
 import type { ProbeSignal } from '../probes/pageProbes';
 import type { Viewport } from '../types';
@@ -93,6 +94,7 @@ export async function openOperatorSession(options: {
           lastObservation = observation;
           return observation;
         } catch (error) {
+          recordDiagnostic('capture', error);
           if (captureRetries === SCREENSHOT_CAPTURE_RETRIES) throw error;
           captureRetries++;
           if (error instanceof Error && error.message.includes('Execution context was destroyed'))
@@ -141,7 +143,12 @@ export async function openOperatorSession(options: {
       },
     };
   } catch (error) {
-    await context.close();
+    recordDiagnostic('operator-open', error);
+    try {
+      await context.close();
+    } catch (cause) {
+      recordDiagnostic('operator-open-cleanup', cause);
+    }
     throw error;
   }
 }

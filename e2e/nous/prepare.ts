@@ -8,6 +8,7 @@ import { PostgresProjectAssetDeletionQueue } from '../../apps/backend/src/projec
 import { PostgresProjectAssetImporter } from '../../apps/backend/src/projects/projectAssetImport';
 import { SupabaseProjectSourceStorage } from '../../apps/backend/src/projects/projectSourceStorage';
 import type { ProjectSnapshot } from '../../apps/backend/src/projects/types';
+import { recordDiagnostic } from '../../packages/playtest/src/diagnostics';
 import type { Story, Viewport } from '../../packages/playtest/src/types';
 import { assertIsolatedStatus, dataRoot, type StackStatus, stackStatus } from './stack';
 
@@ -65,18 +66,23 @@ export function syntheticCourse(
 async function fixtureBytes(name: string): Promise<Buffer> {
   const root = await realpath(join(dataRoot(), 'fixtures')).catch(
     (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') throw new Error('Required fixture directory is missing.');
+      if (error.code === 'ENOENT') {
+        recordDiagnostic('fixture-directory', error);
+        throw new Error('Required fixture directory is missing.', { cause: error });
+      }
       throw error;
     }
   );
-  const path = await realpath(join(root, name)).catch(() => {
-    throw new Error(`Required fixture is missing: ${name}.`);
+  const path = await realpath(join(root, name)).catch(error => {
+    recordDiagnostic('fixture-path', error);
+    throw new Error(`Required fixture is missing: ${name}.`, { cause: error });
   });
   const within = relative(root, path);
   if (!within || within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within))
     throw new Error('Required fixture must be a file within NOUS_E2E_DATA/fixtures.');
-  return readFile(path).catch(() => {
-    throw new Error(`Required fixture is not readable: ${name}.`);
+  return readFile(path).catch(error => {
+    recordDiagnostic('fixture-read', error);
+    throw new Error(`Required fixture is not readable: ${name}.`, { cause: error });
   });
 }
 
@@ -174,6 +180,7 @@ export async function prepare(
     try {
       await cleanup();
     } catch (cleanupError) {
+      recordDiagnostic('preparation-cleanup', cleanupError);
       throw new AggregateError(
         [error, cleanupError],
         'Story preparation and synthetic account cleanup failed.'
