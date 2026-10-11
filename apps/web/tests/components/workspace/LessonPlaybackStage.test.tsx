@@ -79,13 +79,14 @@ test('fits the complete scene into both available dimensions and releases the ob
   act(() => resizeScene());
   expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.4');
   expect(slot.style.getPropertyValue('--scene-left')).toBe('70px');
-  // On a phone, the scene shares the stage with the captions and their gap.
   stage.style.flexDirection = 'column';
   stage.style.rowGap = '20px';
   Object.defineProperty(captions, 'offsetHeight', { configurable: true, value: 140 });
   act(() => resizeScene());
-  expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.32');
-  expect(slot.style.height).toBe('640px');
+  expect(slot.style.getPropertyValue('--scene-scale')).toBe('1');
+  expect(slot.style.height).toBe('800px');
+  expect(card.style.width).toBe('700px');
+  expect(slot.style.getPropertyValue('--scene-left')).toBe('0px');
   unmount();
   expect(disconnectScene).toHaveBeenCalledTimes(1);
 });

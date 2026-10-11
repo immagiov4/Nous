@@ -328,21 +328,18 @@ export default function LessonPlaybackStage({
       const verticalPadding =
         (Number.parseFloat(layout.paddingTop) || 0) +
         (Number.parseFloat(layout.paddingBottom) || 0);
-      const captionHeight =
-        layout.flexDirection === 'column'
-          ? captionSection.offsetHeight + (Number.parseFloat(layout.rowGap) || 0)
-          : 0;
-      const availableHeight = stage.clientHeight - verticalPadding - captionHeight;
+      const availableHeight = stage.clientHeight - verticalPadding;
       if (!slot.clientWidth || availableHeight <= 0) return;
       card.style.width = `${slot.clientWidth}px`;
-      const width = Math.max(card.offsetWidth, card.scrollWidth);
+      const mobile = layout.flexDirection === 'column';
+      const width = mobile ? slot.clientWidth : Math.max(card.offsetWidth, card.scrollWidth);
       card.style.width = `${width}px`;
       const height = Math.max(card.offsetHeight, card.scrollHeight);
       if (!width || !height) return;
-      const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
+      const scale = mobile ? 1 : Math.min(1, slot.clientWidth / width, availableHeight / height);
       slot.style.setProperty('--scene-scale', String(scale));
       // The fitted card contributes its height so captions and scene are centered as a pair.
-      slot.style.height = `${height * scale}px`;
+      slot.style.height = `${mobile ? availableHeight : height * scale}px`;
       slot.style.setProperty('--scene-left', `${(slot.clientWidth - width * scale) / 2}px`);
     };
     const observer = new ResizeObserver(fitScene);

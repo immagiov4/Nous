@@ -2218,21 +2218,34 @@
   transform: scale(var(--scene-scale, 1));
   transform-origin: top left;
 }
-.lesson-player-stage
-  .scene-host
-  :is(.table-wrap, .diagram-scroll, .lesson-code, pre, .katex-display, .overflow-x-auto) {
-  /* biome-ignore lint/complexity/noImportantStyles: override the Markdown code renderer's inline scrolling style; the complete card is scaled instead. */
-  overflow: visible !important;
+@media (min-width: 651px) {
+  .lesson-player-stage
+    .scene-host
+    :is(.table-wrap, .diagram-scroll, .lesson-code, pre, .katex-display, .overflow-x-auto) {
+    /* biome-ignore lint/complexity/noImportantStyles: override the Markdown code renderer's inline scrolling style; the complete card is scaled instead. */
+    overflow: visible !important;
+  }
 }
 @media (max-width: 650px) {
   .lesson-player-stage .listening-stage {
     min-height: 0;
+    position: relative;
+    padding-block: 0;
+    gap: 0;
   }
   .lesson-player-stage .captions {
-    flex-shrink: 0;
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
   .lesson-player-stage .scene-fit {
     flex-shrink: 0;
     order: 0;
+    overflow: auto;
+  }
+  .lesson-player-stage .listening-stage > .scene-fit > .scene-host {
+    position: relative;
+    min-height: 100%;
   }
 }
