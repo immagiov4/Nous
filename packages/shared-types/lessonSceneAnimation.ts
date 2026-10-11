@@ -1,6 +1,16 @@
-import type { AnimatedLessonScene, ProportionalLessonScene } from './lessonScene';
+import type { AnimatedLessonScene, ProportionalLessonScene } from './lessonSceneRegistry';
+
+/** The owning lesson stage supplies its clock and complete caption cues. */
+export interface SceneAnimationFrame {
+  readonly elapsedMs: number;
+  readonly durationMs: number;
+  readonly cueTimes?: number[];
+}
+
+export type ReadSceneAnimationFrame = () => SceneAnimationFrame | undefined;
 
 export const PROPORTIONAL_REPLICA_LIMIT = 12;
+
 const PROPORTIONAL_AUTOMATIC_STEP_LIMIT = 12;
 
 // Ported from notes-live-lab/interactive-model.mjs. Scene data never supplies executable formulas.

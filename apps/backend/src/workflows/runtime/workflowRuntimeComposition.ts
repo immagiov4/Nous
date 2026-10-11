@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { PreAnimatedLessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
+import {
+  createLessonPlaybackBlockSchema,
+  HistoricalLessonSceneSchemas,
+  LessonSceneSchema,
+} from '@shared/lessonPlaybackSchema';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,
@@ -77,7 +81,6 @@ import {
 } from '../lessonGenerationStart.js';
 import {
   createLessonGenerationWorkflow,
-  createPreAnimatedLessonGenerationWorkflow,
   createPreviousEvidenceLessonGenerationWorkflow,
   createPreviousLessonGenerationWorkflow,
   createPreviousPreSceneLessonGenerationWorkflow,
@@ -85,9 +88,10 @@ import {
   createPreviousResearchContractLessonGenerationWorkflow,
   createPreviousRoutingLessonGenerationWorkflow,
 } from '../lessonGenerationWorkflow.js';
+import { createSceneLessonGenerationDurableSchemaSet } from '../lessonGenerationWorkflowContract.js';
 import {
+  createSceneLessonVisualContractSchemas,
   LegacyLessonVisualContractSchemas,
-  PreAnimatedLessonVisualContractSchemas,
 } from '../lessonGenerationWorkflowSchemas.js';
 import {
   createLessonPlaybackApi,
@@ -130,6 +134,7 @@ import {
   lessonProjectRevisionEventProjector,
   type ProjectRevisionNotificationReceiver,
 } from '../projectRevisionNotifications.js';
+import { schemasMatch } from '../schemaFingerprint.js';
 import { reconcileUnavailableWorkflowDefinitions } from '../workflowDefinitionReconciler.js';
 import {
   publishWorkflowTransientEvent,
@@ -221,7 +226,7 @@ export interface CreateWorkflowRuntimeCompositionOptions {
   readonly worker?: WorkflowRuntimeLifecycle;
 }
 
-export const createProductionRegistry = (): WorkflowRegistry => {
+export const createProductionRegistry = (sceneSchema = LessonSceneSchema): WorkflowRegistry => {
   const registry = createWorkflowRegistry();
   const models = getGlobalModelConfig();
   const visual = resolveLessonVisualModelConfig(models);
@@ -230,14 +235,42 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
     visual,
   };
-  const retryWorkflow = createLessonVisualWorkflows(visualExecutionDefaults).retry;
+  // Each frozen catalog reconstructs all affected definitions; equal current snapshots are omitted.
+  const playbackExecutionDefaults = {
+    maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
+    timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
+  };
+  const [currentScenes, ...historicalScenes] = [
+    sceneSchema,
+    ...HistoricalLessonSceneSchemas.filter(schema => !schemasMatch(schema, sceneSchema)),
+  ].map(schema => {
+    const contract = createSceneLessonVisualContractSchemas(schema);
+    return {
+      artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
+      retry: createLessonVisualWorkflows(visualExecutionDefaults, undefined, contract).retry,
+      lesson: createLessonGenerationWorkflow(
+        {
+          maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
+          models,
+          timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
+          visual,
+        },
+        undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+      playback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema)
+      ),
+    };
+  });
+  const lessonWorkflow = currentScenes.lesson;
   // Definitions deployed before lesson scenes keep the legacy visual contract.
   const preSceneRetryWorkflow = createLessonVisualWorkflows(
     visualExecutionDefaults,
     undefined,
     LegacyLessonVisualContractSchemas
   ).retry;
-  const artifactDraftWorkflow = createArtifactDraftWorkflow(visualExecutionDefaults);
   const preSceneArtifactDraftWorkflow = createArtifactDraftWorkflow(
     visualExecutionDefaults,
     LegacyLessonVisualContractSchemas
@@ -294,12 +327,6 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     'commit',
     'previous'
   );
-  const lessonWorkflow = createLessonGenerationWorkflow({
-    maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
-    models,
-    timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
-    visual,
-  });
   const previousPreSceneLessonWorkflow = createPreviousPreSceneLessonGenerationWorkflow(
     lessonWorkflow.executionDefaults
   );
@@ -356,9 +383,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     PREVIOUS_PDF_MAPPING_REPAIR_COMPATIBILITY_ID
   );
   registry.register({
-    current: artifactDraftWorkflow,
+    current: currentScenes.artifact,
     previous: [
-      createArtifactDraftWorkflow(visualExecutionDefaults, PreAnimatedLessonVisualContractSchemas),
+      ...historicalScenes.map(definition => definition.artifact),
       preSceneArtifactDraftWorkflow,
       preProviderPostprocessingPrevious(preSceneArtifactDraftWorkflow),
       preExternalEffectPrevious(preSceneArtifactDraftWorkflow),
@@ -366,13 +393,9 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     ],
   });
   registry.register({
-    current: retryWorkflow,
+    current: currentScenes.retry,
     previous: [
-      createLessonVisualWorkflows(
-        visualExecutionDefaults,
-        undefined,
-        PreAnimatedLessonVisualContractSchemas
-      ).retry,
+      ...historicalScenes.map(definition => definition.retry),
       preSceneRetryWorkflow,
       preProviderPostprocessingPrevious(preSceneRetryWorkflow),
       preExternalEffectPrevious(preSceneRetryWorkflow),
@@ -406,7 +429,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: lessonWorkflow,
     previous: [
-      createPreAnimatedLessonGenerationWorkflow(lessonWorkflow.executionDefaults),
+      ...historicalScenes.map(definition => definition.lesson),
       previousPreSceneLessonWorkflow,
       previousRoutingLessonWorkflow,
       previousQuizExplanationLessonWorkflow,
@@ -436,19 +459,8 @@ export const createProductionRegistry = (): WorkflowRegistry => {
     ],
   });
   registry.register({
-    current: createLessonPlaybackWorkflow({
-      maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
-      timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
-    }),
-    previous: [
-      createLessonPlaybackWorkflow(
-        {
-          maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
-          timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
-        },
-        PreAnimatedLessonPlaybackBlockSchema
-      ),
-    ],
+    current: currentScenes.playback,
+    previous: historicalScenes.map(definition => definition.playback),
   });
   return registry;
 };

@@ -196,6 +196,14 @@ The pipeline relies on Zod schemas to ensure contract safety between stages.
 * **`LessonResultBlockSchema`**: A union type that defines valid output blocks (Markdown, Quiz, Clips, or Visuals).
 Sources: [apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflowSchemas.ts)
 
+### How to add a scene form
+
+Add one data entry to `LESSON_SCENE_REGISTRY` in `packages/shared-types/lessonSceneRegistry.ts`: its key is the stored type; the entry owns the model-facing description, Zod data schema, deterministic validation and optional flags. Types, catalog text, generation fields and validation dispatch follow these entries. The shared package contains plain TypeScript and retains the public `lessonScene.ts` imports. Reuse the existing shared rules where appropriate.
+
+Add a matching renderer entry to `SCENE_RENDERERS` in `apps/web/components/shared/lessonScene/sceneRenderers.tsx`. Its `satisfies Record<LessonSceneType, SceneRenderer>` declaration rejects missing or unknown scene types, while the shared registry checks every entry's data contract. `LessonSceneVisual` dispatches through this map. Keep the existing JSX and CSS conventions; common rendering helpers live alongside the map in `lessonSceneRendering.tsx`, and styles remain in `lessonScene.css`. Adding a form therefore requires one data entry and one renderer entry, both checked by TypeScript.
+
+Deployed catalogs are immutable data snapshots in `lessonSceneCatalogSnapshots.ts`. Each frozen type list selects its entries and data fields to reconstruct the corresponding scene, visual, lesson-generation and playback schemas; production registration derives the historical definitions automatically. Preserve existing field schemas and snapshots when adding a form. Before deploying a new catalog, append a snapshot containing its type list. Run the lesson scene compatibility and runtime composition tests: they pin deployed hashes and verify that a new form and field retain every existing definition without another per-form workflow wrapper.
+
 ## Conclusion
 The Lesson Generation Pipeline separates research, drafting, verification, optional aids, rendering, normalization and persistence into durable schema-validated stages. Known model-contract failures carry explicit corrective feedback into the next attempt, while transient operational failures retain the workflow engine's safe retry and diagnostic behavior. This keeps the pipeline resilient without turning deterministic validation failures into blind repeated model calls.
 Sources: [apps/backend/src/workflows/lessonGenerationWorkflow.ts](../../../apps/backend/src/workflows/lessonGenerationWorkflow.ts), [apps/backend/src/workflows/lessonGenerationStageServices.ts](../../../apps/backend/src/workflows/lessonGenerationStageServices.ts)

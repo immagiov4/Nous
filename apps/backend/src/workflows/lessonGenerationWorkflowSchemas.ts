@@ -1,13 +1,6 @@
 import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
-import {
-  LessonSceneSchema,
-  PreAnimatedLessonSceneSchema,
-  ProjectAssetRefSchema,
-} from '@shared/lessonPlaybackSchema';
-
-export { ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
-
+import { LessonSceneSchema, ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
@@ -15,6 +8,8 @@ import {
   PreviousYouTubeCandidateDecisionSchema,
   YouTubeCandidateDecisionSchema,
 } from '../services/lessonResearchContract.js';
+
+export { ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
 
 export {
   LessonResearchSummarySchema,
@@ -232,7 +227,7 @@ const createLessonVisualContractSchemas = ({
 }: {
   includeScene: boolean;
   visualTypes: readonly [string, ...string[]];
-  sceneSchema?: typeof LessonSceneSchema | typeof PreAnimatedLessonSceneSchema;
+  sceneSchema?: typeof LessonSceneSchema;
 }) => {
   const LessonVisualPlanSchema = z.object({
     altText: z.string(),
@@ -416,17 +411,14 @@ export const toLegacyLessonVisualTypes = <T>(value: T): T => {
   ) as T;
 };
 
-export const CurrentLessonVisualContractSchemas = createLessonVisualContractSchemas({
-  includeScene: true,
-  visualTypes: LESSON_VISUAL_TYPES,
-});
+export const createSceneLessonVisualContractSchemas = (sceneSchema = LessonSceneSchema) =>
+  createLessonVisualContractSchemas({
+    includeScene: true,
+    visualTypes: LESSON_VISUAL_TYPES,
+    sceneSchema,
+  });
 
-/** Retains the definition fingerprints deployed on the lesson playback stack. */
-export const PreAnimatedLessonVisualContractSchemas = createLessonVisualContractSchemas({
-  includeScene: true,
-  visualTypes: LESSON_VISUAL_TYPES,
-  sceneSchema: PreAnimatedLessonSceneSchema,
-});
+export const CurrentLessonVisualContractSchemas = createSceneLessonVisualContractSchemas();
 
 export const {
   LessonContentDraftSchema,

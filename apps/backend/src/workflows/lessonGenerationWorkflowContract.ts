@@ -19,7 +19,6 @@ import {
   LessonResearchSummarySchema,
   type LessonVisualContractSchemas,
   LessonYouTubePlanningSchema,
-  PreAnimatedLessonVisualContractSchemas,
   PreviousEvidenceLessonResearchDossierSchema,
   PreviousLessonPdfImageMetadataSchema,
   PreviousLessonQuizSchema,
@@ -326,24 +325,23 @@ const legacyVisualLessonSchemas = {
   visualContract: LegacyLessonVisualContractSchemas,
 };
 
-export const CurrentLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
-  ...legacyVisualLessonSchemas,
-  evidence: true,
-  lessonContentDraftSchema: CurrentLessonVisualContractSchemas.LessonContentDraftSchema,
-  lessonResearchDossierSchema: LessonResearchDossierSchema,
-  lessonResultBlockSchema: CurrentLessonVisualContractSchemas.LessonResultBlockSchema,
-  routing: true,
-  visualContract: CurrentLessonVisualContractSchemas,
-});
-export const PreAnimatedLessonGenerationDurableSchemaSet = createLessonGenerationDurableSchemaSet({
-  ...legacyVisualLessonSchemas,
-  evidence: true,
-  lessonContentDraftSchema: PreAnimatedLessonVisualContractSchemas.LessonContentDraftSchema,
-  lessonResearchDossierSchema: LessonResearchDossierSchema,
-  lessonResultBlockSchema: PreAnimatedLessonVisualContractSchemas.LessonResultBlockSchema,
-  routing: true,
-  visualContract: PreAnimatedLessonVisualContractSchemas,
-});
+export const createSceneLessonGenerationDurableSchemaSet = (
+  visualContract: LessonVisualContractSchemas
+) =>
+  createLessonGenerationDurableSchemaSet({
+    ...legacyVisualLessonSchemas,
+    evidence: true,
+    lessonContentDraftSchema: visualContract.LessonContentDraftSchema,
+    lessonResearchDossierSchema: LessonResearchDossierSchema,
+    lessonResultBlockSchema: visualContract.LessonResultBlockSchema,
+    routing: true,
+    visualContract,
+  });
+
+export const CurrentLessonGenerationDurableSchemaSet = createSceneLessonGenerationDurableSchemaSet(
+  CurrentLessonVisualContractSchemas
+);
+
 export const PreviousPreSceneLessonGenerationDurableSchemaSet =
   createLessonGenerationDurableSchemaSet({
     ...legacyVisualLessonSchemas,

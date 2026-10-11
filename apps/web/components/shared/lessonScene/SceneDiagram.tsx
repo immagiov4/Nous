@@ -1,4 +1,4 @@
-import { buildLessonSceneDiagramSource, type LessonScene } from '@shared/lessonScene';
+import { buildLessonSceneDiagramSource, type SceneContentData } from '@shared/lessonScene';
 import { useEffect, useRef, useState } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -105,10 +105,10 @@ export const SceneDiagram = ({
   scene,
 }: {
   readonly isDarkMode: boolean;
-  readonly scene: LessonScene;
+  readonly scene: SceneContentData;
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
-  const renderedSceneRef = useRef<LessonScene | null>(null);
+  const renderedSceneRef = useRef<SceneContentData | null>(null);
   const [status, setStatus] = useState<'failed' | 'loading' | 'ready'>('loading');
   useEffect(() => {
     const host = hostRef.current;

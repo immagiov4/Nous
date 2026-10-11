@@ -6,10 +6,10 @@ import {
   GUIDED_PATH_MAX_STEPS,
   GUIDED_PATH_MIN_STEPS,
   hasConflictingLessonSceneClosingText,
+  isAnimatedLessonScene,
   LESSON_SCENE_CATALOG,
   LESSON_SCENE_DIAGRAM_TYPES,
-  LESSON_SCENE_EDGE_KINDS,
-  LESSON_SCENE_NODE_KINDS,
+  LESSON_SCENE_REGISTRY,
   LESSON_SCENE_RELATION_KINDS,
   LESSON_SCENE_TYPES,
   LESSON_SCENE_VERDICTS,
@@ -50,17 +50,19 @@ const SceneIconQueriesSchema = z.strictObject({
   concept: z.string(),
 });
 
+const diagramShape = LESSON_SCENE_REGISTRY.flowchart.schema.shape.diagram.unwrap().shape;
+const node = diagramShape.nodes.element.shape;
+const edge = diagramShape.edges.element.shape;
+
 const SceneDiagramSchema = z.strictObject({
-  nodes: z.array(
-    z.strictObject({ id: z.string(), label: z.string(), kind: z.enum(LESSON_SCENE_NODE_KINDS) })
-  ),
+  nodes: z.array(z.strictObject({ id: node.id, label: node.label, kind: node.kind })),
   edges: z.array(
     z.strictObject({
-      from: z.string(),
-      to: z.string(),
-      label: z.string(),
-      kind: z.enum(LESSON_SCENE_EDGE_KINDS),
-      evidence: z.string(),
+      from: edge.from,
+      to: edge.to,
+      label: edge.label,
+      kind: edge.kind,
+      evidence: edge.evidence,
     })
   ),
 });
@@ -235,7 +237,7 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 ];
 
 const findDraftProblems = (draft: SceneDraft, scene: LessonScene, source: string): string[] => [
-  ...((scene.type === 'proportional' || scene.type === 'guided-path') && scene.autoplay !== true
+  ...(isAnimatedLessonScene(scene) && scene.autoplay !== true
     ? ['Generated animated scenes must enable autoplay.']
     : []),
   ...(draft.evidence.trim() && source.includes(draft.evidence)

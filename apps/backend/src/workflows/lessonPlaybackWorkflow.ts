@@ -1,7 +1,4 @@
-import {
-  LessonPlaybackBlockSchema,
-  type PreAnimatedLessonPlaybackBlockSchema,
-} from '@shared/lessonPlaybackSchema';
+import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import type { LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 
@@ -58,9 +55,7 @@ export interface LessonPlaybackServices {
 
 export const createLessonPlaybackWorkflow = (
   executionDefaults: WorkflowExecutionDefaults,
-  blockSchema:
-    | typeof LessonPlaybackBlockSchema
-    | typeof PreAnimatedLessonPlaybackBlockSchema = LessonPlaybackBlockSchema
+  blockSchema = LessonPlaybackBlockSchema
 ) => {
   const resultSchema = LessonPlaybackResultSchema.extend({ block: blockSchema });
   const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;

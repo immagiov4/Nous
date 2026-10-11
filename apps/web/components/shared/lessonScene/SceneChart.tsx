@@ -1,4 +1,4 @@
-import { LESSON_SCENE_LIMITS, type LessonScene } from '@shared/lessonScene';
+import { LESSON_SCENE_LIMITS, type SceneContentData } from '@shared/lessonScene';
 import { useEffect, useRef, useState } from 'react';
 
 /** Chart geometry inherited from the prototype; colors come from the scene tokens. */
@@ -44,7 +44,7 @@ const readTheme = (host: HTMLElement, prototype: boolean): ChartTheme => {
 
 type Plot = typeof import('@observablehq/plot');
 
-const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: ChartTheme) => {
+const plotOptions = (plot: Plot, scene: SceneContentData, width: number, theme: ChartTheme) => {
   const items = scene.items.map(item => ({
     label: item.label,
     time: item.time ?? 0,
@@ -203,7 +203,7 @@ const plotOptions = (plot: Plot, scene: LessonScene, width: number, theme: Chart
 };
 
 const drawDonut = async (
-  scene: LessonScene,
+  scene: SceneContentData,
   width: number,
   theme: ChartTheme
 ): Promise<HTMLElement> => {
@@ -273,7 +273,7 @@ export const SceneChart = ({
   prototype = false,
 }: {
   readonly isDarkMode: boolean;
-  readonly scene: LessonScene;
+  readonly scene: SceneContentData;
   readonly prototype?: boolean;
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
