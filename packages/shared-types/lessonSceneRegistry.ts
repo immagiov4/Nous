@@ -142,9 +142,7 @@ type LessonSceneRelation = Readonly<
   z.infer<ReturnType<typeof SceneDataSchema.shape.relation.unwrap>>
 >;
 
-export type LessonSceneDiagram = Readonly<
-  NonNullable<z.infer<typeof SceneDataSchema.shape.diagram>>
->;
+type LessonSceneDiagram = Readonly<NonNullable<z.infer<typeof SceneDataSchema.shape.diagram>>>;
 
 type LessonSceneDiagramNode = LessonSceneDiagram['nodes'][number];
 
