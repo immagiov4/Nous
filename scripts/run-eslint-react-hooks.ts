@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { ESLint } from 'eslint';
@@ -16,7 +17,15 @@ export const hasReactHooksLintFailures = (
 export const generateReactHooksLintReport = async (
   reportPath = resolveEslintReportPath()
 ): Promise<ESLint.LintResult[]> => {
-  const eslint = new ESLint({ overrideConfigFile: path.resolve('eslint.config.mjs') });
+  // ESLint invalidates config changes but not plugin upgrades; the lockfile covers dependencies.
+  const dependencyHash = createHash('sha256')
+    .update(await readFile('bun.lock'))
+    .digest('hex');
+  const eslint = new ESLint({
+    overrideConfigFile: path.resolve('eslint.config.mjs'),
+    cache: true,
+    cacheLocation: path.resolve('.temp/eslint', `react-hooks-${dependencyHash}.cache`),
+  });
   const results = await eslint.lintFiles(['apps/web']);
   const formatter = await eslint.loadFormatter('stylish');
   const formattedResults = formatter.format(results);

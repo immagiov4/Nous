@@ -29,9 +29,9 @@ describe('prepareNodeCoverage', () => {
 
     expect(
       prepareNodeCoverage({
-        activeVersion: '24.19.0',
+        activeVersion: '26.4.0',
         coverageReport: reportPath,
-        pinnedVersion: '24.19.0',
+        pinnedVersion: '26.4.0',
       })
     ).toBe(true);
     await expect(access(reportPath)).rejects.toThrow();
@@ -46,12 +46,12 @@ describe('prepareNodeCoverage', () => {
       prepareNodeCoverage({
         activeVersion: '18.20.8',
         coverageReport: reportPath,
-        pinnedVersion: '24.19.0',
+        pinnedVersion: '26.4.0',
       })
     ).toBe(false);
     await expect(access(reportPath)).rejects.toThrow();
     expect(writeError).toHaveBeenCalledWith(
-      'Node 24.19.0 is required for coverage, but PATH resolves to 18.20.8.\n'
+      'Node 26.4.0 is required for coverage, but PATH resolves to 18.20.8.\n'
     );
   });
 });
