@@ -1,6 +1,14 @@
 import type { LessonPlaybackBlock, PlaybackRange, PlaybackVisual } from '@shared/lessonPlayback';
 import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
-import { Fragment, type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import {
+  Fragment,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
@@ -254,7 +262,7 @@ function PlaybackVisualContent({
       ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
       : undefined;
   return (
-    <div hidden>
+    <div>
       {visual.kind === 'scene' ? (
         <PlaybackScene {...props} scene={visual.scene} isDarkMode={content.isDarkMode} />
       ) : null}
@@ -455,15 +463,15 @@ export default function LessonPlaybackStage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const visuals = useMemo(
-    () =>
-      block.visuals.length
-        ? block.visuals
-        : block.prepared?.scene
-          ? [{ kind: 'scene' as const, scene: block.prepared.scene }]
-          : [],
-    [block]
-  );
+  const visuals = useMemo(() => {
+    if (block.visuals.length) return block.visuals;
+    if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
+    return [];
+  }, [block]);
+  const [selection, setSelection] = useState<{
+    visuals: readonly PlaybackVisual[];
+    index: number;
+  } | null>(null);
   const anchors = useMemo(
     () =>
       visuals.map(visual => {
@@ -479,10 +487,8 @@ export default function LessonPlaybackStage({
   );
   useEffect(() => {
     if (!visuals.length) return;
-    const host = sceneCard.current;
-    if (!host) throw new Error('Playback stage must be mounted');
-    const elements = Array.from(host.children) as HTMLElement[];
     let previousClock: CaptionClock | null = null;
+    let previousActive: number | undefined;
     let spans: (ReturnType<typeof captionAnchorSpan> | undefined)[] = [];
     let frame = 0;
     const tick = () => {
@@ -521,16 +527,18 @@ export default function LessonPlaybackStage({
             active = blockTime <= end ? index : -1;
           }
         });
-        elements.forEach((element, index) => {
-          const hidden = index !== active;
-          if (element.hidden !== hidden) element.hidden = hidden;
-        });
+        if (active !== previousActive) {
+          previousActive = active;
+          setSelection({ visuals, index: active });
+        }
       }
       frame = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [anchors, block, duration, visuals.length]);
+  }, [anchors, block, duration, visuals]);
+  const visualIndex = selection?.visuals === visuals ? selection.index : -1;
+  const visual = visuals[visualIndex];
   const sceneProps = {
     block,
     clock,
@@ -568,19 +576,18 @@ export default function LessonPlaybackStage({
             className="scene-host"
             aria-label={t('Visualizzazione della lezione')}
           >
-            {visuals.map((visual, index) => (
+            {visual ? (
               <PlaybackVisualContent
-                // biome-ignore lint/suspicious/noArrayIndexKey: visuals have a fixed order within a saved block
-                key={`${block.id}:${index}`}
+                key={`${block.id}:${visualIndex}`}
                 {...sceneProps}
                 interval={{
-                  start: (duration * index) / visuals.length,
+                  start: (duration * visualIndex) / visuals.length,
                   duration: duration / visuals.length,
                 }}
                 visual={visual}
                 content={content}
               />
-            ))}
+            ) : null}
           </section>
         </div>
       </section>

@@ -2,12 +2,12 @@ import {
   type AnimatedLessonScene,
   GUIDED_PATH_STEPS_PER_ROW,
   type GuidedPathLessonScene,
-  PROPORTIONAL_REPLICA_LIMIT,
   type ProportionalLessonScene,
 } from '@shared/lessonScene';
 import {
   automaticDuration,
   automaticQuantity,
+  PROPORTIONAL_REPLICA_LIMIT,
   proportionalResult,
 } from '@shared/lessonSceneAnimation';
 import { type CSSProperties, useEffect, useMemo, useRef } from 'react';

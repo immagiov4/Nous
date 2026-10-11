@@ -285,3 +285,19 @@ test('aggregate reader playback finishes within twelve steps without an authored
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('128,000,000');
   expect(requestAnimationFrame).not.toHaveBeenCalled();
 });
+
+test.each([
+  ['en', '0.3', '0.6', '3 × 0.1 MB'],
+  ['it', '0,3', '0,6', '3 × 0,1 MB'],
+] as const)('shows decimal totals without arithmetic noise in %s', (locale, initial, final, formula) => {
+  setRenderingLocaleOverride(locale);
+  const { container } = render(
+    <LessonSceneVisual scene={{ ...proportionalScene, initial: 3, amountPerUnit: 0.1 }} />
+  );
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(initial);
+  expect(container.querySelector('.formula')?.textContent).toBe(formula);
+  act(() => intersect([{ isIntersecting: true }]));
+  act(() => tick(0));
+  act(() => tick(9600));
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(final);
+});

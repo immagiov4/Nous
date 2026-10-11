@@ -214,6 +214,17 @@ test('derives quantities and path frames at prototype boundaries and backward se
 });
 
 test.each([
+  [0.1, 0.3],
+  [0.07, 0.21],
+  [0.1234567890123456, 0.3703703670370368],
+  [1.23456789, 3.70370367],
+  [1e-25, 3e-25],
+  [1.2e25, 3.6e25],
+])('multiplies the decimal unit amount %s without arithmetic noise', (amountPerUnit, total) => {
+  expect(proportionalResult({ ...proportionalScene, amountPerUnit }, 3)).toBe(total);
+});
+
+test.each([
   [1, 13, 28800],
   [10, 1000000, 28800],
   [100, 105, 14400],

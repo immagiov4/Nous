@@ -1,9 +1,7 @@
-import {
-  type AnimatedLessonScene,
-  PROPORTIONAL_AUTOMATIC_STEP_LIMIT,
-  PROPORTIONAL_REPLICA_LIMIT,
-  type ProportionalLessonScene,
-} from './lessonScene';
+import type { AnimatedLessonScene, ProportionalLessonScene } from './lessonScene';
+
+export const PROPORTIONAL_REPLICA_LIMIT = 12;
+const PROPORTIONAL_AUTOMATIC_STEP_LIMIT = 12;
 
 // Ported from notes-live-lab/interactive-model.mjs. Scene data never supplies executable formulas.
 const interactionTiming = { stepMs: 2400, wordMs: 250 };
@@ -42,7 +40,11 @@ export function proportionalResult(scene: ProportionalLessonScene, quantity: num
   if (!Number.isInteger(quantity) || quantity < scene.min || quantity > scene.max) {
     throw new Error('Quantity outside range');
   }
-  return quantity * scene.amountPerUnit;
+  // Multiply the authored decimal coefficient before converting back to the numeric contract.
+  const [coefficient, exponent = '0'] = String(scene.amountPerUnit).split('e');
+  const [integer, fraction = ''] = coefficient.split('.');
+  const total = BigInt(integer + fraction) * BigInt(quantity);
+  return Number(`${total}e${Number(exponent) - fraction.length}`);
 }
 
 export function pathFrame(elapsedMs: number, count: number) {

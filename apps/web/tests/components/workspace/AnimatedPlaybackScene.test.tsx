@@ -214,6 +214,9 @@ const quotedPath = (title: string, anchors: string[]): LessonScene => ({
   steps: anchors.map(anchor => ({ label: anchor, detail: `${title}: ${anchor}`, anchor })),
 });
 
+const mountedTitles = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll('.scene h2'), heading => heading.textContent);
+
 test.each([false, true])('scene visibility follows complete caption spans (stored: %s)', stored => {
   const { container, tick, advance } = mount(
     [quotedPath('Late', ['sei', 'otto.']), quotedPath('Early', ['Uno', 'due tre'])],
@@ -221,27 +224,26 @@ test.each([false, true])('scene visibility follows complete caption spans (store
     8,
     stored
   );
-  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
-  const visible = () => scenes.map(scene => !scene.hidden);
-  expect(visible()).toEqual([false, true]);
+  const visible = () => mountedTitles(container);
+  expect(visible()).toEqual(['Early']);
   // The last quotation still covers "tre", past its first word "due".
   tick(1.2);
-  expect(visible()).toEqual([false, true]);
+  expect(visible()).toEqual(['Early']);
   tick(2);
-  expect(visible()).toEqual([false, false]);
+  expect(visible()).toEqual([]);
   // The first visual remains available after its former equal-time slot ends.
   tick(4);
-  expect(visible()).toEqual([true, false]);
+  expect(visible()).toEqual(['Late']);
   flush();
-  expect(visible()).toEqual([true, false]);
+  expect(visible()).toEqual(['Late']);
   advance(3, 0.5);
-  expect(visible()).toEqual([false, false]);
+  expect(visible()).toEqual([]);
   advance(3, 2);
-  expect(visible()).toEqual([true, false]);
+  expect(visible()).toEqual(['Late']);
   tick(8);
-  expect(visible()).toEqual([false, false]);
+  expect(visible()).toEqual([]);
   tick(0);
-  expect(visible()).toEqual([false, true]);
+  expect(visible()).toEqual(['Early']);
 });
 
 test.each([
@@ -254,21 +256,20 @@ test.each([
     8,
     stored
   );
-  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
   tick(2);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  expect(mountedTitles(container)).toEqual(['Middle']);
   // Six starts at this measured caption time, including the existing look-ahead.
   const replacementTime = (500 / 822) * 8 - CAPTION_TIMING.lookAheadSeconds;
   tick(replacementTime - 0.001);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  expect(mountedTitles(container)).toEqual(['Middle']);
   tick(replacementTime);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
-  expect(scenes[0].querySelector('[aria-current=step] strong')?.textContent).toBe('sei');
+  expect(mountedTitles(container)).toEqual(['Late']);
+  expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('sei');
   tick(6);
-  expect(scenes[0].querySelector('[aria-current=step] strong')?.textContent).toBe('otto.');
+  expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('otto.');
   tick(2);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
-  expect(scenes[1].querySelector('[aria-current=step] strong')?.textContent).toBe('quattro');
+  expect(mountedTitles(container)).toEqual(['Middle']);
+  expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('quattro');
   tick(4);
   vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (
     this: HTMLElement
@@ -277,7 +278,7 @@ test.each([
   });
   act(() => window.dispatchEvent(new Event('resize')));
   flush();
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, false]);
+  expect(mountedTitles(container)).toEqual([]);
 });
 
 test('unanchored scenes retain their sequential slot and restart relative to that slot', () => {
@@ -286,9 +287,7 @@ test('unanchored scenes retain their sequential slot and restart relative to tha
     speech,
     8
   );
-  expect(container.querySelector('[data-quantity-value]')?.closest('[hidden]')).toBeInstanceOf(
-    HTMLElement
-  );
+  expect(container.querySelector('[data-quantity-value]')).toBeNull();
   advance(4);
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   advance(6);
@@ -296,9 +295,7 @@ test('unanchored scenes retain their sequential slot and restart relative to tha
   advance(8);
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('768');
   advance(0);
-  expect(container.querySelector('[data-quantity-value]')?.closest('[hidden]')).toBeInstanceOf(
-    HTMLElement
-  );
+  expect(container.querySelector('[data-quantity-value]')).toBeNull();
 });
 
 test('a replaced scene stays hidden after the later scene ends', () => {
@@ -307,15 +304,14 @@ test('a replaced scene stays hidden after the later scene ends', () => {
     speech,
     8
   );
-  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
   tick(0);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+  expect(mountedTitles(container)).toEqual(['Long']);
   tick(2);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  expect(mountedTitles(container)).toEqual(['Short']);
   tick(4);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, false]);
+  expect(mountedTitles(container)).toEqual([]);
   tick(0);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+  expect(mountedTitles(container)).toEqual(['Long']);
 });
 
 test('automatic and synchronized scenes share one visible slot with their own clocks', () => {
@@ -324,15 +320,35 @@ test('automatic and synchronized scenes share one visible slot with their own cl
     speech,
     8
   );
-  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
   tick(3.9);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+  expect(mountedTitles(container)).toEqual(['Long']);
   tick(4);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
-  expect(scenes[1].querySelector('[data-quantity-value]')?.textContent).toBe('256');
+  expect(mountedTitles(container)).toEqual([proportionalScene.title]);
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   tick(6);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
-  expect(scenes[1].querySelector('[data-quantity-value]')?.textContent).toBe('512');
+  expect(mountedTitles(container)).toEqual([proportionalScene.title]);
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
   tick(0);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+  expect(mountedTitles(container)).toEqual(['Long']);
+});
+
+test('only the selected animated visual owns a runtime, including replacement and backward seek', () => {
+  const scenes = ['First', 'Second', 'Third'].map(title => ({ ...proportionalScene, title }));
+  const { container, tick, unmount } = mount(scenes, speech, 12);
+  const title = () => container.querySelector('.scene h2')?.textContent;
+  expect(container.querySelectorAll('.scene')).toHaveLength(1);
+  expect(title()).toBe('First');
+  const first = container.querySelector('.scene');
+  expect(callbacks.size).toBe(3);
+  tick(4);
+  expect(container.querySelectorAll('.scene')).toHaveLength(1);
+  expect(title()).toBe('Second');
+  expect(first?.isConnected).toBe(false);
+  expect(callbacks.size).toBe(3);
+  tick(0);
+  expect(title()).toBe('First');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
+  expect(callbacks.size).toBe(3);
+  unmount();
+  expect(callbacks.size).toBe(0);
 });
