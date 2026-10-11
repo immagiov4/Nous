@@ -41,6 +41,7 @@ import type {
 import {
   LessonDocumentAssetsSchema,
   LessonResearchDossierSchema,
+  Sha256HexSchema,
 } from './lessonGenerationWorkflowSchemas.js';
 import { collectProjectLessonVisualAssetIds } from './lessonVisualPersistence.js';
 import {
@@ -222,10 +223,12 @@ export const createLessonResultFinalizer =
       });
     }
 
+    const storedAssets = record.snapshot.documentAssets;
+    const normalizedAssets = isRecord(storedAssets)
+      ? { ...storedAssets, sourceHash: Sha256HexSchema.safeParse(storedAssets.sourceHash).data }
+      : storedAssets;
     const documentAssets =
-      record.snapshot.documentAssets == null
-        ? null
-        : LessonDocumentAssetsSchema.parse(record.snapshot.documentAssets);
+      storedAssets == null ? null : LessonDocumentAssetsSchema.parse(normalizedAssets);
     return {
       ...state.result,
       documentAssets,

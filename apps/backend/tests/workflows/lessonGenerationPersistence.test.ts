@@ -470,6 +470,58 @@ describe('durable lesson generation persistence', () => {
     });
   });
 
+  test('finalizes a lesson without incoming assets over historical source provenance', async () => {
+    const otherImage = {
+      asset: asset(OTHER_ASSET_ID),
+      id: 'pdf-other',
+      sourceHash: '1'.repeat(64),
+      sourceOrder: 2,
+      textAfter: '',
+      textBefore: '',
+    };
+    for (const usedImages of [[], [otherImage]]) {
+      const snapshot = project();
+      snapshot.documentAssets = {
+        imageCount: 0,
+        kind: 'pdf',
+        parsedAt: NOW,
+        sourceHash: 'a'.repeat(40),
+        usedImages,
+      };
+      const input = visualsState(snapshot);
+      input.documentAssets = null;
+      input.imageRefs = [];
+      input.contentBlocks = [{ markdown: 'Contenuto nuovo.', type: 'markdown' }];
+      input.content = 'Contenuto nuovo.';
+      const execution = context(input).execution;
+      const state = await createLessonPersistenceStage({
+        loadProject: vi.fn().mockResolvedValue(snapshot),
+        now: () => NOW,
+      })(context(input));
+      expect(state.result.documentAssets).toBeNull();
+      const committed = applyProjectPatch(
+        snapshot,
+        buildLessonGenerationCommitPatch({ revision: 4, snapshot }, input, state, execution),
+        NOW
+      );
+      const finalize = createLessonResultFinalizer({
+        loadProjectWithRevision: vi.fn().mockResolvedValue({ revision: 5, snapshot: committed }),
+      });
+
+      const result = await finalize({ ...context(input), input: state });
+
+      expect(result.projectRevision).toBe(5);
+      expect(result.contentBlocks).toEqual(input.contentBlocks);
+      expect(result.documentAssets).toEqual({
+        imageCount: 0,
+        kind: 'pdf',
+        parsedAt: NOW,
+        usedImages,
+      });
+      expect(committed.documentAssets).toHaveProperty('sourceHash', 'a'.repeat(40));
+    }
+  });
+
   test('rejects source or generated-target changes instead of overwriting them', async () => {
     const snapshot = project();
     const input = visualsState(snapshot);
