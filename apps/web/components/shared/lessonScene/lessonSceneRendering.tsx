@@ -288,6 +288,16 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
     cx + Math.cos((index * 2 * Math.PI) / scene.items.length - Math.PI / 2) * distance,
     cy + Math.sin((index * 2 * Math.PI) / scene.items.length - Math.PI / 2) * distance,
   ];
+  const labelPlacement = (x: number, y: number) => {
+    const dx = x - cx;
+    let anchor: 'middle' | 'start' | 'end' = 'end';
+    if (Math.abs(dx) < 1) anchor = 'middle';
+    else if (dx > 0) anchor = 'start';
+    let top = y - labelOffset;
+    if (y < cy - radius) top = y - labelTop;
+    else if (y > cy + radius) top = y + labelBottom;
+    return { anchor, top };
+  };
   return quickSvg(
     scene,
     <>
@@ -323,11 +333,8 @@ export const quickRadial = ({ scene }: SceneRenderContext) => {
         })
       )}
       {scene.items.map((item, index) => {
-        const [x, y] = point(index, radius + labelGap),
-          dx = x - cx;
-        const anchor = Math.abs(dx) < 1 ? 'middle' : dx > 0 ? 'start' : 'end';
-        const top =
-          y < cy - radius ? y - labelTop : y > cy + radius ? y + labelBottom : y - labelOffset;
+        const [x, y] = point(index, radius + labelGap);
+        const { anchor, top } = labelPlacement(x, y);
         return (
           <text
             // biome-ignore lint/suspicious/noArrayIndexKey: authored measures have stable order
@@ -392,8 +399,8 @@ export const quickMatrix = ({ scene }: SceneRenderContext) => (
             <th scope="row">{row.label}</th>
             {row.values.map((value, column) => (
               <td
-                // biome-ignore lint/suspicious/noArrayIndexKey: cells are identified by their fixed column
-                key={column}
+                // biome-ignore lint/suspicious/noArrayIndexKey: repeated values occupy distinct fixed columns
+                key={`${column}-${value}`}
                 style={
                   scene.type === 'heatmap'
                     ? {
@@ -618,10 +625,11 @@ export const quickFunnel = ({ scene }: SceneRenderContext) => {
       </g>
     );
   });
+  const values = scene.items.map(item => `${item.value} ${scene.unit}, ${item.label}`).join('; ');
   return quickSvg(
     {
       ...scene,
-      title: `${scene.title}: ${scene.items.map(item => `${item.value} ${scene.unit}, ${item.label}`).join('; ')}`,
+      title: `${scene.title}: ${values}`,
     },
     bands,
     top * 2 + scene.items.length * bandHeight
@@ -694,7 +702,8 @@ export const quickIntegration = ({ scene }: SceneRenderContext) => {
   const branches = (group: LessonSceneGroup, outgoing = false) => {
     const geometry = QUICK_GEOMETRY.branches;
     const xs = group.items.map((_, index) => ((index + 0.5) * geometry.width) / group.items.length);
-    const path = `${xs.map(x => `M ${x} 0 V ${geometry.join}`).join(' ')} M ${xs[0]} ${geometry.join} H ${xs.at(-1)} M ${geometry.center} ${geometry.join} V ${geometry.height}`;
+    const stems = xs.map(x => `M ${x} 0 V ${geometry.join}`).join(' ');
+    const path = `${stems} M ${xs[0]} ${geometry.join} H ${xs.at(-1)} M ${geometry.center} ${geometry.join} V ${geometry.height}`;
     return (
       <svg
         className={`q-branches${outgoing ? ' q-branches-out' : ''}`}

@@ -1283,33 +1283,12 @@ export const HistoricalLessonSceneSchemas = LESSON_SCENE_CATALOG_SNAPSHOTS.map(
     ) as typeof LessonSceneSchema
 );
 
-/** Returns every contract violation of a scene. With `source`, quotations, quantities, relations, and diagram connections must also be grounded in that lesson text. */
-export const findLessonSceneProblems = (value: unknown, source?: string): string[] => {
-  if (!isRecord(value)) return ['A scene must be an object.'];
-  if (!isSceneType(value.type)) return ['The scene type is not in the catalog.'];
-  const textProblems = ['title', 'body', 'quote', 'note'].some(key => !isText(value[key]))
-    ? ['title, body, quote, and note must be short strings.']
-    : [];
-  const structural = [
-    ...textProblems,
-    ...(sceneForms[value.type].content
-      ? []
-      : [...findItemProblems(value.items), ...findGroupProblems(value.groups, value.criteria)]),
-  ];
-  if (structural.length) return structural;
-  const type = value.type;
-  const quoteProblems =
-    source !== undefined && value.quote && !source.includes(value.quote as string)
-      ? ['The quote must be copied exactly from the lesson.']
-      : [];
-  const form = sceneForms[type];
-  // The flat stored envelope keeps form fields optional; the selected form still owns its contract.
-  const formFields = form.schema.safeParse(value);
-  if (!formFields.success) {
-    return formFields.error.issues.map(
-      issue => `${issue.path.join('.') || type}: ${issue.message}`
-    );
-  }
+const findFormContentProblems = (
+  form: SceneForm,
+  value: Record<string, unknown>,
+  source: string | undefined,
+  quoteProblems: string[]
+): string[] => {
   if (form.content) {
     const contentProblems =
       form.content === 'quick' && !QuickContentValidationSchema.safeParse(value).success
@@ -1341,6 +1320,36 @@ export const findLessonSceneProblems = (value: unknown, source?: string): string
     ...quoteProblems,
     ...findRelationProblems(value.relation, source),
   ];
+};
+
+/** Returns every contract violation of a scene. With `source`, quotations, quantities, relations, and diagram connections must also be grounded in that lesson text. */
+export const findLessonSceneProblems = (value: unknown, source?: string): string[] => {
+  if (!isRecord(value)) return ['A scene must be an object.'];
+  if (!isSceneType(value.type)) return ['The scene type is not in the catalog.'];
+  const textProblems = ['title', 'body', 'quote', 'note'].some(key => !isText(value[key]))
+    ? ['title, body, quote, and note must be short strings.']
+    : [];
+  const structural = [
+    ...textProblems,
+    ...(sceneForms[value.type].content
+      ? []
+      : [...findItemProblems(value.items), ...findGroupProblems(value.groups, value.criteria)]),
+  ];
+  if (structural.length) return structural;
+  const type = value.type;
+  const quoteProblems =
+    source !== undefined && value.quote && !source.includes(value.quote as string)
+      ? ['The quote must be copied exactly from the lesson.']
+      : [];
+  const form = sceneForms[type];
+  // The flat stored envelope keeps form fields optional; the selected form still owns its contract.
+  const formFields = form.schema.safeParse(value);
+  if (!formFields.success) {
+    return formFields.error.issues.map(
+      issue => `${issue.path.join('.') || type}: ${issue.message}`
+    );
+  }
+  return findFormContentProblems(form, value, source, quoteProblems);
 };
 
 export const isLessonScene = (value: unknown): value is LessonScene =>

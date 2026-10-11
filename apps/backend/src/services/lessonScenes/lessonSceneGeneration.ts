@@ -352,11 +352,14 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
       ]
     : []),
   ...(draft.panels ?? []).flatMap((panel, panelIndex) =>
-    panel.items.map((item, index) => ({
-      queries: item.iconQueries,
-      slot: { item: index, panel: panelIndex, kind: 'panel' as const },
-      text: `${panel.title}: ${item.label}${item.detail ? ` — ${item.detail}` : ''}`,
-    }))
+    panel.items.map((item, index) => {
+      const detail = item.detail ? ` — ${item.detail}` : '';
+      return {
+        queries: item.iconQueries,
+        slot: { item: index, panel: panelIndex, kind: 'panel' as const },
+        text: `${panel.title}: ${item.label}${detail}`,
+      };
+    })
   ),
 ];
 

@@ -217,7 +217,9 @@ export const SCENE_RENDERERS = {
   quadrant: c => (
     <>
       <div className="q-axis">{c.scene.yLabel}</div>
-      <div className="q-quadrant">{c.scene.groups.map(quickGroup)}</div>
+      <div className="q-quadrant">
+        {c.scene.groups.map((group, index) => quickGroup(group, index))}
+      </div>
       <div className="q-axis q-axis-x">{c.scene.xLabel}</div>
     </>
   ),
@@ -309,7 +311,11 @@ export const SCENE_RENDERERS = {
   ),
   integration: quickIntegration,
   security: quickMatrix,
-  deployment: c => <div className="q-columns">{c.scene.groups.map(quickGroup)}</div>,
+  deployment: c => (
+    <div className="q-columns">
+      {c.scene.groups.map((group, index) => quickGroup(group, index))}
+    </div>
+  ),
   'proportional-static': c => {
     const numbers = new Intl.NumberFormat(getAppLocale(), { maximumSignificantDigits: 21 });
     const total = proportionalTotal(c.scene.amountPerUnit as number, c.scene.quantity as number);
