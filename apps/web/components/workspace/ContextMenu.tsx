@@ -19,6 +19,7 @@ import {
   type FormEvent,
   type MouseEvent,
   type PointerEvent,
+  type ReactNode,
   type RefObject,
   type TouchEvent,
   useCallback,
@@ -28,7 +29,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type { SpeechInputController } from '../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -63,6 +64,7 @@ interface ContextMenuProps {
     onSubmit: () => void;
     /** Set while an answer is generating: the empty field's send button stops it. */
     onStopResponse?: () => void;
+    tools?: ReactNode;
   };
   readonly anchorX?: number;
   readonly anchorY?: number;
@@ -449,6 +451,11 @@ const ContextMenu = ({
 
   const handleToggleNoteEditor = (event: MouseEvent<HTMLButtonElement>) => {
     if (playbackComposer) {
+      if (playbackComposer.isMobileViewport && !playbackComposer.noteMode) {
+        flushSync(() => playbackComposer.onToggleNote());
+        event.currentTarget.form?.querySelector('textarea')?.focus({ preventScroll: true });
+        return;
+      }
       playbackComposer.onToggleNote();
       return;
     }
@@ -1101,9 +1108,12 @@ const ContextMenu = ({
     if (playbackComposer?.noteMode) {
       return (
         <motion.textarea
-          initial={{ opacity: shouldAnimate ? 0 : 1 }}
+          initial={playbackComposer.isMobileViewport ? false : { opacity: shouldAnimate ? 0 : 1 }}
           animate={{ opacity: 1 }}
-          transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+          transition={{
+            duration: shouldAnimate && !playbackComposer.isMobileViewport ? 0.2 : 0,
+            ease: 'easeOut',
+          }}
           rows={PLAYBACK_NOTE_ROWS}
           value={displayedInput}
           onChange={event => changeInput(event.target.value)}
@@ -1155,8 +1165,9 @@ const ContextMenu = ({
           className={`${playbackComposer ? 'transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none' : ''} ${playbackComposer?.listening ? '!border-orange-300 ring-4 ring-orange-500/10' : ''} ${playbackComposer?.noteMode ? '!items-end !border-amber-700/50 ring-4 ring-amber-700/15' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
           onSubmit={handleAskSubmit}
         >
+          {playbackComposer?.tools}
           <div
-            className={`min-w-0 flex-1 ${playbackComposer ? 'overflow-hidden text-sm leading-6 transition-[height] duration-200 ease-out motion-reduce:transition-none' : ''}`}
+            className={`min-w-0 flex-1 ${playbackComposer ? `overflow-hidden text-sm leading-6 ${playbackComposer.isMobileViewport ? 'transition-none' : 'transition-[height] duration-200 ease-out motion-reduce:transition-none'}` : ''}`}
             style={
               playbackComposer
                 ? {
@@ -1186,6 +1197,7 @@ const ContextMenu = ({
           {playbackComposer?.onStopResponse ? (
             <button
               type="button"
+              data-context-menu-target="stop"
               onClick={playbackComposer.onStopResponse}
               aria-label={t('Annulla')}
               title={t('Annulla')}

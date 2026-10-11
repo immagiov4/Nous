@@ -82,11 +82,13 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
     placeholder: string;
     submitDataTarget?: string;
     trailingContent?: ReactNode;
+    leadingContent?: ReactNode;
     value: string;
   }) => {
     chatTextComposerProps.push(props);
     return (
       <>
+        {props.leadingContent}
         {props.trailingContent}
         <input
           data-chat-composer-target={props.inputDataTarget}
@@ -240,6 +242,8 @@ const generatedDraftArtifact = {
   },
 } as const;
 
+const { default: ContextMenu } = await import('../../../../components/workspace/ContextMenu.tsx');
+
 const buildProps = (contextAnswerOverrides: Partial<ContextAnswerState> = {}) => ({
   contextAnswer: {
     id: 'context-1',
@@ -276,6 +280,36 @@ const buildProps = (contextAnswerOverrides: Partial<ContextAnswerState> = {}) =>
   onUpdateConversationNote: vi.fn(),
   currentLessonArtifactPayloads: [currentLessonArtifact],
 });
+
+const renderPlaybackComposer = (
+  send: (text: string) => void,
+  disabled: boolean,
+  stopResponse?: () => void,
+  tools?: ReactNode
+) => (
+  <ContextMenu
+    type="lesson"
+    placement="desktop-floating"
+    selectedText=""
+    isLoading={disabled}
+    lessonCreationBlockReason={null}
+    onAsk={send}
+    onClose={vi.fn()}
+    onCreateLesson={vi.fn()}
+    onDeleteAnnotation={vi.fn()}
+    onHighlight={vi.fn()}
+    onSaveNote={vi.fn()}
+    playbackComposer={{
+      value: 'Un altro esempio?',
+      noteMode: false,
+      onChange: vi.fn(),
+      onToggleNote: vi.fn(),
+      onSubmit: () => send('Un altro esempio?'),
+      onStopResponse: stopResponse,
+      tools,
+    }}
+  />
+);
 
 describe('ContextAnswerPanel', () => {
   beforeEach(() => {
@@ -314,36 +348,67 @@ describe('ContextAnswerPanel', () => {
     expect(sendMessageMock).toHaveBeenCalledExactlyOnceWith({ text: 'La domanda dettata' });
   });
 
-  test('continues a docked desktop conversation from the external composer', async () => {
-    useChatMock.mockReturnValue({
+  test.each([
+    false,
+    true,
+  ])('keeps playback tools and the only streaming stop in the external composer on mobile=%s', async mobile => {
+    const user = userEvent.setup();
+    let chatStatus: 'ready' | 'streaming' = 'ready';
+    useChatMock.mockImplementation(() => ({
       addToolOutput: addToolOutputMock,
       error: undefined,
       messages: [],
       sendMessage: sendMessageMock,
-      status: 'ready',
-    });
+      status: chatStatus,
+      stop: stopMock,
+    }));
     const portal = document.createElement('div');
     document.body.append(portal);
-    const view = render(
-      <ContextAnswerPanel
-        {...buildProps({ id: 'external-composer' })}
-        isMobileViewport={false}
-        docked
-        composerPortal={portal}
-        renderComposer={(send, disabled) => (
-          <button type="button" disabled={disabled} onClick={() => send('Un altro esempio?')}>
-            Continua dalla barra
-          </button>
-        )}
-      />
-    );
+    const props = {
+      ...buildProps({ id: 'external-composer' }),
+      isMobileViewport: mobile,
+      docked: true,
+      composerPortal: portal,
+      renderComposer: renderPlaybackComposer,
+    };
+    const view = render(<ContextAnswerPanel {...props} />);
     try {
-      expect(screen.queryByRole('textbox')).toBeNull();
-      await userEvent.setup().click(screen.getByRole('button', { name: 'Continua dalla barra' }));
+      const tools = screen.getByRole('button', { name: 'Apri strumenti conversazione' });
+      expect(portal).toContainElement(tools);
+      expect(view.container).not.toContainElement(tools);
+      await user.click(tools);
+      const toggles = screen.getAllByRole('menuitemcheckbox');
+      expect(toggles).toHaveLength(3);
+      for (const toggle of toggles) {
+        expect(toggle).toHaveAttribute('aria-checked', 'false');
+        await user.click(toggle);
+        expect(toggle).toHaveAttribute('aria-checked', 'true');
+      }
+      await user.click(tools);
+      await user.click(tools);
+      for (const toggle of screen.getAllByRole('menuitemcheckbox')) {
+        expect(toggle).toHaveAttribute('aria-checked', 'true');
+      }
+      await user.click(screen.getByRole('button', { name: 'Invia domanda' }));
       expect(sendMessageMock).toHaveBeenLastCalledWith({ text: 'Un altro esempio?' });
-      expect(
-        screen.getByRole('button', { name: 'Apri strumenti conversazione' })
-      ).toBeInTheDocument();
+      const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+        id: 'external-composer',
+        messages: [{ role: 'user', parts: [{ type: 'text', text: 'Un altro esempio?' }] }],
+      }) as { body?: { toolPreferences?: unknown } };
+      expect(request.body?.toolPreferences).toEqual({
+        annotate: true,
+        generateArtifacts: true,
+        webSearch: true,
+      });
+      chatStatus = 'streaming';
+      view.rerender(<ContextAnswerPanel {...props} />);
+      const stops = screen.getAllByRole('button', { name: /^(Cancel|Annulla)$/i });
+      expect(stops).toHaveLength(1);
+      expect(portal).toContainElement(stops[0]);
+      expect(view.container).not.toContainElement(stops[0]);
+      await user.click(stops[0]);
+      await user.click(stops[0]);
+      expect(stopMock).toHaveBeenCalledOnce();
     } finally {
       view.unmount();
       portal.remove();
@@ -490,6 +555,9 @@ describe('ContextAnswerPanel', () => {
 
     render(<ContextAnswerPanel {...buildProps()} />);
 
+    expect(
+      screen.getByRole('button', { name: 'Apri strumenti conversazione' })
+    ).toBeInTheDocument();
     const input = screen.getByRole('textbox');
     await user.type(input, 'Conserva questo follow-up');
     const stopButton = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
@@ -557,22 +625,11 @@ describe('ContextAnswerPanel', () => {
       isMobileViewport: false,
       docked: true,
       composerPortal: portal,
-      renderComposer: (send: (text: string) => void) => (
-        <>
-          <input data-context-menu-target="input" aria-label="Domanda esterna" />
-          <button
-            type="button"
-            data-context-menu-target="submit"
-            onClick={() => send('Un esempio?')}
-          >
-            Invia dalla barra
-          </button>
-        </>
-      ),
+      renderComposer: renderPlaybackComposer,
     };
     const view = render(<ContextAnswerPanel {...props} />);
     try {
-      const submit = screen.getByRole('button', { name: 'Invia dalla barra' });
+      const submit = screen.getByRole('button', { name: 'Invia domanda' });
       submit.focus();
       await user.keyboard('{Enter}');
       chatStatus = 'streaming';
@@ -583,7 +640,7 @@ describe('ContextAnswerPanel', () => {
       expect(stopMock).toHaveBeenCalledOnce();
       chatStatus = 'ready';
       view.rerender(<ContextAnswerPanel {...props} />);
-      expect(screen.getByRole('textbox', { name: 'Domanda esterna' })).toHaveFocus();
+      expect(screen.getByRole('textbox')).toHaveFocus();
       expect(screen.getAllByRole('textbox')).toHaveLength(1);
     } finally {
       view.unmount();

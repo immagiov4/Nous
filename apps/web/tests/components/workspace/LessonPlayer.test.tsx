@@ -45,7 +45,10 @@ vi.mock('../../../components/workspace/shell/ContextAnswerPanel.tsx', () => ({
         {renderComposer?.(
           sendInConversation,
           composerState.disabled,
-          generatingResponse.stop ?? undefined
+          generatingResponse.stop ?? undefined,
+          <button type="button" aria-label="Conversation tools slot">
+            Tools
+          </button>
         )}
         {answerPreview.open
           ? createPortal(
@@ -310,6 +313,7 @@ test('mobile note mode expands the field and uses the same save path', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
   const field = screen.getByRole('textbox');
   expect(field).toHaveAttribute('rows', '5');
+  expect(field).toHaveFocus();
   fireEvent.change(field, { target: { value: 'Nota dal telefono.' } });
   expect(screen.getByRole('button', { name: 'Avvia dettatura' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Salva nota' }));
@@ -474,6 +478,9 @@ test.each([false, true])('generation preserves the draft and Stop on mobile=%s',
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Perché?' } });
   fireEvent.click(screen.getByRole('button', { name: 'Invia domanda' }));
   const input = screen.getByRole('textbox');
+  expect(input.closest('form')).toContainElement(
+    screen.getByRole('button', { name: 'Conversation tools slot' })
+  );
   expect(input).toBeEnabled();
   if (mobile) expect(screen.getByRole('button', { name: 'Avvia dettatura' })).toBeEnabled();
   fireEvent.change(input, { target: { value: 'E poi?' } });

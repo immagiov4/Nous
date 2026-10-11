@@ -516,7 +516,8 @@ interface ContextAnswerPanelProps {
   readonly renderComposer?: (
     send: (text: string) => void,
     disabled: boolean,
-    stopResponse?: () => void
+    stopResponse?: () => void,
+    tools?: ReactNode
   ) => ReactNode;
   readonly artifactActionFeedbackOverride?: 'saved';
   readonly artifactPreviewIdOverride?: string | null;
@@ -1554,8 +1555,11 @@ function ContextAnswerPanelSession({
 
   useEffect(() => {
     if (!isLoading || !focusStopAfterSubmit) return;
-    contextStopButtonRef.current?.focus();
-  }, [focusStopAfterSubmit, isLoading]);
+    const stopButton =
+      composerPortal?.querySelector<HTMLElement>('[data-context-menu-target="stop"]') ??
+      contextStopButtonRef.current;
+    stopButton?.focus();
+  }, [composerPortal, focusStopAfterSubmit, isLoading]);
 
   useEffect(() => {
     if (isLoading || !hasRequestedResponseStop) return;
@@ -2033,6 +2037,9 @@ function ContextAnswerPanelSession({
     panelPlacementClassName = 'rounded-2xl';
   }
   const stopComposerResponse = isLoading ? handleStopResponse : undefined;
+  const hasExternalComposer = Boolean(
+    composerPortal && renderComposer && (docked || !isMobileViewport)
+  );
   const answerPanel = (
     <motion.div
       ref={contextAnswerPanelRef}
@@ -2162,13 +2169,7 @@ function ContextAnswerPanelSession({
         </div>
       </div>
 
-      {renderComposer && (docked || !isMobileViewport) ? (
-        <div className="flex shrink-0 items-center justify-between border-t border-stone-100 pt-2 dark:border-zinc-700">
-          {conversationTools}
-          {isLoading ? conversationTrailingControl : null}
-        </div>
-      ) : null}
-      {!(renderComposer && (docked || !isMobileViewport)) ? (
+      {!hasExternalComposer ? (
         <div className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60">
           <div
             className="pointer-events-none absolute -top-12 left-0 right-0 z-10 h-12 bg-gradient-to-b from-transparent to-white transition-opacity duration-200 dark:to-zinc-800"
@@ -2242,7 +2243,12 @@ function ContextAnswerPanelSession({
       {answerPanel}
       {isPresent && composerPortal && renderComposer && (docked || !isMobileViewport)
         ? createPortal(
-            renderComposer(handleSubmit, isComposerDisabled, stopComposerResponse),
+            renderComposer(
+              handleSubmit,
+              isComposerDisabled,
+              stopComposerResponse,
+              conversationTools
+            ),
             composerPortal
           )
         : null}

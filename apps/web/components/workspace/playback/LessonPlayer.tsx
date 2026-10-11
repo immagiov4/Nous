@@ -305,11 +305,13 @@ export default function LessonPlayer({
     disabled = false,
     conversation = false,
     stopResponse,
+    tools,
   }: {
     send?: (text: string) => void;
     disabled?: boolean;
     conversation?: boolean;
     stopResponse?: () => void;
+    tools?: ReactNode;
   } = {}) => (
     <>
       {conversation ? (
@@ -360,6 +362,7 @@ export default function LessonPlayer({
             if (!stopResponse || noteMode) submit(send);
           },
           onStopResponse: stopResponse,
+          tools,
         }}
       />
     </>
@@ -626,8 +629,8 @@ export default function LessonPlayer({
                   isMobileViewport={mobile}
                   docked
                   composerPortal={composerPortal}
-                  renderComposer={(send, disabled, stopResponse) =>
-                    renderComposer({ send, disabled, conversation: true, stopResponse })
+                  renderComposer={(send, disabled, stopResponse, tools) =>
+                    renderComposer({ send, disabled, conversation: true, stopResponse, tools })
                   }
                   libraryAssistantDataSource={overlays.libraryAssistantDataSource}
                   currentLessonArtifactPayloads={overlays.currentLessonArtifactPayloads}
