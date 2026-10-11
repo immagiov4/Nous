@@ -147,7 +147,7 @@ export const generateStructuredOutput = async <T>(
         type: 'object',
       },
     } as const;
-    const fallbackPrompt = `${prompt}\n\nThe provider cannot compile the requested schema. Return the complete requested JSON object as a JSON-encoded string in payload. Do not omit, summarize, or alter fields.`;
+    const fallbackPrompt = `${prompt}\n\nThe provider cannot compile the requested schema. Return the complete requested JSON object as a JSON-encoded string in payload. Do not omit, summarize, or alter fields. The JSON object inside payload must conform to the original requested output schema below:\n\n${JSON.stringify(output.schema)}`;
     const fallback = await generate<{ payload: string }>(envelope, fallbackPrompt);
     return JSON.parse(fallback.output.payload) as T;
   }

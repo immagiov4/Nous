@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
+import { z } from 'zod';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { generateStructuredOutput } from '../../src/services/structuredGeneration.js';
@@ -153,6 +154,56 @@ test('falls back to a JSON string envelope when a provider rejects schema compil
   expect(generateText).toHaveBeenCalledTimes(2);
   const fallback = generateText.mock.calls[1][0];
   expect(fallback.prompt).toContain('JSON-encoded string');
+  await expect(fallback.output.responseFormat).resolves.toMatchObject({
+    schema: {
+      additionalProperties: false,
+      properties: { payload: { type: 'string' } },
+      required: ['payload'],
+      type: 'object',
+    },
+  });
+});
+
+test('schema rejection preserves the original contract for the envelope model to consume', async () => {
+  const contract = z.strictObject({
+    type: z.enum(['checklist', 'steps']),
+    iconQueries: z.strictObject({ subject: z.array(z.string()), action: z.array(z.string()) }),
+  });
+  const output = { name: 'synthetic_scene', schema: z.toJSONSchema(contract) };
+  const original = { ...request('openrouter'), output, prompt: 'Explain a synthetic process.' };
+  createConfiguredTextModelFromResolution.mockReturnValue({ model: 'model', providerOptions: {} });
+  generateText
+    .mockRejectedValueOnce(
+      new Error("Invalid schema for response_format 'synthetic_scene': required is missing 'id'.")
+    )
+    .mockImplementationOnce(async fallback => {
+      const schema = JSON.parse(fallback.prompt.slice(fallback.prompt.lastIndexOf('\n\n') + 2));
+      expect(schema).toEqual(output.schema);
+      return {
+        output: {
+          payload: JSON.stringify({
+            type: schema.properties.type.enum[0],
+            iconQueries: Object.fromEntries(
+              Object.keys(schema.properties.iconQueries.properties).map(key => [
+                key,
+                ['synthetic query'],
+              ])
+            ),
+          }),
+        },
+      };
+    });
+
+  const result = await generateStructuredOutput<unknown>(original);
+
+  expect(contract.parse(result)).toEqual({
+    type: 'checklist',
+    iconQueries: { subject: ['synthetic query'], action: ['synthetic query'] },
+  });
+  expect(generateText).toHaveBeenCalledTimes(2);
+  const fallback = generateText.mock.calls[1][0];
+  expect(fallback.prompt.startsWith(`${original.prompt}\n\n`)).toBe(true);
+  expect(fallback.system).toBe(original.system);
   await expect(fallback.output.responseFormat).resolves.toMatchObject({
     schema: {
       additionalProperties: false,
