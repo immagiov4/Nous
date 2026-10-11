@@ -26,7 +26,7 @@
     "lint:biome": "biome lint .",
     "lint:frontend": "tsgo --noEmit -p apps/web/tsconfig.json",
     "lint:backend": "tsgo --noEmit -p apps/backend/tsconfig.json",
-    "lint:types": "bun run lint:frontend && bun run lint:backend",
+    "lint:types": "bun run lint:frontend && bun run lint:backend && tsgo --noEmit -p packages/playtest/tsconfig.json",
     "quality": "bun run lint && bun run check:biome && bun run check:eslint-react-hooks",
     "quality:ci": "bun run quality && bun run check:depcruise",
     "gate:full": "bun run scripts/run-full-quality-gate.ts",

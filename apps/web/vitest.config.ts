@@ -22,6 +22,8 @@ export default defineConfig({
       'apps/web/tests/**/*.{test,spec}.{ts,tsx}',
       'apps/backend/tests/**/*.{test,spec}.{ts,tsx}',
       'scripts/**/*.{test,spec}.{ts,tsx}',
+      'packages/playtest/tests/**/*.{test,spec}.ts',
+      'e2e/**/tests/**/*.{test,spec}.ts',
     ],
     setupFiles: ['./apps/web/tests/setup.ts'],
     testTimeout: TEST_TIMEOUT_MS,
