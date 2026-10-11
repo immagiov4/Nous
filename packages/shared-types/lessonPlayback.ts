@@ -34,6 +34,21 @@ export interface PlaybackMotionEvent {
 /** Stable scene element IDs shared by preparation and the playback renderer. */
 export const motionTargets = (scene: LessonScene): { id: string; label: string }[] => {
   if (isAnimatedLessonScene(scene)) return [];
+  if (scene.type === 'composition') {
+    return (scene.panels as NonNullable<LessonScene['panels']>).map((panel, index) => ({
+      id: `panel:${index}`,
+      label: [
+        panel.title,
+        ...panel.items.map(item => [item.label, item.detail].filter(Boolean).join(' · ')),
+      ].join(' · '),
+    }));
+  }
+  if (scene.type === 'heatmap' || scene.type === 'security') {
+    return (scene.rows as NonNullable<LessonScene['rows']>).map((row, index) => ({
+      id: `row:${index}`,
+      label: row.label,
+    }));
+  }
   if (scene.type === 'matrix') {
     return (scene.criteria ?? scene.groups[0]?.items ?? []).map((label, index) => ({
       id: `row:${index}`,

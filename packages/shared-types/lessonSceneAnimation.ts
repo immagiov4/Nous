@@ -50,8 +50,13 @@ export function proportionalResult(scene: ProportionalLessonScene, quantity: num
   if (!Number.isInteger(quantity) || quantity < scene.min || quantity > scene.max) {
     throw new Error('Quantity outside range');
   }
+  return proportionalTotal(scene.amountPerUnit, quantity);
+}
+
+/** Multiplies an authored decimal unit amount without binary floating-point noise. */
+export function proportionalTotal(amountPerUnit: number, quantity: number): number {
   // Multiply the authored decimal coefficient before converting back to the numeric contract.
-  const [coefficient, exponent = '0'] = String(scene.amountPerUnit).split('e');
+  const [coefficient, exponent = '0'] = String(amountPerUnit).split('e');
   const [integer, fraction = ''] = coefficient.split('.');
   const total = BigInt(integer + fraction) * BigInt(quantity);
   return Number(`${total}e${Number(exponent) - fraction.length}`);

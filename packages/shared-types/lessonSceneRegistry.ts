@@ -132,11 +132,44 @@ const GuidedPathDataSchema = z.object({
     .optional(),
 });
 
+/** Static prototype fields extend only new catalog entries, preserving deployed schemas. */
+const QuickItemDataSchema = SceneDataSchema.shape.items.element.extend({
+  id: z.string().optional(),
+  parent: z.string().optional(),
+  start: z.number().optional(),
+  end: z.number().optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+});
+
+const QuickGroupDataSchema = SceneDataSchema.shape.groups.element.extend({
+  icon: z.string().optional(),
+  details: z.array(z.string()).optional(),
+});
+
+const QuickDataSchema = SceneDataSchema.extend({
+  items: z.array(QuickItemDataSchema),
+  groups: z.array(QuickGroupDataSchema),
+});
+
+const CompositionDataSchema = QuickDataSchema.extend({
+  panels: z.array(
+    z.object({
+      title: z.string(),
+      kind: z.enum(['facts', 'steps']),
+      items: z.array(SceneDataSchema.shape.items.element),
+      evidence: z.string().optional(),
+    })
+  ),
+});
+
 export type LessonSceneType = keyof typeof LESSON_SCENE_REGISTRY;
 
-export type LessonSceneItem = Readonly<z.infer<typeof SceneDataSchema.shape.items.element>>;
+export type LessonSceneItem = Readonly<z.infer<typeof QuickItemDataSchema>>;
 
-type LessonSceneGroup = Readonly<z.infer<typeof SceneDataSchema.shape.groups.element>>;
+export type LessonSceneGroup = Readonly<z.infer<typeof QuickGroupDataSchema>>;
+
+export type LessonScenePanel = Readonly<z.infer<typeof CompositionDataSchema.shape.panels.element>>;
 
 type LessonSceneRelation = Readonly<
   z.infer<ReturnType<typeof SceneDataSchema.shape.relation.unwrap>>
@@ -156,10 +189,12 @@ type LessonScenePathStep = Readonly<
   NonNullable<z.infer<typeof GuidedPathDataSchema.shape.steps>>[number]
 >;
 
-export type LessonScene = Readonly<z.infer<typeof LessonSceneSchema>>;
+export type LessonScene = Readonly<
+  Omit<z.infer<typeof LessonSceneSchema>, 'items' | 'groups'> & z.infer<typeof QuickDataSchema>
+>;
 
 /** Shared content used by fixed renderers, independent of each form's extra fields. */
-export type SceneContentData = Readonly<z.infer<typeof SceneDataSchema> & { type: string }>;
+export type SceneContentData = Readonly<z.infer<typeof QuickDataSchema> & { type: string }>;
 
 type AnimatedSceneData<Schema extends z.ZodObject, Type extends string> = Readonly<
   SceneContentData &
@@ -179,6 +214,9 @@ export type AnimatedLessonScene = ProportionalLessonScene | GuidedPathLessonScen
 /** Callers supply validated scenes; the form identifies its animation contract. */
 export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>
   sceneForms[scene.type].animated === true;
+
+export const isQuickLessonScene = (scene: LessonScene): boolean =>
+  sceneForms[scene.type].content === 'quick';
 
 /** Quote and decision forms use quote as their main content, rather than a closing question. */
 export const hasConflictingLessonSceneClosingText = (scene: LessonScene): boolean =>
@@ -588,7 +626,245 @@ const findAnimatedSceneProblems = (
   return findAnimationNarrationProblems(scene as unknown as AnimatedLessonScene, source);
 };
 
+/** Limits and invariants of the settled static prototype, independent of legacy forms. */
+const QUICK_SCENE_LIMITS = {
+  title: 160,
+  label: 160,
+  detail: 240,
+  groupItems: 6,
+  groups: 6,
+  items: 12,
+  entityDetail: 120,
+  unit: 80,
+  radialMin: 3,
+  radialMax: 6,
+  sequenceMin: 2,
+  sequenceMax: 6,
+  treeId: 40,
+  treeLevels: 3,
+  vennLabel: 24,
+  vennDetail: 48,
+  matrixColumns: 5,
+  matrixRows: 8,
+  permission: 60,
+  integrationEntities: 2,
+  deploymentGroups: 4,
+  panels: 2,
+  panelItems: 4,
+} as const;
+
+const quickText = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .refine(text => text.trim() !== '');
+
+const quickFieldText = (max: number) => z.string().min(1).max(max);
+
+const QuickContentValidationSchema = QuickDataSchema.extend({
+  title: quickText(QUICK_SCENE_LIMITS.title),
+  body: shortText,
+  note: shortText,
+  icon: iconSlot.optional(),
+  items: z
+    .array(
+      QuickItemDataSchema.extend({
+        label: quickText(QUICK_SCENE_LIMITS.label),
+        detail: z.string().max(QUICK_SCENE_LIMITS.detail),
+        icon: iconSlot,
+      })
+    )
+    .max(QUICK_SCENE_LIMITS.items),
+  groups: z
+    .array(
+      QuickGroupDataSchema.extend({
+        label: quickText(QUICK_SCENE_LIMITS.label),
+        items: z.array(quickText(QUICK_SCENE_LIMITS.detail)).max(QUICK_SCENE_LIMITS.groupItems),
+        icon: iconSlot.optional(),
+        icons: z.array(iconSlot),
+        details: z.array(z.string().max(QUICK_SCENE_LIMITS.entityDetail)).optional(),
+      }).refine(
+        group =>
+          group.icons.length === group.items.length &&
+          (group.details === undefined || group.details.length === group.items.length)
+      )
+    )
+    .max(QUICK_SCENE_LIMITS.groups),
+});
+
+const PanelValidationSchema = CompositionDataSchema.shape.panels.element.extend({
+  title: quickText(QUICK_SCENE_LIMITS.title),
+  items: z
+    .array(
+      SceneDataSchema.shape.items.element.extend({
+        label: quickText(QUICK_SCENE_LIMITS.label),
+        detail: shortText,
+        icon: iconSlot,
+      })
+    )
+    .min(1)
+    .max(QUICK_SCENE_LIMITS.panelItems),
+});
+
+const CompositionValidationSchema = CompositionDataSchema.extend({
+  items: z.array(SceneDataSchema.shape.items.element).length(0),
+  groups: z.array(SceneDataSchema.shape.groups.element).length(0),
+  title: quickText(QUICK_SCENE_LIMITS.title),
+  note: shortText,
+  panels: z.array(PanelValidationSchema).length(QUICK_SCENE_LIMITS.panels),
+});
+
+const findCompositionProblems = (scene: Record<string, unknown>, source?: string): string[] => {
+  if (!CompositionValidationSchema.safeParse(scene).success)
+    return ['Invalid composition content.'];
+  const panels = scene.panels as LessonScenePanel[];
+  if (new Set(panels.map(panel => panel.kind)).size !== QUICK_SCENE_LIMITS.panels) {
+    return [
+      'Composition requires different inner forms: facts and steps; use comparison for two lists.',
+    ];
+  }
+  if ((scene.panels as Record<string, unknown>[]).some(panel => panel.panels)) {
+    return ['Composition panels cannot be nested.'];
+  }
+  return panels.some(
+    panel =>
+      panel.kind === 'steps' &&
+      (panel.items.length < QUICK_SCENE_LIMITS.sequenceMin ||
+        !includesEvidence(source, panel.evidence))
+  )
+    ? ['Composition steps require at least two steps and exact ordered source evidence.']
+    : [];
+};
+
+const findTreeProblems = (scene: Record<string, unknown>): string[] => {
+  const items = scene.items as LessonSceneItem[];
+  if (
+    !items.length ||
+    items.some(item => !quickText(QUICK_SCENE_LIMITS.treeId).safeParse(item.id).success) ||
+    new Set(items.map(item => item.id)).size !== items.length
+  )
+    return ['Tree requires unique node IDs.'];
+  if (items.filter(item => !item.parent).length !== 1) return ['Tree requires one root.'];
+  for (const item of items) {
+    let node = item;
+    const seen = new Set<string>();
+    while (node.parent) {
+      if (seen.has(node.id as string) || seen.size >= QUICK_SCENE_LIMITS.treeLevels - 1) {
+        return ['Tree must be acyclic with at most three levels.'];
+      }
+      seen.add(node.id as string);
+      const parent = items.find(candidate => candidate.id === node.parent);
+      if (!parent) return ['Missing tree parent.'];
+      node = parent;
+    }
+  }
+  return [];
+};
+
+const findPositiveSeriesProblems = (scene: Record<string, unknown>): string[] => {
+  const items = scene.items as LessonSceneItem[];
+  return !items.length ||
+    items.some(item => typeof item.value !== 'number' || item.value < 0) ||
+    !items.some(item => (item.value as number) > 0)
+    ? ['Positive quantitative series required.']
+    : [];
+};
+
+const findRadialProblems = (scene: Record<string, unknown>): string[] => {
+  const problems = findPositiveSeriesProblems(scene);
+  if (problems.length) return problems;
+  const items = scene.items as LessonSceneItem[];
+  return items.length < QUICK_SCENE_LIMITS.radialMin ||
+    items.length > QUICK_SCENE_LIMITS.radialMax ||
+    items.some(item => (item.value as number) > (scene.max as number))
+    ? ['Radial charts require 3–6 values and a common maximum.']
+    : [];
+};
+
+const findSequenceProblems = (scene: Record<string, unknown>): string[] => {
+  const items = scene.items as LessonSceneItem[];
+  return items.length < QUICK_SCENE_LIMITS.sequenceMin ||
+    items.length > QUICK_SCENE_LIMITS.sequenceMax
+    ? ['Sequence requires 2–6 items.']
+    : [];
+};
+
+const matrixFields = {
+  columns: z
+    .array(quickFieldText(QUICK_SCENE_LIMITS.label))
+    .min(1)
+    .max(QUICK_SCENE_LIMITS.matrixColumns),
+  rows: z
+    .array(
+      z.object({
+        label: quickFieldText(QUICK_SCENE_LIMITS.label),
+        values: z.array(z.union([z.number(), z.string()])),
+      })
+    )
+    .min(1)
+    .max(QUICK_SCENE_LIMITS.matrixRows),
+};
+
+const findMatrixProblems = (scene: Record<string, unknown>): string[] => {
+  const rows = scene.rows as z.infer<typeof matrixFields.rows>;
+  const columns = scene.columns as string[];
+  if (columns.some(column => !column.trim()) || rows.some(row => !row.label.trim()))
+    return ['Invalid matrix labels.'];
+  if (rows.some(row => row.values.length !== columns.length)) return ['Invalid matrix dimensions.'];
+  if (scene.type === 'security') {
+    return rows.some(row =>
+      row.values.some(value => !quickText(QUICK_SCENE_LIMITS.permission).safeParse(value).success)
+    )
+      ? ['Every permission must be explicit, including unknown permissions.']
+      : [];
+  }
+  return rows.some(row =>
+    row.values.some(
+      value => typeof value !== 'number' || value < 0 || value > (scene.max as number)
+    )
+  )
+    ? ['Heatmap requires values between zero and max.']
+    : [];
+};
+
 type SceneValidator = (scene: Record<string, unknown>, source?: string) => string[];
+
+const findQuickNumberProblems: SceneValidator = (scene, source) => {
+  if (source === undefined) return [];
+  const items = scene.items as LessonSceneItem[];
+  let numbers: number[];
+  switch (scene.type) {
+    case 'radar':
+    case 'polar':
+      numbers = [...items.map(item => item.value as number), scene.max as number];
+      break;
+    case 'funnel':
+    case 'treemap':
+      numbers = items.map(item => item.value as number);
+      break;
+    case 'gantt':
+      numbers = items.flatMap(item => [item.start as number, item.end as number]);
+      break;
+    case 'scatter':
+      numbers = items.flatMap(item => [item.x as number, item.y as number]);
+      break;
+    case 'heatmap':
+      numbers = [
+        ...(scene.rows as { values: number[] }[]).flatMap(row => row.values),
+        scene.max as number,
+      ];
+      break;
+    case 'proportional-static':
+      numbers = [scene.quantity as number, scene.amountPerUnit as number];
+      break;
+    default:
+      return [];
+  }
+  const sourceNumbers = readSourceNumbers(source);
+  return numbers.every(number => sourceNumbers.has(number))
+    ? []
+    : ['Quantitative values must appear in the lesson.'];
+};
 
 interface SceneForm {
   description: string;
@@ -598,7 +874,29 @@ interface SceneForm {
   numeric?: boolean;
   needsItems?: boolean;
   diagram?: boolean;
+  content?: 'quick' | 'composition';
 }
+
+const quickForm = <Fields extends z.ZodRawShape>(
+  description: string,
+  fields: Fields,
+  validate: SceneValidator = () => []
+) => ({
+  description,
+  schema: QuickDataSchema.extend(fields),
+  validate: (scene: Record<string, unknown>, source?: string) => {
+    const blankField = ['unit', 'center', 'xLabel', 'yLabel'].some(
+      field => Object.hasOwn(fields, field) && !(scene[field] as string).trim()
+    );
+    if (blankField) return ['Static scene labels and units must be non-empty.'];
+    const problems = validate(scene, source);
+    return problems.length ? problems : findQuickNumberProblems(scene, source);
+  },
+  content: 'quick' as const,
+});
+
+const quantitativeFields = { unit: quickFieldText(QUICK_SCENE_LIMITS.unit) };
+const radialFields = { ...quantitativeFields, max: z.number().positive() };
 
 const itemRules = { schema: SceneDataSchema, validate: findItemShapeProblems };
 
@@ -734,6 +1032,173 @@ export const LESSON_SCENE_REGISTRY = {
     schema: SceneDataSchema.extend(GuidedPathDataSchema.shape),
     validate: (scene, source) => findAnimatedSceneProblems(scene, source, findGuidedPathProblems),
   },
+  composition: {
+    description: 'Due alternative con proprietà o passaggi interni diversi; massimo due livelli.',
+    schema: CompositionDataSchema,
+    content: 'composition',
+    validate: findCompositionProblems,
+  },
+  quadrant: quickForm(
+    'Quattro categorie definite da due assi qualitativi.',
+    {
+      xLabel: quickFieldText(QUICK_SCENE_LIMITS.label),
+      yLabel: quickFieldText(QUICK_SCENE_LIMITS.label),
+    },
+    scene =>
+      (scene.groups as LessonSceneGroup[]).length === 4
+        ? []
+        : ['Quadrant requires four groups and both axes.']
+  ),
+  radar: quickForm(
+    'Da tre a sei misure sulla stessa scala dichiarata.',
+    radialFields,
+    findRadialProblems
+  ),
+  polar: quickForm(
+    'Valori di categorie cicliche sulla stessa scala.',
+    radialFields,
+    findRadialProblems
+  ),
+  flywheel: quickForm(
+    'Un ciclo esplicito che aggiorna un elemento comune.',
+    {
+      center: quickFieldText(QUICK_SCENE_LIMITS.unit),
+      icon: z.string().optional(),
+    },
+    scene => {
+      const items = scene.items as LessonSceneItem[];
+      return items.length < QUICK_SCENE_LIMITS.radialMin ||
+        items.length > QUICK_SCENE_LIMITS.radialMax
+        ? ['Cycle requires 3–6 stations and a center.']
+        : [];
+    }
+  ),
+  tree: quickForm('Gerarchia esplicita, fino a tre livelli.', {}, findTreeProblems),
+  stack: quickForm(
+    'Livelli separati e ordinati, senza implicare contenimento.',
+    {},
+    findSequenceProblems
+  ),
+  venn: quickForm('Due insiemi e la loro intersezione esplicita; aree qualitative.', {}, scene => {
+    const groups = scene.groups as LessonSceneGroup[];
+    return groups.length !== 3 ||
+      groups.some(
+        group =>
+          group.items.length > 1 ||
+          group.label.length > QUICK_SCENE_LIMITS.vennLabel ||
+          group.items.some(item => item.length > QUICK_SCENE_LIMITS.vennDetail)
+      )
+      ? [
+          'Venn requires three regions, labels up to 24 characters and one description up to 48 characters per region.',
+        ]
+      : [];
+  }),
+  funnel: quickForm(
+    'Quantità decrescenti attraverso fasi successive.',
+    quantitativeFields,
+    scene => {
+      const problems = findPositiveSeriesProblems(scene);
+      if (problems.length) return problems;
+      const items = scene.items as LessonSceneItem[];
+      return items.some(
+        (item, index) => index > 0 && (item.value as number) > (items[index - 1].value as number)
+      )
+        ? ['Funnel values must not increase.']
+        : [];
+    }
+  ),
+  treemap: quickForm(
+    'Quantità positive: area proporzionale al valore.',
+    quantitativeFields,
+    scene => {
+      const problems = findPositiveSeriesProblems(scene);
+      if (problems.length) return problems;
+      return (scene.items as LessonSceneItem[]).some(item => (item.value as number) <= 0)
+        ? ['Treemap values must be positive.']
+        : [];
+    }
+  ),
+  heatmap: quickForm(
+    'Matrice numerica con scala comune esplicita.',
+    {
+      ...matrixFields,
+      ...radialFields,
+    },
+    findMatrixProblems
+  ),
+  gantt: quickForm(
+    'Intervalli di tempo espliciti, con unità comune.',
+    quantitativeFields,
+    scene => {
+      const items = scene.items as LessonSceneItem[];
+      return !items.length ||
+        items.some(
+          item =>
+            typeof item.start !== 'number' || typeof item.end !== 'number' || item.end <= item.start
+        )
+        ? ['Gantt requires increasing numeric intervals.']
+        : [];
+    }
+  ),
+  scatter: quickForm(
+    'Coppie numeriche misurate su due assi.',
+    {
+      ...quantitativeFields,
+      xLabel: quickFieldText(QUICK_SCENE_LIMITS.label),
+      yLabel: quickFieldText(QUICK_SCENE_LIMITS.label),
+    },
+    scene => {
+      const items = scene.items as LessonSceneItem[];
+      return !items.length ||
+        items.some(item => typeof item.x !== 'number' || typeof item.y !== 'number')
+        ? ['Scatter requires finite coordinate pairs and axis labels.']
+        : [];
+    }
+  ),
+  process: quickForm(
+    'Fasi successive, ciascuna con un responsabile o risultato.',
+    {},
+    findSequenceProblems
+  ),
+  integration: quickForm(
+    'Sorgenti, piattaforma centrale e destinatari.',
+    {
+      center: quickFieldText(QUICK_SCENE_LIMITS.label),
+      icon: z.string().optional(),
+    },
+    scene => {
+      const groups = scene.groups as LessonSceneGroup[];
+      return groups.length !== 2 ||
+        groups.some(
+          group =>
+            !group.items.length || group.items.length > QUICK_SCENE_LIMITS.integrationEntities
+        )
+        ? [
+            'Integration requires sources, destinations, and 1–2 named and illustrated entities on each side.',
+          ]
+        : [];
+    }
+  ),
+  security: quickForm(
+    'Permessi espliciti per ogni ruolo e risorsa.',
+    matrixFields,
+    findMatrixProblems
+  ),
+  deployment: quickForm('Contenitori di esecuzione con componenti e repliche.', {}, scene => {
+    const groups = scene.groups as LessonSceneGroup[];
+    return groups.length < QUICK_SCENE_LIMITS.sequenceMin ||
+      groups.length > QUICK_SCENE_LIMITS.deploymentGroups
+      ? ['Grouped template requires 2–4 groups.']
+      : [];
+  }),
+  'proportional-static': quickForm(
+    'Calcolo proporzionale con quantità e costo unitario espliciti.',
+    {
+      ...quantitativeFields,
+      quantity: z.number().int().min(1).max(QUICK_SCENE_LIMITS.items),
+      amountPerUnit: z.number().positive(),
+    }
+  ),
 } satisfies Record<string, SceneForm>;
 
 export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly LessonSceneType[];
@@ -750,19 +1215,22 @@ export const LESSON_SCENE_DIAGRAM_TYPES: ReadonlySet<LessonSceneType> = new Set(
   LESSON_SCENE_TYPES.filter(type => sceneForms[type].diagram)
 );
 
-type UnionToIntersection<Shape> = (Shape extends unknown ? (shape: Shape) => void : never) extends (
-  shape: infer Intersection
-) => void
-  ? Intersection
-  : never;
-
 type SceneSchemas = Readonly<Record<string, Pick<SceneForm, 'schema'>>>;
 
-type RegisteredShape<Forms extends SceneSchemas> =
-  UnionToIntersection<Forms[keyof Forms]['schema']['shape']> extends infer Shape extends
-    z.ZodRawShape
-    ? Shape
-    : never;
+type ShapeKeys<Shape> = Shape extends unknown ? keyof Shape : never;
+
+type ShapeField<Shape, Field> = Shape extends unknown
+  ? Field extends keyof Shape
+    ? Shape[Field]
+    : never
+  : never;
+
+type RegisteredShape<Forms extends SceneSchemas> = {
+  [Field in ShapeKeys<Forms[keyof Forms]['schema']['shape']> & string]: Extract<
+    ShapeField<Forms[keyof Forms]['schema']['shape'], Field>,
+    z.ZodType
+  >;
+};
 
 type DurableShape<Forms extends SceneSchemas> = {
   [Field in keyof RegisteredShape<Forms>]: RegisteredShape<Forms>[Field] extends z.ZodOptional
@@ -780,7 +1248,7 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
   return z
     .object(
       Object.fromEntries(
-        Object.entries(shape).map(([field, rule]) => [
+        Object.entries(shape as z.ZodRawShape).map(([field, rule]) => [
           field,
           rule instanceof z.ZodOptional ? rule : z.optional(rule),
         ])
@@ -788,17 +1256,24 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
     )
     .extend({
       ...SceneDataSchema.shape,
+      items: (shape as z.ZodRawShape).items as typeof QuickDataSchema.shape.items,
+      groups: (shape as z.ZodRawShape).groups as typeof QuickDataSchema.shape.groups,
       type: z.enum(Object.keys(forms) as (keyof Forms & string)[]),
     });
 };
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
+const animatedSceneSchema = createLessonSceneSchema({
+  proportional: LESSON_SCENE_REGISTRY.proportional,
+  'guided-path': LESSON_SCENE_REGISTRY['guided-path'],
+});
+
 export const LessonSceneAnimationShape = Object.fromEntries(
-  Object.entries(LessonSceneSchema.shape).filter(
+  Object.entries(animatedSceneSchema.shape).filter(
     ([field]) => field !== 'type' && !Object.hasOwn(SceneDataSchema.shape, field)
   )
-) as Omit<typeof LessonSceneSchema.shape, keyof typeof SceneDataSchema.shape | 'type'>;
+) as Omit<typeof animatedSceneSchema.shape, keyof typeof SceneDataSchema.shape | 'type'>;
 
 /** Historical catalogs merge only their own entries, excluding fields belonging to future forms. */
 export const HistoricalLessonSceneSchemas = LESSON_SCENE_CATALOG_SNAPSHOTS.map(
@@ -808,31 +1283,23 @@ export const HistoricalLessonSceneSchemas = LESSON_SCENE_CATALOG_SNAPSHOTS.map(
     ) as typeof LessonSceneSchema
 );
 
-/** Returns every contract violation of a scene. With `source`, quotations, quantities, relations, and diagram connections must also be grounded in that lesson text. */
-export const findLessonSceneProblems = (value: unknown, source?: string): string[] => {
-  if (!isRecord(value)) return ['A scene must be an object.'];
-  if (!isSceneType(value.type)) return ['The scene type is not in the catalog.'];
-  const textProblems = ['title', 'body', 'quote', 'note'].some(key => !isText(value[key]))
-    ? ['title, body, quote, and note must be short strings.']
-    : [];
-  const structural = [
-    ...textProblems,
-    ...findItemProblems(value.items),
-    ...findGroupProblems(value.groups, value.criteria),
-  ];
-  if (structural.length) return structural;
-  const type = value.type;
-  const quoteProblems =
-    source !== undefined && value.quote && !source.includes(value.quote as string)
-      ? ['The quote must be copied exactly from the lesson.']
-      : [];
-  const form = sceneForms[type];
-  // The flat stored envelope keeps form fields optional; the selected form still owns its contract.
-  const formFields = form.schema.safeParse(value);
-  if (!formFields.success) {
-    return formFields.error.issues.map(
-      issue => `${issue.path.join('.') || type}: ${issue.message}`
-    );
+const findFormContentProblems = (
+  form: SceneForm,
+  value: Record<string, unknown>,
+  source: string | undefined,
+  quoteProblems: string[]
+): string[] => {
+  if (form.content) {
+    const contentProblems =
+      form.content === 'quick' && !QuickContentValidationSchema.safeParse(value).success
+        ? ['Invalid static scene content.']
+        : [];
+    return [
+      ...contentProblems,
+      ...(contentProblems.length ? [] : form.validate(value, source)),
+      ...quoteProblems,
+      ...findRelationProblems(value.relation, source),
+    ];
   }
   if (form.animated || form.diagram) {
     const content = form.animated
@@ -855,10 +1322,40 @@ export const findLessonSceneProblems = (value: unknown, source?: string): string
   ];
 };
 
+/** Returns every contract violation of a scene. With `source`, quotations, quantities, relations, and diagram connections must also be grounded in that lesson text. */
+export const findLessonSceneProblems = (value: unknown, source?: string): string[] => {
+  if (!isRecord(value)) return ['A scene must be an object.'];
+  if (!isSceneType(value.type)) return ['The scene type is not in the catalog.'];
+  const textProblems = ['title', 'body', 'quote', 'note'].some(key => !isText(value[key]))
+    ? ['title, body, quote, and note must be short strings.']
+    : [];
+  const structural = [
+    ...textProblems,
+    ...(sceneForms[value.type].content
+      ? []
+      : [...findItemProblems(value.items), ...findGroupProblems(value.groups, value.criteria)]),
+  ];
+  if (structural.length) return structural;
+  const type = value.type;
+  const quoteProblems =
+    source !== undefined && value.quote && !source.includes(value.quote as string)
+      ? ['The quote must be copied exactly from the lesson.']
+      : [];
+  const form = sceneForms[type];
+  // The flat stored envelope keeps form fields optional; the selected form still owns its contract.
+  const formFields = form.schema.safeParse(value);
+  if (!formFields.success) {
+    return formFields.error.issues.map(
+      issue => `${issue.path.join('.') || type}: ${issue.message}`
+    );
+  }
+  return findFormContentProblems(form, value, source, quoteProblems);
+};
+
 export const isLessonScene = (value: unknown): value is LessonScene =>
   findLessonSceneProblems(value).length === 0;
 
-/** Identifies one icon slot of a scene: an item or an entry of a group. */
+/** Identifies an item, group entity, heading, center, or panel icon slot. */
 export type LessonSceneIconSlot =
   | {
       readonly item: number;
@@ -868,6 +1365,18 @@ export type LessonSceneIconSlot =
       readonly entry: number;
       readonly group: number;
       readonly kind: 'group';
+    }
+  | {
+      readonly item: number;
+      readonly panel: number;
+      readonly kind: 'panel';
+    }
+  | {
+      readonly group: number;
+      readonly kind: 'group-icon';
+    }
+  | {
+      readonly kind: 'center';
     };
 
 // Only labels enter the Mermaid grammar; identifiers, shapes, and arrows are generated here.

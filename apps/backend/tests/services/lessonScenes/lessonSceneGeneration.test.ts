@@ -22,6 +22,11 @@ import {
   guidedPathScene,
   proportionalScene as prototypeProportionalScene,
 } from '../../helpers/animatedLessonScenes';
+import {
+  LAB_COMPOSITION_SCENE,
+  LAB_COMPOSITION_SOURCE,
+  LAB_QUICK_SCENES,
+} from '../../helpers/lessonSceneLabExamples';
 
 const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
@@ -369,4 +374,136 @@ test('generation requires supplied narration to preserve source grounding and al
   expect(result.kind).toBe('scene');
   if (result.kind !== 'scene') throw new Error('Expected a generated scene');
   expect(isLessonScene(result.scene)).toBe(true);
+});
+
+test.each([
+  ...LAB_QUICK_SCENES,
+  LAB_COMPOSITION_SCENE,
+])('generates the lab $type fields and all icon slots', async example => {
+  const source = `${LAB_COMPOSITION_SOURCE}\nExample data: ${JSON.stringify(example, null, 2)}`;
+  const { items, groups, ...fields } = example;
+  const {
+    icon: centerIcon,
+    panels,
+    ...content
+  } = fields as typeof fields & { icon?: string; panels?: typeof LAB_COMPOSITION_SCENE.panels };
+  const draft = {
+    ...quoteDraft(''),
+    ...content,
+    intent: 'Understand the example.',
+    evidence: LAB_COMPOSITION_SOURCE,
+    items: items.map(item => {
+      const { icon: _icon, ...data } = item;
+      return {
+        ...data,
+        value: 'value' in item ? item.value : null,
+        time: null,
+        iconQueries: queries,
+      };
+    }),
+    groups: groups.map(group => {
+      const { icons: _icons, icon, ...data } = group as typeof group & { icon?: string };
+      return {
+        ...data,
+        verdict: 'none',
+        iconQueries: group.items.map(() => queries),
+        ...(icon ? { groupIconQueries: queries } : {}),
+      };
+    }),
+    ...(centerIcon ? { iconQueries: queries } : {}),
+    ...(panels
+      ? {
+          panels: panels.map(panel => ({
+            ...panel,
+            items: panel.items.map(({ icon: _icon, ...item }) => ({
+              ...item,
+              iconQueries: queries,
+            })),
+          })),
+        }
+      : {}),
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result.kind).toBe('scene');
+  if (result.kind !== 'scene') throw new Error(JSON.stringify(result.problems));
+  const withoutIcons = (scene: typeof result.scene) => ({
+    ...scene,
+    ...(scene.icon !== undefined ? { icon: '' } : {}),
+    items: scene.items.map(item => ({ ...item, icon: '' })),
+    groups: scene.groups.map(group => ({
+      ...group,
+      icons: group.icons.map(() => ''),
+      ...(group.icon !== undefined ? { icon: '' } : {}),
+    })),
+    ...(scene.panels
+      ? {
+          panels: scene.panels.map(panel => ({
+            ...panel,
+            items: panel.items.map(item => ({ ...item, icon: '' })),
+          })),
+        }
+      : {}),
+  });
+  expect(result.scene).toEqual(withoutIcons(example));
+  const expectedSlots = [
+    ...items.map((_, item) => ({ kind: 'item', item })),
+    ...groups.flatMap((group, groupIndex) =>
+      group.items.map((_, entry) => ({ kind: 'group', group: groupIndex, entry }))
+    ),
+    ...groups.flatMap((group, groupIndex) =>
+      'icon' in group ? [{ kind: 'group-icon', group: groupIndex }] : []
+    ),
+    ...(centerIcon ? [{ kind: 'center' }] : []),
+    ...(panels ?? []).flatMap((panel, panelIndex) =>
+      panel.items.map((_, item) => ({ kind: 'panel', panel: panelIndex, item }))
+    ),
+  ];
+  expect(
+    chooseIconsMock.mock.calls[0][0].entries.map((entry: { slot: unknown }) => entry.slot)
+  ).toEqual(expectedSlots);
+  const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
+  expect(schema.safeParse(draft).success).toBe(true);
+});
+
+test('rejects invented quantitative quick data before icon selection', async () => {
+  const source =
+    'Chiarezza 4, copertura 3, verifica 5 e tracciabilità 4, su un massimo di 5 punti.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...quoteDraft(''),
+    type: 'radar',
+    title: 'Criteri',
+    evidence: source,
+    max: 5,
+    unit: 'punti',
+    items: [2, 3, 5, 4].map(value => ({
+      label: 'Criterio',
+      detail: '',
+      value,
+      time: null,
+      iconQueries: queries,
+    })),
+  });
+  expect(await generateLessonScene(unplannedInput(source))).toEqual({
+    kind: 'invalid',
+    problems: ['Quantitative values must appear in the lesson.'],
+  });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test.each([
+  undefined,
+  '   ',
+])('ignores center icon queries without a named center %#', async center => {
+  const source = 'Una domanda esatta.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...quoteDraft(source),
+    center,
+    iconQueries: queries,
+  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result.kind).toBe('scene');
+  if (result.kind !== 'scene') throw new Error('Expected a generated scene');
+  expect(result.scene).not.toHaveProperty('icon');
+  expect(chooseIconsMock.mock.calls[0][0].entries).toEqual([]);
 });

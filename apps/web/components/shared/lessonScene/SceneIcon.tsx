@@ -94,6 +94,7 @@ export const SceneIcon = ({
   return (
     <svg
       aria-hidden="true"
+      data-icon={name || FALLBACK_ICON}
       className={className ? `meaning-icon ${className}` : 'meaning-icon'}
       focusable="false"
       strokeLinecap="round"
