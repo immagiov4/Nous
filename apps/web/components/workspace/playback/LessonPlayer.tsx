@@ -44,34 +44,34 @@ interface SpokenFollowUpQuestion {
 
 /** Connects the conversation generation state and spoken questions to the player. */
 function ConversationBridge({
-  generating,
-  onGeneratingChange,
+  blocked,
+  onBlockedChange,
   question,
   send,
   deliver,
-}: {
-  generating: boolean;
-  onGeneratingChange: (generating: boolean) => void;
+}: Readonly<{
+  blocked: boolean;
+  onBlockedChange: (blocked: boolean) => void;
   question: SpokenFollowUpQuestion | null;
   send: (text: string) => void;
   deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
-}) {
+}>) {
   useLayoutEffect(() => {
-    onGeneratingChange(generating);
-  }, [generating, onGeneratingChange]);
+    onBlockedChange(blocked);
+  }, [blocked, onBlockedChange]);
   useEffect(() => {
-    if (question && !generating) deliver(question, send);
-  }, [deliver, generating, question, send]);
+    if (question && !blocked) deliver(question, send);
+  }, [blocked, deliver, question, send]);
   return null;
 }
 
 function AnswerPanelTransition({
   children,
   shouldAnimate,
-}: {
+}: Readonly<{
   children: ReactNode;
   shouldAnimate: boolean;
-}) {
+}>) {
   const isPresent = useIsPresent();
   return (
     <motion.div
@@ -98,7 +98,7 @@ export default function LessonPlayer({
   onClose,
   autoPlay = true,
   audioElementRef,
-}: {
+}: Readonly<{
   sectionId: string;
   projectId: string;
   content: WorkspaceReaderContentModel;
@@ -120,7 +120,7 @@ export default function LessonPlayer({
   onClose: () => void;
   autoPlay?: boolean;
   audioElementRef?: RefObject<HTMLAudioElement>;
-}) {
+}>) {
   const sourceBlocks = useMemo(
     () =>
       content.sectionContentBlocks?.length
@@ -144,9 +144,9 @@ export default function LessonPlayer({
   const [answer, setAnswer] = useState<ContextAnswerState | null>(null);
   const [holdingSpace, setHoldingSpace] = useState(false);
   const spaceDown = useRef(false);
-  const answerGenerating = useRef(false);
-  const syncAnswerGenerating = useCallback((generating: boolean) => {
-    answerGenerating.current = generating;
+  const answerSubmissionBlocked = useRef(false);
+  const syncAnswerSubmissionBlocked = useCallback((blocked: boolean) => {
+    answerSubmissionBlocked.current = blocked;
   }, []);
   const spokenQuestion = useRef<ContextAnswerState | null>(null);
   const heldTranscription = useRef<string | null>(null);
@@ -166,10 +166,12 @@ export default function LessonPlayer({
   });
   const [composerPortal, setComposerPortal] = useState<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   const mounted = useRef(true);
   const { viewportHeight } = useMobileKeyboardOffset();
   const block = playback.blocks[playback.index];
+  const canAsk = Boolean(block || content.sectionContent.trim());
   const mobile = content.isMobileViewport;
   const shouldAnimate = useShouldAnimate();
   const { play } = playback;
@@ -194,9 +196,8 @@ export default function LessonPlayer({
   const currentAnchor = () => {
     const original = initialBlocks[playback.index];
     if (
-      !block ||
-      !original ||
-      block.speech !== original.speech ||
+      !block?.speech ||
+      block.speech !== original?.speech ||
       block.spans.length !== original.spans.length ||
       block.spans.some((span, index) => {
         const sourceSpan = original.spans[index];
@@ -210,7 +211,8 @@ export default function LessonPlayer({
       })
     )
       return null;
-    return playbackSentenceSelector(block, playback.time, playback.duration, sourceBlocks);
+    const position = playback.readPosition();
+    return playbackSentenceSelector(block, position.time, position.duration, sourceBlocks);
   };
   const changeDraft = (value: string) => {
     if (!draft && value) anchor.current = currentAnchor();
@@ -261,8 +263,8 @@ export default function LessonPlayer({
       lessonId: sectionId,
       lessonTitle: content.activeSectionTitle ?? undefined,
       lessonContent: content.sectionContent,
-      contextScope: 'selection',
-      selectedText: selector?.exact ?? block?.speech ?? '',
+      contextScope: block ? 'selection' : 'lesson',
+      selectedText: selector?.exact ?? block?.speech ?? content.sectionContent,
       selectedTextStart: selector?.selectionStart,
       contextBefore: selector?.prefix,
       contextAfter: selector?.suffix,
@@ -312,8 +314,8 @@ export default function LessonPlayer({
     <>
       {conversation ? (
         <ConversationBridge
-          generating={Boolean(stopResponse)}
-          onGeneratingChange={syncAnswerGenerating}
+          blocked={disabled || Boolean(stopResponse)}
+          onBlockedChange={syncAnswerSubmissionBlocked}
           question={spokenFollowUp}
           send={send}
           deliver={deliverSpokenFollowUp}
@@ -325,7 +327,11 @@ export default function LessonPlayer({
         selectedText=""
         isDarkMode={content.isDarkMode}
         isLoading={
-          noteStatus === 'saving' || holdingSpace || pendingQuestion || (!noteMode && disabled)
+          !canAsk ||
+          noteStatus === 'saving' ||
+          holdingSpace ||
+          pendingQuestion ||
+          (!noteMode && disabled)
         }
         lessonCreationBlockReason={null}
         onAsk={send}
@@ -336,15 +342,11 @@ export default function LessonPlayer({
         onSaveNote={noAction}
         playbackComposer={{
           isMobileViewport: mobile,
-          speech: mobile
-            ? undefined
-            : {
-                ...speech,
-                startRecording: () => {
-                  spokenQuestion.current = null;
-                  return speech.startRecording();
-                },
-              },
+          speech: mobile ? undefined : speech,
+          onStartRecording: () => {
+            playback.pause();
+            spokenQuestion.current = null;
+          },
           listening,
           value: draft,
           noteMode,
@@ -362,29 +364,27 @@ export default function LessonPlayer({
       />
     </>
   );
-  const closeAnswer = () => {
-    speech.reset();
+  const { reset: resetSpeech } = speech;
+  const cancelCapture = useCallback(() => {
+    resetSpeech();
     spokenQuestion.current = null;
     heldTranscription.current = null;
     spaceDown.current = false;
     setHoldingSpace(false);
-    answerGenerating.current = false;
+    setAnswer(previous => (previous?.initialQuestion ? previous : null));
+  }, [resetSpeech]);
+  const closeAnswer = () => {
+    cancelCapture();
+    answerSubmissionBlocked.current = false;
+    setSpokenFollowUp(null);
     setAnswer(null);
   };
 
-  const { reset: resetSpeech } = speech;
   useEffect(() => {
     if (mobile) return;
     // Leaving desktop mode releases the capture session and its pending question together.
-    return () => {
-      resetSpeech();
-      spokenQuestion.current = null;
-      heldTranscription.current = null;
-      spaceDown.current = false;
-      setHoldingSpace(false);
-      setAnswer(previous => (previous?.initialQuestion ? previous : null));
-    };
-  }, [mobile, resetSpeech]);
+    return cancelCapture;
+  }, [cancelCapture, mobile]);
 
   useEffect(() => {
     if (mobile) return;
@@ -398,7 +398,7 @@ export default function LessonPlayer({
       )
         return;
       event.preventDefault();
-      if (event.repeat || spaceDown.current || answerGenerating.current) return;
+      if (!canAsk || event.repeat || spaceDown.current || answerSubmissionBlocked.current) return;
       playback.pause();
       speech.reset();
       heldTranscription.current = null;
@@ -418,7 +418,12 @@ export default function LessonPlayer({
         spokenQuestion.current = null;
         return;
       }
-      if (!speech.speechInputError) {
+      const captureState = speech.readState();
+      if (
+        captureState === 'recording' ||
+        captureState === 'transcribing' ||
+        heldTranscription.current !== null
+      ) {
         setAnswer(previous => previous ?? spokenQuestion.current);
         if (heldTranscription.current !== null) {
           receiveTranscription(heldTranscription.current);
@@ -428,7 +433,7 @@ export default function LessonPlayer({
       }
     };
     const blur = () => {
-      if (spaceDown.current) closeAnswer();
+      if (spaceDown.current) cancelCapture();
     };
     window.addEventListener('keydown', keydown);
     window.addEventListener('keyup', keyup);
@@ -445,43 +450,53 @@ export default function LessonPlayer({
     else void playback.play();
   };
 
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) throw new Error('Lesson player dialog must be mounted');
+    const handleDialogKeyDown = (event: KeyboardEvent) => {
+      if (!(event.target instanceof Node) || !dialog.contains(event.target)) return;
+      if (event.key === 'Escape') {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('dialog, [role="dialog"]') !== dialog
+        )
+          return;
+        event.stopPropagation();
+        if (draft) {
+          changeDraft('');
+          setNoteMode(false);
+          setNoteStatus('idle');
+        } else if (questionActive) closeAnswer();
+        else onClose();
+      }
+      if (event.key === 'Tab') {
+        const controls = Array.from(
+          dialog.querySelectorAll<HTMLElement>(
+            'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
+          )
+        ).filter(element => element.getClientRects().length > 0);
+        if (event.shiftKey && document.activeElement === controls[0]) {
+          event.preventDefault();
+          controls.at(-1)?.focus();
+        } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
+          event.preventDefault();
+          controls[0]?.focus();
+        }
+      }
+    };
+    // React child controls handle Escape first, including the speed menu and previews.
+    document.addEventListener('keydown', handleDialogKeyDown);
+    return () => document.removeEventListener('keydown', handleDialogKeyDown);
+  });
+
   return createPortal(
-    <div
-      role="dialog"
+    <dialog
+      ref={dialogRef}
+      open
       aria-modal="true"
       aria-label={t('Riproduci lezione')}
-      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] flex flex-col bg-paper-light font-sans text-stone-800 dark:bg-paper-dark dark:text-stone-100`}
-      style={{ height: viewportHeight === null ? '100dvh' : viewportHeight }}
-      onKeyDown={event => {
-        if (event.key === 'Escape') {
-          if (
-            event.target instanceof Element &&
-            event.target.closest('[role="dialog"]') !== event.currentTarget
-          )
-            return;
-          event.stopPropagation();
-          if (draft) {
-            changeDraft('');
-            setNoteMode(false);
-            setNoteStatus('idle');
-          } else if (questionActive) closeAnswer();
-          else onClose();
-        }
-        if (event.key === 'Tab') {
-          const controls = Array.from(
-            event.currentTarget.querySelectorAll<HTMLElement>(
-              'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
-            )
-          ).filter(element => element.getClientRects().length > 0);
-          if (event.shiftKey && document.activeElement === controls[0]) {
-            event.preventDefault();
-            controls.at(-1)?.focus();
-          } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
-            event.preventDefault();
-            controls[0]?.focus();
-          }
-        }
-      }}
+      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 dark:bg-paper-dark dark:text-stone-100`}
+      style={{ height: viewportHeight ?? '100dvh' }}
     >
       <header className="flex shrink-0 items-center gap-3 px-4 py-3 md:gap-5 md:px-[4%] md:pt-6">
         <button
@@ -654,7 +669,7 @@ export default function LessonPlayer({
           {!answer ? renderComposer() : null}
         </div>
       </div>
-    </div>,
+    </dialog>,
     document.body
   );
 }

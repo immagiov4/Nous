@@ -24,8 +24,7 @@ export const buildLessonPlaybackCommitPatch = (
   if (
     project.incarnationId !== target.incarnationId ||
     project.snapshot.id !== target.projectId ||
-    !playback ||
-    playback.lessonKey !== target.lessonKey ||
+    playback?.lessonKey !== target.lessonKey ||
     !playback.blocks.some(saved => saved.id === block.id)
   ) {
     throw failPermanently({

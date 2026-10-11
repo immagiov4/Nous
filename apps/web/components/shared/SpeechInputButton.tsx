@@ -13,6 +13,7 @@ interface SpeechInputButtonProps {
   readonly disabled?: boolean;
   readonly errorPresentation?: 'inline' | 'viewport';
   readonly language?: string;
+  readonly onStartRecording?: () => void;
   readonly onTranscription: (text: string) => void;
   readonly variant?: 'compact' | 'round';
 }
@@ -99,6 +100,7 @@ function SpeechInputButtonView({
   errorPresentation = 'inline',
   variant = 'round',
   controller,
+  onStartRecording,
 }: SpeechInputButtonProps & { controller: SpeechInputController }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const {
@@ -137,6 +139,7 @@ function SpeechInputButtonView({
           }
 
           if (!isTranscribing) {
+            onStartRecording?.();
             void startRecording();
           }
         }}

@@ -403,6 +403,57 @@ test('a genuine audio failure remains visible', async () => {
   expect(result.current.playing).toBe(false);
 });
 
+test.each([
+  { action: 'transition', index: 1, offset: 0 },
+  { action: 'seek', index: 1, offset: 5 },
+  { action: 'voice', index: 0, offset: 20 },
+])('retry preserves the attempted $action position after an asset download fails', async ({
+  action,
+  index,
+  offset,
+}) => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(prepareLessonPlayback).mockImplementation(async request => ({
+    block: {
+      ...blocks[Number(request.blockId)],
+      audio: [
+        {
+          ...blocks[0].audio[0],
+          voice: request.voice,
+          durationSeconds: request.voice === 'Zephyr' ? 40 : 20,
+        },
+      ],
+    },
+    voice: request.voice,
+    model: 'tts',
+  }));
+  const { result, rerender } = renderHook(({ voice }) => useLessonPlayback({ ...target, voice }), {
+    initialProps: { voice: 'Kore' },
+  });
+  await act(async () => result.current.play());
+  audio.currentTime = 10;
+  vi.mocked(downloadProjectAssetBytes).mockRejectedValueOnce(new Error('Download failed'));
+  if (action === 'transition') act(() => audio.dispatchEvent(new Event('ended')));
+  else if (action === 'seek') act(() => result.current.seek(25));
+  else rerender({ voice: 'Zephyr' });
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(audio.currentTime).toBe(10);
+  await act(async () => result.current.play());
+  expect(result.current.failed).toBe(false);
+  expect(result.current.index).toBe(index);
+  expect(audio.currentTime).toBe(offset);
+});
+
+test('retry after a media error retains the live position of the loaded recording', async () => {
+  const { result } = renderHook(() => useLessonPlayback(target));
+  await act(async () => result.current.play());
+  audio.currentTime = 7;
+  act(() => audio.dispatchEvent(new Event('error')));
+  await act(async () => result.current.play());
+  expect(audio.currentTime).toBe(7);
+  expect(result.current.failed).toBe(false);
+});
+
 test('a cancelled play promise cannot fail a subsequent resume', async () => {
   const pending = deferred<void>();
   const { result } = renderHook(() => useLessonPlayback(target));
@@ -489,6 +540,30 @@ test('keeps the same relative position when the new voice has a different durati
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(audio.currentTime).toBe(10);
   expect(result.current.time).toBe(10);
+});
+
+test.each([
+  'seek',
+  'voice',
+])('retains the requested %s position for anchors until audio loads', async action => {
+  const { result, rerender } = renderHook(({ voice }) => useLessonPlayback({ ...target, voice }), {
+    initialProps: { voice: 'Kore' },
+  });
+  await act(async () => result.current.play());
+  audio.currentTime = 8;
+  const download = deferred<Uint8Array>();
+  vi.mocked(downloadProjectAssetBytes).mockReturnValueOnce(download.promise);
+  if (action === 'seek') act(() => result.current.seek(27));
+  else rerender({ voice: 'Zephyr' });
+  await waitFor(() => expect(downloadProjectAssetBytes).toHaveBeenCalledTimes(2));
+  const expected = action === 'seek' ? { time: 7, duration: 10 } : { time: 0.8, duration: 1 };
+  expect(result.current.readPosition()).toEqual(expected);
+  act(() => result.current.pause());
+  expect(result.current.readPosition()).toEqual(expected);
+  await act(async () => download.resolve(new Uint8Array([1])));
+  expect(result.current.readPosition()).toEqual(expected);
+  await act(async () => result.current.play());
+  expect(result.current.readPosition()).toEqual({ time: action === 'seek' ? 7 : 8, duration: 10 });
 });
 
 test.each([

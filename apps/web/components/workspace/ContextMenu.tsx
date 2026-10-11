@@ -54,6 +54,7 @@ interface ContextMenuProps {
   readonly playbackComposer?: {
     isMobileViewport?: boolean;
     speech?: SpeechInputController;
+    onStartRecording?: () => void;
     listening?: boolean;
     value: string;
     noteMode: boolean;
@@ -256,13 +257,11 @@ const ContextMenu = ({
   const shouldShowToolbarNoteButton =
     Boolean(playbackComposer) ||
     (!isLessonMode && (!isAnnotationMode || !hasSavedAnnotationContent));
-  const askInputPlaceholder = t(
-    playbackComposer
-      ? 'Chiedi su questo punto della lezione'
-      : isLessonMode
-        ? 'Chiedi su tutta la lezione'
-        : 'Chiedi a Nous o aggiungi istruzioni'
-  );
+  let askInputPlaceholder = t('Chiedi a Nous o aggiungi istruzioni');
+  if (playbackComposer) askInputPlaceholder = t('Chiedi su questo punto della lezione');
+  else if (isLessonMode) askInputPlaceholder = t('Chiedi su tutta la lezione');
+  const questionSubmitLabel = trimmedInput ? t('Invia domanda') : t('Inserisci una domanda');
+  const submitLabel = playbackComposer?.noteMode ? t('Salva nota') : questionSubmitLabel;
   const notePanelTitle =
     isAnnotationMode && hasSavedAnnotationContent
       ? t('Nota associata al passaggio')
@@ -1071,6 +1070,65 @@ const ContextMenu = ({
     playbackComposer?.listening ||
     (playbackComposer?.speech &&
       (playbackComposer.speech.state !== 'idle' || playbackComposer.speech.speechInputError));
+  const renderFloatingInput = () => {
+    if (playbackComposer?.listening) {
+      return (
+        <motion.output
+          initial={{ opacity: shouldAnimate ? 0 : 1 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+          className="flex h-10 items-center gap-3 px-3.5 text-sm font-normal text-stone-600 dark:text-stone-200"
+        >
+          <span
+            aria-hidden="true"
+            className="lesson-question-wave flex items-center gap-0.5 text-orange-500"
+          >
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>
+            {t('Ti ascolto… rilascia')} <span className="font-semibold">{t('Spazio')}</span>{' '}
+            {t('per inviare')}
+          </span>
+        </motion.output>
+      );
+    }
+    if (playbackComposer?.noteMode) {
+      return (
+        <motion.textarea
+          initial={{ opacity: shouldAnimate ? 0 : 1 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+          rows={PLAYBACK_NOTE_ROWS}
+          value={displayedInput}
+          onChange={event => changeInput(event.target.value)}
+          disabled={isLoading}
+          placeholder={t('Scrivi una nota su questo punto della lezione')}
+          className="custom-scrollbar block min-w-0 w-full flex-1 resize-none overflow-y-auto border-0 bg-transparent px-3.5 py-2.5 text-sm leading-6 text-stone-800 placeholder:text-stone-400 outline-none focus:ring-0 dark:text-stone-100 dark:placeholder:text-stone-300"
+        />
+      );
+    }
+    return (
+      <motion.input
+        initial={playbackComposer && shouldAnimate ? { opacity: 0 } : false}
+        animate={{ opacity: 1 }}
+        transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+        type="text"
+        data-context-menu-target="input"
+        value={displayedInput}
+        onChange={event => changeInput(event.target.value)}
+        placeholder={askInputPlaceholder}
+        className="h-10 w-full min-w-0 border-0 bg-transparent px-3.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
+        disabled={isLoading}
+      />
+    );
+  };
+
   const renderSelectionDesktop = () => (
     <div className="space-y-2">
       <div className="flex items-center gap-2.5">
@@ -1110,62 +1168,14 @@ const ContextMenu = ({
                 : undefined
             }
           >
-            {playbackComposer?.listening ? (
-              <motion.output
-                initial={{ opacity: shouldAnimate ? 0 : 1 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
-                className="flex h-10 items-center gap-3 px-3.5 text-sm font-normal text-stone-600 dark:text-stone-200"
-              >
-                <span
-                  aria-hidden="true"
-                  className="lesson-question-wave flex items-center gap-0.5 text-orange-500"
-                >
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span>
-                  {t('Ti ascolto… rilascia')} <span className="font-semibold">{t('Spazio')}</span>{' '}
-                  {t('per inviare')}
-                </span>
-              </motion.output>
-            ) : playbackComposer?.noteMode ? (
-              <motion.textarea
-                initial={{ opacity: shouldAnimate ? 0 : 1 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
-                rows={PLAYBACK_NOTE_ROWS}
-                value={displayedInput}
-                onChange={event => changeInput(event.target.value)}
-                disabled={isLoading}
-                placeholder={t('Scrivi una nota su questo punto della lezione')}
-                className="custom-scrollbar block min-w-0 w-full flex-1 resize-none overflow-y-auto border-0 bg-transparent px-3.5 py-2.5 text-sm leading-6 text-stone-800 placeholder:text-stone-400 outline-none focus:ring-0 dark:text-stone-100 dark:placeholder:text-stone-300"
-              />
-            ) : (
-              <motion.input
-                initial={playbackComposer && shouldAnimate ? { opacity: 0 } : false}
-                animate={{ opacity: 1 }}
-                transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
-                type="text"
-                data-context-menu-target="input"
-                value={displayedInput}
-                onChange={event => changeInput(event.target.value)}
-                placeholder={askInputPlaceholder}
-                className="h-10 w-full min-w-0 border-0 bg-transparent px-3.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
-                disabled={isLoading}
-              />
-            )}
+            {renderFloatingInput()}
           </div>
 
           {showSpeechInput ? (
             <div className={isLessonMode ? 'mr-1.5' : ''}>
               <SpeechInputButton
                 controller={playbackComposer?.speech}
+                onStartRecording={playbackComposer?.onStartRecording}
                 disabled={isLoading}
                 errorPresentation={isMobileSheet ? 'viewport' : 'inline'}
                 onTranscription={handleSpeechTranscription}
@@ -1276,6 +1286,76 @@ const ContextMenu = ({
     </div>
   );
 
+  const renderMobileHighlight = () =>
+    !isLessonMode ? (
+      <button
+        type="button"
+        aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
+        disabled={areContextActionsDisabled}
+        onClick={handleHighlightClick}
+        onPointerDown={handleHighlightPointerDown}
+        onTouchStart={handleHighlightTouchStart}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
+        title={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato')}
+      >
+        {isAnnotationMode ? (
+          <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
+        ) : (
+          <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+        )}
+      </button>
+    ) : null;
+
+  const renderMobileNoteButton = () =>
+    shouldShowToolbarNoteButton ? (
+      <button
+        type="button"
+        onClick={handleToggleNoteEditor}
+        disabled={isLoading}
+        aria-pressed={playbackComposer?.noteMode}
+        className={`${playbackComposer?.noteMode ? '!border-amber-700/60 !bg-amber-50 !text-amber-800 dark:!bg-amber-950 dark:!text-amber-200' : ''} flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600`}
+        title={
+          isAnnotationMode
+            ? t('Aggiungi o modifica una nota su questo passaggio')
+            : t('Aggiungi una nota a questo passaggio')
+        }
+      >
+        <NotebookPen
+          className={`h-4 w-4 shrink-0 ${playbackComposer?.noteMode ? 'text-amber-800 dark:text-amber-200' : 'text-stone-600 dark:text-stone-200'}`}
+        />
+        <span className="hidden min-[390px]:inline">{t('Nota')}</span>
+      </button>
+    ) : null;
+
+  const renderMobileActions = () => (
+    <div className="flex items-center gap-2">
+      {renderMobileHighlight()}
+
+      <button
+        type="button"
+        data-context-menu-target="submit"
+        aria-label={submitLabel}
+        disabled={!trimmedInput || areContextActionsDisabled}
+        onClick={handleAskClick}
+        onPointerDown={handleAskPointerDown}
+        onTouchStart={handleAskTouchStart}
+        className={`${askButtonClassName} ${playbackComposer?.noteMode ? '!bg-amber-700 !text-white' : ''}`}
+        title={submitLabel}
+      >
+        {isLoading ? (
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+        ) : (
+          <ArrowUp className="h-4 w-4" />
+        )}
+        <span>{t(playbackComposer?.noteMode ? 'Salva nota' : 'Chiedi')}</span>
+      </button>
+
+      {renderMobileNoteButton()}
+
+      {playbackComposer ? null : renderMoreActionsButton()}
+    </div>
+  );
+
   const renderSelectionMobile = () => (
     <>
       <form className="space-y-3" onSubmit={handleAskSubmit}>
@@ -1317,81 +1397,7 @@ const ContextMenu = ({
             />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {!isLessonMode ? (
-            <button
-              type="button"
-              aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
-              disabled={areContextActionsDisabled}
-              onClick={handleHighlightClick}
-              onPointerDown={handleHighlightPointerDown}
-              onTouchStart={handleHighlightTouchStart}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-              title={t(
-                isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'
-              )}
-            >
-              {isAnnotationMode ? (
-                <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
-              ) : (
-                <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
-              )}
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            data-context-menu-target="submit"
-            aria-label={t(
-              playbackComposer?.noteMode
-                ? 'Salva nota'
-                : trimmedInput
-                  ? 'Invia domanda'
-                  : 'Inserisci una domanda'
-            )}
-            disabled={!trimmedInput || areContextActionsDisabled}
-            onClick={handleAskClick}
-            onPointerDown={handleAskPointerDown}
-            onTouchStart={handleAskTouchStart}
-            className={`${askButtonClassName} ${playbackComposer?.noteMode ? '!bg-amber-700 !text-white' : ''}`}
-            title={t(
-              playbackComposer?.noteMode
-                ? 'Salva nota'
-                : trimmedInput
-                  ? 'Invia domanda'
-                  : 'Inserisci una domanda'
-            )}
-          >
-            {isLoading ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <ArrowUp className="h-4 w-4" />
-            )}
-            <span>{t(playbackComposer?.noteMode ? 'Salva nota' : 'Chiedi')}</span>
-          </button>
-
-          {shouldShowToolbarNoteButton ? (
-            <button
-              type="button"
-              onClick={handleToggleNoteEditor}
-              disabled={isLoading}
-              aria-pressed={playbackComposer?.noteMode}
-              className={`${playbackComposer?.noteMode ? '!border-amber-700/60 !bg-amber-50 !text-amber-800 dark:!bg-amber-950 dark:!text-amber-200' : ''} flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600`}
-              title={
-                isAnnotationMode
-                  ? t('Aggiungi o modifica una nota su questo passaggio')
-                  : t('Aggiungi una nota a questo passaggio')
-              }
-            >
-              <NotebookPen
-                className={`h-4 w-4 shrink-0 ${playbackComposer?.noteMode ? 'text-amber-800 dark:text-amber-200' : 'text-stone-600 dark:text-stone-200'}`}
-              />
-              <span className="hidden min-[390px]:inline">{t('Nota')}</span>
-            </button>
-          ) : null}
-
-          {playbackComposer ? null : renderMoreActionsButton()}
-        </div>
+        {renderMobileActions()}
       </form>
 
       {renderNoteEditor()}
@@ -1447,19 +1453,28 @@ const ContextMenu = ({
       onEntranceComplete?.();
     }
   }, [hasEntered, motionProgressOverride, onEntranceComplete, shouldAnimate]);
+  const overrideProgress = motionProgressOverride ?? 0;
+  const overriddenMotionStyle = isMobileSheet
+    ? {
+        opacity: overrideProgress,
+        x: '-50%',
+        y: (1 - overrideProgress) * 12,
+      }
+    : {
+        opacity: overrideProgress,
+        scale: 0.94 + overrideProgress * 0.06,
+      };
   const deterministicMotionStyle =
-    motionProgressOverride === undefined
-      ? null
-      : isMobileSheet
-        ? {
-            opacity: motionProgressOverride,
-            x: '-50%',
-            y: (1 - motionProgressOverride) * 12,
-          }
-        : {
-            opacity: motionProgressOverride,
-            scale: 0.94 + motionProgressOverride * 0.06,
-          };
+    motionProgressOverride === undefined ? null : overriddenMotionStyle;
+  const entranceMotion = isMobileSheet ? { opacity: 0, y: 12 } : { opacity: 0, scale: 0.94 };
+  const settledMotion = isMobileSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 };
+  const entranceTransition = isMobileSheet
+    ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] as const }
+    : {
+        opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] as const },
+        scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] as const },
+      };
+  const mobileSheetPosition = playbackComposer ? '' : 'left-1/2';
 
   return (
     <>
@@ -1468,7 +1483,7 @@ const ContextMenu = ({
         onAnimationComplete={() => setHasEntered(true)}
         className={`${playbackComposer ? 'relative w-full' : 'fixed'} z-50 ${
           isMobileSheet
-            ? `${playbackComposer ? '' : 'left-1/2'} overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700`
+            ? `${mobileSheetPosition} overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700`
             : ''
         }`}
         style={{
@@ -1483,32 +1498,9 @@ const ContextMenu = ({
           ...(isMobileSheet && !playbackComposer ? { x: '-50%' } : null),
           ...deterministicMotionStyle,
         }}
-        initial={
-          motionProgressOverride !== undefined
-            ? false
-            : shouldAnimate
-              ? isMobileSheet
-                ? { opacity: 0, y: 12 }
-                : { opacity: 0, scale: 0.94 }
-              : false
-        }
-        animate={
-          motionProgressOverride !== undefined
-            ? undefined
-            : isMobileSheet
-              ? { opacity: 1, y: 0 }
-              : { opacity: 1, scale: 1 }
-        }
-        transition={
-          motionProgressOverride !== undefined
-            ? { duration: 0 }
-            : isMobileSheet
-              ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }
-              : {
-                  opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] },
-                  scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
-                }
-        }
+        initial={motionProgressOverride === undefined && shouldAnimate ? entranceMotion : false}
+        animate={motionProgressOverride === undefined ? settledMotion : undefined}
+        transition={motionProgressOverride === undefined ? entranceTransition : { duration: 0 }}
         onPointerDown={handleContainerPointerDown}
       >
         {isMobileSheet ? renderSelectionMobile() : renderSelectionDesktop()}

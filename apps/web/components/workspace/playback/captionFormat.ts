@@ -19,11 +19,7 @@ export interface CaptionPause {
   radius: number;
 }
 
-/** Recover the authored lines covered by the canonical speech/source mapping. */
-export function captionSource(
-  block: LessonPlaybackBlock,
-  sources: readonly PlaybackContentBlock[]
-) {
+function captionSourceLines(block: LessonPlaybackBlock, sources: readonly PlaybackContentBlock[]) {
   const lines = new Map<string, { text: string; start: number; sourceBlockIndex: number }>();
   for (const span of block.spans) {
     if (span.source.start === span.source.end) continue;
@@ -42,6 +38,15 @@ export function captionSource(
       start = end + 1;
     }
   }
+  return lines;
+}
+
+/** Recover the authored lines covered by the canonical speech/source mapping. */
+export function captionSource(
+  block: LessonPlaybackBlock,
+  sources: readonly PlaybackContentBlock[]
+) {
+  const lines = captionSourceLines(block, sources);
   let markdown = '';
   const ranges: { source: PlaybackRange; speech: PlaybackRange }[] = [];
   for (const line of lines.values()) {
@@ -64,68 +69,100 @@ export function captionSource(
   return { markdown, ranges };
 }
 
+interface CaptionStyle {
+  bold: boolean;
+  codeDelimiter: string;
+}
+
+function consumeCaptionDelimiter(part: string, state: CaptionStyle) {
+  if (part === '**' && !state.codeDelimiter) {
+    state.bold = !state.bold;
+    return true;
+  }
+  if (part.startsWith('`') && (!state.codeDelimiter || part === state.codeDelimiter)) {
+    state.codeDelimiter = state.codeDelimiter ? '' : part;
+    return true;
+  }
+  return false;
+}
+
+function appendCaptionLine({
+  line,
+  lineStart,
+  words,
+  state,
+  visibleText,
+  hasRanges,
+}: {
+  line: string;
+  lineStart: number;
+  words: CaptionWord[];
+  state: CaptionStyle;
+  visibleText: (start: number, end: number) => string;
+  hasRanges: boolean;
+}) {
+  const list = /^\s*([-*+]|\d+\.)\s+/.exec(line);
+  let marker = '';
+  if (list) marker = /\d/.test(list[1]) ? list[1] : '•';
+  const text = list ? line.slice(list[0].length) : line;
+  let partStart = lineStart + (list?.[0].length ?? 0);
+  let first = true;
+  for (const part of text.split(/(\*\*|`+)/)) {
+    const delimiter = !hasRanges || !visibleText(partStart, partStart + part.length);
+    if (delimiter && consumeCaptionDelimiter(part, state)) {
+      partStart += part.length;
+      continue;
+    }
+    for (const match of part.matchAll(/\S+/g)) {
+      const start = partStart + match.index;
+      const end = start + match[0].length;
+      const text = visibleText(start, end);
+      if (!text) continue;
+      words.push({
+        text,
+        bold: state.bold,
+        code: Boolean(state.codeDelimiter),
+        list: !!list,
+        breakBefore: first && !!list,
+        marker,
+        source: {
+          start,
+          end,
+        },
+      });
+      first = false;
+    }
+    partStart += part.length;
+  }
+}
+
 /** Laboratory formatting, retaining source positions for the API's quotation anchors. */
 export function captionFormat(original: string, ranges?: readonly { source: PlaybackRange }[]) {
   // Canonical spans exclude Markdown syntax; retain the authored offsets and styling.
-  const visibleText = (start: number, end: number) =>
-    ranges
-      ? ranges
-          .flatMap(({ source }) => {
-            const from = Math.max(start, source.start);
-            const to = Math.min(end, source.end);
-            return from < to ? [original.slice(from, to)] : [];
-          })
-          .join('')
-      : original.slice(start, end);
-  const headings = Array.from(original.matchAll(/^#{1,6}\s+(.+)$/gm), match =>
+  const visibleText = (start: number, end: number) => {
+    if (!ranges) return original.slice(start, end);
+    return ranges
+      .flatMap(({ source }) => {
+        const from = Math.max(start, source.start);
+        const to = Math.min(end, source.end);
+        return from < to ? [original.slice(from, to)] : [];
+      })
+      .join('');
+  };
+  // Non-whitespace starts the content, or one trailing space is the entire content.
+  // This keeps whitespace-only headings without overlapping unbounded repetitions.
+  const headingPattern = /^#{1,6}\s+(\S.*|(?=.)\s)$/gm;
+  const headings = Array.from(original.matchAll(headingPattern), match =>
     visibleText(match.index + match[0].length - match[1].length, match.index + match[0].length)
   );
   const headingWords = headings.join(' ').trim().split(/\s+/).filter(Boolean).length;
-  // Preserve source offsets while omitting headings from the body, as the laboratory does.
-  const body = original.replace(/^#{1,6}\s+.+$/gm, match => ' '.repeat(match.length));
+  const body = original.replace(headingPattern, match => ' '.repeat(match.length));
   const lines = body.trim().split('\n');
   let lineStart = body.length - body.trimStart().length;
   const words: CaptionWord[] = [];
-  let bold = false;
-  let codeDelimiter = '';
+  const state: CaptionStyle = { bold: false, codeDelimiter: '' };
   for (const line of lines) {
-    const list = line.match(/^\s*([-*+]|\d+\.)\s+/);
-    const text = list ? line.slice(list[0].length) : line;
-    let partStart = lineStart + (list?.[0].length ?? 0);
-    let first = true;
-    for (const part of text.split(/(\*\*|`+)/)) {
-      const delimiter = !ranges || !visibleText(partStart, partStart + part.length);
-      if (part === '**' && !codeDelimiter && delimiter) {
-        bold = !bold;
-        partStart += part.length;
-        continue;
-      }
-      if (part.startsWith('`') && delimiter && (!codeDelimiter || part === codeDelimiter)) {
-        codeDelimiter = codeDelimiter ? '' : part;
-        partStart += part.length;
-        continue;
-      }
-      for (const match of part.matchAll(/\S+/g)) {
-        const start = partStart + match.index;
-        const end = start + match[0].length;
-        const text = visibleText(start, end);
-        if (!text) continue;
-        words.push({
-          text,
-          bold,
-          code: Boolean(codeDelimiter),
-          list: !!list,
-          breakBefore: first && !!list,
-          marker: list ? (/\d/.test(list[1]) ? list[1] : '•') : '',
-          source: {
-            start,
-            end,
-          },
-        });
-        first = false;
-      }
-      partStart += part.length;
-    }
+    appendCaptionLine({ line, lineStart, words, state, visibleText, hasRanges: Boolean(ranges) });
     lineStart += line.length + 1;
   }
   return { headings, headingWords, words };
@@ -179,14 +216,11 @@ export function captionPauses(
 ): CaptionPause[] {
   const cues = words.flatMap((word, index) => {
     if (word.code) return [];
-    const punctuation = word.text.match(/([,;:.!?…])[”’"')\]]*$/)?.[1];
+    const punctuation = /([,;:.!?…])[”’"')\]]*$/.exec(word.text)?.[1];
     if (!punctuation) return [];
-    const delay =
-      punctuation === ','
-        ? CAPTION_RHYTHM.commaDelay
-        : ';:'.includes(punctuation)
-          ? CAPTION_RHYTHM.clauseDelay
-          : CAPTION_RHYTHM.sentenceDelay;
+    let delay = CAPTION_RHYTHM.sentenceDelay;
+    if (punctuation === ',') delay = CAPTION_RHYTHM.commaDelay;
+    else if (';:'.includes(punctuation)) delay = CAPTION_RHYTHM.clauseDelay;
     return [{ time: ends[index] * duration, delay }];
   });
   return cues

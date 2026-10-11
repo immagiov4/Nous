@@ -511,6 +511,11 @@ test('the speed menu consumes Escape, restores its trigger and closes outside', 
   expect(trigger).toHaveFocus();
   expect(onParentKeyDown).not.toHaveBeenCalled();
   fireEvent.click(trigger);
+  fireEvent.keyDown(trigger, { key: 'Escape' });
+  expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  expect(trigger).toHaveFocus();
+  expect(onParentKeyDown).not.toHaveBeenCalled();
+  fireEvent.click(trigger);
   fireEvent.pointerDown(document.body);
   expect(trigger).toHaveAttribute('aria-expanded', 'false');
 });

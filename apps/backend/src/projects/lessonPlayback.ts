@@ -13,12 +13,11 @@ import type { LearningPlanNodeSnapshot, ProjectSnapshot } from './types.js';
 
 const lessonPlaybackContent = (
   section: LearningPlanNodeSnapshot
-): readonly PlaybackContentBlock[] =>
-  Array.isArray(section.contentBlocks)
-    ? section.contentBlocks
-    : typeof section.content === 'string'
-      ? [{ type: 'markdown', markdown: section.content }]
-      : [];
+): readonly PlaybackContentBlock[] => {
+  if (Array.isArray(section.contentBlocks)) return section.contentBlocks;
+  if (typeof section.content === 'string') return [{ type: 'markdown', markdown: section.content }];
+  return [];
+};
 
 /** Asset content, rather than its project-local ID, keeps imported playback reusable. */
 const visualContent = (visual: ProjectLessonVisual) => {
@@ -102,8 +101,10 @@ export const reconcileLessonPlayback = (
     if (!section.playback && !before?.playback) return section;
     const key = buildLessonPlaybackKey(section);
     let playback = section.playback;
-    if (before && !playbackWrite) {
-      playback = buildLessonPlaybackKey(before) === key ? before.playback : undefined;
+    // Only the server prepares playback: ordinary writes keep the stored data and never accept
+    // client-supplied playback, including on a new project or section.
+    if (!playbackWrite) {
+      playback = before && buildLessonPlaybackKey(before) === key ? before.playback : undefined;
     }
     if (playback?.lessonKey !== key) playback = undefined;
     const { playback: _previousPlayback, ...rest } = section;
