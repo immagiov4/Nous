@@ -201,6 +201,34 @@ test.each([
   expect(props.onClose).toHaveBeenCalledOnce();
 });
 
+test('keeps keyboard focus in the open player and lets the speed menu consume Escape', () => {
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  const dialog = screen.getByRole('dialog', { name: 'Riproduci lezione' });
+  expect(dialog).toBeInstanceOf(HTMLDialogElement);
+  expect(dialog).toHaveAttribute('open');
+  const visibleControls = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue({
+    length: 1,
+  } as DOMRectList);
+  try {
+    const first = screen.getByRole('button', { name: 'Torna alla lezione' });
+    const controls = dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
+    );
+    const last = controls[controls.length - 1];
+    first.focus();
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(first).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Velocita' }));
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Velocita' }), { key: 'Escape' });
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Velocita' })).toHaveFocus();
+  } finally {
+    visibleControls.mockRestore();
+  }
+});
+
 test('anchors the note when writing begins, then exits note mode after persistence', async () => {
   const { rerender } = render(<LessonPlayer {...props} />);
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));

@@ -177,12 +177,14 @@ const getPlaybackRateLabel = (playbackRate: number): string =>
   `${formatPlaybackRateLabel(clampPlaybackRate(playbackRate))}x`;
 
 interface PlaybackSpeedControlProps {
+  readonly onEscape?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   readonly isDisabled: boolean;
   readonly onSpeedChange: (speed: number) => void;
   readonly playbackRate: number;
 }
 
 const PlaybackSpeedControl = ({
+  onEscape,
   isDisabled,
   onSpeedChange,
   playbackRate,
@@ -210,6 +212,10 @@ const PlaybackSpeedControl = ({
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      onEscape?.(event);
+      return;
+    }
     let nextPlaybackRate: number | null = null;
 
     if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
@@ -804,14 +810,17 @@ export function PlaybackPlayButton({
   loading,
   playing,
   stationary = false,
-}: {
+}: Readonly<{
   onClick: () => void;
   disabled?: boolean;
   loading: boolean;
   playing: boolean;
   stationary?: boolean;
-}) {
+}>) {
   const state = { isDisabled: disabled, isLoading: loading, isPlaying: playing };
+  let icon = <Play className="h-6 w-6 fill-current" />;
+  if (loading) icon = <Loader2 className="h-6 w-6 animate-spin" />;
+  else if (playing) icon = <Pause className="h-6 w-6 fill-current" />;
   return (
     <button
       type="button"
@@ -825,13 +834,7 @@ export function PlaybackPlayButton({
       title={getTtsPlayButtonTitle(state)}
       aria-label={getTtsPlayButtonTitle(state)}
     >
-      {loading ? (
-        <Loader2 className="h-6 w-6 animate-spin" />
-      ) : playing ? (
-        <Pause className="h-6 w-6 fill-current" />
-      ) : (
-        <Play className="h-6 w-6 fill-current" />
-      )}
+      {icon}
     </button>
   );
 }
@@ -841,14 +844,14 @@ export function PlaybackTimeline({
   onSeek,
   estimated = false,
   elapsedOnly = false,
-}: {
+}: Readonly<{
   estimated?: boolean;
   /** Shows only the current position, after the slider, without the total duration. */
   elapsedOnly?: boolean;
   time: number;
   duration: number;
   onSeek: (time: number) => void;
-}) {
+}>) {
   // While dragging, only the handle moves; the seek happens on release, so crossing several
   // lesson parts does not prepare each one.
   const [dragTime, setDragTime] = useState<number | null>(null);
@@ -867,6 +870,7 @@ export function PlaybackTimeline({
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const durationLabel = `${estimated ? '≈ ' : ''}${formatTime(duration)}`;
   return (
     <div className="flex items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
       {elapsedOnly ? null : (
@@ -886,7 +890,7 @@ export function PlaybackTimeline({
         className="h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
       />
       <span className="shrink-0 whitespace-nowrap">
-        {elapsedOnly ? formatTime(shownTime) : `${estimated ? '≈ ' : ''}${formatTime(duration)}`}
+        {elapsedOnly ? formatTime(shownTime) : durationLabel}
       </span>
     </div>
   );
@@ -912,11 +916,11 @@ function VoicePicker({
   tts,
   disabled,
   withChevron = true,
-}: {
+}: Readonly<{
   tts: VoiceSpeedModel;
   disabled: boolean;
   withChevron?: boolean;
-}) {
+}>) {
   return (
     <div
       className={`relative flex min-w-0 items-center ${
@@ -953,7 +957,7 @@ function VoicePicker({
 const SPEED_MENU_WIDTH_PX = 224;
 const SPEED_MENU_VIEWPORT_MARGIN_PX = 8;
 
-function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean }) {
+function SpeedMenu({ tts, disabled }: Readonly<{ tts: VoiceSpeedModel; disabled: boolean }>) {
   const [open, setOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -976,20 +980,18 @@ function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean 
     }
     setOpen(!open);
   };
+  const closeOnEscape = (event: ReactKeyboardEvent) => {
+    if (event.key === 'Escape' && open) {
+      event.stopPropagation();
+      setOpen(false);
+      trigger.current?.focus();
+    }
+  };
   return (
-    <div
-      ref={host}
-      className="relative shrink-0"
-      onKeyDown={event => {
-        if (event.key === 'Escape' && open) {
-          event.stopPropagation();
-          setOpen(false);
-          trigger.current?.focus();
-        }
-      }}
-    >
+    <div ref={host} className="relative shrink-0">
       <button
         ref={trigger}
+        onKeyDown={closeOnEscape}
         type="button"
         aria-label={t('Velocita')}
         aria-expanded={open}
@@ -1013,6 +1015,7 @@ function SpeedMenu({ tts, disabled }: { tts: VoiceSpeedModel; disabled: boolean 
             className="absolute bottom-full z-50 mb-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
           >
             <PlaybackSpeedControl
+              onEscape={closeOnEscape}
               isDisabled={disabled}
               onSpeedChange={tts.onSpeedChange}
               playbackRate={tts.playbackRate}
@@ -1029,11 +1032,11 @@ function ReaderPlaybackCard({
   tts,
   disabled,
   textPicker,
-}: {
+}: Readonly<{
   tts: WorkspaceReaderTtsModel;
   disabled: boolean;
   textPicker: ReactNode;
-}) {
+}>) {
   const skipClassName =
     'rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100';
   return (
@@ -1086,12 +1089,12 @@ export function PlaybackVoiceSpeed({
   tts,
   disabled = false,
   pill = false,
-}: {
+}: Readonly<{
   tts: VoiceSpeedModel;
   disabled?: boolean;
   /** Draws its own pill border, for use outside a card. */
   pill?: boolean;
-}) {
+}>) {
   return (
     <div
       className={`flex min-w-0 items-center text-sm font-medium ${

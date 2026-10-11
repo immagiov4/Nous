@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  type CSSProperties,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -1691,6 +1692,75 @@ function ContextAnswerPanelSession({
         );
       };
 
+      const renderNoteDecision = () => {
+        if (part.state === 'input-available' && inputValue) {
+          if (isProcessing) {
+            return (
+              <output className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
+                <LoaderCircle className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                {t('Salvataggio…')}
+              </output>
+            );
+          }
+          return (
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => handleRejectNoteRequest(part.toolCallId)}
+                className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
+              >
+                {t('No grazie')}
+              </button>
+              <button
+                type="button"
+                data-context-answer-target="note-approve"
+                onClick={() => void handleApproveNoteRequest(part.toolCallId, inputValue)}
+                className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+              >
+                {approveLabel}
+              </button>
+            </div>
+          );
+        }
+        if (part.state === 'input-available' && expiredGraceTools.has(part.toolCallId)) {
+          return (
+            <div className="mt-3 space-y-2">
+              <div className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                {t('Suggerimento non disponibile. Puoi riprovare.')}
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleRejectNoteRequest(part.toolCallId)}
+                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
+                >
+                  {t('No grazie')}
+                </button>
+              </div>
+            </div>
+          );
+        }
+        if (part.state === 'input-available') {
+          return (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <span>{t('Sto caricando i dettagli della nota proposta...')}</span>
+            </div>
+          );
+        }
+        if (part.state === 'output-available') {
+          return renderResultPill();
+        }
+        if (part.state === 'output-error') {
+          return (
+            <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
+              {part.errorText}
+            </div>
+          );
+        }
+        return null;
+      };
+
       return (
         <div key={`${messageId}-${part.toolCallId}`} className={toolCardClassName}>
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-stone-900 dark:text-stone-100">
@@ -1728,58 +1798,7 @@ function ContextAnswerPanelSession({
             </div>
           ) : null}
 
-          {part.state === 'input-available' && inputValue ? (
-            isProcessing ? (
-              <output className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
-                <LoaderCircle className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                {t('Salvataggio…')}
-              </output>
-            ) : (
-              <div className="mt-3 flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleRejectNoteRequest(part.toolCallId)}
-                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
-                >
-                  {t('No grazie')}
-                </button>
-                <button
-                  type="button"
-                  data-context-answer-target="note-approve"
-                  onClick={() => void handleApproveNoteRequest(part.toolCallId, inputValue)}
-                  className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                >
-                  {approveLabel}
-                </button>
-              </div>
-            )
-          ) : part.state === 'input-available' && expiredGraceTools.has(part.toolCallId) ? (
-            <div className="mt-3 space-y-2">
-              <div className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
-                {t('Suggerimento non disponibile. Puoi riprovare.')}
-              </div>
-              <div className="flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleRejectNoteRequest(part.toolCallId)}
-                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
-                >
-                  {t('No grazie')}
-                </button>
-              </div>
-            </div>
-          ) : part.state === 'input-available' ? (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              <span>{t('Sto caricando i dettagli della nota proposta...')}</span>
-            </div>
-          ) : part.state === 'output-available' ? (
-            renderResultPill()
-          ) : part.state === 'output-error' ? (
-            <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
-              {part.errorText}
-            </div>
-          ) : null}
+          {renderNoteDecision()}
         </div>
       );
     }
@@ -1999,31 +2018,28 @@ function ContextAnswerPanelSession({
   ) : (
     <SpeechInputButton disabled={isComposerDisabled} onTranscription={handleSpeechTranscription} />
   );
+  let panelPlacementClassName =
+    'right-8 top-6 rounded-2xl animate-in slide-in-from-bottom-10 duration-500';
+  let panelStyle: CSSProperties | undefined = docked ? undefined : contextAnswerSize;
+  if (isMobileViewport && !docked) {
+    panelPlacementClassName =
+      'inset-x-0 h-[80dvh] rounded-t-[2rem] rounded-b-none border-x-0 border-b-0';
+    panelStyle = {
+      bottom: `${keyboardOffset}px`,
+      maxHeight:
+        viewportHeight === null ? `calc(100dvh - ${keyboardOffset}px)` : `${viewportHeight}px`,
+    };
+  } else if (docked) {
+    panelPlacementClassName = 'rounded-2xl';
+  }
+  const stopComposerResponse = isLoading ? handleStopResponse : undefined;
   const answerPanel = (
     <motion.div
       ref={contextAnswerPanelRef}
       data-context-answer-panel="true"
       inert={!isPresent || undefined}
-      className={`${docked ? 'relative h-[58dvh] max-h-[58dvh] w-full' : 'fixed'} z-50 flex flex-col overflow-hidden border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] dark:border-zinc-700/60 dark:bg-zinc-800 ${
-        isMobileViewport && !docked
-          ? 'inset-x-0 h-[80dvh] rounded-t-[2rem] rounded-b-none border-x-0 border-b-0'
-          : docked
-            ? 'rounded-2xl'
-            : 'right-8 top-6 rounded-2xl animate-in slide-in-from-bottom-10 duration-500'
-      }`}
-      style={
-        isMobileViewport && !docked
-          ? {
-              bottom: `${keyboardOffset}px`,
-              maxHeight:
-                viewportHeight === null
-                  ? `calc(100dvh - ${keyboardOffset}px)`
-                  : `${viewportHeight}px`,
-            }
-          : docked
-            ? undefined
-            : contextAnswerSize
-      }
+      className={`${docked ? 'relative h-[58dvh] max-h-[58dvh] w-full' : 'fixed'} z-50 flex flex-col overflow-hidden border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] dark:border-zinc-700/60 dark:bg-zinc-800 ${panelPlacementClassName}`}
+      style={panelStyle}
       initial={
         isMobileViewport && !docked ? { opacity: 0, transform: 'translate3d(0, 100%, 0)' } : false
       }
@@ -2226,11 +2242,7 @@ function ContextAnswerPanelSession({
       {answerPanel}
       {isPresent && composerPortal && renderComposer && (docked || !isMobileViewport)
         ? createPortal(
-            renderComposer(
-              handleSubmit,
-              isComposerDisabled,
-              isLoading ? handleStopResponse : undefined
-            ),
+            renderComposer(handleSubmit, isComposerDisabled, stopComposerResponse),
             composerPortal
           )
         : null}

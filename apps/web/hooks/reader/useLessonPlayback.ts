@@ -273,27 +273,26 @@ export function useLessonPlayback({
         audio.playbackRate = latest.current.speed;
         setDuration(recording.durationSeconds);
         loadedVoice.current = requestedVoice;
-        if (intent.current.playing) {
-          await audio.play();
-          if (epoch !== intent.current.epoch || signal.aborted) return;
-          if (!intent.current.playing) {
-            audio.pause();
-            return;
-          }
-          setPlaying(true);
-          if (blockIndex + 1 < (playbackRef.current?.blocks.length ?? 0)) {
-            void prepare({
-              blockIndex: blockIndex + 1,
-              requestedVoice,
-              epoch,
-              background: true,
-              signal,
-            }).catch(error => {
-              if (epoch !== intent.current.epoch || signal.aborted) return;
-              console.error('Lesson playback preparation failed', error);
-              setFailed(true);
-            });
-          }
+        if (!intent.current.playing) return;
+        await audio.play();
+        if (epoch !== intent.current.epoch || signal.aborted) return;
+        if (!intent.current.playing) {
+          audio.pause();
+          return;
+        }
+        setPlaying(true);
+        if (blockIndex + 1 < (playbackRef.current?.blocks.length ?? 0)) {
+          void prepare({
+            blockIndex: blockIndex + 1,
+            requestedVoice,
+            epoch,
+            background: true,
+            signal,
+          }).catch(error => {
+            if (epoch !== intent.current.epoch || signal.aborted) return;
+            console.error('Lesson playback preparation failed', error);
+            setFailed(true);
+          });
         }
       } catch (error) {
         if (epoch !== intent.current.epoch || signal.aborted) return;

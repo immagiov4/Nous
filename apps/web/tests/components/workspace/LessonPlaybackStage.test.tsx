@@ -213,6 +213,32 @@ test('recovers heading, emphasis, code and list markers from authored source spa
   });
 });
 
+test.each([
+  '# \nTitle\nBody',
+  '# \t\r\n\r\nTitle\r\nBody',
+])('preserves heading whitespace and body source positions: %j', markdown => {
+  const formatted = captionFormat(markdown);
+  expect(formatted.headings).toEqual(['Title']);
+  expect(formatted.headingWords).toBe(1);
+  expect(formatted.words).toHaveLength(1);
+  expect(formatted.words[0]).toMatchObject({
+    text: 'Body',
+    source: { start: markdown.indexOf('Body'), end: markdown.length },
+  });
+});
+
+test('preserves whitespace-only headings and handles long heading separators', () => {
+  expect(captionFormat('#  ')).toEqual({ headings: [' '], headingWords: 0, words: [] });
+  const markdown = `#${' '.repeat(100_000)}Title\nBody`;
+  const formatted = captionFormat(markdown);
+  expect(formatted.headings).toEqual(['Title']);
+  expect(formatted.words).toHaveLength(1);
+  expect(formatted.words[0].source).toEqual({
+    start: markdown.indexOf('Body'),
+    end: markdown.length,
+  });
+});
+
 test('uses the calibrated lead ramp and recovers pacing after punctuation without drift', () => {
   expect(captionLookAhead(0, 1, 1.3)).toBe(0);
   expect(captionLookAhead(0.275, 1, 1.3)).toBeCloseTo(0.65);

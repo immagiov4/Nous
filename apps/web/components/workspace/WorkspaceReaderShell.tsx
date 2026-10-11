@@ -15,6 +15,18 @@ import WorkspaceReaderSidebar from './shell/WorkspaceReaderSidebar.tsx';
 
 const LessonPlayer = lazy(() => import('./playback/LessonPlayer.tsx'));
 
+function isLessonPlayable(
+  content: WorkspaceReaderShellProps['content'],
+  header: WorkspaceReaderShellProps['header']
+) {
+  return (
+    !content.activeExercise &&
+    !content.isLoading &&
+    !header.isLoading &&
+    Boolean(content.sectionContent.trim() || content.sectionContentBlocks?.length)
+  );
+}
+
 const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   banners,
   content,
@@ -30,11 +42,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     autoPlay: boolean;
     audioElementRef: RefObject<HTMLAudioElement>;
   } | null>(null);
-  const canPlayLesson =
-    !content.activeExercise &&
-    !content.isLoading &&
-    !header.isLoading &&
-    Boolean(content.sectionContent.trim() || content.sectionContentBlocks?.length);
+  const canPlayLesson = isLessonPlayable(content, header);
   const openPlayer = (autoPlay: boolean) => {
     if (!sidebar.activeSectionId || !content.projectId || !canPlayLesson) return;
     header.tts.onStop();
@@ -133,21 +141,21 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   const isEmbedded = displayMode === 'embedded';
   const sidebarModel = isEmbedded ? { ...sidebar, placement: 'container' as const } : sidebar;
   const contentModel = isEmbedded ? { ...content, scrollMode: 'document' as const } : content;
+  const viewportHeightStyle = viewportHeight === null ? '100dvh' : `${viewportHeight}px`;
+  const embeddedClassName = `${header.isDarkMode ? 'dark ' : ''}min-h-[34rem] overflow-visible`;
 
   return (
     <div
       data-reader-display-mode={displayMode}
       className={`relative flex max-w-full overscroll-none bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark ${
-        isEmbedded
-          ? `${header.isDarkMode ? 'dark ' : ''}min-h-[34rem] overflow-visible`
-          : 'h-screen overflow-hidden'
+        isEmbedded ? embeddedClassName : 'h-screen overflow-hidden'
       }`}
       style={
         isEmbedded
           ? undefined
           : {
-              height: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
-              maxHeight: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
+              height: viewportHeightStyle,
+              maxHeight: viewportHeightStyle,
             }
       }
     >
@@ -176,7 +184,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
           <WorkspaceReaderOverlays {...overlays} />
         </div>
       </div>
-      {player && player.sectionId === sidebar.activeSectionId && content.projectId ? (
+      {player?.sectionId && player.sectionId === sidebar.activeSectionId && content.projectId ? (
         <Suspense fallback={null}>
           <LessonPlayer
             key={`${content.projectId}:${player.sectionId}:${content.sectionContent}`}

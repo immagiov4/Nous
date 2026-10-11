@@ -49,13 +49,13 @@ function ConversationBridge({
   question,
   send,
   deliver,
-}: {
+}: Readonly<{
   blocked: boolean;
   onBlockedChange: (blocked: boolean) => void;
   question: SpokenFollowUpQuestion | null;
   send: (text: string) => void;
   deliver: (question: SpokenFollowUpQuestion, send: (text: string) => void) => void;
-}) {
+}>) {
   useLayoutEffect(() => {
     onBlockedChange(blocked);
   }, [blocked, onBlockedChange]);
@@ -68,10 +68,10 @@ function ConversationBridge({
 function AnswerPanelTransition({
   children,
   shouldAnimate,
-}: {
+}: Readonly<{
   children: ReactNode;
   shouldAnimate: boolean;
-}) {
+}>) {
   const isPresent = useIsPresent();
   return (
     <motion.div
@@ -98,7 +98,7 @@ export default function LessonPlayer({
   onClose,
   autoPlay = true,
   audioElementRef,
-}: {
+}: Readonly<{
   sectionId: string;
   projectId: string;
   content: WorkspaceReaderContentModel;
@@ -120,7 +120,7 @@ export default function LessonPlayer({
   onClose: () => void;
   autoPlay?: boolean;
   audioElementRef?: RefObject<HTMLAudioElement>;
-}) {
+}>) {
   const sourceBlocks = useMemo(
     () =>
       content.sectionContentBlocks?.length
@@ -166,6 +166,7 @@ export default function LessonPlayer({
   });
   const [composerPortal, setComposerPortal] = useState<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   const mounted = useRef(true);
   const { viewportHeight } = useMobileKeyboardOffset();
@@ -195,8 +196,7 @@ export default function LessonPlayer({
     const original = initialBlocks[playback.index];
     if (
       !block ||
-      !original ||
-      block.speech !== original.speech ||
+      block.speech !== original?.speech ||
       block.spans.length !== original.spans.length ||
       block.spans.some((span, index) => {
         const sourceSpan = original.spans[index];
@@ -449,43 +449,53 @@ export default function LessonPlayer({
     else void playback.play();
   };
 
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) throw new Error('Lesson player dialog must be mounted');
+    const handleDialogKeyDown = (event: KeyboardEvent) => {
+      if (!(event.target instanceof Node) || !dialog.contains(event.target)) return;
+      if (event.key === 'Escape') {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('dialog, [role="dialog"]') !== dialog
+        )
+          return;
+        event.stopPropagation();
+        if (draft) {
+          changeDraft('');
+          setNoteMode(false);
+          setNoteStatus('idle');
+        } else if (questionActive) closeAnswer();
+        else onClose();
+      }
+      if (event.key === 'Tab') {
+        const controls = Array.from(
+          dialog.querySelectorAll<HTMLElement>(
+            'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
+          )
+        ).filter(element => element.getClientRects().length > 0);
+        if (event.shiftKey && document.activeElement === controls[0]) {
+          event.preventDefault();
+          controls.at(-1)?.focus();
+        } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
+          event.preventDefault();
+          controls[0]?.focus();
+        }
+      }
+    };
+    // React child controls handle Escape first, including the speed menu and previews.
+    document.addEventListener('keydown', handleDialogKeyDown);
+    return () => document.removeEventListener('keydown', handleDialogKeyDown);
+  });
+
   return createPortal(
-    <div
-      role="dialog"
+    <dialog
+      ref={dialogRef}
+      open
       aria-modal="true"
       aria-label={t('Riproduci lezione')}
-      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] flex flex-col bg-paper-light font-sans text-stone-800 dark:bg-paper-dark dark:text-stone-100`}
-      style={{ height: viewportHeight === null ? '100dvh' : viewportHeight }}
-      onKeyDown={event => {
-        if (event.key === 'Escape') {
-          if (
-            event.target instanceof Element &&
-            event.target.closest('[role="dialog"]') !== event.currentTarget
-          )
-            return;
-          event.stopPropagation();
-          if (draft) {
-            changeDraft('');
-            setNoteMode(false);
-            setNoteStatus('idle');
-          } else if (questionActive) closeAnswer();
-          else onClose();
-        }
-        if (event.key === 'Tab') {
-          const controls = Array.from(
-            event.currentTarget.querySelectorAll<HTMLElement>(
-              'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]'
-            )
-          ).filter(element => element.getClientRects().length > 0);
-          if (event.shiftKey && document.activeElement === controls[0]) {
-            event.preventDefault();
-            controls.at(-1)?.focus();
-          } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
-            event.preventDefault();
-            controls[0]?.focus();
-          }
-        }
-      }}
+      className={`${content.isDarkMode ? 'dark' : ''} fixed inset-0 z-[80] m-0 flex w-full max-w-none max-h-none flex-col border-0 bg-paper-light p-0 font-sans text-stone-800 dark:bg-paper-dark dark:text-stone-100`}
+      style={{ height: viewportHeight ?? '100dvh' }}
     >
       <header className="flex shrink-0 items-center gap-3 px-4 py-3 md:gap-5 md:px-[4%] md:pt-6">
         <button
@@ -658,7 +668,7 @@ export default function LessonPlayer({
           {!answer ? renderComposer() : null}
         </div>
       </div>
-    </div>,
+    </dialog>,
     document.body
   );
 }

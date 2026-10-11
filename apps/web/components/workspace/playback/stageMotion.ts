@@ -78,6 +78,21 @@ export const smooth = (fraction: number) => {
   return time * time * (3 - 2 * time);
 };
 
+function motionUpdate(event: TimedMotionEvent, eventTime: number, reduced: boolean) {
+  if (event.effect === 'reveal') {
+    return { opacity: reduced ? 1 : smooth((eventTime - event.atMs) / event.durationMs) };
+  }
+  const focusDuration = Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
+  if (!(event.effect === 'focus' && eventTime < event.atMs + focusDuration)) return {};
+  const transition = Math.min(MOTION_TIMING.transitionMs, focusDuration / 2);
+  return {
+    emphasis: reduced
+      ? 1
+      : smooth((eventTime - event.atMs) / transition) *
+        smooth((event.atMs + focusDuration - eventTime) / transition),
+  };
+}
+
 /** Each frame is derived from time, including backward seeks (motion-player.mjs). */
 export function motionStates(
   ids: readonly string[],
@@ -93,19 +108,11 @@ export function motionStates(
   for (const event of events) {
     const eventTime = time - (event.effect === 'focus' ? focusDelayMs : 0);
     if (eventTime < event.atMs) continue;
+    const update = motionUpdate(event, eventTime, reduced);
     for (const target of event.targets) {
       const state = states.get(target);
       if (!state) throw new Error(`Motion target is unavailable: ${target}`);
-      if (event.effect === 'reveal')
-        state.opacity = reduced ? 1 : smooth((eventTime - event.atMs) / event.durationMs);
-      const focusDuration = Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
-      if (event.effect === 'focus' && eventTime < event.atMs + focusDuration) {
-        const transition = Math.min(MOTION_TIMING.transitionMs, focusDuration / 2);
-        state.emphasis = reduced
-          ? 1
-          : smooth((eventTime - event.atMs) / transition) *
-            smooth((event.atMs + focusDuration - eventTime) / transition);
-      }
+      Object.assign(state, update);
     }
   }
   return states;

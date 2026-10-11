@@ -12,6 +12,7 @@ import type { WorkspaceReaderContentModel } from '../shell/types.ts';
 import {
   CAPTION_SCROLL,
   CAPTION_TIMING,
+  type CaptionWord,
   captionFormat,
   captionLookAhead,
   captionPauses,
@@ -37,6 +38,36 @@ interface CaptionClock {
   read: () => { bodyTime: number; revealTime: number };
 }
 
+function hasMissingMotionTargets(
+  events: readonly TimedMotionEvent[],
+  elements: ReturnType<typeof sceneElements>
+) {
+  return events.some(event => event.targets.some(target => !elements.has(target)));
+}
+
+function scrollToCaptionLine(
+  paragraph: HTMLElement,
+  active: HTMLElement | undefined,
+  scroll: { line: number; target: number },
+  motion: boolean
+) {
+  if (!active || active.offsetTop === scroll.line) return;
+  const line = active.offsetTop;
+  if (
+    line + active.offsetHeight >
+    scroll.target + paragraph.clientHeight * CAPTION_SCROLL.trigger
+  ) {
+    scroll.target = Math.max(0, line - paragraph.clientHeight * CAPTION_SCROLL.destination);
+    paragraph.scrollTo({ top: scroll.target, behavior: motion ? 'smooth' : 'instant' });
+  }
+  scroll.line = line;
+}
+
+function captionTag(word: CaptionWord) {
+  if (word.code) return 'code';
+  return word.bold ? 'strong' : 'span';
+}
+
 function PlaybackScene({
   scene,
   block,
@@ -44,14 +75,14 @@ function PlaybackScene({
   speed,
   animate,
   isDarkMode,
-}: {
+}: Readonly<{
   scene: LessonScene;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
   speed: number;
   animate: boolean;
   isDarkMode: boolean;
-}) {
+}>) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!block.prepared?.motion.length) return;
@@ -63,7 +94,7 @@ function PlaybackScene({
     let previousFrame = '';
     const render = () => {
       const current = clock.current;
-      if (!current || !current.width || !current.bodyDuration) return;
+      if (!current?.width || !current.bodyDuration) return;
       if (current !== previousClock) {
         events = captionMotionEvents({
           events: block.prepared?.motion ?? [],
@@ -77,7 +108,7 @@ function PlaybackScene({
         previousClock = current;
         previousFrame = '';
       }
-      if (events.some(event => event.targets.some(target => !elements.has(target)))) return;
+      if (hasMissingMotionTargets(events, elements)) return;
       const revealTime = Math.max(0, current.read().revealTime * 1000);
       const frameKey = `${revealTime}:${animate}:${speed}`;
       if (frameKey === previousFrame) return;
@@ -135,14 +166,14 @@ function PlaybackStoredVisual({
   visual,
   content,
   ...props
-}: {
+}: Readonly<{
   visual: StoredLessonVisual;
   content: WorkspaceReaderContentModel;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
   speed: number;
   animate: boolean;
-}) {
+}>) {
   const scene = getStoredLessonVisualScene(visual);
   return scene ? (
     <PlaybackScene {...props} scene={scene} isDarkMode={content.isDarkMode} />
@@ -164,14 +195,14 @@ export default function LessonPlaybackStage({
   content,
   speed = 1,
   readTime,
-}: {
+}: Readonly<{
   block: LessonPlaybackBlock;
   time: number;
   duration: number;
   content: WorkspaceReaderContentModel;
   speed?: number;
   readTime?: () => number;
-}) {
+}>) {
   const sources = useMemo(
     () =>
       content.sectionContentBlocks?.length
@@ -202,10 +233,11 @@ export default function LessonPlaybackStage({
     const fitScene = () => {
       const layout = getComputedStyle(stage);
       const verticalPadding =
-        (parseFloat(layout.paddingTop) || 0) + (parseFloat(layout.paddingBottom) || 0);
+        (Number.parseFloat(layout.paddingTop) || 0) +
+        (Number.parseFloat(layout.paddingBottom) || 0);
       const captionHeight =
         layout.flexDirection === 'column'
-          ? captionSection.offsetHeight + (parseFloat(layout.rowGap) || 0)
+          ? captionSection.offsetHeight + (Number.parseFloat(layout.rowGap) || 0)
           : 0;
       const availableHeight = stage.clientHeight - verticalPadding - captionHeight;
       if (!slot.clientWidth || availableHeight <= 0) return;
@@ -249,7 +281,9 @@ export default function LessonPlaybackStage({
         width += wordWidth;
         return { span, start, width: wordWidth };
       });
-      const feather = parseFloat(getComputedStyle(paragraph).getPropertyValue('--caption-feather'));
+      const feather = Number.parseFloat(
+        getComputedStyle(paragraph).getPropertyValue('--caption-feather')
+      );
       const bodyDuration =
         (duration * formatted.words.length) / (formatted.words.length + formatted.headingWords);
       const pauses = captionPauses(
@@ -293,7 +327,7 @@ export default function LessonPlaybackStage({
       const paragraph = captions.current;
       if (!paragraph) throw new Error('Captions must be mounted');
       const current = clock.current;
-      if (!current || !current.width || !current.bodyDuration) return;
+      if (!current?.width || !current.bodyDuration) return;
       if (previousClock !== current) {
         previousClock = current;
         previousBodyTime = undefined;
@@ -314,23 +348,7 @@ export default function LessonPlaybackStage({
         text.style.opacity = String(1 - fade * (1 - CAPTION_TIMING.readOpacity));
         if (local >= 0 && local <= run.width) active = run.span;
       }
-      if (active && active.offsetTop !== scroll.current.line) {
-        const line = active.offsetTop;
-        if (
-          line + active.offsetHeight >
-          scroll.current.target + paragraph.clientHeight * CAPTION_SCROLL.trigger
-        ) {
-          scroll.current.target = Math.max(
-            0,
-            line - paragraph.clientHeight * CAPTION_SCROLL.destination
-          );
-          paragraph.scrollTo({
-            top: scroll.current.target,
-            behavior: motion ? 'smooth' : 'instant',
-          });
-        }
-        scroll.current.line = line;
-      }
+      scrollToCaptionLine(paragraph, active, scroll.current, motion);
       previousBodyTime = bodyTime;
     };
     let frame = 0;
@@ -342,11 +360,10 @@ export default function LessonPlaybackStage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const visuals = block.visuals.length
-    ? block.visuals
-    : block.prepared?.scene
-      ? [{ kind: 'scene' as const, scene: block.prepared.scene }]
-      : [];
+  const preparedVisuals = block.prepared?.scene
+    ? [{ kind: 'scene' as const, scene: block.prepared.scene }]
+    : [];
+  const visuals = block.visuals.length ? block.visuals : preparedVisuals;
   const visualIndex = Math.min(
     visuals.length - 1,
     duration > 0 ? Math.floor((time / duration) * visuals.length) : 0
@@ -370,7 +387,7 @@ export default function LessonPlaybackStage({
           )}
           <p ref={captions} key={block.id} className="caption-page">
             {formatted.words.map((word, index) => {
-              const Tag = word.code ? 'code' : word.bold ? 'strong' : 'span';
+              const Tag = captionTag(word);
               return (
                 // biome-ignore lint/suspicious/noArrayIndexKey: the authored caption page is static and remounted per block
                 <Fragment key={`${index}:${word.text}`}>
