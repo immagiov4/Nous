@@ -16,7 +16,10 @@ import type {
   RenderResolvedLessonVisualInput,
   ReviseLessonVisualArtifactInput,
 } from '../services/lessonGenerationVisuals.js';
-import type { LessonSceneOutcome } from '../services/lessonScenes/lessonSceneGeneration.js';
+import type {
+  GenerateLessonSceneInput,
+  LessonSceneOutcome,
+} from '../services/lessonScenes/lessonSceneGeneration.js';
 import {
   type LessonVisualModelConfig,
   LessonVisualModelConfigSchema,
@@ -133,7 +136,7 @@ export interface LessonVisualWorkflowServices {
   readonly generateRaster: (
     input: RenderResolvedLessonVisualInput
   ) => Promise<GeneratedLessonVisualImage>;
-  readonly generateScene: (input: RenderResolvedLessonVisualInput) => Promise<LessonSceneOutcome>;
+  readonly generateScene: (input: GenerateLessonSceneInput) => Promise<LessonSceneOutcome>;
   readonly now: () => string;
   readonly persistRetryResult: (input: {
     execution: WorkflowStepExecutionIdentity;
@@ -311,7 +314,7 @@ export const createLessonVisualWorkflows = <
   } = createLessonVisualWorkflowSchemas(visualContract);
   const { ArtifactReviewDecisionSchema, ArtifactReviewStateSchema, EmbeddedImageInputSchema } =
     createArtifactWorkflowSchemas(LessonVisualWorkflowInputSchema);
-  const supportsScenes = visualContract === CurrentLessonVisualContractSchemas;
+  const supportsScenes = visualContract.supportsScenes;
 
   const renderRaster = step<
     typeof LessonVisualWorkflowInputSchema,
@@ -528,9 +531,10 @@ export const createLessonVisualWorkflows = <
     inputSchema: LessonVisualWorkflowInputSchema,
     outputSchema: LessonVisualWorkflowResultSchema,
     run: async ({ config, execution, input, retryFeedback, services, signal }) => {
-      const outcome = await services.generateScene(
-        visualServiceInput(config, input, signal, retryFeedback)
-      );
+      const outcome = await services.generateScene({
+        ...visualServiceInput(config, input, signal, retryFeedback),
+        allowedSceneTypes: visualContract.sceneTypes,
+      });
       if (outcome.kind === 'invalid') {
         throw retryCorrective({
           code: 'lesson_visual_generation_incomplete',

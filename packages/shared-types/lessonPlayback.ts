@@ -2,7 +2,7 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
-import type { LessonScene } from './lessonScene';
+import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
 import { getMarkdownMathRangeAt } from './markdownMathSyntax';
 import type { ProjectAssetRef } from './projectAsset';
 
@@ -33,6 +33,7 @@ export interface PlaybackMotionEvent {
 
 /** Stable scene element IDs shared by preparation and the playback renderer. */
 export const motionTargets = (scene: LessonScene): { id: string; label: string }[] => {
+  if (isAnimatedLessonScene(scene)) return [];
   if (scene.type === 'matrix') {
     return (scene.criteria ?? scene.groups[0]?.items ?? []).map((label, index) => ({
       id: `row:${index}`,

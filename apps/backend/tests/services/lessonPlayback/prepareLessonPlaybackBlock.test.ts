@@ -3,7 +3,7 @@ import type {
   PlaybackMotionEvent,
   PlaybackVisual,
 } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { beforeEach, expect, test, vi } from 'vitest';
 
@@ -31,6 +31,7 @@ import { prepareLessonPlaybackBlock } from '../../../src/services/lessonPlayback
 import { MAX_TTS_TEXT_CHARS } from '../../../src/services/ttsClient.js';
 import { toStepFailure } from '../../../src/workflows/retryPolicy.js';
 import type { WorkflowProviderEffectExecutor } from '../../../src/workflows/types.js';
+import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
 
 const scene: LessonScene = {
   type: 'parts',
@@ -84,6 +85,37 @@ beforeEach(() => {
   audio.mockResolvedValue(preparedAudio);
   sceneGeneration.mockResolvedValue({ kind: 'scene', scene });
   motion.mockResolvedValue(events);
+});
+
+test.each([
+  proportionalScene,
+  guidedPathScene,
+])('prepares $type without planning motion events', async animated => {
+  const request = input([{ kind: 'scene', scene: animated }]);
+  expect(await prepareLessonPlaybackBlock(request)).toEqual({
+    prepared: { scene: animated, motion: [] },
+    audio: preparedAudio,
+  });
+  expect(motion).not.toHaveBeenCalled();
+  const stored = { ...storedScene, render: { kind: 'scene' as const, scene: animated } };
+  const recorded = new Map<string, unknown>();
+  const providerEffect: WorkflowProviderEffectExecutor = {
+    run: async ({ key, operation, outputSchema }) => {
+      if (!recorded.has(key)) recorded.set(key, await operation());
+      return outputSchema.parse(recorded.get(key));
+    },
+  };
+  expect(
+    await prepareLessonPlaybackBlock({
+      ...input([{ kind: 'generated-visual', visualId: stored.id }], [stored]),
+      providerEffect,
+    })
+  ).toMatchObject({ prepared: { scene: animated, motion: [] } });
+  sceneGeneration.mockResolvedValueOnce({ kind: 'scene', scene: animated });
+  expect(await prepareLessonPlaybackBlock(input())).toMatchObject({
+    prepared: { scene: animated, motion: [] },
+  });
+  expect(motion).not.toHaveBeenCalled();
 });
 
 test('resumes recorded scene and motion after an audio failure without repeating their providers', async () => {
@@ -313,4 +345,40 @@ test('propagates cancellation before preparation', async () => {
   ).rejects.toThrow();
   expect(sceneGeneration).not.toHaveBeenCalled();
   expect(audio).not.toHaveBeenCalled();
+});
+
+test.each([
+  'inline',
+  'stored',
+  'prepared',
+  'multiple',
+])('rejects %s animated scenes in a resumed static contract before provider work', async location => {
+  const stored = { ...storedScene, render: { kind: 'scene' as const, scene: guidedPathScene } };
+  const request = input(
+    location === 'stored'
+      ? [{ kind: 'generated-visual', visualId: stored.id }]
+      : location === 'prepared'
+        ? []
+        : [
+            { kind: 'scene', scene: guidedPathScene },
+            ...(location === 'multiple' ? [{ kind: 'scene' as const, scene }] : []),
+          ],
+    [stored]
+  );
+  const run = vi.fn();
+  await expect(
+    prepareLessonPlaybackBlock({
+      ...request,
+      allowedSceneTypes: STATIC_LESSON_SCENE_TYPES,
+      providerEffect: { run },
+      block: {
+        ...request.block,
+        ...(location === 'prepared' ? { prepared: { scene: guidedPathScene, motion: [] } } : {}),
+      },
+    })
+  ).rejects.toMatchObject({ failure: { code: 'lesson_playback_scene_invalid' } });
+  expect(run).not.toHaveBeenCalled();
+  expect(audio).not.toHaveBeenCalled();
+  expect(sceneGeneration).not.toHaveBeenCalled();
+  expect(motion).not.toHaveBeenCalled();
 });

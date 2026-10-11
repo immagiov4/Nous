@@ -1,11 +1,20 @@
-import type { LessonPlaybackBlock, PlaybackRange } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
-import { Fragment, type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import type { LessonPlaybackBlock, PlaybackRange, PlaybackVisual } from '@shared/lessonPlayback';
+import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import {
+  Fragment,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { StoredLessonVisual } from '../../../types.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { getStoredLessonVisualScene } from '../../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
+import type { ReadSceneAnimationFrame } from '../../shared/lessonScene/AnimatedScene.tsx';
 import { LessonSceneVisual } from '../../shared/lessonScene/LessonSceneVisual.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { WorkspaceReaderContentModel } from '../shell/types.ts';
@@ -22,8 +31,11 @@ import {
 } from './captionFormat.ts';
 import {
   type CaptionRun,
+  captionAnchorSpan,
+  captionAnchorTimes,
   captionMotionEvents,
   motionStates,
+  sceneCaptionAnchors,
   sceneElements,
   type TimedMotionEvent,
 } from './stageMotion.ts';
@@ -35,7 +47,7 @@ interface CaptionClock {
   feather: number;
   bodyDuration: number;
   speechRanges: PlaybackRange[];
-  read: () => { bodyTime: number; revealTime: number };
+  read: () => { blockTime: number; bodyTime: number; revealTime: number };
 }
 
 function hasMissingMotionTargets(
@@ -75,6 +87,7 @@ function PlaybackScene({
   speed,
   animate,
   isDarkMode,
+  interval,
 }: Readonly<{
   scene: LessonScene;
   block: LessonPlaybackBlock;
@@ -82,10 +95,47 @@ function PlaybackScene({
   speed: number;
   animate: boolean;
   isDarkMode: boolean;
+  interval: { start: number; duration: number };
 }>) {
   const host = useRef<HTMLDivElement>(null);
+  const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
+    if (!isAnimatedLessonScene(scene)) return undefined;
+    const anchors = sceneCaptionAnchors(scene, block.speech);
+    let previousClock: CaptionClock | null = null;
+    let times: number[] | undefined;
+    return () => {
+      const current = clock.current;
+      if (!current?.bodyDuration) return undefined;
+      if (anchors && !current.width) return undefined;
+      if (current !== previousClock) {
+        times = anchors
+          ? captionAnchorTimes({
+              anchors,
+              speech: block.speech,
+              speechRanges: current.speechRanges,
+              runs: current.runs,
+              width: current.width,
+              feather: current.feather,
+              duration: current.bodyDuration,
+            })
+          : undefined;
+        previousClock = current;
+      }
+      const { blockTime, revealTime } = current.read();
+      return anchors
+        ? {
+            elapsedMs: Math.max(0, revealTime * 1000),
+            durationMs: current.bodyDuration * 1000,
+            cueTimes: times,
+          }
+        : {
+            elapsedMs: (blockTime - interval.start) * 1000,
+            durationMs: interval.duration * 1000,
+          };
+    };
+  }, [scene, block.speech, clock, interval.start, interval.duration]);
   useEffect(() => {
-    if (!block.prepared?.motion.length) return;
+    if (isAnimatedLessonScene(scene) || !block.prepared?.motion.length) return;
     const element = host.current;
     if (!element) throw new Error('Playback scene must be mounted');
     let elements = sceneElements(element, scene);
@@ -157,7 +207,12 @@ function PlaybackScene({
   }, [animate, block.prepared?.motion, block.speech, clock, scene, speed]);
   return (
     <div ref={host}>
-      <LessonSceneVisual scene={scene} isDarkMode={isDarkMode} variant="bare" />
+      <LessonSceneVisual
+        scene={scene}
+        isDarkMode={isDarkMode}
+        variant="bare"
+        readAnimationFrame={readAnimationFrame}
+      />
     </div>
   );
 }
@@ -173,6 +228,7 @@ function PlaybackStoredVisual({
   clock: RefObject<CaptionClock | null>;
   speed: number;
   animate: boolean;
+  interval: { start: number; duration: number };
 }>) {
   const scene = getStoredLessonVisualScene(visual);
   return scene ? (
@@ -185,6 +241,43 @@ function PlaybackStoredVisual({
       projectId={content.projectId}
       isDarkMode={content.isDarkMode}
     />
+  );
+}
+
+function PlaybackVisualContent({
+  visual,
+  content,
+  ...props
+}: Readonly<{
+  visual: PlaybackVisual;
+  content: WorkspaceReaderContentModel;
+  block: LessonPlaybackBlock;
+  clock: RefObject<CaptionClock | null>;
+  speed: number;
+  animate: boolean;
+  interval: { start: number; duration: number };
+}>) {
+  const stored =
+    visual.kind === 'generated-visual'
+      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+      : undefined;
+  return (
+    <div>
+      {visual.kind === 'scene' ? (
+        <PlaybackScene {...props} scene={visual.scene} isDarkMode={content.isDarkMode} />
+      ) : null}
+      {visual.kind === 'markdown' ? (
+        <MarkdownRenderer
+          content={visual.markdown}
+          isDarkMode={content.isDarkMode}
+          projectId={content.projectId}
+          lessonAssetsById={content.activeSectionAssetsById}
+          lessonImageRefsById={content.activeSectionImageRefsById}
+          generatedVisualsById={content.activeSectionGeneratedVisualsById}
+        />
+      ) : null}
+      {stored ? <PlaybackStoredVisual {...props} visual={stored} content={content} /> : null}
+    </div>
   );
 }
 
@@ -259,7 +352,13 @@ export default function LessonPlaybackStage({
     observer.observe(captionSection);
     // A replacement or asynchronous diagram can change overflow without resizing the card.
     const mutations = new MutationObserver(fitScene);
-    mutations.observe(card, { childList: true, characterData: true, subtree: true });
+    mutations.observe(card, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['hidden'],
+    });
     fitScene();
     return () => {
       observer.disconnect();
@@ -309,7 +408,11 @@ export default function LessonPlaybackStage({
           const elapsed = read ? read() : fallbackTime;
           const bodyTime = elapsed - duration * headingShare;
           const ahead = bodyTime + captionLookAhead(elapsed, rate, CAPTION_TIMING.lookAheadSeconds);
-          return { bodyTime, revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead };
+          return {
+            blockTime: elapsed,
+            bodyTime,
+            revealTime: motion ? pacedCaptionTime(ahead, pauses) : ahead,
+          };
         },
       };
       paragraph.scrollTop = 0;
@@ -360,21 +463,88 @@ export default function LessonPlaybackStage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const preparedVisuals = block.prepared?.scene
-    ? [{ kind: 'scene' as const, scene: block.prepared.scene }]
-    : [];
-  const visuals = block.visuals.length ? block.visuals : preparedVisuals;
-  const visualIndex = Math.min(
-    visuals.length - 1,
-    duration > 0 ? Math.floor((time / duration) * visuals.length) : 0
+  const visuals = useMemo(() => {
+    if (block.visuals.length) return block.visuals;
+    if (block.prepared?.scene) return [{ kind: 'scene' as const, scene: block.prepared.scene }];
+    return [];
+  }, [block]);
+  const [selection, setSelection] = useState<{
+    visuals: readonly PlaybackVisual[];
+    index: number;
+  } | null>(null);
+  const anchors = useMemo(
+    () =>
+      visuals.map(visual => {
+        const stored =
+          visual.kind === 'generated-visual'
+            ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+            : undefined;
+        const scene =
+          visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+        return visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined;
+      }),
+    [visuals, content.activeSectionGeneratedVisualsById, block.speech]
   );
+  useEffect(() => {
+    if (!visuals.length) return;
+    let previousClock: CaptionClock | null = null;
+    let previousActive: number | undefined;
+    let spans: (ReturnType<typeof captionAnchorSpan> | undefined)[] = [];
+    let frame = 0;
+    const tick = () => {
+      const current = clock.current;
+      if (current && (current.width || !anchors.some(Boolean))) {
+        if (current !== previousClock) {
+          spans = anchors.map(quotation =>
+            quotation
+              ? captionAnchorSpan({
+                  anchors: quotation,
+                  speech: block.speech,
+                  speechRanges: current.speechRanges,
+                  runs: current.runs,
+                  width: current.width,
+                  feather: current.feather,
+                  duration: current.bodyDuration,
+                })
+              : undefined
+          );
+          previousClock = current;
+        }
+        const { blockTime, revealTime } = current.read();
+        const captionOffset = Math.max(0, revealTime) - blockTime;
+        let active = -1;
+        let latestStart = Number.NEGATIVE_INFINITY;
+        spans.forEach((span, index) => {
+          const start = span
+            ? span.startMs / 1000 - captionOffset
+            : (duration * index) / visuals.length;
+          // A later start replaces the earlier scene permanently, even if it ends first.
+          if (start <= blockTime && start >= latestStart) {
+            latestStart = start;
+            const end = span
+              ? span.endMs / 1000 - captionOffset
+              : (duration * (index + 1)) / visuals.length;
+            active = blockTime <= end ? index : -1;
+          }
+        });
+        if (active !== previousActive) {
+          previousActive = active;
+          setSelection({ visuals, index: active });
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(frame);
+  }, [anchors, block, duration, visuals]);
+  const visualIndex = selection?.visuals === visuals ? selection.index : -1;
   const visual = visuals[visualIndex];
-  const visualKey = `${block.id}:${visualIndex}`;
-  const stored =
-    visual?.kind === 'generated-visual'
-      ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
-      : undefined;
-  const sceneProps = { block, clock, speed, animate };
+  const sceneProps = {
+    block,
+    clock,
+    speed,
+    animate,
+  };
   return (
     <div className="lesson-player-stage">
       <section className="listening-stage">
@@ -406,29 +576,15 @@ export default function LessonPlaybackStage({
             className="scene-host"
             aria-label={t('Visualizzazione della lezione')}
           >
-            {visual?.kind === 'scene' ? (
-              <PlaybackScene
-                key={visualKey}
+            {visual ? (
+              <PlaybackVisualContent
+                key={`${block.id}:${visualIndex}`}
                 {...sceneProps}
-                scene={visual.scene}
-                isDarkMode={content.isDarkMode}
-              />
-            ) : null}
-            {visual?.kind === 'markdown' ? (
-              <MarkdownRenderer
-                content={visual.markdown}
-                isDarkMode={content.isDarkMode}
-                projectId={content.projectId}
-                lessonAssetsById={content.activeSectionAssetsById}
-                lessonImageRefsById={content.activeSectionImageRefsById}
-                generatedVisualsById={content.activeSectionGeneratedVisualsById}
-              />
-            ) : null}
-            {stored ? (
-              <PlaybackStoredVisual
-                key={visualKey}
-                {...sceneProps}
-                visual={stored}
+                interval={{
+                  start: (duration * visualIndex) / visuals.length,
+                  duration: duration / visuals.length,
+                }}
+                visual={visual}
                 content={content}
               />
             ) : null}

@@ -1,5 +1,6 @@
 import type { PlaybackMotionEvent, PlaybackRange } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
 
 export const MOTION_TIMING = { transitionMs: 420, stepMs: 2400, holdMs: 1600, maxFocusMs: 4000 };
 const REVEAL_DURATION_MS = 700;
@@ -24,6 +25,67 @@ export interface TimedMotionEvent extends PlaybackMotionEvent {
   durationMs: number;
 }
 
+/** Visibility and animation must make the same all-or-nothing synchronization decision. */
+export function sceneCaptionAnchors(
+  scene: LessonScene | null | undefined,
+  speech: string
+): string[] | undefined {
+  if (!scene || !isAnimatedLessonScene(scene) || playbackMode(scene) !== 'text') return undefined;
+  const cues = scene.type === 'guided-path' ? scene.steps : (scene.cues ?? []);
+  try {
+    cueTimes(speech, cues);
+  } catch {
+    return undefined;
+  }
+  return cues.map(cue => cue.anchor as string);
+}
+
+/** Resolves exact anchors on the caption clock, including anchors in the spoken heading. */
+export function captionAnchorTimes({
+  anchors,
+  speech,
+  speechRanges,
+  runs,
+  width,
+  feather,
+  duration,
+}: {
+  anchors: readonly string[];
+  speech: string;
+  speechRanges: readonly PlaybackRange[];
+  runs: readonly CaptionRun[];
+  width: number;
+  feather: number;
+  duration: number;
+}): number[] {
+  return anchors.map(anchor => {
+    const offset = speech.indexOf(anchor);
+    if (offset < 0) throw new Error('Caption quotation must exist in speech');
+    const first = runs[speechRanges.findIndex(word => word.end > offset)];
+    if (!first) throw new Error('Caption quotation must cover caption words');
+    return (first.start / (width + feather)) * duration * 1000;
+  });
+}
+
+/** The complete quoted span, on the same measured clock as the caption reveal and scene cues. */
+export function captionAnchorSpan(input: Parameters<typeof captionAnchorTimes>[0]) {
+  const times = captionAnchorTimes(input);
+  const endOffset = Math.max(
+    ...input.anchors.map(anchor => input.speech.indexOf(anchor) + anchor.length)
+  );
+  const lastIndex = input.speechRanges.reduce(
+    (last, word, index) => (word.start < endOffset ? index : last),
+    0
+  );
+  // A heading quotation precedes the body; like motion cues, project it onto the first word.
+  const last = input.runs[lastIndex];
+  if (!last) throw new Error('Caption quotation must cover caption words');
+  return {
+    startMs: Math.min(...times),
+    endMs: ((last.start + last.width) / (input.width + input.feather)) * input.duration * 1000,
+  };
+}
+
 /** The API stores quotations; resolve them to the same word-width clock as listen.mjs. */
 export function captionMotionEvents({
   events,
@@ -42,7 +104,16 @@ export function captionMotionEvents({
   feather: number;
   duration: number;
 }): TimedMotionEvent[] {
-  const timed = events.map(event => {
+  const times = captionAnchorTimes({
+    anchors: events.map(event => event.quote),
+    speech,
+    speechRanges,
+    runs,
+    width,
+    feather,
+    duration,
+  });
+  const timed = events.map((event, index) => {
     const offset = speech.indexOf(event.quote);
     if (offset < 0) throw new Error('Motion quotation must exist in speech');
     // Headings precede the body clock: project their anchors onto its zero boundary.
@@ -54,7 +125,7 @@ export function captionMotionEvents({
     const first = runs[firstIndex];
     const last = runs[endIndex];
     if (!first || !last) throw new Error('Motion quotation must cover caption words');
-    const atMs = (first.start / (width + feather)) * duration * 1000;
+    const atMs = times[index];
     const durationMs =
       event.effect === 'reveal'
         ? REVEAL_DURATION_MS

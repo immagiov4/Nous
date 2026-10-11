@@ -1,6 +1,10 @@
 import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
-import { LessonSceneSchema, ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
+import {
+  LessonSceneSchema,
+  PreAnimatedLessonSceneSchema,
+  ProjectAssetRefSchema,
+} from '@shared/lessonPlaybackSchema';
 
 export { ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
 
@@ -224,9 +228,11 @@ const GeneratedVisualResultBlockSchema = z.object({
 const createLessonVisualContractSchemas = ({
   includeScene,
   visualTypes,
+  sceneSchema = LessonSceneSchema,
 }: {
   includeScene: boolean;
   visualTypes: readonly [string, ...string[]];
+  sceneSchema?: typeof LessonSceneSchema | typeof PreAnimatedLessonSceneSchema;
 }) => {
   const LessonVisualPlanSchema = z.object({
     altText: z.string(),
@@ -280,7 +286,7 @@ const createLessonVisualContractSchemas = ({
     z.object({ code: LessonIdentifierSchema, kind: z.literal('svg') }),
     z.object({ code: LessonIdentifierSchema, kind: z.literal('mermaid') }),
   ] as const;
-  const sceneProjectVisualMember = z.object({ kind: z.literal('scene'), scene: LessonSceneSchema });
+  const sceneProjectVisualMember = z.object({ kind: z.literal('scene'), scene: sceneSchema });
   const ProjectVisualSchema = includeScene
     ? z.union([...legacyProjectVisualMembers, sceneProjectVisualMember])
     : (z.union(legacyProjectVisualMembers) as unknown as z.ZodUnion<
@@ -349,6 +355,8 @@ const createLessonVisualContractSchemas = ({
     PreviousLessonResultBlockSchema,
     ProjectLessonVisualSchema,
     ProjectVisualSchema,
+    sceneTypes: sceneSchema.shape.type.options,
+    supportsScenes: includeScene,
   };
 };
 
@@ -411,6 +419,13 @@ export const toLegacyLessonVisualTypes = <T>(value: T): T => {
 export const CurrentLessonVisualContractSchemas = createLessonVisualContractSchemas({
   includeScene: true,
   visualTypes: LESSON_VISUAL_TYPES,
+});
+
+/** Retains the definition fingerprints deployed on the lesson playback stack. */
+export const PreAnimatedLessonVisualContractSchemas = createLessonVisualContractSchemas({
+  includeScene: true,
+  visualTypes: LESSON_VISUAL_TYPES,
+  sceneSchema: PreAnimatedLessonSceneSchema,
 });
 
 export const {

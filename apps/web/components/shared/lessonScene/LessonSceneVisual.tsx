@@ -1,5 +1,6 @@
 import {
   hasConflictingLessonSceneClosingText,
+  isAnimatedLessonScene,
   LESSON_SCENE_DIAGRAM_TYPES,
   LESSON_SCENE_NUMERIC_TYPES,
   LESSON_SCENE_RELATION_SYMBOLS,
@@ -10,6 +11,7 @@ import {
 import { Fragment, useContext } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { AnimatedScene, type ReadSceneAnimationFrame } from './AnimatedScene.tsx';
 import { SceneChart } from './SceneChart.tsx';
 import { SceneDiagram } from './SceneDiagram.tsx';
 import { SceneIcon, SceneIconProvider, ScenePrototypeContext } from './SceneIcon.tsx';
@@ -392,28 +394,36 @@ export const LessonSceneVisual = ({
   className = '',
   isDarkMode = false,
   scene,
+  readAnimationFrame,
   variant = 'card',
 }: {
   readonly className?: string;
   readonly isDarkMode?: boolean;
   readonly scene: LessonScene;
+  readonly readAnimationFrame?: ReadSceneAnimationFrame;
   readonly variant?: 'card' | 'bare';
 }) => (
   <figure
-    className={`lesson-scene ${variant === 'bare' ? 'lesson-scene-bare' : ''} ${className}`}
+    className={`lesson-scene ${variant === 'bare' ? 'lesson-scene-bare' : ''} ${isAnimatedLessonScene(scene) ? 'lesson-scene-animated' : ''} ${className}`}
     data-nous-speech="ignore"
   >
-    <SceneIconProvider prototype={variant === 'bare'}>
-      <article className={`scene type-${scene.type}`}>
+    <SceneIconProvider prototype={variant === 'bare' || isAnimatedLessonScene(scene)}>
+      <article
+        className={`scene type-${scene.type}${isAnimatedLessonScene(scene) ? ' interaction-card' : ''}`}
+      >
         <header>
           <h2>{scene.title}</h2>
           {scene.body && scene.type !== 'quote' ? (
-            <p className="scene-intro">{scene.body}</p>
+            <p className={isAnimatedLessonScene(scene) ? undefined : 'scene-intro'}>{scene.body}</p>
           ) : null}
         </header>
-        <div className="visual-content">
-          <SceneContent isDarkMode={isDarkMode} scene={scene} />
-        </div>
+        {isAnimatedLessonScene(scene) ? (
+          <AnimatedScene scene={scene} readFrame={readAnimationFrame} />
+        ) : (
+          <div className="visual-content">
+            <SceneContent isDarkMode={isDarkMode} scene={scene} />
+          </div>
+        )}
         {/* The reader omits conflicting closing text; the player follows the laboratory scene. */}
         {scene.quote.trim() &&
         scene.type !== 'quote' &&

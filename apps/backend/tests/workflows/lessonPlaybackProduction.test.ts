@@ -1,16 +1,23 @@
-import type { LessonScene } from '@shared/lessonScene';
+import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { prepare } = vi.hoisted(() => ({ prepare: vi.fn() }));
-vi.mock('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js', () => ({
-  prepareLessonPlaybackBlock: prepare,
-}));
+vi.mock(
+  '../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js',
+  async importOriginal => ({
+    ...(await importOriginal<
+      typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
+    >()),
+    prepareLessonPlaybackBlock: prepare,
+  })
+);
 vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/config/modelConfig.js')>()),
   getResolvedGlobalModelConfig: async () => ({}),
 }));
 
 import { createProductionLessonPlaybackServices } from '../../src/workflows/lessonPlaybackProduction.js';
+import { guidedPathScene } from '../helpers/animatedLessonScenes';
 import {
   playbackAsset,
   playbackProject,
@@ -126,6 +133,34 @@ test.each([
   await expect(
     services.preparePlayback({ ...context, input: { ...context.input, [field]: 'stale' } })
   ).rejects.toThrow();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test.each([
+  'ready',
+  'new-voice',
+])('rejects incompatible saved scenes on the %s path before provider or asset work', async state => {
+  const { section, assets, services, context } = setup();
+  const playback = preparedPlayback(section);
+  section.playback = {
+    ...playback,
+    blocks: playback.blocks.map(block => ({
+      ...block,
+      prepared: { scene: guidedPathScene, motion: [] },
+    })),
+  };
+  await expect(
+    services.preparePlayback(
+      {
+        ...context,
+        input: { ...context.input, ...(state === 'new-voice' ? { voice: 'Puck' } : {}) },
+      },
+      STATIC_LESSON_SCENE_TYPES
+    )
+  ).rejects.toMatchObject({
+    failure: { code: 'lesson_playback_scene_invalid' },
+  });
   expect(prepare).not.toHaveBeenCalled();
   expect(assets.stage).not.toHaveBeenCalled();
 });

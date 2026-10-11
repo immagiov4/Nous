@@ -1,4 +1,5 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
@@ -13,9 +14,16 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
   chooseLessonSceneIcons: chooseIconsMock,
 }));
 
+import * as z from 'zod';
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
+import {
+  guidedPathScene,
+  proportionalScene as prototypeProportionalScene,
+} from '../../helpers/animatedLessonScenes';
+
+const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
 
@@ -45,6 +53,112 @@ const quoteDraft = (quote: string) => ({
   relation: null,
   title: 'Fonti',
   type: 'quote',
+});
+
+test('generation honors the catalog admitted by a resumed static-scene workflow', async () => {
+  const speech = proportionalScene.body;
+  const draft = { ...quoteDraft(''), ...proportionalScene, intent: 'Contare.', evidence: speech };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  const input = { ...unplannedInput(speech), allowedSceneTypes: STATIC_LESSON_SCENE_TYPES };
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+  const request = generateStructuredOutputMock.mock.calls[0][0];
+  const schema = z.fromJSONSchema(request.output.schema);
+  expect(schema.safeParse(draft).success).toBe(false);
+  const staticDraft = { ...quoteDraft(speech), evidence: speech, intent: 'Leggere.' };
+  expect(schema.safeParse(staticDraft).success).toBe(true);
+  generateStructuredOutputMock.mockResolvedValueOnce(staticDraft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'quote' },
+  });
+});
+
+test.each([
+  proportionalScene,
+  guidedPathScene,
+])('generates $type through the advertised data schema', async scene => {
+  const speech =
+    scene.narration ?? `${scene.body} Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.`;
+  const { items: _items, groups: _groups, ...data } = scene;
+  const draft = {
+    ...quoteDraft(''),
+    ...data,
+    intent: 'Seguire la visualizzazione.',
+    evidence: speech,
+    items: [],
+    groups: [],
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(speech))).toEqual({ kind: 'scene', scene });
+  const request = generateStructuredOutputMock.mock.calls[0][0];
+  const schema = z.fromJSONSchema(request.output.schema);
+  expect(schema.safeParse(draft).success).toBe(true);
+  expect(schema.safeParse({ ...draft, formula: 'quantity * amountPerUnit' }).success).toBe(false);
+  expect(chooseIconsMock.mock.calls[0][0].entries).toEqual([]);
+});
+
+test.each([
+  proportionalScene,
+  guidedPathScene,
+])('rejects disabled autoplay in generated $type scenes', async scene => {
+  const speech = scene.narration ?? 'Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.';
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    ...scene,
+    autoplay: false,
+    intent: 'Seguire.',
+    evidence: speech,
+  });
+  expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test('rejects invented per-unit amounts even with exact evidence', async () => {
+  const speech = 'Da 1 a 6 repliche, inizialmente 2, 128 MB ciascuna.';
+  generateStructuredOutputMock.mockResolvedValue({
+    ...quoteDraft(''),
+    ...proportionalScene,
+    amountPerUnit: 256,
+    intent: 'Contare.',
+    evidence: speech,
+  });
+  expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test.each([
+  1, 2, 8, 9,
+])('advertises and enforces the guided-path boundary for %i steps', async count => {
+  const speech = 'The path follows these steps.';
+  const draft = {
+    ...quoteDraft(''),
+    ...guidedPathScene,
+    narration: undefined,
+    evidence: speech,
+    intent: 'Follow.',
+    steps: Array.from({ length: count }, (_, index) => ({
+      label: `Step ${index}`,
+      detail: `Detail ${index}`,
+    })),
+  };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  const result = await generateLessonScene(unplannedInput(speech));
+  const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
+  const valid = count >= 2 && count <= 8;
+  expect(schema.safeParse(draft).success).toBe(valid);
+  expect(result.kind).toBe(valid ? 'scene' : 'invalid');
+});
+
+test('generates proportional quantities beyond the replica display limit', async () => {
+  const scene = { ...proportionalScene, max: 1000000 };
+  const speech = '1 to 1000000 units, initially 2, each requiring 128 MB.';
+  const draft = { ...quoteDraft(''), ...scene, evidence: speech, intent: 'Count.' };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(unplannedInput(speech))).toEqual({ kind: 'scene', scene });
+  expect(
+    z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema).safeParse(draft)
+      .success
+  ).toBe(true);
 });
 
 test('generates a validated scene from speech without a visual plan', async () => {
@@ -227,4 +341,32 @@ test('reports an unparsable answer as a contract problem', async () => {
     kind: 'invalid',
     problems: ['The answer must follow the requested JSON structure.'],
   });
+});
+
+test.each([
+  proportionalScene,
+  guidedPathScene,
+])('rejects model-authored durations for $type', async scene => {
+  const speech = scene.narration ?? '1 2 6 128';
+  const draft = { ...quoteDraft(''), ...scene, evidence: speech, durationMs: 3600000 };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
+  expect(schema.safeParse(draft).success).toBe(false);
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test('generation requires supplied narration to preserve source grounding and all stored anchors', async () => {
+  const speech = guidedPathScene.narration as string;
+  const draft = { ...quoteDraft(''), ...guidedPathScene, evidence: speech };
+  for (const narration of [speech.split('.')[0], speech.replace('l’API', 'il controllo')]) {
+    generateStructuredOutputMock.mockResolvedValue({ ...draft, narration });
+    expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  }
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  const result = await generateLessonScene(unplannedInput(speech));
+  expect(result.kind).toBe('scene');
+  if (result.kind !== 'scene') throw new Error('Expected a generated scene');
+  expect(isLessonScene(result.scene)).toBe(true);
 });

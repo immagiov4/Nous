@@ -5,7 +5,7 @@ import {
   PlaybackAudioSchema,
   PlaybackPreparedSchema,
 } from '@shared/lessonPlaybackSchema';
-import type { LessonScene } from '@shared/lessonScene';
+import { isAnimatedLessonScene, type LessonScene, type LessonSceneType } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
@@ -21,6 +21,7 @@ import {
 import { MAX_PLAYBACK_PREPARATION_ATTEMPTS, planPlaybackMotion } from './playbackMotion.js';
 
 interface PrepareLessonPlaybackBlockInput {
+  readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
   readonly block: LessonPlaybackBlock;
@@ -39,25 +40,42 @@ export interface PreparedLessonPlaybackBlock {
   readonly audio: PreparedPlaybackAudio;
 }
 
-const existingScene = ({
+const existingScenes = ({
   block,
   lesson,
-}: PrepareLessonPlaybackBlockInput): LessonScene | undefined => {
-  const scenes = block.visuals.flatMap(visual => {
+}: Pick<PrepareLessonPlaybackBlockInput, 'block' | 'lesson'>): LessonScene[] =>
+  block.visuals.flatMap(visual => {
     if (visual.kind === 'scene') return [visual.scene];
     if (visual.kind !== 'generated-visual') return [];
     const render = lesson.generatedVisuals?.find(stored => stored.id === visual.visualId)?.render;
     return render?.kind === 'scene' ? [render.scene] : [];
   });
-  // Motion events carry no scene id, so a block with several scenes shows them without motion.
-  return scenes.length === 1 ? scenes[0] : undefined;
+
+/** Check persisted scenes against the resumed catalog before starting provider or asset work. */
+export const validatePlaybackSceneTypes = (
+  input: Pick<PrepareLessonPlaybackBlockInput, 'block' | 'lesson' | 'allowedSceneTypes'>
+): void => {
+  const { allowedSceneTypes } = input;
+  if (!allowedSceneTypes) return;
+  const scenes = existingScenes(input);
+  if (input.block.prepared?.scene) scenes.push(input.block.prepared.scene);
+  if (scenes.some(scene => !allowedSceneTypes.includes(scene.type))) {
+    throw failPermanently({
+      code: 'lesson_playback_scene_invalid',
+      message: 'A stored playback scene is outside the resumed visual contract.',
+    });
+  }
 };
 
 const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput
 ): Promise<LessonScene | undefined> => {
   const { block, lesson, config, signal } = input;
-  if (block.visuals.length) return existingScene(input);
+  if (block.visuals.length) {
+    const scenes = existingScenes(input);
+    // Motion events carry no scene id, so a block with several scenes shows them without motion.
+    return scenes.length === 1 ? scenes[0] : undefined;
+  }
   // A prepared block must cover its complete speech, not silently inherit the lesson excerpt cut.
   if (block.speech.length > MAX_VISUAL_LESSON_CHARS) {
     throw new Error('Playback block speech exceeds the scene generation text limit.');
@@ -66,6 +84,7 @@ const prepareScene = async (
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
     signal.throwIfAborted();
     const outcome = await generateLessonScene({
+      allowedSceneTypes: input.allowedSceneTypes,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown: block.speech,
       retryFeedback,
@@ -90,6 +109,7 @@ export const prepareLessonPlaybackBlock = async (
   const { signal } = input;
   signal.throwIfAborted();
   validatePlaybackText(input.block.speech);
+  validatePlaybackSceneTypes(input);
   // Audio does not depend on the scene, so both are prepared at the same time. Both settle
   // before a failure propagates, so a retry never overlaps paid work still in flight.
   const [visuals, audio] = await Promise.allSettled([prepareVisuals(input), prepareAudio(input)]);
@@ -115,7 +135,9 @@ const prepareVisuals = async (
         ).scene
       : await prepareScene(input);
     const planMotion = async () =>
-      scene ? await planPlaybackMotion({ scene, speech: block.speech, config, signal }) : [];
+      scene && !isAnimatedLessonScene(scene)
+        ? await planPlaybackMotion({ scene, speech: block.speech, config, signal })
+        : [];
     const motion = input.providerEffect
       ? await input.providerEffect.run({
           key: 'motion',

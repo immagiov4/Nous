@@ -1,4 +1,8 @@
-import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
+import {
+  LessonPlaybackBlockSchema,
+  type PreAnimatedLessonPlaybackBlockSchema,
+} from '@shared/lessonPlaybackSchema';
+import type { LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 
 import { WorkflowExecutionDefaultsSchema } from './config.js';
@@ -39,7 +43,8 @@ export interface LessonPlaybackServices {
       LessonPlaybackInput,
       WorkflowExecutionDefaults,
       LessonPlaybackServices
-    >
+    >,
+    allowedSceneTypes?: readonly LessonSceneType[]
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -51,28 +56,35 @@ export interface LessonPlaybackServices {
   ) => Promise<void>;
 }
 
-export const createLessonPlaybackWorkflow = (executionDefaults: WorkflowExecutionDefaults) => {
+export const createLessonPlaybackWorkflow = (
+  executionDefaults: WorkflowExecutionDefaults,
+  blockSchema:
+    | typeof LessonPlaybackBlockSchema
+    | typeof PreAnimatedLessonPlaybackBlockSchema = LessonPlaybackBlockSchema
+) => {
+  const resultSchema = LessonPlaybackResultSchema.extend({ block: blockSchema });
+  const sceneTypes = blockSchema.shape.prepared.unwrap().shape.scene.unwrap().shape.type.options;
   const prepare = step<
     typeof LessonPlaybackInputSchema,
-    typeof LessonPlaybackResultSchema,
+    typeof resultSchema,
     WorkflowExecutionDefaults,
     LessonPlaybackServices
   >({
     id: 'prepare-block',
     externalEffect: 'provider-with-postprocessing',
     inputSchema: LessonPlaybackInputSchema,
-    outputSchema: LessonPlaybackResultSchema,
-    run: context => context.services.preparePlayback(context),
+    outputSchema: resultSchema,
+    run: context => context.services.preparePlayback(context, sceneTypes),
   });
   const persist = step<
-    typeof LessonPlaybackResultSchema,
-    typeof LessonPlaybackResultSchema,
+    typeof resultSchema,
+    typeof resultSchema,
     WorkflowExecutionDefaults,
     LessonPlaybackServices
   >({
     id: 'persist-block',
-    inputSchema: LessonPlaybackResultSchema,
-    outputSchema: LessonPlaybackResultSchema,
+    inputSchema: resultSchema,
+    outputSchema: resultSchema,
     run: async ({ input }) => input,
     commit: context => context.services.persistPlayback(context),
   });
@@ -82,7 +94,7 @@ export const createLessonPlaybackWorkflow = (executionDefaults: WorkflowExecutio
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults,
     inputSchema: LessonPlaybackInputSchema,
-    outputSchema: LessonPlaybackResultSchema,
+    outputSchema: resultSchema,
     events: {
       [LESSON_PROJECT_REVISION_EVENT]: {
         durability: 'durable',

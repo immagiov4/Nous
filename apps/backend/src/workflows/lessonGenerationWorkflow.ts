@@ -51,6 +51,7 @@ import {
   type LessonYouTubeSearchStateSchema,
   type LessonYouTubeState,
   type LessonYouTubeStateSchema,
+  PreAnimatedLessonGenerationDurableSchemaSet,
   PreviousEvidenceLessonGenerationDurableSchemaSet,
   PreviousLessonGenerationDurableSchemaSet,
   PreviousPreSceneLessonGenerationDurableSchemaSet,
@@ -921,6 +922,15 @@ export const createPreviousPreSceneLessonGenerationWorkflow = (
     executionDefaults,
     configSchema,
     PreviousPreSceneLessonGenerationDurableSchemaSet
+  );
+
+export const createPreAnimatedLessonGenerationWorkflow = (
+  executionDefaults: LessonGenerationWorkflowConfig
+) =>
+  createLessonGenerationWorkflowDefinition(
+    executionDefaults,
+    LessonGenerationWorkflowConfigSchema,
+    PreAnimatedLessonGenerationDurableSchemaSet
   );
 
 export const createPreviousResearchContractLessonGenerationWorkflow = <

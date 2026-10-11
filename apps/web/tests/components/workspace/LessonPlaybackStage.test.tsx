@@ -451,6 +451,56 @@ test('stored playback images have one asset resolver and release it on unmount',
   expect(release).toHaveBeenCalledOnce();
 });
 
+test('mounts only the selected generated HTML frame and releases it on replacement', () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  const sources = [{ type: 'markdown' as const, markdown: 'Una frase.' }];
+  const visuals = ['First', 'Second'].map(title => ({
+    id: title,
+    title,
+    createdAt: '2026-10-11T00:00:00.000Z',
+    kind: 'html' as const,
+    code: '<p>Content</p>',
+  }));
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    visuals: visuals.map(visual => ({ kind: 'generated-visual' as const, visualId: visual.id })),
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+    activeSectionGeneratedVisualsById: Object.fromEntries(
+      visuals.map(visual => [visual.id, visual])
+    ),
+  } as WorkspaceReaderContentModel;
+  const { container, rerender, unmount } = render(
+    <LessonPlaybackStage block={block} content={content} duration={8} time={0} />
+  );
+  const first = screen.getByTitle('First');
+  expect(container.querySelectorAll('iframe')).toHaveLength(1);
+  expect(screen.queryByTitle('Second')).toBeNull();
+  rerender(<LessonPlaybackStage block={block} content={content} duration={8} time={4} />);
+  act(() => {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach(callback => {
+      callback(0);
+    });
+  });
+  expect(container.querySelectorAll('iframe')).toHaveLength(1);
+  expect(screen.getByTitle('Second')).toBeInTheDocument();
+  expect(first.isConnected).toBe(false);
+  unmount();
+  expect(frames.size).toBe(0);
+});
+
 test.each([
   ['Il risultato di `2 ** 3` è otto.', ['Il', 'risultato', 'di', '2', '**', '3', 'è', 'otto.']],
   ['Usa ``a ` b`` qui.', ['Usa', 'a', '`', 'b', 'qui.']],

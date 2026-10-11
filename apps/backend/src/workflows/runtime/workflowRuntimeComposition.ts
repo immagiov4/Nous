@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { PreAnimatedLessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,
@@ -76,6 +77,7 @@ import {
 } from '../lessonGenerationStart.js';
 import {
   createLessonGenerationWorkflow,
+  createPreAnimatedLessonGenerationWorkflow,
   createPreviousEvidenceLessonGenerationWorkflow,
   createPreviousLessonGenerationWorkflow,
   createPreviousPreSceneLessonGenerationWorkflow,
@@ -83,7 +85,10 @@ import {
   createPreviousResearchContractLessonGenerationWorkflow,
   createPreviousRoutingLessonGenerationWorkflow,
 } from '../lessonGenerationWorkflow.js';
-import { LegacyLessonVisualContractSchemas } from '../lessonGenerationWorkflowSchemas.js';
+import {
+  LegacyLessonVisualContractSchemas,
+  PreAnimatedLessonVisualContractSchemas,
+} from '../lessonGenerationWorkflowSchemas.js';
 import {
   createLessonPlaybackApi,
   type LessonPlaybackApi,
@@ -353,6 +358,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: artifactDraftWorkflow,
     previous: [
+      createArtifactDraftWorkflow(visualExecutionDefaults, PreAnimatedLessonVisualContractSchemas),
       preSceneArtifactDraftWorkflow,
       preProviderPostprocessingPrevious(preSceneArtifactDraftWorkflow),
       preExternalEffectPrevious(preSceneArtifactDraftWorkflow),
@@ -362,6 +368,11 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: retryWorkflow,
     previous: [
+      createLessonVisualWorkflows(
+        visualExecutionDefaults,
+        undefined,
+        PreAnimatedLessonVisualContractSchemas
+      ).retry,
       preSceneRetryWorkflow,
       preProviderPostprocessingPrevious(preSceneRetryWorkflow),
       preExternalEffectPrevious(preSceneRetryWorkflow),
@@ -395,6 +406,7 @@ export const createProductionRegistry = (): WorkflowRegistry => {
   registry.register({
     current: lessonWorkflow,
     previous: [
+      createPreAnimatedLessonGenerationWorkflow(lessonWorkflow.executionDefaults),
       previousPreSceneLessonWorkflow,
       previousRoutingLessonWorkflow,
       previousQuizExplanationLessonWorkflow,
@@ -428,6 +440,15 @@ export const createProductionRegistry = (): WorkflowRegistry => {
       maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
       timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
     }),
+    previous: [
+      createLessonPlaybackWorkflow(
+        {
+          maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
+          timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
+        },
+        PreAnimatedLessonPlaybackBlockSchema
+      ),
+    ],
   });
   return registry;
 };

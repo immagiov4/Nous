@@ -70,8 +70,8 @@ describe('workflow runtime production composition', () => {
     ['lesson-generation', '3f0002141d9bc3a673f2d592a15608bdd64866c40f7a83e3ad5208a4c08b238a'],
     ['pdf-mapping-repair', '38ffd41d6e06e951d8831074be32dc1c188437242c796286ff5c58af3694e795'],
     ['retry-lesson-visual', 'e427c58809d1a2b3118ace1ec31591ac6ef36912b8814f7ff8c0e2121f780661'],
-  ])('keeps the existing %s definition hash', (workflowId, hash) => {
-    expect(productionRegistry.current(workflowId)?.definitionHash).toBe(hash);
+  ])('keeps resolving the existing %s definition hash', (workflowId, hash) => {
+    expect(productionRegistry.resolve(workflowId, hash)?.definitionHash).toBe(hash);
   });
 
   // Captured independently from f1ffb44 before diagnostic collection was added.
