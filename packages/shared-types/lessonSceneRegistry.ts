@@ -697,7 +697,7 @@ const PanelValidationSchema = CompositionDataSchema.shape.panels.element.extend(
   items: z
     .array(
       SceneDataSchema.shape.items.element.extend({
-        label: z.string().max(QUICK_SCENE_LIMITS.label),
+        label: quickText(QUICK_SCENE_LIMITS.label),
         detail: shortText,
         icon: iconSlot,
       })
@@ -707,6 +707,8 @@ const PanelValidationSchema = CompositionDataSchema.shape.panels.element.extend(
 });
 
 const CompositionValidationSchema = CompositionDataSchema.extend({
+  items: z.array(SceneDataSchema.shape.items.element).length(0),
+  groups: z.array(SceneDataSchema.shape.groups.element).length(0),
   title: quickText(QUICK_SCENE_LIMITS.title),
   note: shortText,
   panels: z.array(PanelValidationSchema).length(QUICK_SCENE_LIMITS.panels),
@@ -827,6 +829,43 @@ const findMatrixProblems = (scene: Record<string, unknown>): string[] => {
 
 type SceneValidator = (scene: Record<string, unknown>, source?: string) => string[];
 
+const findQuickNumberProblems: SceneValidator = (scene, source) => {
+  if (source === undefined) return [];
+  const items = scene.items as LessonSceneItem[];
+  let numbers: number[];
+  switch (scene.type) {
+    case 'radar':
+    case 'polar':
+      numbers = [...items.map(item => item.value as number), scene.max as number];
+      break;
+    case 'funnel':
+    case 'treemap':
+      numbers = items.map(item => item.value as number);
+      break;
+    case 'gantt':
+      numbers = items.flatMap(item => [item.start as number, item.end as number]);
+      break;
+    case 'scatter':
+      numbers = items.flatMap(item => [item.x as number, item.y as number]);
+      break;
+    case 'heatmap':
+      numbers = [
+        ...(scene.rows as { values: number[] }[]).flatMap(row => row.values),
+        scene.max as number,
+      ];
+      break;
+    case 'proportional-static':
+      numbers = [scene.quantity as number, scene.amountPerUnit as number];
+      break;
+    default:
+      return [];
+  }
+  const sourceNumbers = readSourceNumbers(source);
+  return numbers.every(number => sourceNumbers.has(number))
+    ? []
+    : ['Quantitative values must appear in the lesson.'];
+};
+
 interface SceneForm {
   description: string;
   schema: z.ZodObject;
@@ -849,9 +888,9 @@ const quickForm = <Fields extends z.ZodRawShape>(
     const blankField = ['unit', 'center', 'xLabel', 'yLabel'].some(
       field => Object.hasOwn(fields, field) && !(scene[field] as string).trim()
     );
-    return blankField
-      ? ['Static scene labels and units must be non-empty.']
-      : validate(scene, source);
+    if (blankField) return ['Static scene labels and units must be non-empty.'];
+    const problems = validate(scene, source);
+    return problems.length ? problems : findQuickNumberProblems(scene, source);
   },
   content: 'quick' as const,
 });

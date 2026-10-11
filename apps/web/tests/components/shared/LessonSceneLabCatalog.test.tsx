@@ -93,6 +93,15 @@ describe('lab catalog rendering', () => {
     ).toHaveLength(2);
   });
 
+  test('renders the exact decimal proportional total', () => {
+    const scene = { ...example('proportional-static'), quantity: 3, amountPerUnit: 0.1 };
+    const { container } = render(<LessonSceneVisual scene={scene} />);
+    expect(container.querySelector('.q-result strong')).toHaveTextContent(/0[.,]3 MB/);
+    expect(container.querySelector('.q-result strong')?.textContent).not.toContain(
+      '00000000000000004'
+    );
+  });
+
   test('escapes teaching text rather than executing it', () => {
     const scene = {
       ...example('process'),
@@ -104,5 +113,7 @@ describe('lab catalog rendering', () => {
     const { container } = render(<LessonSceneVisual scene={scene} />);
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('.q-box strong')).toHaveTextContent('<script>alert(1)</script>');
+    expect(container.querySelector('.q-box p')).toHaveTextContent('" onmouseover="bad');
+    expect(container.querySelector('[onmouseover]')).toBeNull();
   });
 });

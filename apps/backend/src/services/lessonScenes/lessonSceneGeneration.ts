@@ -300,7 +300,7 @@ const toScene = (draft: SceneDraft): LessonScene => ({
         .map(key => [key, item[key as keyof typeof item]])
     ),
   })),
-  ...(draft.iconQueries ? { icon: '' } : {}),
+  ...(draft.iconQueries && draft.center?.trim() ? { icon: '' } : {}),
   ...(draft.panels
     ? {
         panels: draft.panels.map(panel => ({
@@ -342,7 +342,7 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
         ]
       : []
   ),
-  ...(draft.iconQueries
+  ...(draft.iconQueries && draft.center?.trim()
     ? [
         {
           queries: draft.iconQueries,

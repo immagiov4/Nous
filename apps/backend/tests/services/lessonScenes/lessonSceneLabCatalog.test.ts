@@ -1,6 +1,7 @@
 import {
   findLessonSceneProblems,
   HistoricalLessonSceneSchemas,
+  type LessonScene,
   LessonSceneSchema,
 } from '@shared/lessonScene';
 import { describe, expect, test } from 'vitest';
@@ -11,13 +12,67 @@ import {
   LAB_QUICK_SCENES,
 } from '../../helpers/lessonSceneLabExamples';
 
-const example = (type: string) => {
+const example = (type: string): LessonScene => {
   const scene = LAB_QUICK_SCENES.find(scene => scene.type === type);
   if (!scene) throw new Error(`Missing lab example: ${type}`);
   return scene;
 };
 
 describe('settled lab scene catalog', () => {
+  test.each([
+    ['radar', 'value', 2],
+    ['radar', 'max', 6],
+    ['polar', 'value', 21],
+    ['polar', 'max', 101],
+    ['funnel', 'value', 101],
+    ['treemap', 'value', 513],
+    ['gantt', 'start', -1],
+    ['gantt', 'end', 2],
+    ['scatter', 'x', 11],
+    ['scatter', 'y', 41],
+    ['heatmap', 'values', 5],
+    ['heatmap', 'max', 11],
+    ['proportional-static', 'quantity', 3],
+    ['proportional-static', 'amountPerUnit', 129],
+  ])('grounds the authored %s %s in the supplied source', (type, field, number) => {
+    const original = example(type as string);
+    const source = JSON.stringify(original, null, 2);
+    let changes: Partial<LessonScene>;
+    if (field === 'values') {
+      changes = {
+        rows: (original.rows as NonNullable<LessonScene['rows']>).map((row, index) =>
+          index === 0
+            ? {
+                ...row,
+                values: row.values.map((value, column) =>
+                  column === 0 ? (number as number) : value
+                ),
+              }
+            : row
+        ),
+      };
+    } else if (['value', 'start', 'end', 'x', 'y'].includes(field as string)) {
+      changes = {
+        items: original.items.map((item, index) =>
+          index === 0 ? { ...item, [field as string]: number } : item
+        ),
+      };
+    } else {
+      changes = { [field as string]: number };
+    }
+    const scene = { ...original, ...changes };
+    expect(findLessonSceneProblems(original, source)).toEqual([]);
+    expect(findLessonSceneProblems(scene)).toEqual([]);
+    expect(findLessonSceneProblems(scene, source)).toEqual([
+      'Quantitative values must appear in the lesson.',
+    ]);
+  });
+
+  test('grounds proportional inputs rather than the derived total', () => {
+    const scene = { ...example('proportional-static'), quantity: 3, amountPerUnit: 0.1 };
+    expect(findLessonSceneProblems(scene, '3 repliche, 0,1 MB per replica.')).toEqual([]);
+  });
+
   test.each(LAB_QUICK_SCENES)('accepts and preserves the lab $type example', scene => {
     expect(findLessonSceneProblems(scene)).toEqual([]);
     expect(LessonSceneSchema.parse(scene)).toEqual(scene);
@@ -34,6 +89,7 @@ describe('settled lab scene catalog', () => {
       'tree',
       {
         items: [
+          { id: 'root', label: 'Root', detail: '', icon: '' },
           { id: 'a', label: 'A', detail: '', icon: '', parent: 'b' },
           { id: 'b', label: 'B', detail: '', icon: '', parent: 'a' },
         ],
@@ -160,6 +216,27 @@ describe('settled lab scene catalog', () => {
     expect(LessonSceneSchema.parse(LAB_COMPOSITION_SCENE)).toEqual(LAB_COMPOSITION_SCENE);
     expect(findLessonSceneProblems(LAB_COMPOSITION_SCENE)).toEqual([]);
     expect(findLessonSceneProblems(LAB_COMPOSITION_SCENE, 'Un altro testo')).not.toEqual([]);
+  });
+
+  test.each([
+    { items: [{ label: 'Extra', detail: '', icon: '' }] },
+    { groups: [{ label: 'Extra', items: ['Entry'], icons: [''] }] },
+    {
+      panels: LAB_COMPOSITION_SCENE.panels.map(panel => ({
+        ...panel,
+        items: panel.items.map(item => ({ ...item, label: '' })),
+      })),
+    },
+    {
+      panels: LAB_COMPOSITION_SCENE.panels.map(panel => ({
+        ...panel,
+        items: panel.items.map(item => ({ ...item, label: '   ' })),
+      })),
+    },
+  ])('rejects extra composition content and blank panel labels %#', changes => {
+    expect(
+      findLessonSceneProblems({ ...LAB_COMPOSITION_SCENE, ...changes }, LAB_COMPOSITION_SOURCE)
+    ).not.toEqual([]);
   });
 
   test.each(

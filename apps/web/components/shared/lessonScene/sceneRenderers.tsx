@@ -4,7 +4,10 @@ import type {
   LessonSceneType,
   ProportionalLessonScene,
 } from '@shared/lessonScene';
+import { proportionalTotal } from '@shared/lessonSceneAnimation';
 import { Fragment, type ReactNode } from 'react';
+
+import { getAppLocale } from '../../../i18n/uiMessages.ts';
 
 import { AnimatedScene } from './AnimatedScene.tsx';
 import {
@@ -247,8 +250,9 @@ export const SCENE_RENDERERS = {
           data-playback-group={index}
         >
           <strong>{group.label}</strong>
-          {group.items.map(item => (
-            <p key={item}>{item}</p>
+          {group.items.map((item, itemIndex) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: authored region entries have stable order
+            <p key={`${itemIndex}-${item}`}>{item}</p>
           ))}
         </section>
       ))}
@@ -306,24 +310,28 @@ export const SCENE_RENDERERS = {
   integration: quickIntegration,
   security: quickMatrix,
   deployment: c => <div className="q-columns">{c.scene.groups.map(quickGroup)}</div>,
-  'proportional-static': c => (
-    <>
-      <div className="q-units">
-        {Array.from({ length: c.scene.quantity as number }, (_, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: each unit occupies a fixed numbered position
-          <Fragment key={index + 1}>
-            {quickBox(String(index + 1), `${c.scene.amountPerUnit} ${c.scene.unit}`)}
-          </Fragment>
-        ))}
-      </div>
-      <div className="q-result">
-        <strong>
-          {(c.scene.quantity as number) * (c.scene.amountPerUnit as number)} {c.scene.unit}
-        </strong>
-        <p>
-          {c.scene.quantity} × {c.scene.amountPerUnit} {c.scene.unit}
-        </p>
-      </div>
-    </>
-  ),
+  'proportional-static': c => {
+    const numbers = new Intl.NumberFormat(getAppLocale(), { maximumSignificantDigits: 21 });
+    const total = proportionalTotal(c.scene.amountPerUnit as number, c.scene.quantity as number);
+    return (
+      <>
+        <div className="q-units">
+          {Array.from({ length: c.scene.quantity as number }, (_, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: each unit occupies a fixed numbered position
+            <Fragment key={index + 1}>
+              {quickBox(String(index + 1), `${c.scene.amountPerUnit} ${c.scene.unit}`)}
+            </Fragment>
+          ))}
+        </div>
+        <div className="q-result">
+          <strong>
+            {numbers.format(total)} {c.scene.unit}
+          </strong>
+          <p>
+            {c.scene.quantity} × {c.scene.amountPerUnit} {c.scene.unit}
+          </p>
+        </div>
+      </>
+    );
+  },
 } satisfies Record<LessonSceneType, SceneRenderer>;

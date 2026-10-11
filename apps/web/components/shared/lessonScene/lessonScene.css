@@ -65,7 +65,8 @@
   }
 }
 .dark .lesson-scene {
-  --blue: #fdba74;
+  --scene-dark-accent: #fdba74;
+  --blue: var(--scene-dark-accent);
   --tint: rgba(251, 146, 60, 0.14);
   --note-bg: rgba(251, 146, 60, 0.12);
   --note-ink: #fed7aa;
@@ -1354,7 +1355,8 @@
   width: 100%;
   max-width: 640px;
   height: auto;
-  flex-shrink: 0;
+  flex: 1 1 0;
+  min-width: 0;
 }
 .lesson-scene .chart-values {
   list-style: none;
@@ -1404,6 +1406,7 @@
   }
   .lesson-scene .ring-chart svg {
     max-width: 100%;
+    flex: none;
   }
   .lesson-scene .network {
     --network-gap: 28px;
@@ -1812,6 +1815,10 @@
   --q-axis: var(--muted);
   --tint: color-mix(in srgb, var(--accent) 16%, var(--surface));
 }
+.dark .lesson-scene .quick-scene {
+  --q-accent: var(--scene-dark-accent);
+  --blue: var(--q-accent);
+}
 .lesson-scene .quick-scene .q-box {
   background: var(--q-fill);
   border: 1px solid var(--q-border);
@@ -2164,9 +2171,6 @@
   stroke: var(--q-axis);
   stroke-width: 2;
   stroke-linecap: round;
-}
-.lesson-scene .quick-scene .q-grid {
-  stroke: #d2d2d2;
 }
 .lesson-scene .quick-scene .q-tile {
   padding: 8px;

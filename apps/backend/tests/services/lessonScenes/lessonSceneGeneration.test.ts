@@ -380,6 +380,7 @@ test.each([
   ...LAB_QUICK_SCENES,
   LAB_COMPOSITION_SCENE,
 ])('generates the lab $type fields and all icon slots', async example => {
+  const source = `${LAB_COMPOSITION_SOURCE}\nExample data: ${JSON.stringify(example, null, 2)}`;
   const { items, groups, ...fields } = example;
   const {
     icon: centerIcon,
@@ -423,7 +424,7 @@ test.each([
       : {}),
   };
   generateStructuredOutputMock.mockResolvedValueOnce(draft);
-  const result = await generateLessonScene(unplannedInput(LAB_COMPOSITION_SOURCE));
+  const result = await generateLessonScene(unplannedInput(source));
   expect(result.kind).toBe('scene');
   if (result.kind !== 'scene') throw new Error(JSON.stringify(result.problems));
   const withoutIcons = (scene: typeof result.scene) => ({
@@ -463,4 +464,46 @@ test.each([
   ).toEqual(expectedSlots);
   const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
   expect(schema.safeParse(draft).success).toBe(true);
+});
+
+test('rejects invented quantitative quick data before icon selection', async () => {
+  const source =
+    'Chiarezza 4, copertura 3, verifica 5 e tracciabilità 4, su un massimo di 5 punti.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...quoteDraft(''),
+    type: 'radar',
+    title: 'Criteri',
+    evidence: source,
+    max: 5,
+    unit: 'punti',
+    items: [2, 3, 5, 4].map(value => ({
+      label: 'Criterio',
+      detail: '',
+      value,
+      time: null,
+      iconQueries: queries,
+    })),
+  });
+  expect(await generateLessonScene(unplannedInput(source))).toEqual({
+    kind: 'invalid',
+    problems: ['Quantitative values must appear in the lesson.'],
+  });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test.each([
+  undefined,
+  '   ',
+])('ignores center icon queries without a named center %#', async center => {
+  const source = 'Una domanda esatta.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...quoteDraft(source),
+    center,
+    iconQueries: queries,
+  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result.kind).toBe('scene');
+  if (result.kind !== 'scene') throw new Error('Expected a generated scene');
+  expect(result.scene).not.toHaveProperty('icon');
+  expect(chooseIconsMock.mock.calls[0][0].entries).toEqual([]);
 });

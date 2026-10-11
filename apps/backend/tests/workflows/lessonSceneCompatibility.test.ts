@@ -81,7 +81,7 @@ describe('lesson scene deployment compatibility', () => {
     expect(deployment?.supportedDefinitions.map(boundary => boundary.definitionHash)).toContain(
       hash
     );
-    expect(registry.resolve(workflowId, hash)).toBeDefined();
+    expect(registry.resolve(workflowId, hash)).not.toBeNull();
   });
 
   test.each(
@@ -94,7 +94,7 @@ describe('lesson scene deployment compatibility', () => {
       expect.arrayContaining([...hashes])
     );
     for (const definitionHash of hashes) {
-      expect(registry.resolve(workflowId, definitionHash)).toBeDefined();
+      expect(registry.resolve(workflowId, definitionHash)).not.toBeNull();
     }
   });
 
