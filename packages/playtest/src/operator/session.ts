@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Browser } from 'playwright';
+import type { ObservedEvent } from '../adapter';
 import { collectSignals, installProbes } from '../probes/collect';
 import type { ProbeSignal } from '../probes/pageProbes';
 import type { Viewport } from '../types';
@@ -25,11 +26,23 @@ export async function openOperatorSession(options: {
   viewport: Viewport;
   credentials: { email: string; password: string };
   runDir: string;
+  onEvent?: (event: ObservedEvent) => void;
 }): Promise<OperatorSession> {
   const { browser, baseUrl, viewport, credentials, runDir } = options;
   await mkdir(runDir, { recursive: true });
   const context = await browser.newContext({ viewport: VIEWPORTS[viewport] });
   try {
+    context.on('response', response => {
+      options.onEvent?.({
+        kind: 'response',
+        url: response.url(),
+        status: response.status(),
+        headers: response.headers(),
+      });
+    });
+    context.on('console', message => {
+      options.onEvent?.({ kind: 'console', level: message.type(), text: message.text() });
+    });
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await context.newPage();
     await installProbes(page);

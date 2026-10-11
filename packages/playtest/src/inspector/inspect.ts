@@ -26,23 +26,22 @@ const judgeFindingSchema = z.object({
   screenshotPath: z.string().min(1),
 });
 
-function probeFinding(probe: ProbeFinding): InspectorFinding {
+export type StepProbeFinding = ProbeFinding & Pick<Observation, 'stepIndex' | 'screenshotPath'>;
+
+function probeFinding(probe: StepProbeFinding): InspectorFinding {
   return {
     ...probe,
     source: 'probe',
     title: probe.signal.kind,
-    trigger: 'Probe collection; exact triggering step is not recorded.',
+    trigger: `Probe collection after step ${probe.stepIndex}.`,
     expected: `Maintainer threshold: ${probe.threshold}`,
     actual: JSON.stringify(probe.signal),
-    // ProbeFinding has no observation provenance; assigning a screen would invent evidence.
-    stepIndex: -1,
-    screenshotPath: '',
   };
 }
 
 /** Judge indices address the supplied screenshot list; returned indices address observations. */
 export async function inspect(input: {
-  probeFindings: ProbeFinding[];
+  probeFindings: StepProbeFinding[];
   learner: LearnerRunResult;
   observations: Observation[];
   judge?: VisualJudge;

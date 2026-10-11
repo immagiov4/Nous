@@ -9,12 +9,11 @@ import type {
 } from '@mariozechner/pi-coding-agent';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type InspectorFinding, inspect } from '../src/inspector/inspect';
+import { type InspectorFinding, inspect, type StepProbeFinding } from '../src/inspector/inspect';
 import { createPiVisualJudge, type VisualJudge } from '../src/inspector/judge';
 import type { LearnerRunResult } from '../src/learner/loop';
 import { mapOpenRouterModel } from '../src/learner/modelResolution';
 import type { Observation } from '../src/operator/session';
-import type { ProbeFinding } from '../src/probes/thresholds';
 import catalogueEntry from './fixtures/models/openrouter-sonnet-4.json';
 
 const sdk = vi.hoisted(() => ({
@@ -84,8 +83,10 @@ function finding(overrides: Partial<InspectorFinding> = {}): InspectorFinding {
 }
 
 describe('inspector', () => {
-  it('preserves probe evidence and threshold without inventing a step', async () => {
-    const probe: ProbeFinding = {
+  it('preserves probe evidence, threshold and recorded step', async () => {
+    const probe: StepProbeFinding = {
+      stepIndex: 0,
+      screenshotPath: 'step-0.png',
       signal: {
         kind: 'clipped-text',
         selector: '#label',
@@ -101,8 +102,8 @@ describe('inspector', () => {
       ...probe,
       source: 'probe',
       taxonomyClass: 'D01',
-      stepIndex: -1,
-      screenshotPath: '',
+      stepIndex: 0,
+      screenshotPath: 'step-0.png',
     });
     expect(JSON.parse(result.actual)).toEqual(probe.signal);
     expect(result.expected).toBe('Maintainer threshold: 10');
