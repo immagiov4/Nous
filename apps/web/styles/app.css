@@ -536,3 +536,32 @@ mark {
     animation: none;
   }
 }
+
+.lesson-question-wave i {
+  display: inline-block;
+  width: 3px;
+  height: 4px;
+  border-radius: 2px;
+  background: currentColor;
+  animation: lesson-question-wave 700ms ease-in-out infinite;
+}
+.lesson-question-wave i:nth-child(odd) {
+  animation-delay: 150ms;
+}
+.lesson-question-wave i:nth-child(3n) {
+  animation-delay: 300ms;
+}
+@keyframes lesson-question-wave {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-question-wave i {
+    animation: none;
+  }
+}

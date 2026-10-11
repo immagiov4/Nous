@@ -47,6 +47,20 @@ const buildProps = (
 });
 
 describe('WorkspaceReaderSidebar', () => {
+  test('opens playback directly for the current generated lesson', () => {
+    const props = buildProps({ onPlayLesson: vi.fn() });
+    props.sidebarGroups[0].sections[0] = {
+      ...props.sidebarGroups[0].sections[0],
+      kind: 'lesson',
+      type: 'core',
+      content: 'Una lezione pronta.',
+    };
+    render(<WorkspaceReaderSidebar {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Riproduci la lezione corrente' }));
+    expect(props.onPlayLesson).toHaveBeenCalledTimes(1);
+    expect(props.onSelectSection).not.toHaveBeenCalled();
+  });
+
   test('rounds the edge facing the reading content and keeps the scrollbar within it', () => {
     const { container, rerender, unmount } = render(<WorkspaceReaderSidebar {...buildProps()} />);
 
@@ -536,4 +550,25 @@ describe('WorkspaceReaderSidebar', () => {
 
     expect(screen.queryByRole('button', { name: /Pianifica esercizi/i })).toBeNull();
   });
+});
+
+test.each([
+  'reload',
+  'regeneration',
+  'course loading',
+])('cached content cannot start playback during %s', state => {
+  const props = buildProps({
+    onPlayLesson: vi.fn(),
+    isSectionLoading: state === 'reload',
+    generatingSectionId: state === 'regeneration' ? 'section-1' : null,
+    isLoading: state === 'course loading',
+  });
+  props.sidebarGroups[0].sections[0] = {
+    ...props.sidebarGroups[0].sections[0],
+    kind: 'lesson',
+    type: 'core',
+    content: 'Testo precedente.',
+  };
+  render(<WorkspaceReaderSidebar {...props} />);
+  expect(screen.queryByRole('button', { name: 'Riproduci la lezione corrente' })).toBeNull();
 });

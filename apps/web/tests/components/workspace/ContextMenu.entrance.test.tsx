@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, render } from '@testing-library/react';
-import type { HTMLAttributes } from 'react';
+import type { HTMLAttributes, InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
 
@@ -27,6 +27,26 @@ vi.mock('framer-motion', () => ({
       motion.complete = onAnimationComplete;
       return <div {...props} />;
     },
+    input: ({
+      initial: _initial,
+      animate: _animate,
+      transition: _transition,
+      ...props
+    }: InputHTMLAttributes<HTMLInputElement> & {
+      initial?: unknown;
+      animate?: unknown;
+      transition?: unknown;
+    }) => <input {...props} />,
+    textarea: ({
+      initial: _initial,
+      animate: _animate,
+      transition: _transition,
+      ...props
+    }: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+      initial?: unknown;
+      animate?: unknown;
+      transition?: unknown;
+    }) => <textarea {...props} />,
   },
 }));
 

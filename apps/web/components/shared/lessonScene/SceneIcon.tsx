@@ -15,9 +15,16 @@ const loadIconNodes = (): Promise<IconNodes> => {
 };
 
 const IconNodesContext = createContext<IconNodes | null>(null);
+export const ScenePrototypeContext = createContext(false);
 
 /** Loads the Tabler outline path data once, lazily, for every icon of a scene. */
-export const SceneIconProvider = ({ children }: { readonly children: React.ReactNode }) => {
+export const SceneIconProvider = ({
+  children,
+  prototype = false,
+}: {
+  readonly children: React.ReactNode;
+  readonly prototype?: boolean;
+}) => {
   const [nodes, setNodes] = useState<IconNodes | null>(null);
   useEffect(() => {
     let active = true;
@@ -33,7 +40,11 @@ export const SceneIconProvider = ({ children }: { readonly children: React.React
       active = false;
     };
   }, []);
-  return <IconNodesContext.Provider value={nodes}>{children}</IconNodesContext.Provider>;
+  return (
+    <ScenePrototypeContext.Provider value={prototype}>
+      <IconNodesContext.Provider value={nodes}>{children}</IconNodesContext.Provider>
+    </ScenePrototypeContext.Provider>
+  );
 };
 
 const toReactAttributes = (attributes: Record<string, string>): Record<string, string> =>
@@ -53,8 +64,33 @@ export const SceneIcon = ({
   readonly name: string;
 }) => {
   const nodes = useContext(IconNodesContext);
+  const masked = useContext(ScenePrototypeContext);
   // Stored names come from imported data, so only the catalog's own entries are looked up.
   const shapes = (nodes && Object.hasOwn(nodes, name) ? nodes[name] : nodes?.[FALLBACK_ICON]) ?? [];
+  if (masked) {
+    // The laboratory masks Tabler's original 2px outline; URLs stay local to the document.
+    const body = shapes
+      .map(
+        ([tag, attributes]) =>
+          `<${tag} ${Object.entries(attributes)
+            .map(([key, value]) => `${key}="${value}"`)
+            .join(' ')}/>`
+      )
+      .join('');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+    return (
+      <span
+        aria-hidden="true"
+        data-icon={name || FALLBACK_ICON}
+        className={className ? `meaning-icon ${className}` : 'meaning-icon'}
+        style={
+          {
+            '--icon-url': `url("data:image/svg+xml,${encodeURIComponent(svg)}")`,
+          } as React.CSSProperties
+        }
+      />
+    );
+  }
   return (
     <svg
       aria-hidden="true"

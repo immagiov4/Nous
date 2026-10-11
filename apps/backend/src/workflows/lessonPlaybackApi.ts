@@ -24,7 +24,7 @@ interface PlaybackTarget {
   sectionId: string;
 }
 export type PlaybackPreparationResult =
-  | { block: LessonPlaybackBlock }
+  | { block: LessonPlaybackBlock; voice: string; model: string }
   | { runId: string; blockId: string; voice: string };
 export interface LessonPlaybackApi {
   get(
@@ -75,7 +75,7 @@ export const createLessonPlaybackApi = (dependencies: {
       if (!block) throw new LessonPlaybackTargetError();
       const model = await dependencies.resolveTtsModel();
       const voice = ttsClient.resolveVoice(model, input.voice);
-      if (isPlaybackBlockReady(block, voice, model)) return { block };
+      if (isPlaybackBlockReady(block, voice, model)) return { block, voice, model };
       const { run } = await startWorkflowRun({
         input: { ...input, incarnationId: project.incarnationId, model },
         // One active preparation for the whole lesson also serializes different voices/blocks.

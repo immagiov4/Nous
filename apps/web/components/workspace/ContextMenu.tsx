@@ -11,6 +11,7 @@ import {
   MoreVertical,
   NotebookPen,
   Paperclip,
+  Square,
   X,
 } from 'lucide-react';
 import {
@@ -29,6 +30,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
+import type { SpeechInputController } from '../../hooks/useSpeechInput.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
   ContextMenuPlacement,
@@ -49,6 +51,19 @@ import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechInputButton.tsx';
 
 interface ContextMenuProps {
+  readonly playbackComposer?: {
+    isMobileViewport?: boolean;
+    speech?: SpeechInputController;
+    onStartRecording?: () => void;
+    listening?: boolean;
+    value: string;
+    noteMode: boolean;
+    onChange: (value: string) => void;
+    onToggleNote: () => void;
+    onSubmit: () => void;
+    /** Set while an answer is generating: the empty field's send button stops it. */
+    onStopResponse?: () => void;
+  };
   readonly anchorX?: number;
   readonly anchorY?: number;
   readonly askInputValue?: string;
@@ -88,6 +103,7 @@ const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const MORE_ACTIONS_MENU_WIDTH = 240;
 const MORE_ACTIONS_MENU_GAP = 8;
+const PLAYBACK_NOTE_ROWS = 5;
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
@@ -121,6 +137,7 @@ const getMoreActionsMenuStyle = (triggerRect: DOMRect, menuHeight: number): CSSP
 };
 
 const ContextMenu = ({
+  playbackComposer,
   anchorX,
   anchorY,
   askInputValue,
@@ -226,7 +243,8 @@ const ContextMenu = ({
   }, [activeAnnotationArtifactRefs, artifactPayloads]);
   const hasSavedAnnotationNote = annotationNote.trim().length > 0;
   const hasSavedAnnotationContent = hasSavedAnnotationNote || annotationArtifactPayloads.length > 0;
-  const displayedInput = askInputValue ?? input;
+  const displayedInput = playbackComposer?.value ?? askInputValue ?? input;
+  const changeInput = playbackComposer?.onChange ?? setInput;
   const trimmedInput = displayedInput.trim();
   const trimmedNote = noteInput.trim();
   const isAnnotationPreviewMode =
@@ -237,10 +255,13 @@ const ContextMenu = ({
   const canDeleteAnnotationFromCurrentState =
     !isLessonMode && isAnnotationMode && hasSavedAnnotationContent;
   const shouldShowToolbarNoteButton =
-    !isLessonMode && (!isAnnotationMode || !hasSavedAnnotationContent);
-  const askInputPlaceholder = t(
-    isLessonMode ? 'Chiedi su tutta la lezione' : 'Chiedi a Nous o aggiungi istruzioni'
-  );
+    Boolean(playbackComposer) ||
+    (!isLessonMode && (!isAnnotationMode || !hasSavedAnnotationContent));
+  let askInputPlaceholder = t('Chiedi a Nous o aggiungi istruzioni');
+  if (playbackComposer) askInputPlaceholder = t('Chiedi su questo punto della lezione');
+  else if (isLessonMode) askInputPlaceholder = t('Chiedi su tutta la lezione');
+  const questionSubmitLabel = trimmedInput ? t('Invia domanda') : t('Inserisci una domanda');
+  const submitLabel = playbackComposer?.noteMode ? t('Salva nota') : questionSubmitLabel;
   const notePanelTitle =
     isAnnotationMode && hasSavedAnnotationContent
       ? t('Nota associata al passaggio')
@@ -268,6 +289,10 @@ const ContextMenu = ({
 
   const submitAsk = () => {
     if (areContextActionsDisabled || !trimmedInput) {
+      return;
+    }
+    if (playbackComposer) {
+      playbackComposer.onSubmit();
       return;
     }
 
@@ -423,6 +448,10 @@ const ContextMenu = ({
   };
 
   const handleToggleNoteEditor = (event: MouseEvent<HTMLButtonElement>) => {
+    if (playbackComposer) {
+      playbackComposer.onToggleNote();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     setIsLessonConfirmOpen(false);
@@ -1032,7 +1061,72 @@ const ContextMenu = ({
   };
 
   const handleSpeechTranscription = (transcription: string) => {
-    setInput(appendSpeechTranscription(displayedInput, transcription));
+    changeInput(appendSpeechTranscription(displayedInput, transcription));
+  };
+
+  const showSpeechInput =
+    !trimmedInput ||
+    playbackComposer?.isMobileViewport ||
+    playbackComposer?.listening ||
+    (playbackComposer?.speech &&
+      (playbackComposer.speech.state !== 'idle' || playbackComposer.speech.speechInputError));
+  const renderFloatingInput = () => {
+    if (playbackComposer?.listening) {
+      return (
+        <motion.output
+          initial={{ opacity: shouldAnimate ? 0 : 1 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+          className="flex h-10 items-center gap-3 px-3.5 text-sm font-normal text-stone-600 dark:text-stone-200"
+        >
+          <span
+            aria-hidden="true"
+            className="lesson-question-wave flex items-center gap-0.5 text-orange-500"
+          >
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>
+            {t('Ti ascolto… rilascia')} <span className="font-semibold">{t('Spazio')}</span>{' '}
+            {t('per inviare')}
+          </span>
+        </motion.output>
+      );
+    }
+    if (playbackComposer?.noteMode) {
+      return (
+        <motion.textarea
+          initial={{ opacity: shouldAnimate ? 0 : 1 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+          rows={PLAYBACK_NOTE_ROWS}
+          value={displayedInput}
+          onChange={event => changeInput(event.target.value)}
+          disabled={isLoading}
+          placeholder={t('Scrivi una nota su questo punto della lezione')}
+          className="custom-scrollbar block min-w-0 w-full flex-1 resize-none overflow-y-auto border-0 bg-transparent px-3.5 py-2.5 text-sm leading-6 text-stone-800 placeholder:text-stone-400 outline-none focus:ring-0 dark:text-stone-100 dark:placeholder:text-stone-300"
+        />
+      );
+    }
+    return (
+      <motion.input
+        initial={playbackComposer && shouldAnimate ? { opacity: 0 } : false}
+        animate={{ opacity: 1 }}
+        transition={{ duration: shouldAnimate ? 0.2 : 0, ease: 'easeOut' }}
+        type="text"
+        data-context-menu-target="input"
+        value={displayedInput}
+        onChange={event => changeInput(event.target.value)}
+        placeholder={askInputPlaceholder}
+        className="h-10 w-full min-w-0 border-0 bg-transparent px-3.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
+        disabled={isLoading}
+      />
+    );
   };
 
   const renderSelectionDesktop = () => (
@@ -1058,38 +1152,57 @@ const ContextMenu = ({
         ) : null}
 
         <form
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none focus-within:ring-0 dark:border-stone-400/95 dark:bg-stone-700"
+          className={`${playbackComposer ? 'transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none' : ''} ${playbackComposer?.listening ? '!border-orange-300 ring-4 ring-orange-500/10' : ''} ${playbackComposer?.noteMode ? '!items-end !border-amber-700/50 ring-4 ring-amber-700/15' : 'focus-within:ring-0'} flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none dark:border-stone-400/95 dark:bg-stone-700`}
           onSubmit={handleAskSubmit}
         >
-          <div className="min-w-0 flex-1">
-            <input
-              type="text"
-              data-context-menu-target="input"
-              value={displayedInput}
-              onChange={event => setInput(event.target.value)}
-              placeholder={askInputPlaceholder}
-              className="h-10 w-full min-w-0 border-0 bg-transparent px-3.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
-              disabled={isLoading}
-            />
+          <div
+            className={`min-w-0 flex-1 ${playbackComposer ? 'overflow-hidden text-sm leading-6 transition-[height] duration-200 ease-out motion-reduce:transition-none' : ''}`}
+            style={
+              playbackComposer
+                ? {
+                    height:
+                      playbackComposer.noteMode && !playbackComposer.listening
+                        ? `calc(${PLAYBACK_NOTE_ROWS}lh + 1.25rem)`
+                        : '2.5rem',
+                  }
+                : undefined
+            }
+          >
+            {renderFloatingInput()}
           </div>
 
-          {!trimmedInput ? (
+          {showSpeechInput ? (
             <div className={isLessonMode ? 'mr-1.5' : ''}>
               <SpeechInputButton
+                controller={playbackComposer?.speech}
+                onStartRecording={playbackComposer?.onStartRecording}
                 disabled={isLoading}
                 errorPresentation={isMobileSheet ? 'viewport' : 'inline'}
                 onTranscription={handleSpeechTranscription}
                 variant="compact"
               />
             </div>
-          ) : (
+          ) : null}
+          {playbackComposer?.onStopResponse ? (
+            <button
+              type="button"
+              onClick={playbackComposer.onStopResponse}
+              aria-label={t('Annulla')}
+              title={t('Annulla')}
+              className={`${askButtonClassName} motion-reduce:transition-none`}
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+          ) : null}
+          {(!playbackComposer?.onStopResponse || playbackComposer.noteMode) &&
+          (trimmedInput || playbackComposer) ? (
             <button
               type="submit"
               data-context-menu-target="submit"
-              aria-label={t('Invia domanda')}
-              disabled={areContextActionsDisabled}
-              className={askButtonClassName}
-              title={t('Invia domanda')}
+              aria-label={t(playbackComposer?.noteMode ? 'Salva nota' : 'Invia domanda')}
+              disabled={areContextActionsDisabled || !trimmedInput}
+              className={`${askButtonClassName} ${playbackComposer ? 'motion-reduce:transition-none' : ''} ${playbackComposer?.noteMode ? '!bg-amber-700 !text-white' : ''}`}
+              title={t(playbackComposer?.noteMode ? 'Salva nota' : 'Invia domanda')}
             >
               {isLoading ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -1097,28 +1210,31 @@ const ContextMenu = ({
                 <ArrowUp className="h-4 w-4" />
               )}
             </button>
-          )}
+          ) : null}
 
-          {shouldShowToolbarNoteButton ? (
+          {shouldShowToolbarNoteButton && !playbackComposer?.listening ? (
             <button
               type="button"
               onClick={handleToggleNoteEditor}
               disabled={isLoading}
-              className={noteButtonClassName}
+              className={`${noteButtonClassName} ${playbackComposer ? 'motion-reduce:transition-none' : ''} ${playbackComposer?.noteMode ? '!border-amber-700/60 !bg-amber-50 !text-amber-800 dark:!bg-amber-950 dark:!text-amber-200' : ''}`}
+              aria-pressed={playbackComposer?.noteMode}
               title={
                 isAnnotationMode
                   ? t('Aggiungi o modifica una nota su questo passaggio')
                   : t('Aggiungi una nota a questo passaggio')
               }
             >
-              <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 transition-none dark:text-stone-200" />
+              <NotebookPen
+                className={`h-4 w-4 shrink-0 transition-none ${playbackComposer?.noteMode ? 'text-amber-800 dark:text-amber-200' : 'text-stone-600 dark:text-stone-200'}`}
+              />
               <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[2.45rem] group-hover:opacity-100 group-focus-visible:max-w-[2.45rem] group-focus-visible:opacity-100">
                 {t('Nota')}
               </span>
             </button>
           ) : null}
 
-          {renderMoreActionsButton()}
+          {playbackComposer ? null : renderMoreActionsButton()}
         </form>
       </div>
 
@@ -1170,25 +1286,108 @@ const ContextMenu = ({
     </div>
   );
 
+  const renderMobileHighlight = () =>
+    !isLessonMode ? (
+      <button
+        type="button"
+        aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
+        disabled={areContextActionsDisabled}
+        onClick={handleHighlightClick}
+        onPointerDown={handleHighlightPointerDown}
+        onTouchStart={handleHighlightTouchStart}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
+        title={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato')}
+      >
+        {isAnnotationMode ? (
+          <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
+        ) : (
+          <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+        )}
+      </button>
+    ) : null;
+
+  const renderMobileNoteButton = () =>
+    shouldShowToolbarNoteButton ? (
+      <button
+        type="button"
+        onClick={handleToggleNoteEditor}
+        disabled={isLoading}
+        aria-pressed={playbackComposer?.noteMode}
+        className={`${playbackComposer?.noteMode ? '!border-amber-700/60 !bg-amber-50 !text-amber-800 dark:!bg-amber-950 dark:!text-amber-200' : ''} flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600`}
+        title={
+          isAnnotationMode
+            ? t('Aggiungi o modifica una nota su questo passaggio')
+            : t('Aggiungi una nota a questo passaggio')
+        }
+      >
+        <NotebookPen
+          className={`h-4 w-4 shrink-0 ${playbackComposer?.noteMode ? 'text-amber-800 dark:text-amber-200' : 'text-stone-600 dark:text-stone-200'}`}
+        />
+        <span className="hidden min-[390px]:inline">{t('Nota')}</span>
+      </button>
+    ) : null;
+
+  const renderMobileActions = () => (
+    <div className="flex items-center gap-2">
+      {renderMobileHighlight()}
+
+      <button
+        type="button"
+        data-context-menu-target="submit"
+        aria-label={submitLabel}
+        disabled={!trimmedInput || areContextActionsDisabled}
+        onClick={handleAskClick}
+        onPointerDown={handleAskPointerDown}
+        onTouchStart={handleAskTouchStart}
+        className={`${askButtonClassName} ${playbackComposer?.noteMode ? '!bg-amber-700 !text-white' : ''}`}
+        title={submitLabel}
+      >
+        {isLoading ? (
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+        ) : (
+          <ArrowUp className="h-4 w-4" />
+        )}
+        <span>{t(playbackComposer?.noteMode ? 'Salva nota' : 'Chiedi')}</span>
+      </button>
+
+      {renderMobileNoteButton()}
+
+      {playbackComposer ? null : renderMoreActionsButton()}
+    </div>
+  );
+
   const renderSelectionMobile = () => (
     <>
       <form className="space-y-3" onSubmit={handleAskSubmit}>
-        <div className="flex items-center gap-1 rounded-full border border-stone-200/80 bg-stone-50/60 px-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-400/95 dark:bg-stone-700/70 dark:focus-within:bg-stone-700">
-          <input
-            type="text"
-            data-context-menu-target="input"
-            value={displayedInput}
-            onChange={event => setInput(event.target.value)}
-            onFocus={event => {
-              const target = event.currentTarget;
-              globalThis.window.setTimeout(() => {
-                target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-              }, 250);
-            }}
-            placeholder={askInputPlaceholder}
-            className="h-11 min-w-0 flex-1 border-0 bg-transparent px-2.5 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
-            disabled={isLoading}
-          />
+        <div
+          className={`${playbackComposer?.noteMode ? '!rounded-[1.4rem] !items-start !border-amber-700/50 ring-4 ring-amber-700/15' : ''} flex items-center gap-1 rounded-full border border-stone-200/80 bg-stone-50/60 px-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-400/95 dark:bg-stone-700/70 dark:focus-within:bg-stone-700`}
+        >
+          {playbackComposer?.noteMode ? (
+            <textarea
+              rows={5}
+              value={displayedInput}
+              onChange={event => changeInput(event.target.value)}
+              disabled={isLoading}
+              placeholder={t('Scrivi una nota su questo punto della lezione')}
+              className="custom-scrollbar block min-w-0 w-full flex-1 resize-none overflow-y-auto border-0 bg-transparent px-3.5 py-2.5 text-sm leading-6 text-stone-800 placeholder:text-stone-400 outline-none focus:ring-0 dark:text-stone-100 dark:placeholder:text-stone-300"
+            />
+          ) : (
+            <input
+              type="text"
+              data-context-menu-target="input"
+              value={displayedInput}
+              onChange={event => changeInput(event.target.value)}
+              onFocus={event => {
+                const target = event.currentTarget;
+                globalThis.window.setTimeout(() => {
+                  target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+                }, 250);
+              }}
+              placeholder={askInputPlaceholder}
+              className="h-11 min-w-0 flex-1 border-0 bg-transparent px-2.5 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
+              disabled={isLoading}
+            />
+          )}
           <div className={isLessonMode ? 'mr-1.5' : ''}>
             <SpeechInputButton
               disabled={isLoading}
@@ -1198,66 +1397,7 @@ const ContextMenu = ({
             />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {!isLessonMode ? (
-            <button
-              type="button"
-              aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
-              disabled={areContextActionsDisabled}
-              onClick={handleHighlightClick}
-              onPointerDown={handleHighlightPointerDown}
-              onTouchStart={handleHighlightTouchStart}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-              title={t(
-                isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'
-              )}
-            >
-              {isAnnotationMode ? (
-                <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
-              ) : (
-                <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
-              )}
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            data-context-menu-target="submit"
-            aria-label={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
-            disabled={!trimmedInput || areContextActionsDisabled}
-            onClick={handleAskClick}
-            onPointerDown={handleAskPointerDown}
-            onTouchStart={handleAskTouchStart}
-            className={askButtonClassName}
-            title={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
-          >
-            {isLoading ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <ArrowUp className="h-4 w-4" />
-            )}
-            <span>{t('Chiedi')}</span>
-          </button>
-
-          {shouldShowToolbarNoteButton ? (
-            <button
-              type="button"
-              onClick={handleToggleNoteEditor}
-              disabled={isLoading}
-              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-              title={
-                isAnnotationMode
-                  ? t('Aggiungi o modifica una nota su questo passaggio')
-                  : t('Aggiungi una nota a questo passaggio')
-              }
-            >
-              <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 dark:text-stone-200" />
-              <span className="hidden min-[390px]:inline">{t('Nota')}</span>
-            </button>
-          ) : null}
-
-          {renderMoreActionsButton()}
-        </div>
+        {renderMobileActions()}
       </form>
 
       {renderNoteEditor()}
@@ -1313,32 +1453,41 @@ const ContextMenu = ({
       onEntranceComplete?.();
     }
   }, [hasEntered, motionProgressOverride, onEntranceComplete, shouldAnimate]);
+  const overrideProgress = motionProgressOverride ?? 0;
+  const overriddenMotionStyle = isMobileSheet
+    ? {
+        opacity: overrideProgress,
+        x: '-50%',
+        y: (1 - overrideProgress) * 12,
+      }
+    : {
+        opacity: overrideProgress,
+        scale: 0.94 + overrideProgress * 0.06,
+      };
   const deterministicMotionStyle =
-    motionProgressOverride === undefined
-      ? null
-      : isMobileSheet
-        ? {
-            opacity: motionProgressOverride,
-            x: '-50%',
-            y: (1 - motionProgressOverride) * 12,
-          }
-        : {
-            opacity: motionProgressOverride,
-            scale: 0.94 + motionProgressOverride * 0.06,
-          };
+    motionProgressOverride === undefined ? null : overriddenMotionStyle;
+  const entranceMotion = isMobileSheet ? { opacity: 0, y: 12 } : { opacity: 0, scale: 0.94 };
+  const settledMotion = isMobileSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 };
+  const entranceTransition = isMobileSheet
+    ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] as const }
+    : {
+        opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] as const },
+        scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] as const },
+      };
+  const mobileSheetPosition = playbackComposer ? '' : 'left-1/2';
 
   return (
     <>
       <motion.div
         ref={containerRef}
         onAnimationComplete={() => setHasEntered(true)}
-        className={`fixed z-50 ${
+        className={`${playbackComposer ? 'relative w-full' : 'fixed'} z-50 ${
           isMobileSheet
-            ? 'left-1/2 overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700'
+            ? `${mobileSheetPosition} overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700`
             : ''
         }`}
         style={{
-          ...menuStyle,
+          ...(playbackComposer ? {} : menuStyle),
           ...(!isMobileSheet
             ? ({
                 '--context-menu-note-max-height': `${desktopNoteMaxHeight}px`,
@@ -1346,35 +1495,12 @@ const ContextMenu = ({
             : null),
           transformOrigin,
           willChange: 'transform, opacity',
-          ...(isMobileSheet ? { x: '-50%' } : null),
+          ...(isMobileSheet && !playbackComposer ? { x: '-50%' } : null),
           ...deterministicMotionStyle,
         }}
-        initial={
-          motionProgressOverride !== undefined
-            ? false
-            : shouldAnimate
-              ? isMobileSheet
-                ? { opacity: 0, y: 12 }
-                : { opacity: 0, scale: 0.94 }
-              : false
-        }
-        animate={
-          motionProgressOverride !== undefined
-            ? undefined
-            : isMobileSheet
-              ? { opacity: 1, y: 0 }
-              : { opacity: 1, scale: 1 }
-        }
-        transition={
-          motionProgressOverride !== undefined
-            ? { duration: 0 }
-            : isMobileSheet
-              ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }
-              : {
-                  opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] },
-                  scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
-                }
-        }
+        initial={motionProgressOverride === undefined && shouldAnimate ? entranceMotion : false}
+        animate={motionProgressOverride === undefined ? settledMotion : undefined}
+        transition={motionProgressOverride === undefined ? entranceTransition : { duration: 0 }}
         onPointerDown={handleContainerPointerDown}
       >
         {isMobileSheet ? renderSelectionMobile() : renderSelectionDesktop()}

@@ -2,14 +2,23 @@
 
 import '@testing-library/jest-dom/vitest';
 
+import { deriveLegacyLessonContent } from '@shared/lessonContent';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { createRef, type ReactNode, StrictMode, useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { ContextAnswerState } from '../../../../components/workspace/shell/types.ts';
-
+import type {
+  ContextAnswerState,
+  WorkspaceReaderOverlaysModel,
+} from '../../../../components/workspace/shell/types.ts';
 import type { LearningArtifactRenderPayload, ProjectSnapshot } from '../../../../types.ts';
+import {
+  buildConversationNoteSaveCandidates,
+  hasAnchorableConversationNoteCandidate,
+} from '../../../../utils/context/conversationNote.ts';
+import { playbackSentenceSelector } from '../../../../utils/reader/lessonPlayback.ts';
 import {
   buildTestLearningPlan,
   buildTestLesson,
@@ -284,6 +293,63 @@ describe('ContextAnswerPanel', () => {
     chatTextComposerProps.length = 0;
   });
 
+  test('waits for transcription before sending the initial question', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const props = buildProps({ id: 'spoken-transcription', initialQuestion: '' });
+    const view = render(<ContextAnswerPanel {...props} pendingQuestion />);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('Sto trascrivendo la domanda');
+    view.rerender(
+      <ContextAnswerPanel
+        {...props}
+        contextAnswer={{ ...props.contextAnswer, initialQuestion: 'La domanda dettata' }}
+      />
+    );
+    expect(sendMessageMock).toHaveBeenCalledExactlyOnceWith({ text: 'La domanda dettata' });
+  });
+
+  test('continues a docked desktop conversation from the external composer', async () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const portal = document.createElement('div');
+    document.body.append(portal);
+    const view = render(
+      <ContextAnswerPanel
+        {...buildProps({ id: 'external-composer' })}
+        isMobileViewport={false}
+        docked
+        composerPortal={portal}
+        renderComposer={(send, disabled) => (
+          <button type="button" disabled={disabled} onClick={() => send('Un altro esempio?')}>
+            Continua dalla barra
+          </button>
+        )}
+      />
+    );
+    try {
+      expect(screen.queryByRole('textbox')).toBeNull();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Continua dalla barra' }));
+      expect(sendMessageMock).toHaveBeenLastCalledWith({ text: 'Un altro esempio?' });
+      expect(
+        screen.getByRole('button', { name: 'Apri strumenti conversazione' })
+      ).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      portal.remove();
+    }
+  });
+
   test('renders the mobile follow-up as a full-width bottom sheet that shrinks above the keyboard', () => {
     useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 240, viewportHeight: 528 });
     useChatMock.mockReturnValue({
@@ -471,6 +537,58 @@ describe('ContextAnswerPanel', () => {
     chatStatus = 'ready';
     rerender(<ContextAnswerPanel {...props} />);
     expect(screen.getByRole('textbox')).toHaveFocus();
+  });
+
+  test('hands focus between an external submit button, Stop, and the external input', async () => {
+    const user = userEvent.setup();
+    let chatStatus: 'ready' | 'streaming' = 'ready';
+    useChatMock.mockImplementation(() => ({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: chatStatus,
+      stop: stopMock,
+    }));
+    const portal = document.createElement('div');
+    document.body.append(portal);
+    const props = {
+      ...buildProps({ id: 'external-focus' }),
+      isMobileViewport: false,
+      docked: true,
+      composerPortal: portal,
+      renderComposer: (send: (text: string) => void) => (
+        <>
+          <input data-context-menu-target="input" aria-label="Domanda esterna" />
+          <button
+            type="button"
+            data-context-menu-target="submit"
+            onClick={() => send('Un esempio?')}
+          >
+            Invia dalla barra
+          </button>
+        </>
+      ),
+    };
+    const view = render(<ContextAnswerPanel {...props} />);
+    try {
+      const submit = screen.getByRole('button', { name: 'Invia dalla barra' });
+      submit.focus();
+      await user.keyboard('{Enter}');
+      chatStatus = 'streaming';
+      view.rerender(<ContextAnswerPanel {...props} />);
+      const stop = screen.getByRole('button', { name: /^(Cancel|Annulla)$/i });
+      expect(stop).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(stopMock).toHaveBeenCalledOnce();
+      chatStatus = 'ready';
+      view.rerender(<ContextAnswerPanel {...props} />);
+      expect(screen.getByRole('textbox', { name: 'Domanda esterna' })).toHaveFocus();
+      expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    } finally {
+      view.unmount();
+      portal.remove();
+    }
   });
 
   test('does not revive a stopped artifact tool when a follow-up starts', async () => {
@@ -2209,6 +2327,133 @@ describe('ContextAnswerPanel', () => {
       tool: 'requestAddToNotes',
       toolCallId: 'tool-unanchorable-note',
       output: { approved: false, mode: 'none', saved: false },
+    });
+  });
+
+  test('shows that an approved note is being saved until the save settles', async () => {
+    const user = userEvent.setup();
+    const lessonContent = 'La memoria di lavoro è una scrivania piccola. Contiene poche cose.';
+    const input = {
+      noteDraft: 'Poche cose alla volta.',
+      rationale: 'Conserva il chiarimento.',
+      selectedTextDraft: 'La memoria di lavoro è una scrivania piccola.',
+    };
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-note',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'note',
+              state: 'input-available',
+              input,
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    let finishSave!: (result: { saved: boolean; merged: boolean; annotationId: string }) => void;
+    const save = vi.fn<WorkspaceReaderOverlaysModel['onSaveConversationNote']>(
+      () =>
+        new Promise(resolve => {
+          finishSave = resolve;
+        })
+    );
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          selectedText: input.selectedTextDraft,
+          selectedTextStart: 0,
+          lessonContent,
+          contextScope: 'selection',
+        })}
+        onSaveConversationNote={save}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(screen.getByText('Salvataggio…')).toBeInTheDocument();
+    await act(async () => finishSave({ saved: true, merged: false, annotationId: 'note' }));
+    expect(screen.queryByText('Salvataggio…')).not.toBeInTheDocument();
+  });
+
+  test('offers a player note with an unanchorable draft and saves its original passage after approval', async () => {
+    const user = userEvent.setup();
+    // First passage of the local lesson "La mente ha una scrivania piccola".
+    const source = [
+      {
+        type: 'markdown' as const,
+        markdown:
+          'Una consegna non incontra una mente astratta: incontra una persona con conoscenze, abitudini, energie, distrazioni e strategie diverse, dentro un ambiente concreto. Per questo la stessa persona può riuscire in un compito breve e ben strutturato e bloccarsi davanti a una richiesta lunga, ambigua o ricca di passaggi interdipendenti. La prestazione dipende dall’incontro tra caratteristiche della persona e caratteristiche del compito.',
+      },
+    ];
+    const lessonContent = deriveLegacyLessonContent(source);
+    const selector = playbackSentenceSelector(segmentLessonPlayback(source)[0], 0, 12, source);
+    if (!selector) throw new Error('Expected a source passage selector');
+    const anchor = {
+      selectedText: selector.exact,
+      selectedTextStart: selector.selectionStart,
+      contextBefore: selector.prefix,
+      contextAfter: selector.suffix,
+    };
+    const input = {
+      noteDraft: 'La struttura della consegna influisce sulle risorse disponibili.',
+      rationale: 'Conserva il chiarimento.',
+      selectedTextDraft: 'La memoria di lavoro è una scrivania piccola.',
+    };
+    const candidates = buildConversationNoteSaveCandidates({
+      anchor,
+      toolInput: { note: input.noteDraft, selectedText: input.selectedTextDraft },
+    });
+    expect(
+      candidates.map(candidate => hasAnchorableConversationNoteCandidate(lessonContent, candidate))
+    ).toEqual([false, true]);
+    const toolCallId = 'player-note';
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-player-note',
+          role: 'assistant',
+          parts: [{ type: 'tool-requestAddToNotes', toolCallId, state: 'input-available', input }],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+    const save = vi.fn<WorkspaceReaderOverlaysModel['onSaveConversationNote']>(
+      async (_target, candidate) => ({
+        saved: hasAnchorableConversationNoteCandidate(lessonContent, candidate),
+        merged: false,
+        annotationId: 'player-annotation',
+      })
+    );
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ ...anchor, lessonContent, contextScope: 'selection' })}
+        onSaveConversationNote={save}
+      />
+    );
+    await act(async () => {
+      await useChatMock.mock.lastCall?.[0].onToolCall({
+        toolCall: { dynamic: false, input, toolCallId, toolName: 'requestAddToNotes' },
+      });
+    });
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Aggiungi alle note' }));
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1][1]).toMatchObject(candidates[1]);
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'requestAddToNotes',
+      toolCallId,
+      output: { approved: true, mode: 'new', saved: true, annotationId: 'player-annotation' },
     });
   });
 

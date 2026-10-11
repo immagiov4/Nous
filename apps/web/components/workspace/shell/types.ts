@@ -107,6 +107,7 @@ export interface WorkspaceReaderVoiceOption {
 }
 
 export interface WorkspaceReaderSidebarModel {
+  onPlayLesson?: () => void;
   activeSectionId: string | null;
   canRepairApplicationExercises: boolean;
   expandedModuleId: string | null;
@@ -155,6 +156,7 @@ export interface WorkspaceReaderTtsModel {
   sectionContent: string;
   ttsConnected: boolean;
   onPlayPause: () => void;
+  onStop: () => void;
   onSeek: (time: number) => void;
   onSelectChunk: (chunkIndex: number) => void;
   onSetTextPickerActive: (isActive: boolean) => void;
@@ -171,6 +173,7 @@ export interface WorkspaceReaderTextPickerModel {
 }
 
 export interface WorkspaceReaderHeaderModel {
+  onPlayLesson?: () => void;
   lastAudioTab: AudioPanelTab;
   onSetLastAudioTab: (tab: AudioPanelTab) => void;
   hasActiveSection: boolean;

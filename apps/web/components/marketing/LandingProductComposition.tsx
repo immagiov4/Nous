@@ -1679,6 +1679,7 @@ export const LandingProductVideoFrame = ({
         isPlaying: isTtsPlaying,
         isTextPickerActive: false,
         onPlayPause: () => setIsTtsPlaying(current => !current),
+        onStop: () => setIsTtsPlaying(false),
         onSeek: () => {},
         onSelectChunk: setTtsChunkIndex,
         onSetTextPickerActive: () => {},

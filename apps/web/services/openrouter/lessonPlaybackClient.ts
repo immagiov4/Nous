@@ -2,10 +2,15 @@ import {
   LessonPlaybackResponseSchema,
   PrepareLessonPlaybackResponseSchema,
 } from '@shared/lessonPlaybackSchema';
-
+import * as z from 'zod';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
-import { readWorkflowPollJson } from './workflowClientTransport.ts';
+import {
+  assertWorkflowPollResponse,
+  isTransientWorkflowPollError,
+  pollWorkflow,
+  readWorkflowPollJson,
+} from './workflowClientTransport.ts';
 
 const PLAYBACK_ERROR = 'Impossibile preparare l’ascolto della lezione. Riprova.';
 interface PlaybackTarget {
@@ -51,4 +56,57 @@ export const prepareLessonPlayback = async (
   );
   if (!parsed.success) throw new Error(PLAYBACK_ERROR);
   return parsed.data;
+};
+
+const PlaybackRunSchema = z.object({
+  success: z.literal(true),
+  state: z.object({
+    run: z.object({
+      id: z.string(),
+      projectId: z.string(),
+      workflowId: z.literal('prepare-lesson-playback-block'),
+      status: z.string(),
+      cleanupStatus: z.string(),
+    }),
+  }),
+});
+
+/** Wait for the preparation commit before reading the block from the lesson. */
+export const waitForLessonPlayback = async (
+  runId: string,
+  projectId: string,
+  signal: AbortSignal
+) => {
+  const readState = async () => {
+    const response = await fetchWithSupabaseAuth(
+      `${getBackendUrl()}/api/workflows/runs/${encodeURIComponent(runId)}`,
+      { cache: 'no-store', signal }
+    );
+    assertWorkflowPollResponse(response, PLAYBACK_ERROR);
+    const {
+      state: { run },
+    } = PlaybackRunSchema.parse(await readWorkflowPollJson(response, PLAYBACK_ERROR));
+    if (run.id !== runId || run.projectId !== projectId) throw new Error(PLAYBACK_ERROR);
+    return run;
+  };
+  const initialState = await readState().catch(error => {
+    if (signal.aborted || !isTransientWorkflowPollError(error)) throw error;
+    return {
+      id: runId,
+      projectId,
+      workflowId: 'prepare-lesson-playback-block' as const,
+      status: 'running',
+      cleanupStatus: 'not-required',
+    };
+  });
+  const run = await pollWorkflow({
+    initialState,
+    readState,
+    signal,
+    isTerminal: state =>
+      state.status === 'completed' ||
+      (!['queued', 'running', 'waiting'].includes(state.status) &&
+        !['pending', 'running'].includes(state.cleanupStatus)),
+  });
+  if (run.status !== 'completed') throw new Error(PLAYBACK_ERROR);
 };

@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { createRef } from 'react';
-import { describe, expect, test, vi } from 'vitest';
+import { createRef, type RefObject } from 'react';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderShellProps } from '../../../components/workspace/shell/types.ts';
 import WorkspaceReaderShell from '../../../components/workspace/WorkspaceReaderShell.tsx';
+
+const playerProps = vi.hoisted(() => vi.fn());
+
+afterEach(() => vi.restoreAllMocks());
 
 vi.mock('../../../components/workspace/AudioPlayer.tsx', () => ({
   default: (props: { currentVoice: string; isPlaying: boolean }) => (
@@ -29,7 +33,11 @@ vi.mock('../../../components/workspace/shell/WorkspaceReaderContent.tsx', () => 
 }));
 
 vi.mock('../../../components/workspace/shell/WorkspaceReaderHeader.tsx', () => ({
-  default: () => <div data-testid="workspace-header" />,
+  default: ({ onPlayLesson }: { onPlayLesson: () => void }) => (
+    <button data-testid="workspace-header" onClick={onPlayLesson} type="button">
+      Header play
+    </button>
+  ),
 }));
 
 vi.mock('../../../components/workspace/shell/WorkspaceReaderOverlays.tsx', () => ({
@@ -37,7 +45,18 @@ vi.mock('../../../components/workspace/shell/WorkspaceReaderOverlays.tsx', () =>
 }));
 
 vi.mock('../../../components/workspace/shell/WorkspaceReaderSidebar.tsx', () => ({
-  default: () => <div data-testid="workspace-sidebar" />,
+  default: ({ onPlayLesson }: { onPlayLesson: () => void }) => (
+    <button data-testid="workspace-sidebar" onClick={onPlayLesson} type="button">
+      Sidebar play
+    </button>
+  ),
+}));
+
+vi.mock('../../../components/workspace/playback/LessonPlayer.tsx', () => ({
+  default: (props: { autoPlay: boolean; audioElementRef: RefObject<HTMLAudioElement> }) => {
+    playerProps(props);
+    return <div role="dialog" data-autoplay={String(props.autoPlay)} />;
+  },
 }));
 
 const buildProps = (): WorkspaceReaderShellProps => {
@@ -131,6 +150,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
         sectionContent: '',
         ttsConnected: false,
         onPlayPause: vi.fn(),
+        onStop: vi.fn(),
         onSeek: vi.fn(),
         onSelectChunk: vi.fn(),
         onSetTextPickerActive: vi.fn(),
@@ -211,6 +231,31 @@ const buildProps = (): WorkspaceReaderShellProps => {
 };
 
 describe('WorkspaceReaderShell', () => {
+  test.each([
+    'workspace-header',
+    'workspace-sidebar',
+  ])('%s opens the player with autoplay', async entry => {
+    const audio = document.createElement('audio');
+    vi.spyOn(globalThis, 'Audio').mockImplementation(function Audio() {
+      return audio;
+    });
+    vi.spyOn(audio, 'play').mockImplementation(async () => {
+      expect(audio.muted).toBe(true);
+    });
+    vi.spyOn(audio, 'pause').mockImplementation(() => {});
+    const props = buildProps();
+    props.sidebar.activeSectionId = 'lesson';
+    props.content.projectId = 'project';
+    props.content.sectionContent = 'Una frase.';
+    render(<WorkspaceReaderShell {...props} />);
+    fireEvent.click(screen.getByTestId(entry));
+    expect(audio.play).toHaveBeenCalledOnce();
+    expect(audio.pause).toHaveBeenCalledOnce();
+    expect(audio.muted).toBe(false);
+    expect(await screen.findByRole('dialog')).toHaveAttribute('data-autoplay', 'true');
+    expect(playerProps.mock.lastCall?.[0].audioElementRef.current).toBe(audio);
+  });
+
   test('resets both window and content scroll positions on mount', () => {
     const props = buildProps();
     vi.spyOn(globalThis, 'scrollTo').mockImplementation(() => {});
@@ -318,4 +363,39 @@ describe('WorkspaceReaderShell', () => {
     expect(container.firstElementChild).toHaveAttribute('data-reader-display-mode', 'embedded');
     expect(container.firstElementChild).toHaveClass('overflow-visible');
   });
+});
+
+test.each([
+  'empty',
+  'exercise',
+  'loading',
+])('both entry points reject an unavailable %s lesson', kind => {
+  const props = buildProps();
+  props.sidebar.activeSectionId = 'lesson';
+  props.content.projectId = 'project';
+  props.content.sectionContent = kind === 'empty' ? '' : 'Una frase.';
+  if (kind === 'exercise')
+    props.content.activeExercise = { id: 'exercise' } as NonNullable<
+      typeof props.content.activeExercise
+    >;
+  if (kind === 'loading') props.content.isLoading = true;
+  render(<WorkspaceReaderShell {...props} />);
+  fireEvent.click(screen.getByTestId('workspace-header'));
+  fireEvent.click(screen.getByTestId('workspace-sidebar'));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(props.header.tts.onStop).not.toHaveBeenCalled();
+});
+
+test('opening playback cancels paused legacy generation with an explicit stop', async () => {
+  const props = buildProps();
+  props.sidebar.activeSectionId = 'lesson';
+  props.content.projectId = 'project';
+  props.content.sectionContent = 'Una frase.';
+  props.header.tts.isPlaying = false;
+  props.header.tts.isLoading = true;
+  render(<WorkspaceReaderShell {...props} />);
+  fireEvent.click(screen.getByTestId('workspace-header'));
+  await screen.findByRole('dialog');
+  expect(props.header.tts.onStop).toHaveBeenCalledOnce();
+  expect(props.header.tts.onPlayPause).not.toHaveBeenCalled();
 });

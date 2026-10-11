@@ -185,6 +185,22 @@ describe('SpeechInputButton', () => {
     expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
 
+  test('keeps viewport errors in the owning modal and outside its clipped composer', async () => {
+    const user = userEvent.setup();
+    getUserMedia.mockRejectedValue(new DOMException('Denied', 'NotAllowedError'));
+    const { container } = render(
+      <div role="dialog" aria-modal="true">
+        <div data-testid="composer" className="overflow-hidden">
+          <SpeechInputButton errorPresentation="viewport" onTranscription={vi.fn()} />
+        </div>
+      </div>
+    );
+    await user.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+    const alert = await screen.findByRole('alert');
+    expect(screen.getByRole('dialog')).toContainElement(alert);
+    expect(container.querySelector('[data-testid="composer"]')).not.toContainElement(alert);
+  });
+
   test('automatically clears a temporary acquisition error', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

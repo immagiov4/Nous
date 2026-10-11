@@ -37,6 +37,30 @@ export const setAccountLocale = (locale: AppLocale | null): void => {
 };
 
 const ENGLISH_UI_MESSAGES = {
+  'Ti ascolto… rilascia': 'Listening… release',
+  Spazio: 'Space',
+  'Tieni premuto': 'Hold',
+  'per fare una domanda a voce': 'to ask a question out loud',
+  'per inviare': 'to send',
+  'Sto trascrivendo la domanda…': 'Transcribing your question…',
+  'Torna alla lezione': 'Back to the lesson',
+  Riproduci: 'Play',
+  'Visualizzazione della lezione': 'Lesson visual',
+  'Riproduci lezione': 'Play lesson',
+  'Riproduci la lezione corrente': 'Play the current lesson',
+  'Apri una lezione per ascoltarla': 'Open a lesson to listen',
+  'Chiedi su questo punto della lezione': 'Ask about this point in the lesson',
+  'Scrivi una nota su questo punto della lezione': 'Write a note about this point in the lesson',
+  'Nota salvata': 'Note saved',
+  'Indietro di {seconds} secondi': 'Back {seconds} seconds',
+  'Avanti di {seconds} secondi': 'Forward {seconds} seconds',
+  Sottotitoli: 'Captions',
+  'Posizione audio': 'Audio position',
+  'Preparo voce e visualizzazione…': 'Preparing audio and visuals…',
+  'Questa lezione non contiene testo da ascoltare.': 'This lesson has no text to listen to.',
+  'Impossibile preparare l’ascolto della lezione. Riprova.':
+    'Could not prepare lesson playback. Try again.',
+
   [ANNOTATION_PROJECTION_ERROR_MESSAGE]:
     'Some saved highlights are not visible in this text. Your notes are preserved.',
   'Impossibile preparare la selezione. Chiudi il menu e seleziona di nuovo il testo.':
@@ -419,6 +443,9 @@ const ENGLISH_UI_MESSAGES = {
   'Nessun utente corrisponde alla ricerca.': 'No users match this search.',
   'Pagine utenti': 'User pages',
   'Pagine segnalazioni': 'Report pages',
+  Audio: 'Audio',
+  'Parte precedente': 'Previous part',
+  'Parte successiva': 'Next part',
   'Pagina precedente': 'Previous page',
   'Pagina successiva': 'Next page',
   'Pagina {currentPage}': 'Page {currentPage}',
@@ -992,6 +1019,8 @@ const ENGLISH_UI_MESSAGES = {
   'Mostra Menu': 'Show menu',
   Percorso: 'Learning path',
   'Rigenera la lezione corrente': 'Regenerate the current lesson',
+  No: 'No',
+  'Sì, rigenera': 'Yes, regenerate',
   'Rigenerare questa lezione?': 'Regenerate this lesson?',
   Salvataggio: 'Saving',
   'Salvataggio in corso...': 'Saving...',

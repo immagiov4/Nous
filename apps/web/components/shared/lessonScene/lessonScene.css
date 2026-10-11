@@ -50,6 +50,15 @@
   border-radius: var(--radius);
   background: var(--surface);
 }
+.lesson-scene.lesson-scene-bare {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  container-type: normal;
+  width: 100%;
+}
 @media (max-width: 520px) {
   .lesson-scene {
     padding: 20px;

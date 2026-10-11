@@ -1,9 +1,10 @@
-import { memo, useEffect, useLayoutEffect } from 'react';
+import { lazy, memo, type RefObject, Suspense, useEffect, useLayoutEffect, useState } from 'react';
 import {
   READER_MOBILE_TOP_FADE_ALPHA_PROPERTY,
   READER_MOBILE_TOP_FADE_SCROLL_RANGE_PX,
   READER_SIDEBAR_WIDTH_PX,
 } from '../../constants/layout.ts';
+import { unlockLessonPlaybackAudio } from '../../hooks/reader/useLessonPlayback.ts';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
@@ -11,6 +12,20 @@ import WorkspaceReaderContent from './shell/WorkspaceReaderContent.tsx';
 import WorkspaceReaderHeader from './shell/WorkspaceReaderHeader.tsx';
 import WorkspaceReaderOverlays from './shell/WorkspaceReaderOverlays.tsx';
 import WorkspaceReaderSidebar from './shell/WorkspaceReaderSidebar.tsx';
+
+const LessonPlayer = lazy(() => import('./playback/LessonPlayer.tsx'));
+
+function isLessonPlayable(
+  content: WorkspaceReaderShellProps['content'],
+  header: WorkspaceReaderShellProps['header']
+) {
+  return (
+    !content.activeExercise &&
+    !content.isLoading &&
+    !header.isLoading &&
+    Boolean(content.sectionContent.trim() || content.sectionContentBlocks?.length)
+  );
+}
 
 const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   banners,
@@ -22,6 +37,25 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   sidebar,
 }: WorkspaceReaderShellProps) {
   useAppLocale();
+  const [player, setPlayer] = useState<{
+    sectionId: string;
+    autoPlay: boolean;
+    audioElementRef: RefObject<HTMLAudioElement>;
+  } | null>(null);
+  const canPlayLesson = isLessonPlayable(content, header);
+  const openPlayer = (autoPlay: boolean) => {
+    if (!sidebar.activeSectionId || !content.projectId || !canPlayLesson) return;
+    header.tts.onStop();
+    overlays.onCloseContextAnswer();
+    overlays.onCloseContextMenu();
+    const audioElement = new Audio();
+    if (autoPlay) unlockLessonPlaybackAudio(audioElement);
+    setPlayer({
+      sectionId: sidebar.activeSectionId,
+      autoPlay,
+      audioElementRef: { current: audioElement },
+    });
+  };
   const { viewportHeight } = useMobileKeyboardOffset();
 
   useEffect(() => {
@@ -107,21 +141,21 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   const isEmbedded = displayMode === 'embedded';
   const sidebarModel = isEmbedded ? { ...sidebar, placement: 'container' as const } : sidebar;
   const contentModel = isEmbedded ? { ...content, scrollMode: 'document' as const } : content;
+  const viewportHeightStyle = viewportHeight === null ? '100dvh' : `${viewportHeight}px`;
+  const embeddedClassName = `${header.isDarkMode ? 'dark ' : ''}min-h-[34rem] overflow-visible`;
 
   return (
     <div
       data-reader-display-mode={displayMode}
       className={`relative flex max-w-full overscroll-none bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark ${
-        isEmbedded
-          ? `${header.isDarkMode ? 'dark ' : ''}min-h-[34rem] overflow-visible`
-          : 'h-screen overflow-hidden'
+        isEmbedded ? embeddedClassName : 'h-screen overflow-hidden'
       }`}
       style={
         isEmbedded
           ? undefined
           : {
-              height: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
-              maxHeight: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
+              height: viewportHeightStyle,
+              maxHeight: viewportHeightStyle,
             }
       }
     >
@@ -131,14 +165,17 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
           className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-white/80 backdrop-blur dark:bg-zinc-800/80"
         />
       ) : null}
-      <WorkspaceReaderSidebar {...sidebarModel} />
+      <WorkspaceReaderSidebar {...sidebarModel} onPlayLesson={() => openPlayer(true)} />
 
       <div
         className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-paper-light transition-[margin] duration-300 dark:bg-paper-dark"
         style={{ marginLeft: shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0 }}
       >
         <WorkspaceReaderBanners {...banners} />
-        <WorkspaceReaderHeader {...header} />
+        <WorkspaceReaderHeader
+          {...header}
+          onPlayLesson={canPlayLesson ? () => openPlayer(true) : undefined}
+        />
         <div
           data-reader-content-layer="true"
           className="relative flex min-h-0 min-w-0 flex-1 flex-col"
@@ -147,6 +184,21 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
           <WorkspaceReaderOverlays {...overlays} />
         </div>
       </div>
+      {player?.sectionId && player.sectionId === sidebar.activeSectionId && content.projectId ? (
+        <Suspense fallback={null}>
+          <LessonPlayer
+            key={`${content.projectId}:${player.sectionId}:${content.sectionContent}`}
+            sectionId={player.sectionId}
+            projectId={content.projectId}
+            content={content}
+            overlays={overlays}
+            tts={header.tts}
+            autoPlay={player.autoPlay}
+            audioElementRef={player.audioElementRef}
+            onClose={() => setPlayer(null)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 });

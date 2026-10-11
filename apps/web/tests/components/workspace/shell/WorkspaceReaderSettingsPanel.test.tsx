@@ -14,6 +14,8 @@ describe('WorkspaceReaderSettingsPanel', () => {
   test('keeps the floating panel interactive inside the mobile header', () => {
     render(
       <WorkspaceReaderSettingsPanel
+        canRegenerate
+        onRegenerate={vi.fn()}
         expandedSections={[]}
         onClose={vi.fn()}
         onSectionToggle={vi.fn()}
