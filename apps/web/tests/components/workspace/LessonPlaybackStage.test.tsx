@@ -83,10 +83,10 @@ test('fits the complete scene into both available dimensions and releases the ob
   stage.style.rowGap = '20px';
   Object.defineProperty(captions, 'offsetHeight', { configurable: true, value: 140 });
   act(() => resizeScene());
-  expect(slot.style.getPropertyValue('--scene-scale')).toBe('1');
+  expect(slot.style.getPropertyValue('--scene-scale')).toBe('0.4');
   expect(slot.style.height).toBe('800px');
-  expect(card.style.width).toBe('700px');
-  expect(slot.style.getPropertyValue('--scene-left')).toBe('0px');
+  expect(card.style.width).toBe('1400px');
+  expect(slot.style.getPropertyValue('--scene-left')).toBe('70px');
   unmount();
   expect(disconnectScene).toHaveBeenCalledTimes(1);
 });
