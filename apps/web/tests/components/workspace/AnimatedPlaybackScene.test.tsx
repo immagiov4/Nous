@@ -7,6 +7,7 @@ import {
   guidedPathScene,
   proportionalScene,
 } from '../../../../backend/tests/helpers/animatedLessonScenes';
+import { CAPTION_TIMING } from '../../../components/workspace/playback/captionFormat';
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types';
 
@@ -243,15 +244,32 @@ test.each([false, true])('scene visibility follows complete caption spans (store
   expect(visible()).toEqual([false, true]);
 });
 
-test('overlapping scene spans stay visible together and recompute after caption measurement', () => {
+test.each([
+  false,
+  true,
+])('later scene replaces an overlap and follows caption measurement (stored: %s)', stored => {
   const { container, tick } = mount(
     [quotedPath('Late', ['sei', 'otto.']), quotedPath('Middle', ['quattro', 'sette'])],
     speech,
-    8
+    8,
+    stored
   );
   const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
+  tick(2);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  // Six starts at this measured caption time, including the existing look-ahead.
+  const replacementTime = (500 / 822) * 8 - CAPTION_TIMING.lookAheadSeconds;
+  tick(replacementTime - 0.001);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  tick(replacementTime);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+  expect(scenes[0].querySelector('[aria-current=step] strong')?.textContent).toBe('sei');
+  tick(6);
+  expect(scenes[0].querySelector('[aria-current=step] strong')?.textContent).toBe('otto.');
+  tick(2);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  expect(scenes[1].querySelector('[aria-current=step] strong')?.textContent).toBe('quattro');
   tick(4);
-  expect(scenes.map(scene => !scene.hidden)).toEqual([true, true]);
   vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (
     this: HTMLElement
   ) {
@@ -268,7 +286,9 @@ test('unanchored scenes retain their sequential slot and restart relative to tha
     speech,
     8
   );
-  expect(container.querySelector('[data-quantity-value]')).toBeNull();
+  expect(container.querySelector('[data-quantity-value]')?.closest('[hidden]')).toBeInstanceOf(
+    HTMLElement
+  );
   advance(4);
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   advance(6);
@@ -276,5 +296,43 @@ test('unanchored scenes retain their sequential slot and restart relative to tha
   advance(8);
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('768');
   advance(0);
-  expect(container.querySelector('[data-quantity-value]')).toBeNull();
+  expect(container.querySelector('[data-quantity-value]')?.closest('[hidden]')).toBeInstanceOf(
+    HTMLElement
+  );
+});
+
+test('a replaced scene stays hidden after the later scene ends', () => {
+  const { container, tick } = mount(
+    [quotedPath('Long', ['Uno', 'otto.']), quotedPath('Short', ['quattro', 'cinque'])],
+    speech,
+    8
+  );
+  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
+  tick(0);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+  tick(2);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  tick(4);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, false]);
+  tick(0);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+});
+
+test('automatic and synchronized scenes share one visible slot with their own clocks', () => {
+  const { container, tick } = mount(
+    [quotedPath('Long', ['Uno', 'otto.']), proportionalScene],
+    speech,
+    8
+  );
+  const scenes = Array.from(container.querySelectorAll<HTMLElement>('.scene-host > div'));
+  tick(3.9);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
+  tick(4);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  expect(scenes[1].querySelector('[data-quantity-value]')?.textContent).toBe('256');
+  tick(6);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([false, true]);
+  expect(scenes[1].querySelector('[data-quantity-value]')?.textContent).toBe('512');
+  tick(0);
+  expect(scenes.map(scene => !scene.hidden)).toEqual([true, false]);
 });

@@ -239,14 +239,10 @@ function PlaybackStoredVisual({
 function PlaybackVisualContent({
   visual,
   content,
-  active,
-  schedule,
   ...props
 }: Readonly<{
   visual: PlaybackVisual;
   content: WorkspaceReaderContentModel;
-  active: boolean;
-  schedule: boolean;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
   speed: number;
@@ -257,49 +253,8 @@ function PlaybackVisualContent({
     visual.kind === 'generated-visual'
       ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
       : undefined;
-  const storedScene = stored ? getStoredLessonVisualScene(stored) : undefined;
-  const scene = visual.kind === 'scene' ? visual.scene : storedScene;
-  const anchors = useMemo(
-    () => (schedule ? sceneCaptionAnchors(scene, props.block.speech) : undefined),
-    [scene, props.block.speech, schedule]
-  );
-  const host = useRef<HTMLDivElement>(null);
-  const { clock, block } = props;
-  useEffect(() => {
-    if (!anchors) return;
-    const element = host.current;
-    if (!element) throw new Error('Scheduled visual must be mounted');
-    let previousClock: CaptionClock | null = null;
-    let span: ReturnType<typeof captionAnchorSpan> | undefined;
-    let frame = 0;
-    const tick = () => {
-      const current = clock.current;
-      if (current?.width && current.bodyDuration) {
-        if (current !== previousClock) {
-          span = captionAnchorSpan({
-            anchors,
-            speech: block.speech,
-            speechRanges: current.speechRanges,
-            runs: current.runs,
-            width: current.width,
-            feather: current.feather,
-            duration: current.bodyDuration,
-          });
-          previousClock = current;
-        }
-        if (!span) throw new Error('Scheduled visual span must exist');
-        const timeMs = Math.max(0, current.read().revealTime * 1000);
-        const hidden = timeMs < span.startMs || timeMs > span.endMs;
-        if (element.hidden !== hidden) element.hidden = hidden;
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    tick();
-    return () => cancelAnimationFrame(frame);
-  }, [anchors, block.speech, clock]);
-  if (!anchors && !active) return null;
   return (
-    <div ref={host} hidden={Boolean(anchors)}>
+    <div hidden>
       {visual.kind === 'scene' ? (
         <PlaybackScene {...props} scene={visual.scene} isDarkMode={content.isDarkMode} />
       ) : null}
@@ -500,14 +455,82 @@ export default function LessonPlaybackStage({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const preparedVisuals = block.prepared?.scene
-    ? [{ kind: 'scene' as const, scene: block.prepared.scene }]
-    : [];
-  const visuals = block.visuals.length ? block.visuals : preparedVisuals;
-  const visualIndex = Math.min(
-    visuals.length - 1,
-    duration > 0 ? Math.floor((time / duration) * visuals.length) : 0
+  const visuals = useMemo(
+    () =>
+      block.visuals.length
+        ? block.visuals
+        : block.prepared?.scene
+          ? [{ kind: 'scene' as const, scene: block.prepared.scene }]
+          : [],
+    [block]
   );
+  const anchors = useMemo(
+    () =>
+      visuals.map(visual => {
+        const stored =
+          visual.kind === 'generated-visual'
+            ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
+            : undefined;
+        const scene =
+          visual.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+        return visuals.length > 1 ? sceneCaptionAnchors(scene, block.speech) : undefined;
+      }),
+    [visuals, content.activeSectionGeneratedVisualsById, block.speech]
+  );
+  useEffect(() => {
+    if (!visuals.length) return;
+    const host = sceneCard.current;
+    if (!host) throw new Error('Playback stage must be mounted');
+    const elements = Array.from(host.children) as HTMLElement[];
+    let previousClock: CaptionClock | null = null;
+    let spans: (ReturnType<typeof captionAnchorSpan> | undefined)[] = [];
+    let frame = 0;
+    const tick = () => {
+      const current = clock.current;
+      if (current && (current.width || !anchors.some(Boolean))) {
+        if (current !== previousClock) {
+          spans = anchors.map(quotation =>
+            quotation
+              ? captionAnchorSpan({
+                  anchors: quotation,
+                  speech: block.speech,
+                  speechRanges: current.speechRanges,
+                  runs: current.runs,
+                  width: current.width,
+                  feather: current.feather,
+                  duration: current.bodyDuration,
+                })
+              : undefined
+          );
+          previousClock = current;
+        }
+        const { blockTime, revealTime } = current.read();
+        const captionOffset = Math.max(0, revealTime) - blockTime;
+        let active = -1;
+        let latestStart = Number.NEGATIVE_INFINITY;
+        spans.forEach((span, index) => {
+          const start = span
+            ? span.startMs / 1000 - captionOffset
+            : (duration * index) / visuals.length;
+          // A later start replaces the earlier scene permanently, even if it ends first.
+          if (start <= blockTime && start >= latestStart) {
+            latestStart = start;
+            const end = span
+              ? span.endMs / 1000 - captionOffset
+              : (duration * (index + 1)) / visuals.length;
+            active = blockTime <= end ? index : -1;
+          }
+        });
+        elements.forEach((element, index) => {
+          const hidden = index !== active;
+          if (element.hidden !== hidden) element.hidden = hidden;
+        });
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(frame);
+  }, [anchors, block, duration, visuals.length]);
   const sceneProps = {
     block,
     clock,
@@ -556,8 +579,6 @@ export default function LessonPlaybackStage({
                 }}
                 visual={visual}
                 content={content}
-                active={index === visualIndex}
-                schedule={visuals.length > 1}
               />
             ))}
           </section>

@@ -212,3 +212,30 @@ test('derives quantities and path frames at prototype boundaries and backward se
   });
   expect(textFrame(750, 'Uno due tre', [0, 500]).complete).toBe(true);
 });
+
+test.each([
+  [1, 13, 28800],
+  [10, 1000000, 28800],
+  [100, 105, 14400],
+])('aggregate playback samples %i..%i in at most twelve 2.4-second steps', (min, max, expectedDuration) => {
+  const scene = { ...proportionalScene, min, max, initial: min + 1, durationMs: undefined };
+  const count = Math.min(12, max - min + 1);
+  const duration = automaticDuration(scene);
+  expect(duration).toBe(expectedDuration);
+  const quantities = Array.from({ length: count }, (_, index) => {
+    const quantity = automaticQuantity(scene, index * 2400);
+    expect(automaticQuantity(scene, index * 2400 + 2399)).toBe(quantity);
+    return quantity;
+  });
+  expect(new Set(quantities).size).toBe(count);
+  const increments = quantities.slice(1).map((quantity, index) => quantity - quantities[index]);
+  expect(Math.max(...increments) - Math.min(...increments)).toBeLessThanOrEqual(1);
+  expect(quantities[0]).toBe(min);
+  expect(quantities.at(-1)).toBe(max);
+  expect(automaticQuantity(scene, duration + 2400)).toBe(max);
+  expect(automaticQuantity(scene, -1)).toBe(min);
+  const owned = { ...scene, durationMs: 60000 };
+  expect(automaticDuration(owned)).toBe(60000);
+  expect(automaticQuantity(owned, 60000)).toBe(max);
+  expect(automaticQuantity(owned, 0)).toBe(min);
+});

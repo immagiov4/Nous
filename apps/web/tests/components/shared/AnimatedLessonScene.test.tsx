@@ -172,9 +172,9 @@ test.each([12, 13, 1000000])('bounds rendered replicas for a maximum of %i', max
   expect(container.querySelectorAll('.quantity-bar')).toHaveLength(max > 12 ? 1 : 0);
   if (max > 12) {
     const fill = container.querySelector<HTMLElement>('.quantity-fill');
-    expect(fill?.style.transform).toBe(`scaleX(${2 / max})`);
+    expect(fill?.style.transform).toBe(`scaleX(${1 / max})`);
     expect(container.querySelector('[data-quantity-summary]')?.textContent).toBe(
-      'Repliche del servizio: 2'
+      'Repliche del servizio: 1'
     );
     act(() => intersect([{ isIntersecting: true }]));
     act(() => tick(0));
@@ -262,4 +262,26 @@ test.each([
   act(() => tick(0));
   act(() => tick(4800));
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(next);
+});
+
+test('aggregate reader playback finishes within twelve steps without an authored duration', () => {
+  setRenderingLocaleOverride('en');
+  const { container } = render(
+    <LessonSceneVisual scene={{ ...proportionalScene, max: 1000000, durationMs: undefined }} />
+  );
+  const fill = container.querySelector<HTMLElement>('.quantity-fill');
+  expect(container.querySelector('[data-quantity-summary]')?.textContent).toBe(
+    'Repliche del servizio: 1'
+  );
+  act(() => intersect([{ isIntersecting: true }]));
+  act(() => tick(0));
+  act(() => tick(2399));
+  expect(fill?.style.transform).toBe('scaleX(0.000001)');
+  act(() => tick(2400));
+  expect(fill?.style.transform).toBe('scaleX(0.09091)');
+  vi.mocked(requestAnimationFrame).mockClear();
+  act(() => tick(28800));
+  expect(fill?.style.transform).toBe('scaleX(1)');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('128,000,000');
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
 });

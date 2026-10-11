@@ -57,6 +57,7 @@ export const LESSON_SCENE_TYPES = [
 export type LessonSceneType = (typeof LESSON_SCENE_TYPES)[number];
 
 export const PROPORTIONAL_REPLICA_LIMIT = 12;
+export const PROPORTIONAL_AUTOMATIC_STEP_LIMIT = 12;
 export const GUIDED_PATH_MIN_STEPS = 2;
 export const GUIDED_PATH_MAX_STEPS = 8;
 export const GUIDED_PATH_STEPS_PER_ROW = 4;

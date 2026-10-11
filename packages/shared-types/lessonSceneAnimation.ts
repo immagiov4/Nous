@@ -1,4 +1,9 @@
-import type { AnimatedLessonScene, ProportionalLessonScene } from './lessonScene';
+import {
+  type AnimatedLessonScene,
+  PROPORTIONAL_AUTOMATIC_STEP_LIMIT,
+  PROPORTIONAL_REPLICA_LIMIT,
+  type ProportionalLessonScene,
+} from './lessonScene';
 
 // Ported from notes-live-lab/interactive-model.mjs. Scene data never supplies executable formulas.
 const interactionTiming = { stepMs: 2400, wordMs: 250 };
@@ -82,15 +87,24 @@ export function textFrame(elapsed: number, text: string, times: number[]) {
   };
 }
 
+function proportionalStepCount(scene: ProportionalLessonScene): number {
+  return scene.max > PROPORTIONAL_REPLICA_LIMIT
+    ? Math.min(PROPORTIONAL_AUTOMATIC_STEP_LIMIT, scene.max - scene.min + 1)
+    : scene.max - scene.initial + 1;
+}
+
 export function automaticDuration(scene: AnimatedLessonScene): number {
-  return (
-    scene.durationMs ??
-    (scene.type === 'guided-path' ? scene.steps.length : scene.max - scene.initial + 1) *
-      interactionTiming.stepMs
-  );
+  const steps = scene.type === 'guided-path' ? scene.steps.length : proportionalStepCount(scene);
+  return scene.durationMs ?? steps * interactionTiming.stepMs;
 }
 
 export function automaticQuantity(scene: ProportionalLessonScene, time: number): number {
   const progress = Math.max(0, Math.min(1, time / automaticDuration(scene)));
+  if (scene.max > PROPORTIONAL_REPLICA_LIMIT) {
+    const steps = proportionalStepCount(scene);
+    if (steps === 1) return scene.min;
+    const index = Math.min(steps - 1, Math.floor(progress * steps));
+    return scene.min + Math.round((index * (scene.max - scene.min)) / (steps - 1));
+  }
   return scene.initial + Math.floor(progress * (scene.max - scene.initial));
 }
