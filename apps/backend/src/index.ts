@@ -22,6 +22,7 @@ import { createCourseInterviewRouter } from './routes/courseInterviews.js';
 import { createCourseWorkflowRouter } from './routes/courseWorkflows.js';
 import feedbackRouter from './routes/feedback.js';
 import imagesRouter from './routes/images.js';
+import { createLessonPlaybackRouter } from './routes/lessonPlayback.js';
 import { createLessonVisualRetryRouter } from './routes/lessonVisualRetries.js';
 import { createLessonWorkflowRouter } from './routes/lessonWorkflows.js';
 import {
@@ -61,6 +62,10 @@ import {
   type LessonGenerationApi,
   unavailableLessonGenerationApi,
 } from './workflows/lessonGenerationApi.js';
+import {
+  type LessonPlaybackApi,
+  unavailableLessonPlaybackApi,
+} from './workflows/lessonPlaybackApi.js';
 import {
   type LessonVisualRetryStarter,
   unavailableLessonVisualRetryStarter,
@@ -186,6 +191,7 @@ export interface CreateAppOptions {
   courseGenerationApi?: CourseGenerationApi;
   courseInterviewApi?: CourseInterviewApi;
   lessonGenerationApi?: LessonGenerationApi;
+  lessonPlaybackApi?: LessonPlaybackApi;
   lessonVisualRetryStarter?: LessonVisualRetryStarter;
   libraryExportApi?: LibraryExportApi;
   pdfMappingRepairApi?: PdfMappingRepairApi;
@@ -340,6 +346,10 @@ export const createApp = (options: CreateAppOptions = {}) => {
     createLessonVisualRetryRouter(
       options.lessonVisualRetryStarter ?? unavailableLessonVisualRetryStarter
     )
+  );
+  app.use(
+    '/api/projects',
+    createLessonPlaybackRouter(options.lessonPlaybackApi ?? unavailableLessonPlaybackApi)
   );
   app.use('/api/projects', projectsRouter);
   if (options.workflowOutboxAdmin) {

@@ -1,4 +1,5 @@
-import { expect, test, vi } from 'vitest';
+import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
   chooseIconsMock: vi.fn(async ({ scene }) => scene),
@@ -12,9 +13,57 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
   chooseLessonSceneIcons: chooseIconsMock,
 }));
 
+import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
+import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
+
+beforeEach(() => {
+  chooseIconsMock.mockClear();
+  generateStructuredOutputMock.mockReset();
+});
+
+const unplannedInput = (lessonMarkdown: string) => ({
+  config: resolveLessonVisualModelConfig(getGlobalModelConfig()),
+  lessonMarkdown,
+  sectionDescription: '',
+  sectionTitle: 'Fonti',
+  signal: new AbortController().signal,
+});
+
+const quoteDraft = (quote: string) => ({
+  body: '',
+  criteria: [],
+  diagram: null,
+  evidence: quote,
+  groups: [],
+  intent: 'Leggere la domanda.',
+  items: [],
+  note: '',
+  quote,
+  relation: null,
+  title: 'Fonti',
+  type: 'quote',
+});
+
+test('generates a validated scene from speech without a visual plan', async () => {
+  const speech = 'Quali fonti sostengono la tesi?';
+  generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft(speech));
+  await expect(generateLessonScene(unplannedInput(speech))).resolves.toMatchObject({
+    kind: 'scene',
+    scene: { type: 'quote', quote: speech },
+  });
+});
+
+test('validates against the excerpt actually sent, not the unseen tail of a long lesson', async () => {
+  const unseenQuote = 'Quali fonti sostengono la tesi?';
+  const input = unplannedInput(`${'x'.repeat(MAX_VISUAL_LESSON_CHARS)}${unseenQuote}`);
+  generateStructuredOutputMock.mockResolvedValueOnce(quoteDraft(unseenQuote));
+  const result = await generateLessonScene(input);
+  expect(result).toMatchObject({ kind: 'invalid' });
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
 
 test.each([
   { kind: 'scene', note: '', quote: '' },
@@ -26,7 +75,6 @@ test.each([
     quote: 'la competenza è pertinente',
   },
 ])('validates closing text before choosing icons: $kind', async ({ kind, note, quote }) => {
-  chooseIconsMock.mockClear();
   generateStructuredOutputMock.mockResolvedValueOnce({
     body: '',
     criteria: [],

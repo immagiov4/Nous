@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
 import {
   getGlobalModelConfig,
+  getResolvedGlobalModelConfig,
   getResolvedModelConfigForProvider,
 } from '../../config/modelConfig.js';
 import type { ProjectAssetObjectStorage } from '../../projects/projectAsset.js';
@@ -84,6 +85,16 @@ import {
 } from '../lessonGenerationWorkflow.js';
 import { LegacyLessonVisualContractSchemas } from '../lessonGenerationWorkflowSchemas.js';
 import {
+  createLessonPlaybackApi,
+  type LessonPlaybackApi,
+  unavailableLessonPlaybackApi,
+} from '../lessonPlaybackApi.js';
+import { createProductionLessonPlaybackServices } from '../lessonPlaybackProduction.js';
+import {
+  createLessonPlaybackWorkflow,
+  LESSON_PLAYBACK_WORKFLOW_ID,
+} from '../lessonPlaybackWorkflow.js';
+import {
   createLessonVisualRetryStarter,
   type LessonVisualRetryStarter,
   unavailableLessonVisualRetryStarter,
@@ -136,7 +147,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment only when the production registry adds or removes a workflow ID.
-const WORKFLOW_SET_VERSION = 2;
+const WORKFLOW_SET_VERSION = 3;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -147,6 +158,7 @@ const createPublishedEventProjectors = (
     [PDF_MAPPING_REPAIR_WORKFLOW_ID, courseProjectRevisionEventProjector],
     [LESSON_GENERATION_WORKFLOW_ID, lessonProjectRevisionEventProjector],
     [LESSON_VISUAL_RETRY_WORKFLOW_ID, lessonProjectRevisionEventProjector],
+    [LESSON_PLAYBACK_WORKFLOW_ID, lessonProjectRevisionEventProjector],
     ...(overrides ?? []),
   ]);
 
@@ -175,6 +187,7 @@ export interface WorkflowRuntimeComposition {
   readonly courseGenerationApi: CourseGenerationApi;
   readonly courseInterviewApi: CourseInterviewApi;
   readonly lessonGenerationApi: LessonGenerationApi;
+  readonly lessonPlaybackApi: LessonPlaybackApi;
   readonly lessonVisualRetryStarter: LessonVisualRetryStarter;
   readonly pdfMappingRepairApi: PdfMappingRepairApi;
   readonly projectAssetReader: ProjectAssetReader;
@@ -191,6 +204,7 @@ export interface CreateWorkflowRuntimeCompositionOptions {
   readonly courseGenerationApi?: CourseGenerationApi;
   readonly courseInterviewApi?: CourseInterviewApi;
   readonly lessonGenerationApi?: LessonGenerationApi;
+  readonly lessonPlaybackApi?: LessonPlaybackApi;
   readonly lessonVisualRetryStarter?: LessonVisualRetryStarter;
   readonly pdfMappingRepairApi?: PdfMappingRepairApi;
   readonly projectAssetReader?: ProjectAssetReader;
@@ -409,6 +423,12 @@ export const createProductionRegistry = (): WorkflowRegistry => {
       preCompatibilityIdAndExternalEffectPrevious(previousPdfMappingRepairWorkflow),
     ],
   });
+  registry.register({
+    current: createLessonPlaybackWorkflow({
+      maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
+      timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
+    }),
+  });
   return registry;
 };
 
@@ -448,6 +468,7 @@ const createProductionWorker = (
     }),
     ...createProductionCourseGenerationServices(store),
     ...createProductionLessonGenerationServices(store),
+    ...createProductionLessonPlaybackServices(store.projectAssets),
     ...createProductionPdfMappingRepairServices(),
   };
   const worker = createWorkflowRuntimeWorker({
@@ -598,6 +619,17 @@ export const createWorkflowRuntimeComposition = (
             }),
           })
         : unavailablePdfMappingRepairApi),
+    lessonPlaybackApi:
+      options.lessonPlaybackApi ??
+      (productionStore
+        ? createLessonPlaybackApi({
+            projectReader: getProjectStore(),
+            registry,
+            store: productionStore,
+            publishTransientEvent,
+            resolveTtsModel: async () => (await getResolvedGlobalModelConfig()).ttsModel,
+          })
+        : unavailableLessonPlaybackApi),
     lessonVisualRetryStarter,
     projectAssetReader:
       options.projectAssetReader ?? store.projectAssets ?? unavailableProjectAssetReader,

@@ -4,6 +4,7 @@ import {
   LEARNING_ARTIFACT_ID_SEPARATOR,
   type LearningArtifactKind,
 } from './learningArtifact';
+import { isValidLessonPlayback } from './lessonPlaybackSchema';
 import { isLessonScene } from './lessonScene';
 import {
   buildProjectAssetPlaceholder,
@@ -85,6 +86,16 @@ const readProjectSections = (project: Record<string, unknown>): Record<string, u
   return [...moduleSections, ...directSections];
 };
 
+/** Prepared playback can be regenerated and does not belong in portable backups. */
+export const omitProjectPlayback = <T>(project: T): T => {
+  const portable = structuredClone(project);
+  if (!isRecord(portable)) throw new InvalidProjectBackupAssetError();
+  for (const section of readProjectSections(portable)) {
+    delete section.playback;
+  }
+  return portable;
+};
+
 const collectStructuredPdfRefs = (project: Record<string, unknown>): ProjectAssetRef[] => {
   if (!isRecord(project.documentAssets) || !Array.isArray(project.documentAssets.usedImages)) {
     return [];
@@ -94,9 +105,18 @@ const collectStructuredPdfRefs = (project: Record<string, unknown>): ProjectAsse
   );
 };
 
+const playbackBlocks = (section: Record<string, unknown>) => {
+  if (section.playback === undefined) return [];
+  if (!isValidLessonPlayback(section.playback)) throw new InvalidProjectBackupAssetError();
+  return section.playback.blocks;
+};
+
 export const collectProjectAssetReferences = (project: unknown): readonly ProjectAssetRef[] => {
   if (!isRecord(project)) throw new InvalidProjectBackupAssetError();
   const refs = [
+    ...readProjectSections(project).flatMap(section =>
+      playbackBlocks(section).flatMap(block => block.audio.map(audio => readAssetRef(audio.asset)))
+    ),
     ...readProjectSections(project).flatMap(section =>
       Array.isArray(section.generatedVisuals)
         ? section.generatedVisuals.flatMap(collectRenderRefs)
@@ -306,6 +326,15 @@ export const remapProjectAssetReferences = <T>(
     remappedProject.id = targetProjectId;
   }
   for (const section of readProjectSections(remappedProject)) {
+    if (section.playback !== undefined) {
+      section.playback = {
+        ...(section.playback as Record<string, unknown>),
+        blocks: playbackBlocks(section).map(block => ({
+          ...block,
+          audio: block.audio.map(audio => ({ ...audio, asset: remapRef(audio.asset, idMap) })),
+        })),
+      };
+    }
     if (!Array.isArray(section.generatedVisuals)) continue;
     for (const visual of section.generatedVisuals) {
       if (!isRecord(visual)) continue;

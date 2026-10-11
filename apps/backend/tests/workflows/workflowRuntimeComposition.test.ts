@@ -62,6 +62,18 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
+  // Captured on claude/247-playback-prep before registering playback persistence.
+  test.each([
+    ['course-generation', '7e93aedf22f6046159dc3e2aa8de7576d38eb55cfdf8464adcaf8b290eee54f6'],
+    ['course-interview', '10cc000b3f5d619e56bc530a0bafe5f41c2c5524f56c1822c7ba757dfded4332'],
+    ['lesson-artifact-draft', 'c0218f152cf826053268c1d12b613c0cbd250034f27448a63129aa1422f116af'],
+    ['lesson-generation', '3f0002141d9bc3a673f2d592a15608bdd64866c40f7a83e3ad5208a4c08b238a'],
+    ['pdf-mapping-repair', '38ffd41d6e06e951d8831074be32dc1c188437242c796286ff5c58af3694e795'],
+    ['retry-lesson-visual', 'e427c58809d1a2b3118ace1ec31591ac6ef36912b8814f7ff8c0e2121f780661'],
+  ])('keeps the existing %s definition hash', (workflowId, hash) => {
+    expect(productionRegistry.current(workflowId)?.definitionHash).toBe(hash);
+  });
+
   // Captured independently from f1ffb44 before diagnostic collection was added.
   test.each([
     [

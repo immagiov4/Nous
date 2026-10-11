@@ -8,6 +8,7 @@ export type TextModelSlot =
   | 'course'
   | 'lesson'
   | 'progress'
+  | 'playbackPreparation'
   | 'scene'
   | 'sceneIcon'
   | 'research';
@@ -46,6 +47,7 @@ export interface GlobalModelConfig {
   codexFastModelSlots: TextModelSlot[];
   codexLessonModel: string;
   codexProgressModel: string;
+  codexPlaybackPreparationModel: string;
   codexSceneModel: string;
   codexSceneIconModel: string;
   codexResearchModel: string;
@@ -65,13 +67,16 @@ export interface GlobalModelConfig {
   openAiImageModel: string;
   openAiLessonModel: string;
   openAiProgressModel: string;
+  openAiPlaybackPreparationModel: string;
   openAiSceneModel: string;
   openAiSceneIconModel: string;
   openAiResearchModel: string;
   progressModel: string;
+  playbackPreparationModel: string;
   sceneModel: string;
   sceneIconModel: string;
   progressReasoningEffort: ReasoningEffort;
+  playbackPreparationReasoningEffort: ReasoningEffort;
   sceneReasoningEffort: ReasoningEffort;
   sceneIconReasoningEffort: ReasoningEffort;
   researchModel: string;
@@ -82,19 +87,23 @@ export interface GlobalModelConfig {
 }
 
 /**
- * Model settings carried by durable workflow config. Scene settings are read live by the scene
- * services instead, so adding them left historical workflow definition hashes unchanged.
+ * Model settings carried by durable workflow config. Scene and playback preparation settings are
+ * read live instead, keeping historical workflow definition hashes unchanged.
  */
 export type DurableGlobalModelConfig = Omit<
   GlobalModelConfig,
   | 'codexSceneIconModel'
+  | 'codexPlaybackPreparationModel'
   | 'codexSceneModel'
   | 'embeddingModel'
   | 'openAiSceneIconModel'
+  | 'openAiPlaybackPreparationModel'
   | 'openAiSceneModel'
   | 'sceneIconModel'
   | 'sceneIconReasoningEffort'
+  | 'playbackPreparationModel'
   | 'sceneModel'
+  | 'playbackPreparationReasoningEffort'
   | 'sceneReasoningEffort'
 >;
 
@@ -119,6 +128,7 @@ export type GlobalModelConfigPatch = Partial<
     | 'codexFastModelSlots'
     | 'codexLessonModel'
     | 'codexProgressModel'
+    | 'codexPlaybackPreparationModel'
     | 'codexSceneModel'
     | 'codexSceneIconModel'
     | 'codexResearchModel'
@@ -138,13 +148,16 @@ export type GlobalModelConfigPatch = Partial<
     | 'openAiImageModel'
     | 'openAiLessonModel'
     | 'openAiProgressModel'
+    | 'openAiPlaybackPreparationModel'
     | 'openAiSceneModel'
     | 'openAiSceneIconModel'
     | 'openAiResearchModel'
     | 'progressModel'
+    | 'playbackPreparationModel'
     | 'sceneModel'
     | 'sceneIconModel'
     | 'progressReasoningEffort'
+    | 'playbackPreparationReasoningEffort'
     | 'sceneReasoningEffort'
     | 'sceneIconReasoningEffort'
     | 'researchModel'
@@ -179,6 +192,7 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   codexFastModelSlots: ['artifact', 'artifactInteractive', 'course', 'lesson'],
   codexLessonModel: process.env.CODEX_MODEL_LESSON || 'gpt-5.6-terra',
   codexProgressModel: process.env.CODEX_MODEL_PROGRESS || 'gpt-5.6-luna',
+  codexPlaybackPreparationModel: process.env.CODEX_MODEL_PLAYBACK_PREPARATION || 'gpt-6-luna',
   codexSceneModel: process.env.CODEX_MODEL_SCENE || 'gpt-6-luna',
   codexSceneIconModel: process.env.CODEX_MODEL_SCENE_ICON || 'gpt-6-luna',
   codexResearchModel: process.env.CODEX_MODEL_RESEARCH || 'gpt-5.6-terra',
@@ -201,13 +215,16 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   openAiImageModel: process.env.OPENAI_MODEL_IMAGE || DEFAULT_OPENAI_IMAGE_MODEL,
   openAiLessonModel: process.env.OPENAI_MODEL_LESSON || 'gpt-5.6-terra',
   openAiProgressModel: process.env.OPENAI_MODEL_PROGRESS || 'gpt-5.6-luna',
+  openAiPlaybackPreparationModel: process.env.OPENAI_MODEL_PLAYBACK_PREPARATION || 'gpt-6-luna',
   openAiSceneModel: process.env.OPENAI_MODEL_SCENE || 'gpt-6-luna',
   openAiSceneIconModel: process.env.OPENAI_MODEL_SCENE_ICON || 'gpt-6-luna',
   openAiResearchModel: process.env.OPENAI_MODEL_RESEARCH || DEFAULT_OPENAI_RESEARCH_MODEL,
   progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
+  playbackPreparationModel: process.env.MODEL_PLAYBACK_PREPARATION || 'anthropic/claude-haiku-5.5',
   sceneModel: process.env.MODEL_SCENE || 'openai/gpt-6-luna',
   sceneIconModel: process.env.MODEL_SCENE_ICON || 'openai/gpt-6-luna',
   progressReasoningEffort: 'low',
+  playbackPreparationReasoningEffort: 'low',
   sceneReasoningEffort: 'low',
   sceneIconReasoningEffort: 'none',
   researchModel: process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search',
@@ -242,6 +259,7 @@ interface PersistedModelConfigRow {
   codex_fast_model_slots?: unknown;
   codex_lesson_model?: string;
   codex_progress_model?: string;
+  codex_playback_preparation_model?: string;
   codex_scene_model?: string;
   codex_scene_icon_model?: string;
   codex_research_model?: string;
@@ -261,13 +279,16 @@ interface PersistedModelConfigRow {
   openai_image_model?: string;
   openai_lesson_model?: string;
   openai_progress_model?: string;
+  openai_playback_preparation_model?: string;
   openai_scene_model?: string;
   openai_scene_icon_model?: string;
   openai_research_model?: string;
   progress_model?: string;
+  playback_preparation_model?: string;
   scene_model?: string;
   scene_icon_model?: string;
   progress_reasoning_effort?: string;
+  playback_preparation_reasoning_effort?: string;
   scene_reasoning_effort?: string;
   scene_icon_reasoning_effort?: string;
   research_model?: string;
@@ -290,16 +311,17 @@ const TEXT_MODEL_SLOTS = new Set<TextModelSlot>([
   'course',
   'lesson',
   'progress',
+  'playbackPreparation',
   'scene',
   'sceneIcon',
   'research',
 ]);
 // Durable workflow config validates fast slots and provider overrides against the slots that
-// existed before lesson scenes. Scene slots follow the global provider and always run fast on Codex,
+// existed before lesson scenes. Live slots follow the global provider and always run fast on Codex,
 // so they never enter those lists and stored workflow config stays valid.
-const SCENE_MODEL_SLOTS = new Set<TextModelSlot>(['scene', 'sceneIcon']);
+const LIVE_TEXT_MODEL_SLOTS = new Set<TextModelSlot>(['playbackPreparation', 'scene', 'sceneIcon']);
 const DURABLE_TEXT_MODEL_SLOTS = new Set(
-  [...TEXT_MODEL_SLOTS].filter(slot => !SCENE_MODEL_SLOTS.has(slot))
+  [...TEXT_MODEL_SLOTS].filter(slot => !LIVE_TEXT_MODEL_SLOTS.has(slot))
 );
 const MODEL_PROVIDER_SLOTS = new Set<ModelProviderSlot>([...DURABLE_TEXT_MODEL_SLOTS, 'image']);
 
@@ -352,7 +374,7 @@ export const resolveCodexServiceTierForSlot = (
   config: GlobalModelConfig,
   slot: TextModelSlot
 ): 'fast' | undefined =>
-  SCENE_MODEL_SLOTS.has(slot) || config.codexFastModelSlots.includes(slot) ? 'fast' : undefined;
+  LIVE_TEXT_MODEL_SLOTS.has(slot) || config.codexFastModelSlots.includes(slot) ? 'fast' : undefined;
 
 const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof GlobalModelConfig>> = {
   codex: {
@@ -363,6 +385,7 @@ const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof Glob
     course: 'codexCourseModel',
     lesson: 'codexLessonModel',
     progress: 'codexProgressModel',
+    playbackPreparation: 'codexPlaybackPreparationModel',
     scene: 'codexSceneModel',
     sceneIcon: 'codexSceneIconModel',
     research: 'codexResearchModel',
@@ -375,6 +398,7 @@ const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof Glob
     course: 'openAiCourseModel',
     lesson: 'openAiLessonModel',
     progress: 'openAiProgressModel',
+    playbackPreparation: 'openAiPlaybackPreparationModel',
     scene: 'openAiSceneModel',
     sceneIcon: 'openAiSceneIconModel',
     research: 'openAiResearchModel',
@@ -387,6 +411,7 @@ const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof Glob
     course: 'courseModel',
     lesson: 'lessonModel',
     progress: 'progressModel',
+    playbackPreparation: 'playbackPreparationModel',
     scene: 'sceneModel',
     sceneIcon: 'sceneIconModel',
     research: 'researchModel',
@@ -401,6 +426,7 @@ const REASONING_EFFORT_FIELDS: Record<TextModelSlot, keyof GlobalModelConfig> = 
   course: 'courseReasoningEffort',
   lesson: 'lessonReasoningEffort',
   progress: 'progressReasoningEffort',
+  playbackPreparation: 'playbackPreparationReasoningEffort',
   scene: 'sceneReasoningEffort',
   sceneIcon: 'sceneIconReasoningEffort',
   research: 'researchReasoningEffort',
@@ -508,6 +534,9 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.codexProgressModel)
     ? { codexProgressModel: readConfigValue(patch.codexProgressModel) }
     : {}),
+  ...(readConfigValue(patch.codexPlaybackPreparationModel)
+    ? { codexPlaybackPreparationModel: readConfigValue(patch.codexPlaybackPreparationModel) }
+    : {}),
   ...(readConfigValue(patch.codexSceneModel)
     ? { codexSceneModel: readConfigValue(patch.codexSceneModel) }
     : {}),
@@ -560,6 +589,9 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.openAiProgressModel)
     ? { openAiProgressModel: readConfigValue(patch.openAiProgressModel) }
     : {}),
+  ...(readConfigValue(patch.openAiPlaybackPreparationModel)
+    ? { openAiPlaybackPreparationModel: readConfigValue(patch.openAiPlaybackPreparationModel) }
+    : {}),
   ...(readConfigValue(patch.openAiSceneModel)
     ? { openAiSceneModel: readConfigValue(patch.openAiSceneModel) }
     : {}),
@@ -575,12 +607,18 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.progressModel)
     ? { progressModel: readConfigValue(patch.progressModel) }
     : {}),
+  ...(readConfigValue(patch.playbackPreparationModel)
+    ? { playbackPreparationModel: readConfigValue(patch.playbackPreparationModel) }
+    : {}),
   ...(readConfigValue(patch.sceneModel) ? { sceneModel: readConfigValue(patch.sceneModel) } : {}),
   ...(readConfigValue(patch.sceneIconModel)
     ? { sceneIconModel: readConfigValue(patch.sceneIconModel) }
     : {}),
   ...(isReasoningEffort(patch.progressReasoningEffort)
     ? { progressReasoningEffort: patch.progressReasoningEffort }
+    : {}),
+  ...(isReasoningEffort(patch.playbackPreparationReasoningEffort)
+    ? { playbackPreparationReasoningEffort: patch.playbackPreparationReasoningEffort }
     : {}),
   ...(isReasoningEffort(patch.sceneReasoningEffort)
     ? { sceneReasoningEffort: patch.sceneReasoningEffort }
@@ -633,6 +671,7 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   codex_fast_model_slots: config.codexFastModelSlots,
   codex_lesson_model: config.codexLessonModel,
   codex_progress_model: config.codexProgressModel,
+  codex_playback_preparation_model: config.codexPlaybackPreparationModel,
   codex_scene_model: config.codexSceneModel,
   codex_scene_icon_model: config.codexSceneIconModel,
   codex_research_model: config.codexResearchModel,
@@ -652,13 +691,16 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   openai_image_model: config.openAiImageModel,
   openai_lesson_model: config.openAiLessonModel,
   openai_progress_model: config.openAiProgressModel,
+  openai_playback_preparation_model: config.openAiPlaybackPreparationModel,
   openai_scene_model: config.openAiSceneModel,
   openai_scene_icon_model: config.openAiSceneIconModel,
   openai_research_model: config.openAiResearchModel,
   progress_model: config.progressModel,
+  playback_preparation_model: config.playbackPreparationModel,
   scene_model: config.sceneModel,
   scene_icon_model: config.sceneIconModel,
   progress_reasoning_effort: config.progressReasoningEffort,
+  playback_preparation_reasoning_effort: config.playbackPreparationReasoningEffort,
   scene_reasoning_effort: config.sceneReasoningEffort,
   scene_icon_reasoning_effort: config.sceneIconReasoningEffort,
   research_model: config.researchModel,
@@ -720,6 +762,9 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
     codexLessonModel: readConfigValue(row.codex_lesson_model) || activeModelConfig.codexLessonModel,
     codexProgressModel:
       readConfigValue(row.codex_progress_model) || activeModelConfig.codexProgressModel,
+    codexPlaybackPreparationModel:
+      readConfigValue(row.codex_playback_preparation_model) ||
+      activeModelConfig.codexPlaybackPreparationModel,
     codexSceneModel: readConfigValue(row.codex_scene_model) || activeModelConfig.codexSceneModel,
     codexSceneIconModel:
       readConfigValue(row.codex_scene_icon_model) || activeModelConfig.codexSceneIconModel,
@@ -758,17 +803,26 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       readConfigValue(row.openai_lesson_model) || activeModelConfig.openAiLessonModel,
     openAiProgressModel:
       readConfigValue(row.openai_progress_model) || activeModelConfig.openAiProgressModel,
+    openAiPlaybackPreparationModel:
+      readConfigValue(row.openai_playback_preparation_model) ||
+      activeModelConfig.openAiPlaybackPreparationModel,
     openAiSceneModel: readConfigValue(row.openai_scene_model) || activeModelConfig.openAiSceneModel,
     openAiSceneIconModel:
       readConfigValue(row.openai_scene_icon_model) || activeModelConfig.openAiSceneIconModel,
     openAiResearchModel:
       readConfigValue(row.openai_research_model) || activeModelConfig.openAiResearchModel,
     progressModel: readConfigValue(row.progress_model) || activeModelConfig.progressModel,
+    playbackPreparationModel:
+      readConfigValue(row.playback_preparation_model) || activeModelConfig.playbackPreparationModel,
     sceneModel: readConfigValue(row.scene_model) || activeModelConfig.sceneModel,
     sceneIconModel: readConfigValue(row.scene_icon_model) || activeModelConfig.sceneIconModel,
     progressReasoningEffort: readReasoningEffort(
       row.progress_reasoning_effort,
       activeModelConfig.progressReasoningEffort
+    ),
+    playbackPreparationReasoningEffort: readReasoningEffort(
+      row.playback_preparation_reasoning_effort,
+      activeModelConfig.playbackPreparationReasoningEffort
     ),
     sceneReasoningEffort: readReasoningEffort(
       row.scene_reasoning_effort,

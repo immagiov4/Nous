@@ -8,7 +8,7 @@ import {
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
   type ProjectBackupLimits,
 } from '@shared/projectBackupArchive';
-import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
+import { collectProjectAssetReferences, omitProjectPlayback } from '@shared/projectBackupAssets';
 import {
   type DecodedProjectSnapshotWire,
   decodeProjectSnapshotWire,
@@ -50,7 +50,7 @@ const decodeProjectImportPayload = (
   invalidMessage = INVALID_BACKUP_FILE_MESSAGE
 ): DecodedProjectSnapshotWire => {
   try {
-    const decoded = decodeProjectSnapshotWire(value);
+    const decoded = decodeProjectSnapshotWire(omitProjectPlayback(value));
     if (
       typeof decoded.version !== 'string' ||
       typeof decoded.isLearnMode !== 'boolean' ||
@@ -94,7 +94,7 @@ export const createProjectArchiveBlob = async (
   snapshot: ProjectSnapshot,
   options: ProjectArchiveCreateOptions = {}
 ): Promise<Blob> => {
-  const project = exportProjectData(snapshot);
+  const project = exportProjectData(omitProjectPlayback(snapshot));
   const refs = collectProjectAssetReferences(project);
   const loadAsset = options.loadAsset;
   const assets = loadAsset

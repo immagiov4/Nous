@@ -83,6 +83,8 @@ To support portability and backups, the project uses a specialized archive forma
 ### Portable Backup Structure
 A project backup is a ZIP file containing a `project.json` manifest and an `assets/` directory. The system uses a deterministic remapping strategy to ensure that assets can be restored to a new project ID or user while maintaining their content-addressed identity.
 
+Project backups and nested library-export archives omit lesson `playback` before collecting attachments, so prepared audio never consumes archive entries. Import still validates older archives containing playback and its audio, then discards both from the restored project and asset set; listening prepares the lesson again. Sources: [portable snapshot](../../../packages/shared-types/projectBackupAssets.ts), [archive writer and reader](../../../packages/shared-types/projectBackupArchive.ts), [project backup](../../../apps/web/services/projects/projectArchive.ts), [library export](../../../apps/backend/src/projects/libraryExport.ts).
+
 Sources: [packages/shared-types/projectBackupAssets.ts:10-45](../../../packages/shared-types/projectBackupAssets.ts#L10-L45), [packages/shared-types/projectBackupAssets.ts:130-155](../../../packages/shared-types/projectBackupAssets.ts#L130-L155)
 
 ```mermaid

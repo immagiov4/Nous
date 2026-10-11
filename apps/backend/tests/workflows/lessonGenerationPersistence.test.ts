@@ -23,6 +23,7 @@ import {
   SublessonReadyStateSchema,
 } from '../../src/workflows/lessonGenerationWorkflowContract.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
+import { preparedPlayback } from '../helpers/lessonPlayback.js';
 
 const NOW = '2026-07-29T22:30:00.000Z';
 const PDF_ASSET_ID = 'a'.repeat(64);
@@ -347,6 +348,9 @@ describe('durable lesson generation persistence', () => {
 
   test('commits atomically and adopts only assets referenced by the final lesson', async () => {
     const snapshot = project();
+    const section = findProjectLessonSection(snapshot, 'lesson-1');
+    if (!section) throw new Error('Missing lesson');
+    section.playback = preparedPlayback(section);
     const input = visualsState(snapshot);
     input.content = 'Copia Markdown obsoleta';
     input.warnings = [
@@ -383,6 +387,9 @@ describe('durable lesson generation persistence', () => {
     expect(patchProject).toHaveBeenCalledOnce();
     const committed = await store.loadProjectWithRevision('user-1', 'project-1');
     expect(committed?.revision).toBe(savedMeta.revision + 1);
+    expect(
+      findProjectLessonSection(committed?.snapshot as ProjectSnapshot, 'lesson-1')?.playback
+    ).toBeUndefined();
     expect(
       findProjectLessonSection(committed?.snapshot as ProjectSnapshot, 'lesson-1')
     ).toMatchObject({ lastGenerationRunId: 'run-new' });

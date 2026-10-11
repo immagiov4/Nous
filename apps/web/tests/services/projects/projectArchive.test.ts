@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
+import { type LessonPlayback, segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { ProjectAssetRef, ProjectLessonVisual } from '@shared/projectAsset';
 import {
+  createProjectBackupArchive,
   decodeProjectBackupArchive,
   PROJECT_BACKUP_MAX_ENTRIES,
   PROJECT_BACKUP_MAX_MANIFEST_BYTES,
   PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
   PROJECT_COVER_MAX_BYTES,
 } from '@shared/projectBackupArchive';
+import { collectProjectAssetReferences } from '@shared/projectBackupAssets';
 import JSZip from 'jszip';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
@@ -78,13 +81,15 @@ const sha256 = async (bytes: Uint8Array): Promise<string> => {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 };
 
+const archiveLimits = {
+  invalidArchiveMessage: 'Questo ZIP non contiene un backup Nous valido.',
+  maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+  maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+  maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+};
+
 const decodeArchive = async (archive: Blob) =>
-  decodeProjectBackupArchive(new Uint8Array(await archive.arrayBuffer()), {
-    invalidArchiveMessage: 'Questo ZIP non contiene un backup Nous valido.',
-    maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
-    maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
-    maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
-  });
+  decodeProjectBackupArchive(new Uint8Array(await archive.arrayBuffer()), archiveLimits);
 
 const buildAssetSnapshot = async (): Promise<{
   assets: Map<string, Uint8Array>;
@@ -148,6 +153,130 @@ const buildAssetSnapshot = async (): Promise<{
     snapshot,
   };
 };
+
+const buildPreparedPlayback = (assets: readonly ProjectAssetRef[]): LessonPlayback => ({
+  version: 1,
+  lessonKey: 'f'.repeat(64),
+  blocks: segmentLessonPlayback([{ type: 'markdown', markdown: 'Lezione da ascoltare.' }]).map(
+    block => ({
+      ...block,
+      prepared: { motion: [] },
+      audio: assets.map((asset, index) => ({
+        asset,
+        model: 'tts-model',
+        voice: `voice-${index}`,
+        durationSeconds: 2,
+      })),
+    })
+  ),
+});
+
+test.each([
+  'browser',
+  'shared writer',
+])('project archive excludes prepared playback through the %s', async writer => {
+  const { assets, snapshot } = await buildAssetSnapshot();
+  const durableRefs = collectProjectAssetReferences(snapshot);
+  const lesson = flattenLessons(snapshot.learningPlan?.modules)[0];
+  assert.ok(lesson);
+  const playback = buildPreparedPlayback(
+    Array.from({ length: PROJECT_BACKUP_MAX_ENTRIES + 1 }, (_, index) => ({
+      id: index.toString(16).padStart(64, '0'),
+      hash: 'f'.repeat(64),
+      byteSize: 42,
+      mediaType: 'audio/mpeg',
+    }))
+  );
+  lesson.playback = playback;
+  const loadAsset = async (ref: ProjectAssetRef) => {
+    const bytes = assets.get(ref.id);
+    assert.ok(bytes, 'Only durable image assets should be loaded');
+    return bytes;
+  };
+  const archive =
+    writer === 'browser'
+      ? await createProjectArchiveBlob(snapshot, { loadAsset })
+      : new Blob([
+          Uint8Array.from(
+            await createProjectBackupArchive(
+              {
+                project: exportProjectData(snapshot),
+                assets: await Promise.all(
+                  durableRefs.map(async ref => ({ bytes: await loadAsset(ref), ref }))
+                ),
+              },
+              archiveLimits
+            )
+          ).buffer,
+        ]);
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifest = JSON.parse((await zip.file('project.json')?.async('string')) || '{}');
+  assert.equal(manifest.project.learningPlan.modules[0].children[0].playback, undefined);
+  assert.deepEqual(
+    manifest.attachments.assets.map((asset: ProjectAssetRef) => asset.id),
+    [...assets.keys()].sort()
+  );
+  assert.equal(zip.file(/^assets\//u).length, assets.size);
+  assert.equal(lesson.playback, playback);
+});
+
+test.each([
+  'modules',
+  'sections',
+])('an older archive restores %s while discarding playback and its audio', async layout => {
+  const { assets, snapshot } = await buildAssetSnapshot();
+  const archive = await createProjectArchiveBlob(snapshot, {
+    loadAsset: async ref => assets.get(ref.id) || new Uint8Array(),
+  });
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifest = JSON.parse((await zip.file('project.json')?.async('string')) || '{}');
+  const bytes = new Uint8Array([8, 9, 10]);
+  const audioRef: ProjectAssetRef = {
+    id: 'c'.repeat(64),
+    hash: await sha256(bytes),
+    byteSize: bytes.length,
+    mediaType: 'audio/mpeg',
+  };
+  const section = manifest.project.learningPlan.modules[0].children[0];
+  section.playback = buildPreparedPlayback([audioRef]);
+  if (layout === 'sections') {
+    manifest.project.learningPlan.sections = [section];
+    delete manifest.project.learningPlan.modules;
+  }
+  const path = `assets/${audioRef.id}`;
+  manifest.attachments.assets.push({ ...audioRef, path });
+  zip.file(path, bytes);
+  zip.file('project.json', JSON.stringify(manifest));
+  const oldArchive = new Blob([
+    Uint8Array.from(await zip.generateAsync({ type: 'uint8array' })).buffer,
+  ]);
+
+  const decoded = await decodeArchive(oldArchive);
+  const imported = normalizeImportedProject(decoded.project);
+  assert.equal(flattenLessons(imported.learningPlan?.modules)[0]?.playback, undefined);
+  assert.deepEqual(
+    decoded.assets.map(asset => asset.ref.id),
+    [...assets.keys()].sort()
+  );
+  assert.deepEqual(decoded.project.documentAssets, snapshot.documentAssets);
+  assert.deepEqual(
+    flattenLessons(imported.learningPlan?.modules)[0]?.generatedVisuals,
+    flattenLessons(snapshot.learningPlan?.modules)[0]?.generatedVisuals
+  );
+});
+
+test('legacy JSON backups restore lessons without prepared playback', async () => {
+  const snapshot = buildPdfSnapshot();
+  const lesson = flattenLessons(snapshot.learningPlan?.modules)[0];
+  assert.ok(lesson);
+  lesson.playback = buildPreparedPlayback([]);
+  const file = new Blob([JSON.stringify(exportProjectData(snapshot))]);
+  const imported = normalizeImportedProject(await readLegacyProjectImportData(file));
+  const restoredLesson = flattenLessons(imported.learningPlan?.modules)[0];
+  expect(restoredLesson).toMatchObject({ id: lesson.id, title: lesson.title });
+  expect(restoredLesson?.playback).toBeUndefined();
+  assert.ok(lesson.playback);
+});
 
 test('project archive v2 stores durable, PDF, and cover bytes outside a stable manifest', async () => {
   const { assets, snapshot } = await buildAssetSnapshot();

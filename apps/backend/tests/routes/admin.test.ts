@@ -46,9 +46,10 @@ describe('/api/admin', () => {
   test('lets admins update and read the global model configuration', async () => {
     const app = createApp();
     const adminToken = createSupabaseTestToken({ role: 'admin' });
+    let storedConfig: Record<string, unknown> = { id: 'global' };
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: string | URL | Request) => {
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         if (url.endsWith('/images/models')) {
           return new Response(
@@ -59,7 +60,10 @@ describe('/api/admin', () => {
           );
         }
 
-        return new Response(JSON.stringify([{ id: 'global' }]), { status: 200 });
+        if (init?.method === 'POST') {
+          storedConfig = JSON.parse(String(init.body));
+        }
+        return new Response(JSON.stringify([storedConfig]), { status: 200 });
       })
     );
 
@@ -69,6 +73,10 @@ describe('/api/admin', () => {
       .send({
         lessonModel: 'openai/gpt-5.4-mini',
         lessonReasoningEffort: 'high',
+        playbackPreparationModel: 'openrouter/playback',
+        codexPlaybackPreparationModel: 'codex-playback',
+        openAiPlaybackPreparationModel: 'openai-playback',
+        playbackPreparationReasoningEffort: 'medium',
         contextModel: 'google/gemini-3.1-flash-lite',
         contextReasoningEffort: 'none',
         imageModel: 'google/gemini-3.1-flash-lite-image',
@@ -78,11 +86,22 @@ describe('/api/admin', () => {
     expect(patchResponse.body.config).toMatchObject({
       lessonModel: 'openai/gpt-5.4-mini',
       lessonReasoningEffort: 'high',
+      playbackPreparationModel: 'openrouter/playback',
+      codexPlaybackPreparationModel: 'codex-playback',
+      openAiPlaybackPreparationModel: 'openai-playback',
+      playbackPreparationReasoningEffort: 'medium',
       contextModel: 'google/gemini-3.1-flash-lite',
       contextReasoningEffort: 'none',
       imageModel: 'google/gemini-3.1-flash-lite-image',
     });
 
+    expect(storedConfig).toMatchObject({
+      playback_preparation_model: 'openrouter/playback',
+      codex_playback_preparation_model: 'codex-playback',
+      openai_playback_preparation_model: 'openai-playback',
+      playback_preparation_reasoning_effort: 'medium',
+    });
+    resetModelConfigForTesting();
     const readResponse = await request(app)
       .get('/api/admin/model-config')
       .set('Authorization', authHeader(adminToken));
@@ -91,6 +110,10 @@ describe('/api/admin', () => {
     expect(readResponse.body.config).toMatchObject({
       lessonModel: 'openai/gpt-5.4-mini',
       lessonReasoningEffort: 'high',
+      playbackPreparationModel: 'openrouter/playback',
+      codexPlaybackPreparationModel: 'codex-playback',
+      openAiPlaybackPreparationModel: 'openai-playback',
+      playbackPreparationReasoningEffort: 'medium',
       contextModel: 'google/gemini-3.1-flash-lite',
       contextReasoningEffort: 'none',
       imageModel: 'google/gemini-3.1-flash-lite-image',

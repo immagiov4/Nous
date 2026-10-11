@@ -1,4 +1,5 @@
 import type postgres from 'postgres';
+import { reconcileLessonPlayback } from './lessonPlayback.js';
 
 import { reconcileProjectAssets } from './projectAssetReconciliation.js';
 import {
@@ -91,6 +92,7 @@ const writeProjectSnapshotRow = async (
 };
 
 export interface ProjectRevisionCommit {
+  readonly playbackWrite?: boolean;
   /** Rejects the commit unless the stored revision still matches. */
   readonly expectedRevision?: number;
   readonly isNewProject: boolean;
@@ -119,6 +121,7 @@ export const commitProjectRevision = async (
   const { projectId, snapshot, userId } = commit;
   const metaRow = await writeProjectMetaRevision(sql, commit);
   const previousSnapshot = await commit.readPreviousSnapshot();
+  reconcileLessonPlayback(snapshot, previousSnapshot, commit.playbackWrite);
   await commit.writeAttachments?.();
   await writeProjectSnapshotRow(sql, { projectId, snapshot, userId });
   await reconcileProjectAssets(sql as postgres.TransactionSql, {

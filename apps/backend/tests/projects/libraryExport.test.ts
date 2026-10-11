@@ -25,6 +25,7 @@ import { LibraryExportWorkspace } from '../../src/projects/libraryExportWorkspac
 import type { ProjectSnapshot } from '../../src/projects/types.js';
 import { signSupabaseJwt } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
+import { playbackSection, preparedPlayback } from '../helpers/lessonPlayback.js';
 
 import { MemoryLibraryExportRunStore } from '../helpers/memoryLibraryExportRunStore.js';
 
@@ -233,7 +234,11 @@ afterEach(async () => {
 
 test('creates an import-compatible library archive while only one project export is active', async () => {
   const projectStore = new InMemoryProjectStore();
-  await projectStore.saveProject(userId, createSnapshot('project-1'));
+  const section = playbackSection();
+  section.playback = preparedPlayback(section);
+  const snapshot = createSnapshot('project-1');
+  snapshot.learningPlan = { sections: [section] };
+  await projectStore.saveProject(userId, snapshot);
   await projectStore.saveProject(userId, createSnapshot('project-2'));
   const originalExportProject = projectStore.exportProject.bind(projectStore);
   let activeExports = 0;
@@ -286,7 +291,17 @@ test('creates an import-compatible library archive while only one project export
   for (const project of manifest.projects) {
     const entry = archive.file(project.path);
     if (!entry) throw new Error(`Project archive ${project.path} is missing.`);
-    const decoded = await decodeProjectBackupArchive(await entry.async('uint8array'), {
+    const bytes = await entry.async('uint8array');
+    const projectArchive = await JSZip.loadAsync(bytes);
+    expect(projectArchive.file(/^assets\//u)).toHaveLength(0);
+    const projectManifestEntry = projectArchive.file('project.json');
+    if (!projectManifestEntry) throw new Error('Project archive manifest is missing.');
+    const projectManifest = JSON.parse(await projectManifestEntry.async('string'));
+    expect(projectManifest.attachments.assets).toEqual([]);
+    if (project.id === 'project-1') {
+      expect(projectManifest.project.learningPlan.sections[0]).not.toHaveProperty('playback');
+    }
+    const decoded = await decodeProjectBackupArchive(bytes, {
       invalidArchiveMessage: 'Invalid project archive.',
       maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
       maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
@@ -295,6 +310,9 @@ test('creates an import-compatible library archive while only one project export
     expect(decoded.project.id).toBe(project.id);
   }
   expect(projectStore.exportProject).toHaveBeenCalledTimes(2);
+  expect(
+    (await projectStore.loadProject(userId, 'project-1'))?.learningPlan?.sections?.[0]?.playback
+  ).toEqual(section.playback);
 });
 
 test.each([

@@ -24,7 +24,8 @@ const GENERATED_LESSON_FIELDS = new Set([
 const generationSectionShape = (section: LearningPlanNodeSnapshot): Record<string, unknown> =>
   Object.fromEntries(
     Object.entries(section).filter(
-      ([key, value]) => !GENERATED_LESSON_FIELDS.has(key) && value !== undefined
+      ([key, value]) =>
+        key !== 'playback' && !GENERATED_LESSON_FIELDS.has(key) && value !== undefined
     )
   );
 

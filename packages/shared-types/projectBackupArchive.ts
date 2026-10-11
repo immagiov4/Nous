@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 
 import type { ProjectAssetRef } from './projectAsset';
-import { collectProjectAssetReferences } from './projectBackupAssets';
+import { collectProjectAssetReferences, omitProjectPlayback } from './projectBackupAssets';
 import {
   type DecodedProjectSnapshotWire,
   decodeProjectSnapshotWire,
@@ -323,7 +323,7 @@ export const createProjectBackupArchive = async (
   },
   limits: ProjectBackupLimits
 ): Promise<Uint8Array> => {
-  const project = structuredClone(encodeProjectSnapshotWire(input.project));
+  const project = encodeProjectSnapshotWire(omitProjectPlayback(input.project));
   if (!isRecord(project)) {
     throw new ProjectBackupArchiveError(
       'Archivio backup non valido: progetto mancante.',
@@ -784,7 +784,7 @@ export const inspectProjectBackupArchive = async (
   const { manifest } = await loadProjectBackupManifest(bytes, limits);
   return {
     archiveVersion: manifest.archiveVersion,
-    project: structuredClone(manifest.project),
+    project: omitProjectPlayback(manifest.project),
   };
 };
 
@@ -804,24 +804,29 @@ export const decodeProjectBackupArchive = async (
   ) as Record<string, unknown>;
   const reader = createAttachmentReader(zip, limits);
   await restoreSourceFiles(project, manifest.attachments, reader, manifest.archiveVersion === 1);
-  const assets = await readDurableAssets(project, manifest, reader);
+  const archivedAssets = await readDurableAssets(project, manifest, reader);
+  const restoredProject = omitProjectPlayback(project);
+  const retainedAssetIds = new Set(
+    collectProjectAssetReferences(restoredProject).map(ref => ref.id)
+  );
+  const assets = Object.freeze(archivedAssets.filter(asset => retainedAssetIds.has(asset.ref.id)));
   if (manifest.archiveVersion === 1) {
-    await restoreDocumentImages(project, undefined, reader);
+    await restoreDocumentImages(restoredProject, undefined, reader);
     assertNoUndeclaredEntries(zip, reader.allowedPaths);
     return {
       archiveVersion: manifest.archiveVersion,
       assets,
-      project: decodeProjectSnapshotWire(project),
+      project: decodeProjectSnapshotWire(restoredProject),
     };
   }
 
-  await restoreDocumentImages(project, manifest.attachments, reader);
+  await restoreDocumentImages(restoredProject, manifest.attachments, reader);
   const cover = await readCover(manifest.attachments?.cover, reader);
   assertNoUndeclaredEntries(zip, reader.allowedPaths);
   return {
     archiveVersion: manifest.archiveVersion,
     assets,
     ...(cover ? { cover } : {}),
-    project: decodeProjectSnapshotWire(project),
+    project: decodeProjectSnapshotWire(restoredProject),
   };
 };

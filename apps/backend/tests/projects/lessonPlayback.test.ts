@@ -1,0 +1,350 @@
+import {
+  collectProjectAssetReferences,
+  remapProjectAssetReferences,
+} from '@shared/projectBackupAssets';
+import { canonicalizeLessonNodeContent } from '@shared/projectSnapshotWire';
+import type { TransactionSql } from 'postgres';
+import { describe, expect, test, vi } from 'vitest';
+
+import {
+  buildLessonPlaybackKey,
+  readLessonPlayback,
+  reconcileLessonPlayback,
+} from '../../src/projects/lessonPlayback.js';
+import { reconcileProjectAssets } from '../../src/projects/projectAssetReconciliation.js';
+import {
+  buildLessonGenerationSourceFingerprint,
+  snapshotLessonGenerationTarget,
+} from '../../src/workflows/lessonGenerationAuthority.js';
+import {
+  playbackAsset,
+  playbackProject,
+  playbackSection,
+  preparedPlayback,
+} from '../helpers/lessonPlayback.js';
+
+describe('playback persistence and assets', () => {
+  test('ordinary saves preserve server playback and their concurrent annotations', () => {
+    const original = playbackSection();
+    original.playback = preparedPlayback(original);
+    const saved = playbackProject({ ...playbackSection(), annotations: [{ id: 'new-note' }] });
+    reconcileLessonPlayback(saved, playbackProject(original));
+    expect(saved.learningPlan?.sections?.[0]).toMatchObject({
+      playback: original.playback,
+      annotations: [{ id: 'new-note' }],
+    });
+  });
+  test.each([
+    null,
+    'without the section',
+  ])('ordinary writes drop client playback on a new project or section (%s)', previousCase => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    const created = playbackProject(section);
+    const previous =
+      previousCase === null ? null : playbackProject({ ...playbackSection(), id: 'other' });
+    reconcileLessonPlayback(created, previous);
+    expect(created.learningPlan?.sections?.[0]).not.toHaveProperty('playback');
+  });
+  test.each([
+    { contentBlocks: [{ type: 'markdown', markdown: 'Nuova lezione.' }] },
+    { lastGenerationRunId: 'generation-2' },
+  ])('content replacement invalidates playback and queues its audio: %j', async replacement => {
+    const original = playbackSection();
+    original.playback = preparedPlayback(original);
+    const before = playbackProject(original);
+    const after = playbackProject({ ...original, ...replacement });
+    reconcileLessonPlayback(after, before);
+    expect(after.learningPlan?.sections?.[0]).not.toHaveProperty('playback');
+    const queued: unknown[] = [];
+    const transaction = vi.fn((strings, ...values) => {
+      if (
+        Array.isArray(strings) &&
+        typeof strings[0] === 'string' &&
+        strings[0].includes('update public.project_assets')
+      ) {
+        queued.push(...values.at(-1));
+        return Promise.resolve([{ id: playbackAsset.id }]);
+      }
+      return strings;
+    }) as unknown as TransactionSql;
+    expect(
+      await reconcileProjectAssets(transaction, {
+        previousSnapshot: before,
+        snapshot: after,
+        projectId: after.id,
+        userId: 'local-user',
+      })
+    ).toBe(1);
+    expect(queued).toEqual([playbackAsset.id]);
+  });
+  test('same-content saves discard stale client playback in favor of server data', () => {
+    const original = playbackSection();
+    original.playback = preparedPlayback(original);
+    const candidate = playbackProject({
+      ...original,
+      playback: { ...original.playback, blocks: [] },
+    });
+    reconcileLessonPlayback(candidate, playbackProject(original));
+    expect(candidate.learningPlan?.sections?.[0]?.playback).toEqual(original.playback);
+  });
+  test('keys ignore notes and unused visuals but include referenced visual changes', () => {
+    const section = playbackSection();
+    const key = buildLessonPlaybackKey(section);
+    expect(
+      buildLessonPlaybackKey({
+        ...section,
+        annotations: [{ id: 'note' }],
+        generatedVisuals: [{ id: 'unused' }],
+      })
+    ).toBe(key);
+    const visual = {
+      id: 'visual-1',
+      slotId: 'slot',
+      createdAt: 'now',
+      render: { kind: 'image', asset: { ...playbackAsset, mediaType: 'image/png' } },
+    };
+    section.contentBlocks = [
+      ...(section.contentBlocks as unknown[]),
+      { type: 'generated-visual', slotId: 'slot', visualId: visual.id },
+    ];
+    section.generatedVisuals = [visual];
+    const referencedKey = buildLessonPlaybackKey(section);
+    section.generatedVisuals = [
+      {
+        ...visual,
+        render: { ...visual.render, asset: { ...visual.render.asset, hash: 'c'.repeat(64) } },
+      },
+    ];
+    expect(buildLessonPlaybackKey(section)).not.toBe(referencedKey);
+  });
+  test.each([
+    'html',
+    'image',
+    'mermaid',
+    'svg',
+  ])('reads preserved historical %s visuals and hashes their content', kind => {
+    const section = playbackSection();
+    const visual = {
+      id: 'historical-visual',
+      title: 'Visuale storica',
+      createdAt: '2026-08-28T12:00:00Z',
+      kind,
+      code: 'Contenuto storico',
+    };
+    section.generatedVisuals = [visual];
+    section.contentBlocks = [
+      { type: 'markdown', markdown: 'Introduzione.' },
+      { type: 'generated-visual', slotId: 'historical-slot', visualId: visual.id },
+    ];
+    const canonical = canonicalizeLessonNodeContent(section);
+    const key = buildLessonPlaybackKey(canonical);
+    expect(readLessonPlayback(canonical)).toMatchObject({
+      lessonKey: key,
+      blocks: [
+        { speech: 'Introduzione.', visuals: [{ kind: 'generated-visual', visualId: visual.id }] },
+      ],
+    });
+    expect(canonical.generatedVisuals).toEqual([visual]);
+    expect(
+      buildLessonPlaybackKey({
+        ...canonical,
+        generatedVisuals: [{ ...visual, code: 'Modificato' }],
+      })
+    ).not.toBe(key);
+  });
+  test.each([
+    true,
+    false,
+  ])('backup collection and import remap audio without requiring visuals (modules: %s)', modules => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    const project = playbackProject(section);
+    if (modules) project.learningPlan = { modules: [{ id: 'module', children: [section] }] };
+    expect(collectProjectAssetReferences(project)).toEqual([playbackAsset]);
+    const imported = remapProjectAssetReferences(
+      project,
+      new Map([[playbackAsset.id, 'd'.repeat(64)]]),
+      'imported'
+    );
+    expect(collectProjectAssetReferences(imported)).toEqual([
+      { ...playbackAsset, id: 'd'.repeat(64) },
+    ]);
+    expect(collectProjectAssetReferences(project)).toEqual([playbackAsset]);
+  });
+
+  test('remapping preserves newer playback metadata at every nesting level', () => {
+    const section = playbackSection();
+    const saved = preparedPlayback(section);
+    const playback = {
+      ...saved,
+      futurePlayback: 'retain',
+      blocks: saved.blocks.map(block => ({
+        ...block,
+        futureBlock: 'retain',
+        prepared: { ...block.prepared, futureScene: 'retain' },
+        audio: block.audio.map(audio => ({ ...audio, futureAudio: 'retain' })),
+      })),
+    };
+    section.playback = playback;
+    const imported = remapProjectAssetReferences(
+      playbackProject(section),
+      new Map([[playbackAsset.id, 'd'.repeat(64)]])
+    );
+    expect(imported.learningPlan?.sections?.[0]?.playback).toEqual({
+      ...playback,
+      blocks: playback.blocks.map(block => ({
+        ...block,
+        audio: block.audio.map(audio => ({
+          ...audio,
+          asset: { ...audio.asset, id: 'd'.repeat(64) },
+        })),
+      })),
+    });
+    expect(section.playback).toBe(playback);
+  });
+
+  test.each([
+    { title: 'Titolo corretto' },
+    { description: 'Contesto corretto' },
+  ])('invalidates preparation when lesson context changes: %j', change => {
+    const original = playbackSection();
+    original.playback = preparedPlayback(original);
+    const changed = { ...original, ...change };
+    const after = playbackProject(changed);
+    expect(buildLessonPlaybackKey(changed)).not.toBe(original.playback.lessonKey);
+    reconcileLessonPlayback(after, playbackProject(original));
+    expect(after.learningPlan?.sections?.[0]).not.toHaveProperty('playback');
+  });
+  test('imported images retain the lesson key while audio and image IDs are remapped', () => {
+    const section = playbackSection();
+    const image = { ...playbackAsset, id: 'e'.repeat(64), mediaType: 'image/png' };
+    section.generatedVisuals = [
+      { id: 'visual', slotId: 'slot', createdAt: 'now', render: { kind: 'image', asset: image } },
+    ];
+    section.contentBlocks = [
+      ...(section.contentBlocks as unknown[]),
+      { type: 'generated-visual', slotId: 'slot', visualId: 'visual' },
+    ];
+    section.playback = preparedPlayback(section);
+    const imported = remapProjectAssetReferences(
+      playbackProject(section),
+      new Map([
+        [playbackAsset.id, 'd'.repeat(64)],
+        [image.id, 'f'.repeat(64)],
+      ])
+    );
+    const importedSection = imported.learningPlan?.sections?.[0];
+    if (!importedSection) throw new Error('Missing imported lesson');
+    expect(readLessonPlayback(importedSection).blocks[0]?.audio[0]?.asset.id).toBe('d'.repeat(64));
+  });
+  test('playback changes neither generation inputs nor rollback snapshots', () => {
+    const section = playbackSection();
+    const before = playbackProject(section);
+    const after = playbackProject({ ...section, playback: preparedPlayback(section) });
+    expect(buildLessonGenerationSourceFingerprint(after, 'section-1')).toBe(
+      buildLessonGenerationSourceFingerprint(before, 'section-1')
+    );
+    expect(snapshotLessonGenerationTarget(after, 'section-1')).toEqual(
+      snapshotLessonGenerationTarget(before, 'section-1')
+    );
+  });
+  test('wire validation accepts playback and rejects malformed audio even on legacy content', () => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    expect(canonicalizeLessonNodeContent(section).playback).toEqual(section.playback);
+    expect(() =>
+      canonicalizeLessonNodeContent({
+        ...section,
+        contentBlocks: undefined,
+        playback: {
+          ...section.playback,
+          blocks: [{ ...section.playback.blocks[0], audio: [{ asset: {} }] }],
+        },
+      })
+    ).toThrow();
+  });
+
+  test.each([
+    'image/png',
+    'audio/wav',
+    'audio/ogg',
+    'audio/mp3',
+  ])('rejects imported playback assets outside canonical MP3: %s', mediaType => {
+    const section = playbackSection();
+    const playback = preparedPlayback(section);
+    playback.blocks[0].audio[0].asset = { ...playbackAsset, mediaType };
+    section.playback = playback;
+    expect(() => canonicalizeLessonNodeContent(section)).toThrow();
+    expect(() => collectProjectAssetReferences(playbackProject(section))).toThrow();
+    expect(() => remapProjectAssetReferences(playbackProject(section), new Map())).toThrow();
+  });
+
+  test.each([
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0], {
+        spans: [{ ...saved.blocks[0].spans[0], speech: { start: 10, end: 2 } }],
+      });
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0], {
+        spans: [{ ...saved.blocks[0].spans[0], source: { start: 10, end: 2 } }],
+      });
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, id: 'z'.repeat(64) };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, hash: 'z'.repeat(64) };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, byteSize: Number.MAX_SAFE_INTEGER + 1 };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      saved.blocks[0].audio[0].asset = { ...playbackAsset, mediaType: ' ; charset=utf8' };
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0].prepared, {
+        scene: {
+          type: 'comparison',
+          title: 'Esempio',
+          body: '',
+          note: '',
+          quote: '',
+          items: [],
+          groups: [
+            { label: 'A', items: [' '], icons: [''] },
+            { label: 'B', items: ['Due'], icons: [''] },
+          ],
+        },
+      });
+    },
+    (saved: ReturnType<typeof preparedPlayback>) => {
+      Object.assign(saved.blocks[0], {
+        visuals: [
+          {
+            kind: 'scene',
+            scene: {
+              type: 'comparison',
+              title: 'Esempio',
+              body: '',
+              note: '',
+              quote: '',
+              items: [],
+              groups: [
+                { label: 'A', items: [''], icons: [''] },
+                { label: 'B', items: ['Due'], icons: [''] },
+              ],
+            },
+          },
+        ],
+      });
+    },
+  ])('project and backup boundaries reject malformed playback invariants', corrupt => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    corrupt(section.playback as ReturnType<typeof preparedPlayback>);
+    expect(() => canonicalizeLessonNodeContent(section)).toThrow();
+    expect(() => collectProjectAssetReferences(playbackProject(section))).toThrow();
+  });
+});
