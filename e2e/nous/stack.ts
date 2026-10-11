@@ -3,7 +3,7 @@ import { closeSync, openSync } from 'node:fs';
 import { appendFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { setImmediate } from 'node:timers/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import * as z from 'zod';
@@ -13,6 +13,8 @@ export const APP_URL = 'http://127.0.0.1:5173';
 export const BACKEND_URL = 'http://127.0.0.1:3301';
 const PROJECT_ID = 'nous-playtest';
 export const STACK_STAGE_READINESS_LIMIT_MS = 180_000;
+export const STACK_SHUTDOWN_GRACE_MS = 10_000;
+export const STACK_READINESS_POLL_INTERVAL_MS = 500;
 const DIAGNOSTIC_TAIL_LINES = 10;
 // These addresses reuse the working hands spike's isolated port allocation.
 const PORTS = { api: 55321, db: 55322, shadow: 55320, studio: 55323, mail: 55324 };
@@ -24,6 +26,16 @@ const statusSchema = z.object({
   JWT_SECRET: z.string().min(1),
 });
 export type StackStatus = z.infer<typeof statusSchema>;
+type StackClock = {
+  now: () => number;
+  wait: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+};
+const stackClock: StackClock = {
+  now: () => performance.now(),
+  wait: async (milliseconds, signal) => {
+    await delay(milliseconds, undefined, { signal });
+  },
+};
 const executeFile = promisify(execFile);
 const ownedProcessSchema = z.object({
   pid: z.number().int().positive(),
@@ -242,6 +254,34 @@ async function requireFreePort(port: number): Promise<void> {
   });
 }
 
+/** Pace HTTP checks while preserving the stage abort and immediate child-exit failure. */
+export async function waitForReadiness(options: {
+  url: string;
+  exited: Promise<never>;
+  signal?: AbortSignal;
+  wait?: StackClock['wait'];
+}): Promise<void> {
+  const controller = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal;
+  const wait = options.wait ?? stackClock.wait;
+  try {
+    for (;;) {
+      signal.throwIfAborted();
+      const response = await Promise.race([
+        fetch(options.url, { signal }).catch(() => undefined),
+        options.exited,
+      ]);
+      await Promise.race([response?.body?.cancel(), options.exited]);
+      if (response?.ok) return;
+      await Promise.race([wait(STACK_READINESS_POLL_INTERVAL_MS, signal), options.exited]);
+    }
+  } finally {
+    controller.abort();
+  }
+}
+
 export async function startServer(
   name: string,
   args: string[],
@@ -296,23 +336,11 @@ export async function startServer(
       JSON.stringify({ pid: child.pid, repoRoot: REPO_ROOT, identity })
     );
     process.stderr.write(`[playtest] readiness: ${name} ${readinessUrl}\n`);
-    const ready = async () => {
-      for (;;) {
-        const response = await Promise.race([
-          fetch(readinessUrl, { signal }).catch(() => undefined),
-          exited,
-          interrupted,
-        ]);
-        if (response?.ok) {
-          await response.body?.cancel();
-          return;
-        }
-        await response?.body?.cancel();
-        // Yield to process-exit events without imposing a retry delay.
-        await setImmediate();
-      }
-    };
-    await Promise.race([ready(), exited, interrupted]);
+    await waitForReadiness({
+      url: readinessUrl,
+      signal,
+      exited: Promise.race([exited, interrupted]),
+    });
     startupComplete = true;
     child.unref();
     return child.pid;
@@ -406,22 +434,53 @@ export async function ensureStack(): Promise<void> {
   process.stderr.write('[playtest] readiness: stack ready\n');
 }
 
+/** Wait for the entire owned group, including descendants whose leader has exited. */
+async function stopProcessGroup(
+  pid: number,
+  kill: typeof process.kill,
+  clock: StackClock
+): Promise<void> {
+  const deadline = clock.now() + STACK_SHUTDOWN_GRACE_MS;
+  try {
+    kill(-pid, 'SIGTERM');
+    for (;;) {
+      kill(-pid, 0);
+      const remaining = deadline - clock.now();
+      if (remaining <= 0) {
+        kill(-pid, 'SIGKILL');
+        return;
+      }
+      await clock.wait(Math.min(STACK_READINESS_POLL_INTERVAL_MS, remaining));
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+}
+
 /** Stop only the recorded app processes and the explicitly named isolated Supabase project. */
-async function stopStack(): Promise<void> {
+export async function stopStack(
+  options: {
+    platform?: NodeJS.Platform;
+    identity?: typeof processIdentity;
+    kill?: typeof process.kill;
+    clock?: StackClock;
+    stopSupabase?: () => Promise<unknown>;
+  } = {}
+): Promise<void> {
   const savedConfig = await readFile(join(dataRoot(), 'stack', 'supabase', 'config.toml'), 'utf8');
   stackConfigSchema.parse(Bun.TOML.parse(savedConfig));
   for (const name of ['frontend', 'backend']) {
     const pidPath = join(dataRoot(), 'stack', `${name}-pid.json`);
     const owned = await ownedProcess(name);
     if (!owned) continue;
-    const identity = await processIdentity(owned.pid);
+    const identity = await (options.identity ?? processIdentity)(owned.pid);
     if (identity === undefined) {
       await rm(pidPath);
       continue;
     }
     if (identity !== owned.identity)
       throw new Error(`Could not safely stop playtest ${name}: process identity changed.`);
-    if (process.platform === 'win32') {
+    if ((options.platform ?? process.platform) === 'win32') {
       const expected = z
         .object({ startedAt: z.string(), command: z.string() })
         .parse(JSON.parse(owned.identity));
@@ -432,15 +491,12 @@ async function stopStack(): Promise<void> {
       });
       if ((await child.exited) !== 0) throw new Error(`Could not safely stop playtest ${name}.`);
     } else {
-      try {
-        process.kill(-owned.pid, 'SIGTERM');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-      }
+      await stopProcessGroup(owned.pid, options.kill ?? process.kill, options.clock ?? stackClock);
     }
     await rm(pidPath);
   }
-  await supabaseCommand(['stop', '--project-id', PROJECT_ID]);
+  if (options.stopSupabase) await options.stopSupabase();
+  else await supabaseCommand(['stop', '--project-id', PROJECT_ID]);
 }
 
 if (import.meta.main) {

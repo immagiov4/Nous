@@ -19,9 +19,13 @@ import {
   dataRoot,
   REPO_ROOT,
   runStackStage,
+  STACK_READINESS_POLL_INTERVAL_MS,
+  STACK_SHUTDOWN_GRACE_MS,
   STACK_STAGE_READINESS_LIMIT_MS,
   type StackStatus,
   startServer,
+  stopStack,
+  waitForReadiness,
 } from '../stack';
 
 let temporaryRoot: string | undefined;
@@ -55,6 +59,22 @@ vi.mock('../../../packages/playtest/src/inspector/judge', () => ({
   createPiVisualJudge: () => ({ judge: async () => [] }),
 }));
 
+const savedStackConfig =
+  '# Saved configuration may differ from the current repository\nproject_id="nous-playtest"\n[api]\nport=55321\n[db]\nport=55322\nshadow_port=55320\n[studio]\nport=55323\n[inbucket]\nport=55324\n[auth.email.smtp]\nenabled=false\n';
+
+async function createShutdownFixture(name = 'backend'): Promise<string> {
+  temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-stop-'));
+  vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
+  await mkdir(join(temporaryRoot, 'stack', 'supabase'), { recursive: true });
+  await writeFile(join(temporaryRoot, 'stack', 'supabase', 'config.toml'), savedStackConfig);
+  const pidPath = join(temporaryRoot, 'stack', `${name}-pid.json`);
+  await writeFile(
+    pidPath,
+    JSON.stringify({ pid: process.pid, repoRoot: REPO_ROOT, identity: 'owned-process' })
+  );
+  return pidPath;
+}
+
 describe('Nous adapter', () => {
   it('rejects in-repository data paths whose segment merely starts with two dots', () => {
     vi.stubEnv('NOUS_E2E_DATA', join(REPO_ROOT, '..playtest'));
@@ -66,10 +86,7 @@ describe('Nous adapter', () => {
   it('accepts saved isolated configuration on shutdown but refuses a recycled process identity', async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-stop-identity-'));
     await mkdir(join(temporaryRoot, 'stack', 'supabase'), { recursive: true });
-    await writeFile(
-      join(temporaryRoot, 'stack', 'supabase', 'config.toml'),
-      '# Saved configuration may differ from the current repository\nproject_id="nous-playtest"\n[api]\nport=55321\n[db]\nport=55322\nshadow_port=55320\n[studio]\nport=55323\n[inbucket]\nport=55324\n[auth.email.smtp]\nenabled=false\n'
-    );
+    await writeFile(join(temporaryRoot, 'stack', 'supabase', 'config.toml'), savedStackConfig);
     await writeFile(
       join(temporaryRoot, 'stack', 'frontend-pid.json'),
       JSON.stringify({
@@ -89,6 +106,176 @@ describe('Nous adapter', () => {
     expect(
       JSON.parse(await readFile(join(temporaryRoot, 'stack', 'frontend-pid.json'), 'utf8')).pid
     ).toBe(process.pid);
+  });
+
+  it('waits for the whole POSIX group before removing its PID and stopping Supabase', async () => {
+    const pidPath = await createShutdownFixture();
+    let groupExists = true;
+    let elapsed = 0;
+    const identity = vi.fn(async () => 'owned-process');
+    const kill = vi.fn((_pid: number, signal: NodeJS.Signals | number | undefined) => {
+      expect(identity).toHaveBeenCalledExactlyOnceWith(process.pid);
+      if (signal === 0 && !groupExists) throw Object.assign(new Error('Exited'), { code: 'ESRCH' });
+      return true;
+    });
+    const wait = vi.fn(async (milliseconds: number) => {
+      expect(JSON.parse(await readFile(pidPath, 'utf8')).pid).toBe(process.pid);
+      expect(stopSupabase).not.toHaveBeenCalled();
+      elapsed += milliseconds;
+      // The leader may exit before its descendants; group existence is authoritative.
+      groupExists = false;
+    });
+    const stopSupabase = vi.fn(async () => {
+      expect(groupExists).toBe(false);
+      await expect(readFile(pidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+    await stopStack({
+      platform: 'linux',
+      identity,
+      kill,
+      clock: { now: () => elapsed, wait },
+      stopSupabase,
+    });
+    expect(kill.mock.calls).toEqual([
+      [-process.pid, 'SIGTERM'],
+      [-process.pid, 0],
+      [-process.pid, 0],
+    ]);
+    expect(elapsed).toBeLessThan(STACK_SHUTDOWN_GRACE_MS);
+    expect(stopSupabase).toHaveBeenCalledOnce();
+  });
+
+  it('sends SIGKILL at the approved grace deadline before deleting the PID and stopping Supabase', async () => {
+    const pidPath = await createShutdownFixture();
+    let elapsed = 0;
+    let forced = false;
+    const kill = vi.fn((_pid: number, signal: NodeJS.Signals | number | undefined) => {
+      if (signal === 'SIGKILL') {
+        expect(elapsed).toBe(STACK_SHUTDOWN_GRACE_MS);
+        forced = true;
+      }
+      return true;
+    });
+    const wait = vi.fn(async (milliseconds: number) => {
+      expect(forced).toBe(false);
+      expect(stopSupabase).not.toHaveBeenCalled();
+      expect(JSON.parse(await readFile(pidPath, 'utf8')).pid).toBe(process.pid);
+      elapsed += milliseconds;
+    });
+    const stopSupabase = vi.fn(async () => {
+      expect(forced).toBe(true);
+      await expect(readFile(pidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+    await stopStack({
+      platform: 'linux',
+      identity: async () => 'owned-process',
+      kill,
+      clock: { now: () => elapsed, wait },
+      stopSupabase,
+    });
+    expect(kill.mock.calls[0]).toEqual([-process.pid, 'SIGTERM']);
+    expect(kill.mock.calls.at(-1)).toEqual([-process.pid, 'SIGKILL']);
+    expect(wait).toHaveBeenCalledTimes(STACK_SHUTDOWN_GRACE_MS / STACK_READINESS_POLL_INTERVAL_MS);
+    expect(stopSupabase).toHaveBeenCalledOnce();
+  });
+
+  it('retains the PID and keeps Supabase running if signaling the owned group fails', async () => {
+    const pidPath = await createShutdownFixture();
+    const error = Object.assign(new Error('Denied'), { code: 'EPERM' });
+    const kill = vi.fn(() => {
+      throw error;
+    });
+    const stopSupabase = vi.fn();
+    await expect(
+      stopStack({ platform: 'linux', identity: async () => 'owned-process', kill, stopSupabase })
+    ).rejects.toBe(error);
+    expect(JSON.parse(await readFile(pidPath, 'utf8')).pid).toBe(process.pid);
+    expect(stopSupabase).not.toHaveBeenCalled();
+  });
+
+  it('paces successive HTTP readiness requests by the approved interval', async () => {
+    const paused = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null));
+    vi.stubGlobal('fetch', fetcher);
+    const wait = vi.fn(async () => {
+      paused.resolve();
+      await resume.promise;
+    });
+    const readiness = waitForReadiness({
+      url: 'http://synthetic.test/health',
+      exited: new Promise<never>(() => {}),
+      wait,
+    });
+    await paused.promise;
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(wait).toHaveBeenCalledExactlyOnceWith(
+      STACK_READINESS_POLL_INTERVAL_MS,
+      expect.any(AbortSignal)
+    );
+    resume.resolve();
+    await readiness;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails immediately on child exit while waiting between readiness requests', async () => {
+    const paused = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const exited = Promise.withResolvers<never>();
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal('fetch', fetcher);
+    let waitSignal: AbortSignal | undefined;
+    const wait = vi.fn(async (_milliseconds: number, signal?: AbortSignal) => {
+      waitSignal = signal;
+      paused.resolve();
+      await resume.promise;
+    });
+    const failure = new Error('Child exited');
+    const result = waitForReadiness({
+      url: 'http://synthetic.test/health',
+      exited: exited.promise,
+      wait,
+    }).catch(error => error);
+    await paused.promise;
+    exited.reject(failure);
+    expect(await result).toBe(failure);
+    expect(waitSignal?.aborted).toBe(true);
+    resume.resolve();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('retains the stage deadline while readiness is waiting between requests', async () => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-paced-limit-'));
+    vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);
+    await mkdir(join(temporaryRoot, 'stack'));
+    await writeFile(join(temporaryRoot, 'stack', 'backend.log'), 'Synthetic stalled readiness');
+    vi.useFakeTimers();
+    const paused = Promise.withResolvers<void>();
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal('fetch', fetcher);
+    const wait = (_milliseconds: number, signal?: AbortSignal) =>
+      new Promise<void>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        paused.resolve();
+      });
+    const result = runStackStage({
+      name: 'backend',
+      work: signal =>
+        waitForReadiness({
+          url: 'http://synthetic.test/health',
+          exited: new Promise<never>(() => {}),
+          signal,
+          wait,
+        }),
+    }).catch(error => error as Error);
+    await paused.promise;
+    await vi.advanceTimersByTimeAsync(STACK_STAGE_READINESS_LIMIT_MS);
+    expect((await result).message).toContain('stage limit expired');
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
   it.each([
     'Supabase',
