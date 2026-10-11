@@ -17,11 +17,8 @@ export {
 } from '../services/lessonResearchContract.js';
 
 const SHA256_HEX_LENGTH = 64;
-
 export const Sha256HexSchema = z.string().length(SHA256_HEX_LENGTH);
-
 export const LessonIdentifierSchema = z.string().min(1);
-
 const TimestampSchema = z.string().min(1);
 
 const TranscriptRangeSchema = z.object({
@@ -108,7 +105,6 @@ const LessonPdfImageMetadataPrefixShape = {
   intrinsicWidth: z.number().int().positive().optional(),
   pageNumber: z.number().int().positive().optional(),
 };
-
 const LessonPdfImageMetadataSuffixShape = {
   sourceId: LessonIdentifierSchema.optional(),
   sourceOrder: z.number().int().nonnegative(),
@@ -122,7 +118,6 @@ export const LessonPdfImageMetadataSchema = z.object({
   sourceHash: Sha256HexSchema.optional(),
   ...LessonPdfImageMetadataSuffixShape,
 });
-
 export const PreviousLessonPdfImageMetadataSchema = z.object({
   ...LessonPdfImageMetadataPrefixShape,
   ...LessonPdfImageMetadataSuffixShape,

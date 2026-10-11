@@ -69,7 +69,6 @@ const configureMermaid = (mermaid: Mermaid, host: HTMLElement): void => {
 };
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
-
 // Open asynchronous arrowheads drawn at the same scale as the other message tips.
 const OPEN_ARROWHEAD = {
   markerHeight: '10',
@@ -79,11 +78,8 @@ const OPEN_ARROWHEAD = {
   refY: '7',
   viewBox: '0 0 20 14',
 } as const;
-
 const OPEN_ARROWHEAD_PATH = 'M9 1 L18 7 L9 13';
-
 const MESSAGE_LABEL_PADDING = { x: 4, y: 3 } as const;
-
 const MESSAGE_LABEL_RADIUS = '4';
 
 /** Post-processing Mermaid's sequence output: open async arrowheads and opaque message labels. */

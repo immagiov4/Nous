@@ -1,5 +1,4 @@
 import * as z from 'zod';
-
 import type { LessonPlayback } from './lessonPlayback';
 import { isLessonScene, LessonSceneSchema } from './lessonScene';
 import { isValidProjectAssetRef, type ProjectAssetRef } from './projectAsset';
