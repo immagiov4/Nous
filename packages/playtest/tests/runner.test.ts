@@ -19,7 +19,9 @@ import type { PlaytestAdapter } from '../src/adapter';
 import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
 import type { VisualJudge } from '../src/inspector/judge';
+import * as judgeModule from '../src/inspector/judge';
 import { mapOpenRouterModel } from '../src/learner/modelResolution';
+import * as decisionModule from '../src/learner/piDecisionSource';
 import { ACTING_RULES } from '../src/learner/prompt';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
 import { createModelUsage, meterModel } from '../src/modelUsage';
@@ -31,7 +33,7 @@ import tieredEntry from './fixtures/models/openrouter-sonnet-4.json';
 const judge = vi.hoisted(() =>
   vi.fn(async (_input: Parameters<VisualJudge['judge']>[0]) => [] as InspectorFinding[])
 );
-vi.mock('../src/inspector/judge', () => ({ createPiVisualJudge: () => ({ judge }) }));
+vi.mock('../src/inspector/judge', () => ({ createPiVisualJudge: vi.fn(() => ({ judge })) }));
 let server: Server;
 let baseUrl: string;
 let runDir: string;
@@ -59,6 +61,9 @@ afterAll(async () => {
   );
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.mocked(judgeModule.createPiVisualJudge).mockImplementation(() => ({ judge }));
+  vi.unstubAllGlobals();
   if (runDir) await rm(runDir, { recursive: true, force: true });
   judge.mockReset();
   judge.mockResolvedValue([]);
@@ -82,6 +87,7 @@ function adapter(): PlaytestAdapter {
   return {
     locale: () => 'it-IT',
     taxonomyClasses: () => ['D01', 'D02'],
+    probeClass: kind => (kind === 'clipped-text' ? 'D01' : undefined),
     appDescription: () => 'An app to explore.',
     baseUrl: () => baseUrl,
     ensureStack: async () => {},
@@ -126,6 +132,70 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it('shares one catalogue resolution across jobs, decision sources and judges', async () => {
+    const fetchCatalogue = vi.fn(async () => new Response(JSON.stringify({ data: [tieredEntry] })));
+    vi.stubGlobal('fetch', fetchCatalogue);
+    const sources: object[] = [];
+    const judges: object[] = [];
+    const resolvers: unknown[] = [];
+    vi.spyOn(decisionModule, 'createPiDecisionSource').mockImplementation(options => {
+      resolvers.push(options.resolveModel);
+      const source = {
+        async decide() {
+          await options.resolveModel?.();
+          return { type: 'stop' as const, reason: 'completed' as const, summary: 'Done' };
+        },
+      };
+      sources.push(source);
+      return source;
+    });
+    vi.spyOn(judgeModule, 'createPiVisualJudge').mockImplementation(options => {
+      resolvers.push(options.resolveModel);
+      const visualJudge = {
+        async judge() {
+          await options.resolveModel?.();
+          return [];
+        },
+      };
+      judges.push(visualJudge);
+      return visualJudge;
+    });
+    runDir = await mkdtemp(join(tmpdir(), 'playtest-model-cache-'));
+    const summary = await runPlaytest({
+      adapter: adapter(),
+      stories: [{ ...story('first'), viewports: ['desktop', 'mobile'] }, story('second')],
+      personas: new Map(),
+      concurrency: 2,
+      headed: false,
+      provider: 'openrouter',
+      model: tieredEntry.id,
+      runDir,
+    });
+    expect(summary.outcomeCounts.completed).toBe(3);
+    expect(fetchCatalogue).toHaveBeenCalledExactlyOnceWith('https://openrouter.ai/api/v1/models');
+    expect(resolvers).toHaveLength(6);
+    expect(new Set(resolvers).size).toBe(1);
+    expect(new Set(sources).size).toBe(3);
+    expect(new Set(judges).size).toBe(3);
+  });
+
+  it('logs and persists classification failures with a stable reason', async () => {
+    const app = adapter();
+    app.classify = () => {
+      throw new Error('Synthetic classification failure');
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const summary = await run([story('classification')], app);
+    const record = summary.records[0];
+    expect(record.outcome).toBe('operator-failure');
+    expect(record.reason).toBe('The adapter could not classify an observed event.');
+    expect(record.diagnostics?.classification).toContain('Synthetic classification failure');
+    expect(error).toHaveBeenCalledWith(
+      '[playtest] Event classification failed:',
+      record.diagnostics?.classification
+    );
+    expect((await report(record.reportPath)).diagnostics).toEqual(record.diagnostics);
+  });
   it('persists estimated request costs in story and summary reports', async () => {
     const api = 'synthetic-estimated-runner';
     const pricingModel = {
@@ -509,7 +579,7 @@ describe('CLI', () => {
     await writeFile(
       adapterPath,
       `export default {
-      locale: () => 'it-IT', taxonomyClasses: () => ['D01', 'D02'], appDescription: () => 'An app.', baseUrl: () => 'http://localhost',
+      locale: () => 'it-IT', taxonomyClasses: () => ['D01', 'D02'], probeClass: () => undefined, appDescription: () => 'An app.', baseUrl: () => 'http://localhost',
       ensureStack: async () => { throw new Error('Fixture stack unavailable'); },
       prepare: async () => { throw new Error('Preparation must not run'); },
       classify: () => ({ stop: false }), styleReference: () => [], taxonomy: () => '', thresholds: () => ({})

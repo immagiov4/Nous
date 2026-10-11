@@ -19,6 +19,7 @@ const adapterSchema = z.object({
   styleReference: z.function(),
   taxonomy: z.function(),
   taxonomyClasses: z.function(),
+  probeClass: z.function(),
   thresholds: z.function(),
 });
 

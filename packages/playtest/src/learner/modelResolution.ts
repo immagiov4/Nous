@@ -1,5 +1,5 @@
 import type { Api, Model } from '@mariozechner/pi-ai';
-import type { ModelRegistry } from '@mariozechner/pi-coding-agent';
+import { AuthStorage, ModelRegistry } from '@mariozechner/pi-coding-agent';
 import * as z from 'zod';
 import { meterModel, type PricedModel, TOKENS_PER_MILLION } from '../modelUsage';
 
@@ -60,11 +60,13 @@ async function fetchOpenRouterCatalogue(): Promise<unknown> {
 type ModelResolutionOptions = {
   provider: string;
   model: string;
-  registry: Pick<ModelRegistry, 'find'>;
+  registry?: Pick<ModelRegistry, 'find'>;
   fetchCatalogue?: () => Promise<unknown>;
 };
 
-async function resolveModel(options: ModelResolutionOptions): Promise<Model<Api>> {
+async function resolveModel(
+  options: ModelResolutionOptions & { registry: Pick<ModelRegistry, 'find'> }
+): Promise<Model<Api>> {
   const registered = options.registry.find(options.provider, options.model);
   if (
     registered &&
@@ -82,11 +84,12 @@ async function resolveModel(options: ModelResolutionOptions): Promise<Model<Api>
   throw new Error(`Unknown Pi model: ${options.provider}/${options.model}`);
 }
 
-/** A source shares one lazy resolution, including concurrent callers and resolution failures. */
+/** A run shares one lazy metadata resolution; metering follows each caller's story and phase. */
 export function createModelResolver(options: ModelResolutionOptions): () => Promise<Model<Api>> {
+  const registry = options.registry ?? ModelRegistry.inMemory(AuthStorage.inMemory());
   let resolution: Promise<Model<Api>> | undefined;
   return async () => {
-    resolution ??= resolveModel(options);
+    resolution ??= resolveModel({ ...options, registry });
     return meterModel(await resolution);
   };
 }

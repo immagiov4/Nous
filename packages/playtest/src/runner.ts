@@ -10,6 +10,7 @@ import {
   type MissionOutcome,
   runLearner,
 } from './learner/loop';
+import { createModelResolver } from './learner/modelResolution';
 import { createPiDecisionSource } from './learner/piDecisionSource';
 import { createModelUsage, type ModelUsage, withModelUsage } from './modelUsage';
 import { type Observation, type OperatorSession, openOperatorSession } from './operator/session';
@@ -30,7 +31,7 @@ export type StoryRunRecord = {
   elapsedMs?: number;
   modelUsage?: ModelUsage;
   costEstimated?: true;
-  diagnostics?: { inspection?: string };
+  diagnostics?: { inspection?: string; classification?: string };
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
@@ -56,6 +57,12 @@ export type StepProbeSignal = Pick<Observation, 'stepIndex' | 'screenshotPath'> 
   signal: ProbeSignal;
 };
 
+function diagnosticCause(error: unknown): string {
+  return error instanceof Error
+    ? `${error.name}: ${error.message}\n${error.stack ?? ''}`
+    : String(error);
+}
+
 /** Drain at each operator boundary, before the learner can request another action. */
 function withProbeEvidence(
   session: OperatorSession,
@@ -71,7 +78,10 @@ function withProbeEvidence(
     };
     signals.push(...drained.map(signal => ({ signal, ...evidence })));
     findings.push(
-      ...toFindings(drained, options.adapter.thresholds()).map(finding => ({
+      ...toFindings(drained, options.adapter.thresholds(), {
+        probeClass: kind => options.adapter.probeClass(kind),
+        taxonomyClasses: () => options.adapter.taxonomyClasses(),
+      }).map(finding => ({
         ...finding,
         ...evidence,
       }))
@@ -100,6 +110,7 @@ async function runStory(input: {
   jobIndex: number;
   getBrowser: () => Promise<Browser>;
   stackFailure?: string;
+  resolveModel: ReturnType<typeof createModelResolver>;
 }): Promise<StoryRunRecord> {
   const modelUsage = createModelUsage();
   return withModelUsage(modelUsage, 'learner', () => runStoryWithUsage(input, modelUsage));
@@ -155,8 +166,11 @@ async function runStoryWithUsage(
         stopped = verdict;
         stopEvent = event;
       }
-    } catch {
+    } catch (error) {
       classificationFailed = true;
+      const cause = diagnosticCause(error);
+      console.error('[playtest] Event classification failed:', cause);
+      record.diagnostics = { ...record.diagnostics, classification: cause };
     }
   };
   try {
@@ -186,7 +200,11 @@ async function runStoryWithUsage(
       operator: withProbeEvidence(session, options, probeSignals, probeFindings),
       source:
         options.sourceFactory?.() ??
-        createPiDecisionSource({ model: options.model, provider: options.provider }),
+        createPiDecisionSource({
+          model: options.model,
+          provider: options.provider,
+          resolveModel: input.resolveModel,
+        }),
       shouldStop: () =>
         stopped?.reason ?? (classificationFailed ? 'Event classification failed.' : undefined),
     });
@@ -243,16 +261,17 @@ async function runStoryWithUsage(
           styleReference: options.adapter.styleReference(),
           taxonomy: options.adapter.taxonomy(),
           taxonomyClasses: options.adapter.taxonomyClasses(),
-          judge: createPiVisualJudge({ model: options.model, provider: options.provider }),
+          judge: createPiVisualJudge({
+            model: options.model,
+            provider: options.provider,
+            resolveModel: input.resolveModel,
+          }),
         })
       );
     } catch (error) {
-      const cause =
-        error instanceof Error
-          ? `${error.name}: ${error.message}\n${error.stack ?? ''}`
-          : String(error);
+      const cause = diagnosticCause(error);
       console.error('[playtest] Visual inspection failed:', cause);
-      record.diagnostics = { inspection: cause };
+      record.diagnostics = { ...record.diagnostics, inspection: cause };
       inspectionError = 'Visual inspection failed; probe evidence is retained.';
       record.findings = await inspect({
         ...inspection,
@@ -296,6 +315,7 @@ export async function runPlaytest(options: RunOptions): Promise<RunSummary> {
     stackFailure = error instanceof Error ? error.message : 'Application stack is unavailable.';
   }
   const records: StoryRunRecord[] = new Array(jobs.length);
+  const resolveModel = createModelResolver({ model: options.model, provider: options.provider });
   let nextJob = 0;
   const worker = async () => {
     let browser: Browser | undefined;
@@ -312,6 +332,7 @@ export async function runPlaytest(options: RunOptions): Promise<RunSummary> {
           jobIndex: index,
           getBrowser,
           stackFailure,
+          resolveModel,
         });
       }
     } finally {

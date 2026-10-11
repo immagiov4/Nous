@@ -65,6 +65,19 @@ vi.mock('../../../packages/playtest/src/inspector/judge', () => ({
 const savedStackConfig =
   '# Saved configuration may differ from the current repository\nproject_id="nous-playtest"\n[api]\nport=55321\n[db]\nport=55322\nshadow_port=55320\n[studio]\nport=55323\n[inbucket]\nport=55324\n[auth.email.smtp]\nenabled=false\n';
 
+it.each([
+  ['clipped-text', 'D01'],
+  ['overlap', 'D02'],
+  ['layout-shift', 'D11'],
+  ['gesture-target-movement', 'D10'],
+  ['interaction-latency', 'D12'],
+  ['contrast', 'D05'],
+  ['horizontal-overflow', undefined],
+  ['console-error', undefined],
+] as const)('maps Nous probe %s to its taxonomy class', (kind, taxonomyClass) => {
+  expect(adapter.probeClass(kind)).toBe(taxonomyClass);
+});
+
 async function createShutdownFixture(name = 'backend'): Promise<string> {
   temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-stop-'));
   vi.stubEnv('NOUS_E2E_DATA', temporaryRoot);

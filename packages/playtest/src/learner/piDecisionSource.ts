@@ -47,10 +47,12 @@ function visibleObservation(observation: LearnerInput['observation']) {
 export function createPiDecisionSource(options: {
   model: string;
   provider: string;
+  resolveModel?: ReturnType<typeof createModelResolver>;
 }): DecisionSource {
   const authStorage = AuthStorage.inMemory();
   const modelRegistry = ModelRegistry.inMemory(authStorage);
-  const resolveModel = createModelResolver({ ...options, registry: modelRegistry });
+  const resolveModel =
+    options.resolveModel ?? createModelResolver({ ...options, registry: modelRegistry });
   return {
     async decide(input) {
       const model = await resolveModel();

@@ -1,3 +1,4 @@
+import type { ProbeSignal } from './probes/pageProbes';
 import type { ProbeThresholds } from './probes/thresholds';
 import type { Story, Viewport } from './types';
 
@@ -21,5 +22,6 @@ export type PlaytestAdapter = {
   styleReference(): string[];
   taxonomy(): string;
   taxonomyClasses(): string[];
+  probeClass(kind: ProbeSignal['kind']): string | undefined;
   thresholds(): ProbeThresholds;
 };

@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { parse as parseToml } from 'smol-toml';
 import * as z from 'zod';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -127,7 +128,7 @@ async function configureStack(): Promise<string> {
       .replace('[auth.email.smtp]\nenabled = true', '[auth.email.smtp]\nenabled = false')
       .replace('[auth.email.smtp]\r\nenabled = true', '[auth.email.smtp]\r\nenabled = false') +
     `\n[analytics]\nenabled = false\n\n[inbucket]\nenabled = true\nport = ${PORTS.mail}\n`;
-  stackConfigSchema.parse(Bun.TOML.parse(config));
+  stackConfigSchema.parse(parseToml(config));
   const existing = await readFile(join(supabase, 'config.toml'), 'utf8').catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined;
@@ -148,13 +149,18 @@ async function configureStack(): Promise<string> {
 
 async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
-  const child = Bun.spawn(
-    ['bunx', '--no-install', 'supabase', ...args, '--workdir', join(dataRoot(), 'stack')],
-    { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
+  const child = spawn(
+    'bunx',
+    ['--no-install', 'supabase', ...args, '--workdir', join(dataRoot(), 'stack')],
+    { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
   );
+  const exited = new Promise<number | null>((resolveExit, reject) => {
+    child.once('error', reject);
+    child.once('close', resolveExit);
+  });
   const abort = () => terminateChild(child);
   signal?.addEventListener('abort', abort, { once: true });
-  const captureOutput = async (stream: ReadableStream<Uint8Array>) => {
+  const captureOutput = async (stream: NonNullable<typeof child.stdout>) => {
     const chunks: string[] = [];
     const decoder = new TextDecoder();
     for await (const chunk of stream) {
@@ -170,7 +176,7 @@ async function supabaseCommand(args: string[], signal?: AbortSignal): Promise<st
   const [stdout, stderr, code] = await Promise.all([
     captureOutput(child.stdout),
     captureOutput(child.stderr),
-    child.exited,
+    exited,
   ]).finally(() => signal?.removeEventListener('abort', abort));
   if (code !== 0) {
     await writeFile(join(dataRoot(), 'stack', 'supabase-error.log'), stderr);
@@ -460,11 +466,13 @@ async function stopAppServers(options: AppShutdownOptions = {}): Promise<void> {
         .object({ startedAt: z.string(), command: z.string() })
         .parse(JSON.parse(owned.identity));
       const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owned.pid}'; if ($p) { if ($p.CreationDate.ToUniversalTime().ToString('o') -cne '${expected.startedAt.replaceAll("'", "''")}' -or $p.CommandLine -cne '${expected.command.replaceAll("'", "''")}') { exit 1 }; taskkill /PID ${owned.pid} /T /F | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 } }`;
-      const child = Bun.spawn(['powershell.exe', '-NoProfile', '-Command', command], {
-        stdout: 'ignore',
-        stderr: 'ignore',
-      });
-      if ((await child.exited) !== 0) throw new Error(`Could not safely stop playtest ${name}.`);
+      try {
+        await executeFile('powershell.exe', ['-NoProfile', '-Command', command], {
+          windowsHide: true,
+        });
+      } catch {
+        throw new Error(`Could not safely stop playtest ${name}.`);
+      }
     } else {
       await stopProcessGroup(owned.pid, options.kill ?? process.kill, options.clock ?? stackClock);
     }
@@ -479,7 +487,7 @@ export async function stopStack(
   } = {}
 ): Promise<void> {
   const savedConfig = await readFile(join(dataRoot(), 'stack', 'supabase', 'config.toml'), 'utf8');
-  stackConfigSchema.parse(Bun.TOML.parse(savedConfig));
+  stackConfigSchema.parse(parseToml(savedConfig));
   await stopAppServers(options);
   if (options.stopSupabase) await options.stopSupabase();
   else await supabaseCommand(['stop', '--project-id', PROJECT_ID]);

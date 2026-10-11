@@ -1,9 +1,24 @@
 import { readFile } from 'node:fs/promises';
 import { type Browser, chromium, type Page } from 'playwright';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectSignals, installProbes } from '../src/probes/collect';
 import type { ProbeSignal } from '../src/probes/pageProbes';
 import { toFindings } from '../src/probes/thresholds';
+
+const classification = {
+  probeClass: (kind: ProbeSignal['kind']) =>
+    ({
+      'clipped-text': 'D01',
+      overlap: 'D02',
+      'layout-shift': 'D11',
+      'gesture-target-movement': 'D10',
+      'interaction-latency': 'D12',
+      contrast: 'D05',
+      'horizontal-overflow': undefined,
+      'console-error': undefined,
+    })[kind],
+  taxonomyClasses: () => ['D01', 'D02', 'D11', 'D10', 'D12', 'D05'],
+};
 
 const viewport = { width: 800, height: 600 };
 let browser: Browser;
@@ -200,7 +215,9 @@ describe('deterministic page probes', () => {
     expect(
       signal?.kind === 'gesture-target-movement' && signal.maxPointerOffsetChangePx
     ).toBeCloseTo(0);
-    expect(toFindings(signal ? [signal] : [], { pointerOffsetChangePx: 0 })).toEqual([]);
+    expect(
+      toFindings(signal ? [signal] : [], { pointerOffsetChangePx: 0 }, classification)
+    ).toEqual([]);
   });
 
   it('drains a page with 2,000 overlapping decorative divs without decorative overlap signals', async () => {
@@ -449,23 +466,31 @@ describe('threshold conversion', () => {
   ];
 
   it('raises no findings with unset thresholds for any signal kind', () => {
-    expect(toFindings(signals, {})).toEqual([]);
+    const taxonomyClasses = vi.fn(() => {
+      throw new Error('Taxonomy unavailable');
+    });
+    expect(toFindings(signals, {}, { ...classification, taxonomyClasses })).toEqual([]);
+    expect(taxonomyClasses).not.toHaveBeenCalled();
   });
   it('uses only explicit thresholds and preserves gesture context', () => {
-    expect(toFindings(signals, { pointerOffsetChangePx: 1 })).toEqual([
+    expect(toFindings(signals, { pointerOffsetChangePx: 1 }, classification)).toEqual([
       { signal: movement, threshold: 1, taxonomyClass: 'D10' },
     ]);
-    expect(toFindings([movement], { pointerOffsetChangePx: 40 })).toEqual([]);
+    expect(toFindings([movement], { pointerOffsetChangePx: 40 }, classification)).toEqual([]);
   });
   it('maps configured measurements to reporting classes, including low contrast', () => {
-    const findings = toFindings(signals, {
-      clippedTextMinOverflowPx: 0,
-      overlapMinAreaPx: 0,
-      layoutShiftScore: 0,
-      pointerOffsetChangePx: 0,
-      interactionLatencyMs: 0,
-      minContrastRatio: 3,
-    });
+    const findings = toFindings(
+      signals,
+      {
+        clippedTextMinOverflowPx: 0,
+        overlapMinAreaPx: 0,
+        layoutShiftScore: 0,
+        pointerOffsetChangePx: 0,
+        interactionLatencyMs: 0,
+        minContrastRatio: 3,
+      },
+      classification
+    );
     expect(findings.map(finding => finding.taxonomyClass)).toEqual([
       'D01',
       'D02',
@@ -474,6 +499,23 @@ describe('threshold conversion', () => {
       'D12',
       'D05',
     ]);
+  });
+  it('uses adapter classes and drops absent or unknown mappings', () => {
+    const thresholds = { pointerOffsetChangePx: 0 };
+    expect(
+      toFindings([movement], thresholds, {
+        probeClass: () => 'custom-motion',
+        taxonomyClasses: () => ['custom-motion'],
+      })
+    ).toEqual([{ signal: movement, threshold: 0, taxonomyClass: 'custom-motion' }]);
+    for (const taxonomyClass of [undefined, 'unknown']) {
+      expect(
+        toFindings([movement], thresholds, {
+          probeClass: () => taxonomyClass,
+          taxonomyClasses: () => ['custom-motion'],
+        })
+      ).toEqual([]);
+    }
   });
 });
 

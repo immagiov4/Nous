@@ -59,10 +59,15 @@ async function loadImage(path: string) {
 }
 
 /** Pi inspects images without browser or filesystem tools; model metadata comes from the learner resolver. */
-export function createPiVisualJudge(options: { model: string; provider: string }): VisualJudge {
+export function createPiVisualJudge(options: {
+  model: string;
+  provider: string;
+  resolveModel?: ReturnType<typeof createModelResolver>;
+}): VisualJudge {
   const authStorage = AuthStorage.inMemory();
   const modelRegistry = ModelRegistry.inMemory(authStorage);
-  const resolveModel = createModelResolver({ ...options, registry: modelRegistry });
+  const resolveModel =
+    options.resolveModel ?? createModelResolver({ ...options, registry: modelRegistry });
   return {
     async judge(input) {
       if (input.screenshots.length === 0) return [];

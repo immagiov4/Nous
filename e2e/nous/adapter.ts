@@ -40,5 +40,16 @@ const adapter: PlaytestAdapter = {
     return [...new Set(this.taxonomy().match(/\bD\d+\b/g) ?? [])];
   },
   thresholds: () => ({}),
+  probeClass: kind =>
+    ({
+      'clipped-text': 'D01',
+      overlap: 'D02',
+      'layout-shift': 'D11',
+      'gesture-target-movement': 'D10',
+      'interaction-latency': 'D12',
+      contrast: 'D05',
+      'horizontal-overflow': undefined,
+      'console-error': undefined,
+    })[kind],
 };
 export default adapter;
