@@ -30,6 +30,12 @@ type StackClock = {
   now: () => number;
   wait: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
 };
+type AppShutdownOptions = {
+  platform?: NodeJS.Platform;
+  identity?: typeof processIdentity;
+  kill?: typeof process.kill;
+  clock?: StackClock;
+};
 const stackClock: StackClock = {
   now: () => performance.now(),
   wait: async (milliseconds, signal) => {
@@ -353,19 +359,30 @@ export async function startServer(
 }
 
 /** Explicit workdir and URLs keep every database operation off the developer's project. */
-export async function ensureStack(): Promise<void> {
+export async function ensureStack(
+  options: {
+    shutdown?: AppShutdownOptions;
+    initializeSupabase?: (signal: AbortSignal) => Promise<StackStatus>;
+    requireFreePort?: typeof requireFreePort;
+    startServer?: typeof startServer;
+  } = {}
+): Promise<void> {
+  process.stderr.write('[playtest] App servers: stopping owned processes\n');
+  await stopAppServers(options.shutdown);
   process.stderr.write('[playtest] Supabase: configuring isolated project\n');
   const status = await runStackStage({
     name: 'Supabase',
-    work: async signal => {
-      await configureStack();
-      await writeFile(join(dataRoot(), 'stack', 'supabase.log'), '');
-      process.stderr.write('[playtest] Supabase: starting nous-playtest\n');
-      await supabaseCommand(['start'], signal);
-      const current = await stackStatus(signal);
-      await supabaseCommand(['migration', 'up', '--local'], signal);
-      return current;
-    },
+    work:
+      options.initializeSupabase ??
+      (async signal => {
+        await configureStack();
+        await writeFile(join(dataRoot(), 'stack', 'supabase.log'), '');
+        process.stderr.write('[playtest] Supabase: starting nous-playtest\n');
+        await supabaseCommand(['start'], signal);
+        const current = await stackStatus(signal);
+        await supabaseCommand(['migration', 'up', '--local'], signal);
+        return current;
+      }),
   });
   process.stderr.write('[playtest] Supabase: ready; migrations applied\n');
   const env = {
@@ -410,23 +427,15 @@ export async function ensureStack(): Promise<void> {
       name: server.name,
       env,
       work: async signal => {
-        process.stderr.write(`[playtest] ${server.name}: checking owned process\n`);
-        const owned = await ownedProcess(server.name);
-        if (
-          owned &&
-          (await processIdentity(owned.pid)) === owned.identity &&
-          (await fetch(server.url, { signal }).then(
-            response => response.ok,
-            () => false
-          ))
-        ) {
-          process.kill(owned.pid, 0);
-          process.stderr.write(`[playtest] readiness: ${server.name} reused and healthy\n`);
-          return;
-        }
-        await requireFreePort(Number(new URL(server.url).port));
+        await (options.requireFreePort ?? requireFreePort)(Number(new URL(server.url).port));
         process.stderr.write(`[playtest] ${server.name}: starting\n`);
-        await startServer(server.name, server.args, server.url, env, signal);
+        await (options.startServer ?? startServer)(
+          server.name,
+          server.args,
+          server.url,
+          env,
+          signal
+        );
         process.stderr.write(`[playtest] readiness: ${server.name} ready\n`);
       },
     });
@@ -457,18 +466,8 @@ async function stopProcessGroup(
   }
 }
 
-/** Stop only the recorded app processes and the explicitly named isolated Supabase project. */
-export async function stopStack(
-  options: {
-    platform?: NodeJS.Platform;
-    identity?: typeof processIdentity;
-    kill?: typeof process.kill;
-    clock?: StackClock;
-    stopSupabase?: () => Promise<unknown>;
-  } = {}
-): Promise<void> {
-  const savedConfig = await readFile(join(dataRoot(), 'stack', 'supabase', 'config.toml'), 'utf8');
-  stackConfigSchema.parse(Bun.TOML.parse(savedConfig));
+/** Startup and explicit shutdown share the identity-verified app-server termination path. */
+async function stopAppServers(options: AppShutdownOptions = {}): Promise<void> {
   for (const name of ['frontend', 'backend']) {
     const pidPath = join(dataRoot(), 'stack', `${name}-pid.json`);
     const owned = await ownedProcess(name);
@@ -495,6 +494,17 @@ export async function stopStack(
     }
     await rm(pidPath);
   }
+}
+
+/** Stop only the recorded app processes and the explicitly named isolated Supabase project. */
+export async function stopStack(
+  options: AppShutdownOptions & {
+    stopSupabase?: () => Promise<unknown>;
+  } = {}
+): Promise<void> {
+  const savedConfig = await readFile(join(dataRoot(), 'stack', 'supabase', 'config.toml'), 'utf8');
+  stackConfigSchema.parse(Bun.TOML.parse(savedConfig));
+  await stopAppServers(options);
   if (options.stopSupabase) await options.stopSupabase();
   else await supabaseCommand(['stop', '--project-id', PROJECT_ID]);
 }

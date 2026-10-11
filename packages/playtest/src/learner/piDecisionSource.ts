@@ -12,8 +12,7 @@ import {
   SessionManager,
   SettingsManager,
 } from '@mariozechner/pi-coding-agent';
-import type { Observation } from '../operator/session';
-import type { DecisionSource, LearnerDecision } from './loop';
+import type { DecisionSource, LearnerDecision, LearnerInput } from './loop';
 import { createModelResolver } from './modelResolution';
 
 const DECISION_TOOLS = ['act', 'report_friction', 'diary', 'stop'];
@@ -39,9 +38,9 @@ const actionSchema = Type.Union([
   }),
 ]);
 
-function visibleObservation(observation: Observation) {
-  const { stepIndex, url, nodes } = observation;
-  return { stepIndex, url, nodes };
+function visibleObservation(observation: LearnerInput['observation']) {
+  const { stepIndex, nodes } = observation;
+  return { stepIndex, nodes };
 }
 
 /** Pi selects a decision; browser execution and credential resolution belong to the operator. */

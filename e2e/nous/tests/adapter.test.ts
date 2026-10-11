@@ -15,8 +15,11 @@ import type { Story } from '../../../packages/playtest/src/types';
 import adapter from '../adapter';
 import { prepare, syntheticCourse } from '../prepare';
 import {
+  APP_URL,
   assertIsolatedStatus,
+  BACKEND_URL,
   dataRoot,
+  ensureStack,
   REPO_ROOT,
   runStackStage,
   STACK_READINESS_POLL_INTERVAL_MS,
@@ -76,6 +79,89 @@ async function createShutdownFixture(name = 'backend'): Promise<string> {
 }
 
 describe('Nous adapter', () => {
+  it('restarts both owned app servers on every run while reusing isolated Supabase initialization', async () => {
+    const backendPath = await createShutdownFixture();
+    if (!temporaryRoot) throw new Error('Shutdown fixture root is missing');
+    const frontendPath = join(temporaryRoot, 'stack', 'frontend-pid.json');
+    const frontendPid = process.pid + 1;
+    await writeFile(
+      frontendPath,
+      JSON.stringify({ pid: frontendPid, repoRoot: REPO_ROOT, identity: 'owned-process' })
+    );
+    let identity = 'owned-process';
+    const kill = vi.fn((_pid: number, signal: NodeJS.Signals | number | undefined) => {
+      if (signal === 0) throw Object.assign(new Error('Exited'), { code: 'ESRCH' });
+      return true;
+    });
+    const initializeSupabase = vi.fn(async () => {
+      await expect(readFile(backendPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readFile(frontendPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      identity = 'fresh-process';
+      return status;
+    });
+    const requireFreePort = vi.fn(async (port: number) => {
+      const pidPath = port === Number(new URL(BACKEND_URL).port) ? backendPath : frontendPath;
+      await expect(readFile(pidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+    const start = vi.fn(
+      async (
+        name: string,
+        _args: string[],
+        _url: string,
+        env: NodeJS.ProcessEnv,
+        signal?: AbortSignal
+      ) => {
+        expect(env.DATABASE_URL).toBe(status.DB_URL);
+        expect(signal?.aborted).toBe(false);
+        const pid = name === 'backend' ? process.pid : frontendPid;
+        const pidPath = name === 'backend' ? backendPath : frontendPath;
+        await writeFile(pidPath, JSON.stringify({ pid, repoRoot: REPO_ROOT, identity }));
+        return pid;
+      }
+    );
+    const options = {
+      shutdown: { platform: 'linux' as const, identity: async () => identity, kill },
+      initializeSupabase,
+      requireFreePort,
+      startServer: start,
+    };
+    await ensureStack(options);
+    await ensureStack(options);
+    expect(initializeSupabase).toHaveBeenCalledTimes(2);
+    expect(start.mock.calls.map(([name]) => name)).toEqual([
+      'backend',
+      'frontend',
+      'backend',
+      'frontend',
+    ]);
+    expect(requireFreePort.mock.calls.map(([port]) => port)).toEqual([
+      Number(new URL(BACKEND_URL).port),
+      Number(new URL(APP_URL).port),
+      Number(new URL(BACKEND_URL).port),
+      Number(new URL(APP_URL).port),
+    ]);
+    expect(
+      kill.mock.calls.filter(([, signal]) => signal === 'SIGTERM').map(([pid]) => pid)
+    ).toEqual([-frontendPid, -process.pid, -frontendPid, -process.pid]);
+  });
+
+  it('refuses to restart a recorded server with a changed identity before initializing Supabase', async () => {
+    const pidPath = await createShutdownFixture();
+    const kill = vi.fn();
+    const initializeSupabase = vi.fn(async () => status);
+    const start = vi.fn(async () => process.pid);
+    await expect(
+      ensureStack({
+        shutdown: { identity: async () => 'different-process', kill },
+        initializeSupabase,
+        startServer: start,
+      })
+    ).rejects.toThrow('process identity changed');
+    expect(kill).not.toHaveBeenCalled();
+    expect(initializeSupabase).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(pidPath, 'utf8')).identity).toBe('owned-process');
+  });
   it('rejects in-repository data paths whose segment merely starts with two dots', () => {
     vi.stubEnv('NOUS_E2E_DATA', join(REPO_ROOT, '..playtest'));
     expect(dataRoot).toThrow('outside');
@@ -592,6 +678,7 @@ describe('Nous adapter', () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'nous-affect-'));
     const affects = ['curiosa', 'stanca'];
     const prompts: string[] = [];
+    const describeAffect = vi.spyOn(adapter, 'describeAffect');
     const summary = await runPlaytest({
       adapter: {
         ...adapter,
@@ -625,6 +712,7 @@ describe('Nous adapter', () => {
     expect(prompts).toHaveLength(2);
     expect(prompts[0]).toBe(prompts[1]);
     expect(prompts[0]).toContain(`sessione: ${summary.records[0].affect}.`);
+    expect(describeAffect).toHaveBeenCalledExactlyOnceWith(summary.records[0].affect);
   });
 
   it('allows a fresh observation and recovers from an unsupported keyboard key', async () => {

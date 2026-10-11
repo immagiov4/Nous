@@ -9,6 +9,7 @@ export type StopVerdict = { stop: true; reason: string; correlationId?: string }
 /** Application setup and error policy stay outside the generic harness. */
 export type PlaytestAdapter = {
   appDescription(): string;
+  describeAffect?(affect: string): string;
   baseUrl(): string;
   ensureStack(): Promise<void>;
   prepare(

@@ -8,6 +8,8 @@ const HTTP_SERVER_ERROR = 500;
 const adapter: PlaytestAdapter = {
   appDescription: () =>
     'Nous ti aiuta a comprendere intere materie a partire dal tuo materiale, accompagnandoti nello studio un passo alla volta con spiegazioni e attività pensate anche per chi fatica a mantenere l’attenzione.',
+  describeAffect: affect =>
+    `Stato emotivo iniziale per questa sessione: ${affect}. Cambia solo in risposta a ciò che incontri.`,
   baseUrl: () => APP_URL,
   ensureStack,
   prepare,

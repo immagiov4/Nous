@@ -13,12 +13,16 @@ export type LearnerDecision =
   | { type: 'diary'; entry: string }
   | { type: 'stop'; reason: 'completed' | 'abandoned'; summary: string };
 export type DecisionSource = { decide(input: LearnerInput): Promise<LearnerDecision> };
+type LearnerObservation = Omit<Observation, 'url'>;
 export type LearnerInput = {
   systemPrompt: string;
-  history: LearnerTurn[];
-  observation: Observation;
+  history: LearnerTurn<LearnerObservation>[];
+  observation: LearnerObservation;
 };
-export type LearnerTurn = { decision: LearnerDecision; result?: ActionResult };
+export type LearnerTurn<View = Observation> = {
+  decision: LearnerDecision;
+  result?: ActionResult<View>;
+};
 export type MissionOutcome = 'completed' | 'abandoned' | 'harness-limit' | 'operator-failure';
 export type LearnerRunResult = {
   outcome: MissionOutcome | 'app-error';
@@ -28,6 +32,12 @@ export type LearnerRunResult = {
   friction: string[];
   observations: Observation[];
 };
+
+/** Page addresses belong to operator evidence, not the learner's visible context. */
+function learnerObservation(observation: Observation): LearnerObservation {
+  const { stepIndex, screenshotPath, nodes } = observation;
+  return { stepIndex, screenshotPath, nodes };
+}
 
 /** The caller owns operator cleanup. Each decision, including diary entries, consumes a step. */
 export async function runLearner(input: {
@@ -65,8 +75,18 @@ export async function runLearner(input: {
     try {
       decision = await input.source.decide({
         systemPrompt,
-        history: [...result.turns],
-        observation,
+        history: result.turns.map(turn => ({
+          decision: turn.decision,
+          ...(turn.result
+            ? {
+                result: {
+                  ...turn.result,
+                  observation: learnerObservation(turn.result.observation),
+                },
+              }
+            : {}),
+        })),
+        observation: learnerObservation(observation),
       });
     } catch {
       result.outcome = appStopped() ? 'app-error' : 'operator-failure';

@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { type DecisionSource, type LearnerDecision, runLearner } from '../src/learner/loop';
+import {
+  type DecisionSource,
+  type LearnerDecision,
+  type LearnerInput,
+  runLearner,
+} from '../src/learner/loop';
 import { createModelResolver, mapOpenRouterModel } from '../src/learner/modelResolution';
 import { createPiDecisionSource } from '../src/learner/piDecisionSource';
 import { ACTING_RULES, buildLearnerPrompt } from '../src/learner/prompt';
@@ -189,6 +194,26 @@ function run(
 }
 
 describe('learner loop', () => {
+  it('withholds page URLs from current and historical learner inputs while retaining operator evidence', async () => {
+    const decide = vi.fn(
+      async (input: LearnerInput): Promise<LearnerDecision> =>
+        input.history.length
+          ? stop
+          : { type: 'act', action: { type: 'observe' }, expectation: 'Read again' }
+    );
+    const result = await run({ decide });
+    expect(result.outcome).toBe('completed');
+    expect(decide).toHaveBeenCalledTimes(2);
+    for (const [input] of decide.mock.calls) {
+      expect(input.observation).not.toHaveProperty('url');
+      for (const turn of input.history) expect(turn.result?.observation).not.toHaveProperty('url');
+      expect(JSON.stringify(input)).not.toContain(observation.url);
+    }
+    expect(decide.mock.calls[1][0].history[0].result?.observation.stepIndex).toBe(1);
+    expect(result.observations.map(view => view.url)).toEqual([observation.url, observation.url]);
+    expect(result.turns[0].result?.observation.url).toBe(observation.url);
+    expect(observation.url).toBe('https://example.test');
+  });
   it('retains the diary, friction and observations when a later model decision fails', async () => {
     const scripted = createScriptedDecisionSource([
       { type: 'diary', entry: 'Read the page' },
@@ -285,9 +310,16 @@ describe('learner loop', () => {
     const decide = vi.spyOn(source, 'decide');
     const runResult = await run(source, session);
     expect(runResult.turns[0].result).toEqual(result);
+    const visible = {
+      stepIndex: 1,
+      screenshotPath: observation.screenshotPath,
+      nodes: observation.nodes,
+    };
     expect(decide.mock.calls[1][0]).toMatchObject({
-      history: [runResult.turns[0]],
-      observation: result.observation,
+      history: [
+        { decision: runResult.turns[0].decision, result: { ...result, observation: visible } },
+      ],
+      observation: visible,
     });
     expect(runResult.observations).toEqual([observation, result.observation]);
   });

@@ -4,6 +4,8 @@ The root scripts in `package.json` are the canonical development and CI entrypoi
 
 ## Routine checks
 
+After installing project dependencies, run `bunx playwright install chromium` to provide Chromium for browser tests, including `bun run test` and the coverage stage of `bun run gate:full`.
+
 ```bash
 bun run doctor
 bun run doctor -- --profile gate
@@ -49,6 +51,8 @@ bun run gate:full
   Vitest if PATH resolves to another Node major. Its preflight deletes the previous `coverage/lcov.info` before
   that check, so a later Sonar stage cannot consume stale coverage. It uses four workers and writes
   only the report Sonar consumes. CI does not generate and discard a second coverage report.
+
+`bun run prepare:coverage` removes stale coverage, verifies the Node major, and then runs the idempotent `bunx playwright install chromium` command before coverage tests start.
 
 ## Pull request Sonar merge policy
 

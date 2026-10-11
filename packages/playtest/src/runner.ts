@@ -175,7 +175,7 @@ async function runStoryWithUsage(
         persona && record.affect
           ? {
               ...persona,
-              body: `${persona.body}\n\nStato emotivo iniziale per questa sessione: ${record.affect}. Cambia solo in risposta a ciò che incontri.`,
+              body: `${persona.body}\n\n${options.adapter.describeAffect?.(record.affect) ?? record.affect}`,
             }
           : persona,
       appDescription: options.adapter.appDescription(),

@@ -10,9 +10,9 @@ export type LearnerAction =
   | { type: 'drag'; ref: string; dx: number; dy: number }
   | { type: 'fill-credential'; ref: string; field: 'email' | 'password' };
 
-export type ActionResult =
-  | { status: 'ok'; observation: Observation }
-  | { status: 'stale-reference' | 'not-actionable'; observation: Observation; detail: string };
+export type ActionResult<View = Observation> =
+  | { status: 'ok'; observation: View }
+  | { status: 'stale-reference' | 'not-actionable'; observation: View; detail: string };
 
 type ActionStatus = ActionResult['status'];
 

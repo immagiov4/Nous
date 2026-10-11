@@ -12,6 +12,7 @@ import type { PlaytestAdapter } from '../src/adapter';
 import { main } from '../src/cli';
 import type { InspectorFinding } from '../src/inspector/inspect';
 import type { VisualJudge } from '../src/inspector/judge';
+import { ACTING_RULES } from '../src/learner/prompt';
 import { createScriptedDecisionSource } from '../src/learner/scriptedDecisionSource';
 import { writeStoryReports } from '../src/report/writeReports';
 import { runPlaytest } from '../src/runner';
@@ -113,6 +114,43 @@ async function report(path: string) {
 }
 
 describe('parallel runner', () => {
+  it('passes the sampled affect unwrapped when the generic adapter has no description hook', async () => {
+    runDir = await mkdtemp(join(tmpdir(), 'playtest-neutral-affect-'));
+    const prompts: string[] = [];
+    const affects = ['curious', 'tired'];
+    const app = adapter();
+    const mission = { ...story('affect'), persona: 'learner' };
+    const summary = await runPlaytest({
+      adapter: app,
+      stories: [mission],
+      personas: new Map([
+        ['learner', { id: 'learner', body: 'Learner profile.', affects, sourcePath: 'learner.md' }],
+      ]),
+      concurrency: 1,
+      headed: false,
+      model: 'fake',
+      provider: 'fake',
+      runDir,
+      sourceFactory: () => ({
+        async decide(input) {
+          prompts.push(input.systemPrompt);
+          return input.history.length
+            ? { type: 'stop', reason: 'completed', summary: 'Done' }
+            : { type: 'diary', entry: 'Observed' };
+        },
+      }),
+    });
+    const affect = summary.records[0].affect;
+    expect(affects).toContain(affect);
+    const expectedPrompt = [
+      app.appDescription(),
+      `Learner profile.\n\n${affect}`,
+      mission.body,
+      ACTING_RULES,
+    ].join('\n\n');
+    expect(prompts).toEqual([expectedPrompt, expectedPrompt]);
+    expect((await report(summary.records[0].reportPath)).affect).toBe(affect);
+  });
   it.each([
     'completed',
     'operator-failure',
