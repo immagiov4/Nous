@@ -45,8 +45,8 @@ bun run gate:full
   command also runs when Sonar startup, preflight, or analysis throws. The React Hooks ESLint
   check creates the external-issues report consumed by Sonar, so the scan does not repeat that lint
   pass. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
-- `test:coverage` requires Node 24.19.0, pinned in `.node-version`. It stops before Vitest if PATH
-  resolves to another Node version. Its preflight deletes the previous `coverage/lcov.info` before
+- `test:coverage` requires Node 26 (any 26.x), the major pinned in `.node-version`. It stops before
+  Vitest if PATH resolves to another Node major. Its preflight deletes the previous `coverage/lcov.info` before
   that check, so a later Sonar stage cannot consume stale coverage. It uses four workers and writes
   only the report Sonar consumes. CI does not generate and discard a second coverage report.
 

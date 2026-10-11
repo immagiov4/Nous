@@ -145,10 +145,7 @@ resource-constrained Windows host, run only one heavy analysis process at a time
 times out in unrelated tests, rerun those files in isolation before treating them as regressions or
 changing timeout policy.
 
-Coverage requires the exact Node version pinned in `.node-version`. The command fails before Vitest
-if PATH resolves to another version. The preflight removes the previous LCOV first, so Sonar cannot
-consume stale coverage after that failure. Coverage uses four workers and writes only the LCOV report consumed by Sonar. Do not add another
-complete coverage pass to CI or raise test timeouts to hide local resource contention.
+Coverage requires Node 26 (any 26.x release), the major version pinned in `.node-version`. The command fails before Vitest if PATH resolves to another major. The preflight removes the previous LCOV first, so Sonar cannot consume stale coverage after that failure. Coverage uses four workers and writes only the LCOV report consumed by Sonar. Do not add another complete coverage pass to CI or raise test timeouts to hide local resource contention.
 
 After GitHub CI passes, run `bun run gate:full` once on the same final merge candidate, after
 implementation and review feedback are complete. A mid-cycle full gate is reserved for a large or

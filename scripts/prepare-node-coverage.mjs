@@ -5,26 +5,27 @@ import { fileURLToPath } from 'node:url';
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDirectory = dirname(scriptPath);
 const coverageReport = resolve(scriptDirectory, '..', 'coverage', 'lcov.info');
-const pinnedVersion = readFileSync(new URL('../.node-version', import.meta.url), 'utf8').trim();
+const pinnedMajor = readFileSync(new URL('../.node-version', import.meta.url), 'utf8').trim();
 const coveragePreparation = {
   activeVersion: process.versions.node,
   coverageReport,
-  pinnedVersion,
+  pinnedMajor,
 };
 
 export function prepareNodeCoverage({
   activeVersion,
   coverageReport: reportPath,
-  pinnedVersion: requiredVersion,
+  pinnedMajor: requiredMajor,
 }) {
   rmSync(reportPath, { force: true });
 
-  if (activeVersion === requiredVersion) {
+  // Coverage totals are identical across Node majors, so only the major is pinned.
+  if (activeVersion.split('.')[0] === requiredMajor) {
     return true;
   }
 
   process.stderr.write(
-    `Node ${requiredVersion} is required for coverage, but PATH resolves to ${activeVersion}.\n`
+    `Node ${requiredMajor}.x is required for coverage, but PATH resolves to ${activeVersion}.\n`
   );
   return false;
 }

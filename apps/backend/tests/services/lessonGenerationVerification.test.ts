@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { reviewLessonContentDraftStrict } from '../../src/services/lessonGenerationModel.js';
@@ -8,10 +7,16 @@ import type {
   LessonGenerationInput,
 } from '../../src/services/lessonGenerationTypes.js';
 import { automationCourse, flawedAutomationLesson } from '../fixtures/lessonReviewQuality.js';
+import { mermaidClassificationCases } from '../fixtures/mermaidClassification.js';
 
-const { generateStructuredOutput } = vi.hoisted(() => ({ generateStructuredOutput: vi.fn() }));
+const { generateStructuredOutput, classifyMermaidInputs } = vi.hoisted(() => ({
+  generateStructuredOutput: vi.fn(),
+  classifyMermaidInputs: vi.fn(),
+}));
 vi.mock('../../src/services/structuredGeneration.js', () => ({ generateStructuredOutput }));
-vi.mock('node:child_process', { spy: true });
+vi.mock('../../src/services/mermaidValidation.js', () => ({ classifyMermaidInputs }));
+
+const mermaidClassifications = new Map(mermaidClassificationCases);
 
 const generationInput: LessonGenerationInput = {
   config: { ...getGlobalModelConfig(), aiProvider: 'codex', aiProviderOverrides: {} },
@@ -102,13 +107,19 @@ const review = () => reviewLessonContentDraftStrict({ draft: original, generatio
 
 beforeEach(() => {
   generateStructuredOutput.mockReset();
-  vi.mocked(execFile).mockClear();
+  classifyMermaidInputs.mockReset().mockImplementation(async (codes: string[]) =>
+    codes.map(code => {
+      const classification = mermaidClassifications.get(code);
+      if (classification === undefined) throw new Error(`Missing parser fixture: ${code}`);
+      return classification;
+    })
+  );
 });
 
 test.each([
   false,
   true,
-])('classifies fences across draft blocks in one process (diagram: %s)', async hasDiagram => {
+])('classifies fences across draft blocks in one batch (diagram: %s)', async hasDiagram => {
   const reviewed: LessonContentDraft = {
     ...original,
     contentBlocks: [
@@ -128,7 +139,14 @@ test.each([
   } else {
     await expect(result).resolves.toEqual(reviewed);
   }
-  expect(execFile).toHaveBeenCalledOnce();
+  expect(classifyMermaidInputs).toHaveBeenCalledExactlyOnceWith(
+    [
+      'graph = buildGraph()',
+      'packet = {}',
+      hasDiagram ? 'sequenceDiagram\nA->>B: Message' : 'sequenceDiagram();',
+    ],
+    generationInput.signal
+  );
 });
 
 test.each([
@@ -144,7 +162,7 @@ test.each([
   await expect(
     reviewLessonContentDraftStrict({ draft: reviewed, generationInput })
   ).resolves.toEqual(reviewed);
-  expect(execFile).not.toHaveBeenCalled();
+  expect(classifyMermaidInputs).not.toHaveBeenCalled();
 });
 
 test('writer and reviewer preserve useful qualifications without defensive padding', async () => {

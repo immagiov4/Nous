@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { classifyMermaidInputs, isParseableMermaid } from '../../src/services/mermaidValidation.js';
+import { mermaidClassificationCases } from '../fixtures/mermaidClassification.js';
 
 vi.mock('node:child_process', { spy: true });
 
@@ -37,6 +38,16 @@ test('classifies several inputs in order with one isolated process', async () =>
 test('starts no parser process for an empty classification batch', async () => {
   await expect(classifyMermaidInputs([], new AbortController().signal)).resolves.toEqual([]);
   expect(execFile).not.toHaveBeenCalled();
+});
+
+test('checks the lesson review classification fixtures against the real parser in one batch', async () => {
+  await expect(
+    classifyMermaidInputs(
+      mermaidClassificationCases.map(([code]) => code),
+      new AbortController().signal
+    )
+  ).resolves.toEqual(mermaidClassificationCases.map(([, isDiagram]) => isDiagram));
+  expect(execFile).toHaveBeenCalledOnce();
 });
 
 test('reports parser execution failures separately from syntax rejection', async () => {
