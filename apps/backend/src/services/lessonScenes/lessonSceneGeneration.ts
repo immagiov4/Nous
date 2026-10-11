@@ -51,9 +51,7 @@ const SceneIconQueriesSchema = z.strictObject({
 });
 
 const diagramShape = LESSON_SCENE_REGISTRY.flowchart.schema.shape.diagram.unwrap().shape;
-
 const node = diagramShape.nodes.element.shape;
-
 const edge = diagramShape.edges.element.shape;
 
 const SceneDiagramSchema = z.strictObject({

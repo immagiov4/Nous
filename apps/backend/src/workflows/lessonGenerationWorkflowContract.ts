@@ -428,5 +428,4 @@ export type LessonYouTubePlanState = z.infer<typeof LessonYouTubePlanStateSchema
 export type LessonYouTubeSearchState = z.infer<typeof LessonYouTubeSearchStateSchema>;
 export type LessonVisualsState = z.infer<typeof LessonVisualsStateSchema>;
 export type LessonVisualFanOutState = z.infer<typeof LessonVisualFanOutStateSchema>;
-
 export type LessonYouTubeState = z.infer<typeof LessonYouTubeStateSchema>;

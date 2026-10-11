@@ -91,7 +91,6 @@ export const isValidLessonPlayback = (value: unknown): value is LessonPlayback =
 };
 
 export const LessonPlaybackResponseSchema = LessonPlaybackSchema.omit({ version: true });
-
 export const PrepareLessonPlaybackResponseSchema = z.union([
   z.object({
     block: LessonPlaybackBlockSchema,
