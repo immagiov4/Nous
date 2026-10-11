@@ -109,7 +109,7 @@ export const groups = (context: SceneRenderContext, kind = 'comparison'): ReactN
               {group.items.map((entry, entryIndex) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: model labels may repeat; authored order is static
                 <li key={`${entryIndex}-${entry}`}>
-                  <Icon name={group.icons[entryIndex]} />
+                  <Icon name={group.icons[entryIndex] ?? ''} />
                   <span>{entry}</span>
                 </li>
               ))}

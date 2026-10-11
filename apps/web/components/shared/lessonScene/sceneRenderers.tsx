@@ -167,8 +167,8 @@ export const SCENE_RENDERERS = {
   boundary: c => concepts(c, { className: 'boundary', after: groups(c, 'boundary-groups') }),
   number: c => (
     <div className="big-number">
-      {c.scene.items[0].value}
-      <span>{c.scene.items[0].label}</span>
+      {c.scene.items[0]?.value}
+      <span>{c.scene.items[0]?.label}</span>
     </div>
   ),
   bars: chart,

@@ -829,6 +829,13 @@ export const findLessonSceneProblems = (value: unknown, source?: string): string
       ? ['The quote must be copied exactly from the lesson.']
       : [];
   const form = sceneForms[type];
+  // The flat stored envelope keeps form fields optional; the selected form still owns its contract.
+  const formFields = form.schema.safeParse(value);
+  if (!formFields.success) {
+    return formFields.error.issues.map(
+      issue => `${issue.path.join('.') || type}: ${issue.message}`
+    );
+  }
   if (form.animated || form.diagram) {
     const content = form.animated
       ? 'Animated forms keep their content in quantity parameters or steps'

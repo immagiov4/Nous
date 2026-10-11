@@ -1,9 +1,4 @@
-import {
-  buildLessonSceneDiagramSource,
-  type LessonSceneDiagram,
-  type LessonSceneDiagramNode,
-  type SceneContentData,
-} from '@shared/lessonScene';
+import { buildLessonSceneDiagramSource, type SceneContentData } from '@shared/lessonScene';
 import { useEffect, useRef, useState } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -171,9 +166,8 @@ export const SceneDiagram = ({
     };
   }, [isDarkMode, scene]);
 
-  const diagram = scene.diagram as LessonSceneDiagram;
-  const labelOf = (id: string) =>
-    (diagram.nodes.find(node => node.id === id) as LessonSceneDiagramNode).label;
+  const diagram = scene.diagram;
+  const labelOf = (id: string) => diagram?.nodes.find(node => node.id === id)?.label ?? id;
   return (
     <>
       <section
@@ -195,7 +189,7 @@ export const SceneDiagram = ({
       <details className="diagram-description">
         <summary>{t('Leggi i collegamenti')}</summary>
         <ol>
-          {diagram.edges.map((edge, index) => (
+          {diagram?.edges.map((edge, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: repeated messages are valid; the list is static
             <li key={`${index}-${edge.from}-${edge.to}-${edge.label}`}>
               {`${labelOf(edge.from)} → ${labelOf(edge.to)}`}
