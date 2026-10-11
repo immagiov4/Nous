@@ -115,6 +115,18 @@ cases. Run the architecture stop below before making more fixes.
 No plausible supported path or material risk reaches the report. Reject it with evidence. Check
 whether the reviewer noticed a nearby real problem, but do not invent one to justify a change.
 
+### Separable finding
+
+The problem is real, but the change under review did not introduce it: it already existed, or the
+change only makes it more visible or more likely. It can be fixed independently, and leaving it
+open does not break the change's own contract. A defect the change introduced, or one that breaks
+its own contract, is never separable.
+
+Collect every separable finding of the review into one separate issue, using the issue-governance
+skill, instead of fixing them in the change. Reply on each thread with the issue link and resolve
+it. The maintainer approves this split by default, so it needs no further decision and does not
+hold the change. This matters most when a reviewer keeps reporting many such cases on each push.
+
 ## Run the scope checkpoint
 
 After classifying the current batch, compare the proposed work with the validated contract. Treat
@@ -151,7 +163,8 @@ Offer the choices that the evidence supports:
 - reject the review request when it has no supported path or material risk.
 
 Ask the maintainer to choose. Do not select a redesign, split work, create an issue, or change a
-product or migration rule by inference. Approval must update the PR contract before an agent
+product or migration rule by inference. Separable findings are the exception: they go to a separate
+issue as described above. Approval must update the PR contract before an agent
 implements the chosen redesign.
 
 If the repository uses pause labels, propose `needs-human-decision` for an unsettled contract and
@@ -168,6 +181,7 @@ Record one disposition for every finding:
 - fixed at the owning boundary, with meaningful regression evidence;
 - rejected, with the unreachable path or immaterial impact demonstrated;
 - paused for a named human decision;
+- deferred to the separate issue as a separable finding;
 - split out after explicit approval, with the current PR's remaining contract stated.
 
 When repository rules require review-thread reactions, replies, or resolution, perform them only

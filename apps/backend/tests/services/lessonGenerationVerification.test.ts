@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { reviewLessonContentDraftStrict } from '../../src/services/lessonGenerationModel.js';
@@ -10,6 +11,7 @@ import { automationCourse, flawedAutomationLesson } from '../fixtures/lessonRevi
 
 const { generateStructuredOutput } = vi.hoisted(() => ({ generateStructuredOutput: vi.fn() }));
 vi.mock('../../src/services/structuredGeneration.js', () => ({ generateStructuredOutput }));
+vi.mock('node:child_process', { spy: true });
 
 const generationInput: LessonGenerationInput = {
   config: { ...getGlobalModelConfig(), aiProvider: 'codex', aiProviderOverrides: {} },
@@ -100,6 +102,49 @@ const review = () => reviewLessonContentDraftStrict({ draft: original, generatio
 
 beforeEach(() => {
   generateStructuredOutput.mockReset();
+  vi.mocked(execFile).mockClear();
+});
+
+test.each([
+  false,
+  true,
+])('classifies fences across draft blocks in one process (diagram: %s)', async hasDiagram => {
+  const reviewed: LessonContentDraft = {
+    ...original,
+    contentBlocks: [
+      { type: 'markdown', markdown: '```\ngraph = buildGraph()\n```\n\n```\npacket = {}\n```' },
+      {
+        type: 'markdown',
+        markdown: hasDiagram
+          ? '```\nsequenceDiagram\nA->>B: Message\n```'
+          : '```\nsequenceDiagram();\n```',
+      },
+    ],
+  };
+  mockReview(reviewed, preserved);
+  const result = reviewLessonContentDraftStrict({ draft: reviewed, generationInput });
+  if (hasDiagram) {
+    await expect(result).rejects.toMatchObject({ code: 'lesson_embedded_mermaid_unsupported' });
+  } else {
+    await expect(result).resolves.toEqual(reviewed);
+  }
+  expect(execFile).toHaveBeenCalledOnce();
+});
+
+test.each([
+  'Plain lesson text.',
+  '```ts\ngraph = buildGraph()\n```',
+  '```\n```',
+])('starts no parser process without untagged fence bodies: %s', async markdown => {
+  const reviewed: LessonContentDraft = {
+    ...original,
+    contentBlocks: [{ type: 'markdown', markdown }],
+  };
+  mockReview(reviewed, preserved);
+  await expect(
+    reviewLessonContentDraftStrict({ draft: reviewed, generationInput })
+  ).resolves.toEqual(reviewed);
+  expect(execFile).not.toHaveBeenCalled();
 });
 
 test('writer and reviewer preserve useful qualifications without defensive padding', async () => {
@@ -143,17 +188,67 @@ test.each([
   expect(generateStructuredOutput).toHaveBeenCalledOnce();
 });
 
-test('rejects Mermaid fences introduced by model review', async () => {
+test.each([
+  '```mermaid\ngraph TD\nA-->B\n```',
+  '```\n\nsequenceDiagram\nparticipant A\nparticipant B\nA->>B: Message\n```',
+  '> ~~~\n> \n> sequenceDiagram\n> participant A\n> A->>A: Message\n> ~~~',
+  '```\n%% a diagram comment\nsequenceDiagram\nA->>B: Message\n```',
+  '```\n%%{init: {"theme": "default"}}%%\nsequenceDiagram\nA->>B: Message\n```',
+  '```\n%%{init: {\n"theme": "default"\n}}%%\nsequenceDiagram\nA->>B: Message\n```',
+  '```\ngitGraph\ncommit\n```',
+  '```\nrequirementDiagram\nrequirement userReq {\nid: 1\ntext: user requirement\nrisk: low\nverifymethod: test\n}\n```',
+  '```\nxychart-beta\nx-axis [a, b]\nbar [1, 2]\n```',
+  '```\nquadrantChart\nA: [0.5, 0.5]\n```',
+  '```\nsankey-beta\nA,B,1\n```',
+  '```\nC4Context\nPerson(user, "User")\n```',
+  '> ```ts\n> const answer = 42;\n\n```mermaid\ngraph TD\nA-->B\n```',
+  '> ```ts\n> const answer = 42;\n\n```\nsequenceDiagram\nA->>B: Message\n```',
+  '   ```\n   sequenceDiagram\n   A->>B: Message\n   ```',
+  '- ```\n  sequenceDiagram\n  A->>B: Message\n  ```',
+  '```\r\nsequenceDiagram\r\nA->>B: Message\r\n```',
+])('rejects Mermaid fences introduced by model review: %s', async fence => {
   const reviewed = structuredClone(original);
   const markdown = reviewed.contentBlocks[0];
   if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
-  markdown.markdown += '\n\n```mermaid\ngraph TD\nA-->B\n```';
+  markdown.markdown += `\n\n${fence}`;
   mockReview(reviewed, preserved);
 
   await expect(review()).rejects.toMatchObject({
     code: 'lesson_embedded_mermaid_unsupported',
   });
   expect(generateStructuredOutput).toHaveBeenCalledOnce();
+});
+
+test.each([
+  '```\n\nconst answer = 42;\n```',
+  '```ts\nconst answer = 42;\n```',
+  '```ts\nsequenceDiagram();\n```',
+  '```\ngraph = buildGraph()\n```',
+  '```\ngraph = {}\n```',
+  '```\nsequenceDiagram();\n```',
+  '```\nclassDiagram = {}\n```',
+  '```\nflowchart();\n```',
+  '```\npacket = {}\n```',
+  '```\narchitecture = {}\n```',
+  '```\ngitGraph = {}\n```',
+  '```\npie = {}\n```',
+  '    ```\n    sequenceDiagram\n    A->>B: Message\n    ```',
+  '    ```mermaid\n    sequenceDiagram\n    A->>B: Message\n    ```',
+  '>     ```\n>     sequenceDiagram\n>     A->>B: Message\n>     ```',
+  '````md\n```mermaid\nsequenceDiagram\nA->>B: Message\n```\n````',
+  '```ts\n    ```\nsequenceDiagram();\n```',
+  '```\nconst answer = 42;\nsequenceDiagram();\n```',
+  '```\nconst answer = 42;\n```\nsequenceDiagram\n',
+])('preserves ordinary code fences: %s', async fence => {
+  const reviewed = structuredClone(original);
+  const markdown = reviewed.contentBlocks[0];
+  if (markdown.type !== 'markdown') throw new Error('Expected markdown fixture.');
+  markdown.markdown += `\n\n${fence}`;
+  mockReview(reviewed, preserved);
+
+  await expect(
+    reviewLessonContentDraftStrict({ draft: reviewed, generationInput })
+  ).resolves.toEqual(reviewed);
 });
 
 describe('lesson review quality report contract', () => {

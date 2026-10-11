@@ -233,7 +233,7 @@ describe('AccountMenu', () => {
 
     expect(onExportLibraryBackup).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Esportazione 1 di 2...' })).toBeDisabled();
-    expect(screen.getByText('321 byte elaborati dal server.')).not.toBeNull();
+    expect(screen.queryByText(/byte elaborati dal server/)).toBeNull();
     finishExport();
     await waitFor(() =>
       expect(screen.getByRole('status').textContent).toContain(

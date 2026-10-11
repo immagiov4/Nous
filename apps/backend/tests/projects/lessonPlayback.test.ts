@@ -35,6 +35,18 @@ describe('playback persistence and assets', () => {
     });
   });
   test.each([
+    null,
+    'without the section',
+  ])('ordinary writes drop client playback on a new project or section (%s)', previousCase => {
+    const section = playbackSection();
+    section.playback = preparedPlayback(section);
+    const created = playbackProject(section);
+    const previous =
+      previousCase === null ? null : playbackProject({ ...playbackSection(), id: 'other' });
+    reconcileLessonPlayback(created, previous);
+    expect(created.learningPlan?.sections?.[0]).not.toHaveProperty('playback');
+  });
+  test.each([
     { contentBlocks: [{ type: 'markdown', markdown: 'Nuova lezione.' }] },
     { lastGenerationRunId: 'generation-2' },
   ])('content replacement invalidates playback and queues its audio: %j', async replacement => {
