@@ -146,7 +146,7 @@ export type LessonSceneDiagram = Readonly<
   NonNullable<z.infer<typeof SceneDataSchema.shape.diagram>>
 >;
 
-export type LessonSceneDiagramNode = LessonSceneDiagram['nodes'][number];
+type LessonSceneDiagramNode = LessonSceneDiagram['nodes'][number];
 
 type LessonSceneDiagramEdge = LessonSceneDiagram['edges'][number];
 
