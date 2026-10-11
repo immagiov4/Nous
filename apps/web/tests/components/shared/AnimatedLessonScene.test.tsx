@@ -47,19 +47,20 @@ test('reader quantities advance gradually, pause offscreen and resume without lo
   };
   const { container, unmount } = render(<LessonSceneVisual scene={scene} />);
   expect(container.querySelectorAll('button,input,select')).toHaveLength(0);
-  expect(container.querySelector('output')?.textContent).toBe('256');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   act(() => intersect([{ isIntersecting: true }]));
   act(() => tick(0));
   act(() => tick(4800));
-  expect(container.querySelector('output')?.textContent).toBe('512');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
   expect(container.querySelectorAll('.replica.present')).toHaveLength(4);
   act(() => intersect([{ isIntersecting: false }]));
   expect(cancelAnimationFrame).toHaveBeenCalled();
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
   act(() => intersect([{ isIntersecting: true }]));
   act(() => tick(20000));
-  expect(container.querySelector('output')?.textContent).toBe('512');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
   act(() => tick(24800));
-  expect(container.querySelector('output')?.textContent).toBe('768');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('768');
   unmount();
   expect(disconnect).toHaveBeenCalledOnce();
 });
@@ -90,7 +91,7 @@ test('returning to a visible tab resumes at the saved time without an intersecti
   act(() => intersect([{ isIntersecting: true }]));
   act(() => tick(0));
   act(() => tick(2400));
-  expect(container.querySelector('output')?.textContent).toBe('384');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('384');
   Object.defineProperty(document, 'hidden', { configurable: true, value: true });
   act(() => document.dispatchEvent(new Event('visibilitychange')));
   vi.mocked(requestAnimationFrame).mockClear();
@@ -98,9 +99,9 @@ test('returning to a visible tab resumes at the saved time without an intersecti
   act(() => document.dispatchEvent(new Event('visibilitychange')));
   expect(requestAnimationFrame).toHaveBeenCalledOnce();
   act(() => tick(20000));
-  expect(container.querySelector('output')?.textContent).toBe('384');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('384');
   act(() => tick(22400));
-  expect(container.querySelector('output')?.textContent).toBe('512');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
 });
 
 test.each([
@@ -138,7 +139,7 @@ test.each([
   const { container } = render(
     <LessonSceneVisual scene={{ ...proportionalScene, amountPerUnit: 12345.5 }} />
   );
-  expect(container.querySelector('output')?.textContent).toBe(total);
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(total);
   expect(container.querySelector('.formula')?.textContent).toBe(formula);
   const input = container.querySelector('[data-quantity-input]');
   expect(input?.closest('[aria-hidden=true]')).toBeNull();
@@ -154,7 +155,7 @@ test('reader respects reduced motion and document visibility', () => {
   const { container, unmount } = render(<LessonSceneVisual scene={proportionalScene} />);
   act(() => intersect([{ isIntersecting: true }]));
   expect(requestAnimationFrame).not.toHaveBeenCalled();
-  expect(container.querySelector('output')?.textContent).toBe('256');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   unmount();
   vi.mocked(matchMedia).mockReturnValue({ matches: false } as MediaQueryList);
   render(<LessonSceneVisual scene={proportionalScene} />);
@@ -212,4 +213,53 @@ test.each([2, 4, 5, 8])('keeps %i steps in authored order and connects the retur
   );
   expect(container.querySelectorAll('[data-row-turn]')).toHaveLength(count > 4 ? 1 : 0);
   expect(container.querySelectorAll('[data-return-row]')).toHaveLength(Math.max(0, count - 4));
+});
+
+test('enabling reduced motion cancels an active proportional animation', () => {
+  let changePreference: (event: { matches: boolean }) => void = () => {};
+  vi.mocked(matchMedia).mockReturnValue({
+    matches: false,
+    addEventListener: (_: string, callback: typeof changePreference) => {
+      changePreference = callback;
+    },
+    removeEventListener: vi.fn(),
+  } as unknown as MediaQueryList);
+  const { container } = render(<LessonSceneVisual scene={proportionalScene} />);
+  act(() => intersect([{ isIntersecting: true }]));
+  act(() => tick(0));
+  act(() => tick(4800));
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
+  vi.mocked(cancelAnimationFrame).mockClear();
+  vi.mocked(requestAnimationFrame).mockClear();
+  act(() => changePreference({ matches: true }));
+  expect(cancelAnimationFrame).toHaveBeenCalled();
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
+  act(() => intersect([{ isIntersecting: true }]));
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
+});
+
+test.each([
+  [0.0001, '0.0001', '0.0002', '0.0004'],
+  [1.23456789, '1.23456789', '2.46913578', '4.93827156'],
+  [
+    1e-25,
+    '0.0000000000000000000000001',
+    '0.0000000000000000000000002',
+    '0.0000000000000000000000004',
+  ],
+] as const)('preserves significant proportional digits for %s', (amountPerUnit, unit, initial, next) => {
+  setRenderingLocaleOverride('en');
+  const { container, getByRole } = render(
+    <LessonSceneVisual scene={{ ...proportionalScene, amountPerUnit }} />
+  );
+  expect(container.querySelector('.replica strong')?.textContent).toBe(`${unit} MB`);
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(initial);
+  expect(container.querySelector('.formula')?.textContent).toBe(`2 × ${unit} MB`);
+  expect(getByRole('status').textContent).toContain(initial);
+  expect(container.querySelectorAll('output')).toHaveLength(1);
+  act(() => intersect([{ isIntersecting: true }]));
+  act(() => tick(0));
+  act(() => tick(4800));
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(next);
 });

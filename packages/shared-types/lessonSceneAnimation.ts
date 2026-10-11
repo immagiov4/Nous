@@ -7,7 +7,7 @@ export const interactiveSelectionRules = `Gradual playback is the default.
 To synchronize with words, associate every element with an exact, unique, ordered narration anchor; elements may share an anchor as a group.
 For guided-path annotate every step. For proportional provide increasing cumulative cue values covering all elements through max (for example 2, 4, 6 groups the elements in pairs).
 If any element is unassigned, the entire scene uses gradual playback. Never mix partial word synchronization with automatic movement.
-Set durationMs to the available presentation interval. Only the lesson playback controls affect the clock. Visual elements have no local play, seek, or manual controls; never expose this decision as a viewer setting.`;
+Only an owning playback clock supplies durationMs from its actual presentation interval; omit it from generated scene data. Only the lesson playback controls affect the clock. Visual elements have no local play, seek, or manual controls; never expose this decision as a viewer setting.`;
 
 export function playbackMode(scene: AnimatedLessonScene): 'text' | 'automatic' {
   if (scene.type === 'guided-path') {
@@ -61,7 +61,7 @@ export function cueTimes(text: string, cues: readonly { readonly anchor?: string
     const offset = text.indexOf(cue.anchor);
     if (
       offset < 0 ||
-      text.indexOf(cue.anchor, offset + 1) !== -1 ||
+      text.includes(cue.anchor, offset + 1) ||
       offset < previous ||
       (offset === previous && cue.anchor !== previousAnchor)
     ) {

@@ -1623,7 +1623,7 @@
   padding: 24px;
   text-align: center;
 }
-.lesson-scene.lesson-scene-animated .interaction-card .quantity-result > span {
+.lesson-scene.lesson-scene-animated .interaction-card .quantity-result > span:not(.formula) {
   font-size: 14px;
   color: var(--muted);
 }
@@ -1639,6 +1639,8 @@
   letter-spacing: 0;
 }
 .lesson-scene.lesson-scene-animated .interaction-card .formula {
+  display: block;
+  margin: 1em 0;
   font-size: 16px;
   color: var(--muted);
 }

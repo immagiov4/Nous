@@ -91,16 +91,16 @@ function mount(scene: LessonScene | LessonScene[], speech: string, duration = 9.
 test('lesson clock owns automatic play, pause, speed and backward seek', () => {
   const { container, advance } = mount(proportionalScene, 'Uno due tre quattro.');
   advance(0);
-  expect(container.querySelector('output')?.textContent).toBe('256');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   advance(4.8);
-  expect(container.querySelector('output')?.textContent).toBe('512');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
   flush();
   flush();
-  expect(container.querySelector('output')?.textContent).toBe('512');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
   advance(9.6, 2);
-  expect(container.querySelector('output')?.textContent).toBe('768');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('768');
   advance(1);
-  expect(container.querySelector('output')?.textContent).toBe('256');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   expect(container.querySelectorAll('button,input,select')).toHaveLength(0);
 });
 
@@ -268,13 +268,13 @@ test('unanchored scenes retain their sequential slot and restart relative to tha
     speech,
     8
   );
-  expect(container.querySelector('output')).toBeNull();
+  expect(container.querySelector('[data-quantity-value]')).toBeNull();
   advance(4);
-  expect(container.querySelector('output')?.textContent).toBe('256');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   advance(6);
-  expect(container.querySelector('output')?.textContent).toBe('512');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('512');
   advance(8);
-  expect(container.querySelector('output')?.textContent).toBe('768');
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('768');
   advance(0);
-  expect(container.querySelector('output')).toBeNull();
+  expect(container.querySelector('[data-quantity-value]')).toBeNull();
 });

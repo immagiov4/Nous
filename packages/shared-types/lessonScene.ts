@@ -612,6 +612,102 @@ const findShapeProblems = (scene: Record<string, unknown>, type: LessonSceneType
   return [];
 };
 
+const findProportionalSceneProblems = (
+  scene: Record<string, unknown>,
+  source: string | undefined
+): string[] => {
+  const problems: string[] = [];
+  const { min, max, initial, amountPerUnit } = scene;
+  if (source !== undefined) {
+    const sourceNumbers = readSourceNumbers(source);
+    if (
+      [min, max, initial, amountPerUnit].some(
+        value => typeof value === 'number' && !sourceNumbers.has(value)
+      )
+    ) {
+      problems.push('Quantity values must appear in the lesson.');
+    }
+  }
+  if (
+    ![min, max, initial].every(Number.isInteger) ||
+    (min as number) < 1 ||
+    (max as number) < (min as number) ||
+    (initial as number) < (min as number) ||
+    (initial as number) > (max as number)
+  )
+    problems.push('Invalid quantity bounds.');
+  if (typeof amountPerUnit !== 'number' || !Number.isFinite(amountPerUnit) || amountPerUnit <= 0) {
+    problems.push('Invalid unit amount.');
+  }
+  if (
+    ['inputLabel', 'unitLabel', 'outputUnit', 'outputLabel', 'assumption'].some(
+      key => typeof scene[key] !== 'string' || !(scene[key] as string).trim()
+    )
+  )
+    problems.push('Missing quantity label.');
+  if (
+    scene.cues !== undefined &&
+    (!Array.isArray(scene.cues) ||
+      scene.cues.some(
+        cue =>
+          !isRecord(cue) ||
+          !Number.isInteger(cue.value) ||
+          (cue.value as number) < (initial as number) ||
+          (cue.value as number) > (max as number) ||
+          (cue.anchor !== undefined && typeof cue.anchor !== 'string')
+      ))
+  )
+    problems.push('Invalid quantity cues.');
+  return problems;
+};
+
+const findGuidedPathProblems = (scene: Record<string, unknown>): string[] => {
+  if (
+    !Array.isArray(scene.steps) ||
+    scene.steps.length < GUIDED_PATH_MIN_STEPS ||
+    scene.steps.length > GUIDED_PATH_MAX_STEPS ||
+    scene.steps.some(
+      step =>
+        !isRecord(step) ||
+        typeof step.label !== 'string' ||
+        !step.label.trim() ||
+        typeof step.detail !== 'string' ||
+        !step.detail.trim() ||
+        (step.anchor !== undefined && typeof step.anchor !== 'string')
+    )
+  )
+    return ['Invalid path.'];
+  return [];
+};
+
+const findAnimationNarrationProblems = (
+  animated: AnimatedLessonScene,
+  source: string | undefined
+): string[] => {
+  const problems: string[] = [];
+  if (
+    source !== undefined &&
+    animated.narration !== undefined &&
+    !includesEvidence(source, animated.narration)
+  ) {
+    return ['Narration must be an exact quotation from the lesson.'];
+  }
+  if (playbackMode(animated) !== 'text') return problems;
+  // Generation and source-less persistence must agree on every stored anchor.
+  const narrations = new Set([source, animated.narration]);
+  for (const narration of narrations) {
+    if (narration === undefined) continue;
+    try {
+      cueTimes(narration, animated.type === 'guided-path' ? animated.steps : (animated.cues ?? []));
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      problems.push(error.message);
+      break;
+    }
+  }
+  return problems;
+};
+
 const findAnimatedSceneProblems = (
   scene: Record<string, unknown>,
   source: string | undefined
@@ -626,83 +722,16 @@ const findAnimatedSceneProblems = (
   ) {
     problems.push('Invalid duration.');
   }
-  if (scene.type === 'proportional') {
-    const { min, max, initial, amountPerUnit } = scene;
-    if (source !== undefined) {
-      const sourceNumbers = readSourceNumbers(source);
-      if (
-        [min, max, initial, amountPerUnit].some(
-          value => typeof value === 'number' && !sourceNumbers.has(value)
-        )
-      ) {
-        problems.push('Quantity values must appear in the lesson.');
-      }
-    }
-    if (
-      ![min, max, initial].every(Number.isInteger) ||
-      (min as number) < 1 ||
-      (max as number) < (min as number) ||
-      (initial as number) < (min as number) ||
-      (initial as number) > (max as number)
-    )
-      problems.push('Invalid quantity bounds.');
-    if (
-      typeof amountPerUnit !== 'number' ||
-      !Number.isFinite(amountPerUnit) ||
-      amountPerUnit <= 0
-    ) {
-      problems.push('Invalid unit amount.');
-    }
-    if (
-      ['inputLabel', 'unitLabel', 'outputUnit', 'outputLabel', 'assumption'].some(
-        key => typeof scene[key] !== 'string' || !(scene[key] as string).trim()
-      )
-    )
-      problems.push('Missing quantity label.');
-    if (
-      scene.cues !== undefined &&
-      (!Array.isArray(scene.cues) ||
-        scene.cues.some(
-          cue =>
-            !isRecord(cue) ||
-            !Number.isInteger(cue.value) ||
-            (cue.value as number) < (initial as number) ||
-            (cue.value as number) > (max as number) ||
-            (cue.anchor !== undefined && typeof cue.anchor !== 'string')
-        ))
-    )
-      problems.push('Invalid quantity cues.');
-  } else if (
-    !Array.isArray(scene.steps) ||
-    scene.steps.length < GUIDED_PATH_MIN_STEPS ||
-    scene.steps.length > GUIDED_PATH_MAX_STEPS ||
-    scene.steps.some(
-      step =>
-        !isRecord(step) ||
-        typeof step.label !== 'string' ||
-        !step.label.trim() ||
-        typeof step.detail !== 'string' ||
-        !step.detail.trim() ||
-        (step.anchor !== undefined && typeof step.anchor !== 'string')
-    )
-  )
-    problems.push('Invalid path.');
+  problems.push(
+    ...(scene.type === 'proportional'
+      ? findProportionalSceneProblems(scene, source)
+      : findGuidedPathProblems(scene))
+  );
   if (scene.narration !== undefined && typeof scene.narration !== 'string') {
     problems.push('Narration must be text.');
   }
   if (problems.length) return problems;
-  const animated = scene as unknown as AnimatedLessonScene;
-  const narration = source ?? animated.narration;
-  // Stored scenes may carry only anchors; exactness can be checked when lesson text is available.
-  if (narration !== undefined && playbackMode(animated) === 'text') {
-    try {
-      cueTimes(narration, animated.type === 'guided-path' ? animated.steps : (animated.cues ?? []));
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      problems.push(error.message);
-    }
-  }
-  return problems;
+  return findAnimationNarrationProblems(scene as unknown as AnimatedLessonScene, source);
 };
 
 /**

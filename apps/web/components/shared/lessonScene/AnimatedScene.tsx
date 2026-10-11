@@ -30,7 +30,7 @@ function quantityRenderer(
   numbers: Intl.NumberFormat
 ) {
   const units = Array.from(element.querySelectorAll<HTMLElement>('[data-unit]'));
-  const output = element.querySelector('output');
+  const output = element.querySelector('[data-quantity-value]');
   const formula = element.querySelector('.formula');
   const input = element.querySelector('[data-quantity-input]');
   const summary = element.querySelector('[data-quantity-summary]');
@@ -123,8 +123,12 @@ export function AnimatedScene({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const locale = getAppLocale();
-  const numbers = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const numbers = useMemo(
+    () => new Intl.NumberFormat(locale, { maximumSignificantDigits: 21 }),
+    [locale]
+  );
   const shouldAnimate = useShouldAnimate();
+  const standalonePlayback = useRef({ scene, elapsedMs: 0 });
   const staticPath = scene.type === 'guided-path' && !readFrame && !shouldAnimate;
   useEffect(() => {
     if (staticPath) return;
@@ -134,11 +138,14 @@ export function AnimatedScene({
       scene.type === 'proportional'
         ? quantityRenderer(element, scene, numbers)
         : pathRenderer(element, scene);
+    if (standalonePlayback.current.scene !== scene) {
+      standalonePlayback.current = { scene, elapsedMs: 0 };
+    }
+    const standaloneClock = standalonePlayback.current;
     const durationMs = automaticDuration(scene);
-    let elapsedMs = 0;
+    let elapsedMs = standaloneClock.elapsedMs;
     let frameId = 0;
     let lastTime: number | null = null;
-    let started = false;
     let intersecting = false;
     const pause = () => {
       lastTime = null;
@@ -153,6 +160,7 @@ export function AnimatedScene({
       }
       if (lastTime !== null) elapsedMs = Math.min(durationMs, elapsedMs + now - lastTime);
       lastTime = now;
+      standaloneClock.elapsedMs = elapsedMs;
       render({ elapsedMs, durationMs });
       if (elapsedMs < durationMs) frameId = requestAnimationFrame(tick);
     };
@@ -165,8 +173,7 @@ export function AnimatedScene({
     const updatePlayback = () => {
       pause();
       if (intersecting && scene.autoplay && !document.hidden && elapsedMs < durationMs) {
-        if (!started && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-        started = true;
+        if (!shouldAnimate) return;
         frameId = requestAnimationFrame(tick);
       }
     };
@@ -183,7 +190,7 @@ export function AnimatedScene({
       observer.disconnect();
       document.removeEventListener('visibilitychange', updatePlayback);
     };
-  }, [scene, readFrame, numbers, staticPath]);
+  }, [scene, readFrame, numbers, staticPath, shouldAnimate]);
 
   return (
     <div ref={host}>
@@ -217,22 +224,22 @@ export function AnimatedScene({
                 </div>
               )}
             </div>
-            {/* biome-ignore lint/a11y/useSemanticElements: the prototype status groups the result, its unit and the calculation */}
-            <div className="quantity-result" role="status">
+            <output className="quantity-result">
               <span className="sr-only" data-quantity-input />
               <span>{scene.outputLabel}</span>
               <strong>
-                <output /> <small>{scene.outputUnit}</small>
+                <span data-quantity-value /> <small>{scene.outputUnit}</small>
               </strong>
-              <p className="formula" />
-            </div>
+              <span className="formula" />
+            </output>
           </div>
           <aside className="scene-note" aria-label={t('Nota')}>
             <SceneIcon name="info-circle" />
             <p>{scene.assumption}</p>
           </aside>
         </>
-      ) : staticPath ? (
+      ) : null}
+      {scene.type === 'guided-path' && staticPath ? (
         <ol className="path-details">
           {scene.steps.map((step, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: authored step order is fixed
@@ -242,7 +249,8 @@ export function AnimatedScene({
             </li>
           ))}
         </ol>
-      ) : (
+      ) : null}
+      {scene.type === 'guided-path' && !staticPath ? (
         <>
           <ol
             className="guided-stops"
@@ -280,7 +288,7 @@ export function AnimatedScene({
             <p />
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
-import { STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
+import { isLessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
@@ -18,7 +18,12 @@ import * as z from 'zod';
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
-import { guidedPathScene, proportionalScene } from '../../helpers/animatedLessonScenes';
+import {
+  guidedPathScene,
+  proportionalScene as prototypeProportionalScene,
+} from '../../helpers/animatedLessonScenes';
+
+const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
 
@@ -336,4 +341,32 @@ test('reports an unparsable answer as a contract problem', async () => {
     kind: 'invalid',
     problems: ['The answer must follow the requested JSON structure.'],
   });
+});
+
+test.each([
+  proportionalScene,
+  guidedPathScene,
+])('rejects model-authored durations for $type', async scene => {
+  const speech = scene.narration ?? '1 2 6 128';
+  const draft = { ...quoteDraft(''), ...scene, evidence: speech, durationMs: 3600000 };
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.calls[0][0].output.schema);
+  expect(schema.safeParse(draft).success).toBe(false);
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+});
+
+test('generation requires supplied narration to preserve source grounding and all stored anchors', async () => {
+  const speech = guidedPathScene.narration as string;
+  const draft = { ...quoteDraft(''), ...guidedPathScene, evidence: speech };
+  for (const narration of [speech.split('.')[0], speech.replace('l’API', 'il controllo')]) {
+    generateStructuredOutputMock.mockResolvedValue({ ...draft, narration });
+    expect(await generateLessonScene(unplannedInput(speech))).toMatchObject({ kind: 'invalid' });
+  }
+  expect(chooseIconsMock).not.toHaveBeenCalled();
+  generateStructuredOutputMock.mockResolvedValue(draft);
+  const result = await generateLessonScene(unplannedInput(speech));
+  expect(result.kind).toBe('scene');
+  if (result.kind !== 'scene') throw new Error('Expected a generated scene');
+  expect(isLessonScene(result.scene)).toBe(true);
 });

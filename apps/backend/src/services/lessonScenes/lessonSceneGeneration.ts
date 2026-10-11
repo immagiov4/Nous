@@ -66,6 +66,10 @@ const SceneDiagramSchema = z.strictObject({
 });
 
 // Key order is the generation order: the model states its intent and evidence before the form.
+const SceneDraftAnimationShape = z
+  .object(LessonSceneAnimationShape)
+  .omit({ durationMs: true }).shape;
+
 const SceneDraftSchema = z.strictObject({
   intent: z.string(),
   evidence: z.string(),
@@ -100,7 +104,7 @@ const SceneDraftSchema = z.strictObject({
     })
     .nullable(),
   diagram: SceneDiagramSchema.nullable(),
-  ...LessonSceneAnimationShape,
+  ...SceneDraftAnimationShape,
   cues: z.array(LessonSceneAnimationShape.cues.unwrap().element.strict()).optional(),
   steps: z
     .array(LessonSceneAnimationShape.steps.unwrap().element.strict())
@@ -130,8 +134,8 @@ FIELDS
 - criteria: row labels for matrix, otherwise [].
 - relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. Never write SVG, coordinates, CSS, or Mermaid code.
-- proportional: items and groups []; supply autoplay, optional durationMs, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
-- guided-path: items and groups []; supply autoplay, optional durationMs, and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
+- proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
+- guided-path: items and groups []; supply autoplay and steps: ${GUIDED_PATH_MIN_STEPS} to ${GUIDED_PATH_MAX_STEPS} {label, detail, optional anchor} entries following the explicit path in the lesson. Every label and detail is non-empty.
 - Animated forms reuse title and body as the prototype's title and description. Set autoplay true for gradual reader playback. Narration, when supplied, quotes the lesson; anchors are exact quotations of the lesson text. Supply data only, never formulas, scripts, CSS, coordinates, or animation code.
 
 ANIMATED SCENE SELECTION
@@ -186,7 +190,7 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 
 const toScene = (draft: SceneDraft): LessonScene => ({
   ...Object.fromEntries(
-    Object.keys(LessonSceneAnimationShape)
+    Object.keys(SceneDraftAnimationShape)
       .filter(key => draft[key as keyof SceneDraft] !== undefined)
       .map(key => [key, draft[key as keyof SceneDraft]])
   ),

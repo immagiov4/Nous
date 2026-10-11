@@ -97,7 +97,7 @@ function PlaybackScene({
     let times: number[] | undefined;
     return () => {
       const current = clock.current;
-      if (!current || !current.bodyDuration) return undefined;
+      if (!current?.bodyDuration) return undefined;
       if (anchors && !current.width) return undefined;
       if (current !== previousClock) {
         times = anchors
@@ -257,12 +257,8 @@ function PlaybackVisualContent({
     visual.kind === 'generated-visual'
       ? content.activeSectionGeneratedVisualsById?.[visual.visualId]
       : undefined;
-  const scene =
-    visual.kind === 'scene'
-      ? visual.scene
-      : stored
-        ? getStoredLessonVisualScene(stored)
-        : undefined;
+  const storedScene = stored ? getStoredLessonVisualScene(stored) : undefined;
+  const scene = visual.kind === 'scene' ? visual.scene : storedScene;
   const anchors = useMemo(
     () => (schedule ? sceneCaptionAnchors(scene, props.block.speech) : undefined),
     [scene, props.block.speech, schedule]
