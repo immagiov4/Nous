@@ -40,7 +40,7 @@ Sources: [README.md:15-22](../../../README.md#L15-L22), [AGENTS.md:144-155](../.
 ### Runtime Verification
 The environment health check treats `package.json#packageManager` as the Bun version source. GitHub Actions reads that field through `oven-sh/setup-bun`. Coverage checks the separate Node version in `.node-version` before Vitest starts.
 *  **Bun Version:** The system expects the exact Bun version in `packageManager` and the same `@types/bun` version. Local mismatches, stale Bun types, or an explicit CI override trigger a `FAIL` status.
-*  **Node Version:** Node-based development tools and coverage use Node 26.4.0, pinned in `.node-version`.
+*  **Node Version:** Node-based development tools and coverage use Node 26 (any 26.x release); `.node-version` pins only the major.
 *  **Workspace Binaries:** Local profiles require tools such as `biome`, `eslint`, `vitest`, and `supabase`. Dependency-cruiser runs only in CI.
 
 Sources: [scripts/doctor.ts:106-137](../../../scripts/doctor.ts#L106-L137), [scripts/doctor.ts:268-293](../../../scripts/doctor.ts#L268-L293), [scripts/doctor.ts:15-23](../../../scripts/doctor.ts#L15-L23), [.node-version](../../../.node-version), [scripts/prepare-node-coverage.mjs](../../../scripts/prepare-node-coverage.mjs)
