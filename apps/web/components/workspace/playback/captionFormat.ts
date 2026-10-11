@@ -151,7 +151,7 @@ export function captionFormat(original: string, ranges?: readonly { source: Play
   };
   // Non-whitespace starts the content, or one trailing space is the entire content.
   // This keeps whitespace-only headings without overlapping unbounded repetitions.
-  const headingPattern = /^#{1,6}\s+(\S.*|[^\S\r\n\u2028\u2029])$/gm;
+  const headingPattern = /^#{1,6}\s+(\S.*|(?=.)\s)$/gm;
   const headings = Array.from(original.matchAll(headingPattern), match =>
     visibleText(match.index + match[0].length - match[1].length, match.index + match[0].length)
   );

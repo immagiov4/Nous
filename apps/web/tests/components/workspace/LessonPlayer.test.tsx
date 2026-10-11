@@ -165,6 +165,7 @@ beforeEach(() => {
     pause: vi.fn(),
     seek: vi.fn(),
     readTime: vi.fn(() => playback.time),
+    readPosition: vi.fn(() => ({ time: playback.readTime(), duration: playback.duration })),
   };
   vi.mocked(useLessonPlayback).mockImplementation(() => playback);
   save.mockResolvedValue({ saved: true, merged: false, annotationId: 'annotation' });
@@ -634,13 +635,119 @@ test.each([
 });
 
 test('a note during preparation uses the target position instead of the previous audio', async () => {
-  playback = { ...playback, loading: true, playing: false, time: 0, readTime: vi.fn(() => 10) };
+  playback = {
+    ...playback,
+    loading: true,
+    playing: false,
+    time: 0,
+    readTime: vi.fn(() => 10),
+    readPosition: vi.fn(() => ({ time: 0, duration: 12 })),
+  };
   render(<LessonPlayer {...props} autoPlay={false} />);
   fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Da ricordare' } });
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Salva nota' })));
   expect(save.mock.calls[0][1].selectedText).toBe('La prima frase.');
   expect(playback.readTime).not.toHaveBeenCalled();
+});
+
+test.each([
+  false,
+  true,
+])('manual dictation pauses before microphone access on mobile=%s', async mobile => {
+  render(
+    <LessonPlayer {...props} autoPlay={false} content={{ ...content, isMobileViewport: mobile }} />
+  );
+  getUserMedia.mockImplementationOnce(async () => {
+    expect(playback.pause).toHaveBeenCalledOnce();
+    return { getTracks: () => [{ stop: stopTrack }] };
+  });
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Avvia dettatura' })));
+  expect(Recorder.instances[0].state).toBe('recording');
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Ferma e trascrivi' })));
+  expect(screen.getByRole('textbox')).toHaveValue('Perché funziona?');
+  expect(playback.pause).toHaveBeenCalledOnce();
+});
+
+test.each([
+  'note',
+  'typed question',
+  'spoken question',
+])('%s anchors a nonzero preparation target', async action => {
+  playback = {
+    ...playback,
+    loading: true,
+    duration: 0,
+    readTime: vi.fn(() => 0),
+    readPosition: vi.fn(() => ({ time: 0.8, duration: 1 })),
+  };
+  render(<LessonPlayer {...props} autoPlay={false} />);
+  if (action === 'spoken question') await recordQuestion();
+  else {
+    if (action === 'note') fireEvent.click(screen.getByRole('button', { name: 'Nota' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Da ricordare' } });
+    await act(async () =>
+      fireEvent.click(
+        screen.getByRole('button', { name: action === 'note' ? 'Salva nota' : 'Invia domanda' })
+      )
+    );
+  }
+  const selection =
+    action === 'note' ? save.mock.calls[0][1] : answerPanelProps.mock.lastCall?.[0].contextAnswer;
+  expect(selection).toMatchObject({ selectedText: 'La seconda frase.', selectedTextStart: 16 });
+});
+
+test.each([
+  'typed',
+  'spoken',
+])('a %s question without playback blocks uses lesson context', async mode => {
+  playback = { ...playback, blocks: [], playing: false };
+  render(
+    <LessonPlayer
+      {...props}
+      content={{
+        ...content,
+        sectionContent: '# Tema',
+        sectionContentBlocks: [{ type: 'markdown', markdown: '# Tema' }],
+      }}
+    />
+  );
+  if (mode === 'spoken') await recordQuestion();
+  else {
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Perché?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Invia domanda' }));
+  }
+  expect(answerPanelProps.mock.lastCall?.[0].contextAnswer).toMatchObject({
+    contextScope: 'lesson',
+    selectedText: '# Tema',
+    lessonContent: '# Tema',
+  });
+});
+
+test.each([
+  false,
+  true,
+])('a lesson without text keeps the composer unavailable on mobile=%s', mobile => {
+  playback = { ...playback, blocks: [], playing: false };
+  render(
+    <LessonPlayer
+      {...props}
+      content={{
+        ...content,
+        sectionContent: '',
+        sectionContentBlocks: [{ type: 'generated-visual', slotId: 'slot', visualId: 'figure' }],
+        isMobileViewport: mobile,
+      }}
+    />
+  );
+  expect(screen.getByRole('textbox')).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Avvia dettatura' })).toBeDisabled();
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Perché?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Invia domanda' }));
+  fireEvent.keyDown(screen.getByRole('dialog'), space);
+  fireEvent.keyUp(window, space);
+  expect(getUserMedia).not.toHaveBeenCalled();
+  expect(answerPanelProps).not.toHaveBeenCalled();
 });
 
 test('a pending note decision blocks Space capture', async () => {

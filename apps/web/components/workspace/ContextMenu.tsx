@@ -54,6 +54,7 @@ interface ContextMenuProps {
   readonly playbackComposer?: {
     isMobileViewport?: boolean;
     speech?: SpeechInputController;
+    onStartRecording?: () => void;
     listening?: boolean;
     value: string;
     noteMode: boolean;
@@ -1174,6 +1175,7 @@ const ContextMenu = ({
             <div className={isLessonMode ? 'mr-1.5' : ''}>
               <SpeechInputButton
                 controller={playbackComposer?.speech}
+                onStartRecording={playbackComposer?.onStartRecording}
                 disabled={isLoading}
                 errorPresentation={isMobileSheet ? 'viewport' : 'inline'}
                 onTranscription={handleSpeechTranscription}
@@ -1472,6 +1474,7 @@ const ContextMenu = ({
         opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] as const },
         scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] as const },
       };
+  const mobileSheetPosition = playbackComposer ? '' : 'left-1/2';
 
   return (
     <>
@@ -1480,7 +1483,7 @@ const ContextMenu = ({
         onAnimationComplete={() => setHasEntered(true)}
         className={`${playbackComposer ? 'relative w-full' : 'fixed'} z-50 ${
           isMobileSheet
-            ? `${playbackComposer ? '' : 'left-1/2'} overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700`
+            ? `${mobileSheetPosition} overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700`
             : ''
         }`}
         style={{

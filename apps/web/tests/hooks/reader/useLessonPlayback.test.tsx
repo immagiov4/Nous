@@ -543,6 +543,30 @@ test('keeps the same relative position when the new voice has a different durati
 });
 
 test.each([
+  'seek',
+  'voice',
+])('retains the requested %s position for anchors until audio loads', async action => {
+  const { result, rerender } = renderHook(({ voice }) => useLessonPlayback({ ...target, voice }), {
+    initialProps: { voice: 'Kore' },
+  });
+  await act(async () => result.current.play());
+  audio.currentTime = 8;
+  const download = deferred<Uint8Array>();
+  vi.mocked(downloadProjectAssetBytes).mockReturnValueOnce(download.promise);
+  if (action === 'seek') act(() => result.current.seek(27));
+  else rerender({ voice: 'Zephyr' });
+  await waitFor(() => expect(downloadProjectAssetBytes).toHaveBeenCalledTimes(2));
+  const expected = action === 'seek' ? { time: 7, duration: 10 } : { time: 0.8, duration: 1 };
+  expect(result.current.readPosition()).toEqual(expected);
+  act(() => result.current.pause());
+  expect(result.current.readPosition()).toEqual(expected);
+  await act(async () => download.resolve(new Uint8Array([1])));
+  expect(result.current.readPosition()).toEqual(expected);
+  await act(async () => result.current.play());
+  expect(result.current.readPosition()).toEqual({ time: action === 'seek' ? 7 : 8, duration: 10 });
+});
+
+test.each([
   2, 25,
 ])('ending the last block synchronizes seek to %s with the displayed block', async destination => {
   const { result } = renderHook(() => useLessonPlayback(target));

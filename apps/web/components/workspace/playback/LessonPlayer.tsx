@@ -171,6 +171,7 @@ export default function LessonPlayer({
   const mounted = useRef(true);
   const { viewportHeight } = useMobileKeyboardOffset();
   const block = playback.blocks[playback.index];
+  const canAsk = Boolean(block || content.sectionContent.trim());
   const mobile = content.isMobileViewport;
   const shouldAnimate = useShouldAnimate();
   const { play } = playback;
@@ -195,7 +196,7 @@ export default function LessonPlayer({
   const currentAnchor = () => {
     const original = initialBlocks[playback.index];
     if (
-      !block ||
+      !block?.speech ||
       block.speech !== original?.speech ||
       block.spans.length !== original.spans.length ||
       block.spans.some((span, index) => {
@@ -210,8 +211,8 @@ export default function LessonPlayer({
       })
     )
       return null;
-    const time = !playback.loading && playback.duration > 0 ? playback.readTime() : playback.time;
-    return playbackSentenceSelector(block, time, playback.duration, sourceBlocks);
+    const position = playback.readPosition();
+    return playbackSentenceSelector(block, position.time, position.duration, sourceBlocks);
   };
   const changeDraft = (value: string) => {
     if (!draft && value) anchor.current = currentAnchor();
@@ -262,8 +263,8 @@ export default function LessonPlayer({
       lessonId: sectionId,
       lessonTitle: content.activeSectionTitle ?? undefined,
       lessonContent: content.sectionContent,
-      contextScope: 'selection',
-      selectedText: selector?.exact ?? block?.speech ?? '',
+      contextScope: block ? 'selection' : 'lesson',
+      selectedText: selector?.exact ?? block?.speech ?? content.sectionContent,
       selectedTextStart: selector?.selectionStart,
       contextBefore: selector?.prefix,
       contextAfter: selector?.suffix,
@@ -326,7 +327,11 @@ export default function LessonPlayer({
         selectedText=""
         isDarkMode={content.isDarkMode}
         isLoading={
-          noteStatus === 'saving' || holdingSpace || pendingQuestion || (!noteMode && disabled)
+          !canAsk ||
+          noteStatus === 'saving' ||
+          holdingSpace ||
+          pendingQuestion ||
+          (!noteMode && disabled)
         }
         lessonCreationBlockReason={null}
         onAsk={send}
@@ -337,15 +342,11 @@ export default function LessonPlayer({
         onSaveNote={noAction}
         playbackComposer={{
           isMobileViewport: mobile,
-          speech: mobile
-            ? undefined
-            : {
-                ...speech,
-                startRecording: () => {
-                  spokenQuestion.current = null;
-                  return speech.startRecording();
-                },
-              },
+          speech: mobile ? undefined : speech,
+          onStartRecording: () => {
+            playback.pause();
+            spokenQuestion.current = null;
+          },
           listening,
           value: draft,
           noteMode,
@@ -397,7 +398,7 @@ export default function LessonPlayer({
       )
         return;
       event.preventDefault();
-      if (event.repeat || spaceDown.current || answerSubmissionBlocked.current) return;
+      if (!canAsk || event.repeat || spaceDown.current || answerSubmissionBlocked.current) return;
       playback.pause();
       speech.reset();
       heldTranscription.current = null;

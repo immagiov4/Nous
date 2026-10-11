@@ -388,6 +388,15 @@ export function useLessonPlayback({
     return playbackTimeline(blocks, resolved?.voice ?? voice, resolved?.model);
   }, [blocks, resolvedVoices, voice]);
   const readTime = useCallback(() => getAudio().currentTime, [getAudio]);
+  // The audio element still belongs to the previous recording while a target is preparing.
+  const readPosition = () => {
+    if (loadedVoice.current) return { time: readTime(), duration };
+    const { offset, relative } = targetPosition.current;
+    return {
+      time: offset,
+      duration: relative ? 1 : (timeline[intent.current.index]?.duration ?? 0),
+    };
+  };
   const elapsed = timeline.slice(0, index).reduce((sum, block) => sum + block.duration, 0) + time;
   const total = timeline.reduce((sum, block) => sum + block.duration, 0);
   const seek = (target: number) => {
@@ -421,5 +430,6 @@ export function useLessonPlayback({
     pause,
     seek,
     readTime,
+    readPosition,
   };
 }
