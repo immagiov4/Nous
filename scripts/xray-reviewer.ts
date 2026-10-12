@@ -1,5 +1,5 @@
 import {
-  getGlobalModelConfig,
+  getResolvedGlobalModelConfig,
   resolveTextModelConfig,
 } from '../apps/backend/src/config/modelConfig.js';
 import {
@@ -11,7 +11,7 @@ import {
 /** Keep the Bun-backed subscription transport outside deterministic trace tooling. */
 export const reviewRecordedTrace = async (text: string, outputSchema: Record<string, unknown>) => {
   const config = {
-    ...getGlobalModelConfig(),
+    ...(await getResolvedGlobalModelConfig()),
     aiProvider: 'codex' as const,
     aiProviderOverrides: {},
   };

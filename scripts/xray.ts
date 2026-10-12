@@ -86,7 +86,7 @@ export const validateXrayReview = (response: unknown, trace: Trace): Review => {
   for (const finding of review.findings) {
     const exchange = exchanges.get(finding.exchangeIndex);
     if (!exchange) throw new Error('Review references an unrecorded exchange.');
-    const evidence = [...recordedStrings(exchange), JSON.stringify(exchange)];
+    const evidence = recordedStrings(exchange);
     if (!evidence.some(record => record.includes(finding.evidence))) {
       throw new Error('Review evidence is not quoted from the referenced exchange.');
     }

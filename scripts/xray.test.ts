@@ -119,6 +119,44 @@ describe('X-ray recorded run review', () => {
     }
   });
   it.each([
+    '"request":{"text":"prompt"}',
+    String.raw`first\nsecond`,
+    '"toolCalls":[]',
+    'completed","startedAt',
+  ])('persists needs-maintainer for serialization-only evidence %s', async evidence => {
+    await writeFile(
+      join(directory, 'model-exchanges.jsonl'),
+      JSON.stringify(exchange('2026-10-12T00:00:02Z', 'recorded response\nfirst\nsecond'))
+    );
+    vi.mocked(reviewRecordedTrace).mockResolvedValue({
+      response: JSON.stringify({ ...review, findings: [{ ...review.findings[0], evidence }] }),
+      reviewer: { model: 'configured-model', reasoningEffort: 'medium' },
+    });
+    const report = await runXray(directory);
+    expect(report.status).toBe('needs-maintainer');
+    expect(report.findings).toEqual([]);
+    expect(JSON.parse(await readFile(join(directory, 'xray.json'), 'utf8')).status).toBe(
+      'needs-maintainer'
+    );
+  });
+  it.each([
+    'first\nsecond',
+    String.raw`nested "quote" with \ path`,
+    'tool result',
+  ])('accepts exact recorded string evidence %s', async evidence => {
+    await writeFile(
+      join(directory, 'model-exchanges.jsonl'),
+      JSON.stringify({
+        ...exchange('2026-10-12T00:00:02Z', 'first\nsecond'),
+        request: { messages: [{ text: String.raw`nested "quote" with \ path` }] },
+        toolCalls: [{ result: { content: ['tool result'] } }],
+      })
+    );
+    const trace = await loadXrayTrace(directory);
+    const quotedReview = { ...review, findings: [{ ...review.findings[0], evidence }] };
+    expect(validateXrayReview(quotedReview, trace)).toEqual(quotedReview);
+  });
+  it.each([
     'xray.json',
     'xray.md',
   ])('refuses to overwrite existing %s before calling the model', async filename => {
