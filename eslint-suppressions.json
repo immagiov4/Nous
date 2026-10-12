@@ -126,11 +126,6 @@
       "count": 8
     }
   },
-  "apps/backend/src/services/lessonPlayback/playbackMotion.ts": {
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
   "apps/backend/src/services/pdfImageExtractor.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
@@ -318,16 +313,16 @@
   },
   "apps/web/components/workspace/ContextMenu.tsx": {
     "sonarjs/cognitive-complexity": {
-      "count": 4
+      "count": 3
     },
     "sonarjs/deprecation": {
       "count": 2
     },
     "sonarjs/no-nested-conditional": {
-      "count": 12
+      "count": 11
     },
     "sonarjs/no-nested-template-literals": {
-      "count": 2
+      "count": 1
     }
   },
   "apps/web/components/workspace/UnifiedAudioPanel.tsx": {
