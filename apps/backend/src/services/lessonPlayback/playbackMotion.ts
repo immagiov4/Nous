@@ -116,6 +116,26 @@ export const validatePlaybackMotion = (
   return ordered;
 };
 
+/** Converts schema and motion-contract failures into feedback for the next model attempt. */
+const parseMotionResponse = (
+  response: unknown,
+  scene: LessonScene,
+  speech: string
+): { events: readonly PlaybackMotionEvent[] } | { problem: string } => {
+  const parsed = MotionResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    return {
+      problem: JSON.stringify(parsed.error.issues.map(({ code, path }) => ({ code, path }))),
+    };
+  }
+  try {
+    return { events: validatePlaybackMotion(parsed.data.plans[0].events, scene, speech) };
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return { problem: error.message };
+  }
+};
+
 /** Plans one scene's motion, retrying only malformed or invalid model output. */
 export const planPlaybackMotion = async ({
   scene,
@@ -158,18 +178,9 @@ export const planPlaybackMotion = async ({
       return null;
     });
     signal.throwIfAborted();
-    const parsed = MotionResponseSchema.safeParse(response);
-    problem = parsed.success
-      ? 'The answer must follow the requested JSON structure.'
-      : JSON.stringify(parsed.error.issues.map(({ code, path }) => ({ code, path })));
-    if (parsed.success) {
-      try {
-        return validatePlaybackMotion(parsed.data.plans[0].events, scene, speech);
-      } catch (error) {
-        if (!(error instanceof Error)) throw error;
-        problem = error.message;
-      }
-    }
+    const outcome = parseMotionResponse(response, scene, speech);
+    if ('events' in outcome) return outcome.events;
+    problem = outcome.problem;
     console.warn('[lesson-playback] Invalid motion plan.', {
       attempt: attempt + 1,
       sceneType: scene.type,
