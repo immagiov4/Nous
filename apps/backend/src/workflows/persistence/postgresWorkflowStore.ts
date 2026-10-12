@@ -461,7 +461,6 @@ export class PostgresWorkflowStore implements WorkflowRuntimeStore {
     this.wake = new PostgresWorkflowWakeSource(createListenClient);
   }
 
-  // fallow-ignore-next-line unused-class-member -- Called through the runtime composition store contract.
   async close(): Promise<void> {
     await this.projectRevisionInbox.stop();
     if (this.ownsConnection) await this.sql.end();
