@@ -26,7 +26,7 @@ const model: ModelPrice = {
 describe('account recorded usage', () => {
   test.each([
     { provider: 'codex', reportedCostUsd: null, expected: false },
-    { provider: 'openai', reportedCostUsd: null, expected: false },
+    { provider: 'unpriced-provider', reportedCostUsd: null, expected: false },
     { provider: 'openrouter', reportedCostUsd: null, expected: true },
     { provider: 'openrouter', reportedCostUsd: 0, expected: false },
     { inputTokens: null, expected: false },
@@ -89,7 +89,7 @@ describe('account recorded usage', () => {
     { cacheWriteTokens: null },
     { cacheReadTokens: 101 },
     { provider: 'codex' },
-    { provider: 'openai' },
+    { provider: 'unpriced-provider' },
   ])('does not estimate when billing counters or provider pricing are unsupported: %j', changes => {
     expect(estimateRecordedTokenCost({ ...group, ...changes }, model)).toBeNull();
   });

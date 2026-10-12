@@ -11,9 +11,6 @@ describe('workflow model configuration schema', () => {
       codexPlaybackPreparationModel: _codexPlaybackPreparationModel,
       codexSceneModel: _codexSceneModel,
       embeddingModel: _embeddingModel,
-      openAiSceneIconModel: _openAiSceneIconModel,
-      openAiPlaybackPreparationModel: _openAiPlaybackPreparationModel,
-      openAiSceneModel: _openAiSceneModel,
       sceneIconModel: _sceneIconModel,
       sceneIconReasoningEffort: _sceneIconReasoningEffort,
       playbackPreparationModel: _playbackPreparationModel,
@@ -25,6 +22,19 @@ describe('workflow model configuration schema', () => {
     // Scene and playback preparation settings are read live, so durable workflow config omits them.
     expect(GlobalModelConfigSchema.parse(getGlobalModelConfig())).toEqual(durableConfig);
     expect(() => durableSchemaShape(GlobalModelConfigSchema)).not.toThrow();
+  });
+
+  test('rejects the removed provider at durable workflow boundaries', () => {
+    const config = getGlobalModelConfig();
+    expect(GlobalModelConfigSchema.safeParse({ ...config, aiProvider: 'openai' }).success).toBe(
+      false
+    );
+    expect(
+      GlobalModelConfigSchema.safeParse({
+        ...config,
+        aiProviderOverrides: { lesson: 'openai' },
+      }).success
+    ).toBe(false);
   });
 
   test('rejects unknown providers and unknown override slots', () => {

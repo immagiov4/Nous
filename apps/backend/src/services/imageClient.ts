@@ -1,22 +1,21 @@
-import { DEFAULT_OPENAI_IMAGE_MODEL, getResolvedGlobalModelConfig } from '../config/modelConfig.js';
+import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { isRecord } from '../utils/validation.js';
 import { recordWorkflowAiUsage, type WorkflowAiUsage } from '../workflows/workflowAiMetering.js';
 import { generateCodexAppServerImage } from './codexAppServer.js';
-import { getOpenAiJsonHeaders, OPENAI_API_BASE_URL } from './openAiApi.js';
 import {
   getOpenRouterJsonHeaders,
   OPENROUTER_API_BASE_URL,
   readOpenRouterErrorDetails,
 } from './openRouterApi.js';
 
-export { DEFAULT_IMAGE_MODEL, DEFAULT_OPENAI_IMAGE_MODEL } from '../config/modelConfig.js';
+export { DEFAULT_IMAGE_MODEL } from '../config/modelConfig.js';
 
 type GeneratedImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
 interface GenerateImageRequest {
   model?: string;
   prompt: string;
-  provider?: 'codex' | 'openai' | 'openrouter';
+  provider?: 'codex' | 'openrouter';
   signal?: AbortSignal;
 }
 
@@ -44,13 +43,6 @@ const ALLOWED_IMAGE_MEDIA_TYPES = new Set<GeneratedImageMediaType>([
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_GENERATED_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_GENERATION_TIMEOUT_MS = 90_000;
-const SUPPORTED_OPENAI_IMAGE_MODELS = new Set([
-  DEFAULT_OPENAI_IMAGE_MODEL,
-  'gpt-image-1.5',
-  'gpt-image-1',
-  'gpt-image-1-mini',
-]);
-
 const isValidImageBase64 = (value: unknown): value is string =>
   typeof value === 'string' &&
   value.length > 0 &&
@@ -69,7 +61,7 @@ const usageNumber = (usage: Record<string, unknown> | null, ...names: string[]) 
 };
 
 const normalizeImageUsage = (
-  provider: 'openai' | 'openrouter',
+  provider: 'openrouter',
   model: string,
   usage: Record<string, unknown> | null
 ): WorkflowAiUsage => {
@@ -86,10 +78,6 @@ const normalizeImageUsage = (
 };
 
 class ImageClient {
-  listOpenAiModels(): ImageGenerationModel[] {
-    return [...SUPPORTED_OPENAI_IMAGE_MODELS].map(id => ({ id, name: id }));
-  }
-
   async listModels(): Promise<ImageGenerationModel[]> {
     const response = await fetch(`${OPENROUTER_API_BASE_URL}/images/models`, {
       headers: getOpenRouterJsonHeaders(),
@@ -121,12 +109,6 @@ class ImageClient {
     }
   }
 
-  assertOpenAiModelSupportsImage(modelId: string): void {
-    if (!SUPPORTED_OPENAI_IMAGE_MODELS.has(modelId)) {
-      throw new Error('Il modello OpenAI selezionato non supporta la generazione immagini.');
-    }
-  }
-
   async generateImage(request: GenerateImageRequest): Promise<GeneratedImageResult> {
     const modelConfig =
       request.provider && request.model ? undefined : await getResolvedGlobalModelConfig();
@@ -154,47 +136,29 @@ class ImageClient {
       };
     }
 
-    const usesOpenAi = requestedProvider === 'openai';
-    const model =
-      request.model || (usesOpenAi ? modelConfig?.openAiImageModel : modelConfig?.imageModel);
+    const model = request.model || modelConfig?.imageModel;
     if (!model) {
       throw new Error('Il modello immagini non è configurato.');
     }
-    const response = await fetch(
-      usesOpenAi
-        ? `${OPENAI_API_BASE_URL}/images/generations`
-        : `${OPENROUTER_API_BASE_URL}/images`,
-      {
-        method: 'POST',
-        signal: request.signal ?? AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS),
-        headers: usesOpenAi ? getOpenAiJsonHeaders() : getOpenRouterJsonHeaders(),
-        body: JSON.stringify(
-          usesOpenAi
-            ? {
-                model,
-                n: 1,
-                output_format: 'png',
-                prompt: request.prompt,
-                quality: 'medium',
-                size: '1536x1024',
-              }
-            : {
-                aspect_ratio: '16:9',
-                model,
-                n: 1,
-                prompt: request.prompt,
-                resolution: '1K',
-              }
-        ),
-      }
-    );
+    const response = await fetch(`${OPENROUTER_API_BASE_URL}/images`, {
+      method: 'POST',
+      signal: request.signal ?? AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS),
+      headers: getOpenRouterJsonHeaders(),
+      body: JSON.stringify({
+        aspect_ratio: '16:9',
+        model,
+        n: 1,
+        prompt: request.prompt,
+        resolution: '1K',
+      }),
+    });
 
     if (!response.ok) {
       const details = await readOpenRouterErrorDetails(response);
       console.warn('[Nous] Image request failed', {
         status: response.status,
         model,
-        provider: usesOpenAi ? 'openai' : 'openrouter',
+        provider: 'openrouter',
         details,
       });
       throw new Error('Il servizio immagini non ha completato la richiesta. Riprova tra poco.');
@@ -206,7 +170,7 @@ class ImageClient {
       payloadRecord && Array.isArray(payloadRecord.data) && isRecord(payloadRecord.data[0])
         ? payloadRecord.data[0]
         : null;
-    const mediaType = usesOpenAi ? 'image/png' : normalizeImageMediaType(firstImage?.media_type);
+    const mediaType = normalizeImageMediaType(firstImage?.media_type);
     const imageBase64 = firstImage?.b64_json;
 
     if (!mediaType || !isValidImageBase64(imageBase64)) {
@@ -218,8 +182,7 @@ class ImageClient {
 
     return {
       bytes: new Uint8Array(Buffer.from(imageBase64, 'base64')),
-      generationId:
-        response.headers.get(usesOpenAi ? 'x-request-id' : 'x-generation-id') || undefined,
+      generationId: response.headers.get('x-generation-id') || undefined,
       mediaType,
       usage: usage ?? undefined,
     };

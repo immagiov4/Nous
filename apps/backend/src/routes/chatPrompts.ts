@@ -10,12 +10,8 @@ import {
 } from '@shared/lessonSourceContext';
 import { jsonSchema, tool } from 'ai';
 
-import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConfig.js';
-import {
-  type AiProvider,
-  DEFAULT_OPENAI_RESEARCH_MODEL,
-  type ReasoningEffort,
-} from '../config/modelConfig.js';
+import { requireOpenRouterApiKey } from '../config/chatConfig.js';
+import type { AiProvider, ReasoningEffort } from '../config/modelConfig.js';
 import { getBackendServerUrl } from '../config/serverConfig.js';
 import { runCodexAppServerTurn } from '../services/codexAppServer.js';
 import { getErrorMessage } from '../utils/errors.js';
@@ -26,7 +22,6 @@ const MAX_WEB_SEARCH_RESULTS = 8;
 const DEFAULT_WEB_SEARCH_RESULTS = 5;
 const WEB_SEARCH_TOTAL_RESULT_MULTIPLIER = 2;
 const WEB_SEARCH_SUMMARY_MAX_TOKENS = 1_200;
-const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 export const CHAT_TOOL_STEP_LIMIT = 6;
 
@@ -216,11 +211,6 @@ const getOpenRouterHeaders = () => ({
   'X-OpenRouter-Title': 'Nous Reader',
 });
 
-const getOpenAiHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${requireOpenAiApiKey()}`,
-});
-
 const extractWebSearchSources = (annotations?: WebSearchAnnotation[]) =>
   (annotations || []).reduce<WebSearchToolResult['sources']>((sources, annotation) => {
     if (annotation.type !== 'url_citation') {
@@ -375,27 +365,6 @@ export const runConfiguredWebSearch = async ({
   try {
     if (modelConfig.provider === 'codex') {
       return await runCodexWebSearch({ messages, modelConfig, query: normalizedQuery });
-    }
-
-    if (modelConfig.provider === 'openai') {
-      if (modelConfig.model !== DEFAULT_OPENAI_RESEARCH_MODEL) {
-        throw new Error(
-          `OpenAI Chat Completions web search requires ${DEFAULT_OPENAI_RESEARCH_MODEL}.`
-        );
-      }
-
-      return await runWebSearchCompletion({
-        body: {
-          model: modelConfig.model,
-          max_completion_tokens: WEB_SEARCH_SUMMARY_MAX_TOKENS,
-          messages,
-          web_search_options: {},
-        },
-        headers: getOpenAiHeaders(),
-        query: normalizedQuery,
-        successfulRequestCount: 1,
-        url: OPENAI_CHAT_COMPLETIONS_URL,
-      });
     }
 
     return await runWebSearchCompletion({

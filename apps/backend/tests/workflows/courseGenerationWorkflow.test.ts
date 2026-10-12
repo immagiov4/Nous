@@ -2,6 +2,7 @@ import type { TransactionSql } from 'postgres';
 import { describe, expect, test, vi } from 'vitest';
 
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
+import { WorkflowExecutionDefaultsSchema } from '../../src/workflows/config.js';
 import {
   type CourseGenerationWorkflowConfig,
   type CourseGenerationWorkflowServices,
@@ -32,6 +33,10 @@ import {
   preExternalEffectPrevious,
   preProviderPostprocessingPrevious,
 } from '../../src/workflows/definition.js';
+import {
+  createPreOpenAiRemovalModelConfig,
+  PreOpenAiRemovalGlobalModelConfigSchema,
+} from '../../src/workflows/historicalModelConfigSchema.js';
 import type { EmitDefinition, StepDefinition, WorkflowNode } from '../../src/workflows/types.js';
 import { indexWorkflowNodes } from '../../src/workflows/workflowNodeIndex.js';
 
@@ -40,6 +45,10 @@ const config: CourseGenerationWorkflowConfig = {
   models: getGlobalModelConfig(),
   timeoutMs: 10 * 60_000,
 };
+const historicalConfig = { ...config, models: createPreOpenAiRemovalModelConfig(config.models) };
+const historicalConfigSchema = WorkflowExecutionDefaultsSchema.extend({
+  models: PreOpenAiRemovalGlobalModelConfigSchema,
+});
 
 const plan = {
   applicationExercisePlanningStatus: 'completed' as const,
@@ -247,7 +256,10 @@ const findNode = (
 
 describe('course generation workflow', () => {
   test('retains the independently captured pre-controls manifests', () => {
-    const previous = createPreviousControlsCourseGenerationWorkflow(config);
+    const previous = createPreviousControlsCourseGenerationWorkflow(
+      historicalConfig,
+      historicalConfigSchema
+    );
     const registration = createWorkflowRegistry().register({
       current: createCourseGenerationWorkflow(config),
       previous: [
@@ -265,7 +277,10 @@ describe('course generation workflow', () => {
   });
 
   test('retains the main-branch manifests from before account preferences', () => {
-    const previous = createPreviousPreferencesCourseGenerationWorkflow(config);
+    const previous = createPreviousPreferencesCourseGenerationWorkflow(
+      historicalConfig,
+      historicalConfigSchema
+    );
     const registration = createWorkflowRegistry().register({
       current: createCourseGenerationWorkflow(config),
       previous: [
@@ -289,7 +304,10 @@ describe('course generation workflow', () => {
     const definition =
       version === 'current'
         ? createCourseGenerationWorkflow(config)
-        : createPreviousPreferencesCourseGenerationWorkflow(config);
+        : createPreviousPreferencesCourseGenerationWorkflow(
+            historicalConfig,
+            historicalConfigSchema
+          );
     const profile = {
       context: 'University',
       experienceLevel: 'Beginner',
@@ -405,7 +423,10 @@ describe('course generation workflow', () => {
 
   test('retains the exact previous durable topology and its pre-compatibility bridge', () => {
     const current = createCourseGenerationWorkflow(config);
-    const previous = createPreviousCourseGenerationWorkflow(config);
+    const previous = createPreviousCourseGenerationWorkflow(
+      historicalConfig,
+      historicalConfigSchema
+    );
     const registration = createWorkflowRegistry().register({
       current,
       previous: [
@@ -444,7 +465,10 @@ describe('course generation workflow', () => {
 
   test('runs a resumed source-set planning node through the shared quality contract', async () => {
     const services = makeServices();
-    const previous = createPreviousCourseGenerationWorkflow(config);
+    const previous = createPreviousCourseGenerationWorkflow(
+      historicalConfig,
+      historicalConfigSchema
+    );
     const sourceSetPlanning = findNode('plan-source-set-course', previous) as StepDefinition<
       CourseResearchState,
       CoursePlanState,

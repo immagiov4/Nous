@@ -13,13 +13,3 @@ export const requireOpenRouterApiKey = () => {
 
   return openRouterApiKey;
 };
-
-export const requireOpenAiApiKey = () => {
-  const openAiApiKey = process.env.OPENAI_API_KEY || '';
-  if (!openAiApiKey) {
-    console.error('[AI Config] OPENAI_API_KEY is missing.');
-    throw new Error('Servizio AI non configurato.');
-  }
-
-  return openAiApiKey;
-};

@@ -50,7 +50,6 @@ export const COURSE_GENERATION_WORKFLOW_ID = 'course-generation';
 export {
   type CourseGenerationStageContext,
   type CourseGenerationWorkflowConfig,
-  CourseGenerationWorkflowConfigSchema,
 } from './courseGenerationWorkflowContract.js';
 
 export interface CourseGenerationWorkflowServices

@@ -4,7 +4,7 @@ import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 
 export type AdminReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
-export type AdminAiProvider = 'codex' | 'openai' | 'openrouter';
+export type AdminAiProvider = 'codex' | 'openrouter';
 export type AdminModelProviderSlot =
   | 'artifact'
   | 'artifactInteractive'
@@ -262,18 +262,6 @@ export interface AdminModelConfig {
   embeddingModel: string;
   lessonModel: string;
   lessonReasoningEffort: AdminReasoningEffort;
-  openAiAssessmentModel: string;
-  openAiArtifactModel: string;
-  openAiArtifactInteractiveModel: string;
-  openAiContextModel: string;
-  openAiCourseModel: string;
-  openAiImageModel: string;
-  openAiLessonModel: string;
-  openAiProgressModel: string;
-  openAiPlaybackPreparationModel: string;
-  openAiSceneModel: string;
-  openAiSceneIconModel: string;
-  openAiResearchModel: string;
   progressModel: string;
   playbackPreparationModel: string;
   sceneModel: string;
@@ -322,18 +310,6 @@ export type AdminModelConfigPatch = Partial<
     | 'embeddingModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
-    | 'openAiAssessmentModel'
-    | 'openAiArtifactModel'
-    | 'openAiArtifactInteractiveModel'
-    | 'openAiContextModel'
-    | 'openAiCourseModel'
-    | 'openAiImageModel'
-    | 'openAiLessonModel'
-    | 'openAiProgressModel'
-    | 'openAiPlaybackPreparationModel'
-    | 'openAiSceneModel'
-    | 'openAiSceneIconModel'
-    | 'openAiResearchModel'
     | 'progressModel'
     | 'playbackPreparationModel'
     | 'sceneModel'
@@ -380,18 +356,6 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   embeddingModel: 'google/gemini-embedding-2',
   lessonModel: 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high',
-  openAiAssessmentModel: 'gpt-5.6-luna',
-  openAiArtifactModel: 'gpt-5.6-terra',
-  openAiArtifactInteractiveModel: 'gpt-5.6-terra',
-  openAiContextModel: 'gpt-5.6-luna',
-  openAiCourseModel: 'gpt-5.6-terra',
-  openAiImageModel: 'gpt-image-2',
-  openAiLessonModel: 'gpt-5.6-terra',
-  openAiProgressModel: 'gpt-5.6-luna',
-  openAiPlaybackPreparationModel: 'gpt-6-luna',
-  openAiSceneModel: 'gpt-6-luna',
-  openAiSceneIconModel: 'gpt-6-luna',
-  openAiResearchModel: 'gpt-5-search-api',
   progressModel: 'google/gemini-3.1-flash-lite',
   playbackPreparationModel: 'anthropic/claude-haiku-5.5',
   sceneModel: 'openai/gpt-6-luna',
@@ -417,7 +381,7 @@ const ADMIN_REASONING_EFFORTS = new Set<AdminReasoningEffort>([
   'medium',
   'high',
 ]);
-const ADMIN_AI_PROVIDERS = new Set<AdminAiProvider>(['codex', 'openai', 'openrouter']);
+const ADMIN_AI_PROVIDERS = new Set<AdminAiProvider>(['codex', 'openrouter']);
 const ADMIN_MODEL_PROVIDER_SLOTS = new Set<AdminModelProviderSlot>([
   'artifact',
   'artifactInteractive',
@@ -447,6 +411,22 @@ const readAiProviderOverrides = (value: unknown): AdminModelProviderOverrides =>
         ADMIN_AI_PROVIDERS.has(entry[1] as AdminAiProvider)
     )
   );
+};
+
+const normalizeAdminUser = (user: AdminUser): AdminUser => {
+  if (!user.app_metadata) return user;
+
+  const { ai_provider, ai_provider_overrides, ...metadata } = user.app_metadata;
+  return {
+    ...user,
+    app_metadata: {
+      ...metadata,
+      ...(ADMIN_AI_PROVIDERS.has(ai_provider as AdminAiProvider) ? { ai_provider } : {}),
+      ...(ai_provider_overrides === undefined
+        ? {}
+        : { ai_provider_overrides: readAiProviderOverrides(ai_provider_overrides) }),
+    },
+  };
 };
 
 const readReasoningEffort = (
@@ -560,54 +540,6 @@ const normalizeAdminModelConfig = (
     config?.lessonReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.lessonReasoningEffort
   ),
-  openAiAssessmentModel: readConfigValue(
-    config?.openAiAssessmentModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiAssessmentModel
-  ),
-  openAiArtifactModel: readConfigValue(
-    config?.openAiArtifactModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiArtifactModel
-  ),
-  openAiArtifactInteractiveModel: readConfigValue(
-    config?.openAiArtifactInteractiveModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiArtifactInteractiveModel
-  ),
-  openAiContextModel: readConfigValue(
-    config?.openAiContextModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiContextModel
-  ),
-  openAiCourseModel: readConfigValue(
-    config?.openAiCourseModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiCourseModel
-  ),
-  openAiImageModel: readConfigValue(
-    config?.openAiImageModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiImageModel
-  ),
-  openAiLessonModel: readConfigValue(
-    config?.openAiLessonModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiLessonModel
-  ),
-  openAiProgressModel: readConfigValue(
-    config?.openAiProgressModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiProgressModel
-  ),
-  openAiPlaybackPreparationModel: readConfigValue(
-    config?.openAiPlaybackPreparationModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiPlaybackPreparationModel
-  ),
-  openAiSceneModel: readConfigValue(
-    config?.openAiSceneModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiSceneModel
-  ),
-  openAiSceneIconModel: readConfigValue(
-    config?.openAiSceneIconModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiSceneIconModel
-  ),
-  openAiResearchModel: readConfigValue(
-    config?.openAiResearchModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.openAiResearchModel
-  ),
   progressModel: readConfigValue(config?.progressModel, DEFAULT_ADMIN_MODEL_CONFIG.progressModel),
   playbackPreparationModel: readConfigValue(
     config?.playbackPreparationModel,
@@ -664,10 +596,12 @@ const requestAdmin = async <T>(path: string, init: RequestInit = {}): Promise<T>
     })
   );
 
-export const listAdminUsers = async (page = 1, pageSize = 8): Promise<AdminUserPage> =>
-  requestAdmin<AdminUserPage>(
+export const listAdminUsers = async (page = 1, pageSize = 8): Promise<AdminUserPage> => {
+  const response = await requestAdmin<AdminUserPage>(
     `/api/admin/users?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`
   );
+  return { ...response, users: response.users.map(normalizeAdminUser) };
+};
 
 export const listAdminFeedback = async (
   page: number,
@@ -726,7 +660,7 @@ export const createAdminUser = async (input: AdminUserCreateInput): Promise<Admi
     method: 'POST',
     body: JSON.stringify(input),
   });
-  return response.user;
+  return normalizeAdminUser(response.user);
 };
 
 export const sendAdminMagicLink = async (userId: string): Promise<AdminAccessEmailDelivery> => {
@@ -759,7 +693,7 @@ export const updateAdminUser = async (
       body: JSON.stringify(patch),
     }
   );
-  return response.user;
+  return normalizeAdminUser(response.user);
 };
 
 export const getAdminModelConfig = async (): Promise<AdminModelConfig> => {

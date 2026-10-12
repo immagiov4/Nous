@@ -45,7 +45,6 @@ ${contextBlock}`;
 const resolveCaptionModel = (config: GlobalModelConfig): string => {
   const provider = resolveAiProviderForSlot(config, 'research');
   if (provider === 'codex') return config.codexLessonModel;
-  if (provider === 'openai') return config.openAiLessonModel;
   return OPENROUTER_PDF_IMAGE_CAPTION_MODEL;
 };
 

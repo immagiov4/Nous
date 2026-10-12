@@ -19,7 +19,7 @@ The following files were used as context for generating this wiki page:
 
 # Codex App Server Mode
 
-Codex App Server Mode is a specialized integration within Nous Reader that allows the platform to utilize a private ChatGPT/Codex account via a local `codex app-server` process. This mode is designed for self-hosted instances where administrators want to provide AI capabilities to users without exposing or sharing centralized API keys (like OpenAI or OpenRouter) for every transaction. Instead, the backend manages a single authenticated Codex account and routes requests through a private JSON-RPC over stdio protocol.
+Codex App Server Mode is a specialized integration within Nous Reader that allows the platform to utilize a private ChatGPT/Codex account via a local `codex app-server` process. This mode is designed for self-hosted instances where administrators want to provide AI capabilities to users without exposing or sharing an OpenRouter API key for every transaction. Instead, the backend manages a single authenticated Codex account and routes requests through a private JSON-RPC over stdio protocol.
 
 When enabled via the `CODEX_APP_SERVER_ENABLED` environment variable, the Nous backend spawns a `codex` binary as a subprocess. This process serves authenticated administrators and specifically assigned users. The integration ensures that the app-server remains private to the backend, while remote users interact with Nous through its standard authenticated HTTPS API. Sources: [README.md:22-26](../../../README.md#L22-L26), [apps/backend/src/services/codexAppServer.ts:321-322](../../../apps/backend/src/services/codexAppServer.ts#L321-L322)
 

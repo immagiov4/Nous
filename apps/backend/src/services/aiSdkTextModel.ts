@@ -1,8 +1,7 @@
-import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { JSONValue, LanguageModel, ToolSet } from 'ai';
 
-import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import {
   type AiProvider,
   type GlobalModelConfig,
@@ -42,26 +41,6 @@ export const createConfiguredTextModelFromResolution = (
   resolved: ResolvedTextModelRequest,
   { webSearch = false }: { webSearch?: boolean } = {}
 ): ConfiguredTextModel => {
-  if (resolved.provider === 'openai') {
-    const openAi = createOpenAI({ apiKey: requireOpenAiApiKey() });
-    const model = webSearch ? openAi.responses(resolved.model) : openAi.chat(resolved.model);
-    return {
-      model: meterWorkflowLanguageModel(model, {
-        model: resolved.model,
-        provider: resolved.provider,
-      }),
-      modelName: resolved.model,
-      providerOptions: {
-        openai: { reasoningEffort: resolved.reasoningEffort },
-      },
-      ...(webSearch
-        ? {
-            tools: { web_search: openAi.tools.webSearch({}) } as unknown as ToolSet,
-          }
-        : {}),
-    };
-  }
-
   const openRouter = createOpenRouter({ apiKey: requireOpenRouterApiKey() });
   const meterUsage = isWorkflowAiMeteringActive();
   const model =

@@ -72,7 +72,7 @@ describe('lesson research model routing', () => {
   test('keeps non-OpenRouter supplemental research on the dedicated research slot', () => {
     expect(
       resolveLessonResearchRequest({
-        config: { ...config, aiProvider: 'openai' },
+        config: { ...config, aiProvider: 'codex' },
         coverageGaps: ['Concetto mancante'],
         refreshResearch: false,
         sourceContext: 'Materiale originale',

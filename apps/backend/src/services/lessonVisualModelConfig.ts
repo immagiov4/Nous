@@ -12,7 +12,7 @@ export const MAX_LESSON_VISUAL_REVIEW_ROUNDS = 4;
 
 const ResolvedTextModelConfigSchema = z.object({
   model: z.string().min(1),
-  provider: z.enum(['codex', 'openai', 'openrouter']),
+  provider: z.enum(['codex', 'openrouter']),
   reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high']),
   serviceTier: z.literal('fast').optional(),
 });
@@ -22,7 +22,7 @@ export const LessonVisualModelConfigSchema = z.object({
   artifactInteractive: ResolvedTextModelConfigSchema,
   image: z.object({
     model: z.string().min(1),
-    provider: z.enum(['codex', 'openai', 'openrouter']),
+    provider: z.enum(['codex', 'openrouter']),
   }),
   review: z.object({
     enabled: z.boolean(),
@@ -50,7 +50,6 @@ const resolveTextSlot = (
 
 const resolveImageModel = (config: GlobalModelConfig, provider: AiProvider): string => {
   if (provider === 'codex') return config.codexArtifactModel;
-  if (provider === 'openai') return config.openAiImageModel;
   return config.imageModel;
 };
 

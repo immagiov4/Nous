@@ -16,7 +16,7 @@ Nous Reader turns uploaded documents and researched topics into personalized cou
    ```bash
    bun run deps:install
    ```
-2. Copy [.env.example](.env.example) to `.env.local` and set the local Supabase keys plus `OPENROUTER_API_KEY`. `OPENAI_API_KEY` is optional.
+2. Copy [.env.example](.env.example) to `.env.local` and set the local Supabase keys plus `OPENROUTER_API_KEY`.
 3. Start the app:
    ```bash
    bun run dev
@@ -26,7 +26,7 @@ This starts the Vite frontend on `http://localhost:5173` and the Express backend
 
 When the configured Supabase or Postgres URL points to the local machine, `bun run dev` also verifies Docker, starts Docker Desktop on Windows or macOS when needed, starts the local Supabase stack, and checks Supabase Auth before launching the app. If those services cannot start, the command exits instead of leaving a frontend without its backend. Remote-only configurations skip this local infrastructure check.
 
-To use a ChatGPT/Codex account on a self-hosted Nous instance without copying its credentials into Nous, install Codex CLI and set `CODEX_APP_SERVER_ENABLED=true`. One internal `codex app-server` process serves the instance's authenticated administrators and the Nous users explicitly assigned to Codex in the admin panel; they share that single Codex account. Remote users reach Nous through its authenticated HTTPS API—the app-server itself remains private to the backend. Hosted/shared deployments leave this mode disabled and use OpenAI API or OpenRouter instead.
+To use a ChatGPT/Codex account on a self-hosted Nous instance without copying its credentials into Nous, install Codex CLI and set `CODEX_APP_SERVER_ENABLED=true`. One internal `codex app-server` process serves the instance's authenticated administrators and the Nous users explicitly assigned to Codex in the admin panel; they share that single Codex account. Remote users reach Nous through its authenticated HTTPS API—the app-server itself remains private to the backend. Hosted/shared deployments leave this mode disabled and use OpenRouter instead.
 
 ## Server-Only Storage
 

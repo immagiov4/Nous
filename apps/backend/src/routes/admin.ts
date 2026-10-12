@@ -242,18 +242,6 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       embeddingModel: readOptionalString(req.body.embeddingModel),
       lessonModel: readOptionalString(req.body.lessonModel),
       lessonReasoningEffort: readReasoningEffortPatch(req.body.lessonReasoningEffort),
-      openAiAssessmentModel: readOptionalString(req.body.openAiAssessmentModel),
-      openAiArtifactModel: readOptionalString(req.body.openAiArtifactModel),
-      openAiArtifactInteractiveModel: readOptionalString(req.body.openAiArtifactInteractiveModel),
-      openAiContextModel: readOptionalString(req.body.openAiContextModel),
-      openAiCourseModel: readOptionalString(req.body.openAiCourseModel),
-      openAiImageModel: readOptionalString(req.body.openAiImageModel),
-      openAiLessonModel: readOptionalString(req.body.openAiLessonModel),
-      openAiProgressModel: readOptionalString(req.body.openAiProgressModel),
-      openAiPlaybackPreparationModel: readOptionalString(req.body.openAiPlaybackPreparationModel),
-      openAiSceneModel: readOptionalString(req.body.openAiSceneModel),
-      openAiSceneIconModel: readOptionalString(req.body.openAiSceneIconModel),
-      openAiResearchModel: readOptionalString(req.body.openAiResearchModel),
       progressModel: readOptionalString(req.body.progressModel),
       playbackPreparationModel: readOptionalString(req.body.playbackPreparationModel),
       sceneModel: readOptionalString(req.body.sceneModel),
@@ -272,9 +260,6 @@ router.patch('/model-config', async (req: Request, res: Response) => {
 
     if (patch.imageModel) {
       await imageClient.assertModelSupportsImage(patch.imageModel);
-    }
-    if (patch.openAiImageModel) {
-      imageClient.assertOpenAiModelSupportsImage(patch.openAiImageModel);
     }
 
     res.json({

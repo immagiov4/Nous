@@ -5,10 +5,9 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { type Request, type Response, Router } from 'express';
 
 import { getCurrentUser } from '../auth/currentUser.js';
-import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import {
   type AiProvider,
-  DEFAULT_OPENAI_RESEARCH_MODEL,
   getResolvedModelConfigForProvider,
   resolveAiProviderForSlot,
   resolveCodexServiceTierForSlot,
@@ -34,8 +33,6 @@ import {
 import { consoleWorkflowLogger, emitWorkflowLog } from '../workflows/workflowObservability.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
-const OPENROUTER_WEB_SEARCH_TOOL_TYPE = 'openrouter:web_search';
 const OPENROUTER_ECONOMY_SERVICE_TIER = 'flex';
 const AI_RESPONSE_HEADERS = ['content-type', 'cache-control'] as const;
 const RESOLVED_AI_ROUTE_HEADERS = {
@@ -61,11 +58,6 @@ const forwardOpenRouterHeaders = (req: Request): HeadersInit => ({
   Authorization: `Bearer ${requireOpenRouterApiKey()}`,
   'HTTP-Referer': getRequestOrigin(req),
   'X-Title': 'Nous Reader',
-});
-
-const getOpenAiHeaders = (): HeadersInit => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${requireOpenAiApiKey()}`,
 });
 
 type ModelSlot =
@@ -102,21 +94,6 @@ const readModelSlot = (req: Request): ModelSlot => {
     return slot;
   }
   throw new InvalidModelSlotError('Missing or unknown X-Nous-Model-Slot header.');
-};
-
-const hasOpenRouterWebSearchTool = (value: unknown): boolean =>
-  Array.isArray(value) &&
-  value.some(tool => isRecord(tool) && tool.type === OPENROUTER_WEB_SEARCH_TOOL_TYPE);
-
-const removeOpenRouterWebSearchTool = (value: unknown): unknown => {
-  if (!Array.isArray(value)) {
-    return value;
-  }
-
-  const portableTools = value.filter(
-    tool => !isRecord(tool) || tool.type !== OPENROUTER_WEB_SEARCH_TOOL_TYPE
-  );
-  return portableTools.length > 0 ? portableTools : undefined;
 };
 
 const resolveProxyConfig = async (req: Request) => {
@@ -166,36 +143,6 @@ const buildProxyRequest = async (
   const requestBody = isRecord(req.body) ? req.body : {};
   const { codexServiceTier, model, modelSlot, provider, reasoningEffort } =
     await resolveProxyConfig(req);
-
-  if (provider === 'openai') {
-    const {
-      max_tokens: maxTokens,
-      plugins: _ignoredPlugins,
-      provider: _ignoredProvider,
-      reasoning: _ignoredReasoning,
-      tools,
-      transforms: _ignoredTransforms,
-      web_search_options: _ignoredWebSearchOptions,
-      ...portableBody
-    } = requestBody;
-    const webSearchRequested = hasOpenRouterWebSearchTool(tools);
-    if (webSearchRequested && model !== DEFAULT_OPENAI_RESEARCH_MODEL) {
-      throw new Error(
-        `OpenAI Chat Completions web search requires ${DEFAULT_OPENAI_RESEARCH_MODEL}.`
-      );
-    }
-    return {
-      provider,
-      body: {
-        ...portableBody,
-        model,
-        reasoning_effort: reasoningEffort,
-        tools: removeOpenRouterWebSearchTool(tools),
-        ...(webSearchRequested ? { web_search_options: {} } : {}),
-        ...(typeof maxTokens === 'number' ? { max_completion_tokens: maxTokens } : {}),
-      },
-    };
-  }
 
   if (provider === 'codex') {
     const { reasoning: _ignoredReasoning, ...portableBody } = requestBody;
@@ -536,19 +483,11 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
       await sendCodexCompletion(resolvedRequest.body, res);
       return;
     }
-    const upstreamResponse = await fetch(
-      resolvedRequest.provider === 'openai'
-        ? OPENAI_CHAT_COMPLETIONS_URL
-        : OPENROUTER_CHAT_COMPLETIONS_URL,
-      {
-        method: 'POST',
-        headers:
-          resolvedRequest.provider === 'openai'
-            ? getOpenAiHeaders()
-            : forwardOpenRouterHeaders(req),
-        body: JSON.stringify(resolvedRequest.body),
-      }
-    );
+    const upstreamResponse = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
+      method: 'POST',
+      headers: forwardOpenRouterHeaders(req),
+      body: JSON.stringify(resolvedRequest.body),
+    });
 
     if (!upstreamResponse.ok) {
       const detail = await readDiagnosticResponseText(upstreamResponse);

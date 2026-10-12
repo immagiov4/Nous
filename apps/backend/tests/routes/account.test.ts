@@ -132,7 +132,7 @@ describe('account routes', () => {
 
   test.each([
     { provider: 'codex' },
-    { provider: 'openai' },
+    { provider: 'unpriced-provider' },
     { inputTokens: null },
     { outputTokens: null },
   ])('does not advertise or fetch estimates for unsupported counters or providers: %j', async changes => {

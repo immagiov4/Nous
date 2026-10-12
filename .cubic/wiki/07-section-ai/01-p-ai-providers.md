@@ -18,7 +18,7 @@ The following files were used as context for generating this wiki page:
 
 # AI Provider Setup & Configuration
 
-AI Provider Setup & Configuration in Nous is a multi-layered system designed to manage interactions with various Large Language Model (LLM) providers, including OpenRouter, OpenAI, and a private "Codex" app-server. The system centralizes model selection, reasoning effort levels, and credential management to ensure consistent AI behavior across different functional "slots" such as lesson generation, course planning, and research.
+AI Provider Setup & Configuration in Nous is a multi-layered system designed to manage interactions with two Large Language Model (LLM) providers: OpenRouter and Codex through ChatGPT login. The system centralizes model selection, reasoning effort levels, and credential management to ensure consistent AI behavior across different functional "slots" such as lesson generation, course planning, and research.
 
 The architecture relies on a global configuration that can be overridden at the user level, allowing for flexible deployments ranging from shared hosted instances to private, self-hosted environments using the Codex app-server. This configuration determines not only which model is used for a specific task but also how parameters like reasoning effort and service tiers are applied during the API proxying phase.
 
@@ -37,7 +37,6 @@ flowchart TD
     GlobalCfg --> Resolve[Resolve Provider/Model for Slot]
     Resolve --> Proxy[openRouterProxy.ts]
     Proxy --> OR[OpenRouter API]
-    Proxy --> OAI[OpenAI API]
     Proxy --> CDX[Codex App-Server]
 ```
 
@@ -45,16 +44,15 @@ flowchart TD
 Sources: [apps/backend/src/routes/openRouterProxy.ts:98-111](../../../apps/backend/src/routes/openRouterProxy.ts#L98-L111), [apps/backend/src/config/modelConfig.ts](../../../apps/backend/src/config/modelConfig.ts)
 
 ### Provider Implementation Details
-The project distinguishes between three primary provider types:
+The project distinguishes between two provider types:
 1.  **OpenRouter**: Used as the default aggregator. Supports specialized headers like `X-Title` and reasoning effort configurations.
-2.  **OpenAI**: Standard API integration, specifically used for research and search models (e.g., `gpt-5-search-api`).
-3.  **Codex**: A specialized internal provider that runs via `runCodexAppServerTurn`. It is used for secure, server-side processing without exposing raw provider tokens to the client.
+2.  **Codex**: A specialized internal provider that runs via `runCodexAppServerTurn`. It is used for secure, server-side processing without exposing raw provider tokens to the client.
 
 Sources: [apps/backend/src/routes/openRouterProxy.ts:50-65](../../../apps/backend/src/routes/openRouterProxy.ts#L50-L65), [apps/backend/src/routes/openRouterProxy.ts:133-172](../../../apps/backend/src/routes/openRouterProxy.ts#L133-L172)
 
 ### Structured outputs
 
-Backend features that need one schema-bound model answer call `generateStructuredOutput` with a slot, a named JSON Schema, a system prompt and a prompt. It resolves the slot's provider and model. Codex runs an app-server turn without tools, except web search when the caller requests it, and its JSON answer is parsed; OpenRouter and OpenAI use the AI SDK's object output. The module does not validate the result against the schema; callers own any validation. Malformed output surfaces as `SyntaxError` or `NoObjectGeneratedError`, which lesson correction retries recognize. An optional `webSearch` flag lets Codex search the web while still forbidding local files, and gives AI SDK models the provider's search tools. Callers that pin a model in durable workflow state pass that resolved model instead of a slot, and a caller can show one image before the prompt. Lesson research, drafting, coverage, learning aids, YouTube query planning, factual evidence review, lesson verification, lesson visual planning and rendering, and course cover planning use it. Course generation keeps its own provider seam because it passes caller-defined tools to the model.
+Backend features that need one schema-bound model answer call `generateStructuredOutput` with a slot, a named JSON Schema, a system prompt and a prompt. It resolves the slot's provider and model. Codex runs an app-server turn without tools, except web search when the caller requests it, and its JSON answer is parsed; OpenRouter uses the AI SDK's object output. The module does not validate the result against the schema; callers own any validation. Malformed output surfaces as `SyntaxError` or `NoObjectGeneratedError`, which lesson correction retries recognize. An optional `webSearch` flag lets Codex search the web while still forbidding local files, and gives AI SDK models the provider's search tools. Callers that pin a model in durable workflow state pass that resolved model instead of a slot, and a caller can show one image before the prompt. Lesson research, drafting, coverage, learning aids, YouTube query planning, factual evidence review, lesson verification, lesson visual planning and rendering, and course cover planning use it. Course generation keeps its own provider seam because it passes caller-defined tools to the model.
 
 Sources: [apps/backend/src/services/structuredGeneration.ts](../../../apps/backend/src/services/structuredGeneration.ts)
 
@@ -65,12 +63,18 @@ The `GlobalModelConfig` structure defines the default models and reasoning level
 
 | Parameter | Description | Supported Values |
 | :--- | :--- | :--- |
-| `aiProvider` | The default AI provider for the system. | `openrouter`, `openai`, `codex` |
+| `aiProvider` | The default AI provider for the system. | `openrouter`, `codex` |
 | Per-slot reasoning fields | The reasoning level is configured per text-model slot (for example, `lessonReasoningEffort` or `researchReasoningEffort`). | `none`, `minimal`, `low`, `medium`, `high` |
 | `codexFastModelSlots` | Selects the Codex slots for which the `fast` service tier is derived. | Text-model slot names |
 | `aiProviderOverrides` | Map of specific slots to alternative providers. | Key-Value pairs (e.g., `lesson: codex`) |
 
 Sources: [apps/backend/src/config/modelConfig.ts:27-69](../../../apps/backend/src/config/modelConfig.ts#L27-L69), [apps/backend/src/config/modelConfig.ts:284-287](../../../apps/backend/src/config/modelConfig.ts#L284-L287), [apps/backend/tests/config/modelConfig.test.ts:13-52](../../../apps/backend/tests/config/modelConfig.test.ts#L13-L52)
+
+### Unknown provider values
+
+The supported provider values are `openrouter` and `codex`. An unknown `AI_PROVIDER` environment value uses the existing `openrouter` default. A persisted global row with an unknown `ai_provider` retains the active provider; invalid per-slot overrides are filtered out. Unknown account metadata providers are ignored, so requests use the global configuration. The administrative client applies the same provider and override filtering when reading user responses, so account controls show the effective global defaults while stored metadata remains unchanged. Administrative writes reject an invalid primary `aiProvider` with HTTP 400 and filter invalid per-slot overrides. New durable workflow and lesson visual configurations reject unsupported providers; frozen historical schemas reconstruct previously deployed definitions. Direct OpenAI was removed without a data migration; the historical SQL migrations remain part of the database history.
+
+Sources: [modelConfig.ts](../../../apps/backend/src/config/modelConfig.ts), [currentUser.ts](../../../apps/backend/src/auth/currentUser.ts), [admin.ts](../../../apps/backend/src/routes/admin.ts), [adminApi.ts](../../../apps/web/services/admin/adminApi.ts), [modelConfigSchema.ts](../../../apps/backend/src/workflows/modelConfigSchema.ts), [lessonVisualModelConfig.ts](../../../apps/backend/src/services/lessonVisualModelConfig.ts)
 
 ### Model Slots
 The system categorizes AI tasks into distinct slots, allowing granular control over which model handles which type of work:
@@ -79,7 +83,7 @@ The system categorizes AI tasks into distinct slots, allowing granular control o
 *  **Course**: Handles high-level course planning and structuring.
 *  **Lesson**: Manages the detailed generation of lesson content.
 *  **Research**: Utilizes models with web-search capabilities for factual gathering.
-*  **Playback preparation** (`playbackPreparation`): Prepares lesson playback highlighting independently of lesson generation; defaults to `anthropic/claude-haiku-5.5` on OpenRouter and to `gpt-6-luna` on Codex and OpenAI, which do not serve Claude models; low reasoning and the Codex `fast` tier. Like scene slots, it follows the global provider and is read from live configuration, outside durable workflow config.
+*  **Playback preparation** (`playbackPreparation`): Prepares lesson playback highlighting independently of lesson generation; defaults to `anthropic/claude-haiku-5.5` on OpenRouter and to `gpt-6-luna` on Codex; low reasoning and the Codex `fast` tier. Like scene slots, it follows the global provider and is read from live configuration, outside durable workflow config.
 *  **Scene** and **Scene icon**: Compose lesson scenes and choose their icons. They follow the provider resolved for the run's visuals (no scene-specific provider override), use the Codex `fast` tier when Codex is selected, and are read from the live configuration because durable workflow config omits them. `embeddingModel` (OpenRouter) indexes the icon catalog.
 
 Sources: [apps/backend/src/routes/openRouterProxy.ts:80-92](../../../apps/backend/src/routes/openRouterProxy.ts#L80-L92), [apps/backend/src/config/modelConfig.ts:195-227](../../../apps/backend/src/config/modelConfig.ts#L195-L227), [apps/backend/src/config/modelConfig.ts:322-327](../../../apps/backend/src/config/modelConfig.ts#L322-L327), [apps/backend/src/services/structuredGeneration.ts:55-67](../../../apps/backend/src/services/structuredGeneration.ts#L55-L67)
@@ -89,23 +93,9 @@ Sources: [apps/backend/src/routes/openRouterProxy.ts:80-92](../../../apps/backen
 The `openRouterProxy.ts` handles the transformation of generic chat requests into provider-specific payloads.
 
 ### Handling Specialized Tools
-When `webSearch` is requested via the `openrouter:web_search` tool, the proxy must ensure the resolved model supports it. For OpenAI, this requires routing to specific research models like `gpt-5-search-api` and translating the tool into `web_search_options`.
+OpenRouter research requests retain the `openrouter:web_search` tool and use the configured research model. Codex research turns enable app-server web search. The proxy keeps these provider-specific paths separate.
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant P as Proxy
-    participant O as OpenAI/OpenRouter
-    C->>P: POST /chat/completions (Slot: Research)
-    Note over P: Resolve Model: gpt-5-search-api
-    P->>P: Convert Tools to web_search_options
-    P->>O: POST /v1/chat/completions
-    O-->>P: Streaming Response
-    P-->>C: Data Stream
-```
-
-*Sequence of a research request involving web search tool transformation.*
-Sources: [apps/backend/src/routes/openRouterProxy.ts:118-132](../../../apps/backend/src/routes/openRouterProxy.ts#L118-L132), [apps/backend/src/routes/openRouterProxy.ts:133-155](../../../apps/backend/src/routes/openRouterProxy.ts#L133-L155)
+Sources: [openRouterProxy.ts](../../../apps/backend/src/routes/openRouterProxy.ts), [chatPrompts.ts](../../../apps/backend/src/routes/chatPrompts.ts)
 
 ### Image Input Filtering
 The proxy implements safety checks for multimodal inputs. If a model is identified as not supporting images (via `openRouterModelSupportsImages`), the proxy strips `image_url` content from the messages before forwarding the request to prevent API errors.
@@ -115,14 +105,14 @@ Sources: [apps/backend/src/routes/openRouterProxy.ts:175-197](../../../apps/back
 
 Admin users can modify the AI provider setup through the `AdminPanel`. This interface allows for:
 *  **Global Provider Swapping**: Changing the primary `aiProvider`.
-*  **Slot Overrides**: Setting a user-specific provider for a single function (e.g., forcing a specific user to use `openai` for `lessons` while the rest of the system uses `openrouter`).
+*  **Slot Overrides**: Setting a user-specific provider for a single function (e.g., forcing a specific user to use `codex` for `lesson` while the rest of the system uses `openrouter`).
 *  **Reasoning Adjustment**: Fine-tuning the `reasoningEffort` for different task types.
 
 Sources: [apps/web/tests/components/admin/AdminPanel.test.tsx:143-162](../../../apps/web/tests/components/admin/AdminPanel.test.tsx#L143-L162), [apps/web/tests/components/admin/AdminPanel.test.tsx:238-259](../../../apps/web/tests/components/admin/AdminPanel.test.tsx#L238-L259)
 
 ## Service Tiers & Reasoning
 
-Reasoning levels are mapped per provider to their native API equivalents. For example, OpenRouter uses a `reasoning` object with `effort` and `enabled` fields, while OpenAI uses the `reasoning_effort` property directly.
+Reasoning levels are mapped per provider to their native API equivalents. For example, OpenRouter uses a `reasoning` object with `effort` and `enabled` fields, while the Codex adapter reads `reasoning_effort` for the app-server turn.
 
 ```typescript
 // Example of reasoning mapping in openRouterProxy.ts

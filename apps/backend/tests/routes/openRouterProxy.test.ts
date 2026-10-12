@@ -15,7 +15,6 @@ vi.mock('../../src/config/chatConfig.js', async () => {
   );
   return {
     ...actual,
-    requireOpenAiApiKey: () => 'test-openai-key',
     requireOpenRouterApiKey: () => 'test-openrouter-key',
   };
 });
@@ -36,7 +35,7 @@ const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
 const { CodexAppServerError } = await import('../../src/services/codexAppServer.js');
 const { createApp } = await import('../../src/index.js');
 
-const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
+const authenticateProvider = (aiProvider: 'codex' | 'openrouter'): string => {
   process.env.AUTH_MODE = 'supabase';
   process.env.SUPABASE_JWT_SECRET = 'test-secret';
   process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -331,52 +330,6 @@ describe('/api/openrouter proxy', () => {
     expect(body.tools).toEqual([{ type: 'openrouter:web_search' }]);
   });
 
-  test('maps supplemental research to OpenAI Chat Completions search options', async () => {
-    patchGlobalModelConfig({
-      openAiLessonModel: 'openai/configured-lesson',
-      openAiResearchModel: 'gpt-5-search-api',
-    });
-    const token = authenticateProvider('openai');
-
-    await request(createApp())
-      .post('/api/openrouter/chat/completions')
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Nous-Model-Slot', 'research')
-      .send({
-        messages: [{ role: 'user', content: 'Colma soltanto la lacuna indicata.' }],
-        tools: [{ type: 'openrouter:web_search' }],
-      });
-
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
-    const rawBody = fetchMock.mock.calls[0]?.[1]?.body as string;
-    const body = JSON.parse(rawBody) as {
-      model?: string;
-      tools?: Array<{ type?: string }>;
-      web_search_options?: Record<string, never>;
-    };
-    expect(body.model).toBe('gpt-5-search-api');
-    expect(body.tools).toBeUndefined();
-    expect(body.web_search_options).toEqual({});
-    expect(rawBody).not.toContain('openrouter:web_search');
-  });
-
-  test('rejects an incompatible OpenAI research model before contacting the provider', async () => {
-    patchGlobalModelConfig({ openAiResearchModel: 'gpt-5.6-terra' });
-    const token = authenticateProvider('openai');
-
-    const response = await request(createApp())
-      .post('/api/openrouter/chat/completions')
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Nous-Model-Slot', 'research')
-      .send({
-        messages: [{ role: 'user', content: 'Cerca fonti aggiornate.' }],
-        tools: [{ type: 'openrouter:web_search' }],
-      });
-
-    expect(response.status).toBe(502);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   test('sends explicit none effort for artifact reasoning', async () => {
     patchGlobalModelConfig({ artifactReasoningEffort: 'none' });
 
@@ -466,49 +419,12 @@ describe('/api/openrouter proxy', () => {
     ]);
   });
 
-  test('maps the common model contract to OpenAI without forwarding OpenRouter-only fields', async () => {
-    patchGlobalModelConfig({
-      aiProvider: 'openai',
-      lessonReasoningEffort: 'high',
-      openAiLessonModel: 'gpt-openai-lesson',
-    });
-
-    await request(createApp())
-      .post('/api/openrouter/chat/completions')
-      .set('X-Nous-Model-Slot', 'lesson')
-      .send({
-        max_tokens: 1234,
-        messages: [{ role: 'user', content: 'Ciao' }],
-        model: 'client/ignored-model',
-        plugins: [{ id: 'web' }],
-        provider: { order: ['openai'] },
-        reasoning: { effort: 'low' },
-      });
-
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
-    const options = fetchMock.mock.calls[0]?.[1] as {
-      body?: string;
-      headers?: Record<string, string>;
-    };
-    expect(options.headers?.Authorization).toBe('Bearer test-openai-key');
-    const body = JSON.parse(options.body || '{}') as Record<string, unknown>;
-    expect(body).toMatchObject({
-      max_completion_tokens: 1234,
-      model: 'gpt-openai-lesson',
-      reasoning_effort: 'high',
-    });
-    expect(body).not.toHaveProperty('max_tokens');
-    expect(body).not.toHaveProperty('plugins');
-    expect(body).not.toHaveProperty('provider');
-    expect(body).not.toHaveProperty('reasoning');
-  });
-
   test('uses the authenticated user provider instead of a client header', async () => {
     patchGlobalModelConfig({
-      aiProvider: 'openrouter',
-      openAiLessonModel: 'gpt-authenticated-user',
+      aiProvider: 'codex',
+      lessonModel: 'server/authenticated-user',
     });
-    const token = authenticateProvider('openai');
+    const token = authenticateProvider('openrouter');
 
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
@@ -518,8 +434,10 @@ describe('/api/openrouter proxy', () => {
       .send({ messages: [{ role: 'user', content: 'Ciao' }] });
 
     expect(response.status).toBe(200);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
-    expect(fetchMock.mock.calls[0]?.[1]?.body).toContain('"model":"gpt-authenticated-user"');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string).model).toBe(
+      'server/authenticated-user'
+    );
     expect(codexMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
   });
 

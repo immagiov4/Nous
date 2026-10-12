@@ -11,7 +11,6 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 }));
 
 const {
-  DEFAULT_ADMIN_MODEL_CONFIG,
   createAdminUser,
   listAdminFeedback,
   listAdminUsers,
@@ -42,13 +41,9 @@ describe('admin user provider payloads', () => {
     );
   });
 
-  test('defaults OpenAI research to its Chat Completions search model', () => {
-    expect(DEFAULT_ADMIN_MODEL_CONFIG.openAiResearchModel).toBe('gpt-5-search-api');
-  });
-
   test('includes an explicit provider when creating a user', async () => {
     await createAdminUser({
-      aiProvider: 'openai',
+      aiProvider: 'codex',
       email: 'student@example.com',
       password: 'g1ovann1',
       role: 'user',
@@ -59,7 +54,7 @@ describe('admin user provider payloads', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          aiProvider: 'openai',
+          aiProvider: 'codex',
           email: 'student@example.com',
           password: 'g1ovann1',
           role: 'user',
@@ -117,6 +112,76 @@ describe('admin user provider payloads', () => {
       'http://localhost:3301/api/admin/users?page=2&pageSize=8',
       expect.any(Object)
     );
+  });
+
+  test.each([
+    ['list', async () => (await listAdminUsers()).users[0]],
+    [
+      'create',
+      () => createAdminUser({ email: 'student@example.com', password: 'g1ovann1', role: 'admin' }),
+    ],
+    ['update', () => updateAdminUser('user-1', { role: 'admin' })],
+  ] as const)('filters unsupported account providers in the %s response', async (operation, readUser) => {
+    const user = {
+      id: 'user-1',
+      email: 'student@example.com',
+      banned_until: null,
+      app_metadata: {
+        ai_provider: 'openai',
+        ai_provider_overrides: {
+          lesson: 'openai',
+          artifact: 'codex',
+          research: 'openrouter',
+          course: 'unknown',
+          scene: 'codex',
+          unknown: 'codex',
+        },
+        password_setup_required: true,
+        role: 'admin',
+        unrelated: 'preserved',
+      },
+    };
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      Response.json(
+        operation === 'list' ? { hasMore: false, page: 1, pageSize: 8, users: [user] } : { user }
+      )
+    );
+
+    const result = await readUser();
+
+    expect(result).toEqual({
+      ...user,
+      app_metadata: {
+        ai_provider_overrides: { artifact: 'codex', research: 'openrouter' },
+        password_setup_required: true,
+        role: 'admin',
+        unrelated: 'preserved',
+      },
+    });
+  });
+
+  test.each([
+    'codex',
+    'openrouter',
+  ] as const)('preserves supported %s account providers and accounts without metadata', async provider => {
+    const users = [
+      {
+        id: 'user-1',
+        app_metadata: { ai_provider: provider, ai_provider_overrides: { lesson: provider } },
+      },
+      { id: 'user-2' },
+      { id: 'user-3', app_metadata: { role: 'user' } },
+    ];
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      Response.json({ hasMore: false, page: 1, pageSize: 8, users })
+    );
+
+    await expect(listAdminUsers()).resolves.toEqual({
+      hasMore: false,
+      page: 1,
+      pageSize: 8,
+      users,
+    });
   });
 
   test('loads a paginated feedback page through the authenticated admin endpoint', async () => {

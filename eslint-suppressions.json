@@ -66,11 +66,6 @@
       "count": 1
     }
   },
-  "apps/backend/src/routes/images.ts": {
-    "sonarjs/no-nested-conditional": {
-      "count": 1
-    }
-  },
   "apps/backend/src/routes/libraryChat.ts": {
     "unicorn/consistent-function-scoping": {
       "count": 1
@@ -81,7 +76,7 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
-      "count": 3
+      "count": 2
     }
   },
   "apps/backend/src/routes/projects.ts": {
@@ -187,9 +182,6 @@
     }
   },
   "apps/web/components/admin/AdminPanel.tsx": {
-    "sonarjs/no-nested-conditional": {
-      "count": 2
-    },
     "sonarjs/no-nested-functions": {
       "count": 1
     }

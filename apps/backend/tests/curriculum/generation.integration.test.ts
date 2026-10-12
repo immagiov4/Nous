@@ -116,8 +116,8 @@ describe('curriculum generation adapter integration', () => {
     });
     const config = {
       ...input.config,
-      aiProvider: 'openai' as const,
-      aiProviderOverrides: { course: 'openai' as const },
+      aiProvider: 'openrouter' as const,
+      aiProviderOverrides: { course: 'openrouter' as const },
     };
     const result = await runCurriculumGenerationProbe({ ...input, config, generate });
     expect(result.success && result.generated.diagnosticMappings[0].outcome).toEqual(

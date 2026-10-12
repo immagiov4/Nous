@@ -32,14 +32,12 @@ router.get('/models', async (req: Request, res: Response) => {
         models: [{ id: model, name: model }],
       });
     }
-    const models =
-      provider === 'openrouter' ? await imageClient.listModels() : imageClient.listOpenAiModels();
+    const models = await imageClient.listModels();
     return res.json({
       success: true,
       available: true,
-      defaultModel: provider === 'openrouter' ? DEFAULT_IMAGE_MODEL : modelConfig.openAiImageModel,
-      selectedModel:
-        provider === 'openrouter' ? modelConfig.imageModel : modelConfig.openAiImageModel,
+      defaultModel: DEFAULT_IMAGE_MODEL,
+      selectedModel: modelConfig.imageModel,
       models,
     });
   } catch (error) {
@@ -70,12 +68,7 @@ router.post('/generate', async (req: Request, res: Response) => {
     const image = await imageClient.generateImage({
       prompt,
       provider,
-      model:
-        provider === 'codex'
-          ? modelConfig.codexArtifactModel
-          : provider === 'openai'
-            ? modelConfig.openAiImageModel
-            : modelConfig.imageModel,
+      model: provider === 'codex' ? modelConfig.codexArtifactModel : modelConfig.imageModel,
     });
     if (image.generationId) {
       res.set('X-Generation-Id', image.generationId);

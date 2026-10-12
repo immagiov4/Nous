@@ -206,8 +206,8 @@ $env:RUN_REAL_WORKFLOW_PROVIDER_TESTS = 'I_ACCEPT_REAL_PROVIDER_COSTS'
 bun run test:workflow-codex -- --run
 ```
 
-This is intentionally a Codex-only smoke test; it does not claim live coverage of OpenRouter or
-OpenAI billing. It freezes course and lesson on `gpt-5.6-luna` with low reasoning and normal
+This is intentionally a Codex-only smoke test; it does not claim live coverage of OpenRouter
+billing. It freezes course and lesson on `gpt-5.6-luna` with low reasoning and normal
 service tier, and visual work on `gpt-5.6-sol` with low reasoning. Auxiliary research uses Luna.
 These overrides exist only in the test process and are not persisted. The harness runs at most two
 workflow steps concurrently (hard cap: four) and gives each of the three workflow runs 15 minutes

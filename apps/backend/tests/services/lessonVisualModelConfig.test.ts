@@ -12,7 +12,7 @@ describe('lesson visual model configuration', () => {
       ...getGlobalModelConfig(),
       aiProvider: 'openrouter',
       aiProviderOverrides: {
-        artifact: 'openai',
+        artifact: 'openrouter',
         artifactInteractive: 'codex',
         image: 'openrouter',
       },
@@ -22,13 +22,13 @@ describe('lesson visual model configuration', () => {
       codexArtifactInteractiveModel: 'codex-interactive',
       codexFastModelSlots: ['artifactInteractive'],
       imageModel: 'openrouter-image',
-      openAiArtifactModel: 'openai-artifact',
+      artifactModel: 'openrouter-artifact',
     });
 
     expect(LessonVisualModelConfigSchema.parse(resolved)).toEqual({
       artifact: {
-        model: 'openai-artifact',
-        provider: 'openai',
+        model: 'openrouter-artifact',
+        provider: 'openrouter',
         reasoningEffort: 'low',
       },
       artifactInteractive: {
@@ -53,7 +53,7 @@ describe('lesson visual model configuration', () => {
   test('does not assign a fast service tier to non-Codex providers', () => {
     const resolved = resolveLessonVisualModelConfig({
       ...getGlobalModelConfig(),
-      aiProvider: 'openai',
+      aiProvider: 'openrouter',
       aiProviderOverrides: {},
       codexFastModelSlots: ['artifact', 'artifactInteractive'],
     });
