@@ -8,6 +8,7 @@
     "apps/backend"
   ],
   "scripts": {
+    "xray": "bun run scripts/xray.ts",
     "playtest": "bun run packages/playtest/src/cli.ts",
     "deps:install": "bun install --frozen-lockfile --force",
     "predev": "bun run scripts/ensure-local-dev-services.ts",
