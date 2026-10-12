@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<title>Text fixture</title>
+<style>
+  body { margin: 0; background: white; color: black; }
+  .clipped { width: 80px; overflow: hidden; white-space: nowrap; }
+  #outside { position: absolute; top: 2000px; }
+  #hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  #transparent { opacity: 0; }
+  #first, #second { position: absolute; top: 100px; width: 100px; height: 50px; }
+  #first { left: 20px; }
+  #second { left: 70px; }
+  #wide { position: absolute; top: 180px; width: 1000px; height: 20px; }
+</style>
+<body>
+  <div id="visible" class="clipped">Visible text that extends beyond its container</div>
+  <div id="outside" class="clipped">Outside text that extends beyond its container</div>
+  <span id="hidden" aria-hidden="true" class="clipped">Visually hidden label</span>
+  <div id="transparent" class="clipped">Transparent text that extends beyond its container</div>
+  <div id="first">First</div><div id="second">Second</div>
+  <div id="wide"></div>
+</body>
+</html>

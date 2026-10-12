@@ -61,13 +61,14 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('runs only the CI quality, Fallow, and complete Bun suite commands', () => {
+  test('runs only the CI quality, Fallow, browser provisioning, and complete Bun suite commands', () => {
     const commands = testSteps.flatMap(step => (step.run ? [step.run] : []));
 
     expect(commands).toEqual([
       'bun install --frozen-lockfile',
       'bun run quality:ci',
       'bun run check:fallow:ci',
+      'bunx playwright install --with-deps chromium',
       'bun run test',
     ]);
   });

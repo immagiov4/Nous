@@ -113,7 +113,10 @@ a feature is core or better left to external tools.
 
 ## Validation Commands
 
+After installing dependencies, run `bunx playwright install chromium` for browser tests under `bun run test` and Node coverage. `bun run prepare:coverage` also installs Chromium after the Node preflight.
+
 ```bash
+bunx playwright install chromium # Browser tests prerequisite after installing dependencies
 bun run doctor        # Read-only diagnostic; defaults to the checks profile
 bun run doctor -- --profile gate   # Probe the existing local Sonar service
 bun run doctor -- --profile local  # Probe local Supabase services and migration parity
@@ -126,6 +129,7 @@ bun run gate:ci       # CI gate: quality + fallow regression + tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
+bun run playtest      # Headless agentic stories; requires NOUS_E2E_DATA, --provider and --model
 ```
 
 `doctor` is observational in every profile: it reports `PASS`/`FAIL`/`WARN`/`SKIP` results without

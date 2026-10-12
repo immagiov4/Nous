@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<title>Slider fixture</title>
+<style>
+  #popover { position: absolute; right: 200px; top: 100px; display: flex; align-items: center; }
+  #label { white-space: nowrap; }
+</style>
+<body>
+  <div id="popover"><input id="slider" type="range" aria-label="Value"><span id="label">1</span></div>
+  <script>
+    document.querySelector('#slider').addEventListener('pointermove', event => {
+      if (event.buttons) document.querySelector('#label').textContent = 'A much longer label';
+    });
+  </script>
+</body>
+</html>

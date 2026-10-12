@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<title>Button fixture</title>
+<style>
+  #button { position: absolute; left: 100px; top: 100px; }
+  #button.moved { left: 180px; }
+  #button.animated { transition: left 200ms linear; }
+</style>
+<body>
+  <button id="button" type="button">Press me</button>
+  <script>
+    document.querySelector('#button').addEventListener('pointerdown', event => {
+      event.currentTarget.classList.add('moved');
+    });
+  </script>
+</body>
+</html>

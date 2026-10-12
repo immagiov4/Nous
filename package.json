@@ -8,6 +8,7 @@
     "apps/backend"
   ],
   "scripts": {
+    "playtest": "bun run packages/playtest/src/cli.ts",
     "deps:install": "bun install --frozen-lockfile --force",
     "predev": "bun run scripts/ensure-local-dev-services.ts",
     "eval:research-routing": "bun run scripts/evaluate-research-source-routing.ts",
@@ -26,12 +27,12 @@
     "lint:biome": "biome lint .",
     "lint:frontend": "tsgo --noEmit -p apps/web/tsconfig.json",
     "lint:backend": "tsgo --noEmit -p apps/backend/tsconfig.json",
-    "lint:types": "bun run lint:frontend && bun run lint:backend",
+    "lint:types": "bun run lint:frontend && bun run lint:backend && tsgo --noEmit -p packages/playtest/tsconfig.json && tsgo --noEmit -p e2e/nous/tsconfig.json",
     "quality": "bun run lint && bun run check:biome && bun run check:eslint-react-hooks",
     "quality:ci": "bun run quality && bun run check:depcruise",
     "gate:full": "bun run scripts/run-full-quality-gate.ts",
     "gate:ci": "bun run quality:ci && bun run check:fallow:ci && bun run test",
-    "prepare:coverage": "node scripts/prepare-node-coverage.mjs",
+    "prepare:coverage": "node scripts/prepare-node-coverage.mjs && bunx playwright install chromium",
     "check:biome": "biome check .",
     "check:depcruise": "bun run check:depcruise:web && bun run check:depcruise:backend",
     "check:depcruise:backend": "cd apps/backend && dependency-cruiser --config ../../.dependency-cruiser.cjs --ts-config tsconfig.json src",
@@ -67,6 +68,8 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",
+    "@mariozechner/pi-ai": "0.73.1",
+    "@mariozechner/pi-coding-agent": "0.73.1",
     "@observablehq/plot": "0.6.17",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons": "3.49.0",
@@ -79,6 +82,7 @@
     "lucide-react": "^0.563.0",
     "mermaid": "12.1.0",
     "micromark-util-decode-string": "^2.0.1",
+    "playwright": "1.64.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
@@ -90,6 +94,7 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remotion": "4.0.487",
+    "smol-toml": "1.9.1",
     "unified": "^11.0.5",
     "zod": "4.3.6"
   },

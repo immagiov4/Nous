@@ -32,6 +32,9 @@ jobs:
       - name: Run Fallow Static Analysis (regression check)
         run: bun run check:fallow:ci
 
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
       - name: Run Test Suite
         run: bun run test
 
