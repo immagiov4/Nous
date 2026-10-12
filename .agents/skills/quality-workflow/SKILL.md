@@ -17,7 +17,7 @@ State the chosen level and its reason before starting work. Use the maintainer's
 | Medium feature | Local-fix checks plus real-flow integration (c), X-ray (d), and agentic playtest (e). Apply visual hand-off (f) for UI-affecting work. |
 | Large or visual feature | All levels, including the functioning mockup and stages a–f. |
 
-Plan PR decomposition and relations up front using `$codebase-design` and `$improve-codebase-architecture`. State each PR's purpose, dependencies, and blocking or follow-up relations. Reference those skills rather than reproducing their methods.
+For medium and large or visual work, plan PR decomposition and relations up front using `$codebase-design` and `$improve-codebase-architecture`; a local fix skips this architecture review. State each PR's purpose, dependencies, and blocking or follow-up relations. Reference those skills rather than reproducing their methods.
 
 ## Visual work: approve a functioning mockup first
 
@@ -65,12 +65,12 @@ For a problem class or an architectural problem, stop patching locally and decom
 ### e. Agentic playtest
 
 - Run `bun run playtest` for UI-affecting work and the levels requiring it. Use AGENTS.md and the [testing wiki](../../../.cubic/wiki/09-section-tools/02-p-testing-quality.md) for setup and supported options.
-- Keep browser execution hidden. Record the outcome, playtest video, and performance profile for the maintainer.
+- Keep browser execution hidden. Record the outcome, the playtest trace and screenshots, and the performance profile for the maintainer. Add the playtest video once the harness records one (issue #194); until then the trace and screenshots are the hand-off evidence.
 - Process findings through the zoom-out and review procedures before treating this stage as passed.
 
 ### f. Maintainer visual QA
 
-- Hand off the playtest video and performance profile to the maintainer for visual QA only after applicable stages a–e pass.
+- Hand off the playtest evidence (video when available, otherwise trace and screenshots) and the performance profile to the maintainer for visual QA only after applicable stages a–e pass.
 - State the chosen level, passing evidence, and outstanding maintainer decisions. Keep visual QA pending until the maintainer reviews it.
 
 ## Route bugs found outside the work
@@ -79,7 +79,7 @@ Use this maintainer routing decision after the zoom-out check:
 
 | Finding | Route |
 | --- | --- |
-| Small and pre-existing | Fix in the same PR. |
+| Small and pre-existing | Fix in the same PR (maintainer decision: this deliberately overrides the general minimal-change rule for small pre-existing defects found while doing the work). |
 | Serious | Separate issue explicitly marked as blocking this work. |
 | Medium, pre-existing, and not critical for this work | Separate non-blocking issue. |
 
@@ -100,4 +100,4 @@ Run Sonar once at the end on the final candidate through `bun run gate:full`, fo
 
 ## Completion evidence
 
-Report the selected level, mockup approval and temporary-page removal where required, behaviour-test failure proofs, per-run performance records, provider integration results, X-ray dispositions, playtest video, performance profile, visual-QA status, issue/PR relations, and final-gate result. Account for each item as passed, pending, or outside the selected scope. List every unsettled policy or quantitative decision as `needs-maintainer`.
+Report the selected level, mockup approval and temporary-page removal where required, behaviour-test failure proofs, per-run performance records, provider integration results, X-ray dispositions, playtest evidence, performance profile, visual-QA status, issue/PR relations, and final-gate result. Account for each item as passed, pending, or outside the selected scope. List every unsettled policy or quantitative decision as `needs-maintainer`.
