@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type Browser, devices, type JSHandle } from 'playwright';
 import type { ObservedEvent } from '../adapter';
@@ -38,11 +38,29 @@ export function isGeometrySignal(signal: ProbeSignal): boolean {
   return ['clipped-text', 'overlap', 'contrast', 'horizontal-overflow'].includes(signal.kind);
 }
 
+type OperatorCloseFailure = { stage: 'trace' | 'video'; cause: unknown };
+
+/** Independent artifact failures retain every saved path and underlying cause. */
+export class OperatorCloseError extends Error {
+  readonly artifacts: string;
+
+  constructor(
+    readonly failures: OperatorCloseFailure[],
+    readonly tracePath: string | undefined,
+    readonly videoPath: string | undefined
+  ) {
+    const artifacts = [...new Set(failures.map(failure => failure.stage))].join(' and ');
+    super(`Operator ${artifacts} closure failed.`, { cause: failures[0]?.cause });
+    this.name = 'OperatorCloseError';
+    this.artifacts = artifacts;
+  }
+}
+
 export type OperatorSession = {
   observe(): Promise<Observation>;
   act(action: LearnerAction): Promise<ActionResult>;
   signals(): Promise<ProbeSignal[]>;
-  close(): Promise<{ tracePath: string }>;
+  close(): Promise<{ tracePath: string; videoPath?: string }>;
 };
 
 /** Each story owns an isolated context; the caller retains ownership of the browser. */
@@ -53,6 +71,7 @@ export async function openOperatorSession(options: {
   locale: string;
   credentials: { email: string; password: string };
   runDir: string;
+  video?: boolean;
   onEvent?: (event: ObservedEvent) => void;
 }): Promise<OperatorSession> {
   const { browser, baseUrl, viewport, credentials, runDir } = options;
@@ -61,6 +80,7 @@ export async function openOperatorSession(options: {
     ...(viewport === 'mobile'
       ? { isMobile: true, hasTouch: true, userAgent: devices['Pixel 7'].userAgent }
       : {}),
+    ...(options.video ? { recordVideo: { dir: runDir, size: VIEWPORTS[viewport] } } : {}),
     viewport: VIEWPORTS[viewport],
     locale: options.locale,
     extraHTTPHeaders: { 'Accept-Language': options.locale },
@@ -171,12 +191,38 @@ export async function openOperatorSession(options: {
       },
       async close() {
         const tracePath = join(runDir, 'trace.zip');
+        let savedTracePath: string | undefined;
+        let savedVideoPath: string | undefined;
+        const failures: OperatorCloseFailure[] = [];
+        let contextCloseFailed = false;
         try {
           await context.tracing.stop({ path: tracePath });
-          return { tracePath };
-        } finally {
-          await context.close();
+          savedTracePath = tracePath;
+        } catch (cause) {
+          failures.push({ stage: 'trace', cause });
         }
+        try {
+          await context.close();
+        } catch (cause) {
+          contextCloseFailed = true;
+          failures.push({ stage: options.video ? 'video' : 'trace', cause });
+        }
+        const video = page.video();
+        if (video) {
+          try {
+            // Finalize the recording even if context closure left its page open.
+            if (contextCloseFailed) await page.close();
+            const videoPath = join(runDir, 'video.webm');
+            await rename(await video.path(), videoPath);
+            savedVideoPath = videoPath;
+          } catch (cause) {
+            failures.push({ stage: 'video', cause });
+          }
+        }
+        if (failures.length) {
+          throw new OperatorCloseError(failures, savedTracePath, savedVideoPath);
+        }
+        return { tracePath, ...(savedVideoPath ? { videoPath: savedVideoPath } : {}) };
       },
     };
   } catch (error) {

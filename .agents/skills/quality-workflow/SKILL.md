@@ -67,12 +67,12 @@ When the same violation appears in sibling paths within this work, fix every occ
 ### e. Agentic playtest
 
 - Run `bun run playtest` for UI-affecting work and the levels requiring it. Use AGENTS.md and the [testing wiki](../../../.cubic/wiki/09-section-tools/02-p-testing-quality.md) for setup and supported options.
-- Keep browser execution hidden. Record the outcome, the playtest trace and screenshots, and the performance profile for the maintainer. Add the playtest video once the harness records one (issue #194); until then the trace and screenshots are the hand-off evidence.
+- Keep browser execution hidden. Record the outcome, the playtest trace and screenshots, and the performance profile for the maintainer. Use trace and screenshots as the default evidence. Produce a video with `--video` when the maintainer requests it or for co-review of new UI work.
 - Process findings through the zoom-out and review procedures before treating this stage as passed.
 
 ### f. Maintainer visual QA
 
-- Hand off the playtest evidence (video when available, otherwise trace and screenshots) and the performance profile to the maintainer for visual QA only after applicable stages a–e pass.
+- Hand off the playtest evidence (trace and screenshots by default, plus the `--video` recording when requested or produced for co-review of new UI work) and the performance profile to the maintainer for visual QA only after applicable stages a–e pass.
 - State the chosen level, passing evidence, and outstanding maintainer decisions. Keep visual QA pending until the maintainer reviews it.
 
 ## Route bugs found outside the work

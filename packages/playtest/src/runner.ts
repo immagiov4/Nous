@@ -18,6 +18,7 @@ import { createModelUsage, type ModelUsage, withModelUsage } from './modelUsage'
 import {
   isGeometrySignal,
   type Observation,
+  OperatorCloseError,
   type OperatorSession,
   openOperatorSession,
 } from './operator/session';
@@ -33,6 +34,7 @@ export type StoryRunRecord = {
   outcome: StoryOutcome;
   reason?: string;
   cleanupError?: string;
+  evidenceError?: string;
   correlationId?: string;
   affect?: string;
   elapsedMs?: number;
@@ -42,6 +44,7 @@ export type StoryRunRecord = {
   findings: InspectorFinding[];
   friction: string[];
   reportPath: string;
+  videoPath?: string;
 };
 export type RunSummary = {
   runDir: string;
@@ -59,6 +62,7 @@ type RunOptions = {
   personas: Map<string, Persona>;
   concurrency: number;
   headed: boolean;
+  video?: boolean;
   model: string;
   provider: string;
   runDir: string;
@@ -96,6 +100,19 @@ export function selectAffect(input: {
   }
 }
 
+/** Preserve partial evidence and record each closure failure once. */
+function recordEvidenceFailure(record: StoryRunRecord, error: unknown): string | undefined {
+  const failures =
+    error instanceof OperatorCloseError ? error.failures : [{ stage: 'trace', cause: error }];
+  if (error instanceof OperatorCloseError && error.videoPath) record.videoPath = error.videoPath;
+  for (const failure of failures) recordDiagnostic(failure.stage, failure.cause);
+  const artifacts = error instanceof OperatorCloseError ? error.artifacts : 'trace';
+  record.outcome = 'operator-failure';
+  record.evidenceError = `The harness could not save the browser ${artifacts}.`;
+  record.reason = record.evidenceError;
+  return error instanceof OperatorCloseError ? error.tracePath : undefined;
+}
+
 /** Context closure precedes adapter cleanup on every prepared story path. */
 async function closePreparedStory(input: {
   session?: OperatorSession;
@@ -106,11 +123,11 @@ async function closePreparedStory(input: {
   const { session, prepared, record } = input;
   if (session) {
     try {
-      ({ tracePath } = await session.close());
+      const evidence = await session.close();
+      tracePath = evidence.tracePath;
+      if (evidence.videoPath) record.videoPath = evidence.videoPath;
     } catch (error) {
-      recordDiagnostic('trace', error);
-      record.outcome = 'operator-failure';
-      record.reason = 'The harness could not save the browser trace.';
+      tracePath = recordEvidenceFailure(record, error);
     }
   }
   try {
@@ -271,6 +288,7 @@ async function runStoryWithUsage(
           locale: options.adapter.locale(),
           credentials: prepared.credentials,
           runDir: storyDir,
+          video: options.video,
           onEvent,
         }),
         options,

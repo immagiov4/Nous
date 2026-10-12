@@ -56,12 +56,14 @@ export async function writeStoryReports(input: {
         ]
       : []),
     ...(record.reason ? [escapeMarkdown(record.reason)] : []),
+    ...(record.evidenceError ? [`Evidence: ${escapeMarkdown(record.evidenceError)}`] : []),
     ...(record.cleanupError ? [`Cleanup: ${escapeMarkdown(record.cleanupError)}`] : []),
     ...(record.correlationId ? [`Request: ${escapeMarkdown(record.correlationId)}`] : []),
     ...(stopEvent?.kind === 'response'
       ? [`Stopped response: ${stopEvent.status} ${escapeMarkdown(stopEvent.url)}`]
       : []),
     ...(tracePath ? [`[Browser trace](${evidenceLink(dir, tracePath)})`] : []),
+    ...(record.videoPath ? [`[Browser video](${evidenceLink(dir, record.videoPath)})`] : []),
     ...(inspectionError ? [escapeMarkdown(inspectionError)] : []),
     '## Probe findings',
     ...probeFindings.map(finding => findingMarkdown(finding, dir)),
