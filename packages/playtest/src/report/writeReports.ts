@@ -56,6 +56,7 @@ export async function writeStoryReports(input: {
         ]
       : []),
     ...(record.reason ? [escapeMarkdown(record.reason)] : []),
+    ...(record.evidenceError ? [`Evidence: ${escapeMarkdown(record.evidenceError)}`] : []),
     ...(record.cleanupError ? [`Cleanup: ${escapeMarkdown(record.cleanupError)}`] : []),
     ...(record.correlationId ? [`Request: ${escapeMarkdown(record.correlationId)}`] : []),
     ...(stopEvent?.kind === 'response'

@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { SCREENSHOT_PRIVACY_MASK } from '../src/operator/observe';
 import {
   type Observation,
+  OperatorCloseError,
   type OperatorSession,
   openOperatorSession,
 } from '../src/operator/session';
@@ -82,6 +83,23 @@ describe('operator', () => {
       })
     );
     expect(browser.contexts()).toHaveLength(0);
+  });
+
+  it('retains the saved trace when recording context closure fails', async () => {
+    const page = await fixture('<button>Continue</button>', 'desktop', true);
+    const context = page.context();
+    const cause = new Error('Synthetic recording finalization failure');
+    vi.spyOn(context, 'close').mockRejectedValueOnce(cause);
+    try {
+      const error = await session.close().catch(error => error);
+      expect(error).toBeInstanceOf(OperatorCloseError);
+      expect(error).toMatchObject({ stage: 'video', tracePath: join(runDir, 'trace.zip'), cause });
+      // The first close saved the trace before the injected context failure.
+      expect((await readFile(join(runDir, 'trace.zip'))).length).toBeGreaterThan(0);
+    } finally {
+      await context.close();
+      sessionClosed = true;
+    }
   });
 
   it('keeps recording disabled when the video option is omitted', async () => {

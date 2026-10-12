@@ -191,6 +191,7 @@ export async function openOperatorSession(options: {
           try {
             await context.tracing.stop({ path: tracePath });
             savedTracePath = tracePath;
+            if (options.video) stage = 'video';
           } finally {
             await context.close();
           }

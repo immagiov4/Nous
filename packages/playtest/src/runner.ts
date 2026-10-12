@@ -34,6 +34,7 @@ export type StoryRunRecord = {
   outcome: StoryOutcome;
   reason?: string;
   cleanupError?: string;
+  evidenceError?: string;
   correlationId?: string;
   affect?: string;
   elapsedMs?: number;
@@ -117,10 +118,11 @@ async function closePreparedStory(input: {
       if (error instanceof OperatorCloseError) tracePath = error.tracePath;
       recordDiagnostic(stage, error);
       record.outcome = 'operator-failure';
-      record.reason =
+      record.evidenceError =
         stage === 'video'
           ? 'The harness could not save the browser video.'
           : 'The harness could not save the browser trace.';
+      record.reason = record.evidenceError;
     }
   }
   try {

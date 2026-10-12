@@ -265,6 +265,79 @@ describe('parallel runner', () => {
     expect(browser.contexts()).toHaveLength(0);
   });
 
+  it.each([
+    ['app-error', 'video'],
+    ['app-error', 'trace'],
+    ['classification-failure', 'video'],
+    ['classification-failure', 'trace'],
+  ] as const)('retains %s precedence and durable %s and cleanup failures', async (stop, stage) => {
+    runDir = await mkdtemp(join(tmpdir(), 'playtest-stopped-evidence-'));
+    const evidenceDir = join(runDir, 'story-0-stopped-evidence', 'desktop');
+    await mkdir(join(evidenceDir, stage === 'video' ? 'video.webm' : 'trace.zip'), {
+      recursive: true,
+    });
+    const app = adapter();
+    app.baseUrl = () => `${baseUrl}/error`;
+    if (stop === 'classification-failure') {
+      app.classify = () => {
+        throw new Error('Synthetic classification failure');
+      };
+    }
+    app.prepare = async () => ({
+      credentials: { email: 'learner@example.test', password: 'secret' },
+      cleanup: async () => {
+        throw new Error('Synthetic cleanup failure');
+      },
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const summary = await runPlaytest({
+      adapter: app,
+      stories: [story('stopped-evidence')],
+      personas: new Map(),
+      concurrency: 1,
+      headed: false,
+      video: true,
+      model: 'fake',
+      provider: 'fake',
+      runDir,
+      sourceFactory: () =>
+        createScriptedDecisionSource([{ type: 'stop', reason: 'completed', summary: 'Done' }]),
+    });
+    const record = summary.records[0];
+    const evidenceError = `The harness could not save the browser ${stage}.`;
+    const cleanupError = 'The adapter could not clean up the synthetic story account.';
+    expect(record.outcome).toBe(stop === 'app-error' ? 'app-error' : 'operator-failure');
+    expect(record.reason).toBe(
+      stop === 'app-error'
+        ? 'Application unavailable'
+        : 'The adapter could not classify an observed event.'
+    );
+    expect(record.evidenceError).toBe(evidenceError);
+    expect(record.cleanupError).toBe(cleanupError);
+    const data = await report(record.reportPath);
+    const persisted = (await report(join(runDir, 'summary.json'))).records[0];
+    for (const saved of [data, persisted]) {
+      expect(saved).toMatchObject({
+        outcome: record.outcome,
+        reason: record.reason,
+        evidenceError,
+        cleanupError,
+      });
+    }
+    const markdown = await readFile(record.reportPath.replace(/\.json$/, '.md'), 'utf8');
+    const html = renderToStaticMarkup(createElement(ReactMarkdown, null, markdown));
+    expect(html).toContain(`Evidence: ${evidenceError}`);
+    expect(html).toContain(`Cleanup: ${cleanupError}`);
+    if (stage === 'video') {
+      expect(data.tracePath).toBe(join(evidenceDir, 'trace.zip'));
+      expect((await readFile(data.tracePath)).length).toBeGreaterThan(0);
+      expect(html).toContain('<a href="trace.zip">Browser trace</a>');
+    } else {
+      expect(data.tracePath).toBeUndefined();
+    }
+    expect(browser.contexts()).toHaveLength(0);
+  });
+
   it('selects affects reproducibly per seed, story and viewport and honors pins', () => {
     const persona = {
       id: 'learner',
