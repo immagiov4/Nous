@@ -48,7 +48,7 @@ export async function inspect(input: {
   styleReference: string[];
   taxonomy: string;
   taxonomyClasses: string[];
-  trace?: Parameters<VisualJudge['judge']>[0]['trace'];
+  trace?: NonNullable<Parameters<VisualJudge['judge']>[0]['trace']>;
 }): Promise<InspectorFinding[]> {
   const findings = input.probeFindings.map(probeFinding);
   if (input.judge) {

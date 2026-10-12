@@ -43,7 +43,7 @@ async function actOnElement(
   options: {
     credentials: { email: string; password: string };
     observedBox?: VisibleNode['box'];
-    observedPoint?: VisibleNode['point'];
+    observedPoint?: NonNullable<VisibleNode['point']>;
     mobile: boolean;
   }
 ): Promise<ActionExecution> {
