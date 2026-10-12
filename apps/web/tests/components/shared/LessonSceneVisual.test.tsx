@@ -128,6 +128,8 @@ describe('lesson scene visual', () => {
     };
     const { container } = render(<LessonSceneVisual scene={scene} />);
     expect(container.querySelectorAll('.diagram-description li')).toHaveLength(2);
+    expect(container.querySelector('.diagram-description')).toHaveClass('sr-only');
+    expect(screen.queryByText('Leggi i collegamenti')).toBeNull();
     expect(errors).not.toHaveBeenCalled();
   });
   test.each([

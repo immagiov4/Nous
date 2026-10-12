@@ -186,8 +186,7 @@ export const SceneDiagram = ({
           </p>
         )}
       </section>
-      <details className="diagram-description">
-        <summary>{t('Leggi i collegamenti')}</summary>
+      <div className={`diagram-description${status === 'failed' ? '' : ' sr-only'}`}>
         <ol>
           {diagram?.edges.map((edge, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: repeated messages are valid; the list is static
@@ -197,7 +196,7 @@ export const SceneDiagram = ({
             </li>
           ))}
         </ol>
-      </details>
+      </div>
     </>
   );
 };
