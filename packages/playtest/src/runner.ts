@@ -15,7 +15,12 @@ import {
 import { createModelResolver } from './learner/modelResolution';
 import { createPiDecisionSource } from './learner/piDecisionSource';
 import { createModelUsage, type ModelUsage, withModelUsage } from './modelUsage';
-import { type Observation, type OperatorSession, openOperatorSession } from './operator/session';
+import {
+  isGeometrySignal,
+  type Observation,
+  type OperatorSession,
+  openOperatorSession,
+} from './operator/session';
 import type { ProbeSignal } from './probes/pageProbes';
 import { toFindings } from './probes/thresholds';
 import { writeStoryReports, writeSummaryReports } from './report/writeReports';
@@ -126,8 +131,8 @@ function withProbeEvidence(
   signals: StepProbeSignal[],
   findings: StepProbeFinding[]
 ): OperatorSession {
-  const collect = async (observation: Observation) => {
-    const drained = await session.signals();
+  let lastObservation: Observation | undefined;
+  const attach = (observation: Observation, drained: ProbeSignal[]) => {
     const evidence = {
       stepIndex: observation.stepIndex,
       screenshotPath: observation.screenshotPath,
@@ -143,6 +148,10 @@ function withProbeEvidence(
       }))
     );
   };
+  const collect = async (observation: Observation) => {
+    lastObservation = observation;
+    attach(observation, await session.signals());
+  };
   return {
     async observe() {
       const observation = await session.observe();
@@ -155,7 +164,20 @@ function withProbeEvidence(
       return result;
     },
     signals: () => session.signals(),
-    close: () => session.close(),
+    async close() {
+      try {
+        // Queued events emitted while the learner decided its final step belong to the last view;
+        // fresh geometry does not, because that screenshot predates any later DOM change.
+        if (lastObservation) {
+          const events = (await session.signals()).filter(signal => !isGeometrySignal(signal));
+          attach(lastObservation, events);
+        }
+      } catch (error) {
+        // A failed drain (e.g. the page closed) must not leave the context open or lose its trace.
+        recordDiagnostic('final-probe-drain', error);
+      }
+      return session.close();
+    },
   };
 }
 
@@ -240,15 +262,21 @@ async function runStoryWithUsage(
       }
     };
     try {
-      session = await openOperatorSession({
-        browser: await input.getBrowser(),
-        baseUrl: options.adapter.baseUrl(),
-        viewport,
-        locale: options.adapter.locale(),
-        credentials: prepared.credentials,
-        runDir: storyDir,
-        onEvent,
-      });
+      // Wrap once so the learner and the final close share it: close drains late probe signals.
+      session = withProbeEvidence(
+        await openOperatorSession({
+          browser: await input.getBrowser(),
+          baseUrl: options.adapter.baseUrl(),
+          viewport,
+          locale: options.adapter.locale(),
+          credentials: prepared.credentials,
+          runDir: storyDir,
+          onEvent,
+        }),
+        options,
+        probeSignals,
+        probeFindings
+      );
       learner = await runLearner({
         story,
         persona:
@@ -259,7 +287,7 @@ async function runStoryWithUsage(
               }
             : persona,
         appDescription: options.adapter.appDescription(),
-        operator: withProbeEvidence(session, options, probeSignals, probeFindings),
+        operator: session,
         source:
           options.sourceFactory?.() ??
           createPiDecisionSource({

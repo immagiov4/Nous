@@ -47,6 +47,20 @@ const runDirs: string[] = [];
 beforeAll(async () => {
   browser = await chromium.launch({ headless: true });
   server = createServer((request, response) => {
+    if (request.url === '/late-geometry') {
+      response.setHeader('Content-Type', 'text/html');
+      response.end(
+        "<main><p>Waiting</p><script>setTimeout(() => document.body.insertAdjacentHTML('beforeend', '<span style=\"display:inline-block;width:20px;white-space:nowrap;overflow:hidden\">Late clipped label</span>'), 1000)</script></main>"
+      );
+      return;
+    }
+    if (request.url === '/late') {
+      response.setHeader('Content-Type', 'text/html');
+      response.end(
+        "<main><p>Waiting</p><script>setTimeout(() => console.error('late fact'), 1000)</script></main>"
+      );
+      return;
+    }
     if (request.url === '/error') {
       response.writeHead(500, { 'x-request-id': 'fixture-request' });
       response.end('Unavailable');
@@ -648,6 +662,44 @@ describe('parallel runner', () => {
     expect(data.outcome).toBe('harness-limit');
     expect(data.learner.turns).toHaveLength(3);
     expect(data.learner.diary).toEqual(['Thinking', 'Thinking', 'Thinking']);
+  });
+});
+
+describe('probe evidence', () => {
+  it('keeps signals emitted while the learner decides its final step', async () => {
+    const app = adapter();
+    app.baseUrl = () => `${baseUrl}/late`;
+    const summary = await run([story('late')], app, () => ({
+      // The page logs after the first observation, while this final decision is pending.
+      decide: async () => {
+        await new Promise(resolveWait => setTimeout(resolveWait, 2_500));
+        return { type: 'stop', reason: 'completed', summary: 'Done' };
+      },
+    }));
+    const data = await report(summary.records[0].reportPath);
+    expect(
+      data.probeSignals.some(
+        (fact: { signal: { kind: string; message?: string } }) =>
+          fact.signal.kind === 'console-error' && fact.signal.message?.includes('late fact')
+      )
+    ).toBe(true);
+  });
+  it('does not attach geometry computed after the last screenshot', async () => {
+    const app = adapter();
+    app.baseUrl = () => `${baseUrl}/late-geometry`;
+    const summary = await run([story('late-geometry')], app, () => ({
+      decide: async () => {
+        await new Promise(resolveWait => setTimeout(resolveWait, 2_500));
+        return { type: 'stop', reason: 'completed', summary: 'Done' };
+      },
+    }));
+    const data = await report(summary.records[0].reportPath);
+    expect(
+      data.probeSignals.some(
+        (fact: { signal: { kind: string; text?: string } }) =>
+          fact.signal.kind === 'clipped-text' && fact.signal.text?.includes('Late clipped label')
+      )
+    ).toBe(false);
   });
 });
 
