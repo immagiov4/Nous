@@ -738,7 +738,9 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       return;
     }
 
-    const configuredModel = createConfiguredTextModel(modelConfig, 'context');
+    const configuredModel = createConfiguredTextModel(modelConfig, 'context', {
+      role: 'contextChat',
+    });
 
     const result = streamText({
       abortSignal: contextAbortController.signal,

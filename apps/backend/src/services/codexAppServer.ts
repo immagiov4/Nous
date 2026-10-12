@@ -1053,6 +1053,7 @@ export const generateCodexAppServerImage = async ({
   let imageResult = '';
   await runCodexAppServerTurn({
     slot: 'image',
+    role: 'imageGeneration',
     allowImageGeneration: true,
     developerInstructions:
       'Generate the requested educational image with the built-in image generation capability. Do not use tools other than image generation and do not substitute SVG, HTML, Mermaid, or text art.',

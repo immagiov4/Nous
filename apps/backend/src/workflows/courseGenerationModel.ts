@@ -203,6 +203,7 @@ const toAiSdkTools = (tools: CourseObjectToolSet | undefined) =>
 
 const runAiObject = async (input: ResolvedCourseObjectRequest): Promise<unknown> => {
   const configured = createConfiguredTextModel(input.config, input.slot, {
+    role: input.name,
     webSearch: input.webSearch,
   });
   const tools = toAiSdkTools(input.tools);
@@ -284,6 +285,9 @@ const requestCourseObject = async <Schema extends z.ZodType>({
     developerInstructions: input.developerInstructions,
     input: [{ text: input.prompt, type: 'text' }],
     model: model.model,
+    slot: input.slot,
+    role: input.name,
+    outputSchemaName: input.name,
     outputSchema: wrapsRootValue
       ? {
           additionalProperties: false,

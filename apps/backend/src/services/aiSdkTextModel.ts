@@ -64,9 +64,10 @@ export const createConfiguredTextModel = (
   slot: TextModelSlot,
   {
     model: modelOverride,
+    role,
     reasoningEffort: reasoningEffortOverride,
     webSearch = false,
-  }: { model?: string; reasoningEffort?: ReasoningEffort; webSearch?: boolean } = {}
+  }: { model?: string; role?: string; reasoningEffort?: ReasoningEffort; webSearch?: boolean } = {}
 ): ConfiguredTextModel => {
   const provider = resolveAiProviderForSlot(config, slot);
   const resolved = resolveTextModelConfig(config, slot);
@@ -76,6 +77,7 @@ export const createConfiguredTextModel = (
   return createConfiguredTextModelFromResolution(
     {
       slot,
+      role,
       model: modelOverride || resolved.model,
       provider,
       reasoningEffort: reasoningEffortOverride ?? resolved.reasoningEffort,

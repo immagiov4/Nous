@@ -270,11 +270,14 @@ const buildCodexTurnInput = (body: Record<string, unknown>) => {
   }
 
   const responseFormat = isRecord(body.response_format) ? body.response_format : null;
-  const jsonSchema =
-    responseFormat && isRecord(responseFormat.json_schema)
-      ? responseFormat.json_schema.schema
-      : undefined;
+  const schemaFormat =
+    responseFormat && isRecord(responseFormat.json_schema) ? responseFormat.json_schema : undefined;
+  const jsonSchema = schemaFormat?.schema;
+  const outputSchemaName = typeof schemaFormat?.name === 'string' ? schemaFormat.name : undefined;
   return {
+    slot: typeof body.nous_model_slot === 'string' ? body.nous_model_slot : undefined,
+    role: outputSchemaName ?? 'chatCompletion',
+    outputSchemaName,
     developerInstructions: developerInstructions.join('\n\n'),
     input: [
       { type: 'text' as const, text: conversation.join('\n\n') },
